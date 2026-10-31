@@ -129,7 +129,7 @@ None of the eighteen names. Within them, by name: Topo to Raster's `DISPLAY` ext
 SegMeanShift's `astype` other than 8-bit (the page lists no pixel types); every environment setting
 `_refuse_environment` already refuses for grapy's raster tools.
 
-### 5.4 INFERRED choices (listed in Q-211)
+### 5.4 INFERRED choices (listed in Q-211) — **Confirmed 2026-10-31 by owner decision in Q-211** (*"Hepsini onayla"*)
 
 (a) **Combinatorial**: the parentage fields named after the inputs as Combine names its fields, `constant1` or
 `constant2` for a number, and a row for 0 holding the false cells' count with null parentage.
@@ -215,4 +215,4 @@ None recorded.
    tests (§4), the combinatorial ones on Esri's own example.
 3. **The same contours and spot heights are run through Pro's Topo to Raster and grapy's**, and the same image through
    Pro's Segment Mean Shift, and the differences recorded beside the time each took on a grid of real size.
-4. **The owner confirms or changes §5.4** ([Q-211](../open-questions.md)).
+4. **The owner confirms or changes §5.4** ([Q-211](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-211 (*"Hepsini onayla"*).

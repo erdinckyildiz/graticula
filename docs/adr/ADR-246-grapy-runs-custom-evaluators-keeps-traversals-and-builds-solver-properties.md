@@ -116,7 +116,7 @@ No performance claim is made.
 5. **Still refused**, each with its own reason: `DirectionsQuery` and the directions classes (Esri's direction rules);
    the `…AtTime` evaluator methods are defined but never called, grapy's solves being time neutral (traffic, ADR-226
    §5.3).
-6. **INFERRED, for the owner's confirmation** ([Q-216](../open-questions.md)):
+6. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-216** (*"Hepsini onayla"*) ([Q-216](../open-questions.md)):
    - (a) An `Edge` is one direction of travel along a network edge (`eid`, `direction`); Edge, Junction, Turn and
      AdjacentEdge's pages answered 404.
    - (b) `AdjacentEdge` is an Edge as reached from a junction, what `NetworkQuery.edges(junction)` answers.
@@ -177,4 +177,4 @@ None recorded.
 
 1. **The three groups are built to their pages and tested by hand-worked answers.** **DISCHARGED 2026-10-31**:
    `test_network_evaluators.py`, nine tests; ADR-239's `test_turns.py` and `test_fleet.py` unchanged and green.
-2. **The owner confirms §5.6's inferences**, or names the ones to change ([Q-216](../open-questions.md)).
+2. **The owner confirms §5.6's inferences**, or names the ones to change ([Q-216](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-216 (*"Hepsini onayla"*).

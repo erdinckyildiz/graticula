@@ -291,4 +291,4 @@ None recorded.
    points where §5.9 (d)'s origin holds, and the z-tolerance levels' heights agree within the tolerance.
 5. **A frame block oriented in Pro is compared with grapy's reading of the same frames table**: the footprints and a
    projected ground point settle §5.9 (a)'s AngleDirection, Polarity, affine and distortion conventions.
-6. **The owner confirms or changes §5.9** ([Q-202](../open-questions.md)).
+6. **The owner confirms or changes §5.9** ([Q-202](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-202 (*"Hepsini onayla"*).

@@ -235,4 +235,4 @@ None recorded.
 4. **Held-parameter kriging is compared with ArcGIS Pro** on one dataset — ordinary kriging, spherical, nugget, range
    and sill held, a standard neighbourhood — using the owner's Pro install; predictions and standard errors agree to
    rounding, or the difference is found and recorded.
-5. **The owner confirms or changes §5.9** ([Q-201](../open-questions.md)).
+5. **The owner confirms or changes §5.9** ([Q-201](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-201 (*"Hepsini onayla"*).

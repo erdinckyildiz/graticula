@@ -256,4 +256,4 @@ None recorded.
    `MosaicRuleTests` checks the order by hand; `An_images_zorder_comes_before_the_mosaic_method_and_is_its_own` checks
    it end to end, with and without a rule, through a rename and back to null. Studio has no control for it yet:
    [D-326](../architecture-debt.md).
-6. **The owner confirms or changes §5.9** ([Q-198](../open-questions.md)).
+6. **The owner confirms or changes §5.9** ([Q-198](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-198 (*"Hepsini onayla"*).

@@ -165,7 +165,7 @@ Measured against the branch at 68652828:
 | `arcpy` | 104 → 115 | 0 → 1 | 79 → 68 |
 | `arcpy.management` | 245 → 249 | — | 202 → 198 |
 
-### 5.5 INFERRED choices ([Q-217](../open-questions.md))
+### 5.5 INFERRED choices ([Q-217](../open-questions.md)) — **Confirmed 2026-10-31 by owner decision in Q-217** (*"Hepsini onayla"*)
 
 - (a) ACM599 and STANDARD_C draw from PCG64, not from Algorithm 599's generator or a C library's `rand`.
 - (b) A seed outside 0 … 2³² − 1 is taken modulo 2³² for mt19937.
@@ -226,4 +226,4 @@ None recorded.
 
 1. **A seeded tool compared with ArcGIS Pro under `"<seed> MERSENNE_TWISTER"`** (§5.2): one CreateRandomPoints run in
    Pro 3.7 and in grapy, to record how far the streams differ. Needs a Pro session.
-2. **The owner answers [Q-217](../open-questions.md).**
+2. **The owner answers [Q-217](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-217 (*"Hepsini onayla"*).

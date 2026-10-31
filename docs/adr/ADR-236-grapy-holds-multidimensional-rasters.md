@@ -124,7 +124,7 @@ in details it does not publish. They are marked `_runtime.equivalent` and say so
 9. **xarray is added** (Apache-2.0, with pandas BSD-3-Clause, already in the server image): RasterToXarray gives a
    Dataset over arcpy's dimension names, then `y` and `x`, with `crs` and `transform` attributes; XarrayToRaster reads one
    back.
-10. **The INFERRED choices**, for the owner ([Q-204](../open-questions.md)): (a) netCDF-CF as grapy's form, `.crf`
+10. ~~**The INFERRED choices**~~ **Confirmed 2026-10-31 by owner decision in Q-204** (*"Hepsini onayla"*), for the owner ([Q-204](../open-questions.md)): (a) netCDF-CF as grapy's form, `.crf`
     refused; (b) the CF encoding of time, `StdTime`/`StdZ` naming and `band_names`; (c) a time in a cell as a decimal
     year, a band index from one; (d) an aggregated slice dated at its interval's start, WEEKLY as the ISO week, a
     recurring interval at its first occurrence, interval ranges inclusive at both ends, PERCENTILE's default NEAREST;
@@ -198,4 +198,4 @@ None recorded.
    grapy's netCDF; grapy reads a netCDF-4 file GDAL wrote (`test_multidimensional.Model`).
 3. **The equivalents are compared with Pro** on one shared series — Generate Trend Raster (linear, harmonic,
    Mann-Kendall), Analyze Changes Using CCDC and LandTrendr — and each difference is recorded or removed.
-4. **The owner confirms or changes the INFERRED choices** of §5.10 ([Q-204](../open-questions.md)).
+4. **The owner confirms or changes the INFERRED choices** of §5.10 ([Q-204](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-204 (*"Hepsini onayla"*).

@@ -247,4 +247,4 @@ None recorded.
    a LAZ file read end to end — or LAZ is decided out.
 6. **CONSTRAINED_DELAUNAY** is built with a permissively licensed triangulator, or refused for good with the search
    recorded.
-7. **The owner confirms or changes §5.9** ([Q-196](../open-questions.md)).
+7. **The owner confirms or changes §5.9** ([Q-196](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-196 (*"Hepsini onayla"*).

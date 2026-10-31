@@ -268,4 +268,4 @@ None recorded.
    each with the reason of §5.7, and none unexamined.
 5. **The rules and layouts are compared with Pro** on the network of §4, using the owner's Pro install — or the owner
    accepts §5.9 (c) and (e) as grapy's reading.
-6. **The owner confirms or changes §5.9** ([Q-200](../open-questions.md)).
+6. **The owner confirms or changes §5.9** ([Q-200](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-200 (*"Hepsini onayla"*).

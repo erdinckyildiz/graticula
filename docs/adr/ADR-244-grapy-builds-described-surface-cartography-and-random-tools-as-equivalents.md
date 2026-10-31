@@ -135,7 +135,7 @@ The default call of each tool below runs. Only the value named is refused, and t
 - **SpatiallyConstrainedMultivariateClustering.** `GET_SPATIAL_WEIGHTS_FROM_FILE`: the .swm format is unpublished.
 - **PrepareData.** `distance_features` and `explanatory_rasters`: the fields they write are not named.
 
-### 5.4 INFERRED choices (for confirmation in Q-213)
+### 5.4 INFERRED choices (for confirmation in Q-213) — **Confirmed 2026-10-31 by owner decision in Q-213** (*"Hepsini onayla"*)
 
 **(a) ObserverPoints.**
 - Value is the bitwise OR of 2^(i−1) over the observers that see the cell, in ObjectID order. This is Viewshed2's
@@ -257,6 +257,6 @@ None recorded.
 
 ## 11. Conditions
 
-1. **The owner answers [Q-213](../open-questions.md).**
+1. **The owner answers [Q-213](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-213 (*"Hepsini onayla"*).
 2. **ObserverPoints' Value encoding compared with ArcGIS Pro.** One run on two observers settles whether Pro numbers
    the combinations as bits (§5.4 a). Pro is needed; until then, the reading of §5.4 a stands.

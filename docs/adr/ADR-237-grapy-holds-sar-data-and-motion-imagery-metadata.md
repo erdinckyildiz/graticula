@@ -147,7 +147,7 @@ the tie points, linearly along each tie-point row and in azimuth time between ro
 zero Doppler, the range sphere and the raised ellipsoid; back-geocoding by Newton on zero Doppler. The Earth is not
 rotated during the flight time beyond what the state vectors (Earth-fixed, as Sentinel-1's are) already carry.
 
-### 5.8 INFERRED choices (listed in Q-205)
+### 5.8 INFERRED choices (listed in Q-205) — **Confirmed 2026-10-31 by owner decision in Q-205** (*"Hepsini onayla"*)
 
 (a) the dataset form of §5.1 and the SAFE override `grapy-orbit.json` that ApplyOrbitCorrection writes beside a
 product rather than modifying it; (b) dB as 10·log10 of intensity and 20·log10 of amplitude, displacement −λφ/4π
@@ -222,4 +222,4 @@ None recorded.
    are tested.
 3. **A real Sentinel-1 IW GRD product and a stripmap SLC pair are run through the chain** and compared with SNAP's or
    Pro's output, and their memory measured against ADR-223's limits.
-4. **The owner confirms or changes §5.8** ([Q-205](../open-questions.md)).
+4. **The owner confirms or changes §5.8** ([Q-205](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-205 (*"Hepsini onayla"*).

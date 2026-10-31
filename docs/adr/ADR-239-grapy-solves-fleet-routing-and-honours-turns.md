@@ -111,7 +111,7 @@ No performance claim is made.
    VehicleRoutingProblemSchemaVersion, StopCollectionMode, DrivingSide and Importance (which was listed among the
    direction names and is the VRP's time window and transit factor).
 7. The seed is fixed (`_fleet.SEED`), so a solve is reproducible.
-8. **INFERRED, for the owner's confirmation** ([Q-207](../open-questions.md)):
+8. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-207** (*"Hepsini onayla"*) ([Q-207](../open-questions.md)):
    - (a) *Storage*: grapy's tables `grapy_network_turn_source`, `grapy_network_turn` and `grapy_network_property`;
      `Edge#FCID` holds the network's source id (1, 2 … as given), a GeoPackage having no feature class ids.
    - (b) *Turn semantics*: the rotation is measured from the last segment of the edge arrived on to the first of the
@@ -195,6 +195,6 @@ None recorded.
 3. **No name of the two kinds is refused with a schedule**: built, or refused with a reason of its own.
    **DISCHARGED 2026-10-31**: of the 33 names, 32 are built and `nax.Turn` is refused with the custom evaluator reason;
    `tools/grapy_refusals.py --check` holds the counts.
-4. **The owner confirms §5.8's inferences**, or names the ones to change ([Q-207](../open-questions.md)).
+4. **The owner confirms §5.8's inferences**, or names the ones to change ([Q-207](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-207 (*"Hepsini onayla"*).
 5. **One instance is solved in ArcGIS Pro and compared**, the differences recorded — the objective weights and the break
    placement first.

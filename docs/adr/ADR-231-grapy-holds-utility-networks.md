@@ -450,4 +450,4 @@ None recorded.
    terminal IDs from 2, the elements an output filter keeps) or written down as a measured difference (ignored
    indeterminate flow in a mesh, §5.9 (f); a device's path element and a null TERMINALID, §4). The second half is
    open: no function barrier, propagator or path trace was run in Pro.
-6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)).
+6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-199 (*"Hepsini onayla"*).

@@ -136,7 +136,7 @@ property); a polygon's length is its boundary's.
 - GetPCSFromDataSource, ViewContext: `arcpy/functions/getpcsfromdatasource.html`, `arcpy/mapping/viewcontext-class.html`
   at doc.esri.com, pro.arcgis.com (latest, 3.3) and desktop.arcgis.com; a web search.
 
-### 5.8 INFERRED choices ([Q-214](../open-questions.md))
+### 5.8 INFERRED choices ([Q-214](../open-questions.md)) — **Confirmed 2026-10-31 by owner decision in Q-214** (*"Hepsini onayla"*)
 
 - (a) ColorspaceConversion: hue degrees × 240/359, the one factor that reproduces all six hues the page lists (240/360
   gives magenta 200, not 201); rounding half up; the inverse uses the same factor, so a colour comes back within a few
@@ -204,4 +204,4 @@ None recorded.
 
 1. **ColorspaceConversion's hue scale and ZonalRemap's threshold ends compared with ArcGIS Pro** (§5.8 (a), (b)): one
    raster through each in Pro 3.7. Needs a Pro session.
-2. **The owner answers [Q-214](../open-questions.md).**
+2. **The owner answers [Q-214](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-214 (*"Hepsini onayla"*).

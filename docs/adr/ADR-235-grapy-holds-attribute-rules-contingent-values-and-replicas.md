@@ -282,4 +282,4 @@ None recorded.
    nearest, Cut, Generalize, Offset, Length3D and geodetic functions on hand-worked shapes, GroupBy, Distinct and
    FeatureSet from JSON, FeatureSetByRelationshipClass, FeatureSetByAssociation and Attachments through grapy's
    models, and each generator's rule imported and run on hand-worked edits.
-6. **The owner confirms §5.8's inferences**, or names the ones to change, before data made with them is relied on.
+6. **The owner confirms §5.8's inferences**, or names the ones to change, before data made with them is relied on. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-203 (*"Hepsini onayla"*).

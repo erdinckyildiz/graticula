@@ -116,7 +116,7 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
 5. **Counts** against `grapy-surface` at e56366f7: `arcpy.sa` 208 → 234 built (equivalents 21 → 25), 170 → 144
    refused; `arcpy.ia` 206 → 223 built (equivalents 29), 141 → 124 refused; all modules 1,304 → 1,347 built
    (equivalents 156 → 160), 870 → 827 refused, of 2,174. None of the 43 names is refused any more.
-6. **INFERRED** (Q-210), where the pages leave a choice open:
+6. ~~**INFERRED**~~ **Confirmed 2026-10-31 by owner decision in Q-210** (*"Hepsini onayla"*) (Q-210), where the pages leave a choice open:
    - (a) with a factor raster given and no factor, the Binary graph with its defaults;
    - (b) a factor exactly at a cut angle is finite (*"below which"*, *"beyond which"*);
    - (c) *inverse linear* is `1/(zeroFactor + slope·angle)`, infinite where the line is not positive; a linear line
@@ -181,4 +181,4 @@ None recorded.
 1. **PathDistance and DistanceAccumulation compared with ArcGIS Pro** on `test_pathdist.py`'s grids with a surface, a
    horizontal and a vertical factor: whether the diagonal reading (§5.6 h) and the 0.25° VRMA (§5.6 i) hold, and how
    far the equivalent is from Pro's reconstruction. Needs a Pro session.
-2. **The owner answers [Q-210](../open-questions.md).**
+2. **The owner answers [Q-210](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-210 (*"Hepsini onayla"*).

@@ -67,7 +67,7 @@ change the answer as the page says. Round one refused for this reason. Alternati
 - *An equivalent that cannot match Pro is a trap.* It warns on every run, it is counted apart on the status page, and
   §11 carries the comparison with Pro as a condition.
 - *grapy's .ecd is not Pro's.* That is true. Train → ClassifyRaster round-trips inside grapy. A Pro-written .ecd is
-  refused by name, not misread. INFERRED and listed in Q-212.
+  refused by name, not misread. INFERRED and listed in Q-212; **Confirmed 2026-10-31 by owner decision in Q-212** (*"Hepsini onayla"*).
 - *The random trees stay refused while the other classifiers are built.* The page names a randomised procedure it does
   not define. A random forest needs a decision-tree learner, and none is among grapy's libraries. scikit-learn was not
   added, by instruction.
@@ -154,7 +154,7 @@ pages say: the latitude parameter, else the raster's mean latitude, else 45°. R
 longitude and latitude for each block of cells. It refuses a lunar surface by name, because NASA's SPICE kernels are not
 in grapy, and it refuses `GPU_ONLY`.
 
-### 5.4 INFERRED (listed in Q-212)
+### 5.4 INFERRED (listed in Q-212) — **Confirmed 2026-10-31 by owner decision in Q-212** (*"Hepsini onayla"*)
 
 1. **Sun position (Area, Points, Graphics).** Spencer's (1971) declination; solar time; no eccentricity correction (the
    page's constant is *"at the mean earth-sun distance"*).
@@ -270,4 +270,4 @@ equivalent.
    it.
 2. **Compare the classifiers with Pro.** Use one image and one set of training samples, for maximum likelihood and the
    SVM. Record the agreement as overall accuracy against Pro's classification.
-3. **Confirm Q-212**, the INFERRED choices of §5.4, with the owner.
+3. **Confirm Q-212**, the INFERRED choices of §5.4, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-212 (*"Hepsini onayla"*).

@@ -114,7 +114,7 @@ No benchmark is at stake: these are schema and metadata operations on the file a
    MakeTrajectoryLayer and RepairTrajectoryDatasetPaths (tables and footprints undefined), and AppendAnnotation —
    with `arcpy.Annotation`, changed to the same reason: the Element BLOB and the symbol collection are Esri's
    unpublished binary.
-6. **INFERRED, for the owner's confirmation** ([Q-208](../open-questions.md)):
+6. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-208** (*"Hepsini onayla"*) ([Q-208](../open-questions.md)):
    - (a) storage: `grapy_editor_tracking`, `grapy_last_edit_time`, `grapy_cogo`, `grapy_incrementing_id` and
      `grapy_unregistered`, registered as the `grapy_edit_behaviours` extension; a feature dataset's last edit time a
      row named `<dataset>/`;
@@ -182,4 +182,4 @@ None recorded.
 
 1. **Editor tracking on insert compared with ArcGIS Pro** on a file geodatabase: whether an insert fills the last
    editor and last edit date fields (§5.6 b). Needs a Pro session; until then the reading of §3 stands.
-2. **The owner answers [Q-208](../open-questions.md).**
+2. **The owner answers [Q-208](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-208 (*"Hepsini onayla"*).
