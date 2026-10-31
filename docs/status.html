@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>e8faa394</code> · 2026-10-31 02:48</p>
+<p class="stamp">Generated from commit <code>773840af</code> · 2026-10-31 02:58</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">233</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">open debts</div><div class="kpi-n">306 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5591</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,904 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,904 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -566,7 +566,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.8%"></div></div><div class="bar-n">890</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.4%"></div></div><div class="bar-n">560</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.5%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">370</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.1%"></div></div><div class="bar-n">371</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">238</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.5%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.1%"></div></div><div class="bar-n">124</div></div>
@@ -617,6 +617,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>773840af</code><time>2026-10-31</time><span>A tool&#x27;s outputs are bounded per organisation, asked a privilege, audited under the person and withdrawn whole (D-325, ADR-223 §5.12)</span></li>
 <li><code>e8faa394</code><time>2026-10-31</time><span>The owner confirms the eight group-2 models as built: Q-196 to Q-203 are answered (ADR-228 to ADR-235)</span></li>
 <li><code>60d461f2</code><time>2026-10-31</time><span>D-314&#x27;s fourth occurrence: the Oracle history test&#x27;s delete of object 2 answers no such feature, in its own container</span></li>
 <li><code>7c41796d</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
@@ -630,7 +631,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>bfc2e73c</code><time>2026-10-30</time><span>grapy holds network diagrams: templates, diagrams, rules and layouts (ADR-232)</span></li>
 <li><code>586697ec</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>42de040d</code><time>2026-10-30</time><span>grapy holds geostatistical layers: kriging, semivariograms and cross-validation (ADR-233)</span></li>
-<li><code>de2da71b</code><time>2026-10-30</time><span>grapy builds ADR-229&#x27;s second batch of LAS tools, and no name is refused as a batch any more (ADR-229 condition 4)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
