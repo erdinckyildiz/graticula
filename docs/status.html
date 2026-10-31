@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>48ad8b67</code> · 2026-10-31 18:39</p>
+<p class="stamp">Generated from commit <code>7354f3df</code> · 2026-10-31 18:59</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">581/658</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">67 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">582/658</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">66 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">226 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">309 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">92 items</span></div><p><b>67 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">91 items</span></div><p><b>66 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -166,7 +166,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -377,7 +376,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">179</td><td>A layer may carry a title</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — one column, one setter, and the three faces that composed a title each read it…</td><td class="num">1/1</td></tr>
 <tr><td class="id">180</td><td>The outbound licence is the Graticula Community License</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision, which is the owner&#x27;s · MEDIUM for the licence text, which no…</td><td class="num">3/3</td></tr>
 <tr><td class="id">181</td><td>The ArcGIS REST API version this server reports is 12.1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num">1/1</td></tr>
-<tr><td class="id">182</td><td>An image service can be an elevation surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
+<tr><td class="id">182</td><td>An image service can be an elevation surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
 <tr><td class="id">183</td><td>The catalogue manifest</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is the one ADR-002 condition 3 was amended to on 2026-09-09; what is…</td><td class="num">2/2</td></tr>
 <tr><td class="id">184</td><td>The basemap gallery is a group, and its vector tile services are basemaps</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">185</td><td>Sharing is additive: an item&#x27;s level and its groups both count</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -635,6 +634,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7354f3df</code><time>2026-10-31</time><span>ArcGIS Pro adds and draws a FeatureServer, MapServer, VectorTileServer and ImageServer layer here with no request refused (ADR-181 condition 1)</span></li>
 <li><code>48ad8b67</code><time>2026-10-31</time><span>A service definition is judged whole before anything is unpacked, and its bounds, its read parts and its reassembly are tested (ADR-191 conditions 3, 4, 5)</span></li>
 <li><code>d30cf941</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>e60e594e</code><time>2026-10-31</time><span>RandLA-Net and Point Transformer V3 train on real 3DEP lidar in 8,192-point blocks; an epoch fits ADR-223&#x27;s time, a step does not fit 2 GB here</span></li>
@@ -648,7 +648,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f0066d06</code><time>2026-10-31</time><span>D-266&#x27;s validator and D-282&#x27;s shared exports stay open, each for a stated reason: no data version a registered table&#x27;s outside writes would move, and ADR-012 phase 1 owning the shared directory</span></li>
 <li><code>30e33d51</code><time>2026-10-31</time><span>An image&#x27;s overviews are built in the import reader&#x27;s process, so the one read that decodes a stranger&#x27;s whole file is out of the serving process (D-295, partly)</span></li>
 <li><code>0f5ab8ed</code><time>2026-10-31</time><span>A SQL Server layer keeps a history and follows relationships, as MySQL and Oracle layers do (ADR-210 condition 5, ADR-212 condition 2)</span></li>
-<li><code>778241a3</code><time>2026-10-31</time><span>UpgradeGDB brings a GeoPackage an earlier grapy wrote to the form ArcGIS Pro reads, and grapy offers it when it writes into one (D-340, partly)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
