@@ -868,9 +868,6 @@ REFUSED = {
     "UpdateEnterpriseGeodatabaseLicense": (
         "writes an ArcGIS Server authorization (keycodes) file into an enterprise geodatabase's licence; a GeoPackage "
         "needs no licence, and Esri's keycodes are Esri's to issue"),
-    "UpgradeGDB": (
-        "upgrades a geodatabase's Esri system tables to the release of the ArcGIS client running it; a GeoPackage has "
-        "no geodatabase release, and grapy makes its own tables when a tool first needs them"),
     "CreateDatabaseUser": (
         "creates a login and user on a DBMS server (and its schema in an enterprise geodatabase); a GeoPackage file has "
         "no users, and a fenced user tool has no database server connection (ADR-223 §5.3)"),

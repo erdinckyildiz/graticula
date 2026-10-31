@@ -58,9 +58,13 @@ class Upgrade(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         arcpy.env.workspace = self.directory
-        _runtime.MESSAGES.clear()
+        self.mark = len(_runtime.MESSAGES)   # other tests' messages are left alone: some read them later
         _gpkgupgrade._SAID.clear()
         self.file = old_file(os.path.join(self.directory, "old.gpkg"))
+
+    def said(self, warnings=False):
+        kinds = ("esriJobMessageTypeWarning", "esriJobMessageTypeError")
+        return "\n".join(m["description"] for m in _runtime.MESSAGES[self.mark:] if not warnings or m["type"] in kinds)
 
     def declared(self, table):
         connection = sqlite3.connect(self.file)
@@ -82,7 +86,7 @@ class Upgrade(unittest.TestCase):
     def test_writing_into_an_old_file_offers_the_upgrade_once(self):
         arcpy.management.CreateFeatureclass(self.file, "new_one", "POINT", spatial_reference=3857)
         arcpy.management.CreateFeatureclass(self.file, "new_two", "POINT", spatial_reference=3857)
-        said = [m for m in arcpy.GetMessages(1).splitlines() if "UpgradeGDB" in m]
+        said = [m for m in self.said(True).splitlines() if "UpgradeGDB" in m]
         self.assertEqual(len(said), 1)
         self.assertIn("before 2026-10-31", said[0])
 
@@ -116,13 +120,13 @@ class Upgrade(unittest.TestCase):
         self.assertEqual(arcpy.Describe(self.file + "/wells").shapeType, "Point")
         # A second run finds nothing to do and keeps no second copy.
         arcpy.management.UpgradeGDB(self.file)
-        self.assertIn("nothing to upgrade", arcpy.GetMessages())
+        self.assertIn("nothing to upgrade", self.said())
         self.assertFalse(os.path.exists(self.file + ".before-upgrade-2"))
 
     def test_the_prerequisite_check_alone_changes_nothing(self):
         arcpy.management.UpgradeGDB(self.file, "PREREQUISITE_CHECK", "NO_UPGRADE")
         self.assertEqual(self.declared("wells")["geom"].upper(), "BLOB")
-        self.assertIn("Old form (geometry type) in wells", arcpy.GetMessages())
+        self.assertIn("Old form (geometry type) in wells", self.said())
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.management.UpgradeGDB(self.file, "NO_PREREQUISITE_CHECK", "NO_UPGRADE")
 
@@ -130,7 +134,7 @@ class Upgrade(unittest.TestCase):
         current = arcpy.management.CreateFeatureclass(self.directory, "fresh.gpkg", "POINT", spatial_reference=3857)[0]
         file = _gpkg.split(current)[0]
         arcpy.management.UpgradeGDB(file)
-        self.assertIn("nothing to upgrade", arcpy.GetMessages())
+        self.assertIn("nothing to upgrade", self.said())
         self.assertFalse(os.path.exists(file + ".before-upgrade"))
 
 
