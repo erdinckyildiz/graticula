@@ -169,6 +169,26 @@ class PathDistance(_Fixture):
                                       horizontal_factor=sa.HfLinear()))
         self.assertEqual(mixed, [[0.0, round((0.5 + 1.49999) / 2 * 10, 6)]])
 
+    def test_the_vrma_is_not_rounded(self):
+        # A rise of 1 over 10 is 5.7106°. ArcGIS Pro 3.7, measured 2026-10-31, answers 10 · (1 + 0.1 · 5.7106) for
+        # each step, not the 0.25°-rounded 15.75, and lets the step through a 5.72° binary cut that 5.75 would close.
+        rise = grid([[0.0, 1.0, 2.0]])
+        got = cells(sa.PathDistance(one(1, (1, 3, (0, 0))), in_vertical_raster=rise,
+                                    vertical_factor=sa.VfLinear(1, -90, 90, 0.1)), 4)
+        self.assertEqual(got, [[0.0, 15.7106, 31.4212]])
+        cut = cells(sa.PathDistance(one(1, (1, 3, (0, 0))), in_vertical_raster=rise,
+                                    vertical_factor=sa.VfBinary(1, -5.72, 5.72)))
+        self.assertEqual(cut, [[0.0, 10.0, 20.0]])
+
+    def test_a_rise_on_the_diagonal_is_inside_the_surface_distance(self):
+        # §5.6 (h), Pro 3.7 measured 2026-10-31: a 10 rise on the diagonal step is √(14.142² + 10²) = 17.3205, the
+        # 1.414214 counted once; with the cost raster's 5 in the far cell, (1 + 5)/2 · 17.3205 = 51.9615.
+        surface = grid([[0, 0, 0], [0, 10, 0], [0, 0, 0]])
+        self.assertEqual(cells(sa.PathDistance(one(1, (3, 3, (0, 0))), in_surface_raster=surface), 4),
+                         [[0.0, 10.0, 20.0], [10.0, 17.3205, 24.1421], [20.0, 24.1421, 34.1421]])
+        self.assertEqual(cells(sa.PathDistance(one(1, (3, 3, (0, 0))), grid([[1, 1, 1], [1, 5, 1], [1, 1, 1]]),
+                                               in_surface_raster=surface), 4)[1][1], 51.9615)
+
     def test_hiking_time_in_hours(self):
         flat = grid([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
         got = cells(sa.PathDistance(one(1, (2, 3, (0, 0))), in_vertical_raster=flat,
@@ -208,16 +228,27 @@ class Accumulation(_Fixture):
         self.assertEqual(got[2], [20.0, 10.0, 0.0, 10.0, 20.0])
         self.assertEqual((got[1][1], got[0][0]), (14.1421, 28.2843))
 
-    def test_a_knights_move_is_nearer_the_straight_line_than_the_network(self):
-        knight = cells(sa.DistanceAccumulation(self.centre))[0][1]
-        self.assertLess(knight, 10 + 10 * 1.414214)  # the network's two steps
-        self.assertGreater(knight, 10 * math.sqrt(5))  # the straight line
+    def test_alone_the_sources_give_the_straight_line(self):
+        # ArcGIS Pro 3.7, measured 2026-10-31: with sources alone the answer is the straight-line distance, a knight's
+        # move 10·√5 = 22.3607 rather than the reconstruction's 23.507.
+        self.assertAlmostEqual(cells(sa.DistanceAccumulation(self.centre))[0][1], 22.36068, places=4)
         large = np.full((41, 41), -9)
         large[20, 20] = 1
         got = arcpy.RasterToNumPyArray(sa.DistanceAccumulation(grid(large.tolist(), nodata=-9)))
         r, k = np.indices(large.shape)
-        euclid = 10 * np.hypot(r - 20, k - 20)
-        self.assertLess(float(np.max(np.abs(got - euclid)[euclid > 0] / euclid[euclid > 0])), 0.06)
+        np.testing.assert_allclose(got, 10 * np.hypot(r - 20, k - 20), atol=1e-4)
+
+    def test_a_cost_raster_puts_it_on_the_reconstruction(self):
+        # Pro 3.7 on the same 41 × 41 grid with a cost raster of ones: 227.8974 at (0, 10), not the straight line's
+        # 223.6068 — grapy's reconstruction answers within 1e-4 everywhere on that grid.
+        large = np.full((41, 41), -9)
+        large[20, 20] = 1
+        got = cells(sa.DistanceAccumulation(grid(large.tolist(), nodata=-9), in_cost_raster=grid(np.ones((41, 41)).tolist())), 4)
+        self.assertAlmostEqual(got[0][10], 227.8974, places=3)
+        self.assertAlmostEqual(got[0][0], 282.8427, places=3)
+        # Any other source characteristic does too, even a multiplier of 1.
+        self.assertAlmostEqual(cells(sa.DistanceAccumulation(self.centre, source_cost_multiplier=1))[0][1], 23.507,
+                               places=3)
 
     def test_back_direction_source_direction_and_location(self):
         paths = {n: os.path.join(self.directory, f"{n}.tif") for n in ("back", "direction", "location")}
@@ -225,11 +256,12 @@ class Accumulation(_Fixture):
                                 out_source_direction_raster=paths["direction"],
                                 out_source_location_raster=paths["location"])
         back = cells(arcpy.Raster(paths["back"]), places=2)
-        # Due east is 90, south 180, north 360, and 0 on the source.
+        # Due east is 90, south 180, north 360, and 0 on the source; with sources alone, straight at the source.
         self.assertEqual((back[2][2], back[2][0], back[0][2], back[4][2], back[0][0]), (0.0, 90.0, 180.0, 360.0, 135.0))
         direction = cells(arcpy.Raster(paths["direction"]), places=4)
-        # From (0,1) the source lies one column east and two rows south: atan2(1, −2) = 153.4349°.
-        self.assertEqual((direction[0][1], direction[2][4], direction[2][2]), (153.435, 270.0, 0.0))
+        # From (0,1) the source lies one column east and two rows south: atan2(1, −2) = 153.4349°, written in whole
+        # degrees as Pro 3.7 writes it (16-bit integers).
+        self.assertEqual((direction[0][1], direction[2][4], direction[2][2]), (153.0, 270.0, 0.0))
         location = arcpy.Raster(paths["location"])
         self.assertEqual(location.bandCount, 2)
 
@@ -322,6 +354,47 @@ class Paths(_Fixture):
         self.assertEqual([(p.X, p.Y) for p in shape.getPart(0)], [(5.0, 45.0), (15.0, 35.0), (25.0, 25.0)])
         with self.assertRaises(arcpy.NotBuiltError):
             sa.OptimalPathAsLine(corner, accumulation, arcpy.Raster(back), out, create_network_paths="NETWORK_PATHS")
+
+
+class AgainstPro(_Fixture):
+    """ArcGIS Pro 3.7's answers on tools/pro-compare/adr241-pathdist.py's 21 × 21 cost grid, measured 2026-10-31."""
+
+    def setUp(self):
+        super().setUp()
+        r, k = np.indices((21, 21), dtype=float)
+        self.cost = grid((1.0 + 0.5 * ((r + 2 * k) % 5)).tolist())
+        self.source = one(1, (21, 21, (18, 3)))
+        self.destinations = one(5, (21, 21, (2, 17), (10, 19)))
+        self.back = os.path.join(self.directory, "back.tif")
+        self.accumulation = sa.DistanceAccumulation(self.source, in_cost_raster=self.cost,
+                                                    out_back_direction_raster=self.back)
+
+    def test_the_optimal_line_is_pros_vertex_for_vertex(self):
+        pro = [(195.0, 105.0), (185.0, 104.918), (175.0, 95.046), (165.0, 90.933), (155.0, 88.61), (145.0, 85.696),
+               (135.0, 80.608), (125.0, 77.916), (115.0, 75.435), (105.0, 68.958), (95.0, 64.949), (85.0, 64.008),
+               (75.76, 55.0), (65.0, 47.001), (55.0, 45.416), (45.243, 35.0), (35.0, 25.0)]
+        out = os.path.join(self.directory, "line.gpkg")
+        sa.OptimalPathAsLine(self.destinations, self.accumulation, arcpy.Raster(self.back), out)
+        with arcpy.da.SearchCursor(out, ["DestID", "PathCost", "SHAPE@"]) as rows:
+            (dest, cost, shape), = list(rows)
+        self.assertEqual(dest, 5)
+        self.assertAlmostEqual(cost, 309.9298, places=3)
+        got = [(p.X, p.Y) for p in shape.getPart(0)]
+        self.assertEqual(len(got), len(pro))
+        np.testing.assert_allclose(got, pro, atol=2e-3)
+
+    def test_the_rasters_mark_the_cells_that_hold_a_vertex(self):
+        zone = cells(sa.OptimalPathAsRaster(self.destinations, self.accumulation, arcpy.Raster(self.back)))
+        self.assertEqual(sum(v == 1 for row in zone for v in row), 17)
+        each = cells(sa.OptimalPathAsRaster(self.destinations, self.accumulation, arcpy.Raster(self.back),
+                                            path_type="EACH_CELL"))
+        flat = [v for row in each for v in row if v != ND]
+        self.assertEqual((flat.count(1), flat.count(2)), (31, 3))
+        # Cost Path over the same back direction marks the same cells: 1 the source, 2 merged, 3 and 4 the paths.
+        numbered = cells(sa.CostPath(self.destinations, self.accumulation, arcpy.Raster(self.back)))
+        flat = [v for row in numbered for v in row if v != ND]
+        self.assertEqual({v: flat.count(v) for v in (1, 2, 3, 4)}, {1: 1, 2: 2, 3: 17, 4: 14})
+        self.assertEqual([[v != ND for v in row] for row in numbered], [[v != ND for v in row] for row in each])
 
 
 if __name__ == "__main__":

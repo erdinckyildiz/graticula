@@ -255,9 +255,10 @@ def ColorspaceConversion(raster, conversion_type="rgb_to_hsv"):
     them: red, green and blue from 0 to 255; hue from 0 to 240, value and saturation from 0 to 255. RGB to HSV is
     Smith's hexcone: V = max, S = (max − min)/max, H from the sector of the largest component.
 
-    INFERRED: hue degrees are rescaled by 240/359, the one factor that reproduces all six hues the page lists (red 0,
-    yellow 40, green 80, cyan 120, blue 160, magenta 201), and rounded half up; a NoData cell in any band is NoData in
-    every band."""
+    Measured against ArcGIS Pro 3.7 on 2026-10-31 (ADR-245 §5.8 a), replacing the INFERRED 240/359: hue degrees are
+    rescaled by 240/360 and rounded half up, and a chromatic red is 240, not 0 (a grey's hue is 0) — Pro writes magenta
+    200 where the page lists 201; the inverse reads 240 as 360 degrees. A NoData cell in any band is NoData in every
+    band."""
     tool = "ColorspaceConversion"
     bands = _open_bands(raster, tool)
     if bands.bandCount != 3:
@@ -276,9 +277,13 @@ def ColorspaceConversion(raster, conversion_type="rgb_to_hsv"):
             h = np.where(span == 0, 0.0,
                          np.where(high == r, np.mod((g - b) / span, 6.0),
                                   np.where(high == g, (b - r) / span + 2.0, (r - g) / span + 4.0))) * 60.0
-        out = [np.floor(h * 240.0 / 359.0 + 0.5), np.floor(s * 255.0 + 0.5), np.floor(high * 255.0 + 0.5)]
+        # Pro 3.7, measured 2026-10-31 on every whole-degree hue: H = round(degrees · 240/360), and a chromatic red
+        # is 240 rather than 0; a grey's hue is 0.
+        hue = np.floor(h * 240.0 / 360.0 + 0.5)
+        hue = np.where((hue == 0) & (span > 0), 240.0, hue)
+        out = [hue, np.floor(s * 255.0 + 0.5), np.floor(high * 255.0 + 0.5)]
     elif kind == "hsvtorgb":
-        h = np.mod(x[0] * 359.0 / 240.0, 360.0) / 60.0
+        h = np.mod(x[0] * 360.0 / 240.0, 360.0) / 60.0
         s, v = x[1] / 255.0, x[2] / 255.0
         c = v * s
         xx = c * (1 - np.abs(np.mod(h, 2.0) - 1))
@@ -370,15 +375,14 @@ def ZonalRemap(raster, zonal_attribute_table, zone_raster=None, zone_field="Zone
                max_value_field_name="ZoneMax", output_value_field_name="ZoneValue", background_value=0,
                default_output_value=255, where_clause=None):
     """Pixels remapped by a table of thresholds for each zone, as the page defines it: a record applies to the pixels
-    of its zone (all pixels when no zone raster is given); a pixel above the record's minimum and below its maximum
-    takes the record's output value, or ``default_output_value`` where the output field is empty or not named; a
-    record whose minimum or maximum is empty, or whose field is not named, does not test that side; a pixel no record
-    matches takes ``default_output_value``; a record without a zone id takes no part when a zone raster is given.
+    of its zone; a pixel above the record's minimum and below its maximum takes the record's output value, or
+    ``default_output_value`` where the output field is empty or not named; a record whose minimum or maximum is empty,
+    or whose field is not named, does not test that side; NoData in either raster is NoData.
 
-    INFERRED (ADR-245 §5.3): "above the minimum" includes it and "below the maximum" excludes it — min ≤ v < max — so
-    that ranges which meet share no value; the first record that matches wins; ``background_value``, "the initial
-    pixel value before remapping", is the answer where a pixel is not remapped at all — NoData in the value raster, or a
-    zone with no record in the table — and NoData in the zone raster is NoData; the answer is 32-bit floating point."""
+    Measured against ArcGIS Pro 3.7 on 2026-10-31 (ADR-245 §5.8 b), replacing what was INFERRED: both ends are
+    exclusive (min < v < max); where records overlap, the later one wins; a pixel no record matches keeps
+    ``background_value``, even in a zone that has records; without a zone raster only the records with no zone id
+    apply, and with one only those with an id; the answer is 32-bit floating point."""
     from . import da
     tool = "ZonalRemap"
     values = as_raster(raster, tool)
@@ -388,8 +392,12 @@ def ZonalRemap(raster, zonal_attribute_table, zone_raster=None, zone_field="Zone
     else:
         v, vm, grid = values._array, values._mask, values._grid
         z, zm = None, np.zeros(v.shape, bool)
-    fields = [f for f in (zone_field if z is not None else None, min_value_field_name, max_value_field_name,
-                          output_value_field_name)]
+    zone_name = zone_field if _given(zone_field) else None
+    if z is None and zone_name is not None:
+        from . import ListFields
+        if zone_name.lower() not in {f.name.lower() for f in ListFields(zonal_attribute_table)}:
+            zone_name = None  # a table without zone ids: every record is a record for no zone
+    fields = [zone_name, min_value_field_name, max_value_field_name, output_value_field_name]
     names = [f for f in fields if _given(f)]
     records = []
     with da.SearchCursor(zonal_attribute_table, names, where_clause if _given(where_clause) else None) as rows:
@@ -399,26 +407,19 @@ def ZonalRemap(raster, zonal_attribute_table, zone_raster=None, zone_field="Zone
     v = v.astype(np.float64)
     default = float(default_output_value if _given(default_output_value) else 255)
     out = np.full(v.shape, float(background_value if _given(background_value) else 0))
-    done = np.zeros(v.shape, bool)
-    participates = np.zeros(v.shape, bool) if z is not None else np.ones(v.shape, bool)
     for zone, low, high, target in records:
-        if z is not None:
-            if zone is None:
-                continue
-            here = z == zone
-            participates |= here
-        else:
-            here = np.ones(v.shape, bool)
-        ok = here & ~done & ~vm & ~zm
+        # Without a zone raster only the records with no zone id apply; with one, only those with an id
+        # (Pro 3.7, measured 2026-10-31).
+        if (zone is None) != (z is None):
+            continue
+        here = np.ones(v.shape, bool) if z is None else (z == zone)
+        ok = here & ~vm & ~zm
         if low is not None:
-            ok &= v >= float(low)
+            ok &= v > float(low)
         if high is not None:
             ok &= v < float(high)
-        out[ok] = default if target is None else float(target)
-        done |= ok
-    remapped = participates & ~vm & ~zm
-    out = np.where(remapped & ~done, default, out)
-    return Raster._of(out.astype(np.float32), zm, grid)
+        out[ok] = default if target is None else float(target)  # a later record overrides an earlier one
+    return Raster._of(out.astype(np.float32), zm | vm, grid)
 
 
 # ---- Speckle, ElevationVoidFill and Resample

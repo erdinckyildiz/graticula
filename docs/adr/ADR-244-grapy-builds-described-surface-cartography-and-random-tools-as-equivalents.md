@@ -139,7 +139,8 @@ The default call of each tool below runs. Only the value named is refused, and t
 
 **(a) ObserverPoints.**
 - Value is the bitwise OR of 2^(i−1) over the observers that see the cell, in ObjectID order. This is Viewshed2's
-  documented encoding; ObserverPoints' own page only says "binary-encoded".
+  documented encoding; ObserverPoints' own page only says "binary-encoded". **Pro 3.7 measured 2026-10-31: held** —
+  Value 1 is OBS1 alone, 2 OBS2 alone, 3 both, 0 neither.
 - An unseen cell is 0 and has a row in the table.
 - Each vertex of a line is an observer.
 
@@ -149,7 +150,11 @@ The default call of each tool below runs. Only the value named is refused, and t
 - Surface values are ellipsoidal heights in metres.
 - PERIMETER_SIGHTLINES gives ALL_SIGHTLINES' answer.
 - The number of steps is the line's length in cells, rounded up.
-- IDW uses the four surrounding cell centres, weighted 1/d.
+- IDW uses the four surrounding cell centres, ~~weighted 1/d~~ **weighted bilinearly, (1 − dx)(1 − dy) (Pro 3.7
+  measured 2026-10-31: changed — 1/d hid 700 cells of 3,600 where Pro hides 453; bilinear weights come within 17,
+  1/d² within 39, 1/d³ within 24, the nearest centre 344). Nearest, not pinned: the page says only *inverse distance
+  weighting*.**
+- **A cell no observer sees is NoData**, as Pro 3.7 writes Viewshed2's output (measured 2026-10-31); it was 0.
 - The AGL is the largest −d/t over the steps.
 - The relationship table has one row per pair of a region and an observer that sees it.
 - A start angle above the end angle wraps through north.
@@ -259,4 +264,9 @@ None recorded.
 
 1. **The owner answers [Q-213](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-213 (*"Hepsini onayla"*).
 2. **ObserverPoints' Value encoding compared with ArcGIS Pro.** One run on two observers settles whether Pro numbers
-   the combinations as bits (§5.4 a). Pro is needed; until then, the reading of §5.4 a stands.
+   the combinations as bits (§5.4 a). Pro is needed; until then, the reading of §5.4 a stands. **DISCHARGED
+   2026-10-31**: Pro 3.7 and grapy on `tools/pro-compare/adr244-observers.py`'s 60 × 60 DEM with a ridge between two
+   observers: the encoding is bits on both sides (Value 1, 2, 3 for OBS1, OBS2, both; same fields Value, Count, OBS1,
+   OBS2), and the two visibilities differ in 28 cells of 3,600 (Pro's counts 438, 1317, 1733, 112; grapy's 425, 1312,
+   1739, 124). Viewshed2 on the same DEM: two changes (§5.4 b) — unseen cells are NoData, and the surface along the
+   sight line is weighted bilinearly — after which 17 cells of 3,600 differ (they were 273).

@@ -224,7 +224,7 @@
    "TopoToRaster": "ANUDEM's locally adaptive thin plate fit at successively finer resolutions with drainage enforcement by descending chains through the lowest saddle (Hutchinson 1989, Journal of Hydrology 106; Hutchinson, Stein, Stein and Xu 2009, MODSIM §2.1; Hutchinson, Xu and Stein 2011, Geomorphometry; Barnes, Lehman and Mulla 2014, Computers & Geosciences 62)",
    "TopoToRasterByFile": "ANUDEM's locally adaptive thin plate fit at successively finer resolutions with drainage enforcement by descending chains through the lowest saddle (Hutchinson 1989, Journal of Hydrology 106; Hutchinson, Stein, Stein and Xu 2009, MODSIM §2.1; Hutchinson, Xu and Stein 2011, Geomorphometry; Barnes, Lehman and Mulla 2014, Computers & Geosciences 62)",
    "Viewshed": "R3 line-of-sight viewshed (Franklin and Ray 1994; How Viewshed works)",
-   "Viewshed2": "the geodesic sight line: surface and observers in 3D geocentric coordinates, the ground path divided into cell-size steps, the surface by inverse distance weighting (How Geodesic Viewshed works; Bowring 1976, Survey Review 23; the refraction term of How Viewshed works)",
+   "Viewshed2": "the geodesic sight line: surface and observers in 3D geocentric coordinates, the ground path divided into cell-size steps, the surface by bilinear distance weighting of the four centres around each step (How Geodesic Viewshed works; Bowring 1976, Survey Review 23; the refraction term of How Viewshed works)",
    "Visibility": "R3 line-of-sight visibility (Franklin and Ray 1994; How Viewshed works)"
   },
   "of": 156,
@@ -830,7 +830,7 @@
    "TrainMaximumLikelihoodClassifier": "Gaussian maximum likelihood classification with equal priors (Richards and Jia 2006, Remote Sensing Digital Image Analysis, 4th ed., §8.3)",
    "TrainSupportVectorMachineClassifier": "one-against-one linear soft-margin support vector machines (C = 1) on standardised attributes, trained by sequential minimal optimisation (Cortes and Vapnik 1995, Machine Learning 20(3); Platt 1998, MSR-TR-98-14; Hsu and Lin 2002, IEEE Trans. Neural Networks 13(2))",
    "Viewshed": "R3 line-of-sight viewshed (R3 line of sight with linear interpolation between cells (Franklin and Ray 1994, Higher isn't necessarily better), with the curvature and refraction correction and observer fields of How Viewshed works)",
-   "Viewshed2": "the geodesic sight line: surface and observers in 3D geocentric coordinates, the ground path divided into cell-size steps, the surface by inverse distance weighting (How Geodesic Viewshed works; Bowring 1976, Survey Review 23; the refraction term of How Viewshed works)",
+   "Viewshed2": "the geodesic sight line: surface and observers in 3D geocentric coordinates, the ground path divided into cell-size steps, the surface by bilinear distance weighting of the four centres around each step (How Geodesic Viewshed works; Bowring 1976, Survey Review 23; the refraction term of How Viewshed works)",
    "Visibility": "R3 line-of-sight visibility (R3 line of sight with linear interpolation between cells (Franklin and Ray 1994, Higher isn't necessarily better), with the curvature and refraction correction and observer fields of How Viewshed works)",
    "ZonalFill": "each zone filled with the lowest weight on its boundary, the pour point of its watershed (Jenson and Domingue 1988, Photogrammetric Engineering and Remote Sensing 54(11))"
   },
