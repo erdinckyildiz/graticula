@@ -3156,15 +3156,13 @@ def AlterAliasName(table, alias):
 # ---- random points ------------------------------------------------------------------------------------------------------
 
 def _seed():
-    """The seed of ``env.randomGenerator`` — ``"<seed> <generator>"`` or a number — and 0 when it is not set.
-    INFERRED: grapy draws with NumPy's PCG64 from that seed, so a run repeats itself exactly; it cannot repeat arcpy's
-    own generator, whose sequence is not published."""
+    """What ``numpy.random.default_rng`` is seeded with for ``env.randomGenerator`` — ``"<seed> <generator>"``, a
+    number, or a RandomNumberGenerator (CreateRandomValueGenerator), 0 when it is not set: the seed for ACM599 and
+    STANDARD_C (NumPy's PCG64), and for MERSENNE_TWISTER an MT19937 seeded by init_genrand (ADR-247 §5.2, see
+    ``grapy._randomgen``). A run repeats itself exactly; it cannot repeat arcpy's own streams, which are not published."""
+    from ._randomgen import _numpy_seed
     from ._runtime import env
-    value = getattr(env, "randomGenerator", None)
-    if value is None or str(value).strip() == "":
-        return 0
-    first = str(value).split()[0]
-    return int(float(first))
+    return _numpy_seed(getattr(env, "randomGenerator", None))
 
 
 def CreateRandomPoints(out_path, out_name, constraining_feature_class=None, constraining_extent=None,
@@ -5210,11 +5208,6 @@ _REASONS = {
         "LoadDataToPreview", "GenerateMappingTable", "EditRasterFunction", "ConvertRasterFunctionTemplate",
         "GenerateRasterFromRasterFunction", "GenerateTableFromRasterFunction", "CreateCustomGeoTransformation",
         "CreateCustomVerticalTransformation", "CreateParquetCache", "ResampleLibrarySpectra", "CreateSpatialReference"),
-    "is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages": (
-        "CompressFileGeodatabaseData", "UncompressFileGeodatabaseData", "RecoverFileGDB", "GenerateFgdbLicense",
-        "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
-        "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
-        "CalculateDefaultClusterTolerance", "AddFullTextIndex"),
     "needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method "
     "grapy does not build (ADR-224 §5.5)": (
         "CreateColorComposite", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights",
@@ -7594,3 +7587,12 @@ from . import _mdmore, _mpmore  # noqa: E402
 ExtractSubDataset = _mdmore.ExtractSubDataset
 Export3DObjects = _mpmore.Export3DObjects
 Import3DObjects = _mpmore.Import3DObjects
+
+# ---- ADR-247: storage properties read again against a GeoPackage
+from . import _storage  # noqa: E402
+
+AddFullTextIndex = _storage.AddFullTextIndex
+CalculateDefaultClusterTolerance = _storage.CalculateDefaultClusterTolerance
+MigrateDateFieldToHighPrecision = _storage.MigrateDateFieldToHighPrecision
+MigrateObjectIDTo64Bit = _storage.MigrateObjectIDTo64Bit
+_REFUSED.update(_storage.REFUSED)

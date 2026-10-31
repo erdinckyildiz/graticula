@@ -291,7 +291,7 @@ def EvaluateBinSizes(in_point_features, out_features, out_charts_table, out_agg_
     best = float(fine[int(np.argmax(spline(fine)))])
     smoothed = spline(sizes)
     from .management import _seed
-    generator = np.random.Generator(np.random.PCG64(_seed()))
+    generator = np.random.default_rng(_seed())  # PCG64 from the seed, or MT19937 (ADR-247 §5.2)
     readings = []
     for _ in range(_RESAMPLES):
         pick = generator.integers(0, len(x), len(x))
