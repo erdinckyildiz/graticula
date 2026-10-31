@@ -1600,9 +1600,9 @@ def _cost(in_source_data, in_cost_raster, tool, extra):
     import heapq
     extra = dict(extra)
     field = extra.pop("__field__", None)
-    for name, value in extra.items():
-        if _given(value):
-            _refuse(tool, name, value, "source characteristics are not built")
+    direction = str(extra.pop("source_direction", None) or "FROM_SOURCE").upper()
+    if direction not in ("FROM_SOURCE", "TO_SOURCE"):
+        _refuse(tool, "source_direction", direction, "a field of travel directions is not built")
     cost = as_raster(in_cost_raster, tool)
     g = cost._grid
     if not math.isclose(g.width, g.height):
@@ -1618,6 +1618,17 @@ def _cost(in_source_data, in_cost_raster, tool, extra):
         sources, values = ~empty, burnt
     c = cost._array.astype(np.float64)
     barrier = cost._mask
+    traits = _pathdist.source_traits(tool, in_source_data, g, direction, *(extra.get(name) for name in (
+        "source_cost_multiplier", "source_start_cost", "source_resistance_rate", "source_capacity")))
+    if traits is not None:
+        # The legacy source characteristics (D-332): the same expansion, on _pathdist's, with each step's cost as
+        # this tool's own — the mean of the two cells' costs times the cell size, 1.414214 times that on a diagonal.
+        steps = []
+        for dr, dk in _pathdist.NEIGHBOURS:
+            there = _pathdist._shift(c, dr, dk, np.nan)
+            steps.append((c + there) / 2 * g.width * (1.414214 if dr and dk else 1.0))
+        total, origin, back = _pathdist._dijkstra(sources & ~barrier, barrier, steps, traits=traits)
+        return total, origin, back, ~np.isfinite(total) | barrier, values, g
     rows, columns = c.shape
     total = np.full(c.shape, np.inf)
     origin = np.full(c.shape, -1, np.int64)
@@ -1652,10 +1663,7 @@ _SOURCE_PARAMETERS = ("source_cost_multiplier", "source_start_cost", "source_res
 
 
 def _source_extra(**kwargs):
-    extra = {k: v for k, v in kwargs.items() if k in _SOURCE_PARAMETERS}
-    if str(extra.get("source_direction") or "").upper() == "FROM_SOURCE":
-        extra["source_direction"] = None
-    return extra
+    return {k: v for k, v in kwargs.items() if k in _SOURCE_PARAMETERS}
 
 
 def CostDistance(in_source_data, in_cost_raster, maximum_distance=None, out_backlink_raster=None,
