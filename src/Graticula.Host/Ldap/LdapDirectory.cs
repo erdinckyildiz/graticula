@@ -445,8 +445,104 @@ internal sealed class LdapDirectory : IDirectorySignIn
             File.Move(written, file, overwrite: true);
         }
 
+        // <b>And under OpenSSL's name for it</b> — found 2026-10-31 when CI's Ubuntu runner refused the authority the
+        // Windows build had trusted: that libldap is built with OpenSSL, whose trust directory is looked up by the
+        // subject's hash (`<hash>.0`, as `c_rehash` names it) and never read file by file as GnuTLS reads it.
+        string hashed = Path.Combine(directory, SubjectHash(pem) + ".0");
+
+        if (!File.Exists(hashed))
+        {
+            string written = hashed + "." + Guid.NewGuid().ToString("N")[..8];
+            File.WriteAllText(written, pem.Trim() + "\n");
+            File.Move(written, hashed, overwrite: true);
+        }
+
         connection.SessionOptions.TrustedCertificatesDirectory = directory;
         connection.SessionOptions.StartNewTlsSessionContext();
+    }
+
+    /// <summary>
+    /// OpenSSL's subject hash of a PEM certificate (<c>X509_NAME_hash</c>, what <c>openssl x509 -hash</c> prints): the
+    /// first four bytes, little-endian, of the SHA-1 of the subject's canonical encoding — every RDN's set re-encoded
+    /// with its string values as UTF8String, trimmed, inner whitespace collapsed to one space and ASCII lowercased,
+    /// concatenated without the outer sequence.
+    /// </summary>
+    internal static string SubjectHash(string pem)
+    {
+        using X509Certificate2 certificate = X509Certificate2.CreateFromPem(pem.Trim());
+        System.Formats.Asn1.AsnReader name = new(certificate.SubjectName.RawData, System.Formats.Asn1.AsnEncodingRules.DER);
+        System.Formats.Asn1.AsnReader rdns = name.ReadSequence();
+        using MemoryStream canonical = new();
+
+        while (rdns.HasData)
+        {
+            System.Formats.Asn1.AsnReader set = rdns.ReadSetOf();
+            System.Formats.Asn1.AsnWriter writer = new(System.Formats.Asn1.AsnEncodingRules.DER);
+
+            using (writer.PushSetOf())
+            {
+                while (set.HasData)
+                {
+                    System.Formats.Asn1.AsnReader attribute = set.ReadSequence();
+                    string oid = attribute.ReadObjectIdentifier();
+                    System.Formats.Asn1.Asn1Tag tag = attribute.PeekTag();
+
+                    using (writer.PushSequence())
+                    {
+                        writer.WriteObjectIdentifier(oid);
+
+                        if (tag.TagClass == System.Formats.Asn1.TagClass.Universal && IsString((System.Formats.Asn1.UniversalTagNumber)tag.TagValue))
+                        {
+                            string value = attribute.ReadCharacterString((System.Formats.Asn1.UniversalTagNumber)tag.TagValue);
+                            writer.WriteCharacterString(System.Formats.Asn1.UniversalTagNumber.UTF8String, Canonical(value));
+                        }
+                        else
+                        {
+                            writer.WriteEncodedValue(attribute.ReadEncodedValue().Span);
+                        }
+                    }
+                }
+            }
+
+            canonical.Write(writer.Encode());
+        }
+
+#pragma warning disable CA5350 // A file name OpenSSL defines as SHA-1's, not a security check.
+        byte[] digest = SHA1.HashData(canonical.ToArray());
+#pragma warning restore CA5350
+        uint hash = digest[0] | ((uint)digest[1] << 8) | ((uint)digest[2] << 16) | ((uint)digest[3] << 24);
+        return hash.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);
+
+        static bool IsString(System.Formats.Asn1.UniversalTagNumber number) => number is
+            System.Formats.Asn1.UniversalTagNumber.UTF8String or System.Formats.Asn1.UniversalTagNumber.PrintableString
+            or System.Formats.Asn1.UniversalTagNumber.IA5String or System.Formats.Asn1.UniversalTagNumber.T61String
+            or System.Formats.Asn1.UniversalTagNumber.BMPString or System.Formats.Asn1.UniversalTagNumber.UniversalString
+            or System.Formats.Asn1.UniversalTagNumber.VisibleString;
+
+        static string Canonical(string value)
+        {
+            StringBuilder text = new(value.Length);
+            bool space = false;
+
+            foreach (char c in value.Trim(' ', '\t', '\n', '\r', '\f', '\v'))
+            {
+                if (c is ' ' or '\t' or '\n' or '\r' or '\f' or '\v')
+                {
+                    space = true;
+                    continue;
+                }
+
+                if (space)
+                {
+                    text.Append(' ');
+                    space = false;
+                }
+
+                text.Append(c is >= 'A' and <= 'Z' ? (char)(c + 32) : c);
+            }
+
+            return text.ToString();
+        }
     }
 
     private static void BindSearcher(LdapConnection connection, IdentityProviderSettings settings, string? bindPassword)
