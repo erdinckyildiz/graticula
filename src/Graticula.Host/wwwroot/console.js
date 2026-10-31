@@ -39188,10 +39188,12 @@ document.addEventListener("click", async event => {
   }
 
   if (t.id === "tbDelete") {
-    if (!confirm(`Delete the toolbox ${toolbox.title}? Its service goes with it; layers its runs made stay.`)) return;
+    // ADR-203, D-346: a toolbox waits in the recycle bin as every other item does, and comes back with its name and id.
+    if (!confirm(`Delete the toolbox ${toolbox.title}? It waits in the recycle bin for ${num(recycleRetention)} days with `
+      + `its service, and can be restored from there. Layers its runs made stay where they are.`)) return;
     try {
       await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}`, { method: "DELETE" });
-      toast(`${toolbox.title} was deleted.`, true);
+      toast(`${toolbox.title} is in the recycle bin.`, true);
       location.hash = "#/content";
     } catch (e) { toast(e.message); }
     return;
