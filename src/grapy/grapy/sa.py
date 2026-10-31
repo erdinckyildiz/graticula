@@ -3224,7 +3224,8 @@ _FUZZY = ("the Fuzzy Membership pages give the membership functions only as imag
           "FuzzyGaussian's class page)")
 _PATH = ("it is a factor or tool of path distance; How the path distance tools work names the surface distance and the "
          "horizontal and vertical factors without defining them")
-_TOPO = "it is an input class of TopoToRaster, which is refused (its algorithm is not specified)"
+_TOPO = ("it is an input class of TopoToRaster, which is refused (its ANUDEM drainage enforcement is described in "
+         "words only)")
 _TRACE = ("it traces paths over backlink or back-direction rasters; Cost Path's page does not map the codes to "
           "neighbours, define path numbering or settle ties")
 _404 = "its reference page could not be read (404 on 2026-10-29)"
@@ -5188,6 +5189,53 @@ for _built in ("Subset", "Foreach", "SummarizeCategoricalRaster", "Complex"):
 _REFUSED["InterpolateRasterByDimension"] = (
     "arcpy documents no Python signature for it: there is no arcpy reference page, and the raster function page gives "
     "only its display labels, so its parameter names and order are unknown (ADR-236)")
+
+# ---- ADR-243: the classifiers, pansharpening, segmentation and surface tools (cited equivalents), and the solar
+# radiation tools on Fu and Rich's model
+from . import _classify, _solartools, _splinebarriers, _surfaceparams, _viewshed2, _zonalfill  # noqa: E402
+
+for _built in ("TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+               "TrainSupportVectorMachineClassifier", "ClassifyRaster", "Classify", "MLClassify", "Pansharpen",
+               "RegionGrow", "SegmentMeanShift", "SegMeanShift"):
+    globals()[_built] = getattr(_classify, _built)
+SurfaceParameters = _surfaceparams.SurfaceParameters
+ObserverPoints = _viewshed2.ObserverPoints
+Viewshed2 = _viewshed2.Viewshed2
+ZonalFill = _zonalfill.ZonalFill
+SplineWithBarriers = _splinebarriers.SplineWithBarriers
+AreaSolarRadiation = _solartools.AreaSolarRadiation
+PointsSolarRadiation = _solartools.PointsSolarRadiation
+SolarRadiationGraphics = _solartools.SolarRadiationGraphics
+RasterSolarRadiation = _solartools.RasterSolarRadiation
+TimeWithinDay = _solartools.TimeWithinDay
+TimeMultipleDays = _solartools.TimeMultipleDays
+TimeSpecialDays = _solartools.TimeSpecialDays
+TimeWholeYear = _solartools.TimeWholeYear
+for _built in ("TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+               "TrainSupportVectorMachineClassifier", "ClassifyRaster", "Classify", "MLClassify", "Pansharpen",
+               "RegionGrow", "SegmentMeanShift", "SegMeanShift", "SurfaceParameters", "ObserverPoints", "Viewshed2",
+               "ZonalFill", "SplineWithBarriers", "AreaSolarRadiation", "PointsSolarRadiation",
+               "SolarRadiationGraphics", "RasterSolarRadiation", "TimeWithinDay", "TimeMultipleDays",
+               "TimeSpecialDays", "TimeWholeYear"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED.update(_classify.REFUSED)
+from . import _segattrs, _signatures  # noqa: E402
+
+CreateSignatures = _signatures.CreateSignatures
+EditSignatures = _signatures.EditSignatures
+ClassProbability = _signatures.ClassProbability
+InspectTrainingSamples = _classify.InspectTrainingSamples
+ComputeSegmentAttributes = _segattrs.ComputeSegmentAttributes
+for _built in ("CreateSignatures", "EditSignatures", "ClassProbability", "InspectTrainingSamples",
+               "ComputeSegmentAttributes"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED.update(_signatures.REFUSED)
+_REFUSED["FeatureSolarRadiation"] = (
+    "its output table holds each feature's total and per-area insolation, direct, diffuse and duration, and the page "
+    "names none of those fields: they are shown only in a picture of an example table (How Feature Solar Radiation "
+    "works); RasterSolarRadiation computes the same model for cells")
 
 
 def __getattr__(name):

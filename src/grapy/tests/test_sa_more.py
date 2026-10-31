@@ -216,7 +216,7 @@ class More(_Fixture):
             sa.Fill(grid([[1]]), 3)
 
     def test_tools_refused_by_name_say_why(self):
-        for name, words in (("TabulateArea", "fields"), ("TopoToRaster", "not specified")):
+        for name, words in (("TabulateArea", "fields"), ("TopoToRaster", "ANUDEM")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a", "b")
             self.assertIn(words, str(raised.exception))
@@ -268,8 +268,8 @@ class RoundFour(_Fixture):
                 getattr(sa, name)("a")
             self.assertIn(words, str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            sa.AreaSolarRadiation("a")
-        self.assertIn("hemispherical viewshed", str(raised.exception))
+            sa.FeatureSolarRadiation("a")
+        self.assertIn("names none of those fields", str(raised.exception))
 
     def test_buffered_and_an_irregular_neighbourhood(self):
         values = grid([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
