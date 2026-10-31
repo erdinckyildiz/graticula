@@ -1207,10 +1207,6 @@ _REFUSED.update({
                     "workspace, which grapy does not hold — Civil 3D's drawing format is Autodesk's and unpublished, and "
                     "conversion.BIMFileToGeodatabase is refused for the same model (ADR-234 §5.4)",
 })
-_REFUSED.update({name: "it trains or runs a deep learning model on point clouds, which grapy does not carry" for name in (
-    "ClassifyPointCloudUsingTrainedModel", "DetectObjectsFromPointCloudUsingTrainedModel",
-    "EvaluatePointCloudClassificationModel", "PreparePointCloudObjectDetectionTrainingData",
-    "PreparePointCloudTrainingData", "TrainPointCloudClassificationModel", "TrainPointCloudObjectDetectionModel")})
 _REFUSED.update({
     "DecimateTinNodes": "how the nodes kept are chosen is not documented, for either method (ADR-229 §5.7)",
     "LandXMLToTin": "it makes a constrained Delaunay TIN, as the page says, and grapy's TINs are conforming Delaunay — "
@@ -1230,9 +1226,11 @@ _REFUSED.update({
     "ExtractPowerLinesFromPointCloud": "its page names a catenary fit but not how points are grouped into spans and "
                                        "wires, how the curve is fitted, or how the wind correction is computed, and "
                                        "its SAG and WIND_ANGLE fields depend on all three (ADR-229 condition 4)",
-    "ExtractRailsFromPointCloud": "it needs ArcGIS's deep learning frameworks installed, as its page says, and the page "
-                                  "does not say what they detect or how the rails are traced from the crown points; "
-                                  "grapy carries no deep learning model (ADR-229 condition 4)",
+    "ExtractRailsFromPointCloud": "its page names the tolerances that group rail points into rails, the crown "
+                                  "detection radius and the smoothing kernels, but not how the points are grouped, "
+                                  "how the crown is traced or how the centerline is aligned; it takes no model, and "
+                                  "does not say what the deep learning frameworks it requires compute, so there is no "
+                                  "network to train or run either (ADR-249 §5.5)",
     "ExtractMeshFeaturesUsingPointCloud": "its input is an integrated mesh scene layer (I3S or a scene layer package) "
                                           "and its output multipatch features, data models this server does not hold "
                                           "yet (ADR-224 group 2)",
@@ -1362,4 +1360,26 @@ RegularizeAdjacentBuildingFootprint = _surfaces3d.RegularizeAdjacentBuildingFoot
 StackProfile = _surfaces3d.StackProfile
 for _built in ("ObserverPoints", "Viewshed2", "SurfaceParameters", "SplineWithBarriers", "ContourWithBarriers",
                "RegularizeBuildingFootprint", "RegularizeAdjacentBuildingFootprint", "StackProfile"):
+    _REFUSED.pop(_built, None)
+
+
+# ---- ADR-249: deep learning on point clouds, on ADR-248's foundation
+from . import _dlpoints  # noqa: E402
+
+PreparePointCloudTrainingData = _dlpoints.PreparePointCloudTrainingData
+PreparePointCloudObjectDetectionTrainingData = _dlpoints.PreparePointCloudObjectDetectionTrainingData
+TrainPointCloudClassificationModel = _equivalent(
+    "the published network the architecture names (RandLA-Net, SQN, PointCNN, Point Transformer V3), from random "
+    "weights, with Adam", "Hu et al. 2020; Hu et al. 2022; Li et al. 2018; Wu et al. 2024; Kingma and Ba 2015")(
+    _dlpoints.TrainPointCloudClassificationModel)
+TrainPointCloudObjectDetectionModel = _equivalent(
+    "SECOND, from random weights, with Adam", "Yan, Mao and Li 2018; Kingma and Ba 2015")(
+    _dlpoints.TrainPointCloudObjectDetectionModel)
+ClassifyPointCloudUsingTrainedModel = _dlpoints.ClassifyPointCloudUsingTrainedModel
+DetectObjectsFromPointCloudUsingTrainedModel = _dlpoints.DetectObjectsFromPointCloudUsingTrainedModel
+EvaluatePointCloudClassificationModel = _dlpoints.EvaluatePointCloudClassificationModel
+for _built in ("PreparePointCloudTrainingData", "PreparePointCloudObjectDetectionTrainingData",
+               "TrainPointCloudClassificationModel", "TrainPointCloudObjectDetectionModel",
+               "ClassifyPointCloudUsingTrainedModel", "DetectObjectsFromPointCloudUsingTrainedModel",
+               "EvaluatePointCloudClassificationModel"):
     _REFUSED.pop(_built, None)

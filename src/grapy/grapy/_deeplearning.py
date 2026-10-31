@@ -299,13 +299,16 @@ def find_learning_rate(model, batches, step, tool="grapy", low=1e-6, high=1.0, c
 
 
 def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_rate, monitor="valid_loss",
-        larger_is_better=False, early_stopping=True, patience=5, tool="grapy", parameters=None, seconds=None):
+        larger_is_better=False, early_stopping=True, patience=5, tool="grapy", parameters=None, seconds=None,
+        schedule="ONE_CYCLE", on_epoch=None):
     """The training loop every grapy deep learning tool shares: Adam (Kingma and Ba 2015) under a one-cycle learning
     rate (Smith and Topin 2019) peaking at ``learning_rate``, one pass over ``train_batches`` an epoch; after each epoch
     ``evaluate(model, valid_batches)`` answers a dict holding ``monitor``. The model ends with the weights of the best
     epoch. With ``early_stopping`` training stops when ``monitor`` has not improved for ``patience`` epochs (INFERRED: 5).
 
-    With ``seconds``, training also stops after the epoch in which that much time has passed.
+    With ``seconds``, training also stops after the epoch in which that much time has passed. ``schedule`` ``FIXED``
+    keeps ``learning_rate`` throughout instead of the one-cycle schedule; ``on_epoch(epoch, model, scores)``, when given,
+    is called after each epoch (the point cloud tools write their checkpoints from it, ADR-249).
 
     ``train_batches`` is a callable answering the epoch's batches (so that each epoch may shuffle and augment);
     ``step(model, batch)`` answers the loss to minimise. Answers the history, a list of dicts per epoch."""
@@ -315,7 +318,8 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
     optimiser = torch.optim.Adam(parameters, lr=learning_rate)
     first = train_batches(0)
     per_epoch = max(1, len(first))
-    schedule = torch.optim.lr_scheduler.OneCycleLR(optimiser, max_lr=learning_rate, total_steps=per_epoch * int(epochs))
+    scheduler = (torch.optim.lr_scheduler.OneCycleLR(optimiser, max_lr=learning_rate, total_steps=per_epoch * int(epochs))
+                if str(schedule).upper() != "FIXED" else torch.optim.lr_scheduler.LambdaLR(optimiser, lambda _: 1.0))
     history, best, best_state, waited = [], None, None, 0
     started = time.time()
     for epoch in range(int(epochs)):
@@ -328,7 +332,7 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
             optimiser.zero_grad()
             loss.backward()
             optimiser.step()
-            schedule.step()
+            scheduler.step()
             losses.append(float(loss.detach()))
         model.eval()
         with torch.no_grad():
@@ -336,6 +340,8 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
         scores["train_loss"] = float(np.mean(losses)) if losses else float("nan")
         scores["epoch"] = epoch + 1
         history.append(scores)
+        if on_epoch is not None:
+            on_epoch(epoch + 1, model, scores)
         value = scores.get(monitor)
         AddMessage(f"{tool}: epoch {epoch + 1}: train loss {scores['train_loss']:.4f}, "
                    + ", ".join(f"{k} {v:.4f}" for k, v in scores.items() if k not in ("epoch", "train_loss")

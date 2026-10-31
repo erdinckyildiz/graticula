@@ -241,7 +241,10 @@ None recorded.
    (Rabbani et al. 2006); **three refused for their own reason** — ExtractPowerLinesFromPointCloud (a catenary fit
    whose grouping, fitting and wind correction are not described), ExtractRailsFromPointCloud (it needs Esri's deep
    learning frameworks and does not describe the detection) and ExtractMeshFeaturesUsingPointCloud (an integrated
-   mesh in, multipatch out). Their INFERRED choices are §5.9 (i)–(r). No name in grapy is refused as a batch any more,
+   mesh in, multipatch out). *(Note 2026-10-31: the seven point cloud deep learning names refused here as "grapy does not
+   carry" deep learning are built by [ADR-249](ADR-249-grapy-carries-deep-learning-on-point-clouds.md) on ADR-248's
+   PyTorch; ExtractRailsFromPointCloud stays refused, its reason rewritten there (§5.5): the page specifies neither the
+   rail tracing nor a network.)* Their INFERRED choices are §5.9 (i)–(r). No name in grapy is refused as a batch any more,
    and `test_lastools.py` fails if one is.
 5. **LAZ is read in the image**: a LAZ backend (lazrs, MIT/Apache-2.0, or laszip) is chosen, its licence recorded, and
    a LAZ file read end to end — or LAZ is decided out.

@@ -68,7 +68,8 @@ this session; condition 1 below moves it into the repository.
    (*"needs Esri's data"*). Where this server has an equivalent, the message names it. **Narrowed 2026-10-31 by
    [ADR-248](ADR-248-grapy-carries-deep-learning-on-pytorch.md)** (owner decision, *"Tam aç"*): the deep learning names
    once refused here for want of a framework are built on PyTorch, except the two whose models are Esri's or whose page
-   could not be read.
+   could not be read. The point cloud deep learning names in `arcpy.ddd` are built on the same foundation by
+   [ADR-249](ADR-249-grapy-carries-deep-learning-on-point-clouds.md).
 2. **Vector and raster go in parallel.** Each batch carries some of each.
 3. **Each batch is released** when CI is green (owner's *"Her partiyi yayımla"*), and the counter on the status page
    moves with it. This replaces the 2026-10-14 rule that work waits on a branch for the owner's word, but only for
