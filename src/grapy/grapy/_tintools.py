@@ -75,6 +75,15 @@ def _with_node_z(geometry, surface):
 # ---- making and editing TINs
 
 
+def _constrained(value, tool):
+    kind = str(value or "DELAUNAY").upper()
+    if kind in ("DELAUNAY", "FALSE"):
+        return False
+    if kind in ("CONSTRAINED_DELAUNAY", "TRUE"):
+        return True
+    _refuse(tool, "constrained_delaunay", value)
+
+
 def CreateTin(out_tin, spatial_reference=None, in_features=None, constrained_delaunay="DELAUNAY"):
     """A TIN from surface features, triangulated Delaunay with breaklines made conforming by densification points, as
     the DELAUNAY option documents: mass points become nodes; hard and soft lines, and the boundaries of clip, erase,
@@ -83,21 +92,22 @@ def CreateTin(out_tin, spatial_reference=None, in_features=None, constrained_del
     fill polygon take the integer in its tag field. A feature whose height is ``<None>`` is interpolated from the TIN
     built from the others first, as documented. With no ``in_features``, an empty TIN.
 
-    Refused: CONSTRAINED_DELAUNAY — scipy has no constrained Delaunay triangulation (ADR-229 §5.3).
+    CONSTRAINED_DELAUNAY, as documented: each breakline segment is one edge and no densification point is added
+    ("which will add each segment as a single edge"; "Delaunay triangulation rules are honored everywhere
+    except along breaklines, which will not be densified"); grapy's triangulation is Sloan's (1993)
+    edge-swapping algorithm, Delaunay everywhere except across an enforced edge (``_tin._constrain``, ADR-229 §5.3).
 
     INFERRED, the page leaving them open: a replace polygon's height is its height field's value, or with ``Shape.Z`` its
     first vertex's z; a triangle is inside a polygon when its centroid is; densification points split a breakline
     segment at its midpoint; of two inputs at the same x,y the later one's z is kept; where two breaklines cross, the
     crossing takes the first one's z. See ``_tin`` for how a TIN is stored."""
     from ._reference import reference_of
-    if str(constrained_delaunay or "DELAUNAY").upper() not in ("DELAUNAY", "FALSE"):
-        _refuse("CreateTin", "constrained_delaunay", constrained_delaunay,
-                "scipy has no constrained Delaunay triangulation, so grapy's TINs are conforming Delaunay (ADR-229 §5.3)")
+    constrained = _constrained(constrained_delaunay, "CreateTin")
     inputs, srid = _tin.gather(in_features, "CreateTin")
     if _given(spatial_reference):
         reference = reference_of(spatial_reference)
         srid = reference.factoryCode if reference is not None else srid
-    _tin.store(out_tin, srid, inputs)
+    _tin.store(out_tin, srid, inputs, constrained=constrained)
     return Result(str(out_tin))
 
 
@@ -107,14 +117,12 @@ def EditTin(in_tin, in_features, constrained_delaunay="DELAUNAY"):
     (False reads the height from m-values), as documented. A delineation made by DelineateTinDataArea is applied again
     (INFERRED).
 
-    Refused: CONSTRAINED_DELAUNAY (ADR-229 §5.3)."""
-    if str(constrained_delaunay or "DELAUNAY").upper() not in ("DELAUNAY", "FALSE"):
-        _refuse("EditTin", "constrained_delaunay", constrained_delaunay,
-                "scipy has no constrained Delaunay triangulation (ADR-229 §5.3)")
+    CONSTRAINED_DELAUNAY as CreateTin builds it; the TIN is triangulated again with the option given."""
+    constrained = _constrained(constrained_delaunay, "EditTin")
     stored, delineation = _tin.inputs_of(in_tin)
     srid = _tin.load(in_tin).srid
     added, own = _tin.gather(in_features, "EditTin", edit=True)
-    _tin.store(in_tin, srid or own, stored + added, delineation)
+    _tin.store(in_tin, srid or own, stored + added, delineation, constrained=constrained)
     return Result(str(in_tin))
 
 

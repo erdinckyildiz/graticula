@@ -3,7 +3,7 @@
 A TIN in ArcGIS is a folder of Esri's binary files, whose format is not published. grapy's TIN is its own tables in a
 GeoPackage, registered in ``gpkg_extensions`` as the ``grapy_tin`` extension (INFERRED, ADR-229 §5.2):
 
-- ``grapy_tin``: name, spatial reference, whether it is constrained (never: CONSTRAINED_DELAUNAY is refused), the data
+- ``grapy_tin``: name, spatial reference, whether it is constrained (built CONSTRAINED_DELAUNAY, since 2026-10-31), the data
   area delineation last applied, and when it was built.
 - ``grapy_tin_input``: each surface feature added by CreateTin, EditTin or LasDatasetToTin, in order: its surface
   feature type, tag, constant height, and its geometry with z resolved. The triangulation is derived from these, so
@@ -19,8 +19,9 @@ which case the TIN is ``<folder>/tin.gpkg`` and named after the folder (INFERRED
 Triangulation is Delaunay (``scipy.spatial.Delaunay``, Qhull). Breaklines are made conforming as the documentation
 describes — "Steiner, or densification, points are added as needed to maintain conformance to Delaunay criteria" —
 by splitting a segment that is not an edge of the triangulation at its midpoint and triangulating again (INFERRED: the
-documentation does not say where a densification point goes). scipy has no constrained Delaunay triangulation, so
-CONSTRAINED_DELAUNAY is refused by name (ADR-229 §5.3).
+documentation does not say where a densification point goes). CONSTRAINED_DELAUNAY is grapy's own implementation of
+Sloan's (1993) edge-swapping algorithm over the same Qhull triangulation (``_constrain``; ADR-229 condition 6): each
+breakline segment becomes one edge and no point is added.
 """
 from __future__ import annotations
 
@@ -109,7 +110,7 @@ class Surface:
     """A triangulated surface: nodes (n, 3), triangles (k, 3) of node indexes, the data area, tags and enforced edges."""
 
     def __init__(self, nodes, triangles, inside=None, triangle_tags=None, node_tags=None, origin=None, edges=None,
-                 srid=0):
+                 srid=0, constrained=False):
         self.nodes = np.asarray(nodes, dtype=np.float64).reshape(-1, 3)
         self.triangles = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
         k, n = len(self.triangles), len(self.nodes)
@@ -119,6 +120,7 @@ class Surface:
         self.origin = np.zeros(n, np.int64) if origin is None else np.asarray(origin, np.int64)
         self.edges = dict(edges or {})   # (i, j) with i < j -> 1 soft, 2 hard
         self.srid = int(srid or 0)
+        self.constrained = bool(constrained)   # built CONSTRAINED_DELAUNAY: not Delaunay across an enforced edge
         self._tree = None
 
     # geometry of the triangles
@@ -215,6 +217,104 @@ def _delaunay(xy):
     return found.simplices.astype(np.int64)
 
 
+def _constrain(xy, triangles, segments):
+    """A constrained Delaunay triangulation: ``triangles`` (a Delaunay triangulation of ``xy``) with every segment
+    ``(i, j)`` made an edge, by Sloan's edge-swapping algorithm — S. W. Sloan, *A fast algorithm for generating
+    constrained Delaunay triangulations*, Computers & Structures 47 (3), 1993, pp. 441–450 — and the Delaunay criterion
+    then restored by Lawson's swaps everywhere except across a constrained edge. No point is added: segments must
+    already be split where they cross and where a node lies on them (``_split_segments``), and a node found on a
+    segment's open interior splits it here. Returns the triangles, each anticlockwise."""
+    from collections import deque
+    xy = np.asarray(xy, np.float64) - np.asarray(xy, np.float64).min(axis=0)
+    span = float(max(np.ptp(xy[:, 0]), np.ptp(xy[:, 1]), 1.0))
+    eps = span * span * 1e-14
+
+    def orient(a, b, c):
+        return (xy[b, 0] - xy[a, 0]) * (xy[c, 1] - xy[a, 1]) - (xy[b, 1] - xy[a, 1]) * (xy[c, 0] - xy[a, 0])
+
+    tris = []
+    for a, b, c in np.asarray(triangles, np.int64).tolist():
+        tris.append([a, b, c] if orient(a, b, c) > 0 else [a, c, b])
+    owner = {}   # directed edge (a, b) -> the triangle in which a -> b runs anticlockwise
+    for t, (a, b, c) in enumerate(tris):
+        owner[(a, b)], owner[(b, c)], owner[(c, a)] = t, t, t
+
+    def third(t, a, b):
+        return next(v for v in tris[t] if v != a and v != b)
+
+    def crosses(a, b, u, v):
+        """Do the open segments ab and uv cross at one interior point?"""
+        if len({a, b, u, v}) < 4:
+            return False
+        return (orient(u, v, a) * orient(u, v, b) < -eps * eps) and (orient(a, b, u) * orient(a, b, v) < -eps * eps)
+
+    def flip(a, b):
+        t1, t2 = owner.pop((a, b)), owner.pop((b, a))
+        c, d = third(t1, a, b), third(t2, b, a)
+        tris[t1], tris[t2] = [a, d, c], [d, b, c]
+        for t in (t1, t2):
+            p, q, r = tris[t]
+            owner[(p, q)], owner[(q, r)], owner[(r, p)] = t, t, t
+        return c, d
+
+    locked = set()
+    work = deque((int(i), int(j)) for i, j in segments if i != j)
+    while work:
+        u, v = work.popleft()
+        if (u, v) in owner or (v, u) in owner:
+            locked.add((min(u, v), max(u, v)))
+            continue
+        # A node on the segment's open interior splits it.
+        d = xy[v] - xy[u]
+        length2 = float(d @ d)
+        rel = xy - xy[u]
+        along = rel @ d
+        off = rel[:, 0] * d[1] - rel[:, 1] * d[0]
+        on = np.nonzero((np.abs(off) <= 1e-9 * length2) & (along > 1e-9 * length2) & (along < length2 * (1 - 1e-9)))[0]
+        if len(on):
+            chain = [u, *on[np.argsort(along[on])].tolist(), v]
+            work.extendleft(reversed(list(zip(chain[:-1], chain[1:]))))
+            continue
+        crossing = deque((a, b) for (a, b) in owner if a < b and (b, a) in owner and crosses(a, b, u, v))
+        rounds, limit = 0, 50 * (len(crossing) + 1) ** 2
+        while crossing:
+            rounds += 1
+            if rounds > limit:
+                raise ExecuteError("ERROR: a breakline could not be inserted into the constrained Delaunay triangulation.")
+            a, b = crossing.popleft()
+            if (a, b) not in owner:
+                a, b = b, a
+            c, dd = third(owner[(a, b)], a, b), third(owner[(b, a)], b, a)
+            # Swappable only when the quadrilateral a, d, b, c is strictly convex.
+            if not (orient(c, dd, a) * orient(c, dd, b) < 0):
+                crossing.append((a, b))
+                continue
+            c, dd = flip(a, b)
+            if crosses(c, dd, u, v):
+                crossing.append((c, dd))
+        locked.add((min(u, v), max(u, v)))
+    # Lawson's swaps restore the Delaunay criterion everywhere a constrained edge does not forbid it.
+    queue = deque((a, b) for (a, b) in list(owner) if a < b)
+    guard = 0
+    while queue:
+        guard += 1
+        if guard > 100 * (len(owner) + 10):
+            break
+        a, b = queue.popleft()
+        if (a, b) not in owner or (b, a) not in owner or (min(a, b), max(a, b)) in locked:
+            continue
+        c, dd = third(owner[(a, b)], a, b), third(owner[(b, a)], b, a)
+        ax, ay = xy[a] - xy[dd]
+        bx, by = xy[b] - xy[dd]
+        cx, cy = xy[c] - xy[dd]
+        incircle = ((ax * ax + ay * ay) * (bx * cy - cx * by) - (bx * bx + by * by) * (ax * cy - cx * ay)
+                    + (cx * cx + cy * cy) * (ax * by - bx * ay))
+        if incircle > eps * span * span and orient(c, dd, a) * orient(c, dd, b) < 0:
+            flip(a, b)
+            queue.extend([(a, dd), (dd, b), (b, c), (c, a)])
+    return np.array(tris, np.int64).reshape(-1, 3), locked
+
+
 def _split_segments(points, segments, tolerance):
     """Segments split where they cross each other and where a node lies on them, so that every crossing is a node."""
     from shapely import STRtree
@@ -272,10 +372,11 @@ def _split_segments(points, segments, tolerance):
     return segments
 
 
-def triangulate(points, segments, polygons=(), srid=0, delineation=None):
+def triangulate(points, segments, polygons=(), srid=0, delineation=None, constrained=False):
     """A Surface from mass points ``[(x, y, z)]``, breakline segments ``[((x, y, z), (x, y, z), 1|2)]`` and polygons
     ``[(kind, shapely polygon, tag, height)]`` (kind ``clip``, ``erase``, ``replace`` or ``valuefill``), their boundaries
-    already among the segments."""
+    already among the segments. ``constrained``: CONSTRAINED_DELAUNAY — each segment one edge, no densification point
+    added (``_constrain``); otherwise Delaunay conforming to the segments by densification."""
     nodes: list = []
     index: dict = {}
     origin: list = []
@@ -307,6 +408,17 @@ def triangulate(points, segments, polygons=(), srid=0, delineation=None):
     origin.extend([1] * (len(nodes) - before))
     for i in range(before, len(nodes)):
         index[(nodes[i][0], nodes[i][1])] = i
+    if constrained:
+        triangles, _ = _constrain(np.array([n[:2] for n in nodes]), _delaunay(np.array([n[:2] for n in nodes])),
+                                  [(a, b) for a, b, _ in pieces])
+        surface = Surface(nodes, triangles, origin=origin, srid=srid, constrained=True)
+        for a, b, kind in pieces:
+            key = (min(a, b), max(a, b))
+            surface.edges[key] = max(kind, surface.edges.get(key, 0))
+        _apply_polygons(surface, polygons)
+        if delineation:
+            delineate(surface, *delineation)
+        return surface
     limit = max(10 * len(nodes), 1000)
     for _ in range(_MAX_ROUNDS):
         triangles = _delaunay(np.array([n[:2] for n in nodes]))
@@ -316,8 +428,8 @@ def triangulate(points, segments, polygons=(), srid=0, delineation=None):
             break
         if len(nodes) > limit:
             raise ExecuteError("ERROR: the breaklines could not be made conforming Delaunay without more densification "
-                               "points than grapy allows (segments meeting at very small angles); CONSTRAINED_DELAUNAY, "
-                               "which would add each segment as one edge, is not built in grapy (ADR-229 §5.3).")
+                               "points than grapy allows (segments meeting at very small angles); CONSTRAINED_DELAUNAY "
+                               "adds each segment as one edge without them.")
         keep = [s for s in pieces if s not in missing]
         for a, b, kind in missing:
             pa, pb = nodes[a], nodes[b]
@@ -533,7 +645,8 @@ def load(path):
         raise ExecuteError(f"ERROR 000732: Input TIN: Dataset {path} does not exist or is not supported.")
     connection = _gpkg.connect(file)
     try:
-        srid, = connection.execute("select srid from grapy_tin where name = ?", (name,)).fetchone()
+        srid, constrained = connection.execute("select srid, constrained from grapy_tin where name = ?",
+                                               (name,)).fetchone()
         nodes = connection.execute("select x, y, z, tag, origin from grapy_tin_node where tin = ? order by node_id",
                                    (name,)).fetchall()
         triangles = connection.execute("select n1, n2, n3, tag, inside from grapy_tin_triangle where tin = ? order by "
@@ -545,7 +658,7 @@ def load(path):
     n = np.array(nodes, dtype=np.float64).reshape(-1, 5)
     t = np.array(triangles, dtype=np.int64).reshape(-1, 5)
     return Surface(n[:, :3], t[:, :3], t[:, 4].astype(bool), t[:, 3], n[:, 3].astype(np.int64),
-                   n[:, 4].astype(np.int64), edges, srid)
+                   n[:, 4].astype(np.int64), edges, srid, bool(constrained))
 
 
 def inputs_of(path):
@@ -561,12 +674,13 @@ def inputs_of(path):
         (delineation.split(" ", 1) if delineation else None)
 
 
-def store(path, srid, inputs, delineation=None, surface=None):
-    """Writes a TIN: its inputs and the surface triangulated from them (or ``surface`` as given)."""
+def store(path, srid, inputs, delineation=None, surface=None, constrained=False):
+    """Writes a TIN: its inputs and the surface triangulated from them (or ``surface`` as given), CONSTRAINED_DELAUNAY
+    when ``constrained`` (or when the given surface was built so)."""
     file, name = locate(path)
     os.makedirs(os.path.dirname(os.path.abspath(file)), exist_ok=True)
     if surface is None:
-        surface = build(inputs, srid, delineation)
+        surface = build(inputs, srid, delineation, constrained)
     connection = _gpkg.connect(file)
     try:
         connection.execute("pragma application_id = 1196444487")
@@ -574,8 +688,8 @@ def store(path, srid, inputs, delineation=None, surface=None):
         for table in TABLES[1:]:
             connection.execute(f"delete from {table} where tin = ?", (name,))
         connection.execute("delete from grapy_tin where name = ?", (name,))
-        connection.execute("insert into grapy_tin (name, srid, constrained, delineation, built_at) values (?, ?, 0, ?, ?)",
-                           (name, int(srid or 0), " ".join(map(str, delineation)) if delineation else None,
+        connection.execute("insert into grapy_tin (name, srid, constrained, delineation, built_at) values (?, ?, ?, ?, ?)",
+                           (name, int(srid or 0), int(surface.constrained), " ".join(map(str, delineation)) if delineation else None,
                             datetime.datetime.now(datetime.timezone.utc).isoformat()))
         connection.executemany("insert into grapy_tin_input values (?, ?, ?, ?, ?, ?, ?)",
                                [(name, i, sf, int(tag), height, int(pending), shapely.to_wkb(shape, flavor="iso"))
@@ -594,12 +708,12 @@ def store(path, srid, inputs, delineation=None, surface=None):
     return surface
 
 
-def build(inputs, srid, delineation=None):
+def build(inputs, srid, delineation=None, constrained=False):
     """The Surface of stored inputs ``[(sf, shape, tag, height, pending)]``: first without the ``<None>`` inputs, whose
     heights are then interpolated from it, as documented ("This requires that some features be added to the TIN without
     the None option"). INFERRED: a ``<None>`` feature with a vertex off the data area is left out, with a warning."""
     ready = [(sf, s, t, h) for sf, s, t, h, pending in inputs if not pending]
-    surface = triangulate(*surface_inputs(ready), srid=srid, delineation=delineation)
+    surface = triangulate(*surface_inputs(ready), srid=srid, delineation=delineation, constrained=constrained)
     waiting = [(sf, s, t, h) for sf, s, t, h, pending in inputs if pending]
     if not waiting:
         return surface
@@ -616,7 +730,7 @@ def build(inputs, srid, delineation=None):
         it = iter(zs)
         resolved.append((sf, _gpkg.rebuild(shape, True, False, None, lambda z, xy, it=it: np.array([next(it) for _ in xy])),
                          tag, height))
-    return triangulate(*surface_inputs(ready + resolved), srid=srid, delineation=delineation)
+    return triangulate(*surface_inputs(ready + resolved), srid=srid, delineation=delineation, constrained=constrained)
 
 
 def gather(in_features, tool, edit=False):
@@ -663,7 +777,9 @@ class Described:
         self.hasEdgeTagValues = False
         self.hasNodeTagValues = bool((surface.node_tags != 0).any())
         self.hasTriangleTagValues = bool((surface.triangle_tags != 0).any())
-        self.isDelaunay = True
+        # "Indicates whether the TIN conforms to the Delaunay criterion": a constrained TIN does not across its
+        # enforced edges.
+        self.isDelaunay = not surface.constrained
         self.ZFactor = 1
         self.spatialReference = SpatialReference(surface.srid) if surface.srid > 0 else None
         box = surface.extent()

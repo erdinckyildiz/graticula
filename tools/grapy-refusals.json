@@ -207,7 +207,7 @@
   "unexamined": []
  },
  "arcpy.ddd": {
-  "built": 123,
+  "built": 126,
   "equivalents": {
    "ClassifyLasBuilding": "plane detection by region growing with a smoothness constraint (Rabbani, van den Heuvel and Vosselman 2006)",
    "ClassifyLasGround": "the progressive morphological filter (Zhang et al. 2003)",
@@ -248,7 +248,6 @@
    "Intersect3DLineWithSurface": "arcpy.ddd.Intersect3DLineWithSurface is not built in grapy: how the line is sampled against the surface is not documented.",
    "Intersect3DLines": "arcpy.ddd.Intersect3DLines is not built in grapy: its horizontal tolerance, and how the XY and Z tolerance environments apply, are not given.",
    "Intervisibility": "arcpy.ddd.Intervisibility is not built in grapy: how each sight line is sampled against the obstructions is not documented.",
-   "LandXMLToTin": "arcpy.ddd.LandXMLToTin is not built in grapy: it makes a constrained Delaunay TIN, as the page says, and grapy's TINs are conforming Delaunay — scipy has no constrained triangulation (ADR-229 §5.3).",
    "LasHeightMetrics": "arcpy.ddd.LasHeightMetrics is not built in grapy: how the ground surface the heights are measured from is built is not stated.",
    "Layer3DToFeatureClass": "arcpy.ddd.Layer3DToFeatureClass is not built in grapy: it reads a 3D layer from a map, which a user tool on the server does not have.",
    "LayerToKML": "arcpy.ddd.LayerToKML is not built in grapy: it reads map layers, which a user tool on the server does not have.",
@@ -260,9 +259,7 @@
    "ReclassByASCIIFile": "arcpy.ddd.ReclassByASCIIFile is not built in grapy: the documentation does not specify the remap file's format.",
    "Skyline": "arcpy.ddd.Skyline is not built in grapy: its horizon search and output vertices are not documented.",
    "SkylineGraph": "arcpy.ddd.SkylineGraph is not built in grapy: it reads Skyline's output, which is refused.",
-   "SurfaceDifference": "arcpy.ddd.SurfaceDifference is not built in grapy: its difference surface is built by constrained Delaunay triangulation, as documented, which grapy does not have (ADR-229 §5.3).",
    "TinAspect": "arcpy.ddd.TinAspect is not built in grapy: it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read.",
-   "TinDifference": "arcpy.ddd.TinDifference is not built in grapy: it is the legacy name of SurfaceDifference, whose difference surface is built by constrained Delaunay triangulation, which grapy does not have (ADR-229 §5.3).",
    "TinSlope": "arcpy.ddd.TinSlope is not built in grapy: it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read."
   },
   "unexamined": []

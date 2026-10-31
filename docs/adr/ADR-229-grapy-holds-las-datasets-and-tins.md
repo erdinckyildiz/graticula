@@ -105,10 +105,13 @@ fails by name past it (segments meeting at very small angles are the known case)
      file they describe, the surface constraints, the spatial reference. A .lasd that is not grapy's is refused by name.
 3. **Triangulation is Delaunay conforming to its breaklines.** A breakline segment that is not an edge of the
    triangulation is split at its midpoint and the points are triangulated again, until every piece is an edge; where
-   breaklines cross, the crossing becomes a node. **CONSTRAINED_DELAUNAY is refused**: scipy has no constrained
+   breaklines cross, the crossing becomes a node. ~~**CONSTRAINED_DELAUNAY is refused**: scipy has no constrained
    triangulation, and the permissive alternatives are not chosen (condition 6). LandXMLToTin, whose page says it makes
    a constrained TIN, and SurfaceDifference and TinDifference, whose difference surface is constrained, are refused
-   with that reason.
+   with that reason.~~ **Built 2026-10-31 (condition 6)**: CONSTRAINED_DELAUNAY is grapy's own implementation of
+   Sloan's edge-swapping algorithm (Computers & Structures 47 (3), 1993) over the same Qhull triangulation, with
+   Lawson's swaps restoring the Delaunay criterion except across an enforced edge; LandXMLToTin, SurfaceDifference
+   and TinDifference are built on it.
 4. **Interpolation on a TIN is linear**, on each triangle's plane, as documented. Natural neighbours and the conflation
    methods are refused by name until a natural neighbour interpolant over a TIN is built.
 5. **LAS through laspy; LAZ ~~only when a LAZ backend is installed, and none is in the image yet (condition 5)~~ through
@@ -171,6 +174,16 @@ fails by name past it (segments meeting at very small angles are the known case)
      ExtractObjectsFromPointCloud: a code without a group ID is its own group, the centre point the points' mean,
      BOUNDING_BOX_2D axis-aligned, the concave hull the alpha shape of the Delaunay triangles whose circumradius is at
      most the radius.
+   - (s) *Added 2026-10-31 with condition 6, after Q-196 was answered, and not covered by that answer.*
+     LandXMLToTin: each TIN is `<basename><surface name>` (characters outside letters, digits and `_` dropped), or
+     `<basename><position>` for an unnamed surface; it is stored as its points (mass points) and visible faces (a hard
+     clip), so EditTin re-triangulates the same faces; the reference is `CoordinateSystem/@epsgCode`; `SourceData`
+     breaklines and boundaries are not read, the faces already holding them; an existing target writes nothing, with a
+     warning.
+   - (t) *Added 2026-10-31, likewise.* SurfaceDifference: the raster cell size defaults to TinRaster's OBSERVATIONS
+     250; one output TIN, grapy having no node limit; heights within 1e-9 of the z span are the same (Code 0);
+     `extent` and `boundary` clip the polygons. TinDifference writes SurfaceDifference's `Volume`, `SArea` and `Code`,
+     its own page naming no fields.
 
 ## 6. Consequences
 
@@ -258,5 +271,19 @@ None recorded.
    backend. It found one fault on the way: Describe's extent read `.las` files only, so a LAS dataset of LAZ files had
    none.
 6. **CONSTRAINED_DELAUNAY** is built with a permissively licensed triangulator, or refused for good with the search
-   recorded.
+   recorded. **DISCHARGED 2026-10-31**: built, and not on a library. The search: scipy has no constrained
+   triangulation; shapely 2.2.0 on GEOS 3.14.1 (grapy-env; CI and the image install the same newest shapely wheel,
+   which bundles its GEOS) has `constrained_delaunay_triangles`, but GEOS's ConstrainedDelaunayTriangulator
+   triangulates a polygon's own vertices and takes no interior points, so a TIN's mass points cannot enter it; the
+   triangle and CGAL libraries are not permissive (triangle's licence forbids commercial use; CGAL's 2D triangulations
+   are GPL). `_tin._constrain` is therefore Sloan's algorithm written here (ADR-224 §5.4's published-method rule).
+   CreateTin and EditTin take CONSTRAINED_DELAUNAY, the TIN records it and Describe's `isDelaunay` answers False for
+   it. `test_tin.ConstrainedDelaunay`: a hard line two near points straddle stays one edge with no node added (the
+   conforming TIN densifies it), 8 triangles covering the square, the apexes the two near points; 300 random points
+   and 20 breaklines (17 not Delaunay edges) give every breakline as an edge, the hull's area covered and every other
+   edge locally Delaunay. LandXMLToTin, SurfaceDifference and TinDifference, refused for the lack of it, are built
+   (`_tindiff`): `test_tin.LandXmlAndDifference` reads a LandXML 1.2 surface whose faces become the TIN's triangles
+   and whose invisible face is outside the data area, and SurfaceDifference of z = y against z = x gives ±1 polygons
+   of area 50, volume 1000/6 and input surface area 50√2 each, the hand integrals; equal surfaces give Code 0 over
+   their overlap only. INFERRED choices are §5.9 (s) and (t).
 7. **The owner confirms or changes §5.9** ([Q-196](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-196 (*"Hepsini onayla"*).
