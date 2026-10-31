@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e429a8ee</code> · 2026-10-31 17:17</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a1e05229</code> · 2026-10-31 17:22</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-223</b> — [OWNER] The choices made after Q-196 and Q-197 were answered, and the ones D-332 and D-340 made, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name (characters outside letters,…</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-223</b> — [OWNER] The choices made after Q-196 and Q-197 were answered, the ones D-332 and D-340 made, and Arrow&#x27;s and Parquet&#x27;s, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name…</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">98 madde</span></div><p><b>73 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -451,7 +451,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
-<article class="card"><div class="card-h"><span class="id">Q-223</span><span class="owner">Owner</span></div><p>[OWNER] The choices made after Q-196 and Q-197 were answered, and the ones D-332 and D-340 made, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name (characters outside letters,…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-223</span><span class="owner">Owner</span></div><p>[OWNER] The choices made after Q-196 and Q-197 were answered, the ones D-332 and D-340 made, and Arrow&#x27;s and Parquet&#x27;s, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name…</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -603,10 +603,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>grapy ve arcpy</h2>
 <p class="sub">arcpy 3.7 her modülde herkese açık bir ad listesi sunar; grapy’nin bunlardan kaçını kurduğu. tools/grapy_surface.py grapy’nin kaynağından sayar; grapy’nin reddettiği ad sayılmaz.</p><div class="bars">
 <div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:62.8%"></div></div><div class="bar-n">115 / 183</div></div>
-<div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:82.8%"></div></div><div class="bar-n">24 / 29</div></div>
+<div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:86.2%"></div></div><div class="bar-n">25 / 29</div></div>
 <div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:55.9%"></div></div><div class="bar-n">250 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:87.5%"></div></div><div class="bar-n">35 / 40</div></div>
-<div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:48.4%"></div></div><div class="bar-n">31 / 64</div></div>
+<div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:50.0%"></div></div><div class="bar-n">32 / 64</div></div>
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:12.2%"></div></div><div class="bar-n">6 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">16 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:58.5%"></div></div><div class="bar-n">38 / 65</div></div>
@@ -623,8 +623,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy</td><td class="num">115</td><td class="num">1</td><td class="num">68</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.analysis</td><td class="num">35</td><td class="num">1</td><td class="num">5</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.cartography</td><td class="num">9</td><td class="num">8</td><td class="num">40</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.conversion</td><td class="num">31</td><td class="num">2</td><td class="num">33</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.da</td><td class="num">24</td><td class="num">0</td><td class="num">5</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.conversion</td><td class="num">32</td><td class="num">3</td><td class="num">32</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.da</td><td class="num">25</td><td class="num">0</td><td class="num">4</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ddd</td><td class="num">126</td><td class="num">19</td><td class="num">30</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">16</td><td class="num">6</td><td class="num">3</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">25</td><td class="num">4</td><td class="num">17</td><td class="num">0</td></tr>
@@ -639,6 +639,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>a1e05229</code><time>2026-10-31</time><span>The choices made after Q-196 and Q-197 were answered, and D-332&#x27;s and D-340&#x27;s, are asked in their own open question Q-223</span></li>
 <li><code>e429a8ee</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>6efea248</code><time>2026-10-31</time><span>Every equivalent&#x27;s docstring now says EQUIVALENT with its method and source, and a test holds all three marks (ADR-224 condition 6; conditions 4 and 5 read again)</span></li>
 <li><code>0f5ab8ed</code><time>2026-10-31</time><span>A SQL Server layer keeps a history and follows relationships, as MySQL and Oracle layers do (ADR-210 condition 5, ADR-212 condition 2)</span></li>
@@ -652,7 +653,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>114e57ab</code><time>2026-10-31</time><span>The Linux torch and torchvision wheels&#x27; bundled libraries are read, and the x86-64 one carries Intel oneMKL (ADR-248 condition 3)</span></li>
 <li><code>7a8b27e6</code><time>2026-10-31</time><span>Owner decisions of 2026-10-31, second round: Q-218 and Q-219 confirmed, client_credentials to be built, clustering&#x27;s phase order confirmed</span></li>
 <li><code>af1876af</code><time>2026-10-31</time><span>ADR-248&#x27;s image and fence conditions are measured: +270 MB on amd64, +232 MB on arm64, and a fenced tool trains on Linux</span></li>
-<li><code>9d6ab92e</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -138,7 +138,12 @@ None recorded.
    own (installation and licence queries, DBMS users and roles, colormapped or pansharpened rasters grapy does not
    keep, and so on). Two refusals still carry a schedule the guard test's words miss — `da.TableToArrowTable` and
    `da.CreateParquetCache` say pyarrow "is not among the wheels a user tool runs with today", and the image installs
-   pyarrow. What is missing for the condition as written is a decision rather than work: either the owner narrows
+   pyarrow. *(Repaired 2026-10-31: `da.TableToArrowTable` is built to its page and to* Apache Arrow in ArcGIS *on
+   pyarrow, which CI's grapy jobs now install as the image does; `conversion.ExportToParquet`, refused for the same
+   missing wheel, is built as a GeoParquet 1.1 equivalent; `da.CreateParquetCache` is refused because its page
+   defines neither the cache's form nor where it is kept, and no grapy reader opens a Parquet file. The guard test
+   `test_lastools.Refused.test_no_refusal_anywhere_reads_as_a_schedule` now reads every refused name's answer for
+   *yet*, *today*, *until*, *later* and their kind.)* What is missing for the condition as written is a decision rather than work: either the owner narrows
    it to *every group-1 name built or refused with its own reason* — which holds today — or the refusals above are
    reopened one by one.
 5. **Group 2 has an ADR per data model** before its tools are built. **PARTLY DISCHARGED 2026-10-31**: §1's group 2

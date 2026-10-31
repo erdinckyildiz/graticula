@@ -120,7 +120,11 @@ def _add_rat_field(in_table, field_name, field_type):
 
 def GetCount(in_rows):
     """The number of rows — of a layer or table view, its selected rows, or all it shows when nothing is selected; of a
-    layer joined with ``KEEP_COMMON``, only the rows that found a match."""
+    layer joined with ``KEEP_COMMON``, only the rows that found a match; of a ``pyarrow.Table``
+    (arcpy.da.TableToArrowTable's page counts one this way), its rows."""
+    from ._arrow import is_arrow_table
+    if is_arrow_table(in_rows):
+        return Result(str(in_rows.num_rows))
     if _joined_layer(in_rows) is not None:
         from . import da
         with da.SearchCursor(_text(in_rows), ["OID@"]) as rows:

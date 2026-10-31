@@ -1356,7 +1356,6 @@ _REASONS = {
         "AddCADFields", "CADToGeodatabase", "ExportCAD"),
     "reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's "
     "workspace is a GeoPackage": ("ConvertPersonalGeodatabase", "MobileGdbToFileGdb"),
-    "needs a Parquet writer (pyarrow), which grapy's build of these tools does not carry": ("ExportToParquet",),
     "uses Esri's undocumented text and document parsing to find locations": (
         "ExtractLocationsDocument", "ExtractLocationsText"),
     "vectorises scanned maps by Esri's undocumented recognition": ("ExtractScannedLines", "ExtractScannedPolygons"),
@@ -1413,3 +1412,15 @@ from . import _mpmore  # noqa: E402
 
 MultipatchToCollada = _mpmore.MultipatchToCollada
 MultipatchToRaster = _mpmore.MultipatchToRaster
+
+
+@_equivalent("GeoParquet 1.1: WKB in the shape field's column, described by the file's geo metadata",
+             "OGC GeoParquet 1.1.0")
+def ExportToParquet(inputs, out_file):
+    """EQUIVALENT: GeoParquet 1.1 (OGC GeoParquet 1.1.0). The page gives the input and the ``.parquet`` file and not how
+    fields or shapes are written: the fields are TableToArrowTable's Arrow types, the shape WKB in a column named after
+    the class's shape field, described by the ``geo`` key of the file's metadata (INFERRED, Q-223 (f)). A cloud path
+    has no network in a fenced tool (ADR-223 §5.3)."""
+    from ._arrow import export_to_parquet
+    export_to_parquet(inputs, out_file)
+    return Result(os.fspath(out_file))
