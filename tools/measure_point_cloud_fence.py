@@ -234,6 +234,9 @@ def fenced_epoch(run, arch, iterations, rate, memory, cpu, unfenced=False):
     # The environment grapy's own fence test gives a run (test_grapy._run), and no more.
     environment = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT")}
     environment["PYTHONPATH"] = GRAPY
+    # And what ToolSandbox.cs gives every user tool, or the measurement is of a process the server never starts.
+    environment.update({"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+                        "MALLOC_ARENA_MAX": "2", "PYTHONDONTWRITEBYTECODE": "1"})
     if unfenced:
         environment["GRAPY_UNFENCED"] = "1"
     before = _children_rusage()
