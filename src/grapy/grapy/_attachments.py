@@ -160,5 +160,7 @@ def content_type(name):
 
 
 def add(connection, table, global_id, name, data):
-    connection.execute(f'insert into "{attach_table(table)}" (REL_GLOBALID, CONTENT_TYPE, ATT_NAME, DATA_SIZE, DATA) '
-                       f'values (?, ?, ?, ?, ?)', (global_id, content_type(name), name, len(data), data))
+    added = connection.execute(f'insert into "{attach_table(table)}" (REL_GLOBALID, CONTENT_TYPE, ATT_NAME, DATA_SIZE, '
+                               f'DATA) values (?, ?, ?, ?, ?)', (global_id, content_type(name), name, len(data), data))
+    from . import _behaviours
+    _behaviours.stamp_row(connection, attach_table(table), "ATTACHMENTID", added.lastrowid, True)  # ADR-240

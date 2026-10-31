@@ -476,7 +476,7 @@ def _row(connection, table, where, parameters):
 def apply_edit(connection, edit, depth):
     """One ``edit`` entry of a calculation rule's dictionary: adds, updates and deletes on ``className``, each run
     through that class's own rules."""
-    from . import _attachments, _relationships, _subtypes
+    from . import _attachments, _behaviours, _relationships, _subtypes
     from ._arcade._values import Dictionary, to_text
     if depth > MAX_DEPTH:
         raise RuleError("Attribute rules edited one another more than eight levels deep; a rule's edit that triggers "
@@ -519,6 +519,7 @@ def apply_edit(connection, edit, depth):
         row = _subtypes.InsertPlan(connection, table).apply(values(entry))
         if target.active:
             row = target.insert(row)
+        row = _behaviours.stamp_insert(connection, table, row)  # editor tracking (ADR-240)
         names = list(row)
         connection.execute(f'insert into "{table}" ({", ".join(chr(34) + n + chr(34) for n in names)}) values '
                            f'({", ".join("?" for _ in names)})', [row[n] for n in names])
@@ -530,6 +531,7 @@ def apply_edit(connection, edit, depth):
         new.update(values(entry))
         if target.active:
             new = target.update(old, new)
+        new = _behaviours.stamp_update(connection, table, new)  # editor tracking (ADR-240)
         changed = [k for k in new if k != layout.oid and new[k] != old.get(k)]
         if changed:
             connection.execute(f'update "{table}" set {", ".join(chr(34) + k + chr(34) + " = ?" for k in changed)} '

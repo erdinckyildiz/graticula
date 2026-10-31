@@ -85,17 +85,25 @@ def describe(connection: sqlite3.Connection, table: str) -> tuple[list[Column], 
         "select column_name, geometry_type_name, srs_id from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
     geometry, shape, srid = (row if row else (GEOMETRY, "GEOMETRY", 0))
     columns = []
+    oid = oid_column(connection, table)
     for _, name, declared, notnull, _, pk in connection.execute(f'pragma table_info("{table}")'):
-        if pk or name == geometry:
+        if pk or name == geometry or name == oid:
             continue
         columns.append(Column(name, _BACK.get((declared or "TEXT").split("(")[0].upper(), "String"), not notnull))
     return columns, _SHAPES.get((shape or "GEOMETRY").upper(), "Geometry"), int(srid or 0), geometry
 
 
 def oid_column(connection: sqlite3.Connection, table: str) -> str:
-    for _, name, _, _, _, pk in connection.execute(f'pragma table_info("{table}")'):
+    """A table's integer primary key; a view's first integer column (it has no key, and no rowid to read — ADR-240);
+    else ``rowid``."""
+    listed = list(connection.execute(f'pragma table_info("{table}")'))
+    for _, name, _, _, _, pk in listed:
         if pk:
             return name
+    if connection.execute("select 1 from sqlite_master where name = ? and type = 'view'", (table,)).fetchone():
+        for _, name, declared, _, _, _ in listed:
+            if (declared or "").upper().startswith("INT"):
+                return name
     return "rowid"
 
 

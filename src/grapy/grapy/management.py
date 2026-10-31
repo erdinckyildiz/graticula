@@ -61,6 +61,9 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
         elif dataset and code != dataset:
             raise ExecuteError(f"ERROR 000622: the feature dataset's spatial reference is EPSG:{dataset}, not EPSG:{code}.")
     _gpkg.create(path, shape, code, columns, with_z, with_m)
+    if dataset is not None:
+        from ._gdbtools import created_in_dataset
+        created_in_dataset(path)  # a feature dataset's last edit time reaches its new classes (ADR-240)
     return Result(path)
 
 
@@ -657,6 +660,8 @@ def Rename(in_data, out_data, data_type=None):
         _subtypes.rename(connection, table, new)
         from . import _rules
         _rules.rename(connection, table, new)  # and its attribute rules and contingent values (ADR-235)
+        from . import _behaviours
+        _behaviours.rename(connection, table, new)  # and its editing behaviours (ADR-240)
         connection.commit()
     finally:
         connection.close()
@@ -4438,6 +4443,8 @@ def _drop_models(connection, table):
     _attachments.drop(connection, table)
     _subtypes.drop(connection, table)
     _rules.drop(connection, table)  # its attribute rules, field groups and contingent values (ADR-235)
+    from . import _behaviours
+    _behaviours.drop(connection, table)  # its editor tracking, last edit time, COGO and ID fields (ADR-240)
     _mosaic.drop(connection, table)
     for rc in _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table):
         for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
@@ -5065,23 +5072,9 @@ _GROUP_2_MODELS = {
         "EvaluateRules", "ExportAttributeRules", "ImportAttributeRules", "ReorderAttributeRule",
         "CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
         "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule"),
-    "enterprise geodatabase administration": (
-        "CreateEnterpriseGeodatabase", "EnableEnterpriseGeodatabase", "UpdateEnterpriseGeodatabaseLicense",
-        "CreateDatabaseUser", "CreateRole", "ChangePrivileges", "CreateSpatialType", "ConfigureGeodatabaseLogFileTables",
-        "ExportGeodatabaseConfigurationKeywords", "ImportGeodatabaseConfigurationKeywords", "DeleteSchemaGeodatabase",
-        "MigrateStorage", "RegisterWithGeodatabase", "CreateDatabaseSequence", "DeleteDatabaseSequence", "UpgradeGDB",
-        "AnalyzeDatasets", "RebuildIndexes", "UpdatePortalDatasetOwner", "Analyze", "CreateDatabaseView",
-        "CreateUnRegisteredFeatureclass", "CreateUnRegisteredTable", "AddIncrementingIDField"),
-    "parcel fabrics": ("EnableCOGO", "DisableCOGO"),
     "contingent values and field groups": (
         "AddContingentValue", "RemoveContingentValue", "ExportContingentValues", "ImportContingentValues",
         "GenerateContingentValues", "CreateFieldGroup", "AlterFieldGroup", "DeleteFieldGroup"),
-    "geodatabase editing behaviours (editor tracking, feature binning, split models)": (
-        "EnableEditorTracking", "DisableEditorTracking", "EnableLastEditTime", "DisableLastEditTime",
-        "EnableFeatureBinning", "DisableFeatureBinning", "ManageFeatureBinCache", "SetFeatureClassSplitModel"),
-    "trajectory datasets": ("CreateTrajectoryDataset", "AddDataToTrajectoryDataset", "RepairTrajectoryDatasetPaths",
-                            "MakeTrajectoryLayer"),
-    "annotation feature classes": ("AppendAnnotation",),
 }
 
 
@@ -7475,3 +7468,24 @@ _REFUSED.update({
                            "excluded or kept, and does not say how a pixel is tested against the eight colour "
                            "thresholds (ADR-234 §5.5)",
 })
+
+
+# ---- editing behaviours, unregistered tables, registration, views and statistics (ADR-240) ---------------------------
+from . import _gdbtools  # noqa: E402
+
+AddIncrementingIDField = _gdbtools.AddIncrementingIDField
+Analyze = _gdbtools.Analyze
+AnalyzeDatasets = _gdbtools.AnalyzeDatasets
+CreateDatabaseView = _gdbtools.CreateDatabaseView
+CreateUnRegisteredFeatureclass = _gdbtools.CreateUnRegisteredFeatureclass
+CreateUnRegisteredTable = _gdbtools.CreateUnRegisteredTable
+DisableCOGO = _gdbtools.DisableCOGO
+DisableEditorTracking = _gdbtools.DisableEditorTracking
+DisableLastEditTime = _gdbtools.DisableLastEditTime
+EnableCOGO = _gdbtools.EnableCOGO
+EnableEditorTracking = _gdbtools.EnableEditorTracking
+EnableLastEditTime = _gdbtools.EnableLastEditTime
+RebuildIndexes = _gdbtools.RebuildIndexes
+RegisterWithGeodatabase = _gdbtools.RegisterWithGeodatabase
+
+_REFUSED.update(_gdbtools.REFUSED)

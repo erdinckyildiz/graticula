@@ -158,6 +158,9 @@ class _Cursor:
                                    f"{self._joined.names[0] if self._joined.names else 'table.field'}.") from None
         else:
             self.fields = tuple(_columns(field_names, self._described, self._oid))
+            if field_names in ("*", ["*"]) and self._geometry not in [r[1] for r in self._connection.execute(
+                    f'pragma table_info("{self._table}")')]:
+                self.fields = tuple(f for f in self.fields if f != "SHAPE@")  # a table or view with no shape (ADR-240)
         self._tokens = _model_tokens(self._connection, self._table, self.fields)
         if self._tokens and self._joined is not None:
             raise NotBuiltError("arcpy.da: SUBTYPE@ and GLOBALID@ on a joined layer are not built in grapy.")
@@ -221,6 +224,13 @@ class _Cursor:
             found = _rules.engine(self._connection, self._table, version=getattr(self, "_version_name", None))
             self._engine = found if found.active else None
         return self._engine
+
+    def _tracker(self):
+        """The class's editor tracking (ADR-240), stamped on each insert and update after its rules; None without."""
+        if not hasattr(self, "_tracking"):
+            from . import _behaviours
+            self._tracking = _behaviours.tracker(self._connection, self._table)
+        return self._tracking
 
     def _full_row(self, oid):
         cursor = self._connection.execute(f'select * from "{self._table}" where "{self._oid}" = ?', (oid,))
@@ -441,11 +451,15 @@ class InsertCursor(_Cursor):
             written = self._defaults(self._row_values(row))
             if self._rules() is not None:
                 written = self._rules().insert(written)
+            if self._tracker() is not None:
+                written = self._tracker().insert(written)
             _versions.write(self._connection, self._table, branch, object_id, written)
             return object_id
         written = self._defaults(self._row_values(row))
         if self._rules() is not None:
             written = self._rules().insert(written)
+        if self._tracker() is not None:
+            written = self._tracker().insert(written)
         names, values = list(written), list(written.values())
         quoted = ", ".join('"' + n + '"' for n in names)
         marks = ", ".join("?" for _ in names)
@@ -485,6 +499,8 @@ class UpdateCursor(SearchCursor):
             current.update(self._row_values(row))
             if self._rules() is not None:
                 current = self._rules().update(original, current)
+            if self._tracker() is not None:
+                current = self._tracker().update(current)
             _versions.write(self._connection, self._table, branch, oid, current)
             return
         names, values = [], []
@@ -521,6 +537,8 @@ class UpdateCursor(SearchCursor):
             values = [proposed[k] for k in names]
             if not names:
                 return
+        if self._tracker() is not None:
+            names, values = self._tracker().update_names(names, values)
         assignments = ", ".join(f'"{n}" = ?' for n in names)
         self._connection.execute(f'update "{self._table}" set {assignments} where "{self._oid}" = ?', [*values, oid])
 

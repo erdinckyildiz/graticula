@@ -131,8 +131,8 @@ class Round4(unittest.TestCase):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(module, "NoSuchToolAtAll")()
             generic.append(str(raised.exception))
-        self.assertIn("needs a data model this server does not hold yet (ADR-224 group 2): trajectory datasets",
-                      str(self._refusal(grapy.management, "CreateTrajectoryDataset")))
+        self.assertIn("footprint, metadata and file-reference tables its page does not define",
+                      str(self._refusal(grapy.management, "CreateTrajectoryDataset")))  # ADR-240
         self.assertIn("no network", str(self._refusal(grapy.conversion, "WFSToFeatureClass")))
         self.assertTrue(all("is not built in grapy yet" in g for g in generic))
 
