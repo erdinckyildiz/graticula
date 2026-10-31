@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>af1876af</code> · 2026-10-31 14:40</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7a8b27e6</code> · 2026-10-31 15:50</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">308 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">test</div><div class="kpi-n">606 kaynak dosya, 269,912 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5600</div><div class="kpi-l">test</div><div class="kpi-n">606 kaynak dosya, 269,912 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -589,21 +589,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1540</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.3%"></div></div><div class="bar-n">944</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.8%"></div></div><div class="bar-n">890</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.4%"></div></div><div class="bar-n">560</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.5%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.1%"></div></div><div class="bar-n">371</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">238</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1548</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.0%"></div></div><div class="bar-n">944</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.5%"></div></div><div class="bar-n">890</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.2%"></div></div><div class="bar-n">560</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.3%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">371</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.4%"></div></div><div class="bar-n">238</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.5%"></div></div><div class="bar-n">131</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.1%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.9%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.0%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.8%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">43</div></div>
-<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">27</div></div>
+<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">27</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>grapy ve arcpy</h2>
@@ -645,6 +645,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7a8b27e6</code><time>2026-10-31</time><span>Owner decisions of 2026-10-31, second round: Q-218 and Q-219 confirmed, client_credentials to be built, clustering&#x27;s phase order confirmed</span></li>
 <li><code>af1876af</code><time>2026-10-31</time><span>ADR-248&#x27;s image and fence conditions are measured: +270 MB on amd64, +232 MB on arm64, and a fenced tool trains on Linux</span></li>
 <li><code>9d6ab92e</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>082c3ea6</code><time>2026-10-31</time><span>grapy trains and runs deep learning models on point clouds, and prepares and evaluates their data (ADR-249)</span></li>
@@ -658,7 +659,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4033ebc8</code><time>2026-10-31</time><span>grapy trains and runs deep learning models on PyTorch, and exports their training data (ADR-248)</span></li>
 <li><code>c7969666</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>b2aea76f</code><time>2026-10-31</time><span>grapy answers as ArcGIS Pro 3.7 does where four ADRs&#x27; comparisons pinned the rule, and records what is left (ADR-233, 236, 243, 247)</span></li>
-<li><code>5096308b</code><time>2026-10-31</time><span>grapy&#x27;s frame cameras answer as ArcGIS Pro 3.7 does, and its terrain levels choose as Pro&#x27;s do (ADR-234 conditions 5 and 4 partly)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
