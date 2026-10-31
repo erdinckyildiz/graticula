@@ -221,6 +221,9 @@ _WKT2 = ("GEOGCRS", "GEODCRS", "PROJCRS", "VERTCRS", "COMPOUNDCRS", "ENGCRS", "B
 def _ensure_metadata(connection: sqlite3.Connection, srid: int) -> None:
     """The GeoPackage core: the header's application id and version, the three core tables, and the spatial reference
     rows — the three Requirement 11 asks of every file, and ``srid``'s."""
+    if connection.execute("select 1 from sqlite_master where name = 'gpkg_geometry_columns'").fetchone():
+        from . import _gpkgupgrade   # D-340: a file an earlier grapy wrote is said once to be upgradable
+        _gpkgupgrade.offer(connection.execute("pragma database_list").fetchone()[2], connection)
     connection.execute(f"pragma application_id = {APPLICATION_ID}")
     if connection.execute("pragma user_version").fetchone()[0] == 0:  # a file another writer versioned keeps its own
         connection.execute(f"pragma user_version = {USER_VERSION}")

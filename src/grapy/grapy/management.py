@@ -7641,6 +7641,12 @@ RegisterWithGeodatabase = _gdbtools.RegisterWithGeodatabase
 
 _REFUSED.update(_gdbtools.REFUSED)
 
+# ---- D-340: a GeoPackage an earlier grapy wrote, upgraded under arcpy's name
+from . import _gpkgupgrade  # noqa: E402
+
+UpgradeGDB = _gpkgupgrade.UpgradeGDB
+_REFUSED.pop("UpgradeGDB", None)
+
 # ---- D-329's sweep: names built on ADR-236's multidimensional rasters and ADR-238's multipatch features
 from . import _mdmore, _mpmore  # noqa: E402
 
