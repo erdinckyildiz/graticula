@@ -1424,6 +1424,20 @@ public static class Program
         // under it, and before anything reads the catalogue. A value set by an inner middleware never reaches an outer one.
         app.Use((context, next) => TenantRouting.ResolveAsync(context, () => next(context)));
 
+        // D-261: a read under /rest/services resolves its service once, however many places ask (CatalogReadScope).
+        app.Use(async (context, next) =>
+        {
+            if ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+                && context.Request.Path.StartsWithSegments("/rest/services", StringComparison.OrdinalIgnoreCase))
+            {
+                using IDisposable scope = Graticula.Platform.Postgres.CatalogReadScope.Begin();
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            await next(context).ConfigureAwait(false);
+        });
+
         ILogger requests = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("requests");
 

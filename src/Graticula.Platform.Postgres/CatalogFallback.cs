@@ -223,6 +223,12 @@ public sealed class CatalogFallback
             return Remembered(key);
         }
 
+        // D-261: asked already in this request, answered from what it acted on the first time.
+        if (CatalogReadScope.TryGet(key, out CatalogAnswer held))
+        {
+            return held;
+        }
+
         try
         {
             PublishedService? service = await _read(folder, name, cancellationToken)
@@ -242,7 +248,9 @@ public sealed class CatalogFallback
 
             _health?.Succeeded();
 
-            return new CatalogAnswer(service, Blind: false, Age: TimeSpan.Zero);
+            CatalogAnswer answer = new(service, Blind: false, Age: TimeSpan.Zero);
+            CatalogReadScope.Keep(key, answer);
+            return answer;
         }
         catch (Exception e) when (IsUnreachable(e))
         {
