@@ -75,8 +75,22 @@ internal sealed partial class PinnedServices : BackgroundService
     /// <summary>The most services this deployment keeps pinned at once — <c>Graticula:PinnedServiceLimit</c>.</summary>
     public int Limit { get; }
 
+    /// <summary>The platform store, for the per-node warm times the screen reads (ADR-012).</summary>
+    public NpgsqlDataSource Store => _store;
+
+    /// <summary>Tells the site's other nodes of a pin — ADR-012; set at startup, absent in tests that build this alone.</summary>
+    public SiteAnnouncements? Announcer { get; set; }
+
     /// <summary>When this process last finished warming a service, or null while it has not.</summary>
     public DateTimeOffset? WarmedAt(Guid service) => _warmed.TryGetValue(service, out DateTimeOffset at) ? at : null;
+
+    /// <summary>When this node last warmed each pinned service — written to the store per node (ADR-012 item 5).</summary>
+    public IReadOnlyDictionary<Guid, DateTimeOffset> WarmedTimes() => new Dictionary<Guid, DateTimeOffset>(_warmed);
+
+    /// <summary>Done when the first round has been tried, whatever it found — what readiness waits for (ADR-012 item 4).</summary>
+    public Task FirstRound => _firstRound.Task;
+
+    private readonly TaskCompletionSource _firstRound = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>Starts a round now rather than at the next interval — after a pin, so it is warm within seconds.</summary>
     public void Wake()
@@ -146,6 +160,9 @@ internal sealed partial class PinnedServices : BackgroundService
         if (found)
         {
             Wake();
+
+            // ADR-012 phase 0 item 2: every other node wakes too, rather than within its next round.
+            Announcer?.Announce(SiteAnnouncements.Pins);
         }
 
         return found;
@@ -168,6 +185,8 @@ internal sealed partial class PinnedServices : BackgroundService
                 // The store may be unreachable; the next round tries again, and a request still warms what it asks.
                 LogRoundFailed(e);
             }
+
+            _firstRound.TrySetResult();
 
             try
             {

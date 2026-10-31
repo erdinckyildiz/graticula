@@ -31,7 +31,7 @@ namespace Graticula.Host;
 /// </remarks>
 internal sealed partial class RecycleBinService(
     IRecycleBin bin, PostGisImporter importer, IConfiguration configuration, TimeProvider time, HostSettings settings,
-    ILogger<RecycleBinService> log)
+    ILogger<RecycleBinService> log, SiteSingletons? site = null)
     : BackgroundService
 {
     /// <summary>What a relation of kind <c>file</c> is: an uploaded image moved under the state directory's recycle bin.</summary>
@@ -233,8 +233,12 @@ internal sealed partial class RecycleBinService(
         {
             try
             {
-                foreach (RecycleEntry expired in (await bin.ListAsync(stoppingToken).ConfigureAwait(false))
-                    .Where(e => e.ExpiresAt <= time.GetUtcNow()))
+                // ADR-012 phase 0 item 1: once per site, so two nodes never purge one entry together.
+                IEnumerable<RecycleEntry> entries = site is null || await site.LeadsAsync(SiteSingletons.RecycleBinExpiry, stoppingToken).ConfigureAwait(false)
+                    ? await bin.ListAsync(stoppingToken).ConfigureAwait(false)
+                    : [];
+
+                foreach (RecycleEntry expired in entries.Where(e => e.ExpiresAt <= time.GetUtcNow()))
                 {
                     await PurgeAsync(expired, stoppingToken).ConfigureAwait(false);
                     LogPurged(log, expired.Kind, expired.Title);

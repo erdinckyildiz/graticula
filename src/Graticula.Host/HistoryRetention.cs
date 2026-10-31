@@ -31,6 +31,7 @@ internal sealed partial class HistoryRetention : BackgroundService
     private readonly NpgsqlDataSource _datastore;
     private readonly Func<CancellationToken, Task<IReadOnlyList<(string Table, long Versions)>>>? _registered;
     private readonly ILogger<HistoryRetention> _logger;
+    private readonly SiteSingletons? _site;
 
     /// <summary>Creates the sweep.</summary>
     /// <param name="datastore">The datastore, where every hosted layer and its history live.</param>
@@ -38,11 +39,14 @@ internal sealed partial class HistoryRetention : BackgroundService
     /// <param name="registered">
     /// Prunes the histories registered layers keep in their own databases — ADR-207 — or null for none.
     /// </param>
+    /// <param name="site">Which node of a site runs the sweep (ADR-012); none, and this one runs it.</param>
     public HistoryRetention(
         NpgsqlDataSource datastore,
         ILogger<HistoryRetention> logger,
-        Func<CancellationToken, Task<IReadOnlyList<(string Table, long Versions)>>>? registered = null)
+        Func<CancellationToken, Task<IReadOnlyList<(string Table, long Versions)>>>? registered = null,
+        SiteSingletons? site = null)
     {
+        _site = site;
         ArgumentNullException.ThrowIfNull(datastore);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -58,6 +62,13 @@ internal sealed partial class HistoryRetention : BackgroundService
         {
             try
             {
+                // ADR-012 phase 0 item 1: once per site.
+                if (_site is not null && !await _site.LeadsAsync(SiteSingletons.HistoryRetention, stoppingToken).ConfigureAwait(false))
+                {
+                    await Task.Delay(Every, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 IReadOnlyList<(string Table, long Versions)> pruned =
                     await PostGisFeatureHistory.PruneAsync(_datastore, stoppingToken).ConfigureAwait(false);
 

@@ -924,6 +924,30 @@
     it (`TenantRouting.SystemOnly`). Restore is not here, deliberately (§5.5) — it replaces the database this process
     serves — so the page says how it is done instead of offering a button that could not be honest.
   -->
+  <section class="view" id="view-machines">
+    <div class="pagehead">
+      <div>
+        <h2 id="mcTitle" tabindex="-1">Machines</h2>
+        <p>The servers that share this site's database and serve its requests together. Each one says it is alive every
+          ten seconds; one not heard from for thirty is shown down.</p>
+      </div>
+      <div class="right"><span class="val" id="mcCount"></span></div>
+    </div>
+
+    <p class="hint" id="mcSays" role="status" aria-live="polite"></p>
+
+    <div class="panel widetable">
+      <table class="rowblocks" id="mcTable">
+        <thead><tr>
+          <th>Machine</th><th>Status</th><th>Set to</th><th>Runs</th>
+          <th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="mcRows"><tr><td colspan="5" class="empty">Reading the machines&hellip;</td></tr></tbody>
+      </table>
+    </div>
+    <p class="hint" id="mcNote"></p>
+  </section>
+
   <section class="view" id="view-backups">
     <div class="pagehead">
       <div>

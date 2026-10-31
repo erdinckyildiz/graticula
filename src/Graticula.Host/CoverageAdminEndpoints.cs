@@ -1420,6 +1420,9 @@ internal static partial class CoverageAdminEndpoints
         // ADR-148: a registered image without overviews is given them beside its file, in the background.
         context.RequestServices.GetService<CoveragePyramids>()?.Ask();
 
+        // ADR-012 phase 0 items 1–2: the node that builds overviews for the site may be another one.
+        context.RequestServices.GetService<SiteAnnouncements>()?.Announce(SiteAnnouncements.Pyramids);
+
         await audit.RecordAsync(
             new AuditEvent(
                 principal.Principal.Id,

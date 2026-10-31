@@ -281,8 +281,12 @@ treat it as unsupported until somebody measures it.
 
 ### 1.3 What has never been run
 
-**No deployment of this server has ever had two nodes.** Everything in §1.1 is
-derived from where the state is written, not from having watched it. The
+~~**No deployment of this server has ever had two nodes.** Everything in §1.1 is
+derived from where the state is written, not from having watched it.~~ **Two nodes have now run, on one machine
+over one store (ADR-012 condition 2, 2026-10-31)**: a sharing change on one was refused by the other at once, a
+session signed out on one was anonymous on the other, and each node built its own tiles — and an edit on one emptied
+only that node's tiles, so the other kept serving the shape from before the edit. No production deployment has had
+two nodes. The
 multi-node reasoning in ADR-026 — two servers over one store, where a stale value
 is present and wrong rather than missing — is likewise reasoned and untested.
 

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(116);
+    public static SchemaVersion ComponentSchemaVersion => new(119);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -150,7 +150,53 @@ public static class PlatformMigrations
         AServiceAccountHoldsClientSecretsV113,
         ABuiltInAppIsEveryOrganisationsV115,
         AServiceIsFoundByAStoredKeyV116,
+        ASiteKnowsItsNodesV119,
     ]);
+
+    /// <summary>
+    /// A site knows its nodes — ADR-012 phase 0 items 5, 6 and 11: each node writes itself into <c>site_node</c> at
+    /// start and every ten seconds after, with what an administrator set it to and what its settings hash to; and the
+    /// time it last warmed each pinned service is its own row.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The system's, not an organisation's</b>: a node serves every organisation, as a machine of an ArcGIS site
+    /// serves every service. Not floored, and listed as such.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> Two tables nothing older reads; a build before this one starts on a store that has them and never
+    /// registers, which is what it did before.
+    /// </para>
+    /// </remarks>
+    private static Migration ASiteKnowsItsNodesV119 => Migration.Expand(
+        new SchemaVersion(119),
+        "A site knows its nodes: each registers itself, keeps a heartbeat, and keeps its own pinned services' warm times (ADR-012).",
+
+        """
+        create table if not exists site_node (
+            name text primary key,
+            address text not null,
+            version text not null,
+            started_at timestamptz not null,
+            last_seen timestamptz not null,
+            configured_state text not null default 'started'
+                check (configured_state in ('started', 'stopped', 'maintenance')),
+            settings text not null,
+            key_check text not null,
+            leads text[] not null default '{}',
+            ready boolean not null default false,
+            probe text
+        )
+        """,
+
+        """
+        create table if not exists site_node_warm (
+            node text not null references site_node (name) on delete cascade,
+            service_id uuid not null references service (id) on delete cascade,
+            warmed_at timestamptz not null,
+            primary key (node, service_id)
+        )
+        """);
 
     /// <summary>
     /// ArcGIS Pro, the ArcGIS API for Python and Field Maps are apps of every organisation, not of the first one —

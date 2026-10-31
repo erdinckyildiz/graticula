@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
@@ -149,6 +150,11 @@ internal static partial class AdminEndpoints
         bool pinned = await pins.IsPinnedAsync(service, cancellation).ConfigureAwait(false);
         int count = await pins.CountAsync(cancellation).ConfigureAwait(false);
 
+        // ADR-012 item 5: each node's own time, so the case to show — one node unable to reach a table another can — shows.
+        (int warm, int of, IReadOnlyList<string> cold) = pinned && pins.Store is { } store
+            ? await SiteNodes.WarmOnAsync(store, service, cancellation).ConfigureAwait(false)
+            : (0, 0, []);
+
         return new
         {
             name,
@@ -158,6 +164,7 @@ internal static partial class AdminEndpoints
             warmedAt = pinned ? pins.WarmedAt(service) : null,
             pinnedOnServer = count,
             limit = pins.Limit,
+            nodes = of > 1 ? new { warm, of, cold } : null,
         };
     }
 }

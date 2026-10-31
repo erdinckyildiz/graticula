@@ -57,3 +57,37 @@ No request failed at any level. The full tables are in `measured-2026-10-22.txt`
 
 The showcase or any server-class machine; the image service, the geometry service and exports to file; a cached tile
 workload; PostgreSQL's connections at the peak (the budget bounded them, nothing was refused).
+
+## Re-measured 2026-10-31 — with connections, on a Release build
+
+Measured again for the owner's *"Onayla, ölç ve kur"*, closing what the first run left out: **PostgreSQL's
+connections at the peak**, a **Release** build, and CPU counted for **this fixture's processes only** — the first run
+summed every `postgres` and every `Graticula.Host` on the machine, and other sessions' fixtures run on it. Own
+PostgreSQL 16 cluster (`max_connections` 300), the same 840,596 buildings published as `hosted/bench_store`, the same
+pinning (PostgreSQL 0–5, the node 6–11, the generator 12–15), logging at `Warning`. Beside each run an authenticated
+`/rest/whoami` every two seconds and `pg_stat_activity` sampled for the database. Full tables:
+`measured-2026-10-31.txt`.
+
+| Workload | Peak req/s | Graticula cores (of 6) | PostgreSQL cores (of 6) | Fills first | Node ms / PG ms per request |
+|---|---|---|---|---|---|
+| control `/healthz/live` | 62,799 | 5.58 | 0.73 (the request log's `COPY`) | — | — |
+| query | 1,351 | 3.22 | **5.35** | **PostgreSQL** | 2.4 / 4.0 |
+| tile (uncached) | 1,239 | 1.72 | **4.85** | **PostgreSQL** | 1.4 / 3.9 |
+| export (map image) | 97 | 4.30 | 2.88 | **neither — the per-source admission bound** | 44 / 30 |
+| mix | 377 | 3.40 | 3.22 | **neither — the per-source admission bound** | 9.0 / 8.5 |
+
+- **Connections at the peak: 53–58** backends for the database, 22–35 of them active at once — the budget's 24 per
+  source and 24 for the platform store, well under the 297 usable. **No breaker opened** (0 lines in the node's log).
+  **The authenticated whoami answered 200 throughout**, slowest 770 ms under the query peak.
+- **What is new: the map image and the mix are held by admission before either CPU fills.** At 128 callers both
+  refuse with 503 — 116 and 324 refusals, every one `ConnectionBudgetFullException` (*24 in flight against that
+  data source and 96 more waiting*). A map image holds its source's permit while it draws, so at one node 24 images
+  in flight is the ceiling, at 4.3 of 6 node cores. **A second node doubles that bound across the site (48 against
+  one PostgreSQL)**, which is where a second node's gain on map images comes from — and what the store then has to
+  hold, since `Graticula:PerSourceConcurrency` is per node.
+- The machine was shared: about 22 % of its CPU was other sessions' at the start, and they are on every core. The
+  ratios are the finding, as before.
+
+**So, plainly: for feature queries and uncached vector tiles the node is not the limit** — PostgreSQL fills first, by
+about 1.7 to 2.8 times the node's CPU per request, and a second node adds nothing to them until the store grows. For
+map images the node's CPU and the per-node admission bound are the limit, and a second node is the answer.

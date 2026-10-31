@@ -56,6 +56,10 @@ internal static class ConnectionCeilings
     /// </param>
     /// <param name="logger">Where to say it.</param>
     /// <param name="cancellationToken">The caller's.</param>
+    /// <param name="nodes">
+    /// How many nodes of a site the ceiling is for — ADR-012 phase 0 item 3. One by default, where the message is the one
+    /// it always was; more, and the message says the ceiling is the whole site's.
+    /// </param>
     /// <returns>
     /// Nothing. A database that will not say is not an error: this is an aside about the
     /// configuration, and refusing to start over a failed `SHOW` would make a diagnostic into
@@ -65,7 +69,8 @@ internal static class ConnectionCeilings
         NpgsqlDataSource dataSource,
         int ceiling,
         ILogger logger,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int nodes = 1)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
@@ -96,6 +101,20 @@ internal static class ConnectionCeilings
         }
 
         int usable = allowed - (reserved > 0 ? reserved : ReservedByDefault);
+
+        if (nodes > 1)
+        {
+            if (ceiling <= usable)
+            {
+                Log.SiteConnectionCeilingFits(logger, nodes, ceiling, usable, allowed);
+            }
+            else
+            {
+                Log.SiteConnectionCeilingExceedsTheDatabase(logger, nodes, ceiling, usable, allowed);
+            }
+
+            return;
+        }
 
         if (ceiling <= usable)
         {

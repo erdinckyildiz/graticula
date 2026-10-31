@@ -264,7 +264,7 @@ internal static partial class BackupEndpoints
 /// <summary>
 /// Takes the scheduled backup once a day in its hour, and keeps the number the schedule says — ADR-193 §5.6.
 /// </summary>
-internal sealed partial class BackupScheduler(Backups backups, IServerSettingStore settings, ILogger<BackupScheduler> log) : BackgroundService
+internal sealed partial class BackupScheduler(Backups backups, IServerSettingStore settings, ILogger<BackupScheduler> log, SiteSingletons? site = null) : BackgroundService
 {
     [LoggerMessage(EventId = 2352, Level = LogLevel.Warning, Message = "The backup schedule could not be read or applied: {Reason}")]
     private static partial void ScheduleFailed(ILogger log, Exception failed, string reason);
@@ -283,6 +283,13 @@ internal sealed partial class BackupScheduler(Backups backups, IServerSettingSto
 
                 if (!schedule.Enabled || now.Hour != schedule.HourUtc
                     || backups.List().Any(b => b.Manifest.Taken.UtcDateTime.Date == now.UtcDateTime.Date))
+                {
+                    continue;
+                }
+
+                // ADR-012 phase 0 item 1: one backup per site per day, taken by the node that holds the schedule's lock,
+                // not one by every node in the same hour.
+                if (site is not null && !await site.LeadsAsync(SiteSingletons.Backup, stoppingToken).ConfigureAwait(false))
                 {
                     continue;
                 }
