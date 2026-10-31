@@ -184,3 +184,4 @@ The password is masked, is never filled in on either path, and is required to sa
    this server connect anywhere. A narrower privilege that can register but not test —
    or a delegated one — makes that sentence false, and this endpoint is where it would
    first be false.
+   **DISCHARGED 2026-10-31** — moved to [D-362](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *the privilege splits*, is carried there verbatim with the re-argument of §3 it asks for. The condition was a trigger and not work; the debt row is where it is now watched.

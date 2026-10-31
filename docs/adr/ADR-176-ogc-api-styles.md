@@ -245,6 +245,7 @@ moved into `WmsEndpoints.SldLayerOf` so that both faces call one function.
    and the architecture tests pass (47 of 47).
 2. **No OGC executable test suite exists** (§4), so the claim rests on the specification's requirements and on the
    tests written here. When one is published it is run, and its findings replace this condition.
+   **DISCHARGED 2026-10-31** — moved to [D-358](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *an OGC executable test suite is published* for OGC API Styles, is carried there verbatim with ADR-165's and ADR-177's. The condition was a trigger and not work; the debt row is where it is now watched.
 3. **A client reads a stylesheet from this face**: a MapLibre page pointed at `/styles/{id}?f=mapbox` that draws the
    tiles, and QGIS or another SLD reader that loads `?f=sld11` or `?f=sld10`. No client has done either yet.
    **DISCHARGED 2026-10-07, and the MapLibre half found a defect first.** MapLibre GL JS 4.7 in headless Chrome,

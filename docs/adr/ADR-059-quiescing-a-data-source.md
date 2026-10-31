@@ -504,6 +504,7 @@ whose §6 names quiesce as the thing it does not touch.
 3. **The window is measured against a real customer's DDL** before fifteen
    minutes is defended as anything but a guess. §5b says so; this is the row that
    keeps it from being forgotten.
+   **DISCHARGED 2026-10-31** — moved to [D-359](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *a real customer's DDL*, is carried there verbatim with ADR-024's and ADR-026's. The condition was a trigger and not work; the debt row is where it is now watched.
 4. **The console offers it where the DBA's problem is visible**, and goes through
    the ux-designer first — the owner's standing instruction.
    ***(PARTLY DISCHARGED 2026-09-08.)*** The Data sources screen carries *Quiesce…*

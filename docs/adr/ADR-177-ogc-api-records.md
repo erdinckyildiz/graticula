@@ -120,6 +120,7 @@ published standard (20-004r1) and the clients' observable requests only.
 1. **There is no OGC executable test suite for OGC API Records** (verified 2026-10-06, §4), so the conformance claim
    rests on the specification's requirements and the tests in this repository. When OGC publishes one, it is run and
    its findings are fixed or the classes it fails are withdrawn.
+   **DISCHARGED 2026-10-31** — moved to [D-358](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *an OGC executable test suite is published* for OGC API Records, is carried there verbatim with ADR-165's and ADR-176's. The condition was a trigger and not work; the debt row is where it is now watched.
 2. **A records client reads it in practice**: QGIS 3.28's MetaSearch is pointed at
    `…/ogc/records/v1/collections/catalog` in the QGIS interface (not only its backend from Python), a record is opened
    and a WMS or WFS link added to a map. **PARTLY DISCHARGED 2026-10-06:** OWSLib 0.25 and MetaSearch's `OARecSearch`

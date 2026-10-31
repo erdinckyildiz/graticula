@@ -165,3 +165,4 @@ None recorded.
    created past 55. What remains is a store somebody else ran before v1.0.164 with domains in it, which nobody has
    reported — so this is a trigger rather than work, and whether to keep it open, or to accept §4's seeded copy
    as the evidence, is the owner's call.
+   **DISCHARGED 2026-10-31** — moved to [D-364](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *the first real store with domains going through migration 55*, is carried there verbatim. The condition was a trigger and not work; the debt row is where it is now watched.

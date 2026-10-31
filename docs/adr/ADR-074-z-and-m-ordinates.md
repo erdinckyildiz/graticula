@@ -160,6 +160,13 @@ If 3D is taken up, this is the sequence, and each step is its own ADR:
    nothing while `ST_Zmflag` says the row carries Z.)*
 3. **If step 2 of §5 is ever started, this ADR is reopened rather than amended in place**, because
    §3 is v1-scope's and changing it is a scope decision the owner takes.
+   *(Read 2026-10-31 for the owner's decision to move trigger-shaped conditions to debt rows (*"Borç satırına
+   taşı"*), and **not moved**: this trigger is not waiting, it fired on 2026-09-16. Step 2 of §5 was started and done
+   that day as [ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md), chosen by the owner (*"3B adım 2: geometri modeli"*),
+   so the scope decision this condition reserves for the owner was taken by the owner. What did not happen is the
+   letter of the condition: ADR-077 was written as its own ADR, as §5 says each step is, and this ADR was never
+   marked `REOPENED`. Whether ADR-077 discharges this condition, or this ADR is to be reopened now, is a question
+   for the owner and not a trigger for a debt row; the state is unchanged here.)*
 
 ## 7. Consequences
 

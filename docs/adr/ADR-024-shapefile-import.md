@@ -192,6 +192,7 @@ Nothing in it outlives the job, which is why it is not under `StatePath`.
    GeoParquet file). **What is not discharged** is the decision this measurement asks for, which is the owner's —
    [Q-175](../open-questions.md) — and the other half of A-062, what troubles the machine.
    **The decision was taken the same day — Q-175: the limits stay, and a deployment may change them.** `Graticula:UploadMaxMB` (64), `Graticula:ShapefileMaxMB` (256), `Graticula:ImportMaxFeatures` (1,000,000) and `Graticula:ImportMaxVertices` (50,000,000), each defaulting to the number above; a refusal names the setting. **Still PARTLY**: what troubles the machine was not measured, and a deployment raising the limits is the one that would find it.
+   **DISCHARGED 2026-10-31** — moved to [D-359](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): what is left — what troubles the machine, found by the first deployment that matters or one that raises the limits — is carried there verbatim with ADR-026's and ADR-059's windows. The condition was a trigger and not work; the debt row is where it is now watched.
 5. **Dropping Z and M is stated in the import response**, not only in this
    document. A loss the caller is not told about at the time is a loss they find
    later. *(Discharged — `HostedDataEndpoints` sets an import warning when `ShapefileReader.DropsZOrM` is true, and the import response carries it. The caller is told at the moment of the loss rather than finding it in an ADR later.)*

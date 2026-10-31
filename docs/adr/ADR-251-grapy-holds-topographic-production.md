@@ -275,3 +275,4 @@ None recorded.
    `test_topographic_relief.test_the_model_follows_the_epoch` asserts that 2031.0 is refused; it passed on this
    branch, 21 tests, OK. Proposal for the owner: make this a standing trigger rather than a live condition, or
    move it to a debt row whose trigger is NOAA's publication.)*
+   **DISCHARGED 2026-10-31** — moved to [D-363](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *NOAA publishes WMM2030*, is carried there verbatim with the test that holds the refusal past 2030.0. The condition was a trigger and not work; the debt row is where it is now watched.
