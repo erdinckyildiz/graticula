@@ -171,7 +171,8 @@ limits.
    object features (Add3DFormats, Remove3DFormats, Export3DObjects, Import3DObjects, GenerateLevelOfDetail,
    MultipatchToCollada, MultipatchToRaster), voxels (CreateVoxelSceneLayerContent), scene layers (MakeSceneLayer,
    PointCloudToRaster's point cloud scene layer, MeshToLAS's integrated mesh), BIM file workspaces (MakeBuildingLayer,
-   BIMFileToGeodatabase, ExtractBIMFileFloorplan). None changed its decision.
+   BIMFileToGeodatabase, ExtractBIMFileFloorplan). None changed its decision. *(The multipatch, 3D object and voxel
+   reasons were made false in their turn by ADR-236 and ADR-238 and replaced on 2026-10-31: [ADR-238](ADR-238-grapy-holds-multipatch-features.md) §12.)*
 9. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-202** (*"Hepsini onayla"*) ([Q-202](../open-questions.md)):
    - (a) the storage of §5.2; the frame camera conventions — pixel coordinates from the image's upper-left corner, a
      pixel's centre at +0.5; without an affine, film x = (column − columns/2) × pixel size and film y = (rows/2 − row) ×

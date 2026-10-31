@@ -148,7 +148,7 @@ netCDF and 3D files in its run directory.
 move from refused to built; no name in grapy says *not held yet* for a multipatch.
 
 **Negative.** The image grows by one compiled wheel (about 2 MB). A multipatch's appearance is lost on import. Several
-refusals elsewhere still say multipatch features are not held ([D-329](../architecture-debt.md)).
+refusals elsewhere said multipatch features were not held ([D-329](../architecture-debt.md), closed by §12).
 
 **Ports created.** manifold3d is reached only through `_multipatch.Solid` and `_mptools.buffer_solid`; no manifold3d
 type leaves those.
@@ -192,3 +192,56 @@ None recorded.
    `MultipatchToRaster`, `management`'s 3D-object and level-of-detail tools, `ddd.SkylineBarrier`,
    PointFileInformation's EXTRUSION, ExtractObjectsFromPointCloud's 3D types and LocateLasPointsByProximity's multipatch
    features — are built on this model or refused for a reason of their own ([D-329](../architecture-debt.md)).
+   **DISCHARGED 2026-10-31** by D-329's sweep (§12): MultipatchToCollada, MultipatchToRaster, SkylineBarrier,
+   Export3DObjects, Import3DObjects, EXTRUSION, the 3D convex and concave hulls and the bounding sphere, and multipatch
+   proximity are built; Add3DFormats, Remove3DFormats, GenerateLevelOfDetail, BOUNDING_BOX_3D and silhouettes are
+   refused, each for its own reason; `test_lookagain.py`.
+
+## 12. Amendment 2026-10-31 — D-329's sweep: the names that still said a model was missing
+
+Four models arrived on one day — multidimensional rasters (ADR-236), SAR data (ADR-237), multipatch features (this
+ADR) and editing behaviours with COGO (ADR-240) — and refusals written before them still gave their absence as the
+reason. Each name was looked at again, its page read on doc.esri.com on 2026-10-31 (curl and quoted; no Esri
+implementation read, CLAUDE.md §5), and built or refused for a reason that is true now. No new ADR: every name is built
+on a model these four ADRs already hold, and the formats written are published standards.
+
+1. **Built on multipatch features** (`grapy/_mpmore.py`): `conversion.MultipatchToCollada` (COLLADA 1.4.1 and 1.5.0,
+   Khronos/ISO PAS 17506; a KML 2.2 placemark beside it when the class is projected, as the page says),
+   `conversion.MultipatchToRaster` (a vertical line from each cell centre, vertical faces left out, the cell size
+   rules of the page), `ddd.SkylineBarrier` (lines; the fan, CLOSED and PROJECT_TO_PLANE), `management.Export3DObjects`
+   and `Import3DObjects` (COLLADA, Wavefront OBJ, glTF 2.0 — ISO/IEC 12113:2022 — as .gltf and .glb),
+   PointFileInformation's EXTRUSION, ExtractObjectsFromPointCloud's CONVEX_HULL_3D (the default), CONCAVE_HULL_3D
+   (the 3D alpha shape, Edelsbrunner and Mücke 1994) and BOUNDING_SPHERE (Welzl 1991, in Gärtner's move-to-front form),
+   LocateLasPointsByProximity on multipatch features (the distance to the nearest face, Ericson 2005 §5.1.5),
+   `da.CreateTable` and `management.RegisterWithGeodatabase` with MULTIPATCH.
+2. **Built on multidimensional rasters** (`grapy/_mdmore.py`): `ia`/`sa.Subset`, `ia`/`sa.Foreach`,
+   `ia.SummarizeCategoricalRaster`, `management.ExtractSubDataset` (HDF and NITF subdatasets through GDAL),
+   `arcpy.NetCDFFileProperties` (typed, through scipy's netCDF-3 reader; a netCDF-4 file refused by value), CopyRaster's
+   ALL_SLICES. **On SAR data**: `ia`/`sa.Complex`, the magnitude of complex cells. **On COGO lines**
+   (`grapy/_cogo.py`): `edit.UpdateCOGO`. Beside them, `da.CreateTable`'s z and m and `NumPyArrayToFeatureClass`'s z and
+   m fields, refused as *"grapy's shapes hold neither"*, which they do.
+3. **One netCDF writer.** `_mdim.netcdf3` writes every netCDF grapy makes: ADR-236's multidimensional rasters and this
+   ADR's voxels (§5.2 (g)) both go through it. The two layouts stay different — a voxel grid ascending in y, its
+   categories integers with −1 as fill — and the writer does not care; the voxel's `elevation` now carries CF's
+   `axis` and `positive`, so `Raster(path, True)` reads it as `StdZ`.
+4. **Refused, each for its own reason**: Add3DFormats and Remove3DFormats (the 3D object feature class's format tables
+   are not named or laid out by either page), GenerateLevelOfDetail (it works on integrated mesh scene layer packages,
+   not multipatch, and does not say how coarse levels are simplified), CreateVoxelSceneLayerContent (a voxel layer is a
+   local scene's display layer), BuildMultidimensionalTranspose (CRF only, transpose layout unpublished),
+   BuildMultidimensionalInfo (the Dimensions field's content is not given), ExtractWater (its classifier is not named);
+   by value or parameter: SkylineBarrier's silhouettes, ExtractObjectsFromPointCloud's BOUNDING_BOX_3D (exact and
+   approximate oriented boxes differ and the page names none), the formats DWG and FBX (Autodesk's, unpublished), IFC
+   (implicit geometry whose tessellation is not specified), USDC and USDZ (the crate binary has no published
+   specification) and CityGML (module and level of detail not given), CopyRaster's TRANSPOSE. The six colour and
+   pansharpening names kept their reason, less its *multidimensional* clause.
+5. **Fixed in passing**: ExtractObjectsFromPointCloud's BOUNDING_BOX_2D is the smallest *oriented* rectangle, as its
+   page says; it was the axis-aligned box.
+6. **INFERRED, for the owner** ([Q-209](../open-questions.md)): (a) Subset's dimension names and intervals; (b)
+   Foreach's slice arguments; (c) SummarizeCategoricalRaster's table; (d) ExtractSubDataset's index from 1; (e)
+   NetCDFFileProperties' field type words and dimension values; (f) a 3D object feature class is a multipatch class,
+   and the models' origin, naming and axes; (g) MultipatchToRaster's grid corner; (h) SkylineBarrier's pairing,
+   ORIGFTR_ID, radii and planes; (i) UpdateCOGO's direction, corrections and arcs; (j) a flat extrusion; (k) the LAS
+   tools' 3D shapes and distances; (l) Complex on a real raster.
+
+**Names, before → after** (`tools/grapy-refusals.json`): built 1,256 → 1,271, refused 918 → 903, equivalents
+unchanged, none unexamined.

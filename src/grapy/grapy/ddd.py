@@ -700,8 +700,8 @@ _REFUSED.update({
     "LineOfSight": "how the sight line is sampled against the surface is not documented",
     "Intersect3DLineWithSurface": "how the line is sampled against the surface is not documented",
     "Intervisibility": "how each sight line is sampled against the obstructions is not documented",
-    "Skyline": "its horizon search and output vertices are not documented", "SkylineBarrier":
-    "it writes multipatch features (ADR-224 group 2)", "SkylineGraph": "it reads Skyline's output, which is refused",
+    "Skyline": "its horizon search and output vertices are not documented",
+    "SkylineGraph": "it reads Skyline's output, which is refused",
     "EnforceRiverMonotonicity": "its boundary sampling and simplification are described, not specified",
     "GenerateClearanceSurface": "its flare geometry and overlap rules are described, not specified",
 })
@@ -1257,3 +1257,9 @@ def __getattr__(name):
         raise NotBuiltError(f"arcpy.ddd.{name} is not built in grapy" + (f": {why}." if why else " yet."))
 
     return missing
+
+
+# ---- SkylineBarrier on ADR-238's multipatch features (D-329), built in _mpmore
+from . import _mpmore  # noqa: E402
+
+SkylineBarrier = _mpmore.SkylineBarrier

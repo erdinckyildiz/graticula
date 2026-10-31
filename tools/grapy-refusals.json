@@ -1,6 +1,6 @@
 {
  "arcpy": {
-  "built": 101,
+  "built": 102,
   "equivalents": {},
   "of": 183,
   "refused": {
@@ -64,7 +64,6 @@
    "LogUsageMetering": "arcpy.LogUsageMetering is not built in grapy — a user tool runs fenced on this server, with no network and no access to its portal, licensing or enterprise geodatabases (ADR-223 §5.3).",
    "Mensuration": "arcpy.Mensuration is not built in grapy — its documentation could not be found (looked under the arcpy functions and classes alphabetical lists, its pro.arcgis.com address, and the arcpy.mp, arcpy.ia and arcpy.sharing sections).",
    "Multipatch": "arcpy.Multipatch is not built in grapy — arcpy documents no Multipatch class — neither its class list nor the Geometry page names one, so its constructor and members are unknown; grapy holds multipatch features (ADR-238) and reads and writes them through the cursors as geometries.",
-   "NetCDFFileProperties": "arcpy.NetCDFFileProperties is not built in grapy — GDAL's netCDF driver, the one grapy's rasters read through, reports attributes and extra dimensions as metadata text, not the typed variables and dimensions the class answers (getFieldType, getDimensionsByVariable, getSpatialReference); answering through it would be approximate.",
    "PauseDrawing": "arcpy.PauseDrawing is not built in grapy — it acts on ArcGIS Pro's application — its maps, printers, drawing or symbology — which a run on this server does not have.",
    "ProductInfo": "arcpy.ProductInfo is not built in grapy — it answers about an ArcGIS installation, license or product, and grapy is not ArcGIS.",
    "RandomNumberGenerator": "arcpy.RandomNumberGenerator is not built in grapy — its generators' streams are Esri's, and a seeded stream must match to be the same answer.",
@@ -162,7 +161,7 @@
   "unexamined": []
  },
  "arcpy.conversion": {
-  "built": 29,
+  "built": 31,
   "equivalents": {
    "FeatureClassToShapefile": "the ESRI Shapefile Technical Description (1998) and dBASE III, field names cut to ten characters (ESRI Shapefile Technical Description, July 1998)",
    "TableToDBASE": "dBASE III tables, field names cut to ten characters (dBASE III file format)"
@@ -194,8 +193,6 @@
    "MapToKML": "arcpy.conversion.MapToKML needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold.",
    "MeshToLAS": "arcpy.conversion.MeshToLAS reads an integrated mesh scene layer (I3S or a scene layer package), which grapy does not hold (ADR-224 group 2).",
    "MobileGdbToFileGdb": "arcpy.conversion.MobileGdbToFileGdb reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's workspace is a GeoPackage.",
-   "MultipatchToCollada": "arcpy.conversion.MultipatchToCollada reads multipatch features, a 3D data model grapy does not hold (ADR-224 group 2).",
-   "MultipatchToRaster": "arcpy.conversion.MultipatchToRaster reads multipatch features, a 3D data model grapy does not hold (ADR-224 group 2).",
    "PDFToTIFF": "arcpy.conversion.PDFToTIFF needs a PDF renderer, which grapy does not carry.",
    "PointCloudToRaster": "arcpy.conversion.PointCloudToRaster needs a point cloud scene layer (I3S or a scene layer package) as input, which grapy does not hold; LAS datasets are held since ADR-229 and LasDatasetToRaster reads them (ADR-224 group 2).",
    "RasterToGeodatabase": "arcpy.conversion.RasterToGeodatabase writes a raster into a geodatabase or a format other than GeoTIFF; grapy's rasters are GeoTIFF files (ADR-224 §5.5).",
@@ -221,7 +218,7 @@
   "unexamined": []
  },
  "arcpy.ddd": {
-  "built": 103,
+  "built": 104,
   "equivalents": {
    "ClassifyLasBuilding": "plane detection by region growing with a smoothness constraint (Rabbani, van den Heuvel and Vosselman 2006)",
    "ClassifyLasGround": "the progressive morphological filter (Zhang et al. 2003)",
@@ -271,7 +268,6 @@
    "RegularizeAdjacentBuildingFootprint": "arcpy.ddd.RegularizeAdjacentBuildingFootprint is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",
    "RegularizeBuildingFootprint": "arcpy.ddd.RegularizeBuildingFootprint is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",
    "Skyline": "arcpy.ddd.Skyline is not built in grapy: its horizon search and output vertices are not documented.",
-   "SkylineBarrier": "arcpy.ddd.SkylineBarrier is not built in grapy: it writes multipatch features (ADR-224 group 2).",
    "SkylineGraph": "arcpy.ddd.SkylineGraph is not built in grapy: it reads Skyline's output, which is refused.",
    "SplineWithBarriers": "arcpy.ddd.SplineWithBarriers is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",
    "StackProfile": "arcpy.ddd.StackProfile is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",
@@ -291,7 +287,7 @@
   "unexamined": []
  },
  "arcpy.edit": {
-  "built": 15,
+  "built": 16,
   "equivalents": {
    "AlignFeatures": "input lines matched to target lines by Hausdorff distance within the search distance and replaced by the target's stretch between their ends' projections (INFERRED construction)",
    "EdgematchFeatures": "line ends moved to the documented connecting locations; ADJUST_VERTICES spreads the move along the line in proportion to the distance from the far end (INFERRED construction for ADJUST_VERTICES)",
@@ -304,8 +300,7 @@
   "refused": {
    "SimplifyByStraightLinesAndCircularArcs": "arcpy.edit.SimplifyByStraightLinesAndCircularArcs is not built in grapy: it writes true circular arcs, which a GeoPackage feature class here does not hold, and its fitting is not specified.",
    "SimplifyByTangentSegments": "arcpy.edit.SimplifyByTangentSegments is not built in grapy: it writes true curves, which a GeoPackage feature class here does not hold, and its fitting is not specified.",
-   "SplitLineByMatch": "arcpy.edit.SplitLineByMatch is not built in grapy: its input is a match table, which grapy's matching tools do not write — their match groups and confidence levels are not specified.",
-   "UpdateCOGO": "arcpy.edit.UpdateCOGO is not built in grapy: it works on COGO-enabled lines, a data model this server does not hold (ADR-224 group 2)."
+   "SplitLineByMatch": "arcpy.edit.SplitLineByMatch is not built in grapy: its input is a match table, which grapy's matching tools do not write — their match groups and confidence levels are not specified."
   },
   "unexamined": []
  },
@@ -340,7 +335,7 @@
   "unexamined": []
  },
  "arcpy.ia": {
-  "built": 202,
+  "built": 206,
   "equivalents": {
    "AnalyzeChangesUsingCCDC": "Continuous Change Detection and Classification: a harmonic model of up to three harmonics fitted by least squares and monitored by a chi-squared test on consecutive normalised residuals (Zhu and Woodcock 2014, Remote Sensing of Environment 144, 152–171)",
    "AnalyzeChangesUsingLandTrendr": "LandTrendr temporal segmentation: despiking, vertex search by largest departure, culling by angle, continuous piecewise-linear least squares and selection by the F-test's p-value (Kennedy, Yang and Cohen 2010, Remote Sensing of Environment 114, 2897–2910)",
@@ -391,7 +386,6 @@
    "CombinatorialAnd": "arcpy.ia.CombinatorialAnd is not built in grapy: the page does not say how the unique combination values are numbered, nor how NoData is treated.",
    "CombinatorialOr": "arcpy.ia.CombinatorialOr is not built in grapy: Combinatorial And's page, its sibling, does not say how combination values are numbered.",
    "CombinatorialXOr": "arcpy.ia.CombinatorialXOr is not built in grapy: Combinatorial And's page, its sibling, does not say how combination values are numbered.",
-   "Complex": "arcpy.ia.Complex is not built in grapy: grapy's rasters hold no complex pixel types, and the page defers the magnitude formula.",
    "ComputeAccuracyForObjectDetection": "arcpy.ia.ComputeAccuracyForObjectDetection is not built in grapy: it needs a pretrained model or a deep learning framework, which a user tool on this server does not have (ADR-224 group 3).",
    "ComputeAccuracyForPixelClassification": "arcpy.ia.ComputeAccuracyForPixelClassification is not built in grapy: it needs a pretrained model or a deep learning framework, which a user tool on this server does not have (ADR-224 group 3).",
    "ComputeConfusionMatrix": "arcpy.ia.ComputeConfusionMatrix is not built in grapy: the output table's fields are shown only by example, and the IoU it mentions is not in it.",
@@ -415,10 +409,9 @@
    "ExtractFeaturesUsingAIModels": "arcpy.ia.ExtractFeaturesUsingAIModels is not built in grapy: it needs a pretrained model or a deep learning framework, which a user tool on this server does not have (ADR-224 group 3).",
    "ExtractSpectraFromImage": "arcpy.ia.ExtractSpectraFromImage is not built in grapy: it reads or writes spectral libraries (.esl, .sli) whose layout the page does not give.",
    "ExtractVideoFramesToImages": "arcpy.ia.ExtractVideoFramesToImages is not built in grapy: it decodes the frames of a video file (.ts, .mp4, .avi …) into images, and a user tool on this server has no video demuxer, muxer or decoder: none is among grapy's libraries, and grapy does not vendor one (ADR-237 §5.6).",
-   "ExtractWater": "arcpy.ia.ExtractWater is not built in grapy: it classifies radar backscatter by a method the page does not name (ADR-224 group 2 for SAR).",
+   "ExtractWater": "arcpy.ia.ExtractWater is not built in grapy: it labels radar backscatter as water or land by a classifier its page does not name — no threshold, statistic or training is given — though grapy holds SAR data (ADR-237).",
    "FloatDivide": "arcpy.ia.FloatDivide is not built in grapy: its reference page could not be read (404 on 2026-10-29).",
    "FloorDivide": "arcpy.ia.FloorDivide is not built in grapy: its reference page could not be read (404 on 2026-10-29).",
-   "Foreach": "arcpy.ia.Foreach is not built in grapy: it applies a raster function to every slice of a multidimensional raster (ADR-224 group 2).",
    "GNDVI": "arcpy.ia.GNDVI is not built in grapy: its arcpy.ia page could not be read (404 on 2026-10-29), so its parameter names and defaults are unknown.",
    "GenerateTrainingSamplesFromSeedPoints": "arcpy.ia.GenerateTrainingSamplesFromSeedPoints is not built in grapy: the page does not give the region grow's connectivity or order.",
    "GenerateVideoMetadataStationary": "arcpy.ia.GenerateVideoMetadataStationary is not built in grapy: it writes a .ts video file, its input's video stream multiplexed with generated MISB ST 0601 metadata, and a user tool on this server has no video demuxer, muxer or decoder: none is among grapy's libraries, and grapy does not vendor one (ADR-237 §5.6).",
@@ -471,9 +464,7 @@
    "SpectralConversion": "arcpy.ia.SpectralConversion is not built in grapy: its reference page could not be read (404 on 2026-10-29).",
    "Statistics": "arcpy.ia.Statistics is not built in grapy: its page states the defaults of stat_type and fill_no_data_only two ways that disagree, and is silent on edges.",
    "StatisticsHistogram": "arcpy.ia.StatisticsHistogram is not built in grapy: it attaches statistics and histogram metadata, which grapy's rasters do not carry.",
-   "Subset": "arcpy.ia.Subset is not built in grapy: it subsets multidimensional rasters by variable and dimension (ADR-224 group 2).",
    "Sultan": "arcpy.ia.Sultan is not built in grapy: it answers three bands from an ordering of five band ids the page does not spell out.",
-   "SummarizeCategoricalRaster": "arcpy.ia.SummarizeCategoricalRaster is not built in grapy: it summarises multidimensional categorical rasters (ADR-224 group 2).",
    "TasseledCap": "arcpy.ia.TasseledCap is not built in grapy: its algorithm is named or described but not specified closely enough to reproduce.",
    "TimeMultipleDays": "arcpy.ia.TimeMultipleDays is not built in grapy: Fu and Rich's (2000) model is given only in part: the direct and diffuse formulas are text, but the sun map and sky map are discretised by sky_size and the zenith and azimuth divisions in ways defined only in Fu 2000 (a thesis) and the hemispherical viewshed in Rich et al. 1994; an equivalent evaluating the sun continuously would leave sky_size and the divisions unhonoured.",
    "TimeSpecialDays": "arcpy.ia.TimeSpecialDays is not built in grapy: Fu and Rich's (2000) model is given only in part: the direct and diffuse formulas are text, but the sun map and sky map are discretised by sky_size and the zenith and azimuth divisions in ways defined only in Fu 2000 (a thesis) and the hemispherical viewshed in Rich et al. 1994; an equivalent evaluating the sun continuously would leave sky_size and the divisions unhonoured.",
@@ -523,7 +514,7 @@
   "unexamined": []
  },
  "arcpy.management": {
-  "built": 241,
+  "built": 244,
   "equivalents": {
    "CalculateGeometryFieldsAttributeRule": "grapy's own Arcade script computing each geometry property with the Arcade geometry functions (doc.esri.com …/data-management/calculate-geometry-fields-attribute-rule)",
    "ComputeBlockAdjustment": "a bundle adjustment of the collinearity equations by sparse Levenberg–Marquardt least squares (Triggs, McLauchlan, Hartley and Fitzgibbon 2000; Wolf, Dewitt and Wilkinson 2014, ch. 17)",
@@ -548,8 +539,8 @@
   },
   "of": 447,
   "refused": {
-   "Add3DFormats": "arcpy.management.Add3DFormats works on the 3D object formats of multipatch features, a 3D data model grapy does not hold (ADR-224 group 2).",
-   "AddColormap": "arcpy.management.AddColormap needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "Add3DFormats": "arcpy.management.Add3DFormats links a multipatch class to tables of its models in 3D formats (DAE, glTF, USD …), making it a 3D object feature class; its page says only that it 'creates additional tables', and names neither them nor their layout, so a class grapy wrote that way would be read by no ArcGIS client and no grapy tool. grapy's multipatch holds the faces and no materials (ADR-238 §5.2), and Export3DObjects writes a format from them when asked.",
+   "AddColormap": "arcpy.management.AddColormap needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "AddDataToTrajectoryDataset": "arcpy.management.AddDataToTrajectoryDataset reads satellite altimetry products (Sentinel-3 SRAL, Sentinel-6, CryoSat-2, ICESat-2 …) through Esri's trajectory raster types, whose footprints and variable mapping their pages do not define.",
    "AddFullTextIndex": "arcpy.management.AddFullTextIndex is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "AddGPSMetadataFields": "arcpy.management.AddGPSMetadataFields follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
@@ -567,8 +558,8 @@
    "ApplySymbologyFromLayer": "arcpy.management.ApplySymbologyFromLayer needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "BuildLasDatasetPyramid": "arcpy.management.BuildLasDatasetPyramid is not built in grapy: the pyramid's format and the default point selection are not documented, and grapy's LAS datasets read their files directly (ADR-229 §5.2).",
    "BuildMosaicDatasetItemCache": "arcpy.management.BuildMosaicDatasetItemCache is not built in grapy: an item cache is Esri's Cloud Raster Format (CRF), which grapy does not write (ADR-230 §5.5).",
-   "BuildMultidimensionalInfo": "arcpy.management.BuildMultidimensionalInfo needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
-   "BuildMultidimensionalTranspose": "arcpy.management.BuildMultidimensionalTranspose needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "BuildMultidimensionalInfo": "arcpy.management.BuildMultidimensionalInfo writes a mosaic dataset's multidimensional information: its page names the Variable and Dimensions text fields but not what Dimensions holds — the dimension names alone, or their values and units, and how they are joined — and no tool in grapy reads a mosaic dataset by variable and dimension (ADR-230 reads its items as two-dimensional rasters; ADR-236 holds multidimensional rasters as netCDF).",
+   "BuildMultidimensionalTranspose": "arcpy.management.BuildMultidimensionalTranspose adds a transpose to a multidimensional raster in Cloud Raster Format (CRF), the only input its page accepts; CRF's layout and the transpose's are not published, and grapy holds a multidimensional raster as netCDF-CF, which has none (ADR-236 §5.2).",
    "BuildOverviews": "arcpy.management.BuildOverviews is not built in grapy: overviews are resampled images whose file format the pages do not name, and grapy reads a mosaic dataset at its items' own cell size (ADR-230 §5.5).",
    "BuildSeamlines": "arcpy.management.BuildSeamlines is not built in grapy: how ArcGIS generates seamlines is not documented, and grapy stores none — the Seamline method draws the halfway lines between item centres as a mosaic dataset is read, as this server's image services do (ADR-161, ADR-230 §5.4).",
    "CalculateDefaultClusterTolerance": "arcpy.management.CalculateDefaultClusterTolerance is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
@@ -585,7 +576,7 @@
    "ComputeDirtyArea": "arcpy.management.ComputeDirtyArea is not built in grapy: its page does not say how a changed item is identified or what fields its output has (ADR-230 §5.5).",
    "ComputeFiducials": "arcpy.management.ComputeFiducials is not built in grapy: its page does not name how fiducials are found from the templates, nor the fields of the fiducial table it writes, and the one tool that reads that table, UpdateInteriorOrientation, has no page grapy could read (ADR-234 §5.5).",
    "ComputeMosaicCandidates": "arcpy.management.ComputeMosaicCandidates is not built in grapy: how candidates are chosen is not documented (ADR-230 §5.5).",
-   "ComputePansharpenWeights": "arcpy.management.ComputePansharpenWeights needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "ComputePansharpenWeights": "arcpy.management.ComputePansharpenWeights needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "ConfigureGeodatabaseLogFileTables": "arcpy.management.ConfigureGeodatabaseLogFileTables sets how an enterprise geodatabase keeps the log file tables ArcGIS clients write for large selections (session, shared or temporary tables per user); grapy's selections live in its layers, and no log file table is written.",
    "ConsolidateLayer": "arcpy.management.ConsolidateLayer needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "ConsolidateLocator": "arcpy.management.ConsolidateLocator needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
@@ -600,7 +591,7 @@
    "CreateBuildingSceneLayerPackage": "arcpy.management.CreateBuildingSceneLayerPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "CreateCatalogDataset": "arcpy.management.CreateCatalogDataset is not built in grapy: a catalog dataset is a collection of layers, scene layers and portal items, a model ADR-230 does not hold — no tool reads one as data, and a fenced tool cannot reach a portal (ADR-223 §5.3).",
    "CreateCloudStorageConnectionFile": "arcpy.management.CreateCloudStorageConnectionFile reaches a database server, portal or cloud store, and a fenced tool has no network (ADR-223 §5.3).",
-   "CreateColorComposite": "arcpy.management.CreateColorComposite needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "CreateColorComposite": "arcpy.management.CreateColorComposite needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "CreateConnectionString": "arcpy.management.CreateConnectionString reaches a database server, portal or cloud store, and a fenced tool has no network (ADR-223 §5.3).",
    "CreateCustomGeoTransformation": "arcpy.management.CreateCustomGeoTransformation reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "CreateCustomVerticalTransformation": "arcpy.management.CreateCustomVerticalTransformation reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
@@ -614,7 +605,7 @@
    "CreateMobileGDB": "arcpy.management.CreateMobileGDB makes a mobile geodatabase (.geodatabase), Esri's own SQLite schema; CreateFileGDB and CreateSQLiteDatabase make grapy's GeoPackage workspace.",
    "CreateMobileMapPackage": "arcpy.management.CreateMobileMapPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "CreateMobileScenePackage": "arcpy.management.CreateMobileScenePackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
-   "CreatePansharpenedRasterDataset": "arcpy.management.CreatePansharpenedRasterDataset needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "CreatePansharpenedRasterDataset": "arcpy.management.CreatePansharpenedRasterDataset needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "CreateParquetCache": "arcpy.management.CreateParquetCache reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "CreatePointCloudSceneLayerPackage": "arcpy.management.CreatePointCloudSceneLayerPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "CreatePointSceneLayerPackage": "arcpy.management.CreatePointSceneLayerPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
@@ -632,9 +623,9 @@
    "CreateVectorTileIndex": "arcpy.management.CreateVectorTileIndex needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "CreateVectorTilePackage": "arcpy.management.CreateVectorTilePackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "CreateVersionedView": "arcpy.management.CreateVersionedView is traditional versioning's or enterprise geodatabase administration, which grapy's branch versions do not have (ADR-227 §5.4).",
-   "CreateVoxelSceneLayerContent": "arcpy.management.CreateVoxelSceneLayerContent writes a voxel scene layer's content from a voxel layer; grapy holds no voxels or scene layers (ADR-224 group 2).",
+   "CreateVoxelSceneLayerContent": "arcpy.management.CreateVoxelSceneLayerContent packages a voxel layer as a scene layer package (.slpk): its input is a voxel layer or layer file — a layer a tool makes only in a local scene of ArcGIS Pro, as IDW3D's page says — with its isosurfaces and sections, which are the layer's display settings; grapy writes the voxels themselves as netCDF (ADR-238 §5.2 (g)), and no voxel layer.",
    "DefineOverviews": "arcpy.management.DefineOverviews is not built in grapy: it lays out overviews whose file format is not named and whose number of levels is 'an optimal value' the page does not define (ADR-230 §5.5).",
-   "DeleteColormap": "arcpy.management.DeleteColormap needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "DeleteColormap": "arcpy.management.DeleteColormap needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "DeleteSchemaGeodatabase": "arcpy.management.DeleteSchemaGeodatabase deletes a geodatabase held in an Oracle user's schema, with its system tables; a GeoPackage has no schemas — Delete removes a GeoPackage file.",
    "DetectFeatureChanges": "arcpy.management.DetectFeatureChanges follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "DiagnoseVersionMetadata": "arcpy.management.DiagnoseVersionMetadata is traditional versioning's or enterprise geodatabase administration, which grapy's branch versions do not have (ADR-227 §5.4).",
@@ -647,7 +638,6 @@
    "EnableEnterpriseGeodatabase": "arcpy.management.EnableEnterpriseGeodatabase installs Esri's geodatabase system tables, whose schema is not published, into an existing DBMS database reached through a database server connection, which a fenced user tool does not have (ADR-223 §5.3).",
    "EnableFeatureBinning": "arcpy.management.EnableFeatureBinning turns on database-computed bins that ArcGIS clients and feature services draw for a point class; their bin size at each level of detail is not defined on its page or ManageFeatureBinCache's (which names the levels WORLD … CITY only), and nothing in arcpy reads a bin back, so a grid of grapy's own would have no reader.",
    "EnableReplicaTracking": "arcpy.management.EnableReplicaTracking tracks branch-versioned data in an enterprise geodatabase for a feature service's offline replicas, which a GeoPackage and a fenced tool do not have (ADR-235 §5.6).",
-   "Export3DObjects": "arcpy.management.Export3DObjects works on the 3D object formats of multipatch features, a 3D data model grapy does not hold (ADR-224 group 2).",
    "ExportAcknowledgementMessage": "arcpy.management.ExportAcknowledgementMessage works on a geodatabase replica, which grapy cannot make: CreateReplica replicates data registered as traditionally versioned in an enterprise geodatabase and synchronises through its version states, and grapy's GeoPackages hold branch versions only (ADR-227, ADR-235 §5.6); its message is Esri's replica XML, whose schema is not published.",
    "ExportDataChangeMessage": "arcpy.management.ExportDataChangeMessage works on a geodatabase replica, which grapy cannot make: CreateReplica replicates data registered as traditionally versioned in an enterprise geodatabase and synchronises through its version states, and grapy's GeoPackages hold branch versions only (ADR-227, ADR-235 §5.6); its message is Esri's replica XML, whose schema is not published.",
    "ExportGeodatabaseConfigurationKeywords": "arcpy.management.ExportGeodatabaseConfigurationKeywords writes out the configuration keywords of an enterprise geodatabase's DBTUNE table, which set DBMS storage for each dataset; a GeoPackage has no DBTUNE table and no storage keywords to export.",
@@ -659,12 +649,11 @@
    "ExportXMLWorkspaceDocument": "arcpy.management.ExportXMLWorkspaceDocument reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "ExtractDataFromGeodatabase": "arcpy.management.ExtractDataFromGeodatabase extracts into a geodatabase, a mobile geodatabase or Esri's XML workspace document, none of which grapy writes, and carries the geodatabase's expanded classes — topologies, networks, relationship classes — by rules the page leaves to expand_feature_classes_and_tables without defining them; a GeoPackage copy of a class, filtered by extent or geometry, is arcpy.conversion.ExportFeatures or ExportTable (ADR-235 §5.6).",
    "ExtractPackage": "arcpy.management.ExtractPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
-   "ExtractSubDataset": "arcpy.management.ExtractSubDataset needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "FieldStatisticsToTable": "arcpy.management.FieldStatisticsToTable follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "GenerateDefinitionQueryFromSelection": "arcpy.management.GenerateDefinitionQueryFromSelection needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "GenerateExcludeArea": "arcpy.management.GenerateExcludeArea is not built in grapy: its page contradicts itself on whether the colour mask's values are excluded or kept, and does not say how a pixel is tested against the eight colour thresholds (ADR-234 §5.5).",
    "GenerateFgdbLicense": "arcpy.management.GenerateFgdbLicense is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
-   "GenerateLevelOfDetail": "arcpy.management.GenerateLevelOfDetail generates levels of detail for multipatch (3D object) features, a 3D data model grapy does not hold (ADR-224 group 2).",
+   "GenerateLevelOfDetail": "arcpy.management.GenerateLevelOfDetail rebuilds the levels of detail of an integrated mesh scene layer package (I3S, OGC 17-014r9), not of multipatch features: its page says the finest level is 'reorganized into tiles that generate new coarse levels', but not how a coarse level's mesh and textures are simplified from the finer one, which decides every node it writes.",
    "GenerateLicensedFgdb": "arcpy.management.GenerateLicensedFgdb is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "GenerateMappingTable": "arcpy.management.GenerateMappingTable reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "GeneratePointCloud": "arcpy.management.GeneratePointCloud is not built in grapy: its page says repeated runs give different points because of random sampling, and its ETM and MVM matchers are described without their algorithms; only SGM is cited (ADR-234 §5.5).",
@@ -674,7 +663,6 @@
    "GenerateSchemaReport": "arcpy.management.GenerateSchemaReport reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "GenerateTableFromRasterFunction": "arcpy.management.GenerateTableFromRasterFunction reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "GenerateTileCacheTilingScheme": "arcpy.management.GenerateTileCacheTilingScheme needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
-   "Import3DObjects": "arcpy.management.Import3DObjects works on the 3D object formats of multipatch features, a 3D data model grapy does not hold (ADR-224 group 2).",
    "ImportGeodatabaseConfigurationKeywords": "arcpy.management.ImportGeodatabaseConfigurationKeywords loads a configuration keyword file into an enterprise geodatabase's DBTUNE table, to set the DBMS storage new datasets get; SQLite has no storage parameters such a file could set.",
    "ImportMessage": "arcpy.management.ImportMessage works on a geodatabase replica, which grapy cannot make: CreateReplica replicates data registered as traditionally versioned in an enterprise geodatabase and synchronises through its version states, and grapy's GeoPackages hold branch versions only (ADR-227, ADR-235 §5.6); its message is Esri's replica XML, whose schema is not published.",
    "ImportReplicaSchema": "arcpy.management.ImportReplicaSchema works on a geodatabase replica, which grapy cannot make: CreateReplica replicates data registered as traditionally versioned in an enterprise geodatabase and synchronises through its version states, and grapy's GeoPackages hold branch versions only (ADR-227, ADR-235 §5.6).",
@@ -714,7 +702,7 @@
    "RecoverFileGDB": "arcpy.management.RecoverFileGDB is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "RefreshExcel": "arcpy.management.RefreshExcel needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "RegisterRaster": "arcpy.management.RegisterRaster resamples or transforms cells by a method or extent rule the page does not define exactly.",
-   "Remove3DFormats": "arcpy.management.Remove3DFormats works on the 3D object formats of multipatch features, a 3D data model grapy does not hold (ADR-224 group 2).",
+   "Remove3DFormats": "arcpy.management.Remove3DFormats unlinks a 3D object feature class's models in 3D formats from its multipatch: they sit in the tables Add3DFormats creates, which neither page names nor lays out, and grapy's multipatch class keeps no such tables — it holds the faces and no materials (ADR-238 §5.2), and Export3DObjects writes a format from them when asked.",
    "RemoveDepthMap": "arcpy.management.RemoveDepthMap is not built in grapy: it deletes the .dm depth maps ComputeDepthMap writes, Esri's own format, which grapy never writes (ADR-234 §5.5).",
    "RemoveRelate": "arcpy.management.RemoveRelate needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "RemoveSpatialIndex": "arcpy.management.RemoveSpatialIndex keeps a GeoPackage spatial index (the RTree extension), which grapy does not maintain and no grapy tool reads.",
@@ -728,7 +716,7 @@
    "SaveToolboxToVersion": "arcpy.management.SaveToolboxToVersion needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "SelectData": "arcpy.management.SelectData needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "SetFeatureClassSplitModel": "arcpy.management.SetFeatureClassSplitModel sets whether ArcGIS Pro's split edit updates the original feature and inserts the smaller piece or deletes it and inserts both; grapy has no split edit — SplitLine and SplitLineAtPoint write a new class — so the model would govern nothing.",
-   "SetRasterProperties": "arcpy.management.SetRasterProperties needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
+   "SetRasterProperties": "arcpy.management.SetRasterProperties needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "SetRelationshipClassSplitPolicy": "arcpy.management.SetRelationshipClassSplitPolicy sets how ArcGIS Pro's split edit treats a relationship class's related rows; grapy has no split edit.",
    "SharePackage": "arcpy.management.SharePackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "SplitMosaicDatasetItems": "arcpy.management.SplitMosaicDatasetItems is not built in grapy: it splits items made of several rasters, which grapy's mosaic datasets do not hold (ADR-230 §5.2).",
@@ -905,7 +893,7 @@
   "unexamined": []
  },
  "arcpy.sa": {
-  "built": 205,
+  "built": 208,
   "equivalents": {
    "Combine": "unique combinations numbered from 1 in the order a row-major scan first meets them (the scan order the Region Group page documents for numbering its regions)",
    "DarcyFlow": "finite-difference Darcy flux and volume balance (Darcy's law on a finite-difference grid with harmonic-mean face transmissivity, as How Darcy Flow and Darcy Velocity work writes it; Anderson, Woessner and Hunt 2015, Applied Groundwater Modeling, ch. 3)",
@@ -949,7 +937,6 @@
    "CombinatorialAnd": "arcpy.sa.CombinatorialAnd is not built in grapy: the page does not say how the unique combination values are numbered, nor how NoData is treated.",
    "CombinatorialOr": "arcpy.sa.CombinatorialOr is not built in grapy: Combinatorial And's page, its sibling, does not say how combination values are numbered.",
    "CombinatorialXOr": "arcpy.sa.CombinatorialXOr is not built in grapy: Combinatorial And's page, its sibling, does not say how combination values are numbered.",
-   "Complex": "arcpy.sa.Complex is not built in grapy: grapy's rasters hold no complex pixel types, and the page defers the magnitude formula.",
    "ComputeConfusionMatrix": "arcpy.sa.ComputeConfusionMatrix is not built in grapy: the output table's fields are shown only by example, and the IoU it mentions is not in it.",
    "ComputeSegmentAttributes": "arcpy.sa.ComputeSegmentAttributes is not built in grapy: it works on the segmented rasters of SegmentMeanShift, which is refused (its algorithm is not specified).",
    "ContourWithBarriers": "arcpy.sa.ContourWithBarriers is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",
@@ -979,7 +966,6 @@
    "FloorDivide": "arcpy.sa.FloorDivide is not built in grapy: its reference page could not be read (404 on 2026-10-29).",
    "FlowDistance": "arcpy.sa.FlowDistance is not built in grapy: the page names the vertical and horizontal distances and the MFD statistics without giving their formulas.",
    "FocalFlow": "arcpy.sa.FocalFlow is not built in grapy: the page does not say which neighbour maps to which bit, and its two threshold statements disagree.",
-   "Foreach": "arcpy.sa.Foreach is not built in grapy: it applies a raster function to every slice of a multidimensional raster (ADR-224 group 2).",
    "GNDVI": "arcpy.sa.GNDVI is not built in grapy: its arcpy.ia page could not be read (404 on 2026-10-29), so its parameter names and defaults are unknown.",
    "GenerateBreachLines": "arcpy.sa.GenerateBreachLines is not built in grapy: its cost and path search are only cited (Lindsay and Dhun 2015).",
    "GenerateTrainingSamplesFromSeedPoints": "arcpy.sa.GenerateTrainingSamplesFromSeedPoints is not built in grapy: the page does not give the region grow's connectivity or order.",
@@ -1046,7 +1032,6 @@
    "StatisticsHistogram": "arcpy.sa.StatisticsHistogram is not built in grapy: it attaches statistics and histogram metadata, which grapy's rasters do not carry.",
    "StorageCapacity": "arcpy.sa.StorageCapacity is not built in grapy: the page does not say how area and volume are computed (planar or surface area) nor give the default increment.",
    "StreamToFeature": "arcpy.sa.StreamToFeature is not built in grapy: the page does not name the output fields, number the nodes, or say how lines are traced.",
-   "Subset": "arcpy.sa.Subset is not built in grapy: it subsets multidimensional rasters by variable and dimension (ADR-224 group 2).",
    "Sultan": "arcpy.sa.Sultan is not built in grapy: it answers three bands from an ordering of five band ids the page does not spell out.",
    "SurfaceAreaRatio": "arcpy.sa.SurfaceAreaRatio is not built in grapy: the page does not give the 3D surface area computation; it defers to another topic.",
    "SurfaceParameters": "arcpy.sa.SurfaceParameters is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",

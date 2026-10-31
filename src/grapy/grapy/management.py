@@ -3429,8 +3429,30 @@ def CopyRaster(in_raster, out_rasterdataset, config_keyword=None, background_val
                build_multidimensional_transpose="NO_TRANSPOSE"):
     """A raster copied, its cells holding ``background_value`` or ``nodata_value`` made NoData, in ``pixel_type`` when
     one is named. INFERRED: ``nodata_value`` is also the NoData value written. A value that does not fit the pixel type,
-    scaling, colormaps and formats other than TIFF are not built. A raster of several bands is copied band by band."""
+    scaling, colormaps and formats other than TIFF are not built. A raster of several bands is copied band by band.
+
+    ALL_SLICES copies every slice of a multidimensional raster (ADR-236) to a netCDF file; NoData, background and
+    pixel type are applied to every slice. Refused by name: TRANSPOSE — a transpose is Cloud Raster Format's, whose
+    layout is not published, and grapy's netCDF holds none (ADR-236 §5.2)."""
     import numpy
+    if _given(build_multidimensional_transpose) and str(build_multidimensional_transpose).upper() == "TRANSPOSE":
+        raise NotBuiltError("arcpy.management.CopyRaster: build_multidimensional_transpose 'TRANSPOSE' is not built in "
+                            "grapy: a transpose is Cloud Raster Format's, whose layout is not published, and grapy's "
+                            "netCDF holds none (ADR-236 §5.2).")
+    if _given(process_as_multidimensional) and str(process_as_multidimensional).upper() == "ALL_SLICES":
+        from . import _mdim
+        cube = _mdim.cube_of(in_raster, "CopyRaster")
+        for variable in cube.variables.values():
+            for value in (background_value, nodata_value):
+                if _given(value):
+                    variable.mask |= variable.data == float(value)
+            if _given(pixel_type):
+                variable.data = numpy.stack([numpy.stack([_cast(b, m, pixel_type, "CopyRaster")
+                                                          for b, m in zip(s, sm)])
+                                             for s, sm in zip(variable.data, variable.mask)]).astype(numpy.float64)
+        from ._runtime import env
+        target = _text(out_rasterdataset)
+        return Result(_mdim.write(cube, target if os.path.isabs(target) else os.path.join(env.workspace, target)))
     for name, value in (("onebit_to_eightbit", onebit_to_eightbit), ("colormap_to_RGB", colormap_to_RGB),
                         ("scale_pixel_value", scale_pixel_value), ("RGB_to_Colormap", RGB_to_Colormap)):
         if _given(value) and str(value).upper() != "NONE":
@@ -5142,12 +5164,22 @@ def CompositeBands(in_rasters, out_raster):
 
 
 _REASONS = {
-    "works on the 3D object formats of multipatch features, a 3D data model grapy does not hold (ADR-224 group 2)": (
-        "Add3DFormats", "Remove3DFormats", "Export3DObjects", "Import3DObjects"),
-    "generates levels of detail for multipatch (3D object) features, a 3D data model grapy does not hold (ADR-224 "
-    "group 2)": ("GenerateLevelOfDetail",),
-    "writes a voxel scene layer's content from a voxel layer; grapy holds no voxels or scene layers (ADR-224 group 2)": (
-        "CreateVoxelSceneLayerContent",),
+    "links a multipatch class to tables of its models in 3D formats (DAE, glTF, USD …), making it a 3D object feature "
+    "class; its page says only that it 'creates additional tables', and names neither them nor their layout, so a "
+    "class grapy wrote that way would be read by no ArcGIS client and no grapy tool. grapy's multipatch holds the faces "
+    "and no materials (ADR-238 §5.2), and Export3DObjects writes a format from them when asked": ("Add3DFormats",),
+    "unlinks a 3D object feature class's models in 3D formats from its multipatch: they sit in the tables Add3DFormats "
+    "creates, which neither page names nor lays out, and grapy's multipatch class keeps no such tables — it holds the "
+    "faces and no materials (ADR-238 §5.2), and Export3DObjects writes a format from them when asked": (
+        "Remove3DFormats",),
+    "rebuilds the levels of detail of an integrated mesh scene layer package (I3S, OGC 17-014r9), not of multipatch "
+    "features: its page says the finest level is 'reorganized into tiles that generate new coarse levels', but not how "
+    "a coarse level's mesh and textures are simplified from the finer one, which decides every node it writes": (
+        "GenerateLevelOfDetail",),
+    "packages a voxel layer as a scene layer package (.slpk): its input is a voxel layer or layer file — a layer a tool "
+    "makes only in a local scene of ArcGIS Pro, as IDW3D's page says — with its isosurfaces and sections, which are "
+    "the layer's display settings; grapy writes the voxels themselves as netCDF (ADR-238 §5.2 (g)), and no voxel "
+    "layer": ("CreateVoxelSceneLayerContent",),
     "makes a building layer from a BIM file workspace (Revit or IFC), which grapy does not hold (ADR-224 group 2)": (
         "MakeBuildingLayer",),
     "makes a layer over a scene layer (I3S) or scene layer package, which grapy does not hold (ADR-224 group 2)": (
@@ -5182,10 +5214,17 @@ _REASONS = {
         "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
         "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
         "CalculateDefaultClusterTolerance", "AddFullTextIndex"),
-    "needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or "
-    "pansharpening method grapy does not build (ADR-224 §5.5)": (
-        "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
-        "BuildMultidimensionalTranspose", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights", "CreatePansharpenedRasterDataset"),
+    "needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method "
+    "grapy does not build (ADR-224 §5.5)": (
+        "CreateColorComposite", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights",
+        "CreatePansharpenedRasterDataset"),
+    "adds a transpose to a multidimensional raster in Cloud Raster Format (CRF), the only input its page accepts; CRF's "
+    "layout and the transpose's are not published, and grapy holds a multidimensional raster as netCDF-CF, which has "
+    "none (ADR-236 §5.2)": ("BuildMultidimensionalTranspose",),
+    "writes a mosaic dataset's multidimensional information: its page names the Variable and Dimensions text fields "
+    "but not what Dimensions holds — the dimension names alone, or their values and units, and how they are joined — "
+    "and no tool in grapy reads a mosaic dataset by variable and dimension (ADR-230 reads its items as two-dimensional "
+    "rasters; ADR-236 holds multidimensional rasters as netCDF)": ("BuildMultidimensionalInfo",),
     "resamples or transforms cells by a method or extent rule the page does not define exactly": (
         "ProjectRaster", "Rescale", "Rotate", "Warp", "WarpFromFile", "RegisterRaster", "SplitRaster",
         "WorkspaceToRasterDataset", "CreateRasterDataset"),
@@ -7495,3 +7534,10 @@ RebuildIndexes = _gdbtools.RebuildIndexes
 RegisterWithGeodatabase = _gdbtools.RegisterWithGeodatabase
 
 _REFUSED.update(_gdbtools.REFUSED)
+
+# ---- D-329's sweep: names built on ADR-236's multidimensional rasters and ADR-238's multipatch features
+from . import _mdmore, _mpmore  # noqa: E402
+
+ExtractSubDataset = _mdmore.ExtractSubDataset
+Export3DObjects = _mpmore.Export3DObjects
+Import3DObjects = _mpmore.Import3DObjects

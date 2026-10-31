@@ -1346,8 +1346,6 @@ _REASONS = {
     "are held since ADR-229 and LasDatasetToRaster reads them (ADR-224 group 2)": ("PointCloudToRaster",),
     "reads an integrated mesh scene layer (I3S or a scene layer package), which grapy does not hold (ADR-224 group 2)": (
         "MeshToLAS",),
-    "reads multipatch features, a 3D data model grapy does not hold (ADR-224 group 2)": (
-        "MultipatchToCollada", "MultipatchToRaster"),
     "reads a BIM file workspace (Revit or IFC), which grapy does not hold (ADR-224 group 2)": (
         "BIMFileToGeodatabase", "ExtractBIMFileFloorplan"),
 
@@ -1406,3 +1404,9 @@ from . import _lastools as _las_second  # noqa: E402 — ADR-229's second batch
 
 ConvertLas = _las_second.ConvertLas
 _REFUSED.pop("ConvertLas", None)
+
+# ---- multipatch features (ADR-238), built in _mpmore (D-329)
+from . import _mpmore  # noqa: E402
+
+MultipatchToCollada = _mpmore.MultipatchToCollada
+MultipatchToRaster = _mpmore.MultipatchToRaster
