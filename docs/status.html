@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>e429a8ee</code> · 2026-10-31 17:17</p>
+<p class="stamp">Generated from commit <code>cd6d6de3</code> · 2026-10-31 17:22</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
@@ -636,20 +636,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>cd6d6de3</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>e429a8ee</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>6efea248</code><time>2026-10-31</time><span>Every equivalent&#x27;s docstring now says EQUIVALENT with its method and source, and a test holds all three marks (ADR-224 condition 6; conditions 4 and 5 read again)</span></li>
+<li><code>e3be3b9e</code><time>2026-10-31</time><span>The Analyze dialog and the toolbox picker offer every layer the reader may see, from one listing, instead of the first 100 services&#x27; layer 0 (D-322)</span></li>
+<li><code>f0066d06</code><time>2026-10-31</time><span>D-266&#x27;s validator and D-282&#x27;s shared exports stay open, each for a stated reason: no data version a registered table&#x27;s outside writes would move, and ADR-012 phase 1 owning the shared directory</span></li>
+<li><code>30e33d51</code><time>2026-10-31</time><span>An image&#x27;s overviews are built in the import reader&#x27;s process, so the one read that decodes a stranger&#x27;s whole file is out of the serving process (D-295, partly)</span></li>
 <li><code>0f5ab8ed</code><time>2026-10-31</time><span>A SQL Server layer keeps a history and follows relationships, as MySQL and Oracle layers do (ADR-210 condition 5, ADR-212 condition 2)</span></li>
 <li><code>778241a3</code><time>2026-10-31</time><span>UpgradeGDB brings a GeoPackage an earlier grapy wrote to the form ArcGIS Pro reads, and grapy offers it when it writes into one (D-340, partly)</span></li>
+<li><code>fc78ac2b</code><time>2026-10-31</time><span>A read under /rest/services resolves its service once, so a layer document makes three catalogue statements instead of five (D-261, one cause)</span></li>
 <li><code>d6d8a218</code><time>2026-10-31</time><span>The six legacy cost and path distance tools take a source&#x27;s start cost, cost multiplier, resistance rate and capacity, as the source characteristics page gives them (D-332, partly)</span></li>
+<li><code>315b0903</code><time>2026-10-31</time><span>A recycled service comes back a table at a time, so twenty years of usage restore in 0.17 s instead of 1.43 s (ADR-203 condition 3)</span></li>
 <li><code>425b4179</code><time>2026-10-31</time><span>Mosaic items off the read&#x27;s grid, finer than it or in another reference are warped onto it by BILINEAR, CUBIC, MAJORITY or NEAREST (ADR-230 condition 4)</span></li>
 <li><code>31bddd5c</code><time>2026-10-31</time><span>A service account signs in with OAuth client_credentials, and its client secrets are made, shown once and revoked on the Security screen (ADR-200 condition 2, migration 113)</span></li>
 <li><code>4508d662</code><time>2026-10-31</time><span>A topology rule can be restricted to one subtype of each class, and ValidateTopology evaluates it on those features only (ADR-228 condition 6)</span></li>
-<li><code>6d66335a</code><time>2026-10-31</time><span>grapy triangulates CONSTRAINED_DELAUNAY by Sloan&#x27;s algorithm, and LandXMLToTin, SurfaceDifference and TinDifference are built on it (ADR-229 condition 6)</span></li>
-<li><code>074327e9</code><time>2026-10-31</time><span>grapy reads and writes LAZ through lazrs in CI and the server image, and a LAS dataset of LAZ files has an extent (ADR-229 condition 5)</span></li>
-<li><code>114e57ab</code><time>2026-10-31</time><span>The Linux torch and torchvision wheels&#x27; bundled libraries are read, and the x86-64 one carries Intel oneMKL (ADR-248 condition 3)</span></li>
-<li><code>7a8b27e6</code><time>2026-10-31</time><span>Owner decisions of 2026-10-31, second round: Q-218 and Q-219 confirmed, client_credentials to be built, clustering&#x27;s phase order confirmed</span></li>
-<li><code>af1876af</code><time>2026-10-31</time><span>ADR-248&#x27;s image and fence conditions are measured: +270 MB on amd64, +232 MB on arm64, and a fenced tool trains on Linux</span></li>
-<li><code>9d6ab92e</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

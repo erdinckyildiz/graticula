@@ -348,22 +348,37 @@ def horizons(z, cell_w, cell_h, rows, cols, base, directions):
     reach = int(math.ceil(math.hypot(z.shape[0] * cell_h, z.shape[1] * cell_w) / step)) + 1
     filled = np.where(np.isnan(z), np.nanmin(z) if np.isfinite(z).any() else 0.0, z)
     bad = np.isnan(z).astype(float)
+    any_bad = bool(bad.any())
+    # No sample can be higher than the surface's highest cell (a bilinear sample is a weighted mean of four cells; the
+    # margin covers its rounding), so a location whose horizon already reaches the angle of that height at the next
+    # distance can gain nothing further along the ray, and is dropped (D-334). So is one whose ray has left the
+    # raster, which it never re-enters. The answer is the same as tracing every location to the edge.
+    top = float(filled.max()) if filled.size else 0.0
+    top += 1e-9 * max(1.0, abs(top))
+    base = np.broadcast_to(base, rows.shape)
     out = np.zeros((rows.size, int(directions)))
     for k in range(int(directions)):
         a = math.radians(k * 360.0 / directions)
         dr, dc = -math.cos(a) * step / cell_h, math.sin(a) * step / cell_w
         best = np.zeros(rows.size)
+        live = np.arange(rows.size)
         for s in range(1, reach + 1):
-            r, c = rows + dr * s, cols + dc * s
+            if not live.size:
+                break
+            r, c = rows[live] + dr * s, cols[live] + dc * s
             inside = (r > -0.5) & (r < z.shape[0] - 0.5) & (c > -0.5) & (c < z.shape[1] - 0.5)
             if not inside.any():
                 break
+            live, r, c = live[inside], r[inside], c[inside]
             coords = [np.clip(r, 0, z.shape[0] - 1), np.clip(c, 0, z.shape[1] - 1)]
             height = map_coordinates(filled, coords, order=1, mode="nearest")
-            nodata = map_coordinates(bad, coords, order=1, mode="nearest") > 0
-            angle = np.degrees(np.arctan2(height - base, s * step))
-            angle = np.where(inside & ~nodata, angle, 0.0)
-            best = np.maximum(best, angle)
+            angle = np.degrees(np.arctan2(height - base[live], s * step))
+            if any_bad:
+                nodata = map_coordinates(bad, coords, order=1, mode="nearest") > 0
+                angle = np.where(nodata, 0.0, angle)
+            best[live] = np.maximum(best[live], angle)
+            reachable = np.degrees(np.arctan2(top - base[live], (s + 1) * step))
+            live = live[best[live] < reachable]
         out[:, k] = best
     return out
 
@@ -386,18 +401,23 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
     if not sectors:
         return direct, diffuse, duration
     cells = sky.zenith.size
-    # sun sectors: each one's own cells, as a (cells × sectors) averaging matrix
-    rows_, cols_, vals = [], [], []
+    # A sun sector's gap is the mean of its own sky cells' visibility, and a sky sector's likewise: each is a sum of
+    # equal shares, 1 / cells, one per visible cell, added in turn. The visible cells are counted (an exact integer
+    # product), and the sum is read from a table of those running sums, so it is the same double a sparse product
+    # adding the shares one by one gave — at a fraction of the cost (D-334).
+    rows_, cols_, shares = [], [], []
     for k, s in enumerate(sectors):
         hit = sky.cells_of(s.samples)
         rows_.extend(hit.tolist())
         cols_.extend([k] * hit.size)
-        vals.extend([1.0 / hit.size] * hit.size)
-    sun_matrix = sparse.csr_matrix((vals, (rows_, cols_)), shape=(cells, len(sectors)))
+        shares.append((1.0 / hit.size, hit.size))
+    sun_members = sparse.csr_matrix((np.ones(len(rows_)), (rows_, cols_)), shape=(cells, len(sectors)))
+    sun_table = _running_sums(shares)
     ids = sky.sky_sectors(zenith_divisions, azimuth_divisions)
     total = zenith_divisions * azimuth_divisions
     counts = np.bincount(ids, minlength=total).astype(float)
-    sky_matrix = sparse.csr_matrix((1.0 / np.maximum(counts[ids], 1), (np.arange(cells), ids)), shape=(cells, total))
+    sky_members = sparse.csr_matrix((np.ones(cells), (np.arange(cells), ids)), shape=(cells, total))
+    sky_table = _running_sums([(1.0 / max(c, 1), int(c)) for c in counts])
     ring = np.arange(total) // azimuth_divisions
     piece = np.arange(total) % azimuth_divisions
     sky_zenith = (ring + 0.5) * 90.0 / zenith_divisions
@@ -410,8 +430,8 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
     for lo in range(0, n, 64):
         hi = min(lo + 64, n)
         seen = sky.visible(horizon[lo:hi]).astype(float)
-        sun_gap = (sparse.csr_matrix(seen) @ sun_matrix).toarray()
-        sky_gap = (sparse.csr_matrix(seen) @ sky_matrix).toarray()
+        sun_gap = _shares(sun_table, seen @ sun_members)
+        sky_gap = _shares(sky_table, seen @ sky_members)
         m = optical_path(zen[None, :], elevation[lo:hi, None])
         normal = S_CONST * beta ** m * dur[None, :]  # Wh/m² at normal incidence, unobstructed
         cos_in = cos_incidence(zen[None, :], az[None, :], slope[lo:hi, None], aspect[lo:hi, None])
@@ -426,6 +446,24 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
             global_normal = normal[:, pick].sum(axis=1) / (1.0 - pdif)  # R_glb · Dur
             diffuse[lo:hi, b] = global_normal * pdif * diffuse_share
     return direct, diffuse, duration
+
+
+def _running_sums(shares):
+    """(most + 1, columns): row c of column j is ``share_j`` added to itself c times in turn, from 0."""
+    most = max([n for _, n in shares] + [0])
+    table = np.zeros((most + 1, len(shares)))
+    for j, (share, n) in enumerate(shares):
+        total = 0.0
+        for c in range(1, n + 1):
+            total += share
+            table[c, j] = total
+    return table
+
+
+def _shares(table, counts):
+    """The running sums for counts (locations, columns) of visible cells."""
+    counts = np.rint(np.asarray(counts)).astype(np.int64)
+    return table[counts, np.arange(table.shape[1])[None, :]]
 
 
 def sun_map(sky, sectors):

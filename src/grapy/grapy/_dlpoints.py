@@ -697,9 +697,9 @@ def TrainPointCloudClassificationModel(in_training_data, out_model_location, out
 
     valid_batches = batches(validation, False, np.random.default_rng(0))
 
-    def step(net, batch):
+    def step(net, batch, logits=None):
         xyz, features, labels = batch
-        logits = net(xyz, features).reshape(-1, len(codes))
+        logits = (net(xyz, features) if logits is None else logits).reshape(-1, len(codes))
         target = labels.reshape(-1)
         if loss_kind == "FOCAL_LOSS":
             return _focal(logits, target, torch)
@@ -713,8 +713,9 @@ def TrainPointCloudClassificationModel(in_training_data, out_model_location, out
         matrix = np.zeros((len(codes), len(codes)), np.int64)
         losses = []
         for batch in items:
-            losses.append(float(step(net, batch)))
-            predicted = net(batch[0], batch[1]).argmax(-1).reshape(-1).numpy()
+            logits = net(batch[0], batch[1])   # once: in evaluation the network answers the same twice (D-341)
+            losses.append(float(step(net, batch, logits)))
+            predicted = logits.argmax(-1).reshape(-1).numpy()
             truth = batch[2].reshape(-1).numpy()
             keep = truth >= 0
             np.add.at(matrix, (truth[keep], predicted[keep]), 1)

@@ -490,11 +490,15 @@ def _pits(f, exclude):
 
 
 _EIGHT = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+#: Whether drainage enforcement keeps each sink's outlet path until a cell its search looked at changes (D-333); a
+#: test turns it off to compare with searching every sink on every pass, as grapy did before.
+REMEMBER_OUTLETS = True
 
 
-def _outlet_path(f, start, outlets):
+def _outlet_path(f, start, outlets, visited=None):
     """The minimax path from a sink to the first cell lower than it, an edge cell or an outlet cell — a priority flood
-    (Barnes et al. 2014) whose priority is the highest cell on the way — and the saddle's height."""
+    (Barnes et al. 2014) whose priority is the highest cell on the way — and the saddle's height. With a ``visited``
+    list, every cell the flood looked at is appended to it: the answer depends on those cells' heights alone."""
     rows, columns = f.shape
     sr, sc = start
     base = f[sr, sc]
@@ -507,12 +511,16 @@ def _outlet_path(f, start, outlets):
             while at is not None:
                 path.append(at)
                 at = seen[at]
+            if visited is not None:
+                visited.extend(seen)
             return path[::-1], level
         for dr, dc in _EIGHT:
             nr, nc = r + dr, c + dc
             if 0 <= nr < rows and 0 <= nc < columns and (nr, nc) not in seen:
                 seen[(nr, nc)] = (r, c)
                 heapq.heappush(heap, (max(level, f[nr, nc]), nr, nc))
+    if visited is not None:
+        visited.extend(seen)
     return None, None
 
 
@@ -579,16 +587,25 @@ def _fit_level(level, plan, samples, streams, cliffs, cliffs_union, lakes_mask_o
                 surface[r, c] = t
                 into[int(ops["index"][r, c])] = t
 
-    def clear(surface, into):
+    def clear(surface, into, memo, changed, tick):
         """One pass over the surface's sinks, lowest first: each cleared through its saddle in place, and its chain
-        pinned. Answers (sinks found, sinks cleared)."""
+        pinned. Answers (sinks found, sinks cleared). A sink's outlet path is kept in ``memo`` with the cells its flood
+        looked at, and found again only when one of them has changed since (``changed`` holds the pass that last
+        changed each cell): a sink the tolerances keep is otherwise searched again on every pass, unchanged (D-333)."""
         outlets = known | lake
         order = sorted(zip(*np.nonzero(_pits(surface, outlets))), key=lambda rc: surface[rc])
         done = 0
         for r, c in order:
             if not all(surface[r, c] < surface[r + dr, c + dc] for dr, dc in _EIGHT):
                 continue  # an earlier chain has already drained it
-            path, saddle = _outlet_path(surface, (int(r), int(c)), outlets)
+            held = memo.get((int(r), int(c))) if REMEMBER_OUTLETS else None
+            if held is not None and changed.flat[held[0]].max() < held[1]:
+                path, saddle = held[2], held[3]
+            else:
+                looked = []
+                path, saddle = _outlet_path(surface, (int(r), int(c)), outlets, looked)
+                flat = np.fromiter((a * columns + b for a, b in looked), np.int64, len(looked))
+                memo[(int(r), int(c))] = (flat, tick, path, saddle)
             if path is None or (saddle - surface[r, c]) * zscale > plan.tol2:
                 continue
             top = int(np.argmax([surface[a, b] for a, b in path]))
@@ -601,6 +618,7 @@ def _fit_level(level, plan, samples, streams, cliffs, cliffs_union, lakes_mask_o
             for i, ((a, b), t) in enumerate(zip(path[:-1], targets[:-1])):
                 if i <= top or t < surface[a, b]:
                     surface[a, b] = t
+                    changed[a, b] = tick
                     into[int(ops["index"][a, b])] = t
             done += 1
             cleared_paths[(int(r), int(c))] = path
@@ -615,8 +633,9 @@ def _fit_level(level, plan, samples, streams, cliffs, cliffs_union, lakes_mask_o
         if plan.enforce != "NO_ENFORCE":
             # Clearing in place until no sink yields, so the surface this iteration leaves has only the sinks the
             # tolerances keep; the next solve then fits the data round the pinned chains.
-            for _ in range(rows * columns):
-                seen, done = clear(f, new_pins)
+            memo, changed = {}, np.full((rows, columns), -1, np.int64)
+            for tick in range(rows * columns):
+                seen, done = clear(f, new_pins, memo, changed, tick)
                 found, cleared = (found or seen), cleared + done
                 if not done:
                     break

@@ -215,7 +215,11 @@ None recorded.
 ## 11. Conditions
 
 1. **Measure on real lidar.** Train RandLA-Net and Point Transformer V3 on a real LAS tile of 8,192-point blocks inside
-   ADR-223's limits, and record the time per epoch and the memory (D-341).
+   ADR-223's limits, and record the time per epoch and the memory (D-341). **PARTLY DISCHARGED 2026-10-31**: both
+   trained on 3DEP CA_SanFrancisco_1_B23 (1.44 million points, 538 training blocks of 8,192 points, 15 m). Time per
+   epoch on 10 % of the blocks with 94 validation blocks: RandLA-Net about 150 s of CPU, Point Transformer V3 about
+   230 s; peak commit 2,241 MB and 3,221 MB; PTv3 scored 0.920 on points it never saw. Not shown: that a training step
+   fits 2 GB — on Windows neither does, and the Linux fence was not available to this run (D-341 has the numbers).
 2. **Run the point cloud tests in CI.** `test_point_cloud_deep_learning.py` runs where torch is installed; it has run
    only on Windows until CI runs it.
 3. **Confirm Q-219**, the INFERRED choices of §5.2–§5.3, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-219 (*"Hepsini onayla"*).
