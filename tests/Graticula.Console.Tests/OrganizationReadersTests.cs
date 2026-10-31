@@ -367,7 +367,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
             await ClickAsync("#surfaces a[data-surface=system]");
             await WaitForAsync("location.pathname.startsWith('/system/') && document.getElementById('view-operations')?.classList.contains('on')",
                 "System did not open on Status.");
-            Assert.Equal("operations,organizations,utilities,settings,backups,logs", await Browser.EvaluateAsync<string>(
+            Assert.Equal("operations,organizations,utilities,machines,settings,backups,logs", await Browser.EvaluateAsync<string>(
                 "[...document.querySelectorAll('#tabs a')].map(a => a.dataset.tab).join(',')"));
 
             // Status counts the whole server, not the default organization's listings: two organizations.
