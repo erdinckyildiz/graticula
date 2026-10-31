@@ -695,11 +695,17 @@ _TREND_SOURCE = ("ordinary least squares (Draper and Smith 1998, Applied Regress
 _TREND_METHOD = "least-squares linear, polynomial and harmonic trends, and the Mann-Kendall and Seasonal-Kendall tests"
 
 
+# Day 0 of a time trend's x. Pro 3.7 measured 2026-10-31 (ADR-236 condition 3): its intercept is the fitted value
+# on 1899-12-30, 41,640 days before the first slice (2014-01-01), and its harmonic terms take their phase from the
+# same day.
+_TREND_EPOCH_DAYS = -25569.0  # 1899-12-30 in days since 1970-01-01
+
+
 def _x_of(dim, values):
-    """The regression's x: days since the first slice for time, the value less the first otherwise (ADR-236 §5.5)."""
+    """The regression's x: days since 1899-12-30 for time, as Pro 3.7 answers (measured, ADR-236 condition 3); the value
+    less the first otherwise (ADR-236 §5.5)."""
     if dim == TIME:
-        first = _mdim.days(values[0])
-        return np.array([_mdim.days(v) - first for v in values])
+        return np.array([_mdim.days(v) - _TREND_EPOCH_DAYS for v in values])
     return np.array([float(v) - float(values[0]) for v in values])
 
 
@@ -723,10 +729,12 @@ def _band_names(kind, order, frequency, rmse, r2, pvalue):
     elif kind == "HARMONIC":
         names = ["Slope", "Intercept"]
         for i in range(1, frequency + 1):
-            names += [f"Harmonic_sin{i}", f"Harmonic_cos{i}"]
+            names += [f"Harmonic_sin_{i}", f"Harmonic_cos_{i}"]
     else:
-        return ["Sens_Slope", "P_Value", "MK_Score", "S_Variance", "Z_Score"]
-    return names + ["RMSE"] * rmse + ["R2"] * r2 + ["Slope_P_Value"] * pvalue
+        return ["Sens_Slope", "P_Value", "Score", "Score_Variance", "Z_Score"]
+    # The names Pro 3.7 gives the bands (measured 2026-10-31, ADR-236 condition 3).
+    # A polynomial has no P_Value band even when one is asked for, as in Pro 3.7.
+    return names + ["RMSE"] * rmse + ["R2"] * r2 + ["P_Value"] * bool(pvalue and kind != "POLYNOMIAL")
 
 
 def _fit(y, valid, x, kind, order, frequency, period, rmse, r2, pvalue):
@@ -739,7 +747,10 @@ def _fit(y, valid, x, kind, order, frequency, period, rmse, r2, pvalue):
     flat_valid = valid.reshape(n, -1)
     flat_y = y.reshape(n, -1)
     patterns, inverse = np.unique(flat_valid.T, axis=0, return_inverse=True)
-    full = _design(kind, x, order, frequency, period)
+    # Fitted on x less its first value, which is well conditioned, then carried to x itself by _shifted: days since
+    # 1899-12-30 squared are ~2e9, and a polynomial fitted on them directly loses its digits.
+    shift = float(x[0]) if len(x) else 0.0
+    full = _design(kind, np.asarray(x, float) - shift, order, frequency, period)
     p = full.shape[1]
     slope = 0 if kind in ("LINEAR", "HARMONIC") else order - 1
     for k, pattern in enumerate(patterns):
@@ -759,7 +770,7 @@ def _fit(y, valid, x, kind, order, frequency, period, rmse, r2, pvalue):
             sst = ((b - b.mean(axis=0)) ** 2).sum(axis=0)
             with np.errstate(all="ignore"):
                 columns.append(np.where(sst > 0, 1 - sse / np.where(sst > 0, sst, 1), np.nan))
-        if pvalue:
+        if pvalue and kind != "POLYNOMIAL":
             if m > p:
                 inverse_xtx = np.linalg.pinv(a.T @ a)
                 se = np.sqrt(sse / (m - p) * inverse_xtx[slope, slope])
@@ -768,11 +779,30 @@ def _fit(y, valid, x, kind, order, frequency, period, rmse, r2, pvalue):
                 columns.append(np.where(se > 0, 2 * stats.t.sf(np.abs(t), m - p), np.where(coef[slope] != 0, 0.0, 1.0)))
             else:
                 columns.append(np.full(pixels.size, np.nan))
+        columns[:p] = _shifted(kind, columns[:p], shift, order, frequency, period)
         values = np.stack(columns)
         r, c = np.unravel_index(pixels, (rows, cols))
         out[:, r, c] = values
         empty[r, c] = ~np.isfinite(values).all(axis=0)
     return names, np.where(empty, 0, out), empty
+
+
+def _shifted(kind, coef, shift, order, frequency, period):
+    """Coefficients of a model in x − shift rewritten as the same model in x."""
+    coef = [np.asarray(c, float) for c in coef]
+    if shift == 0:
+        return coef
+    if kind == "POLYNOMIAL":
+        from math import comb
+        low = coef[::-1]  # c_k for k = 0 … order
+        out = [sum(low[k] * comb(k, j) * (-shift) ** (k - j) for k in range(j, order + 1)) for j in range(order + 1)]
+        return out[::-1]
+    out = [coef[0], coef[1] - coef[0] * shift]
+    for i in range(1, frequency + 1 if kind == "HARMONIC" else 1):
+        phi = 2 * np.pi * i / period * shift
+        a, g = coef[2 * i], coef[2 * i + 1]
+        out += [a * np.cos(phi) + g * np.sin(phi), g * np.cos(phi) - a * np.sin(phi)]
+    return out
 
 
 def _kendall(y, valid, x, seasons=None):
@@ -853,7 +883,10 @@ def _trend(cube, dim, variables, kind, order, frequency, cycle_length, cycle_uni
                     if season not in ("DAYS", "MONTHS"):
                         raise ValueError(f"{tool}: seasonal_period must be DAYS or MONTHS.")
                     seasons = np.array([_mdim.parts(t)[4 if season == "DAYS" else 1] for t in values])
-                names, value, empty = _kendall(y, valid, x, seasons)
+                # Sen's slope per slice for MANN-KENDALL: Pro 3.7's is the per-day slope times the 16-day step
+                # of a regular series (measured, ADR-236 condition 3). SEASONAL-KENDALL keeps x, unmeasured.
+                step = np.arange(len(values), dtype=float) if kind == "MANN-KENDALL" else x
+                names, value, empty = _kendall(y, valid, step, seasons)
                 if not ignore:
                     empty = empty | (~valid).any(axis=0)
             else:
@@ -863,7 +896,8 @@ def _trend(cube, dim, variables, kind, order, frequency, cycle_length, cycle_uni
             coords.append({**other, dim: values[0]})
             data.append(np.where(empty, 0, value))
             mask.append(np.broadcast_to(empty, value.shape).copy())
-        attrs = {"grapy_trend": kind, "grapy_trend_dimension": dim, "grapy_trend_x": "days" if dim == TIME else "value",
+        attrs = {"grapy_trend": kind, "grapy_trend_dimension": dim,
+                 "grapy_trend_x": "days since 1899-12-30" if dim == TIME else "value",
                  "grapy_trend_order": order, "grapy_trend_frequency": frequency, "grapy_trend_period_days": period_days}
         out.append(Variable(v.name, v.dims, coords, np.stack(data), np.stack(mask), attrs, names, v.dim_attrs))
     return _result(out, cube.grid)
@@ -879,18 +913,19 @@ def GenerateTrend(raster, dimension_name, regression_type="LINEAR", cycle_length
     - LINEAR ``y = β0 + β1·x``, bands Slope, Intercept;
     - POLYNOMIAL ``y = Σ βk·xᵏ``, bands Polynomial_n … Polynomial_0;
     - HARMONIC ``y = β0 + β1·x + Σᵢ (αᵢ·sin(2πi·x/T) + γᵢ·cos(2πi·x/T))``, the form of Zhu and Woodcock 2014, bands
-      Slope, Intercept, Harmonic_sin1, Harmonic_cos1 …, T the cycle length in days (a year is 365.25 days);
+      Slope, Intercept, Harmonic_sin_1, Harmonic_cos_1 …, T the cycle length in days (a year is 365.25 days);
 
-    then RMSE, R2 and Slope_P_Value when asked, in the band order the page gives for the first. MANN-KENDALL and
+    then RMSE, R2 and P_Value when asked, in the band order the page gives for the first. MANN-KENDALL and
     SEASONAL-KENDALL give Sen's slope, the p-value, S, S's variance and Z (Mann 1945, Kendall 1975, Sen 1968; the
     seasonal test of Hirsch, Slack and Smith 1982 with seasons by day of the year or month).
 
     The output is one slice per combination of the other dimensions, at the analysed dimension's first value.
 
-    INFERRED (ADR-236 §5.5): x is days since the first slice for time and the value less the first otherwise, so the
-    intercept is the fitted value at the first slice (as Trend to RGB's page describes it); RMSE divides by n; R2 and
-    Slope_P_Value follow RMSE in that order; the slope p-value is the two-sided t-test of the linear term (Polynomial_1
-    for a polynomial); RMSE, R2 and the p-value are not added to the five Kendall bands."""
+    Measured against Pro 3.7 (2026-10-31, ADR-236 condition 3): for time, x is days since 1899-12-30, so the intercept
+    is the fitted value on that day and the harmonic terms take their phase from it; MANN-KENDALL's Sen's slope is per
+    slice; the bands are named as Pro names them, and a polynomial has no P_Value band. RMSE over n, R2, and the
+    p-value as the two-sided t-test of the slope agree with Pro's. INFERRED (ADR-236 §5.5): x is the value less the
+    first for other dimensions; RMSE, R2 and the p-value are not added to the five Kendall bands."""
     cube = _mdim.cube_of(raster, "GenerateTrend")
     return _trend(cube, str(dimension_name), None, _upper(regression_type, "LINEAR"), int(polynomial_order),
                   int(harmonic_frequency), cycle_length if _given(cycle_length) else 1, cycle_unit,
@@ -935,6 +970,8 @@ def _predict(source, variables, definition, values, start, end, interval_value, 
         for i, c in enumerate(v.coords):
             origin = c[dim]
             x = _x_of(dim, [origin] + targets)[1:]
+            if v.attrs.get("grapy_trend_x") == "days":  # made before the epoch was measured: days since its slice
+                x = x - _x_of(dim, [origin])[0]
             design = _design(kind, x, order, frequency, period_days)
             coef = v.data[i, :p]
             empty = v.mask[i, :p].any(axis=0)
@@ -1027,6 +1064,8 @@ def TrendToRGB(raster, model_type="LINEAR"):
     from ._raster import Raster
 
     def band(name):
+        if name.lower() not in names and name.lower().replace("_1", "1") in names:
+            name = name.replace("_1", "1")  # a harmonic trend raster grapy wrote before the names were measured
         if name.lower() not in names:
             raise ValueError(f"{tool}: the raster has no {name} band; it needs a {kind.lower()} trend raster.")
         return v.data[0, names.index(name.lower())], v.mask[0, names.index(name.lower())]
@@ -1043,7 +1082,7 @@ def TrendToRGB(raster, model_type="LINEAR"):
         hi = intercept[~empty].max() if (~empty).any() else 0
         green = (intercept - lo) / (hi - lo) * 255 if hi > lo else np.zeros_like(intercept)
     else:
-        (s, m1), (c, m2) = band("Harmonic_sin1"), band("Harmonic_cos1")
+        (s, m1), (c, m2) = band("Harmonic_sin_1"), band("Harmonic_cos_1")
         empty = m1 | m2
         amplitude = np.hypot(s, c)
         top = amplitude[~empty].max() if (~empty).any() else 0
