@@ -21,7 +21,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     private readonly NpgsqlDataSource _root;
 
     /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
-    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
+    private TenantSource _dataSource => TenantDataSources.Route(_root);
     private readonly SecretProtector _secrets;
 
     /// <summary>Creates a whole service and everything in it, or none of it.</summary>

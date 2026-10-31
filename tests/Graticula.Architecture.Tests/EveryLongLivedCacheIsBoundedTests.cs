@@ -66,9 +66,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
-        ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: two (ADR-204)",
+        ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: one (ADR-204)",
         ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
-        ["TenantDataSources.Pools"] = "one per registered platform pool per tenant, emptied whenever the tenants are read again (ADR-204)",
         ["ExportOutputs.Pictures"] = "at most MaximumPictures (1,024) and MaximumBytes (256 MB), each kept ten minutes, oldest forgotten first (D-299)",
         ["PortalEndpoints.ProPublish.Staged"] = "at most MaximumStaged (256) service definitions from Pro, oldest forgotten first, and none whose scratch folder was swept (ADR-191)",
         ["InitialExtents.Found"] = "one per published layer per reference it is served in; a changed range replaces the layer's entry",

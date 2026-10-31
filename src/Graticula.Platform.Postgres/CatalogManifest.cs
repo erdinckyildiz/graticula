@@ -109,9 +109,8 @@ public static class CatalogManifest
     /// <returns>The manifest.</returns>
     /// <exception cref="ManifestException">A column the manifest has no rule for, or a source that cannot be opened.</exception>
     public static async Task<JsonObject> ExportAsync(
-        NpgsqlDataSource store, SecretProtector secrets, Func<string, string> locate, CancellationToken cancellationToken)
+        TenantSource store, SecretProtector secrets, Func<string, string> locate, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(locate);
 
@@ -143,7 +142,7 @@ public static class CatalogManifest
     /// <param name="cancellationToken">The caller's.</param>
     /// <returns>The plan, and every reason it was refused.</returns>
     public static async Task<ManifestPlan> ApplyAsync(
-        NpgsqlDataSource store,
+        TenantSource store,
         SecretProtector secrets,
         Func<string, string> locate,
         JsonObject manifest,
@@ -151,7 +150,6 @@ public static class CatalogManifest
         bool apply,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(secrets);
         ArgumentNullException.ThrowIfNull(locate);
         ArgumentNullException.ThrowIfNull(manifest);

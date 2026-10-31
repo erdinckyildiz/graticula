@@ -1,116 +1,150 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Graticula.Platform.Tenancy;
 using Npgsql;
 
 namespace Graticula.Platform.Postgres;
 
 /// <summary>
-/// The catalogue connection a statement runs on: the tenant's, carrying <c>graticula.tenant</c>, where the deployment
-/// holds more than one tenant and the work names one — ADR-204 §5b.
+/// The catalogue connection a statement runs on, carrying <c>graticula.tenant</c> where the deployment holds more than
+/// one tenant and the work names one — ADR-204 §5b.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why per-tenant pools and not a <c>set_config</c> before every statement.</b> ADR-204's prototype carried the
-/// tenant in a batch ahead of each statement, over one pool. The stores here run three hundred statements as
-/// connectionless commands (<c>NpgsqlDataSource.CreateCommand</c>), which no hook reaches, and rewriting every one of
-/// them is the change most likely to forget one. A data source whose connections start with <c>-c graticula.tenant=…</c>
-/// cannot forget: every statement on it is floored. The cost is a pool per tenant, which ADR-204 measured as costing the
-/// busy tenant queue time; each tenant's pool is kept to a share of the request pool's ceiling — INFERRED, condition 15.
+/// <b>One pool; the tenant is sent ahead of each statement — ADR-204 condition 14, measured 2026-10-31.</b> Until then
+/// each tenant had a pool of its own, a share <c>max(2, 24/n)</c> of the request pool, whose every connection started
+/// with <c>-c graticula.tenant=…</c>. Measured on a quiet machine with a Release build
+/// (benchmarks/tenant-http/RESULTS.md, *Clean run*), varying one thing at a time at ten organisations: turning the
+/// floor off changed nothing, turning the admission shares off changed nothing, and giving each organisation's pool
+/// the full 24 took the busy organisation's query p95 from 31 ms to 9 at 4 callers. The pools were the cost — the busy
+/// organisation queued behind its own two connections. The replacement is the one the condition named: every statement
+/// of a tenant goes to the one pool with <c>SET graticula.tenant = '…'</c> in the same batch ahead of it.
 /// </para>
 /// <para>
-/// <b>A deployment of one tenant never routes</b>: its statements run on the pool they always ran on, which names no
-/// tenant, and the floor's policy reads every row for such a connection. Nothing changes until a second tenant exists.
+/// <b>Why a statement can still not forget.</b> The stores reach the catalogue only through <see cref="TenantSource"/>,
+/// whose two members — <see cref="TenantSource.CreateCommand"/> and <see cref="TenantSource.OpenConnectionAsync"/> —
+/// are the only ways a statement is made, and each sets the tenant before anything the caller wrote runs. A connection
+/// returned to the pool is reset by Npgsql (<c>RESET ALL</c> among it) before its next use, so a statement that names no
+/// tenant never inherits one.
+/// </para>
+/// <para>
+/// <b>A deployment of one tenant never routes</b>: its statements run as they always ran, naming no tenant, and the
+/// floor's policy reads every row for such a connection. Nothing changes until a second tenant exists.
 /// </para>
 /// </remarks>
 public static class TenantDataSources
 {
-    /// <summary>The connection strings of the roots that route, by the root — one per platform pool.</summary>
-    private static readonly ConcurrentDictionary<NpgsqlDataSource, (string ConnectionString, int Ceiling)> Roots =
-        new(ReferenceEqualityComparer.Instance);
+    /// <summary>The roots that route by tenant — one per platform pool the host registers.</summary>
+    private static readonly ConcurrentDictionary<NpgsqlDataSource, bool> Roots = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>A pool per root per tenant: bounded by the platform pools (two) times the tenants the catalogue holds.</summary>
-    private static readonly ConcurrentDictionary<(NpgsqlDataSource Root, Guid Tenant), NpgsqlDataSource> Pools = new();
-
-    /// <summary>Makes <paramref name="root"/> route to its tenants' pools; called where the platform pools are built.</summary>
-    /// <param name="root">The pool every statement of the store runs on today.</param>
-    /// <param name="connectionString">Its connection string, password included — the pool's own hides it.</param>
-    /// <param name="ceiling">The root pool's ceiling, which the tenants' pools share.</param>
-    public static void Register(NpgsqlDataSource root, string connectionString, int ceiling)
+    /// <summary>Makes <paramref name="root"/> route by tenant; called where the platform pools are built.</summary>
+    /// <param name="root">The pool every statement of the store runs on.</param>
+    public static void Register(NpgsqlDataSource root)
     {
         ArgumentNullException.ThrowIfNull(root);
-        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
-        Roots[root] = (connectionString, Math.Max(1, ceiling));
-    }
-
-    /// <summary>
-    /// The data source a statement on <paramref name="root"/> runs on now: the tenant's where the deployment holds more
-    /// than one and the work names one, otherwise the root itself.
-    /// </summary>
-    /// <param name="root">The store's own data source.</param>
-    /// <returns>The data source to use.</returns>
-    public static NpgsqlDataSource Route(NpgsqlDataSource root)
-    {
-        if (!TenantScope.MultiTenant || TenantScope.Current is not { } tenant || !Roots.TryGetValue(root, out var made))
-        {
-            return root;
-        }
-
-        return Pools.GetOrAdd((root, tenant), key => Build(made.ConnectionString, made.Ceiling, key.Tenant));
+        Roots[root] = true;
     }
 
     /// <summary>Registers <paramref name="root"/> to route by tenant (<see cref="Register"/>) and returns it.</summary>
     /// <param name="root">The platform pool.</param>
-    /// <param name="connectionString">Its connection string, password included.</param>
-    /// <param name="ceiling">Its ceiling.</param>
     /// <returns><paramref name="root"/>.</returns>
-    public static NpgsqlDataSource RoutedByTenant(this NpgsqlDataSource root, string connectionString, int ceiling)
+    public static NpgsqlDataSource RoutedByTenant(this NpgsqlDataSource root)
     {
-        Register(root, connectionString, ceiling);
+        Register(root);
         return root;
     }
 
-    /// <summary>The data source a tenant's statements run on, for a caller that holds the tenant itself.</summary>
+    /// <summary>
+    /// Where a statement on <paramref name="root"/> is made now: carrying the tenant where the deployment holds more
+    /// than one and the work names one, otherwise as it always was.
+    /// </summary>
+    /// <param name="root">The store's own data source.</param>
+    /// <returns>The source to make the statement on.</returns>
+    public static TenantSource Route(NpgsqlDataSource root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        return TenantScope.MultiTenant && TenantScope.Current is { } tenant && Roots.ContainsKey(root)
+            ? new TenantSource(root, tenant)
+            : new TenantSource(root, null);
+    }
+
+    /// <summary>Where a tenant's statements are made, for a caller that holds the tenant itself.</summary>
     /// <param name="root">The store's own data source.</param>
     /// <param name="tenant">The tenant.</param>
-    /// <returns>The tenant's data source, or the root where it does not route.</returns>
-    public static NpgsqlDataSource For(NpgsqlDataSource root, Guid tenant)
+    /// <returns>The source, carrying the tenant where the root routes.</returns>
+    public static TenantSource For(NpgsqlDataSource root, Guid tenant)
     {
         using IDisposable scope = TenantScope.Enter(tenant);
         return Route(root);
     }
+}
 
-    /// <summary>Forgets every tenant pool, after a tenant was removed; the next statement builds what it needs.</summary>
-    public static void Forget()
+/// <summary>
+/// A platform pool and the tenant its statements carry, or none — what <see cref="TenantDataSources.Route"/> gives a
+/// store in place of the pool itself.
+/// </summary>
+public readonly struct TenantSource
+{
+    private readonly NpgsqlDataSource _root;
+    private readonly string? _set;
+    private readonly Guid? _tenant;
+
+    /// <summary>Makes the source.</summary>
+    /// <param name="root">The pool.</param>
+    /// <param name="tenant">The tenant every statement carries, or null for none.</param>
+    public TenantSource(NpgsqlDataSource root, Guid? tenant)
     {
-        foreach (KeyValuePair<(NpgsqlDataSource Root, Guid Tenant), NpgsqlDataSource> pool in Pools)
-        {
-            if (Pools.TryRemove(pool.Key, out NpgsqlDataSource? gone))
-            {
-                gone.Dispose();
-            }
-        }
+        _root = root ?? throw new ArgumentNullException(nameof(root));
+        // A Guid formatted by us, so a literal is safe; SET takes no parameter.
+        _tenant = tenant;
+        _set = tenant is { } t ? $"SET graticula.tenant = '{t:D}';\n" : null;
     }
 
-    private static NpgsqlDataSource Build(string connectionString, int ceiling, Guid tenant)
+    /// <summary>The pool itself, carrying no tenant — what a caller that is no tenant's (a migration, a test) passes.</summary>
+    /// <param name="root">The pool.</param>
+    public static implicit operator TenantSource(NpgsqlDataSource root) => new(root, null);
+
+    /// <summary>The tenant's id, or null where this source carries none.</summary>
+    public Guid? Tenant => _tenant;
+
+    /// <summary>The pool statements go to.</summary>
+    public NpgsqlDataSource Pool => _root;
+
+    /// <summary>
+    /// A connectionless command on the pool whose batch sets the tenant ahead of <paramref name="commandText"/>.
+    /// </summary>
+    /// <param name="commandText">The statement.</param>
+    /// <returns>The command; a reader, scalar or row count is that of <paramref name="commandText"/>, because a
+    /// <c>SET</c> returns no rows and counts none.</returns>
+    public NpgsqlCommand CreateCommand(string commandText) =>
+        _root.CreateCommand(_set is null ? commandText : _set + commandText);
+
+    /// <summary>A connection from the pool, the tenant set on it before it is returned to the caller.</summary>
+    /// <param name="cancellationToken">Cancels the open.</param>
+    /// <returns>The open connection; closing it returns it to the pool, which resets it.</returns>
+    public async ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
     {
-        NpgsqlConnectionStringBuilder builder = new(connectionString);
+        NpgsqlConnection connection = await _root.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
-        // The tenant is a startup option of every physical connection, so no statement can run on this pool without it,
-        // and the pool's reset on return never clears it.
-        builder.Options = $"{builder.Options} -c graticula.tenant={tenant:D}".Trim();
-        // <b>The tenants share the request pool's ceiling; they do not each get one — condition 14, measured
-        // 2026-10-22.</b> At max(4, …) ten tenants held 83 connections under 64 callers and the platform store's
-        // breaker opened over and over: the budget the startup check counts (24) was exceeded by the pools it did not
-        // count. A share of at least two, and idle connections let go in seconds, so a tenant nobody is using holds none.
-        builder.MaxPoolSize = Math.Max(2, ceiling / Math.Max(1, TenantScope.Count));
-        builder.MinPoolSize = 0;
-        builder.ConnectionIdleLifetime = 10;
-        builder.ConnectionPruningInterval = 5;
-        string named = $"{builder.ApplicationName}:{tenant:N}";
-        builder.ApplicationName = named.Length <= 63 ? named : named[..63];
+        if (_set is null)
+        {
+            return connection;
+        }
 
-        return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+        try
+        {
+            await using NpgsqlCommand set = new(_set, connection);
+            await set.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 }

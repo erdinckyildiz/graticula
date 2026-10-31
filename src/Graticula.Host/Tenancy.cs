@@ -76,7 +76,6 @@ internal sealed class TenantDirectory(ITenantStore store, NpgsqlDataSource root,
 
         Volatile.Write(ref _all, read);
         TenantScope.SetCount(read.Count);
-        TenantDataSources.Forget();
     }
 
     /// <summary>

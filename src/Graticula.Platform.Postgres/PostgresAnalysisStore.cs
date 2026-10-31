@@ -14,7 +14,7 @@ public sealed class PostgresAnalysisStore : IAnalysisStore
 
     private readonly NpgsqlDataSource _root;
 
-    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
+    private TenantSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store.</summary>
     /// <param name="dataSource">The platform store.</param>

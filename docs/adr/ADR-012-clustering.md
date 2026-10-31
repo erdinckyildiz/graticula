@@ -347,7 +347,7 @@ what landed.
      absolute path; on two machines it is a missing file — *reasoned, and the one row this prototype cannot show*;
    - **a Pro publish split across nodes**: `addItem` on A 200, `addPart` on B **400** *Item does not exist*;
    - **a tenant changed on A**: renamed on A, `whoami` on B still said *Default* — until it restarts.
-   **What remains: the mix measured through both nodes against one, on a quiet machine.** Tried twice on 2026-10-31.
+   ~~**What remains: the mix measured through both nodes against one, on a quiet machine.**~~ Tried twice on 2026-10-31.
    The first run was abandoned with all sixteen logical cores at 100 % from other sessions. The second ran to the end
    ([two-nodes-2026-10-31.txt](../../benchmarks/node-saturation/two-nodes-2026-10-31.txt); each node two physical
    cores, the store three): mix 334 req/s on one node and 309 on two, map images 80 and 96, queries 1,152 and 881 —
@@ -355,6 +355,19 @@ what landed.
    own ceiling, so the numbers describe the machine's contention and not the server. They are not used. What they do
    show, at that contention: no request failed, the authenticated whoami answered on both nodes throughout, and the
    site held 112 connections at its peak against 297 usable.
+   **DISCHARGED 2026-11-01 — the mix measured through two nodes against one.**
+   [node-saturation](../../benchmarks/node-saturation/RESULTS.md), *Two nodes against one*
+   ([two-nodes-2026-11-01.txt](../../benchmarks/node-saturation/two-nodes-2026-11-01.txt)): its own PostgreSQL cluster
+   pinned to three physical cores, each node to two, the generator apart, a Release build at `Warning`, one node and two
+   interleaved twice, each workload started only once the machine was under 20 % busy. **The mix: 239–249 requests a
+   second at 64 callers on one node, 241–248 on two** — the store fills (PostgreSQL 4.6–4.9 of its 6 logical cores
+   either way, the nodes together no busier with two), so a second node adds nothing to it until the store grows, which
+   is condition 1's finding seen through two real processes. **Map images: 42–46 on one node, 55–62 on two**, and the
+   refusals at 128 callers (130 and 32) are gone — the node was the limit there, and with two the store becomes it.
+   No error, the authenticated whoami answered 200 on both nodes throughout, 116 connections at the peak against 297
+   usable. **What the machine still was:** quiet at the start of every run, but other sessions' processes (Windows
+   Defender, a Disk Cleanup, another fixture) averaged 21–45 % of it during the runs; both repetitions agree within
+   about a tenth, and the ratios, not the absolute rates, are the finding — as for condition 1.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
    **PARTLY DISCHARGED 2026-10-31** — phases 0, 1 and 2 each landed with such tests; phase 3's tests cover the nodes'
    half and not Caddy, which was not run; phase 4 is not built. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over

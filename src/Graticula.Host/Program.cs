@@ -295,7 +295,7 @@ public static class Program
                     MaxPoolSize = PlatformStorePool,
                 }.ConnectionString)
                 .Build()
-                .RoutedByTenant(settings.PlatformStore, PlatformStorePool));
+                .RoutedByTenant());
 
         builder.Services.AddSingleton(services => new PostgresLayerCatalog(
             services.GetRequiredService<NpgsqlDataSource>(),
@@ -2359,7 +2359,8 @@ public static class Program
         //
         // <b>Here, because the connection already exists and has just been used.</b> The
         // handshake is the one place that has read from the store before anything is serving.
-        // ADR-204 condition 14: with several tenants, their pools share another request pool's worth — at least two each.
+        // ADR-204 condition 14: several tenants share the one platform pool since 2026-10-31 (the tenant is sent ahead of
+        // each statement), so they add nothing to the ceiling; the count is read for the refusal below.
         int tenants = 1;
 
         try
@@ -2382,7 +2383,7 @@ public static class Program
 
         await ConnectionCeilings.CompareAsync(
             dataSource,
-            nodes * (Ceiling(services) + pinnedSources + (tenants > 1 ? Math.Max(PlatformStorePool, 2 * tenants) : 0)),
+            nodes * (Ceiling(services) + pinnedSources),
             logger, CancellationToken.None, nodes).ConfigureAwait(false);
 
         // ADR-204 condition 9: whether the role this server reads as is one row-level security binds. Said here
