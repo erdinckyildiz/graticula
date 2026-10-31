@@ -6,6 +6,11 @@ ArcGIS Pro 3.7 (file geodatabase) and in grapy (GeoPackage).
 
 Every diagram is read through ExportDiagramContent's JSON; junctions, containers and edges are named back through
 their associated global IDs. Prints one JSON document {case: content or error}. A tool, not a test: it needs Pro.
+
+Pro applies only the first layout a Python process runs on a file geodatabase's diagrams — later ones succeed and move
+nothing (measured 2026-10-31) — so run one layout case per process: ADR232_CASES=radial_tree (a comma list; all by
+default). ADR232_SCALE and ADR232_SCALE_Y stretch the network (x, y), ADR232_SUBSET=1 or 2 makes the diagram of a
+smaller tree (S, V1, T, E three levels deep, or S, V1, T two), for the relative units of D-338.
 """
 import csv
 import json
@@ -20,7 +25,9 @@ if side == "grapy":
 else:
     import arcpy
 
-work = os.path.join(folder, f"diagrams_{side}")
+SCALE = float(os.environ.get("ADR232_SCALE", "1"))
+SCALE_Y = float(os.environ.get("ADR232_SCALE_Y", os.environ.get("ADR232_SCALE", "1")))
+work = os.path.join(folder, f"diagrams_{side}_x{SCALE:g}_y{SCALE_Y:g}_{os.environ.get('ADR232_CASES', 'all').replace(',', '-')}{'_sub' + os.environ.get('ADR232_SUBSET') if os.environ.get('ADR232_SUBSET') else ''}")
 if os.path.exists(work):
     shutil.rmtree(work)
 os.makedirs(work)
@@ -31,7 +38,7 @@ fds = arcpy.management.CreateFeatureDataset(gdb, "utility", SR)[0]
 territory = arcpy.management.CreateFeatureclass(fds, "Territory", "POLYGON", has_z="ENABLED", has_m="ENABLED",
                                                 spatial_reference=SR)[0]
 with arcpy.da.InsertCursor(territory, ["SHAPE@WKT"]) as rows:
-    rows.insertRow(["POLYGON Z ((-10 -10 0, 100 -10 0, 100 100 0, -10 100 0, -10 -10 0))"])
+    rows.insertRow(["POLYGON Z ((-1000 -1000 0, 10000 -1000 0, 10000 10000 0, -1000 10000 0, -1000 -1000 0))"])
 un = arcpy.un.CreateUtilityNetwork(fds, "Water", territory)[0]
 arcpy.un.AddDomainNetwork(un, "Water", "PARTITIONED", "SOURCE")
 arcpy.un.AddTier(un, "Water", "Pressure", 1, "RADIAL")
@@ -68,10 +75,16 @@ arcpy.un.SetSubnetworkDefinition(un, "Water", "Pressure", None, ["Source/Standar
 ids = {}
 
 
+def scaled(wkt):
+    import re
+    return re.sub(r"(-?[0-9.]+) (-?[0-9.]+) (-?[0-9.]+)",
+                  lambda m: f"{float(m.group(1)) * SCALE} {float(m.group(2)) * SCALE_Y} {m.group(3)}", wkt)
+
+
 def insert(table, fields, rows):
     with arcpy.da.Editor(gdb), arcpy.da.InsertCursor(table, fields) as written:
         for row in rows:
-            written.insertRow(row)
+            written.insertRow(row[:-1] + (scaled(row[-1]),))
     with arcpy.da.SearchCursor(table, ["NAME", "GLOBALID@"]) as read:
         ids.update({n: g.upper() for n, g in read})
 
@@ -142,11 +155,21 @@ def content(diagram):
 
 
 def case(template, rules, layout=None, **layout_args):
+    template = f"{template}{len(report)}"
     try:
         arcpy.nd.AddDiagramTemplate(un, template)
         for rule, args in rules:
             getattr(arcpy.nd, rule)(un, template, *args)
-        diagram = arcpy.nd.CreateDiagram(un, template, everything)[1]
+        features = everything
+        if os.environ.get("ADR232_SUBSET"):
+            # a smaller diagram: S, V1, T and E with L1, L2 and L4 (no L3, V2 or the vault)
+            keep = {device: "NAME IN ('S', 'V1')", junction: "NAME IN ('T', 'E')", line: "NAME IN ('L1', 'L2', 'L4')"}
+            if os.environ.get("ADR232_SUBSET") == "2":
+                # smaller still: S, V1 and T with L1 and L2, a tree two deep
+                keep = {device: "NAME IN ('S', 'V1')", junction: "NAME = 'T'", line: "NAME IN ('L1', 'L2')"}
+            features = [arcpy.management.MakeFeatureLayer(t, f"sub{count[0]}_{i}", w)[0]
+                        for i, (t, w) in enumerate(keep.items())]
+        diagram = arcpy.nd.CreateDiagram(un, template, features)[1]
         if layout:
             # Pro lays out a diagram layer (ERROR 000732 on a diagram name).
             count[0] += 1
@@ -159,17 +182,23 @@ def case(template, rules, layout=None, **layout_args):
 
 root = ("AddSetRootJunctionByAttributeRule", ["ACTIVE", device, "NAME = 'S'"])
 report = {"side": side, "ids": ids}
-report["basic"] = case("Plain", [])  # Pro's network already has a "Basic"
-report["reduce_devices"] = case("Red", [("AddReduceJunctionRule", ["ACTIVE", "INCLUDE_SOURCE_CLASSES", [device]])])
-report["reduce_devices_1jct"] = case("Red1", [("AddReduceJunctionRule", ["ACTIVE", "INCLUDE_SOURCE_CLASSES", [device],
-                                                                          None, None, "REDUCE_JCT_TO_1JCT"])])
-report["smart_tree"] = case("Smart", [root], "ApplySmartTreeLayout")
-report["smart_tree_top"] = case("SmartTop", [root], "ApplySmartTreeLayout", tree_direction="FROM_TOP_TO_BOTTOM",
-                                is_unit_absolute="ABSOLUTE_UNIT", along_absolute="5 Meters",
-                                perpendicular_absolute="4 Meters")
-report["radial_tree"] = case("Radial", [root], "ApplyRadialTreeLayout")
-report["mainline_tree"] = case("Mainline", [root], "ApplyMainlineTreeLayout")
-report["grid"] = case("Grid", [], "ApplyGridLayout")
-report["linear_dispatch"] = case("Linear", [], "ApplyLinearDispatchLayout")
-report["geo"] = case("Geo", [root], "ApplyGeoPositionsLayout")
+SYNC = {}
+CASES = {
+    "basic": lambda: case("Plain", []),
+    "reduce_devices": lambda: case("Red", [("AddReduceJunctionRule", ["ACTIVE", "INCLUDE_SOURCE_CLASSES", [device]])]),
+    "reduce_devices_1jct": lambda: case("Red1", [("AddReduceJunctionRule", ["ACTIVE", "INCLUDE_SOURCE_CLASSES", [device],
+                                                                             None, None, "REDUCE_JCT_TO_1JCT"])]),
+    "smart_tree": lambda: case("Smart", [root], "ApplySmartTreeLayout"),
+    "smart_tree_top": lambda: case("SmartTop", [root], "ApplySmartTreeLayout", tree_direction="FROM_TOP_TO_BOTTOM",
+                                   is_unit_absolute="ABSOLUTE_UNIT", along_absolute="5 Meters",
+                                   perpendicular_absolute="4 Meters"),
+    "smart_tree_down": lambda: case("SmartDown", [root], "ApplySmartTreeLayout", tree_direction="FROM_TOP_TO_BOTTOM"),
+    "radial_tree": lambda: case("Radial", [root], "ApplyRadialTreeLayout"),
+    "mainline_tree": lambda: case("Mainline", [root], "ApplyMainlineTreeLayout"),
+    "grid": lambda: case("Grid", [], "ApplyGridLayout"),
+    "linear_dispatch": lambda: case("Linear", [], "ApplyLinearDispatchLayout"),
+    "geo": lambda: case("Geo", [root], "ApplyGeoPositionsLayout"),
+}
+for k, name in enumerate((os.environ.get("ADR232_CASES") or ",".join(CASES)).split(",")):
+    report[name if name not in report else f"{name}#{k}"] = CASES[name]()
 print(json.dumps(report, indent=1, default=str))

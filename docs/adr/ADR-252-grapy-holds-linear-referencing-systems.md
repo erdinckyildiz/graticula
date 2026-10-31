@@ -231,7 +231,7 @@ None recorded.
 1. **The owner answers Q-222** (§5.9 (a)–(m)).
 2. **Apply Event Behaviors compared with ArcGIS Pro** on the Roads and Highways pages' worked examples (calibrate,
    extend, realign, retire, reverse), on a file geodatabase LRS: which outcomes agree, and each difference either
-   changed to Pro's answer or recorded. Needs a Pro session with a Location Referencing licence.
+   changed to Pro's answer or recorded. Needs a Pro session with a Location Referencing licence. *Not runnable here (checked 2026-10-31):* this machine's Pro 3.7 is ArcInfo without Location Referencing (`arcpy.CheckExtension("LocationReferencing")` answers `NotLicensed`), which conditions 2–4 all need. The comparisons need a session with that licence — the owner's to provide.
 3. **GenerateRoutes and GenerateCalibrationPoints compared with ArcGIS Pro** on a gapped route under each calibration
    rule, and on a loop: §5.9 (d)'s reading of the stepping increment is the one most likely to differ.
 4. **CalculateRouteConcurrencies and OverlayEvents' output columns compared with ArcGIS Pro**: §5.9 (f) and (h) name

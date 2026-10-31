@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` for the model, the type and topology tools, records, seeds, building, deleting, selecting, labelling, merging, duplicating, copying, appending, exporting and importing, whose pages state what each does and leave the storage and a few thresholds open (§5.8) · `HIGH` for the least-squares arithmetic on the hand-worked square of the tests, which is the published method · `LOW` for agreement with ArcGIS Pro's own numbers wherever a page names a computation without stating it — the adjustment's statistics, the sequence's start, a gap's width, validation's clustering — until condition 2 compares them |
+| **Confidence** | `MEDIUM` for the model, the type and topology tools, records, seeds, building, deleting, selecting, labelling, merging, duplicating, copying, appending, exporting and importing, whose pages state what each does and leave the storage and a few thresholds open (§5.8) · `HIGH` for the least-squares arithmetic on the hand-worked square of the tests, which is the published method, and — since condition 2's measurement on 2026-10-31 — for the names, codes, building, seeds, sequence, gaps and the adjustment's coordinates and corrections, which now answer as Pro 3.7 does (§5.9) · `MEDIUM` for the adjustment's precisions (within 2.5 % of Pro's) · `LOW` where Pro's order could not be pinned (the direction of a shared line, the record of a shared point) and for validation's clustering |
 | **Decided** | 2026-10-31, by owner decision *"Tamamını bitirelim artık"*: the last three group-2 modules — `arcpy.parcel` (this ADR), `arcpy.topographic` (ADR-251) and `arcpy.locref` (ADR-252) — are built, and no name of them may stay refused with a schedule; and by [ADR-224](ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) §5.7 and its condition 5: each group-2 data model has its ADR before its tools. Every storage choice and every reading of a page that does not say is INFERRED and listed for the owner in §5.8 and [Q-220](../open-questions.md). |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -91,8 +91,8 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
    tracking (ADR-240), and its documented fields; the line classes are COGO enabled. Its topology is
    `<fabric>_Topology` (ADR-225). Which class is which is grapy's `grapy_parcel_fabric` and `grapy_parcel_class`,
    registered in `gpkg_extensions` as `grapy_parcel_fabric`. The domains `PF_YesNo`, `PF_COGOType`,
-   `PF_LabelPosition`, `PF_AdjustmentConstraint`, `PF_AreaUnits`, `PF_COGOAccuracy` and `ExportStatus` are made in the
-   GeoPackage and assigned. The three default attribute rules are ADR-235 rules on their classes. A class may also be
+   `PF_LabelPosition`, `PF_AdjustmentConstraint` and `PF_AreaUnits` are made in the GeoPackage and assigned, with
+   Pro's codes and field defaults (§5.9); `ExportStatus` is made where ExportParcelRecordFeatures writes. The three default attribute rules are ADR-235 rules on their classes. A class may also be
    named under its fabric's path, as the pages' samples write it (`…/CountyFabric/Tax_Lines`).
 2. **Built (20)**, each to its page: AddParcelType, AppendParcels, ApplyParcelLeastSquaresAdjustment,
    BuildParcelFabric, CopyParcels, CreateParcelFabric, CreateParcelRecords (its EXPRESSION through grapy's Arcade,
@@ -105,7 +105,7 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
    *Boundary Must Be Covered By* the lines. Disable removes them and the fabric's classes, keeping user rules.
 4. **Equivalents (5)**, each announcing itself through `_runtime.equivalent`:
    - **AnalyzeParcelsByLeastSquaresAdjustment** — a parametric least-squares adjustment of distances and direction
-     sets in the grid, iterated to the convergence tolerance, the free network by inner constraints, error ellipses,
+     sets in the grid, iterated to the convergence tolerance, the free network held by every point at 10 m, error ellipses,
      standardized residuals and Pope's tau (Ghilani and Wolf; DynAdjust's names), for Esri's DynAdjust run.
    - **ExportSequencedParcelFeatures** — a clockwise walk of the parcel's exterior ring from the line end nearest
      the chosen corner of its envelope; the formats' `#` run as a zero-padded number.
@@ -196,6 +196,55 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
    - (u) **GenerateParcelFabricLinks**: dates are UTC; each output has `PointID`; a point made after the From date
      gives neither a link nor an anchor.
 
+   Of these, (b), (c), (d), (h), (i), (j), (n), (p) and (s) were changed in part by condition 2's measurement (§5.9);
+   (a) held.
+9. **Measured beside ArcGIS Pro 3.7 on 2026-10-31** (condition 2; `tools/pro-compare/adr250-parcel.py` builds the
+   same fabric in a file geodatabase and in a GeoPackage, `tools/pro-compare/adr250-compare.py` compares the
+   adjustments). Where Pro's outputs pin a rule grapy now answers as Pro does:
+   - **names and codes** — the eight classes are named as (a) inferred; Pro's physical names replace the alias-derived
+     ones where they differ (`EllipseMajor`, `EllipseMinor`, `EllipseDirection`, `MeasurementStdDev`, `AdjustedStdDev`,
+     `Residual`, `NormalStatistic`, `StudentStatistic`, `PelzerReliablity` as Pro spells it); `VALIDATIONSTATUS` is on
+     polygons, lines and connection lines, not points; `PF_LabelPosition` is 1 Right, 2 Left, 3 Centered;
+     `PF_AreaUnits` holds the projection engine's 66 area units, 109401 Hectare to 109466 Square Nanometer; the
+     MeasurementType subtypes are 1 Direction Set, 2 Distance, 3 Geodetic Latitude, 4 Geodetic Longitude; a new fabric
+     has no `PF_COGOAccuracy` or `ExportStatus`; the defaults are Pro's (Direction Accuracy 30, Distance Accuracy 0.15,
+     Label Position 1, Is Seed 0, Adjustment Constraint 1, Measurement Type 1). Every field name, domain code and
+     default of the eight classes now agrees with Pro's, but for the attribute-rule domains below;
+   - **topology** — a new fabric's topology starts enabled (EnableParcelTopology warns 002007); AddParcelType runs on
+     an enabled topology and its classes join it; BuildParcelFabric runs on a disabled one; Enable and Disable in the
+     wrong state warn 002007 and 002006 rather than fail;
+   - **building** — every polygon vertex, a collinear one too, ends a line and gets a point (the tests' three parcels:
+     11 lines and 9 points in both); each parcel's own lines run clockwise round it; a whole-fabric build leaves seeds
+     as seeds, and a build named by a record builds that record's; the shared lines' records, the record polygons and
+     counts and the label positions agree with Pro;
+   - **seeds** — a circle of radius 1 at the loop's centroid (Pro: loops 10, 100 and 1,000 m square and 400 by 20 m,
+     area pi in each; grapy's has 64 sides where Pro's is a true arc, area 3.1365); a seed counts in its record's
+     Created Parcel Count;
+   - **the sequence** — a format's run of `#` is the number and what follows is kept (`ABC-##1` gives ABC-011 …
+     ABC-051); the four corners' sequences agree line for line and point for point;
+   - **gaps and overlaps** — the field is `GapOverlap`, holding `GAP` or `OVERLAP`, and WITHIN_LAYER names the input in
+     `ParcelInput1`; the 10 m² gap and 5 m² overlap of the six boxes agree;
+   - **the adjustment** — only Adjustment Constraint XYZ constrained makes a control point (Pro reports "XYZ point
+     constraints not found" where only Fixed Shape is set); fewer than two controls is no error, the points then held
+     at 10 m as a free network's are; at most 15 iterations; a direction set's backsight is the smallest azimuth and its
+     rows, after the backsight's, are the angles from each direction to the next in azimuth order, with sqrt(2) times a
+     direction's standard deviation; the degrees of freedom are measurements less unknown coordinates; every point of a
+     weighted run is marked for update; the points' standard deviations and ellipses are a-priori, the ellipses at 95 %,
+     and XY Uncertainty is the radius of the 95 % circle; Z is reported held at 5 mm. On seven networks of the tests'
+     square (in EPSG:3035 at its origin, where Pro's geodetic and grapy's grid distances agree) the adjusted
+     coordinates agree to 0.15 mm, every distance correction to 0.06 mm, every angle correction to 0.02", the normal
+     statistics to 0.02, the adjusted and correction standard deviations to 2.5 %, the ellipses to 0.6 % and XY
+     Uncertainty to 0.5 % (Pro's own approximation of the 95 % circle is not published).
+
+   What still differs, and why: the direction a shared line takes and the record a point between parcels of different
+   records takes follow an order of Pro's that is neither object id nor record rank (one line and two points of the
+   eleven and nine); Pro also makes the relationship classes `RecordHasConnections`, `RecordHas<type>` and
+   `RecordHas<type>Lines`, Z-enabled classes, and the attribute-rule domains (`Validation Status` on
+   `VALIDATIONSTATUS`, default 6, and four more) that ADR-235's rules in grapy do not make; Pro writes a weighted point
+   as Geodetic Latitude and Longitude rows, its longitude's standard deviation the XY Accuracy times the cosine of the
+   latitude; and Pro's adjustment is on the ellipsoid, reducing each distance through the projection, where grapy's is
+   in the grid — [D-355](../architecture-debt.md).
+
 ## 6. Consequences
 
 - **Counts.** `arcpy.parcel` moves from 0 built and 26 refused (the whole module, as a schedule) to 25 built — of which
@@ -243,6 +292,16 @@ None recorded.
    of each shared line, record polygons and counts), the physical class and field names and the coded values, a
    seed's shape, the least-squares numbers on the tests' square (corrections, statistics, ellipses), the sequence
    from each corner, and the gaps and overlaps of the tests' six boxes. Needs a Pro session with a Standard licence.
+   **PARTLY DISCHARGED 2026-10-31**: Pro 3.7 (ArcInfo) and grapy on every case the condition names
+   (`tools/pro-compare/adr250-parcel.py`, `adr250-compare.py`; §5.9): the build gives 11 lines and 9 points in both,
+   the shared lines' records, record polygons, counts and label positions agree; every field name, domain code and
+   default of the eight classes agrees; the seed is Pro's 1 m circle; the four sequences agree exactly; the gap of
+   10 m² and overlap of 5 m² agree; on seven adjustments of the square the coordinates agree to 0.15 mm, the
+   corrections to 0.06 mm and 0.02", the precisions to 2.5 %. Changed to follow Pro: (b), (c), (d), (h), (i), (j),
+   (n), (p), (s) of §5.8, as §5.9 lists. What remains is the adjustment on the ellipsoid rather than the grid
+   ([D-355](../architecture-debt.md)), the relationship classes, Z and attribute-rule domains Pro makes, the weighted
+   points' geodetic rows, and the order Pro gives a shared line's direction and a shared point's record, which one
+   fabric does not pin.
 3. **A large fabric measured**: building and adjusting a fabric of some thousands of parcels, whose time the Arcade
    rules on points and the pure-Python node search in building bear on (ADR-224 §5.4 asks nothing of speed, but a
    toolbox will).

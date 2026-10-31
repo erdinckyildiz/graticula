@@ -781,7 +781,7 @@
  "arcpy.parcel": {
   "built": 25,
   "equivalents": {
-   "AnalyzeParcelsByLeastSquaresAdjustment": "parametric least-squares adjustment of distances and direction sets, iterated to convergence; free network by inner constraints; error ellipses and standardized residuals (Ghilani and Wolf, Adjustment Computations, 5th ed. (2010), ch. 10-21; DynAdjust user guide (Geoscience Australia))",
+   "AnalyzeParcelsByLeastSquaresAdjustment": "parametric least-squares adjustment of distances and direction sets in the grid, iterated to convergence; a free network held by every point at 10 m; error ellipses and standardized residuals (Ghilani and Wolf, Adjustment Computations, 5th ed. (2010), ch. 10-21; DynAdjust user guide (Geoscience Australia))",
    "ExportSequencedParcelFeatures": "clockwise walk of the parcel's exterior ring from the boundary point nearest the chosen corner of its envelope (ADR-250 §5.4)",
    "FindGapsAndOverlaps": "overlaps as pairwise intersections and gaps as holes of the union, each kept when a negative buffer of half the maximum width empties it (morphological opening) (OGC Simple Features 1.2.1 (06-103r4) §6.1.15)",
    "GenerateParcelFabricLinks": "each point's location at the From and To dates read from its class's archive or branch-version history (ADR-227)",

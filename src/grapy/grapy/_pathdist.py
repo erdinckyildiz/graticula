@@ -730,6 +730,35 @@ class _Field:
         return value
 
 
+# The eight triangles of a cell and two of its neighbours, an edge neighbour and the diagonal one beside it, as
+# (row step, column step) pairs.
+_TRIANGLES = tuple((a, d) for a in ((0, 1), (1, 0), (0, -1), (-1, 0)) for d in ((1, 1), (1, -1), (-1, -1), (-1, 1))
+                   if (a[0] == d[0] and a[0] != 0) or (a[1] == d[1] and a[1] != 0))
+
+
+def _over_edge(ta, tb, pa, pb):
+    """The least of ``ta (1 − s) + tb s + |pa + s (pb − pa)|`` over s in [0, 1]: a cell reached from a point on the edge
+    between two known neighbours, its height interpolated linearly along the edge, the step's length in three
+    dimensions (``pa``, ``pb`` the neighbours' offsets from the cell, z included). The update of an ordered upwind
+    method that is exact on a plane (Tsitsiklis 1995; Sethian and Vladimirsky 2003); answers (value, s)."""
+    d = (pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2])
+    a = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+    b = pa[0] * d[0] + pa[1] * d[1] + pa[2] * d[2]
+    c = pa[0] * pa[0] + pa[1] * pa[1] + pa[2] * pa[2]
+
+    def f(t):
+        return ta + t * (tb - ta) + math.sqrt(max(c + 2 * b * t + a * t * t, 0.0))
+    best = min((f(0.0), 0.0), (f(1.0), 1.0))
+    g = ta - tb
+    if a > g * g:
+        disc = b * b - a * (b * b - g * g * c) / (a - g * g)
+        if disc >= 0:
+            for t in ((-b + math.sqrt(disc)) / a, (-b - math.sqrt(disc)) / a):
+                if 0.0 < t < 1.0 and (b + a * t) * g >= 0:
+                    best = min(best, (f(t), t))
+    return best
+
+
 def _reconstruct(field, sources, barrier, start, maximum):
     """The accumulated cost surface, cheapest-first (Sethian 1999, fast marching): each cell's height is the least of
     its eight network estimates — a neighbour's height plus the step times the cell's own effective slope — and its
@@ -752,6 +781,34 @@ def _reconstruct(field, sources, barrier, start, maximum):
     def rise(raster, r, k, dr, dk):
         return 0.0 if raster is None else float(raster[r, k] - raster[r + dr, k + dk])
 
+    # A surface with no cost, factor or barrier-free shortcut to vary it: ArcGIS Pro 3.7 reaches each cell over the
+    # eight triangles of an edge and a diagonal neighbour, the step measured over the surface in three dimensions —
+    # measured 2026-10-31 (ADR-241 condition 1, tools/pro-compare/adr241-da-surface.py), within 1e-4 of Pro on two
+    # tilted planes, a steep one, a bowl and a ridge, where the four quadrant Eikonal steps were 1-2 % off. With a cost
+    # raster or a factor Pro's update is neither (D-336) and the quadrant steps stay.
+    uniform = field.surface is not None and field.vf is None and field.hf is None and \
+        float(np.nanmax(field.cost)) == float(np.nanmin(field.cost))
+
+    def triangles(r, k, best, best_owner, best_back):
+        zc = float(field.surface[r, k])
+        for (ar, ak), (br, bk) in _TRIANGLES:
+            if not (0 <= r + ar < rows and 0 <= k + ak < columns and 0 <= r + br < rows and 0 <= k + bk < columns):
+                continue
+            if not (done[r + ar, k + ak] and done[r + br, k + bk]):
+                continue
+            ta, tb = total[r + ar, k + ak], total[r + br, k + bk]
+            o = owner[r + ar, k + ak] if ta <= tb else owner[r + br, k + bk]
+            rate = field.cost[r, k] * field.multiplier[o]
+            # offsets east, north and up, the cost per unit of surface length folded into them
+            pa = (ak * h * rate, -ar * h * rate, (float(field.surface[r + ar, k + ak]) - zc) * rate)
+            pb = (bk * h * rate, -br * h * rate, (float(field.surface[r + br, k + bk]) - zc) * rate)
+            value, t = _over_edge(ta, tb, pa, pb)
+            if value < best and value <= maximum[o]:
+                east, north = ak * (1 - t) + bk * t, -(ar * (1 - t) + br * t)
+                best, best_owner = value, o
+                best_back = (math.degrees(math.atan2(east, north)) % 360.0) or 360.0
+        return best, best_owner, best_back
+
     def estimate(r, k):
         best, best_owner, best_back = np.inf, -1, 0.0
         for dr, dk in NEIGHBOURS:
@@ -765,6 +822,8 @@ def _reconstruct(field, sources, barrier, start, maximum):
             value = total[nr, nk] + run * rate
             if value < best and value <= maximum[o]:
                 best, best_owner, best_back = value, o, _azimuth(dr, dk) or 360.0
+        if uniform:
+            return triangles(r, k, best, best_owner, best_back)
         for dk in (-1, 1):
             for dr in (-1, 1):
                 ar, ak, br, bk = r, k + dk, r + dr, k

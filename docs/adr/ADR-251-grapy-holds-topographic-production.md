@@ -266,7 +266,7 @@ None recorded.
 1. **The owner answers [Q-221](../open-questions.md).**
 2. **The built tools compared with ArcGIS Pro** on one small dataset: CalculateMEF (the four specifications),
    CalculateMagneticComponents, GenerateExcelFromGeodatabase's workbook, LoadData through a cross-reference, and
-   IdentifyContours' codes — where the page fixes the answer, grapy's must match it.
+   IdentifyContours' codes — where the page fixes the answer, grapy's must match it. *Not runnable here (checked 2026-10-31):* this machine's Pro 3.7 is ArcInfo with Spatial, Image Analyst, 3D, Network, Geostatistical and Data Reviewer; `arcpy.CheckExtension` answers `NotLicensed` for Foundation (Production Mapping) and Defense, which the topographic production tools need. The comparison needs a session with one of those licences — the owner's to provide.
 3. **WMM2030 bundled** when NOAA publishes it, before 2030.0: a date from 2030.0 is an error by the
    five-year validity of WMM2025, as long as no later model is bundled. *(Read 2026-10-31: this is a date, not
    work. NOAA and BGS publish each World Magnetic Model near the end of the one before it, as WMM2025 came out in
