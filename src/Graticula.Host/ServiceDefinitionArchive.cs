@@ -75,7 +75,31 @@ internal static class ServiceDefinitionArchive
 
     /// <summary>Reads the service's settings and writes its geodatabase into <paramref name="zipPath"/>.</summary>
     /// <exception cref="InvalidDataException">The archive is not a service definition this server can publish.</exception>
-    public static async Task<ServiceDefinition> ExtractAsync(string sdPath, string zipPath, CancellationToken cancellation)
+    public static Task<ServiceDefinition> ExtractAsync(string sdPath, string zipPath, CancellationToken cancellation) =>
+        ExtractAsync(sdPath, zipPath, MaximumMembers, MaximumBytes, cancellation);
+
+    /// <summary>
+    /// <see cref="ExtractAsync(string, string, CancellationToken)"/> with its two bounds given, so a test can reach them
+    /// with an archive of a few kilobytes. <b>On any refusal <paramref name="zipPath"/> does not exist afterwards</b>:
+    /// the count, every entry's path and the geodatabase's declared size are judged before the zip is created, and the
+    /// size is counted again while copying, because a header can lie; a copy stopped part-way is deleted.
+    /// </summary>
+    internal static async Task<ServiceDefinition> ExtractAsync(
+        string sdPath, string zipPath, int maximumMembers, long maximumBytes, CancellationToken cancellation)
+    {
+        try
+        {
+            return await ExtractCheckedAsync(sdPath, zipPath, maximumMembers, maximumBytes, cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            File.Delete(zipPath);
+            throw;
+        }
+    }
+
+    private static async Task<ServiceDefinition> ExtractCheckedAsync(
+        string sdPath, string zipPath, int maximumMembers, long maximumBytes, CancellationToken cancellation)
     {
         using IArchive archive = ArchiveFactory.OpenArchive(sdPath, new ReaderOptions());
 
@@ -86,10 +110,28 @@ internal static class ServiceDefinitionArchive
 
         List<IArchiveEntry> entries = [.. archive.Entries];
 
-        if (entries.Count > MaximumMembers)
+        if (entries.Count > maximumMembers)
         {
             throw new InvalidDataException(
-                $"The service definition holds {entries.Count:N0} entries; at most {MaximumMembers:N0} are opened.");
+                $"The service definition holds {entries.Count:N0} entries; at most {maximumMembers:N0} are opened.");
+        }
+
+        // Every path judged before one byte is copied (ADR-191 condition 3): an entry that climbs out refuses the
+        // whole archive even when it comes after the data. Directories too: a folder entry called ".." is no better.
+        long declared = 0;
+        foreach (IArchiveEntry entry in entries)
+        {
+            string path = Normalised(entry.Key);
+            if (!entry.IsDirectory && IsGeodatabase(path, out _))
+            {
+                declared += Math.Max(0, entry.Size);
+            }
+        }
+
+        if (declared > maximumBytes)
+        {
+            throw new InvalidDataException(
+                $"The service definition's geodatabase is {declared:N0} bytes uncompressed; at most {maximumBytes:N0} are unpacked.");
         }
 
         JsonElement? configuration = null;
@@ -147,9 +189,7 @@ internal static class ServiceDefinitionArchive
                 }
 
                 // cd/<name>.gdb/<file>: the data. Kept with its .gdb folder, without the cd/ above it.
-                string[] parts = key.Split('/');
-                if (parts.Length < 3 || !string.Equals(parts[0], "cd", StringComparison.OrdinalIgnoreCase)
-                    || !parts[1].EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                if (!IsGeodatabase(key, out string[] parts))
                 {
                     continue;
                 }
@@ -164,10 +204,10 @@ internal static class ServiceDefinitionArchive
                 while ((count = await from.ReadAsync(buffer, cancellation).ConfigureAwait(false)) > 0)
                 {
                     written += count;
-                    if (written > MaximumBytes)
+                    if (written > maximumBytes)
                     {
                         throw new InvalidDataException(
-                            $"The service definition's geodatabase is larger than {MaximumBytes / (1024 * 1024 * 1024)} GB uncompressed.");
+                            $"The service definition's geodatabase is larger than its header said, past {maximumBytes:N0} bytes uncompressed.");
                     }
 
                     await to.WriteAsync(buffer.AsMemory(0, count), cancellation).ConfigureAwait(false);
@@ -280,6 +320,14 @@ internal static class ServiceDefinitionArchive
         return new ItemDetails(
             said.GetValueOrDefault("snippet") ?? said.GetValueOrDefault("summary"),
             said.GetValueOrDefault("description"), said.GetValueOrDefault("tags"));
+    }
+
+    /// <summary>Whether <paramref name="key"/> is a file under <c>cd/&lt;name&gt;.gdb/</c>, the only data read.</summary>
+    private static bool IsGeodatabase(string key, out string[] parts)
+    {
+        parts = key.Split('/');
+        return parts.Length >= 3 && string.Equals(parts[0], "cd", StringComparison.OrdinalIgnoreCase)
+            && parts[1].EndsWith(".gdb", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>An entry's path with forward slashes, refused when it is absolute or climbs out.</summary>

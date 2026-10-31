@@ -216,10 +216,28 @@ None recorded.
    behind the capture setting until §5.8 made publishing the default.)*
 3. **The archive is bounded**: an over-size, over-member or path-escaping service definition is refused before
    anything is written, with a test for each.
+   **DISCHARGED 2026-10-31.** `ServiceDefinitionArchiveTests` opens 7z archives written by 7-Zip
+   (`tests/Graticula.Host.Tests/ServiceDefinitions/make_fixtures.py`), two of them with one entry renamed in the header
+   to `../evl` and to `C:/evl`, and an over-member and an over-size archive through `ExtractAsync`'s bounds given small
+   (9 entries, 702 bytes against 18 and 703): each is refused and **the zip does not exist afterwards**. That needed a
+   change: the paths were judged entry by entry while copying, so an escaping entry after the geodatabase was refused
+   with the data already copied out, and the over-size bound was only counted while copying. Every path and the
+   declared size are now judged before the zip is created, the size is still counted while copying, and a refusal
+   deletes what was written. With the old order and no delete the three path and size tests fail (measured).
 4. **What is read is what this ADR names**: `cd/*.gdb`, `serviceconfiguration.json`, `servicedescriptions/**`, and
    since 2026-10-18 `esriinfo/iteminfo.xml` (owner decision, §5.7);
    reading the `.msd`/`.mapx` (for symbology) is a later decision with its own note on the clean-room line.
+   **DISCHARGED 2026-10-31.** `Only_the_named_parts_are_read_and_only_the_geodatabase_is_copied` extracts an archive that
+   also holds a `v/map.mapx` whose content is not JSON, a thumbnail, a `cd/readme.txt` beside the geodatabase and a file
+   in a folder of its own: the service's settings, its one layer's drawing and the item's snippet and tags come from the
+   three files named, and the zip holds the three `cd/data.gdb/` files and nothing else. Letting a file directly under
+   `cd/` through makes it fail (measured). Only `servicedescriptions/featureserver/featureserver.json` is read of
+   `servicedescriptions/**`.
 5. **Several parts**: a service definition larger than one `addPart` is reassembled in order, with a test.
+   **DISCHARGED 2026-10-31.** `commit`'s join is `PortalEndpoints.ReassembleAsync`, and
+   `A_definition_sent_in_parts_out_of_order_is_reassembled_in_their_numbers_order` cuts a service definition into eleven
+   parts (so that 10 and 11 would sort before 2 by an unpadded name), writes them in reverse, and gets the archive back
+   byte for byte, the parts gone and the archive opening. Joining in arrival order instead makes it fail (measured).
 6. **Overwrite from Pro's own pane**, not only arcpy: *Overwrite Web Layer* in Pro's UI replaces the data and keeps the
    item id and the sharing the pane shows. *(Met on dev 2026-10-17, driven through Pro's UI: Share → Web Layer →
    Overwrite Web Layer on `tur_admin_public` → "Web layer published successfully"; the item id, public access and its
