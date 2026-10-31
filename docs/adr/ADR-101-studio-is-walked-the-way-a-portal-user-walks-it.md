@@ -258,6 +258,16 @@ way they expect, and the caching page says the thing that is true about this eng
    design review proposed, is used nowhere. So the decision left is real and has a cost either way: OpenLayers
    cannot draw a scene, and the SDK is a proprietary script fetched from Esri at run time. Writing that ADR needs
    no owner data; choosing between those two costs is the owner's call.
+   **DISCHARGED 2026-10-31 — the last of the seven has its decision, by owner decision.** Asked to choose between
+   those costs, the owner chose *"2B OpenLayers, sahne SDK"*: **OpenLayers draws every 2D map** — the Map Viewer
+   with its Style, Pop-ups and Labels panels, the item viewer and the console's own maps — **and the ArcGIS Maps
+   SDK, loaded from `js.arcgis.com`, draws image-service views and 3D scenes** (`map.html`). The condition's *one
+   map engine* is therefore two, by name, each where the code already has it, and MapLibre is not adopted. **The
+   accepted consequence**, recorded because the owner took it knowingly: a deployment that cannot reach
+   `js.arcgis.com` — offline, air-gapped, or behind a proxy that refuses it — has no scene viewer and no image-service
+   view, while every 2D map keeps its engine, since `ol.js` is served by this server (an online basemap is a separate matter). With the map engine decided,
+   all seven structural decisions this condition lists now have theirs (ADR-056 §5a, ADR-102, ADR-186, ADR-112,
+   ADR-103/105, ADR-134, and this answer), which is all the condition asked.
 
 ## 11. Dissent
 

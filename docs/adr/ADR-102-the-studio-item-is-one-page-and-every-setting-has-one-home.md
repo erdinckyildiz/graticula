@@ -191,6 +191,9 @@ guard. ADR-053's editor loses its page. Server's layer pages, which administrato
 - ADR-056's item table is built: a title separate from the service name, tags, personal folders and a web
   map's own item page join this structure.
 - One map engine is chosen for every map surface: the Styles panel moves onto it unchanged in place.
+  *(Answered 2026-10-31 by owner decision, [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md)
+  condition 4: OpenLayers for every 2D map, the ArcGIS Maps SDK for image-service views and scenes. The Styles
+  panel is on OpenLayers already, so nothing moves.)*
 
 ## 10. Conditions
 
