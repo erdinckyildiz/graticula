@@ -26,7 +26,8 @@ The owner's decision removes the first half of the reason. What remains is the s
 train and read back, and which a page ties to Esri's own trained models or to Esri's proprietary `arcgis.learn`.
 
 The seven point cloud deep learning names in `arcpy.ddd`, and ExtractRailsFromPointCloud, are not this ADR's. They are
-built on its foundation, `grapy._deeplearning`, by another ADR.
+built on its foundation, `grapy._deeplearning`, by
+[ADR-249](ADR-249-grapy-carries-deep-learning-on-point-clouds.md).
 
 ## 2. Alternatives considered
 
@@ -226,7 +227,9 @@ when a tool runs, and `import grapy` works without it (tested).
 [ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md) (Frame Camera models),
 [ADR-243](ADR-243-grapy-builds-the-image-classifiers-and-solar-radiation-as-equivalents.md) (grapy's `.ecd`).
 
-**Depended on by:** the point cloud deep learning names in `arcpy.ddd`, built on `grapy._deeplearning`.
+**Depended on by:** [ADR-249](ADR-249-grapy-carries-deep-learning-on-point-clouds.md), the point cloud deep learning
+names in `arcpy.ddd`, built on `grapy._deeplearning` (its training loop gained a fixed-rate schedule and an after-epoch
+hook for their checkpoints).
 
 ## 9. Revisit triggers
 
