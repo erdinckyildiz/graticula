@@ -90,8 +90,7 @@ def DeleteMosaicDataset(in_mosaic_dataset, delete_overview_images="DELETE_OVERVI
     try:
         _mosaic.drop(connection, name)
         connection.execute(f'drop table if exists "{name}"')
-        connection.execute("delete from gpkg_contents where table_name = ?", (name,))
-        connection.execute("delete from gpkg_geometry_columns where table_name = ?", (name,))
+        _gpkg.forget(connection, name)
     finally:
         _close(connection)
     return Result("true")

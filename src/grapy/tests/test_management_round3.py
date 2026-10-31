@@ -82,7 +82,7 @@ class Round3(unittest.TestCase):
         source = self.table("src", [("owner", "TEXT"), ("year", "LONG"), ("val", "DOUBLE")],
                             [("a", 2020, 1.0), ("a", 2021, 2.0), ("b", 2020, 3.0)])
         out = arcpy.management.PivotTable(source, "owner", "year", "val", self.out("pivot.gpkg"))[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(out)][1:-1], ["owner", "year2020", "year2021"])
+        self.assertEqual([f.name for f in arcpy.ListFields(out)][1:], ["owner", "year2020", "year2021"])
         self.assertEqual(self.rows(out, ["owner", "year2020", "year2021"]), [("a", 1.0, 2.0), ("b", 3.0, None)])
         tags = self.table("tags", [("id", "LONG"), ("tag", "TEXT"), ("v", "TEXT")], [(1, "colour", "red"), (1, "size", "big")])
         text = arcpy.management.PivotTable(tags, "id", "tag", "v", self.out("tags_p.gpkg"))[0]
