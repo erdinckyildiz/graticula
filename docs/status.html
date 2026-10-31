@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>129090dd</code> · 2026-10-31 03:42</p>
+<p class="stamp">Generated from commit <code>e56366f7</code> · 2026-10-31 04:14</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">238</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">529/634</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">95 live · 10 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">open questions</div><div class="kpi-n">210 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">308 repaid · 5 waiting on a trigger · 5 partly</div></div>
+<div class="kpi "><div class="kpi-v">239</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
+<div class="kpi good"><div class="kpi-v">529/636</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">97 live · 10 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">7</div><div class="kpi-l">open questions</div><div class="kpi-n">210 answered</div></div>
+<div class="kpi warn"><div class="kpi-v">12</div><div class="kpi-l">open debts</div><div class="kpi-n">308 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,912 lines</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">6 open</span></div><p><b>Q-209</b> — [OWNER] The choices D-329&#x27;s sweep made where the pages of the names it built leave them open, INFERRED 2026-10-31 (ADR-238 §12.6): (a) Subset: a dimension is named as grapy names it or by time (StdTime) and any other name for StdZ, as the reader renames a CF…</p><p><b>Q-208</b> — [OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p><p><b>Q-204</b> — [OWNER] How grapy holds multidimensional rasters and the choices the multidimensional and change pages leave open, INFERRED 2026-10-31 (ADR-236 §5.10): (a) a multidimensional raster is netCDF following CF 1.8 — written as netCDF-3 through scipy, read through…</p><p><b>Q-206</b> — [OWNER] How grapy stores multipatch features and the rules the 3D tool pages leave open, INFERRED 2026-10-31 (ADR-238 §5.2): (a) a multipatch class is a GeoPackage MultiPolygon Z feature table marked grapymultipatch in gpkgextensions, one polygon per planar…</p><p><b>Q-205</b> — [OWNER] How grapy holds SAR data and the choices the SAR, ocean and motion imagery pages leave open, INFERRED 2026-10-31 (ADR-237 §5.8): (a) a SAR dataset is a GeoTIFF of polarization-named bands (complex64 or float32, NoData NaN) beside grapy&#x27;s own…</p><p><b>Q-207</b> — [OWNER] How grapy holds turns and solves fleet routing, INFERRED 2026-10-31 (ADR-239 §5.8): (a) turns in grapy&#x27;s tables grapynetworkturnsource, grapynetworkturn and grapynetworkproperty, Edge#FCID holding the network&#x27;s source id; (b) a turn&#x27;s rotation from…</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">7 open</span></div><p><b>Q-210</b> — [OWNER] The choices the path distance, distance accumulation and least-cost path pages leave open, INFERRED 2026-10-31 (ADR-241 §5.6): (a) a factor raster given without its factor takes the Binary graph with its defaults; (b) a factor exactly at a cut angle…</p><p><b>Q-209</b> — [OWNER] The choices D-329&#x27;s sweep made where the pages of the names it built leave them open, INFERRED 2026-10-31 (ADR-238 §12.6): (a) Subset: a dimension is named as grapy names it or by time (StdTime) and any other name for StdZ, as the reader renames a CF…</p><p><b>Q-208</b> — [OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p><p><b>Q-204</b> — [OWNER] How grapy holds multidimensional rasters and the choices the multidimensional and change pages leave open, INFERRED 2026-10-31 (ADR-236 §5.10): (a) a multidimensional raster is netCDF following CF 1.8 — written as netCDF-3 through scipy, read through…</p><p><b>Q-206</b> — [OWNER] How grapy stores multipatch features and the rules the 3D tool pages leave open, INFERRED 2026-10-31 (ADR-238 §5.2): (a) a multipatch class is a GeoPackage MultiPolygon Z feature table marked grapymultipatch in gpkgextensions, one polygon per planar…</p><p><b>Q-205</b> — [OWNER] How grapy holds SAR data and the choices the SAR, ocean and motion imagery pages leave open, INFERRED 2026-10-31 (ADR-237 §5.8): (a) a SAR dataset is a GeoTIFF of polarization-named bands (complex64 or float32, NoData NaN) beside grapy&#x27;s own…</p><p><b>Q-207</b> — [OWNER] How grapy holds turns and solves fleet routing, INFERRED 2026-10-31 (ADR-239 §5.8): (a) turns in grapy&#x27;s tables grapynetworkturnsource, grapynetworkturn and grapynetworkproperty, Edge#FCID holding the network&#x27;s source id; (b) a turn&#x27;s rotation from…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">110 items</span></div><p><b>95 ADR conditions</b> outstanding across 60 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">113 items</span></div><p><b>97 ADR conditions</b> outstanding across 61 decisions — the largest commitment on this page.</p><p><b>12 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -152,6 +152,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-239 · grapy solves fleet routing with pu</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-240 · grapy holds editor tracking, last </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-241 · grapy builds path distance, its fa</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -447,6 +448,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">238</td><td>grapy holds multipatch features</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the measurements, each exact on planar faces (areas, volumes by the divergence…</td><td class="num">2/3</td></tr>
 <tr><td class="id">239</td><td>grapy solves fleet routing with published heuristics, and its networks hold turns</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the heuristics · LOW for agreement with Pro&#x27;s routes, which this…</td><td class="num">3/5</td></tr>
 <tr><td class="id">240</td><td>grapy holds editor tracking, last edit time, COGO, unregistered tables and registration, and refuses enterprise geodatabase administration by name</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
+<tr><td class="id">241</td><td>grapy builds path distance, its factor graphs, distance accumulation and least-cost paths</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -457,6 +459,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-207</span><span class="owner">Owner</span></div><p>[OWNER] How grapy holds turns and solves fleet routing, INFERRED 2026-10-31 (ADR-239 §5.8): (a) turns in grapy&#x27;s tables grapynetworkturnsource, grapynetworkturn and grapynetworkproperty, Edge#FCID holding the network&#x27;s source id; (b) a turn&#x27;s rotation from…</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-208</span><span class="owner">Owner</span></div><p>[OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-209</span><span class="owner">Owner</span></div><p>[OWNER] The choices D-329&#x27;s sweep made where the pages of the names it built leave them open, INFERRED 2026-10-31 (ADR-238 §12.6): (a) Subset: a dimension is named as grapy names it or by time (StdTime) and any other name for StdZ, as the reader renames a CF…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-210</span><span class="owner">Owner</span></div><p>[OWNER] The choices the path distance, distance accumulation and least-cost path pages leave open, INFERRED 2026-10-31 (ADR-241 §5.6): (a) a factor raster given without its factor takes the Binary graph with its defaults; (b) a factor exactly at a cut angle…</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -477,6 +480,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-322</td><td>The Analyze dialog reads up to a hundred layer documents to open, and offers nothing past them.</td><td class="muted-t">A reader with more than a hundred services, or an open slower than a second.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-328</td><td>grapy&#x27;s SAR tools have run only on synthetic scenes.</td><td class="muted-t">ADR-237 condition 3: the first real product run through the chain, or a user tool that fails on one</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-330</td><td>grapy&#x27;s fleet routing is unmeasured and pure Python.</td><td class="muted-t">A user tool&#x27;s fleet solve reaching ADR-223&#x27;s time limit, or a Pro run of one of testfleet.py&#x27;s instances (ADR-239…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-332</td><td>grapy&#x27;s path distance tools refuse the legacy source characteristics, and none is measured.</td><td class="muted-t">A user tool that passes one of the refused parameters, or one whose distance run reaches ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">308 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -605,8 +609,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:12.2%"></div></div><div class="bar-n">6 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">16 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:56.9%"></div></div><div class="bar-n">37 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">208 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:59.4%"></div></div><div class="bar-n">206 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:61.9%"></div></div><div class="bar-n">234 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:64.3%"></div></div><div class="bar-n">223 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:66.7%"></div></div><div class="bar-n">104 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:59.5%"></div></div><div class="bar-n">25 / 42</div></div>
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:58.1%"></div></div><div class="bar-n">36 / 62</div></div>
@@ -623,17 +627,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.ddd</td><td class="num">104</td><td class="num">8</td><td class="num">52</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">16</td><td class="num">6</td><td class="num">3</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">25</td><td class="num">4</td><td class="num">17</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">206</td><td class="num">29</td><td class="num">141</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">223</td><td class="num">29</td><td class="num">124</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">244</td><td class="num">20</td><td class="num">203</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.na</td><td class="num">36</td><td class="num">3</td><td class="num">26</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nax</td><td class="num">61</td><td class="num">9</td><td class="num">34</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">68</td><td class="num">14</td><td class="num">6</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">208</td><td class="num">21</td><td class="num">170</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">234</td><td class="num">25</td><td class="num">144</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">37</td><td class="num">18</td><td class="num">28</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.un</td><td class="num">101</td><td class="num">16</td><td class="num">23</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>e56366f7</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>7dfc5ed2</code><time>2026-10-31</time><span>No grapy refusal says a model is missing that ADR-236, 237, 238 or 240 now holds (D-329 closed)</span></li>
 <li><code>129090dd</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
 <li><code>823873d6</code><time>2026-10-31</time><span>grapy solves vehicle routing, last mile delivery and waste collection, and its networks hold turns (ADR-239)</span></li>
 <li><code>db4761e1</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
@@ -646,8 +652,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7cc0831b</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>e1e7082f</code><time>2026-10-31</time><span>grapy holds editor tracking, last edit time, COGO, unregistered tables, registration, views and statistics, and refuses enterprise geodatabase administration name by name (ADR-240)</span></li>
 <li><code>be238dbf</code><time>2026-10-31</time><span>The Oracle history test reads the ids its identity gave instead of assuming 1 and 2 (D-314)</span></li>
-<li><code>773840af</code><time>2026-10-31</time><span>A tool&#x27;s outputs are bounded per organisation, asked a privilege, audited under the person and withdrawn whole (D-325, ADR-223 §5.12)</span></li>
-<li><code>e8faa394</code><time>2026-10-31</time><span>The owner confirms the eight group-2 models as built: Q-196 to Q-203 are answered (ADR-228 to ADR-235)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

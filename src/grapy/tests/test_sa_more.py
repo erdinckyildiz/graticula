@@ -262,8 +262,7 @@ class RoundFour(_Fixture):
         self.assertIs(sa.Raster, arcpy.Raster)
         self.assertIs(sa.Point, arcpy.Point)
         self.assertIs(sa.Extent, arcpy.Extent)
-        for name, words in (("VfBinary", "path distance"),
-                            ("TopoLake", "TopoToRaster")):
+        for name, words in (("TopoLake", "TopoToRaster"),):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a")
             self.assertIn(words, str(raised.exception))

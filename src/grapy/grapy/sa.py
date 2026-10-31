@@ -1719,6 +1719,45 @@ def CostAllocation(in_source_data, in_cost_raster, maximum_distance=None, in_val
     return Raster._of(np.where(mask, 0, allocated), mask, g)
 
 
+# ---- path distance, distance accumulation and least-cost paths (ADR-241), built in _pathdist
+from . import _pathdist  # noqa: E402
+from ._runtime import equivalent as _equivalent_distance  # noqa: E402
+
+HfBinary = _pathdist.HfBinary
+HfForward = _pathdist.HfForward
+HfLinear = _pathdist.HfLinear
+HfInverseLinear = _pathdist.HfInverseLinear
+HfTable = _pathdist.HfTable
+VfBinary = _pathdist.VfBinary
+VfLinear = _pathdist.VfLinear
+VfSymLinear = _pathdist.VfSymLinear
+VfInverseLinear = _pathdist.VfInverseLinear
+VfSymInverseLinear = _pathdist.VfSymInverseLinear
+VfCos = _pathdist.VfCos
+VfSec = _pathdist.VfSec
+VfCosSec = _pathdist.VfCosSec
+VfSecCos = _pathdist.VfSecCos
+VfHikingTime = _pathdist.VfHikingTime
+VfBidirHikingTime = _pathdist.VfBidirHikingTime
+VfTable = _pathdist.VfTable
+PathDistance = _pathdist.PathDistance
+PathAllocation = _pathdist.PathAllocation
+PathBackLink = _pathdist.PathBackLink
+CostPath = _pathdist.CostPath
+CostPathAsPolyline = _pathdist.CostPathAsPolyline
+_SURFACE_RECONSTRUCTION = (
+    "fast marching surface reconstruction, eight network estimates and four Eikonal steps per cell, the "
+    "direction-dependent slope solved again along each step's own gradient",
+    "Sethian 1999, Level Set Methods and Fast Marching Methods, as Distance accumulation algorithm cites it")
+DistanceAccumulation = _equivalent_distance(*_SURFACE_RECONSTRUCTION)(_pathdist.DistanceAccumulation)
+DistanceAllocation = _equivalent_distance(*_SURFACE_RECONSTRUCTION)(_pathdist.DistanceAllocation)
+_SLOPELINE = ("slopeline tracing down the back-direction raster across the lattice through the cell centres, as "
+              "Distance accumulation algorithm draws it",
+              "Douglas 1994, Least-cost Path in GIS Using an Accumulated Cost Surface and Slopelines")
+OptimalPathAsRaster = _equivalent_distance(*_SLOPELINE)(_pathdist.OptimalPathAsRaster)
+OptimalPathAsLine = _equivalent_distance(*_SLOPELINE)(_pathdist.OptimalPathAsLine)
+
+
 # ---- hydrology (D8)
 
 _D8 = {1: (0, 1), 2: (1, 1), 4: (1, 0), 8: (1, -1), 16: (0, -1), 32: (-1, -1), 64: (-1, 0), 128: (-1, 1)}
@@ -3222,11 +3261,7 @@ _RESCALE = ("it is a transformation function of RescaleByFunction, which is refu
             "when not given, are not specified")
 _FUZZY = ("the Fuzzy Membership pages give the membership functions only as images (checked: the tool page and "
           "FuzzyGaussian's class page)")
-_PATH = ("it is a factor or tool of path distance; How the path distance tools work names the surface distance and the "
-         "horizontal and vertical factors without defining them")
 _TOPO = "it is an input class of TopoToRaster, which is refused (its algorithm is not specified)"
-_TRACE = ("it traces paths over backlink or back-direction rasters; Cost Path's page does not map the codes to "
-          "neighbours, define path numbering or settle ties")
 _404 = "its reference page could not be read (404 on 2026-10-29)"
 _SEGMENT = "it works on the segmented rasters of SegmentMeanShift, which is refused (its algorithm is not specified)"
 _REFUSED.update({name: _RESCALE for name in (
@@ -3235,14 +3270,9 @@ _REFUSED.update({name: _RESCALE for name in (
 _REFUSED.update({name: _FUZZY for name in (
     "FuzzyMembership", "FuzzyGaussian", "FuzzyLarge", "FuzzyLinear", "FuzzyMSLarge", "FuzzyMSSmall", "FuzzyNear",
     "FuzzySmall")})
-_REFUSED.update({name: _PATH for name in (
-    "PathDistance", "PathAllocation", "PathBackLink", "DistanceAccumulation", "DistanceAllocation", "HfBinary",
-    "HfForward", "HfInverseLinear", "HfLinear", "HfTable", "VfBidirHikingTime", "VfBinary", "VfCos", "VfCosSec",
-    "VfHikingTime", "VfInverseLinear", "VfLinear", "VfSec", "VfSecCos", "VfSymInverseLinear", "VfSymLinear", "VfTable")})
 _REFUSED.update({name: _TOPO for name in (
     "TopoBoundary", "TopoCliff", "TopoCoast", "TopoContour", "TopoExclusion", "TopoLake", "TopoPointElevation",
     "TopoSink", "TopoStream")})
-_REFUSED.update({name: _TRACE for name in ("CostPath", "CostPathAsPolyline", "OptimalPathAsRaster", "OptimalPathAsLine")})
 _REFUSED.update({name: _SEGMENT for name in ("ComputeSegmentAttributes", "RemoveRasterSegmentTilingArtifacts")})
 _REFUSED.update({name: _404 for name in ("HeatIndex", "WindChill", "UnitConversion", "Resample", "Speckle")})
 _REFUSED.update({

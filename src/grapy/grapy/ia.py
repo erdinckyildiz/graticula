@@ -21,6 +21,10 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
     TransposeBits, VARI, Variety, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
 )
 from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
+from .sa import (  # noqa: E402,F401 — the path distance factor classes, arcpy.ia's as well (ADR-241)
+    HfBinary, HfForward, HfInverseLinear, HfLinear, HfTable, VfBidirHikingTime, VfBinary, VfCos, VfCosSec,
+    VfHikingTime, VfInverseLinear, VfLinear, VfSec, VfSecCos, VfSymInverseLinear, VfSymLinear, VfTable,
+)
 
 
 # ---- multidimensional rasters (ADR-236)
