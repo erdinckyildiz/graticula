@@ -105,8 +105,10 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
    *Boundary Must Be Covered By* the lines. Disable removes them and the fabric's classes, keeping user rules.
 4. **Equivalents (5)**, each announcing itself through `_runtime.equivalent`:
    - **AnalyzeParcelsByLeastSquaresAdjustment** — a parametric least-squares adjustment of distances and direction
-     sets in the grid, iterated to the convergence tolerance, the free network held by every point at 10 m, error ellipses,
-     standardized residuals and Pope's tau (Ghilani and Wolf; DynAdjust's names), for Esri's DynAdjust run.
+     sets ~~in the grid~~ **on the ellipsoid since 2026-11-01** (a Distance is the WGS 84 geodesic between its points
+     and a Direction that geodesic's azimuth, the unknowns still the grid coordinates; §5.9), iterated to the
+     convergence tolerance, the free network held by every point at 10 m, error ellipses, standardized residuals and
+     Pope's tau (Ghilani and Wolf; DynAdjust's names), for Esri's DynAdjust run.
    - **ExportSequencedParcelFeatures** — a clockwise walk of the parcel's exterior ring from the line end nearest
      the chosen corner of its envelope; the formats' `#` run as a zero-padded number.
    - **FindGapsAndOverlaps** — pairwise intersections and holes of the union, kept when a negative buffer of half the
@@ -119,7 +121,8 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
 5. **Refused parameters, each by name** (ADR-224 §5.4): CreateParcelFabric's `config_keyword` (an enterprise
    geodatabase's DBTUNE storage parameters); the DISPLAY extent of BuildParcelFabric, ValidateParcelFabric and
    GenerateParcelFabricLinks (no map display on the server); lines whose `AzimuthType` is 2–5 in the adjustment
-   (geodetic azimuths and ellipsoid arc distances; grapy's adjustment is in the grid); a fabric class in a relationship
+   (geodetic azimuths and ellipsoid arc distances, which the pages describe and the comparison did not exercise; the
+   adjustment takes a Direction as a north azimuth); a fabric class in a relationship
    class with a table outside the fabric, in CopyParcels and ExportSequencedParcelFeatures (the related table and its
    relationship class would have to be copied with it).
 6. **Refused (1)** (`parcel._REFUSED`): **UpgradeArcMapParcelFabric** — it reads an ArcMap parcel fabric, a controller
@@ -235,6 +238,31 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
      coordinates agree to 0.15 mm, every distance correction to 0.06 mm, every angle correction to 0.02", the normal
      statistics to 0.02, the adjusted and correction standard deviations to 2.5 %, the ellipses to 0.6 % and XY
      Uncertainty to 0.5 % (Pro's own approximation of the 95 % circle is not published).
+   - **on the ellipsoid** (measured 2026-11-01, D-355; the same cases with `ADR250_SRID`, `ADR250_OFFSET` and
+     `ADR250_SCALE` in UTM 32N 300 km east of its meridian, Web Mercator at 0° and at 60° N, WGS 84 geographic at
+     30° E 40° N and DHDN Gauss-Krüger zone 3 100 km east of its meridian, beside the LAEA cases above) — Pro takes a
+     line's Distance as the geodesic between its points and its Direction as that geodesic's azimuth: between Pro's
+     adjusted points the geodesic is the measured distance to 0.3 mm in every system. **The geodesic is on WGS 84's
+     ellipsoid whatever the datum**: in Gauss-Krüger Pro takes DHDN's latitudes and longitudes and measures them on
+     WGS 84 (on Bessel's ellipsoid the same square's sides are 99.988 m). A free network's 10 m datum holds the points
+     about where the last iteration put them, so it fixes the network's place and not its shape (at 60° N, where the
+     drawn square is half the measured one, Pro's sides take no correction and its centroid stays where it was drawn).
+     A point's standard deviations and ellipse are east and north of true north (in UTM 32N, 3° off grid north), in
+     metres; a geographic fabric's distances and tolerances are metres. grapy now does each of these: it computes
+     Karney's geodesics through pyproj, keeps the grid coordinates as its unknowns, differentiates a geodesic at its
+     ends through each end's frame (the projection's scales and convergence) and solves the normal equations sparsely.
+     On the 22 networks both answer (4 each in UTM, Gauss-Krüger and WGS 84, 2 in Web Mercator at the equator, 1 at
+     60° N, the 7 in LAEA) the coordinates agree to 0.24 mm, the corrections to 0.2 mm and 0.015", the standard
+     deviations east and north to 0.5 mm, the ellipses to 0.63 % — but for three. The LAEA network with a weighted
+     point differs as it did before (1.0 mm, ellipses 61 %): Pro weights that point as latitude and longitude rows.
+     The two networks drawn 0.3 m off the square with directions, in UTM and WGS 84, differ by 1.2 and 1.5 mm
+     (corrections 1.5 and 1.9 mm and 0.16"), and there Pro's own iterations stop short: Pro fails to converge on the same network at a
+     0.2 mm threshold, and on the exact square too, so its answers carry a millimetre of iteration that grapy's do not
+     (grapy's answer at a 0.01 mm threshold is the same). Pro answered five of the cases with an error where grapy
+     answers: directions at the
+     equator fail in DynAdjust ("Factorization failed in Math Kernel Library") in Web Mercator as in World Mercator, (two cases), and
+     at 60° N in Web Mercator two control points held a grid 100 m apart, which is 50 m on the ellipsoid, do not
+     converge in 15 iterations (three). What this run did not reach is [D-373](../architecture-debt.md).
 
    What still differs, and why: the direction a shared line takes and the record a point between parcels of different
    records takes follow an order of Pro's that is neither object id nor record rank (one line and two points of the
@@ -242,8 +270,10 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
    `RecordHas<type>Lines`, Z-enabled classes, and the attribute-rule domains (`Validation Status` on
    `VALIDATIONSTATUS`, default 6, and four more) that ADR-235's rules in grapy do not make; Pro writes a weighted point
    as Geodetic Latitude and Longitude rows, its longitude's standard deviation the XY Accuracy times the cosine of the
-   latitude; and Pro's adjustment is on the ellipsoid, reducing each distance through the projection, where grapy's is
-   in the grid — [D-355](../architecture-debt.md).
+   latitude; ~~and Pro's adjustment is on the ellipsoid, reducing each distance through the projection, where grapy's
+   is in the grid — [D-355](../architecture-debt.md)~~ (*repaid 2026-11-01, above*). These, and what the ellipsoid run
+   left unmeasured, are [D-373](../architecture-debt.md), by the owner's decision of 2026-10-31 to track the remaining
+   differences as debt (*"Kabul et, borçta izle"*).
 
 ## 6. Consequences
 
@@ -302,6 +332,27 @@ None recorded.
    ([D-355](../architecture-debt.md)), the relationship classes, Z and attribute-rule domains Pro makes, the weighted
    points' geodetic rows, and the order Pro gives a shared line's direction and a shared point's record, which one
    fabric does not pin.
+   **DISCHARGED 2026-11-01**: the adjustment on the ellipsoid, measured and followed. Pro 3.7 and grapy on the tests'
+   square in UTM 32N, Web Mercator at 0° and 60° N, WGS 84 geographic, DHDN Gauss-Krüger zone 3 and LAEA (§5.9;
+   `tools/pro-compare/adr250-parcel.py` with `ADR250_SRID`, `ADR250_OFFSET`, `ADR250_SCALE`): Pro adjusts a Distance as
+   the WGS 84 geodesic between its points whatever the datum and a Direction as its azimuth, and grapy now does; on
+   the 22 networks both answer the coordinates agree to 0.24 mm, the corrections to 0.2 mm and 0.015", the deviations
+   east and north to 0.5 mm and the ellipses to 0.63 %, but for a weighted point's network (1.0 mm, Pro's latitude and
+   longitude rows) and two drawn 0.3 m off with directions (1.2 and 1.5 mm, where Pro's own iterations do not
+   converge below a millimetre). `OnTheEllipsoid` in `test_parcel_lsa.py` holds Pro's numbers in five systems and
+   fails with the grid adjustment. [D-355](../architecture-debt.md) is repaid; what neither run settled — the
+   relationship classes, Z and attribute-rule domains Pro makes, the weighted points' geodetic rows, the shared
+   line's direction and shared point's record, COGO-ground and feet-unit lines on the ellipsoid, and Pro's own
+   failures at the equator and at 60° N — is [D-373](../architecture-debt.md), tracked by the owner's decision of
+   2026-10-31 (*"Kabul et, borçta izle"*).
 3. **A large fabric measured**: building and adjusting a fabric of some thousands of parcels, whose time the Arcade
    rules on points and the pure-Python node search in building bear on (ADR-224 §5.4 asks nothing of speed, but a
    toolbox will).
+   **DISCHARGED 2026-11-01** ([benchmarks/parcel-fabric-scale](../../benchmarks/parcel-fabric-scale/RESULTS.md)): a
+   fabric of **3,000 parcels** (6,110 lines, 3,111 points, in UTM 32N) is created, built, given dimensions, adjusted
+   with four controls and applied in **31 s of CPU and 309 MB**; **10,000 parcels in 222 s and 795 MB** — inside
+   ADR-223's 10 minutes and 2 GB. Before, 900 parcels took 70 s to build and **810 s of CPU and 1,155 MB** to adjust,
+   over the limit. Sped up: the build's node search is an index rather than every node against every edge (900
+   parcels 54 s to 1.9 s), and the adjustment is sparse — factored normal equations, a datum defect found as a
+   vanishing pivot, and only the cofactors the report needs. The Arcade rules on points cost 1.8 s of a 2,500-parcel
+   run and were left as they are.

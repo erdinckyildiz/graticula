@@ -71,20 +71,48 @@ def _clockwise(shape):
     return shapely.orient_polygons(shape, exterior_cw=True)
 
 
+class _Nodes:
+    """The nodes a build cuts rings at, indexed once (ADR-250 condition 3: searching every node for every edge of every
+    ring made a build quadratic — 900 parcels took 54 s of CPU, 3,000 would take ten minutes, the whole of a user
+    tool's budget under ADR-223)."""
+
+    def __init__(self, nodes, tolerance):
+        self.nodes = list(nodes)
+        self.tolerance = tolerance
+        self.tree = shapely.STRtree(shapely.points(self.nodes)) if self.nodes else None
+        self.snap = Snap(tolerance)
+        for n in self.nodes:
+            self.snap.add(n)
+
+    def on(self, segments):
+        """For each segment (a, b), the nodes lying on it within the tolerance strictly between its ends — the test
+        of ``pf.on_segment`` — found through the index."""
+        found = [[] for _ in segments]
+        if self.tree is None or not segments:
+            return found
+        lines = shapely.linestrings([[a, b] for a, b in segments])
+        which, node = self.tree.query(lines, predicate="dwithin", distance=self.tolerance)
+        for k, n in zip(which.tolist(), node.tolist()):
+            a, b = segments[k]
+            p = self.nodes[n]
+            if not pf.near(p, a, self.tolerance) and not pf.near(p, b, self.tolerance):
+                found[k].append(p)
+        return found
+
+
 def _pieces(ring, nodes, tolerance):
     """A ring cut into two-point lines between consecutive nodes: the nodes lying on a segment are inserted, and the
     ring is walked from node to node (INFERRED, §5.8 (j): a neighbour's corner or an existing point on a polygon's
-    edge splits its line, so adjacent boundaries share one line)."""
+    edge splits its line, so adjacent boundaries share one line). ``nodes`` is a ``_Nodes`` (or a list of nodes)."""
+    if not isinstance(nodes, _Nodes):
+        nodes = _Nodes(nodes, tolerance)
+    segments = list(zip(ring, ring[1:]))
     dense = []
-    for a, b in zip(ring, ring[1:]):
+    for (a, b), on in zip(segments, nodes.on(segments)):
         dense.append(a)
-        on = [n for n in nodes if pf.on_segment(n, a, b, tolerance)]
         on.sort(key=lambda n: math.hypot(n[0] - a[0], n[1] - a[1]))
         dense.extend(on)
-    node_set = Snap(tolerance)
-    for n in nodes:
-        node_set.add(n)
-    marks = [i for i, p in enumerate(dense) if node_set.find(p) is not None]
+    marks = [i for i, p in enumerate(dense) if nodes.snap.find(p) is not None]
     pieces = []
     for k, start in enumerate(marks):
         a, b = dense[start], dense[marks[(k + 1) % len(marks)]]
@@ -171,7 +199,7 @@ def build(fab, box, guid):
         for ln in lines:
             nodes.extend(pf.ends(ln.shape))
         unique = Snap(tolerance)
-        nodes = [n for n in nodes if unique.find(n) is None and unique.add(n)]
+        nodes = _Nodes([n for n in nodes if unique.find(n) is None and unique.add(n)], tolerance)
         existing = {_key(snap, *pf.ends(ln.shape)) for ln in lines if ln.shape is not None}
         made = {}
         for p in scope:

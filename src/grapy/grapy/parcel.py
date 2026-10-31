@@ -329,8 +329,9 @@ def MergeCollinearParcelBoundaries(in_parcel_boundaries, offset_tolerance):
 # ---- least squares ------------------------------------------------------------------------------------------------
 
 
-@equivalent("parametric least-squares adjustment of distances and direction sets in the grid, iterated to "
-            "convergence; a free network held by every point at 10 m; error ellipses and standardized residuals",
+@equivalent("parametric least-squares adjustment of distances and direction sets on the ellipsoid (WGS 84 "
+            "geodesics), iterated to convergence; a free network held by every point at 10 m; error ellipses and "
+            "standardized residuals",
             "Ghilani and Wolf, Adjustment Computations, 5th ed. (2010), ch. 10-21; DynAdjust user guide "
             "(Geoscience Australia)")
 def AnalyzeParcelsByLeastSquaresAdjustment(in_parcel_fabric, analysis_type, convergence_tolerance=None):
@@ -353,18 +354,25 @@ def AnalyzeParcelsByLeastSquaresAdjustment(in_parcel_fabric, analysis_type, conv
     held at 5 mm. On the measured networks the coordinates and corrections agree with Pro's to 0.15 mm and 0.1",
     the precisions to 2.5 %.
 
+    On the ellipsoid, as Pro 3.7 adjusts (measured 2026-11-01 in UTM, Web Mercator, WGS 84 and DHDN Gauss-Krüger,
+    D-355): a line's Distance is the geodesic between its points and its Direction the geodesic's azimuth, on WGS 84's
+    ellipsoid whatever the coordinate system's datum (Karney's geodesics, pyproj); the unknowns are the grid
+    coordinates; a free network's 10 m datum holds where the points are, not their shape; the points' standard
+    deviations and ellipses are east and north of true north; a geographic fabric's distances, accuracies and
+    tolerances are metres. A coordinate system pyproj cannot place is adjusted in the grid. Agreement with Pro on 22
+    networks in six systems is 0.24 mm, but where Pro's own iterations stop a millimetre short (ADR-250 §5.9).
+
     The input is the whole fabric, or a layer over a parcel or line class with a selection: selected parcels give
     their lines, selected lines themselves, connection lines only when selected, current and historic alike. What
-    differs from Pro, by choice (§5.8 (p)): the adjustment is in the grid, not geodetic, so weighted points are grid
-    coordinates and are not written to AdjustmentLines (Pro writes them as latitude and longitude rows); AzimuthType
-    2–5 is refused. The Standardized Normal Statistic is the correction over its own standard deviation (the published
+    differs from Pro, by choice (§5.8 (p)): weighted points are grid coordinate observations and are not written to
+    AdjustmentLines (Pro writes them as latitude and longitude rows); AzimuthType 2–5 is refused. The Standardized Normal Statistic is the correction over its own standard deviation (the published
     w-test, which Pro's numbers follow); Student's t is that over the a-posteriori sigma; Pelzer's reliability the
     measurement's standard deviation over the correction's."""
     from . import _parcel_build, _parcel_lsa
     tool = "AnalyzeParcelsByLeastSquaresAdjustment"
     kind = pf.word(analysis_type, None, ("CONSISTENCY_CHECK", "WEIGHTED_LEAST_SQUARES"), tool, "analysis_type")
     fab, layer, table = _fabric(in_parcel_fabric, tool)
-    tolerance = pf.linear(convergence_tolerance, fab.srid, "0.05 Meters")
+    tolerance = _parcel_lsa.convergence(convergence_tolerance, fab.srid)
     chosen = pf.selection_of(layer.name) if layer is not None else None
     lines = []
     if chosen is None:
@@ -402,7 +410,7 @@ def ApplyParcelLeastSquaresAdjustment(in_parcel_fabric, movement_tolerance=None,
     from . import _parcel_lsa
     tool = "ApplyParcelLeastSquaresAdjustment"
     fab = _fabric(in_parcel_fabric, tool)[0]
-    tolerance = pf.linear(movement_tolerance, fab.srid, "0.05 Meters")
+    tolerance = _parcel_lsa.convergence(movement_tolerance, fab.srid)
     update = pf.word(update_attributes, "NO_UPDATE_ATTRIBUTES", ("UPDATE_ATTRIBUTES", "NO_UPDATE_ATTRIBUTES"), tool,
                      "update_attributes") == "UPDATE_ATTRIBUTES"
     _parcel_lsa.apply(fab, tolerance, update)
