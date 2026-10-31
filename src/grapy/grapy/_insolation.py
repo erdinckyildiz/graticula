@@ -317,14 +317,40 @@ class Sky:
         return ring * azimuth_divisions + piece
 
     def visible(self, horizon):
-        """Which sky cells each location sees: (locations, cells), from horizon angles (locations, directions)."""
+        """Which sky cells each location sees: (locations, cells), from horizon angles (locations, directions) linearly
+        interpolated at each cell's azimuth."""
+        order, _ = self.wedge_order(horizon.shape[1])
+        out = np.empty((horizon.shape[0], self.zenith.size), bool)
+        out[:, order] = self.visible_by_cell(horizon).T
+        return out
+
+    def visible_by_cell(self, horizon, dtype=bool):
+        """``visible``'s answer transposed, (cells, locations), C-ordered, as ``dtype`` (1 for seen), with the cells in
+        ``wedge_order``'s order: one direction's wedge of sky cells after another, each computed by broadcasting."""
         n = horizon.shape[1]
-        d = self.azimuth / (360.0 / n)
-        i0 = np.floor(d).astype(int) % n
-        i1 = (i0 + 1) % n
-        w = d - np.floor(d)
-        interpolated = horizon[:, i0] * (1 - w) + horizon[:, i1] * w
-        return (90.0 - self.zenith)[None, :] > interpolated
+        _, wedges = self.wedge_order(n)
+        out = np.empty((self.zenith.size, horizon.shape[0]), dtype)
+        h = np.ascontiguousarray(horizon.T, dtype=np.float32)  # (directions, locations)
+        for k, (lo, hi, w, elevation) in enumerate(wedges):
+            if hi > lo:
+                h0, h1 = h[k][None, :], h[(k + 1) % n][None, :]
+                out[lo:hi] = elevation[:, None] > h0 + (h1 - h0) * w[:, None]
+        return out
+
+    def wedge_order(self, n):
+        """The sky cells sorted by the horizon direction below them (of ``n``), and each direction's slice of that
+        order with its cells' interpolation weights and elevations."""
+        cache = self.__dict__.setdefault("_wedge_cache", {})
+        if n not in cache:
+            d = self.azimuth / (360.0 / n)
+            i0 = np.floor(d).astype(int) % n
+            order = np.argsort(i0, kind="stable")
+            w = (d - np.floor(d)).astype(np.float32)[order]
+            elevation = (90.0 - self.zenith).astype(np.float32)[order]
+            bounds = np.searchsorted(i0[order], np.arange(n + 1))
+            cache[n] = (order, [(bounds[k], bounds[k + 1], w[bounds[k]:bounds[k + 1]],
+                                 elevation[bounds[k]:bounds[k + 1]]) for k in range(n)])
+        return cache[n]
 
 
 def horizon_at(horizon, azimuth):
@@ -340,30 +366,43 @@ def horizons(z, cell_w, cell_h, rows, cols, base, directions):
     """Horizon angles in degrees (never below 0) for locations at fractional positions in cell-centre index units (row
     0, column 0 is the top-left cell's centre) seen from heights ``base``, traced over
     the surface ``z`` (NaN where NoData) in ``directions`` azimuths from north, a step of one cell at a time, to the
-    raster's edge, sampling bilinearly."""
-    from scipy.ndimage import map_coordinates
+    raster's edge. Each step reads the nearest cell and measures the angle to that cell's centre, and a ray stops at
+    the outermost cells' centres: ArcGIS Pro 3.7's durations follow that reading where bilinear sampling (grapy's
+    first) put up to 1.6 hours more sun on steep slopes' flanks (measured 2026-10-31, D-337,
+    ``tools/pro-compare/adr243-solar-horizon.py``)."""
     rows, cols = np.asarray(rows, float), np.asarray(cols, float)
     base = np.asarray(base, float)
     step = min(cell_w, cell_h)
     reach = int(math.ceil(math.hypot(z.shape[0] * cell_h, z.shape[1] * cell_w) / step)) + 1
-    filled = np.where(np.isnan(z), np.nanmin(z) if np.isfinite(z).any() else 0.0, z)
-    bad = np.isnan(z).astype(float)
+    bad = np.isnan(z)
+    top = float(np.nanmax(z)) if np.isfinite(z).any() else 0.0
     out = np.zeros((rows.size, int(directions)))
+    last_r, last_c = z.shape[0] - 1, z.shape[1] - 1
     for k in range(int(directions)):
         a = math.radians(k * 360.0 / directions)
         dr, dc = -math.cos(a) * step / cell_h, math.sin(a) * step / cell_w
         best = np.zeros(rows.size)
+        live = np.arange(rows.size)
         for s in range(1, reach + 1):
-            r, c = rows + dr * s, cols + dc * s
-            inside = (r > -0.5) & (r < z.shape[0] - 0.5) & (c > -0.5) & (c < z.shape[1] - 0.5)
-            if not inside.any():
-                break
-            coords = [np.clip(r, 0, z.shape[0] - 1), np.clip(c, 0, z.shape[1] - 1)]
-            height = map_coordinates(filled, coords, order=1, mode="nearest")
-            nodata = map_coordinates(bad, coords, order=1, mode="nearest") > 0
-            angle = np.degrees(np.arctan2(height - base, s * step))
-            angle = np.where(inside & ~nodata, angle, 0.0)
-            best = np.maximum(best, angle)
+            r, c = rows[live] + dr * s, cols[live] + dc * s
+            inside = (r >= 0) & (r <= last_r) & (c >= 0) & (c <= last_c)
+            if not inside.all():
+                live, r, c = live[inside], r[inside], c[inside]
+                if not live.size:
+                    break
+            ri, ci = np.rint(r).astype(np.int64), np.rint(c).astype(np.int64)
+            distance = np.hypot((ri - rows[live]) * cell_h, (ci - cols[live]) * cell_w)
+            distance = np.where(distance > 0, distance, s * step)
+            height = z[ri, ci]
+            angle = np.degrees(np.arctan2(height - base[live], distance))
+            angle = np.where(bad[ri, ci], 0.0, angle)
+            best[live] = np.maximum(best[live], angle)
+            if s % 8 == 0:
+                # no cell farther along can rise above the raster's highest point: stop rays that cannot gain
+                gain = np.degrees(np.arctan2(top - base[live], (s - 1) * step)) > best[live]
+                live = live[gain]
+                if not live.size:
+                    break
         out[:, k] = best
     return out
 
@@ -394,10 +433,13 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
         cols_.extend([k] * hit.size)
         vals.extend([1.0 / hit.size] * hit.size)
     sun_matrix = sparse.csr_matrix((vals, (rows_, cols_)), shape=(cells, len(sectors)))
+    order, _ = sky.wedge_order(horizon.shape[1])
+    sun_t = sun_matrix[order].T.tocsr()  # (sectors × cells in wedge order): sparse times the dense visibility
     ids = sky.sky_sectors(zenith_divisions, azimuth_divisions)
     total = zenith_divisions * azimuth_divisions
     counts = np.bincount(ids, minlength=total).astype(float)
     sky_matrix = sparse.csr_matrix((1.0 / np.maximum(counts[ids], 1), (np.arange(cells), ids)), shape=(cells, total))
+    sky_t = sky_matrix[order].T.tocsr()
     ring = np.arange(total) // azimuth_divisions
     piece = np.arange(total) % azimuth_divisions
     sky_zenith = (ring + 0.5) * 90.0 / zenith_divisions
@@ -407,11 +449,11 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
     az = np.array([s.azimuth for s in sectors])
     dur = np.array([s.duration for s in sectors])
     band = np.array([s.band for s in sectors])
-    for lo in range(0, n, 64):
-        hi = min(lo + 64, n)
-        seen = sky.visible(horizon[lo:hi]).astype(float)
-        sun_gap = (sparse.csr_matrix(seen) @ sun_matrix).toarray()
-        sky_gap = (sparse.csr_matrix(seen) @ sky_matrix).toarray()
+    for lo in range(0, n, 256):
+        hi = min(lo + 256, n)
+        seen = sky.visible_by_cell(horizon[lo:hi], np.float64)  # (cells × locations)
+        sun_gap = np.asarray(sun_t @ seen).T
+        sky_gap = np.asarray(sky_t @ seen).T
         m = optical_path(zen[None, :], elevation[lo:hi, None])
         normal = S_CONST * beta ** m * dur[None, :]  # Wh/m² at normal incidence, unobstructed
         cos_in = cos_incidence(zen[None, :], az[None, :], slope[lo:hi, None], aspect[lo:hi, None])

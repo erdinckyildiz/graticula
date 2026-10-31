@@ -126,12 +126,13 @@ def _components(rows, columns, pairs, valid):
     _, labels = connected_components(graph, directed=False)
     labels = labels.reshape(rows, columns)
     out = np.zeros((rows, columns), np.int64)
-    numbers = {}
-    for flat in np.flatnonzero(valid.ravel()):
-        key = labels.flat[flat]
-        if key not in numbers:
-            numbers[key] = len(numbers) + 1
-        out.flat[flat] = numbers[key]
+    flat = np.flatnonzero(valid.ravel())
+    keys = labels.ravel()[flat]
+    # numbered in the order a scan first meets them, as before, without a Python loop over pixels (D-333)
+    _, first, inverse = np.unique(keys, return_index=True, return_inverse=True)
+    rank = np.empty(first.size, np.int64)
+    rank[np.argsort(first, kind="stable")] = np.arange(1, first.size + 1)
+    out.ravel()[flat] = rank[inverse.ravel()]
     return out
 
 
@@ -158,28 +159,31 @@ def _region_means(labels, colours):
 
 def _adjacent(labels):
     """Each region's set of 4-neighbouring regions."""
-    pairs = set()
+    a, b = [], []
     for x, y in ((labels[:, :-1], labels[:, 1:]), (labels[:-1, :], labels[1:, :])):
         keep = (x != y) & (x > 0) & (y > 0)
-        for p, q in zip(x[keep].tolist(), y[keep].tolist()):
-            pairs.add((p, q))
-            pairs.add((q, p))
-    near = {}
-    for p, q in pairs:
-        near.setdefault(p, set()).add(q)
-    return near
+        a += [x[keep], y[keep]]
+        b += [y[keep], x[keep]]
+    if not a or not sum(v.size for v in a):
+        return {}
+    a, b = np.concatenate(a).astype(np.int64), np.concatenate(b).astype(np.int64)
+    span = int(labels.max()) + 1
+    pairs = np.unique(a * span + b)        # each ordered pair once, sorted by its first region (D-333: was a set)
+    first, second = pairs // span, pairs % span
+    starts = np.flatnonzero(np.r_[True, first[1:] != first[:-1]])
+    ends = np.r_[starts[1:], first.size]
+    return {int(first[i]): set(second[i:j].tolist()) for i, j in zip(starts, ends)}
 
 
 def _renumber(labels):
     """Labels 1.. in the order a scan, left to right and top to bottom, first meets them."""
     out = np.zeros(labels.shape, np.int64)
     flat = labels.ravel()
-    order = {}
-    for i in np.flatnonzero(flat):
-        order.setdefault(int(flat[i]), len(order) + 1)
     lookup = np.zeros(int(flat.max()) + 1 if flat.size else 1, np.int64)
-    for old, new in order.items():
-        lookup[old] = new
+    where = np.flatnonzero(flat)
+    if where.size:
+        values, first = np.unique(flat[where], return_index=True)
+        lookup[values[np.argsort(first, kind="stable")]] = np.arange(1, values.size + 1)
     out.ravel()[:] = lookup[flat]
     return out
 

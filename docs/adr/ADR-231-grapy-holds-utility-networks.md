@@ -456,7 +456,7 @@ None recorded.
    traces, loops, a shortest path, upstream with a closed valve. Changed to Pro's answer: an upstream trace that a
    feature barrier or a function barrier cuts off every controller is refused, ERROR 001797 (grapy answered nothing);
    a shortest path that barriers leave none of is an empty result, not an error. Measured and not followed —
-   [D-338](../architecture-debt.md): function barrier totals on a downstream trace and from a junction of several
+   [D-338](../architecture-debt.md) (propagators measured again 2026-10-31 with the attribute on every class; see the row): function barrier totals on a downstream trace and from a junction of several
    edges (five traces), where Pro visits neighbours in an order five traces do not pin down; propagators (six), which
    Pro refuses with ERROR 001797 where the propagated attribute has no value at the controllers; PATH traces (five),
    for which Pro returns nearly the whole connected network, dead ends included; a tie of two 30 m shortest paths,
