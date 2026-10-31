@@ -180,13 +180,43 @@ PyPI metadata (`license_expression`, or the classifier where that is all there i
 | geopandas | 1.2.0 | BSD-3-Clause | **Yes** |
 | rasterio | 1.5.2 | BSD-3-Clause; its wheel bundles GDAL as pyogrio's does | **Yes** — added with `grapy.sa` (ADR-224) |
 | scipy | 1.18.1 | BSD-3-Clause (the classifier says *BSD License*) | **Yes** — added with `grapy.sa` (ADR-224) |
-| laspy | 2.7.0 | BSD-2-Clause (`license_expression`); pure Python over numpy, no bundled native code. Its LAZ backends (lazrs, laszip) are optional extras and are **not** installed | **Yes** — added with grapy's LAS datasets (ADR-229) |
+| laspy | 2.7.0 | BSD-2-Clause (`license_expression`); pure Python over numpy, no bundled native code. Of its two LAZ backends, lazrs is installed (next row); laszip is not | **Yes** — added with grapy's LAS datasets (ADR-229) |
+| lazrs | 0.8.2 | MIT (`License-Expression`, and the wheel's `licenses/LICENSE.txt`). A Rust implementation of the LASzip codec in one compiled extension; the wheel's CycloneDX SBOM lists the 24 Rust crates built into it — 20 `MIT OR Apache-2.0`, one `Unlicense OR MIT`, one Apache-2.0, one `Apache-2.0 WITH LLVM-exception`, one `(MIT OR Apache-2.0) AND Unicode-3.0` — all permissive. Wheels for CPython on Windows, manylinux x86_64 and aarch64 and macOS. Read 2026-10-31 | **Yes** — added for ADR-229 condition 5: laspy reads and writes LAZ through it, in CI's grapy jobs and the server image |
 | xarray | 2026.9.0 | Apache-2.0 (`license_expression`); pure Python over numpy and pandas, which the image already has, and packaging (Apache-2.0 OR BSD-2-Clause) | **Yes** — added with grapy's multidimensional rasters, for RasterToXarray and XarrayToRaster (ADR-236) |
 | manifold3d | 3.5.4 | Apache-2.0 (the classifier, and the wheel's `licenses/LICENSE`). One compiled extension, no Python dependencies but numpy; the Manifold library builds Clipper2 in, which is BSL-1.0. Wheels for CPython 3.9–3.14 on Windows (x64, arm64), Linux (manylinux_2_28 x86_64 and aarch64) and macOS | **Yes** — added with grapy's multipatch features (ADR-238): the booleans on closed solids |
 
-| torch | 2.15.0+cpu | `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MIT AND Zlib` (`license_expression`); PyTorch's own `LICENSE` is BSD-3-Clause, and its `licenses/third_party` folder holds the bundled libraries' — sleef, XNNPACK, fbgemm, oneDNN (ideep), protobuf, pybind11, the LLVM OpenMP runtime and others — every one permissive (the two mentions of GPLv2 are the LLVM exception's compatibility clause). Read from the Windows CPU wheel on 2026-10-31; the image's Linux wheels come from the same index and are not read yet, ADR-248 condition 3 | **Yes** — added with grapy's deep learning (ADR-248), CPU builds from `download.pytorch.org/whl/cpu` |
+| torch | 2.15.0+cpu | `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND ISC AND MIT AND Zlib` (`license_expression`); PyTorch's own `LICENSE` is BSD-3-Clause, and its `licenses/third_party` folder holds the bundled libraries' — sleef, XNNPACK, fbgemm, oneDNN (ideep), protobuf, pybind11, the LLVM OpenMP runtime and others — every one permissive (the two mentions of GPLv2 are the LLVM exception's compatibility clause). Read from the Windows CPU wheel on 2026-10-31, and from the two Linux CPU wheels the image installs (`manylinux_2_28` x86_64 and aarch64, cp312) the same day: the two have byte-identical `LICENSE` files, the same 142 files under `licenses/third_party` and the same `License-Expression`, which the Windows wheel's matches. **The Linux wheels also carry shared libraries that no licence file in the wheel covers** — see *The Linux wheels' bundled libraries* below (ADR-248 condition 3) | **Yes** — added with grapy's deep learning (ADR-248), CPU builds from `download.pytorch.org/whl/cpu` |
 | torchvision | 0.29.2+cpu | BSD-3-Clause (the wheel's `LICENSE`; the metadata says only *BSD*). **Its pretrained weights are not code under this licence and are not installed**: torchvision's README says they *"may have their own licenses or terms and conditions derived from the dataset used for training"* (the SWAG models are CC-BY-NC 4.0), and grapy builds every network with `weights=None` (ADR-248 §5.4) | **Yes** — added with ADR-248 |
 | pillow, sympy, mpmath, networkx, jinja2, MarkupSafe, filelock, fsspec, typing_extensions | as torch requires them | MIT-CMU (pillow), BSD-3-Clause (sympy, networkx, MarkupSafe, fsspec, mpmath's *BSD License*, jinja2's *BSD License*), MIT (filelock), PSF-2.0 (typing_extensions) — torch's and torchvision's own dependencies, read from their metadata on 2026-10-31 | **Yes**, all permissive |
+
+### The Linux wheels' bundled libraries — read 2026-10-31
+
+ADR-248 condition 3. The wheels were downloaded from `download.pytorch.org/whl/cpu` into an empty folder
+(`torch-2.15.0+cpu-cp312-cp312-manylinux_2_28_{x86_64,aarch64}.whl`,
+`torchvision-0.29.2+cpu-py3-none-manylinux_2_28_{x86_64,aarch64}.whl`), unzipped, and every shared library outside
+PyTorch's own read for its version and origin from the strings it carries; `libtorch_cpu.so`'s needed-library names were
+read the same way. The wheels' `licenses/` folders name none of the libraries in this table, so each licence is the
+upstream project's.
+
+| Library | Wheel, platform | Read from the binary | Licence | What it obliges |
+|---|---|---|---|---|
+| `libgomp.so.1` (GNU OpenMP runtime) | torch, both | GCC 8.5.0, AlmaLinux 8 build (`libgomp.so.1.0.0-8.5.0-29.el8_10.alma.1`); `libtorch_cpu.so` needs it on both platforms | GPL-3.0-or-later WITH GCC-exception-3.1 | The GCC Runtime Library Exception lets PyTorch, and grapy above it, link the library under any licence; the library itself is GPLv3, so **the image redistributes a GPLv3 binary** and owes its licence text and an offer of its source, as it already does for the Debian packages in the same image. Nothing of Graticula's becomes GPL |
+| `libgfortran.so.5` | torch, both | GCC 8.5.0, AlmaLinux 8 (`...-29.el8_10` on x86_64, `...-30.el8_10` on aarch64); OpenBLAS's Fortran runtime. On x86_64 it needs `libquadmath.so.0`, which the wheel does not carry, and nothing loads it there — no OpenBLAS is bundled on x86_64 | GPL-3.0-or-later WITH GCC-exception-3.1 | As `libgomp` |
+| `libopenblas.so.0` | torch, aarch64 | `OpenBLAS 0.3.34 DYNAMIC_ARCH NO_AFFINITY USE_OPENMP` | BSD-3-Clause | Notice |
+| `libarm_compute.so`, `libarm_compute_graph.so` (Arm Compute Library) | torch, aarch64 | `arm_compute_version=v53.2.0`, built for armv8a with NEON | MIT | Notice |
+| **Intel oneMKL**, linked statically into `libtorch_cpu.so` | torch, x86_64 | `mkl_blas_*` and `MKL_Get_Version_String` symbols and `Intel oneMKL` messages in `libtorch_cpu.so`; the version is assembled at run time and not in the binary as text | **Intel Simplified Software License** — what Intel publishes `mkl-static` under on PyPI (2024.2.0 and 2026.2.0 read; classifier *Other/Proprietary License*) | **Not an open-source licence, and the one row here that is not.** It permits redistribution in binary form with its notice and forbids reverse engineering and modification; it does not touch Graticula's own licence. The image redistributes it inside the amd64 image only |
+| `libpng16.so.16` | torchvision, both | libpng 1.6.56 (x86_64), 1.6.59 (aarch64) | libpng License v2 (PNG Reference Library License) | Notice |
+| `libjpeg.so.8` (libjpeg-turbo) | torchvision, both | libjpeg-turbo 3.1.3 (x86_64), 3.2.1 (aarch64) | IJG License, BSD-3-Clause and Zlib | Notice; the IJG licence asks documentation to say the software is based in part on the Independent JPEG Group's work |
+| `libwebp.so.7`, `libsharpyuv.so.0` | torchvision, both | libwebp's decoder (`webp_dec.c`) and SharpYUV | BSD-3-Clause (with Google's additional patent grant) | Notice |
+| `libz.so.1` | torchvision, both | zlib 1.3.2 | Zlib | None for binaries |
+| `ld-linux-aarch64.so.1` (the glibc dynamic loader) | torchvision, aarch64 | `Copyright (C) 2020 Free Software Foundation`; auditwheel's copy | LGPL-2.1-or-later | As `libgomp`: licence text and source offer for the binary; LGPL leaves what loads it unaffected |
+
+**What this changes.** Nothing that blocks the image: no library here makes Graticula or grapy copyleft, and the
+Community License is not in tension with any of them. Two things are now known that were not: the image carries GPLv3
+and LGPL runtime binaries from these wheels (as it already carried them from Debian), and the amd64 image carries Intel
+oneMKL under a proprietary redistribution licence. The amd64 image's notice set must therefore include the Intel
+Simplified Software License alongside the GCC exception and the LGPL — which is a notice to ship, not a decision to
+revisit.
 
 **The image installs the newest of each when it is built**, so the version column says what was read, not what was
 pinned. A wheel whose licence changes would change here only if somebody looked. Pinning is the open part of this row.

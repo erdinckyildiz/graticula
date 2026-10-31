@@ -128,5 +128,42 @@ None recorded.
 2. **Image services cross into a tool as files** (§5.5), and `sa` reads one end to end. **DISCHARGED 2026-10-29**: a raster parameter (`GPRasterLayer`, `DERasterDataset` and the like, served as `GPRasterDataLayer`) takes an image service of this server the caller may read. The runner writes its first band as raw doubles beside a header, and grapy turns that into the GeoTIFF the tool opens. `An_image_service_reaches_a_tool_as_a_raster_it_reads_cell_for_cell` uploads a corpus image and reads four cells, NoData included, against the values `truth.json` records. A mosaic of several images, and an image of more than 25 million cells, are refused by name.
 3. **Group 3 is refused with its reason**, tested. **DISCHARGED 2026-10-29**: `arcpy.ba`, `agolservices`, `geoai` and `geocoding` answer every tool with NotBuiltError naming the tool and saying it answers from Esri's data or services. Group 2's modules (`un`, `parcel`, `na`, `nax`, `nd`, `topographic`, `locref`) say they need a data model this server does not hold. Group-3 tools inside a group-1 module (`analysis.Enrich`, `EnrichLayer`) are refused the same way. Tested in `test_a_module_on_esris_data_or_on_a_model_not_held_is_refused_with_its_reason`.
 4. **Group 1 is complete**: the counter reads every group-1 name built. **PARTLY DISCHARGED 2026-10-29**: every name is *decided* — `tools/grapy_refusals.py` read 615 built, 1,204 refused with a reason and none unexamined. §5.6 turns the undocumented refusals into equivalents; the rest of the refusals are groups 2 and 3, a Pro application, no network from a fenced tool, or grapy's own limits (Z on features, raster attribute tables, multiband rasters), which are this project's to remove.
-5. **Group 2 has an ADR per data model** before its tools are built.
-6. **Equivalents are counted apart** (§5.6): the status page shows built-to-documentation and built-as-equivalent separately, and every equivalent names its method and source and says so in its run.
+   **Read again 2026-10-31, still PARTLY DISCHARGED.** `tools/grapy_refusals.py` on branch grapy-a: the twelve group-1
+   modules hold 1,819 names — 1,260 built (197 of them equivalents) and 559 refused, none unexamined. Every name is
+   decided and a refusal names its own reason, but the condition asks for every name *built*, and that is not true,
+   nor can all of it become true: a keyword sort of the 559 reasons finds about 150 whose page leaves the answer or
+   the format undefined (or answered 404), about 80 that are ArcGIS Pro's application (layouts, symbology, a map
+   view), about 50 that answer from Esri's data or services, about 40 enterprise-geodatabase administration, about
+   15 unpublished Esri formats, about 15 a network a fenced tool does not have, and about 200 of reasons of their
+   own (installation and licence queries, DBMS users and roles, colormapped or pansharpened rasters grapy does not
+   keep, and so on). Two refusals still carry a schedule the guard test's words miss — `da.TableToArrowTable` and
+   `da.CreateParquetCache` say pyarrow "is not among the wheels a user tool runs with today", and the image installs
+   pyarrow. What is missing for the condition as written is a decision rather than work: either the owner narrows
+   it to *every group-1 name built or refused with its own reason* — which holds today — or the refusals above are
+   reopened one by one.
+5. **Group 2 has an ADR per data model** before its tools are built. **PARTLY DISCHARGED 2026-10-31**: §1's group 2
+   names `un`, `parcel`, the network modules, `topographic`, `locref`, and versioning, replicas and topology inside
+   `management`. Most have their ADR and were built after it — topology ([ADR-225](ADR-225-grapy-holds-topology-and-relationship-classes.md)),
+   network datasets for `na`, `nax` and `nd` ([ADR-226](ADR-226-grapy-holds-network-datasets.md)), versioning, archives
+   and replicas ([ADR-227](ADR-227-grapy-holds-versions-and-archives.md), [ADR-235](ADR-235-grapy-holds-attribute-rules-contingent-values-and-replicas.md)),
+   the utility network `un` ([ADR-231](ADR-231-grapy-holds-utility-networks.md)) — and so were the models §5.7's
+   order added (subtypes, LAS and TIN, mosaic, network diagrams, geostatistical layers, terrain, multidimensional,
+   SAR, multipatch: ADR-228 to ADR-238). Three have none: the parcel fabric (`arcpy.parcel`), the topographic
+   production model (`arcpy.topographic`) and linear referencing networks (`arcpy.locref`). No tool of theirs is
+   built, so the order the condition asks for is kept; but each module is still refused whole with
+   *"needs a data model this server does not hold yet (ADR-224 group 2)"* (`grapy/__init__.py`, `_DATA_MODEL`), a
+   schedule of the kind the guard test forbids for names, and none of the three is in `tools/arcpy-surface.json`, so
+   the counter does not show them. Missing: an ADR for each (with an assigned number), then their names read into
+   the surface file and built or refused one by one. Inside group-1 modules, `arcpy.Dimension`, the BIM file
+   workspace tools and the scene layer tools are refused with the same "(ADR-224 group 2)" reason.
+6. **Equivalents are counted apart** (§5.6): the status page shows built-to-documentation and built-as-equivalent
+   separately, and every equivalent names its method and source and says so in its run. **DISCHARGED 2026-10-31**:
+   `tools/grapy_refusals.py` reads `__grapy_equivalent__` and the status page's grapy table has its own column for
+   equivalents beside built; `_runtime.equivalent(method, source)` takes both, writes them into the mark and warns once
+   per run that the tool is an equivalent, naming them. One of §5.6's three marks did not hold: 18 marked tools'
+   docstrings (the solar radiation tools, Classify and ClassifyRaster, the distance accumulation tools,
+   `CreateRandomValueGenerator` …) did not begin `EQUIVALENT:`. The decorator now begins any docstring that does not
+   with `EQUIVALENT: <method> (<source>).`, and `ia.MLClassify`, marked by hand, says it itself.
+   `test_equivalents.py` fails if a built name is marked without a method or source, marked without its docstring
+   saying so, or says so without being marked (236 marked names), and checks that a run warns once naming the
+   method.

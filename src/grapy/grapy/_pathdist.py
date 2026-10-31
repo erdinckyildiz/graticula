@@ -487,17 +487,25 @@ def _steps(cost, surface, vertical, vf, horizontal, hf, to_source, cell, meters)
     return steps
 
 
-def _dijkstra(sources, barrier, steps, start=None):
+def _dijkstra(sources, barrier, steps, start=None, traits=None):
     """The least accumulated cost from the sources, the source each cell is reached from and the back-link code of
     the neighbour it is reached through. Of two equally cheap routes the one settled first wins (INFERRED, as
-    CostDistance's)."""
+    CostDistance's).
+
+    ``traits`` (``source_traits``): the legacy source characteristics, each read at the source a route starts from, as
+    *How the source characteristics affect cost distance analysis* gives them — a source's accumulated cost starts at
+    its start cost; each step's cost is multiplied by its cost multiplier; past the first cell the cost accumulated so
+    far is multiplied by one plus its resistance rate before the step is added (``accum_cost = a1 * (1 + resistance_rate)
+    + step * cost_multiplier``, ``a1 = starting_cost + step * cost_multiplier``); and a route stops where it would
+    exceed its source's capacity. Every update is increasing in the cost it starts from, so the cheapest cell on the
+    list is still settled for good."""
     rows, columns = sources.shape
     total = np.full(sources.shape, np.inf)
     origin = np.full(sources.shape, -1, np.int64)
     back = np.zeros(sources.shape, np.int32)
     heap = []
     for r, k in zip(*np.nonzero(sources & ~barrier)):
-        total[r, k] = 0.0 if start is None else start
+        total[r, k] = (0.0 if start is None else start) if traits is None else traits["start"][r, k]
         origin[r, k] = r * columns + k
         heapq.heappush(heap, (total[r, k], r * columns + k, r, k))
     done = np.zeros(sources.shape, bool)
@@ -506,6 +514,12 @@ def _dijkstra(sources, barrier, steps, start=None):
         if done[r, k]:
             continue
         done[r, k] = True
+        if traits is not None:
+            sr, sk = divmod(int(origin[r, k]), columns)
+            multiplier, capacity = traits["multiplier"][sr, sk], traits["capacity"][sr, sk]
+            base = value if (sr, sk) == (r, k) else value * (1.0 + traits["rate"][sr, sk])
+        else:
+            multiplier, capacity, base = 1.0, math.inf, value
         for index, (dr, dk) in enumerate(NEIGHBOURS):
             nr, nk = r + dr, k + dk
             if not (0 <= nr < rows and 0 <= nk < columns) or barrier[nr, nk] or done[nr, nk]:
@@ -513,12 +527,51 @@ def _dijkstra(sources, barrier, steps, start=None):
             step = steps[index][r, k]
             if not math.isfinite(step):
                 continue
-            if value + step < total[nr, nk]:
-                total[nr, nk] = value + step
+            reached = base + step * multiplier if traits is not None else value + step
+            if reached > capacity:
+                continue
+            if reached < total[nr, nk]:
+                total[nr, nk] = reached
                 origin[nr, nk] = origin[r, k]
                 back[nr, nk] = NEIGHBOURS.index((-dr, -dk)) + 1
-                heapq.heappush(heap, (value + step, nr * columns + nk, nr, nk))
+                heapq.heappush(heap, (reached, nr * columns + nk, nr, nk))
     return total, origin, back
+
+
+def source_traits(tool, in_source_data, grid, direction, multiplier=None, start=None, rate=None, capacity=None):
+    """The legacy source characteristics as arrays over the grid — one value for every source, or a field of the
+    source features read source by source — or None when none is given. INFERRED (D-332): a multiplier and a capacity
+    must be greater than 0, a start cost and a resistance rate at least 0, as the page's examples are; a route equal to
+    its capacity is within it ("continues to grow until the capacity ... is reached").
+
+    Refused: a resistance rate travelling FROM_SOURCE. The page gives that form for one path of five cells,
+    ``a5 = c1 + c2(1+r) + c3(1+r)^2 + c4(1+r)^3 + c5(1+r)^4``: each cell's cost compounded by its count of cells from
+    the source. A cell's least cost is then not a function of its neighbour's least cost — a longer, cheaper route can
+    lose to a shorter, dearer one further on — so the expansion every cost distance tool documents cannot find it, and
+    the page does not say how the tool takes the least over routes of different lengths."""
+    sa = _sa()
+    given = {name: value for name, value in (("source_cost_multiplier", multiplier), ("source_start_cost", start),
+                                             ("source_resistance_rate", rate), ("source_capacity", capacity))
+             if _given(value)}
+    if not given:
+        return None
+    traits = {"multiplier": _per_source(multiplier, in_source_data, grid, tool, "source_cost_multiplier", 1.0),
+              "start": _per_source(start, in_source_data, grid, tool, "source_start_cost", 0.0),
+              "rate": _per_source(rate, in_source_data, grid, tool, "source_resistance_rate", 0.0),
+              "capacity": _per_source(capacity, in_source_data, grid, tool, "source_capacity", math.inf)}
+    for name, key, low, strict in (("source_cost_multiplier", "multiplier", 0.0, True),
+                                   ("source_capacity", "capacity", 0.0, True),
+                                   ("source_start_cost", "start", 0.0, False),
+                                   ("source_resistance_rate", "rate", 0.0, False)):
+        values = traits[key][np.isfinite(traits[key])]
+        if name in given and len(values) and ((values <= low).any() if strict else (values < low).any()):
+            raise ValueError(f"{tool}: {name} must be {'greater than' if strict else 'at least'} {low:g}.")
+    if direction != "TO_SOURCE" and (traits["rate"] != 0).any():
+        sa._refuse(tool, "source_resistance_rate", rate, "travelling FROM_SOURCE compounds each cell's cost by its count "
+                   "of cells from the source, so a cell's least cost does not follow from its neighbour's and the page "
+                   "does not say how the least over routes of different lengths is taken; with TO_SOURCE it is built "
+                   "(D-332)")
+    return traits
 
 
 _PATH_SOURCE = ("source_cost_multiplier", "source_start_cost", "source_resistance_rate", "source_capacity")
@@ -529,9 +582,6 @@ def _path(tool, in_source_data, in_cost_raster, in_surface_raster, in_horizontal
     from ._raster import _refuse_environment
     sa = _sa()
     _refuse_environment(f"arcpy.sa.{tool}")
-    for name, value in extra.items():
-        if _given(value):
-            sa._refuse(tool, name, value, "the source characteristics of the legacy path distance tools are not built")
     direction = str(source_direction or "FROM_SOURCE").upper()
     if direction not in ("FROM_SOURCE", "TO_SOURCE"):
         sa._refuse(tool, "source_direction", source_direction, "a field of travel directions is not built")
@@ -552,7 +602,8 @@ def _path(tool, in_source_data, in_cost_raster, in_surface_raster, in_horizontal
 
     steps = _steps(array(cost, np.nan) if cost is not None else np.ones(sources.shape), array(surface),
                    array(vertical), vf, array(horizontal, -1.0), hf, direction == "TO_SOURCE", grid.width, meters)
-    total, origin, back = _dijkstra(sources, barrier, steps)
+    traits = source_traits(tool, in_source_data, grid, direction, *(extra.get(name) for name in _PATH_SOURCE))
+    total, origin, back = _dijkstra(sources, barrier, steps, traits=traits)
     unreached = ~np.isfinite(total) | barrier
     return total, origin, back, unreached, values, grid
 

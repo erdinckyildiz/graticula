@@ -296,16 +296,184 @@ class Tin(unittest.TestCase):
     # ---- refused by name
 
     def test_what_grapy_cannot_do_is_refused_with_its_reason(self):
-        with self.assertRaisesRegex(NotBuiltError, "constrained Delaunay"):
-            arcpy.ddd.CreateTin(os.path.join(self.directory, "c"), None, None, "CONSTRAINED_DELAUNAY")
         with self.assertRaisesRegex(NotBuiltError, "natural neighbour"):
             arcpy.ddd.TinRaster(self.tin, os.path.join(self.directory, "nn.tif"), "FLOAT", "NATURAL_NEIGHBORS")
         with self.assertRaisesRegex(NotBuiltError, "BIM file workspace"):   # terrains are held since ADR-234
             arcpy.ddd.BIMToTerrain()
-        with self.assertRaisesRegex(NotBuiltError, "constrained Delaunay"):
-            arcpy.ddd.LandXMLToTin()
         with self.assertRaisesRegex(NotBuiltError, "PRE_10.0"):
             arcpy.ddd.CopyTin(self.tin, os.path.join(self.directory, "old"), "PRE_10.0")
+
+
+class ConstrainedDelaunay(unittest.TestCase):
+    """ADR-229 condition 6: CONSTRAINED_DELAUNAY adds each breakline segment as one edge and adds no point, and is
+    Delaunay everywhere else (Sloan 1993)."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
+        corners = [(0, 0), (10, 0), (10, 10), (0, 10), (5, 4.5), (5, 5.5)]
+        self.points = Tin.feature_class(self, "pts", "POINT", [(x, y, x + y) for x, y in corners])
+        self.line = Tin.feature_class(self, "line", "POLYLINE", [shapely.MultiLineString([[(0, 5, 5), (10, 5, 15)]])])
+        self.inputs = [[self.points, "Shape.Z", "masspoints", ""], [self.line, "Shape.Z", "hardline", ""]]
+
+    def test_a_breakline_is_one_edge_and_no_point_is_added(self):
+        conforming = os.path.join(self.directory, "conforming")
+        constrained = os.path.join(self.directory, "constrained")
+        arcpy.ddd.CreateTin(conforming, 3857, self.inputs, "DELAUNAY")
+        arcpy.ddd.CreateTin(constrained, 3857, self.inputs, "CONSTRAINED_DELAUNAY")
+        # The two points 1 m apart across the line make Delaunay's edge between them cross it: conforming splits the line.
+        self.assertGreater(len(_tin.load(conforming).nodes), 8)
+        surface = _tin.load(constrained)
+        self.assertEqual(len(surface.nodes), 8)
+        self.assertEqual(int(surface.origin.sum()), 0)
+        xy = {(float(x), float(y)): i for i, (x, y, _) in enumerate(surface.nodes)}
+        a, b = xy[(0.0, 5.0)], xy[(10.0, 5.0)]
+        self.assertEqual(surface.edges, {(min(a, b), max(a, b)): 2})
+        self.assertIn((min(a, b), max(a, b)), surface.all_edges())
+        # Eight nodes, six on the hull (two of them on its sides): 2n − 2 − h = 8 triangles, covering the square.
+        self.assertEqual(len(surface.triangles), 8)
+        self.assertAlmostEqual(float(shapely.area(surface.polygons()).sum()), 100.0, 9)
+        # On the edge itself the surface is the line's own interpolation; the apexes over it are the two near points.
+        self.assertAlmostEqual(float(surface.z_at([2.5], [5.0])[0]), 7.5, 9)
+        apexes = {tuple(surface.nodes[v, :2]) for t in surface.triangles if a in t and b in t for v in t if v not in (a, b)}
+        self.assertEqual(apexes, {(5.0, 4.5), (5.0, 5.5)})
+        self.assertFalse(arcpy.Describe(constrained).isDelaunay)
+        self.assertTrue(arcpy.Describe(conforming).isDelaunay)
+
+    def test_editing_a_constrained_tin_keeps_the_option_given(self):
+        tin = os.path.join(self.directory, "edit")
+        arcpy.ddd.CreateTin(tin, 3857, self.inputs[:1], "CONSTRAINED_DELAUNAY")
+        arcpy.ddd.EditTin(tin, [[self.line, "Shape.Z", "<None>", "hardline", True]], "CONSTRAINED_DELAUNAY")
+        self.assertEqual(len(_tin.load(tin).nodes), 8)
+        arcpy.ddd.CopyTin(tin, os.path.join(self.directory, "copy"))
+        self.assertTrue(_tin.load(os.path.join(self.directory, "copy")).constrained)
+
+    def test_random_points_and_breaklines_give_a_constrained_delaunay_triangulation(self):
+        rng = np.random.default_rng(7)
+        xy = rng.uniform(0, 100, (300, 2))
+        # Twenty disjoint breaklines between random pairs of points (a pair is kept when it crosses no kept one).
+        kept = []
+        for _ in range(400):
+            i, j = rng.choice(300, 2, replace=False)
+            seg = shapely.LineString([xy[i], xy[j]])
+            if seg.length > 40 or any(seg.intersects(shapely.LineString([xy[p], xy[q]])) for p, q in kept):
+                continue
+            others = shapely.points(np.delete(xy, [i, j], axis=0))
+            if shapely.dwithin(others, seg, 1e-6).any():
+                continue
+            kept.append((int(i), int(j)))
+            if len(kept) == 20:
+                break
+        triangles, locked = _tin._constrain(xy, _tin._delaunay(xy), kept)
+        edges = {}
+        for t, (p, q, r) in enumerate(triangles):
+            for u, v in ((p, q), (q, r), (r, p)):
+                edges.setdefault((min(u, v), max(u, v)), []).append(t)
+        for i, j in kept:
+            self.assertIn((min(i, j), max(i, j)), edges)
+        hull = shapely.MultiPoint(xy).convex_hull.area
+        area = shapely.area(shapely.polygons(xy[np.c_[triangles, triangles[:, :1]]])).sum()
+        self.assertAlmostEqual(float(area), hull, 6)
+        # Every edge that is not a breakline is locally Delaunay: the opposite vertex is outside the circumcircle.
+        for (u, v), ts in edges.items():
+            if len(ts) != 2 or (u, v) in locked:
+                continue
+            t1, t2 = triangles[ts[0]], triangles[ts[1]]
+            d = next(w for w in t2 if w not in (u, v))
+            a, b, c = (xy[w] - xy[d] for w in t1)
+            det = ((a @ a) * (b[0] * c[1] - c[0] * b[1]) - (b @ b) * (a[0] * c[1] - c[0] * a[1])
+                   + (c @ c) * (a[0] * b[1] - b[0] * a[1]))
+            self.assertLessEqual(det, 1e-6)
+
+
+LANDXML = """<?xml version="1.0"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <CoordinateSystem epsgCode="3857"/>
+  <Surfaces>
+    <Surface name="Site 1">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="1">0 0 1</P><P id="2">0 10 2</P><P id="3">10 10 3</P><P id="4">10 0 4</P><P id="5">5 5 9</P>
+        </Pnts>
+        <Faces>
+          <F>1 2 5</F><F>2 3 5</F><F>3 4 5</F><F i="1">4 1 5</F>
+        </Faces>
+      </Definition>
+    </Surface>
+    <Surface name="grid"><Definition surfType="grid"/></Surface>
+  </Surfaces>
+</LandXML>
+"""
+
+
+class LandXmlAndDifference(unittest.TestCase):
+    """LandXMLToTin, SurfaceDifference and TinDifference (ADR-229 condition 6)."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
+
+    def tin_of(self, name, corners):
+        points = Tin.feature_class(self, name + "_pts", "POINT", corners)
+        out = os.path.join(self.directory, name)
+        arcpy.ddd.CreateTin(out, 3857, [[points, "Shape.Z", "masspoints", ""]])
+        return out
+
+    def test_landxml_faces_become_the_tins_triangles(self):
+        xml = os.path.join(self.directory, "surfaces.xml")
+        open(xml, "w", encoding="utf-8").write(LANDXML)
+        arcpy.ddd.LandXMLToTin(xml, self.directory, "s_", "1")
+        tin = os.path.join(self.directory, "s_Site1")
+        surface = _tin.load(tin)
+        self.assertTrue(surface.constrained)
+        self.assertEqual(surface.srid, 3857)
+        # P is northing, easting, elevation: point 2 is x 10, y 0.
+        self.assertAlmostEqual(float(surface.z_at([10.0], [0.0])[0]), 2.0, 9)
+        inside = {frozenset(map(tuple, surface.nodes[t][:, :2].tolist())) for t in surface.triangles[surface.inside]}
+        xy = {"1": (0.0, 0.0), "2": (10.0, 0.0), "3": (10.0, 10.0), "4": (0.0, 10.0), "5": (5.0, 5.0)}
+        faces = {frozenset(xy[i] for i in f.split()) for f in ("1 2 5", "2 3 5", "3 4 5")}
+        self.assertEqual(inside, faces)
+        # The invisible face, west of the centre, is outside the data area.
+        self.assertTrue(np.isnan(surface.z_at([1.0], [5.0])[0]))
+        self.assertAlmostEqual(float(surface.z_at([5.0], [5.0])[0]), 9.0, 9)
+        # A base name already used writes nothing.
+        arcpy.ddd.LandXMLToTin(xml, self.directory, "s_", "Site 1")
+        self.assertEqual(len(_tin.load(tin).triangles), len(surface.triangles))
+
+    def test_surface_difference_classifies_and_measures_against_hand_integrals(self):
+        # Input z = y and reference z = x over the same 10 m square: the difference y − x is positive north-west of the
+        # diagonal. Each side: area 50, volume ∫∫|y − x| = 10³ / 6, and the input's area 50 √2 (its slope is 1).
+        square = [(0, 0), (10, 0), (10, 10), (0, 10), (3, 7)]
+        tin = self.tin_of("north", [(x, y, y) for x, y in square])
+        ref = self.tin_of("east", [(x, y, x) for x, y in square[:4] + [(6, 2)]])
+        out = self.gpkg + "/diff"
+        raster = os.path.join(self.directory, "diff.tif")
+        arcpy.ddd.SurfaceDifference(tin, ref, out, out_raster=raster, raster_cell_size=1,
+                                    out_tin_folder=self.directory, out_tin_basename="d")
+        found = {code: (volume, area, shape) for volume, area, code, shape in rows(out, ["Volume", "SArea", "Code",
+                                                                                        "SHAPE@AREA"])}
+        self.assertEqual(sorted(found), [-1, 1])
+        for code in (1, -1):
+            volume, area, shape = found[code]
+            self.assertAlmostEqual(shape, 50.0, 6)
+            self.assertAlmostEqual(volume, 1000 / 6, 6)
+            self.assertAlmostEqual(area, 50 * math.sqrt(2), 6)
+        diff = _tin.load(os.path.join(self.directory, "d"))
+        self.assertAlmostEqual(float(diff.z_at([2.0], [8.0])[0]), 6.0, 9)
+        cells = arcpy.RasterToNumPyArray(raster, nodata_to_value=np.nan)
+        self.assertTrue(np.nanmax(np.abs(cells)) <= 10 + 1e-6)
+
+    def test_only_the_overlap_is_compared_and_equal_surfaces_are_code_zero(self):
+        west = self.tin_of("west", [(0, 0, 5), (10, 0, 5), (10, 10, 5), (0, 10, 5)])
+        east = self.tin_of("eastern", [(5, 0, 5), (15, 0, 5), (15, 10, 5), (5, 10, 5)])
+        out = self.gpkg + "/same"
+        arcpy.ddd.TinDifference(west, east, out)
+        (volume, area, code, shape), = rows(out, ["Volume", "SArea", "Code", "SHAPE@AREA"])
+        self.assertEqual((code, volume), (0, 0.0))
+        self.assertAlmostEqual(shape, 50.0, 6)
+        self.assertAlmostEqual(area, 50.0, 6)
 
 
 if __name__ == "__main__":

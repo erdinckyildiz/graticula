@@ -132,8 +132,8 @@ No benchmark is at stake: a user tool works on the data it was given.
      matches;
    - (m) a relationship rule may name its subtype by code or by name.
 7. **Still refused, each with its reason:** MigrateRelationshipClass, because its page answered 404, so its fields and
-   key handling are unknown; and AddRuleToTopology on one subtype, because grapy's ValidateTopology evaluates a rule
-   on every feature of a class.
+   key handling are unknown; ~~and AddRuleToTopology on one subtype, because grapy's ValidateTopology evaluates a rule
+   on every feature of a class~~ (built 2026-10-31, condition 6).
 
 ## 6. Consequences
 
@@ -194,3 +194,13 @@ None recorded.
 5. **The owner confirms §5.6's inferences**, or names the ones to change, before data made with them is relied on. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-197 (*"Hepsini onayla"*).
 6. **A topology rule on one subtype** is evaluated by ValidateTopology, so AddRuleToTopology takes its `subtype` and
    `subtype2` parameters.
+   **DISCHARGED 2026-10-31**: `grapy_topology_rule` gains `origin_subtype` and `destination_subtype` (added in place to
+   a topology written before), AddRuleToTopology takes the subtype *name*, as the page says ("Provide the subtype name
+   (not the code)"), and ValidateTopology evaluates the rule on that subtype's features only.
+   `test_topology.SubtypeRules`: Must Not Overlap on *Residential* finds the one overlap of the two residential blocks
+   (area 2) and not the park's two; the same rule on every subtype finds all three; Must Be Properly Inside with
+   destination subtype *Park* flags the well standing in a residential block only; a code, an unknown name, a class
+   without subtypes and a destination subtype on a one-class rule are errors. INFERRED, with Q-197's answer not
+   covering it because it is new: a one-class rule on a subtype compares that subtype's features with each other;
+   RemoveRuleFromTopology's name-and-ids form does not name a subtype, so of several rules that differ only in subtype
+   it removes the last added.

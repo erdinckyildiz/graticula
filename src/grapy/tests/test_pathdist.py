@@ -213,9 +213,30 @@ class PathDistance(_Fixture):
         self.assertEqual(cells(arcpy.Raster(distance))[0][:2], [0.0, 10.0])
         self.assertEqual(cells(arcpy.Raster(back))[0][:2], [0, 5])
 
-    def test_source_characteristics_are_refused_by_name(self):
-        with self.assertRaises(arcpy.NotBuiltError):
-            sa.PathDistance(one(1, (1, 3, (0, 0))), source_start_cost=5)
+    def test_source_characteristics_follow_the_pages_formulas(self):
+        # D-332. One row of 10-unit cells, cost 1 per unit: each step costs 10. *How the source characteristics affect
+        # cost distance analysis*: a1 = starting_cost + step * cost_multiplier, then
+        # accum_cost = a1 * (1 + resistance_rate) + step * cost_multiplier, which travelling to the source gives
+        # a5 = c1(1+r)^4 + c2(1+r)^3 + c3(1+r)^2 + c4(1+r) + c5.
+        source = one(1, (1, 4, (0, 0)))
+        self.assertEqual(cells(sa.PathDistance(source, source_start_cost=5)), [[5.0, 15.0, 25.0, 35.0]])
+        self.assertEqual(cells(sa.PathDistance(source, source_cost_multiplier=2)), [[0.0, 20.0, 40.0, 60.0]])
+        self.assertEqual(cells(sa.PathDistance(source, source_resistance_rate=0.1, source_direction="TO_SOURCE"), 4),
+                         [[0.0, 10.0, 21.0, 33.1]])
+        self.assertEqual(cells(sa.PathDistance(source, source_start_cost=5, source_cost_multiplier=2,
+                                               source_resistance_rate=0.1, source_direction="TO_SOURCE"), 4),
+                         [[5.0, 25.0, 47.5, 72.25]])
+        # Growth stops at the capacity: 25 is reached, 35 is beyond it.
+        self.assertEqual(cells(sa.PathDistance(source, source_start_cost=5, source_capacity=25)),
+                         [[5.0, 15.0, 25.0, ND]])
+        # Each source's capacity bounds its own region: the middle cell is 20 from both, beyond 15.
+        two = grid([[1, -9, -9, -9, 2]], nodata=-9)
+        self.assertEqual(cells(sa.PathAllocation(two, source_capacity=15)), [[1, 1, ND, 2, 2]])
+        with self.assertRaises(arcpy.NotBuiltError) as said:
+            sa.PathDistance(source, source_resistance_rate=0.1)   # FROM_SOURCE, the default
+        self.assertIn("count of cells", str(said.exception))
+        with self.assertRaises(ValueError):
+            sa.PathDistance(source, source_cost_multiplier=0)
 
 
 class Accumulation(_Fixture):

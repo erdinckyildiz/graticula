@@ -141,8 +141,9 @@ limits.
    Esri frames and camera table CSV), BuildStereoModel and CreateOrthoCorrectedRasterDataset (frame and RPC, constant
    elevation or DEM).
 5. **Refused, each with its own reason** — `arcpy.ddd`: AddTerrainPoints (its page answers 404), BIMToTerrain (a BIM
-   file workspace, Civil 3D's drawing format being Autodesk's); secondary thinning other than NONE and
-   CONSTRAINED_DELAUNAY on CreateTerrain. `arcpy.management`: ComputeCameraModel (its EXIF estimation, refinement, DSM
+   file workspace, Civil 3D's drawing format being Autodesk's); secondary thinning other than NONE ~~and
+   CONSTRAINED_DELAUNAY~~ on CreateTerrain (CONSTRAINED_DELAUNAY built 2026-10-31 with ADR-229 condition 6: every
+   pyramid level is triangulated with it). `arcpy.management`: ComputeCameraModel (its EXIF estimation, refinement, DSM
    and flight path are named, not described), ComputeDepthMap and RemoveDepthMap (Esri's `.dm` files), ComputeFiducials
    (no detection method, no output fields, and its only reader has no page), UpdateInteriorOrientation (404),
    GeneratePointCloud (random sampling, ETM and MVM undescribed), GenerateExcludeArea (its page contradicts itself);

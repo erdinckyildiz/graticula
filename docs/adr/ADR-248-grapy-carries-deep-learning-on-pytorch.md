@@ -248,4 +248,14 @@ None recorded.
    under the server's default 2 GB limit. It is skipped on Windows and has not run until CI runs it. **DISCHARGED 2026-10-31**: it ran and passed on Linux in the grapy job of CI run 41195186209 (the v1.0.489 release commit), torch 2.15.0+cpu on x86-64.
 3. **Read the Linux wheels' bundled licences.** The licences of the bundled libraries were read from the Windows CPU
    wheel; the aarch64 and x86-64 wheels the image installs (OpenBLAS, the GNU OpenMP runtime) are not read yet.
+   **DISCHARGED 2026-10-31**: the four `manylinux_2_28` CPU wheels (torch 2.15.0+cpu cp312 and torchvision 0.29.2+cpu,
+   x86_64 and aarch64) were downloaded from `download.pytorch.org/whl/cpu` into an empty folder and read. Their licence
+   files are identical across the two platforms; the shared libraries no licence file covers were read from the
+   binaries and are tabled in DEPENDENCY-LICENSES.md (*The Linux wheels' bundled libraries*): the GNU OpenMP runtime and
+   libgfortran (GCC 8.5.0, GPL-3.0 WITH GCC-exception-3.1), OpenBLAS 0.3.34 (BSD-3-Clause) and the Arm Compute Library
+   v53.2.0 (MIT) on aarch64, libpng, libjpeg-turbo, libwebp and zlib in torchvision, and two that were not expected —
+   **Intel oneMKL linked statically into the x86-64 `libtorch_cpu.so`**, under the Intel Simplified Software License,
+   which is a proprietary redistribution licence and not open source, and **glibc's dynamic loader** (LGPL-2.1+) in
+   torchvision's aarch64 wheel. None of them makes Graticula copyleft or conflicts with the Community License; what
+   they add is notices the image must carry (the GCC exception, the LGPL, Intel's licence).
 4. **Confirm Q-218**, the INFERRED choices of §5.2–§5.6, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-218 (*"Hepsini onayla"*), the no-baked-weights choice included.
