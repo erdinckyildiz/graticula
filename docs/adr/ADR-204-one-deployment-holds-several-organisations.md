@@ -758,6 +758,21 @@ own.
    the Compose specification's nested default, and CI's quickstart rehearsal runs the unset path on its next push.
 10. **The reach tables are kept by triggers that run as a role the floor does not bind**, and tested by sharing
     across tenants as a member who belongs to only one of them — the case that left them empty in the prototype.
+    **DISCHARGED 2026-10-31, by the form that was built rather than the one this names.** There are no reach tables and
+    no triggers (§5e item 5): the one policy that reaches across, `principal`'s, asks `sharing_group_member` and
+    `sharing_group` directly, and a membership row is written on the *group's* organisation — the column's default is
+    the connection's tenant, and a member is added by the group's administrator at the group's host — so the floor
+    shows it to that organisation's policy and to nobody else's. The prototype's trap was a derived table filled under
+    the floor by its floored owner; nothing derived is written here, so there is nothing for a floored writer to leave
+    empty. **The test the condition asks for runs on a bound role:** `TenantsAreKeptApartTests` makes a member of the
+    main organisation only, admits them to a second organisation's group by `default
+ame`, shares a layer into the
+    group, and the member reads it at the second organisation's host and nothing the second organisation shares with
+    itself — passed in the conformance run of 2026-10-31 on the grapy-d fixture served as `graticula_gd`. **Its cost,
+    which §5e item 5 left unmeasured:** in `EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests` the policy's
+    subquery is an index probe of `sharing_group_member_by_principal` per member row read, and `sharing_group` is read
+    whole at seventy groups (reported, below the scale-target threshold); at the root pool, where a session is found, it
+    never runs. The HTTP cost of the floor as a whole is condition 13's.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's
     plan as a floored role over a catalogue at the scale target and fails on a sequential scan of a floored table.
     `FindServiceAsync` failed exactly that way in the prototype, and nothing about it looked wrong from outside.
@@ -780,9 +795,27 @@ own.
     accepted by name.** Measured: kept plans make the floored lookup faster than today's. Not measured: what a
     migration does to plans a running server holds, which is the reason this is a condition and not a line in
     the connection string.
+    **Still open 2026-10-31, and now for a measured reason.** Plans are not kept — no `Max Auto Prepare` on any platform
+    pool — and the planning cost cannot honestly be accepted by name while condition 13's HTTP comparison shows the
+    query 1.33–2.61× slower with ten organisations and does not say how much of that is planning. Keeping plans is also
+    worth less than it was in the prototype: each organisation's pool lets an idle connection go after ten seconds
+    (§5e departure 1), and a prepared plan dies with its connection.
 13. **The HTTP p95 of `/sharing/rest/search`, `/rest/services` and a FeatureServer `query` is measured on the built
     floor against the same build without a second tenant**, and §9's 20 % trigger is read from that rather than
     from the store statements condition 1 measured.
+    **PARTLY DISCHARGED 2026-10-31 — measured, and the trigger fires on the query; its cause is not separated.**
+    [benchmarks/tenant-http](../../benchmarks/tenant-http/RESULTS.md): the same Debug build twice, ten organisations
+    (550 + 9 × 50 services) against one (the same 1,000 services, rows moved to the default), the same signed-in requests
+    — half to one busy organisation — interleaved one, ten, one, ten because the machine was shared and noisy. At 4
+    callers the FeatureServer `query` p95 was **1.33×, 1.41× and 2.61×** with ten organisations; `/sharing/rest/search`
+    1.08–1.65× and the services directory 0.89–1.68×, inside this machine's noise (the one-organisation runs alone moved
+    from 74 to 28 requests a second). **§9's 20 % trigger therefore fires on the query.** Its remedy — the floor into the
+    stores' SQL — is not taken here, because three things differ between the two modes and the run cannot tell them
+    apart: the policies, each organisation's pool of two connections (condition 14), and the per-organisation admission
+    shares (condition 6); condition 11's plans show the floor keeping every per-request index, and the prototype
+    measured the small pool making a busy organisation queue behind itself. **What remains:** the same comparison on a
+    quiet machine with a Release build, varying one of the three at a time — and the decision §9 asks for once it is
+    known which.
 14. **The pools per tenant (§5e.1) are measured against the connection budget** — ten tenants, one busy — as condition
     1 measured the shapes it rejected; if they refuse or queue past the trigger of §9, the per-statement batch replaces
     them.
@@ -797,6 +830,17 @@ own.
     the server's ceiling reads 118 rather than 94, and against a stock PostgreSQL's 97 it says at startup that it does
     not fit — which is true, and is the configuration to change before a second organisation is served **The datastore image now starts with
     `max_connections=300`, by owner decision the same morning** — *"Postgresql in varsayılan değerini sen değiştir"*.)*
+    **Measured again 2026-10-31 at the HTTP level, and the pools fail it.**
+    [benchmarks/tenant-http](../../benchmarks/tenant-http/RESULTS.md), 64 callers, half on the default organisation:
+    with ten organisations the busy organisation's query p95 was **1.9 s against 0.44–0.64 s with one**, its search
+    6.2 s against 1.0–1.4 s, and throughput half — queueing past §9's trigger, which is this condition's own test for
+    replacing them with the per-statement batch. The second ten-organisation run also ran the shared 100-connection
+    cluster out of slots (`53300` ×172), the breaker opened 346 times, 7,037 requests were 503 and no token was signed
+    in afterwards — the misfit the startup check had named (120 against 97), on a cluster without the image's 300. At 4
+    callers nothing failed and the platform store's connections peaked at 33–36 against 18–19 with one organisation.
+    **Open:** the replacement the condition names — one pool, the tenant carried in a batch ahead of each statement —
+    is a rewrite of the stores' connectionless commands (§5e departure 1 counts about three hundred), and was not
+    started here.
 15. **Names become unique per tenant (§5b)** only after every cache keyed by a name is keyed by tenant as well, each
     shown by a test that publishes the same name in two tenants and reads each back at its own host. **PARTLY
     DISCHARGED 2026-10-22** for services and folders (§5e item 14): the five places found are keyed by organisation,
