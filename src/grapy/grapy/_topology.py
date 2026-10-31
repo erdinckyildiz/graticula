@@ -6,7 +6,8 @@ reader can see they are there and leave them alone (INFERRED, ADR-225 §5.5):
 
 - ``grapy_topology``: name, dataset, cluster tolerance.
 - ``grapy_topology_class``: the feature classes in it, with their object-class id and xy and z ranks.
-- ``grapy_topology_rule``: each rule, its type and its origin and destination classes.
+- ``grapy_topology_rule``: each rule, its type, its origin and destination classes, and the subtype code each is
+  restricted to (null: every feature of the class; ADR-228 condition 6).
 - ``grapy_topology_error``: what the last validation found: geometry, rule, origin and destination features.
 
 Rules are evaluated with shapely. Each rule's meaning is the one-line definition on the AddRuleToTopology page; the
@@ -34,7 +35,12 @@ def ensure(connection):
         topology text not null, class_name text not null, xy_rank integer not null, z_rank integer not null,
         unique (topology, class_name))""")
     connection.execute("""create table if not exists grapy_topology_rule (rule_id integer primary key autoincrement,
-        topology text not null, rule_type text not null, origin text not null, destination text)""")
+        topology text not null, rule_type text not null, origin text not null, destination text,
+        origin_subtype integer, destination_subtype integer)""")
+    held = {r[1] for r in connection.execute("pragma table_info(grapy_topology_rule)")}
+    for column in ("origin_subtype", "destination_subtype"):   # a topology written before rules took subtypes
+        if column not in held:
+            connection.execute(f"alter table grapy_topology_rule add column {column} integer")
     connection.execute("""create table if not exists grapy_topology_error (error_id integer primary key autoincrement,
         topology text not null, rule_id integer not null, kind text not null, origin_class text, origin_oid integer,
         destination_class text, destination_oid integer, rule_type text not null, description text not null,

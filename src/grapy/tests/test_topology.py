@@ -81,7 +81,7 @@ class Topology(unittest.TestCase):
         arcpy.management.AddRuleToTopology(topo, "Must Not Overlap (Area)", self.parcels)
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.management.AddRuleToTopology(topo, "Must Not Overlap (Area)", self.roads)       # roads are lines
-        with self.assertRaises(arcpy.NotBuiltError):
+        with self.assertRaises(arcpy.ExecuteError):   # parcels have no subtypes (ADR-228 condition 6)
             arcpy.management.AddRuleToTopology(topo, "Must Not Overlap (Area)", self.parcels, "Residential")
         arcpy.management.ValidateTopology(topo)
         points, lines, polygons = arcpy.management.ExportTopologyErrors(topo, self.gpkg, "topo")
@@ -134,6 +134,72 @@ class Topology(unittest.TestCase):
         self.assertIn("ValidateTopology is an equivalent", arcpy.GetMessages())
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.management.CreateTopology(self.gpkg, "outside")       # not in a feature dataset
+
+
+class SubtypeRules(unittest.TestCase):
+    """ADR-228 condition 6: AddRuleToTopology's subtype and subtype2 restrict a rule, and ValidateTopology evaluates it on
+    those features only. Blocks R1 (0..2) and R2 (1..3) are Residential and overlap by 1 x 2; park P (1.5..2.5) is a Park
+    and overlaps both. Well W1 stands in R1 only, W2 in the park."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        self.gpkg = arcpy.management.CreateFileGDB(self.directory, "land")[0]
+        self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "fds", 3857)[0]
+        self.blocks = arcpy.management.CreateFeatureclass(self.fds, "blocks", "POLYGON")[0]
+        arcpy.management.AddField(self.blocks, "kind", "SHORT")
+        arcpy.management.SetSubtypeField(self.blocks, "kind")
+        arcpy.management.AddSubtype(self.blocks, 1, "Residential")
+        arcpy.management.AddSubtype(self.blocks, 2, "Park")
+        with arcpy.da.InsertCursor(self.blocks, ["kind", "SHAPE@"]) as written:
+            for kind, shape in ((1, box(0, 0, 2, 2)), (1, box(1, 0, 3, 2)), (2, box(1.5, 0, 2.5, 2))):
+                written.insertRow((kind, shape))
+        self.wells = arcpy.management.CreateFeatureclass(self.fds, "wells", "POINT")[0]
+        with arcpy.da.InsertCursor(self.wells, ["SHAPE@"]) as written:
+            for shape in ("POINT(0.5 1)", "POINT(2 1)"):
+                written.insertRow((shape,))
+        self.topo = arcpy.management.CreateTopology(self.fds, "topo")[0]
+        arcpy.management.AddFeatureClassToTopology(self.topo, self.blocks, 1, 1)
+        arcpy.management.AddFeatureClassToTopology(self.topo, self.wells, 2, 1)
+
+    def errors(self):
+        connection = sqlite3.connect(self.gpkg)
+        try:
+            return connection.execute("select description, origin_oid, destination_oid, shape from grapy_topology_error "
+                                      "order by error_id").fetchall()
+        finally:
+            connection.close()
+
+    def test_a_rule_on_one_subtype_reads_that_subtypes_features_only(self):
+        from grapy import _gpkg
+        arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks, "Residential")
+        arcpy.management.ValidateTopology(self.topo)
+        (description, a, b, shape), = self.errors()
+        self.assertEqual((description, a, b), ("Must Not Overlap", 1, 2))
+        self.assertAlmostEqual(_gpkg.decode(shape).area, 2.0, 9)
+        # The same rule on every subtype also finds the park's two overlaps.
+        arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks)
+        arcpy.management.ValidateTopology(self.topo)
+        self.assertEqual(len(self.errors()), 1 + 3)
+
+    def test_a_destination_subtype_restricts_the_destination(self):
+        arcpy.management.AddRuleToTopology(self.topo, "Must Be Properly Inside (Point-Area)", self.wells, None,
+                                           self.blocks, "Park")
+        arcpy.management.ValidateTopology(self.topo)
+        self.assertEqual([(d, a) for d, a, _, _ in self.errors()], [("Must Be Properly Inside", 1)])
+
+    def test_a_subtype_is_named_not_coded_and_must_exist(self):
+        from grapy._runtime import ExecuteError
+        with self.assertRaises(ExecuteError):
+            arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks, "1")
+        with self.assertRaises(ExecuteError):
+            arcpy.management.AddRuleToTopology(self.topo, "Must Be Disjoint (Point)", self.wells, "Hydrant")
+        with self.assertRaises(ExecuteError):
+            arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks, "Park", None, "Park")
+        arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks, "park")
+        with self.assertRaises(ExecuteError):   # the same rule on the same subtype twice
+            arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks, "Park")
+        arcpy.management.AddRuleToTopology(self.topo, "Must Not Overlap (Area)", self.blocks, "Residential")
 
 
 if __name__ == "__main__":
