@@ -101,6 +101,11 @@ hold through this door too. **INFERRED, for the owner to confirm:** *(Confirmed 
    so the tables, files and audit line are the screen's. Measured: `PortalItemWritesTests.A_permanent_delete_through_the_portal_leaves_nothing_in_the_recycle_bin`
    failed against the build before it, with both maps still in the bin, and passes now.
 2. **Pro's Share pane un-sharing** is seen to call `unshare`/`unshareItems` and to read the answer — not yet driven.
+   *(2026-10-31: still not driven, and it cannot be from arcpy: un-sharing is the Share pane's, Pro's active portal
+   must be this server for the pane to act on its items, and this session may neither change Pro's active portal nor
+   drive Pro's windows. **Owed, by a person:** in Pro signed in to `https://dev.graticula.com/studio` with
+   `Graticula:ProPublishCapture` on, Catalog › Portal › My Content › a shared item › Share › clear *Everyone* and a
+   group › Save; dev's `wire.log` then shows which of `unshare`/`unshareItems` Pro called and what it was answered.)*
 3. **A file item** (a document a member uploaded) is updated and deleted through the same door; today it is
    `Item does not exist or is inaccessible.`, which is at least not a success. **DISCHARGED 2026-10-27.** The portal's
    item writes know a document: `update` takes its title, summary, description, tags, terms, categories and its file —

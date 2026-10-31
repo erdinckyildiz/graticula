@@ -185,6 +185,16 @@ services directory), ADR-034 (Server and Studio).
    is opened here — both directions, recorded in §4. *(2026-10-14, the Maps SDK's half of the first direction: a map saved here opens in
    the SDK as a portal item, its styled layer drawn in its own style and its pop-up as saved — ADR-104 condition 3 and
    ADR-110 condition 2 record the measurement. Pro opening it, and a map saved by Pro opened here, are still owed.)*
+   *(2026-10-31: **arcpy has no route to either half from this machine.** Pro's own web-map reader,
+   `arcpy.mp.ConvertWebMapToArcGISProject`, was handed a map saved here (a red-filled FeatureServer layer and a
+   MapServer layer at half opacity, read anonymously from the portal's `items/{id}/data`) and answered *Invalid input*
+   with no request on the wire; the control shows why: Esri's own `USA/MapServer` through the same loopback relay is
+   refused the same way, at `127.0.0.1` and at `localhost`, and reached directly it converts. The converter refuses a
+   loopback address before it asks anything, so it can only be run against a server at a public address — dev or
+   the showcase, which this session may not touch. Saving a web map from Pro is *Share › Web Map* in Pro's window;
+   arcpy has no sharing draft for one. **Still owed, by a person**: in Pro signed in to dev's portal
+   (`https://dev.graticula.com/studio`), Catalog › Portal › My Content › open a web map saved in Studio and see its
+   layers drawn in their saved style; then *Share › Web Map* a map from Pro and open it in Studio's Map viewer.)*
 2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services). *(2026-10-14: the review was
    run on both states — a server with no service and no map, and the fixture — and it did not pass: no blocker, six
    major and nine minor findings. **Repaired the same day:** My content's first run said *everything here belongs to

@@ -204,6 +204,10 @@ None recorded.
 
 1. **Published from Pro and drawn.** A layer shared from Pro with *Copy all data → Feature* appears in Studio as a
    hosted feature layer, owned by the caller, and draws on the map — on dev, then on the showcase.
+   *(2026-10-31: on dev it is met — condition 2's run published a polygon layer from Pro's pane and `hosted/Map`
+   answered it. **The showcase half is owed**, and not from this session, which may not touch the showcase: in Pro
+   signed in to `https://demo.graticula.com/studio`, share a layer with *Copy all data → Feature*, then find it in
+   Studio › My content as a hosted feature layer owned by that member and open it on the map.)*
 2. **The Share pane itself works**, not only arcpy: Analyze and Publish enabled in Pro's UI. *(Met on dev
    2026-10-17, driven through Pro's UI: a polygon layer published from Share As Web Layer → "Web layer published
    successfully", and `hosted/Map` answers it. **Two causes were found.** (a) Pro greys the pane with *"Your portal
@@ -214,6 +218,8 @@ None recorded.
    as newer than the server (*"Minimum version: 11.2"*) until the portal said a real Enterprise's version pair,
    `currentVersion "2025.1"` with `enterpriseVersion "11.5.0"` — measured against a public 11.5 portal. Both were
    behind the capture setting until §5.8 made publishing the default.)*
+   **DISCHARGED 2026-10-17** — the run recorded above, through Pro's own pane; the marker was added 2026-10-31, when
+   it was found met and unmarked. The condition asks for the pane working, not for a particular server.
 3. **The archive is bounded**: an over-size, over-member or path-escaping service definition is refused before
    anything is written, with a test for each.
    **DISCHARGED 2026-10-31.** `ServiceDefinitionArchiveTests` opens 7z archives written by 7-Zip
@@ -249,3 +255,5 @@ None recorded.
    overwritten. (c) Pro itself refuses **Everyone** for a layer with editing on unless *Approve for public data
    collection* is ticked on the Configuration tab, and falls back to Organization without saying so; that is Pro's
    rule, not this server's.)*
+   **DISCHARGED 2026-10-17** — the run recorded above, through Pro's own pane; the marker was added 2026-10-31, when
+   it was found met and unmarked.

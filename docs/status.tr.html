@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>7354f3df</code> · 2026-10-31 18:59</p>
+<p class="stamp">Şu commit’ten üretildi: <code>907b2fad</code> · 2026-10-31 19:01</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">582/658</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">66 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">584/658</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">64 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">226 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">309 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,14 +126,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">91 madde</span></div><p><b>66 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">89 madde</span></div><p><b>64 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">7</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -166,6 +165,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -385,7 +385,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">188</td><td>A document is an item: a file kept in the platform store and shared like a web map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">189</td><td>Studio holds the organization and Server the engine</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every part is an owner decision of one day, taken against Portal and Server…</td><td class="num"></td></tr>
 <tr><td class="id">190</td><td>Members are searched in the database, sorted into categories, and have profiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is Portal&#x27;s and the owner&#x27;s; the search has not been measured past a…</td><td class="num"></td></tr>
-<tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
+<tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
 <tr><td class="id">192</td><td>A screen is a path, not a fragment</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — measured on dev.graticula.com in a browser before release; the old addresses are…</td><td class="num"></td></tr>
 <tr><td class="id">193</td><td>Backup and restore are the server&#x27;s own commands, and they take the database with them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">194</td><td>An ArcGIS shop&#x27;s addresses answer: `/arcgis` and `/server/rest`, always</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -634,6 +634,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>907b2fad</code><time>2026-10-31</time><span>An elevation surface&#x27;s portal item opens in the Maps SDK as an elevation layer and serves as a scene&#x27;s ground (ADR-182 condition 2)</span></li>
 <li><code>7354f3df</code><time>2026-10-31</time><span>ArcGIS Pro adds and draws a FeatureServer, MapServer, VectorTileServer and ImageServer layer here with no request refused (ADR-181 condition 1)</span></li>
 <li><code>48ad8b67</code><time>2026-10-31</time><span>A service definition is judged whole before anything is unpacked, and its bounds, its read parts and its reassembly are tested (ADR-191 conditions 3, 4, 5)</span></li>
 <li><code>d30cf941</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
@@ -647,7 +648,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e3be3b9e</code><time>2026-10-31</time><span>The Analyze dialog and the toolbox picker offer every layer the reader may see, from one listing, instead of the first 100 services&#x27; layer 0 (D-322)</span></li>
 <li><code>f0066d06</code><time>2026-10-31</time><span>D-266&#x27;s validator and D-282&#x27;s shared exports stay open, each for a stated reason: no data version a registered table&#x27;s outside writes would move, and ADR-012 phase 1 owning the shared directory</span></li>
 <li><code>30e33d51</code><time>2026-10-31</time><span>An image&#x27;s overviews are built in the import reader&#x27;s process, so the one read that decodes a stranger&#x27;s whole file is out of the serving process (D-295, partly)</span></li>
-<li><code>0f5ab8ed</code><time>2026-10-31</time><span>A SQL Server layer keeps a history and follows relationships, as MySQL and Oracle layers do (ADR-210 condition 5, ADR-212 condition 2)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
