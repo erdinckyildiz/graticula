@@ -96,8 +96,14 @@ class Raster:
             return
         if inRaster is None:
             raise ValueError("Raster needs a raster dataset.")
+        from . import _mdim
+        if isinstance(inRaster, (str, os.PathLike)) and (_mdim.is_multidimensional_path(inRaster) or
+                                                          os.fspath(inRaster).lower().endswith(".crf")):
+            # A multidimensional dataset: netCDF-CF and what GDAL reads (ADR-236).
+            _mdim.open_into(self, inRaster, is_multidimensional)
+            return
         if is_multidimensional:
-            raise NotBuiltError("Raster: is_multidimensional is not built in grapy; its rasters are not multidimensional.")
+            raise NotBuiltError(f"Raster: '{inRaster}' is not a multidimensional dataset grapy reads (netCDF; ADR-236).")
         from . import _mosaic
         if isinstance(inRaster, (str, os.PathLike)) and _mosaic.exists(inRaster):
             # A mosaic dataset or mosaic layer, read as one raster mosaicked by its method (ADR-230).
@@ -216,7 +222,7 @@ class Raster:
 
     @property
     def isMultidimensional(self):
-        return False
+        return getattr(self, "_md_source", None) is not None
 
     def getRasterBands(self, band_ids_or_names=None):
         """The bands named, as rasters: one band answers a Raster, several a list, and none named every band, as

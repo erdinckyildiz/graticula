@@ -141,7 +141,7 @@ class ImageAnalyst(unittest.TestCase):
             ia.SubsetBands(self.bands, "BY_WAVELENGTHS", "500")
 
     def test_refused_names_say_why(self):
-        for name, words in (("DetectObjectsUsingDeepLearning", "group 3"), ("Anomaly", "group 2"),
+        for name, words in (("DetectObjectsUsingDeepLearning", "group 3"), ("InterpolateRasterByDimension", "no Python signature"),
                             ("TrainSupportVectorMachineClassifier", "not specified"),
                             ("FloatDivide", "404")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:

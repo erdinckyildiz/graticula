@@ -23,6 +23,34 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
 from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
 
 
+# ---- multidimensional rasters (ADR-236)
+from . import _change as _change_tools, _collection as _collection_tools, _mdimtools as _md_tools  # noqa: E402
+
+AggregateMultidimensionalRaster = _md_tools.AggregateMultidimensionalRaster
+Anomaly = _md_tools.Anomaly
+ArgStatistics = _md_tools.ArgStatistics
+DimensionalMovingStatistics = _md_tools.DimensionalMovingStatistics
+FindArgumentStatistics = _md_tools.FindArgumentStatistics
+GenerateMultidimensionalAnomaly = _md_tools.GenerateMultidimensionalAnomaly
+GenerateTrend = _md_tools.GenerateTrend
+GenerateTrendRaster = _md_tools.GenerateTrendRaster
+PredictUsingTrend = _md_tools.PredictUsingTrend
+PredictUsingTrendRaster = _md_tools.PredictUsingTrendRaster
+TrendToRGB = _md_tools.TrendToRGB
+MultidimensionalPrincipalComponents = _md_tools.MultidimensionalPrincipalComponents
+MultidimensionalRasterCorrelation = _md_tools.MultidimensionalRasterCorrelation
+RasterToXarray = _md_tools.RasterToXarray
+XarrayToRaster = _md_tools.XarrayToRaster
+InterpolateFromSpatiotemporalPoints = _md_tools.InterpolateFromSpatiotemporalPoints
+RasterCollection = _collection_tools.RasterCollection
+ComputeChange = _change_tools.ComputeChange
+ComputeChangeRaster = _change_tools.ComputeChangeRaster
+AnalyzeChangesUsingCCDC = _change_tools.AnalyzeChangesUsingCCDC
+AnalyzeChangesUsingLandTrendr = _change_tools.AnalyzeChangesUsingLandTrendr
+DetectChangeUsingChangeAnalysis = _change_tools.DetectChangeUsingChangeAnalysis
+DetectChangeUsingChangeAnalysisRaster = _change_tools.DetectChangeUsingChangeAnalysisRaster
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)

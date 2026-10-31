@@ -5160,6 +5160,30 @@ for _built in ("Lookup", "Combine", "CutFill"):
     _NOT_YET.pop(_built, None)
 
 
+# ---- multidimensional rasters (ADR-236): built in _mdimtools and _change, answered here and by arcpy.ia under
+# arcpy's names; the reasons for the one still refused replace group 2's.
+
+from . import _mdimtools as _md_tools  # noqa: E402
+
+AggregateMultidimensionalRaster = _md_tools.AggregateMultidimensionalRaster
+Anomaly = _md_tools.Anomaly
+ArgStatistics = _md_tools.ArgStatistics
+DimensionalMovingStatistics = _md_tools.DimensionalMovingStatistics
+GenerateMultidimensionalAnomaly = _md_tools.GenerateMultidimensionalAnomaly
+for _built in ("AggregateMultidimensionalRaster", "AnalyzeChangesUsingCCDC", "AnalyzeChangesUsingLandTrendr", "Anomaly",
+               "ArgStatistics", "ComputeChange", "ComputeChangeRaster", "DetectChangeUsingChangeAnalysis",
+               "DetectChangeUsingChangeAnalysisRaster", "DimensionalMovingStatistics", "FindArgumentStatistics",
+               "GenerateMultidimensionalAnomaly", "GenerateTrend", "GenerateTrendRaster",
+               "InterpolateFromSpatiotemporalPoints", "MultidimensionalPrincipalComponents",
+               "MultidimensionalRasterCorrelation", "PredictUsingTrend", "PredictUsingTrendRaster", "RasterCollection",
+               "RasterToXarray", "TrendToRGB", "XarrayToRaster"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED["InterpolateRasterByDimension"] = (
+    "arcpy documents no Python signature for it: there is no arcpy reference page, and the raster function page gives "
+    "only its display labels, so its parameter names and order are unknown (ADR-236)")
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
