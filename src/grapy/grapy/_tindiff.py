@@ -78,7 +78,7 @@ def LandXMLToTin(in_landxml_path, out_tin_folder, tin_basename, tinnames=None):
     ``tinnames`` picks surfaces by name or by position from 1, separated by ``;``; with none, every TIN surface. If a
     TIN of the base name already exists, nothing is written, as documented.
 
-    INFERRED (Q-196 (s)): each TIN is ``<basename><surface name>`` — the name's characters outside letters, digits and
+    INFERRED (Q-223 (a)): each TIN is ``<basename><surface name>`` — the name's characters outside letters, digits and
     ``_`` dropped — or ``<basename><position>`` for an unnamed surface; the TIN is stored as its points (mass points)
     and its visible faces (a hard clip), so EditTin re-triangulates the same faces; the reference is the file's
     ``CoordinateSystem/@epsgCode`` when it has one; ``SourceData`` breaklines and boundaries are not read, the faces
@@ -212,7 +212,7 @@ def SurfaceDifference(in_surface, in_reference_surface, out_feature_class, pyram
     the difference surface by linear interpolation; an output TIN is the difference surface itself. Exact: both
     surfaces are linear on each triangle of the difference surface (``difference``).
 
-    INFERRED (Q-196 (t)): the raster's cell size defaults to the one TinRaster's OBSERVATIONS 250 gives; one output TIN,
+    INFERRED (Q-223 (b)): the raster's cell size defaults to the one TinRaster's OBSERVATIONS 250 gives; one output TIN,
     ``<out_tin_folder>/<out_tin_basename>``, grapy having no node limit; two heights within 1e-9 of the surfaces' z
     span are the same; ``extent`` and ``boundary`` clip the polygons as ExtractLas's area does."""
     from . import _las, _tintools
@@ -261,6 +261,6 @@ def SurfaceDifference(in_surface, in_reference_surface, out_feature_class, pyram
 
 def TinDifference(in_tin1, in_tin2, out_feature_class):
     """The legacy tool SurfaceDifference replaces: the polygons of ``in_tin1``'s displacement from ``in_tin2``.
-    INFERRED (Q-196 (t)): its page names no fields, and it writes SurfaceDifference's ``Volume``, ``SArea`` and
+    INFERRED (Q-223 (b)): its page names no fields, and it writes SurfaceDifference's ``Volume``, ``SArea`` and
     ``Code``."""
     return SurfaceDifference(in_tin1, in_tin2, out_feature_class)

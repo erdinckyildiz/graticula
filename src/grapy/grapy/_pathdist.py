@@ -540,7 +540,7 @@ def _dijkstra(sources, barrier, steps, start=None, traits=None):
 
 def source_traits(tool, in_source_data, grid, direction, multiplier=None, start=None, rate=None, capacity=None):
     """The legacy source characteristics as arrays over the grid — one value for every source, or a field of the
-    source features read source by source — or None when none is given. INFERRED (D-332): a multiplier and a capacity
+    source features read source by source — or None when none is given. INFERRED (D-332, Q-223 (d)): a multiplier and a capacity
     must be greater than 0, a start cost and a resistance rate at least 0, as the page's examples are; a route equal to
     its capacity is within it ("continues to grow until the capacity ... is reached").
 

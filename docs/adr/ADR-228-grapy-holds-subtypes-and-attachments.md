@@ -203,4 +203,4 @@ None recorded.
    without subtypes and a destination subtype on a one-class rule are errors. INFERRED, with Q-197's answer not
    covering it because it is new: a one-class rule on a subtype compares that subtype's features with each other;
    RemoveRuleFromTopology's name-and-ids form does not name a subtype, so of several rules that differ only in subtype
-   it removes the last added.
+   it removes the last added. Both are asked in [Q-223](../open-questions.md) (c).

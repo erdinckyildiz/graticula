@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>0f5ab8ed</code> · 2026-10-31 16:52</p>
+<p class="stamp">Generated from commit <code>e429a8ee</code> · 2026-10-31 17:17</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">575/658</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">73 live · 10 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">226 answered</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">226 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">open debts</div><div class="kpi-n">308 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-223</b> — [OWNER] The choices made after Q-196 and Q-197 were answered, and the ones D-332 and D-340 made, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name (characters outside letters,…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">98 items</span></div><p><b>73 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -451,6 +451,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-223</span><span class="owner">Owner</span></div><p>[OWNER] The choices made after Q-196 and Q-197 were answered, and the ones D-332 and D-340 made, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name (characters outside letters,…</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -638,20 +639,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>e429a8ee</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
+<li><code>6efea248</code><time>2026-10-31</time><span>Every equivalent&#x27;s docstring now says EQUIVALENT with its method and source, and a test holds all three marks (ADR-224 condition 6; conditions 4 and 5 read again)</span></li>
 <li><code>0f5ab8ed</code><time>2026-10-31</time><span>A SQL Server layer keeps a history and follows relationships, as MySQL and Oracle layers do (ADR-210 condition 5, ADR-212 condition 2)</span></li>
+<li><code>778241a3</code><time>2026-10-31</time><span>UpgradeGDB brings a GeoPackage an earlier grapy wrote to the form ArcGIS Pro reads, and grapy offers it when it writes into one (D-340, partly)</span></li>
+<li><code>d6d8a218</code><time>2026-10-31</time><span>The six legacy cost and path distance tools take a source&#x27;s start cost, cost multiplier, resistance rate and capacity, as the source characteristics page gives them (D-332, partly)</span></li>
+<li><code>425b4179</code><time>2026-10-31</time><span>Mosaic items off the read&#x27;s grid, finer than it or in another reference are warped onto it by BILINEAR, CUBIC, MAJORITY or NEAREST (ADR-230 condition 4)</span></li>
 <li><code>31bddd5c</code><time>2026-10-31</time><span>A service account signs in with OAuth client_credentials, and its client secrets are made, shown once and revoked on the Security screen (ADR-200 condition 2, migration 113)</span></li>
+<li><code>4508d662</code><time>2026-10-31</time><span>A topology rule can be restricted to one subtype of each class, and ValidateTopology evaluates it on those features only (ADR-228 condition 6)</span></li>
+<li><code>6d66335a</code><time>2026-10-31</time><span>grapy triangulates CONSTRAINED_DELAUNAY by Sloan&#x27;s algorithm, and LandXMLToTin, SurfaceDifference and TinDifference are built on it (ADR-229 condition 6)</span></li>
+<li><code>074327e9</code><time>2026-10-31</time><span>grapy reads and writes LAZ through lazrs in CI and the server image, and a LAS dataset of LAZ files has an extent (ADR-229 condition 5)</span></li>
+<li><code>114e57ab</code><time>2026-10-31</time><span>The Linux torch and torchvision wheels&#x27; bundled libraries are read, and the x86-64 one carries Intel oneMKL (ADR-248 condition 3)</span></li>
 <li><code>7a8b27e6</code><time>2026-10-31</time><span>Owner decisions of 2026-10-31, second round: Q-218 and Q-219 confirmed, client_credentials to be built, clustering&#x27;s phase order confirmed</span></li>
 <li><code>af1876af</code><time>2026-10-31</time><span>ADR-248&#x27;s image and fence conditions are measured: +270 MB on amd64, +232 MB on arm64, and a fenced tool trains on Linux</span></li>
 <li><code>9d6ab92e</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>082c3ea6</code><time>2026-10-31</time><span>grapy trains and runs deep learning models on point clouds, and prepares and evaluates their data (ADR-249)</span></li>
-<li><code>5518bf79</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>08c3ee92</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
-<li><code>3c454c23</code><time>2026-10-31</time><span>ArcGIS Pro reads the GeoPackages grapy writes: geometry, reference and fields (GeoPackage 1.4)</span></li>
-<li><code>9d812d95</code><time>2026-10-31</time><span>grapy answers as ArcGIS Pro 3.7 was measured answering on editor tracking, fleet routing, utility network traces and network diagrams (ADR-240 c1, ADR-239 c5 discharged; ADR-231 c5, ADR-232 c5 partly)</span></li>
-<li><code>9de084f2</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
-<li><code>e0fe3d70</code><time>2026-10-31</time><span>grapy&#x27;s Sentinel-1 radiometry agrees with ArcGIS Pro 3.7 on a real IW GRD, and grapy now reads that scene&#x27;s geometry (ADR-237 condition 3 partly)</span></li>
-<li><code>f8d08ba9</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>4033ebc8</code><time>2026-10-31</time><span>grapy trains and runs deep learning models on PyTorch, and exports their training data (ADR-248)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
