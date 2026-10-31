@@ -32,7 +32,8 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
     whether its shapes carry z and m (the GeoPackage geometry column's flags)."""
     from ._reference import reference_of
     from ._runtime import ExecuteError
-    shape = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon"}[geometry_type.upper()]
+    shape = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon",
+             "MULTIPATCH": "MultiPatch"}[geometry_type.upper()]
     reference = reference_of(spatial_reference)
     columns = []
     template_z = template_m = False
@@ -60,6 +61,11 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
             code = dataset
         elif dataset and code != dataset:
             raise ExecuteError(f"ERROR 000622: the feature dataset's spatial reference is EPSG:{dataset}, not EPSG:{code}.")
+    if shape == "MultiPatch":  # ADR-238: always z, as a multipatch is
+        from . import _multipatch
+        _gpkg.create(path, "Polygon", code, columns, True, with_m)
+        _multipatch.register(path)
+        return Result(path)
     _gpkg.create(path, shape, code, columns, with_z, with_m)
     return Result(path)
 

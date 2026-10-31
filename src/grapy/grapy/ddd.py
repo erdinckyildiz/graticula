@@ -6,7 +6,7 @@ function and saves what it answers; the parameter order and defaults are the ddd
 
 Not built, each refused by name with its reason in ``__getattr__`` below:
 
-- Point cloud deep learning and multipatch tools: data models this server does not hold yet (ADR-224 group 2). TINs
+- Point cloud deep learning tools, and the multipatch and mesh tools whose method the pages leave open (ADR-238). TINs
   and LAS datasets are held since ADR-229 and terrain datasets since ADR-234; the tools on them not built give their own
   reasons.
 - Tools on 3D features whose method or output the documentation leaves open, each with its reason (feature classes
@@ -388,23 +388,26 @@ def AddZInformation(in_feature_class, out_property, noise_filtering=None):
     per segment — the one closest to 0, the largest, and the mean weighted by 3D length — with −1 for a vertical
     segment. ``noise_filtering`` leaves out segments shorter (in 3D) than it.
 
-    Refused: SURFACE_AREA and VOLUME, which are multipatch properties (a data model this server does not hold yet,
-    ADR-224 group 2); a 2D feature class.
+    SURFACE_AREA and VOLUME of a multipatch (ADR-238): the 3D area of its faces, and the volume a closed one encloses
+    — 0 for one that is not closed, as Esri's knowledge base says Add Z Information gives (INFERRED, the tool page being
+    silent). Refused: SURFACE_AREA and VOLUME on a class that is not a multipatch; a 2D feature class.
 
     INFERRED: each field is named as its property and is a double (POINT_COUNT and VERTEX_COUNT integers); a multipoint's
     Z_MEAN is the plain mean of its points; slopes are magnitudes, so the one closest to 0 is the least steep; noise
     filtering applies to the slopes and Z_MEAN, the parts the page describes it for; a polygon's VERTEX_COUNT counts each
     ring's closing vertex."""
-    from . import _gpkg, da
+    from . import _gpkg, _multipatch, da
     from .management import _list
     columns, kind, _, has_z, _ = _z_class(in_feature_class, "AddZInformation")
     if not has_z:
         _refuse("AddZInformation", "in_feature_class", in_feature_class, "it is a 2D feature class")
     wanted = [p.upper() for p in _list(out_property)]
     for p in wanted:
-        if p in ("SURFACE_AREA", "VOLUME"):
-            _refuse("AddZInformation", "out_property", p, "it is a multipatch property (ADR-224 group 2)")
-        if p not in ("Z", "POINT_COUNT", "Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", *_SLOPES):
+        if p in ("SURFACE_AREA", "VOLUME") and not _multipatch.is_multipatch(in_feature_class):
+            _refuse("AddZInformation", "out_property", p, "it is a multipatch property, and the input is not a "
+                    "multipatch class")
+        if p not in ("Z", "POINT_COUNT", "Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "SURFACE_AREA",
+                     "VOLUME", *_SLOPES):
             _refuse("AddZInformation", "out_property", p)
     noise = float(noise_filtering) if noise_filtering not in (None, "", "#", "NO_FILTER") else 0.0
     existing = {c.name.lower() for c in columns}
@@ -446,6 +449,11 @@ def AddZInformation(in_feature_class, out_property, noise_filtering=None):
                     values.append(sum(s[0] for s in segments) if segments else None)
                 elif p == "VERTEX_COUNT":
                     values.append(len(z) if segments else None)
+                elif p == "SURFACE_AREA":
+                    values.append(_multipatch.surface_area(_multipatch.triangles(shape)))
+                elif p == "VOLUME":
+                    values.append(_multipatch.signed_volume(_multipatch.triangles(shape))
+                                  if _multipatch.is_closed(shape) else 0.0)
                 else:
                     slopes = [s for s in kept if s[2] >= 0]
                     vertical = any(s[2] < 0 for s in kept)
@@ -1191,6 +1199,52 @@ _REFUSED.update({
     "ExtractMeshFeaturesUsingPointCloud": "its input is an integrated mesh scene layer (I3S or a scene layer package) "
                                           "and its output multipatch features, data models this server does not hold "
                                           "yet (ADR-224 group 2)",
+})
+
+
+# ---- multipatch features (ADR-238): built in _mptools and _import3d, answered here under arcpy.ddd's names
+
+from . import _import3d, _mptools  # noqa: E402
+
+IsClosed3D = _mptools.IsClosed3D
+MultiPatchFootprint = _mptools.MultiPatchFootprint
+MinimumBoundingVolume = _mptools.MinimumBoundingVolume
+TINToMultipatch = _mptools.TINToMultipatch
+InterpolatePolyToPatch = _mptools.InterpolatePolyToPatch
+ExtrudeBetween = _mptools.ExtrudeBetween
+Intersect3DLineWithMultiPatch = _mptools.Intersect3DLineWithMultiPatch
+Inside3D = _mptools.Inside3D
+Intersect3D = _mptools.Intersect3D
+Union3D = _mptools.Union3D
+Difference3D = _mptools.Difference3D
+Buffer3D = _mptools.Buffer3D
+FenceDiagram = _mptools.FenceDiagram
+LasBuildingMultipatch = _mptools.LasBuildingMultipatch
+SetLasClassCodesUsingRaster = _mptools.SetLasClassCodesUsingRaster
+SunShadowVolume = _mptools.SunShadowVolume
+SunShadowFrequency = _mptools.SunShadowFrequency
+Import3DFiles = _import3d.Import3DFiles
+
+for _built in ("IsClosed3D", "MultiPatchFootprint", "MinimumBoundingVolume", "TINToMultipatch", "InterpolatePolyToPatch",
+               "ExtrudeBetween", "Intersect3DLineWithMultiPatch", "Inside3D", "Intersect3D", "Union3D", "Difference3D",
+               "Buffer3D", "FenceDiagram", "LasBuildingMultipatch", "SetLasClassCodesUsingRaster", "SunShadowVolume",
+               "SunShadowFrequency", "Import3DFiles"):
+    _REFUSED.pop(_built, None)
+_REFUSED.update({
+    "EncloseMultiPatch": "its page says only that the closed result drapes along the input at a grid resolution and "
+                         "hides overhangs, not how the grid samples the input nor how the enclosing surface is built "
+                         "from it (ADR-238)",
+    "ExtractLOD2Buildings": "its page names three levels of detail, a smoothness level and an accuracy, but not how roof "
+                            "planes are found in the height source, how they are generalised, or how the walls meet "
+                            "them (ADR-238)",
+    "ExtractMultipatchFromMesh": "its input is an integrated mesh scene layer or package (I3S, published as OGC "
+                                 "17-014r9), and the page does not say which of the mesh's levels of detail is clipped "
+                                 "-- a scene layer holds the mesh at every level — nor how a face crossing the "
+                                 "footprint is cut (ADR-238)",
+    "ExtractMeshFeaturesUsingPointCloud": "its input is an integrated mesh scene layer or package (I3S, OGC 17-014r9), "
+                                          "and the page does not say how the mesh's triangles are subdivided down to "
+                                          "the maximum area, which decides the output's triangles, nor which level of "
+                                          "detail is read (ADR-238)",
 })
 
 

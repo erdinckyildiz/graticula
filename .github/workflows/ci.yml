@@ -613,7 +613,7 @@ jobs:
       # ADR-223: users' toolboxes run on this interpreter, with the wheels grapy needs, fenced by the runner's kernel —
       # the same fence the image's runs put up, measured here by AToolboxIsPublishedAndRunTests.
       - name: the interpreter users' tools run on
-        run: python -m pip install --quiet shapely pyproj numpy rasterio scipy laspy
+        run: python -m pip install --quiet shapely pyproj numpy rasterio scipy laspy manifold3d
 
       - name: start the server
         run: |
@@ -825,7 +825,7 @@ jobs:
           python-version: "3.12"
       - name: grapy and its fence
         run: |
-          python -m pip install --quiet shapely pyproj numpy rasterio scipy laspy
+          python -m pip install --quiet shapely pyproj numpy rasterio scipy laspy manifold3d
           python -c "import ctypes; v = ctypes.CDLL(None).syscall(444, None, 0, 1); print('Landlock ABI', v); assert v >= 1, 'no Landlock on this kernel'"
           python -W error::DeprecationWarning -m unittest discover -s src/grapy/tests -v
           # ADR-224 condition 4: the status page's refused/unexamined split is what grapy answers, not what it once did.

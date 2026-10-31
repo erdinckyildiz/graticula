@@ -181,6 +181,7 @@ PyPI metadata (`license_expression`, or the classifier where that is all there i
 | rasterio | 1.5.2 | BSD-3-Clause; its wheel bundles GDAL as pyogrio's does | **Yes** — added with `grapy.sa` (ADR-224) |
 | scipy | 1.18.1 | BSD-3-Clause (the classifier says *BSD License*) | **Yes** — added with `grapy.sa` (ADR-224) |
 | laspy | 2.7.0 | BSD-2-Clause (`license_expression`); pure Python over numpy, no bundled native code. Its LAZ backends (lazrs, laszip) are optional extras and are **not** installed | **Yes** — added with grapy's LAS datasets (ADR-229) |
+| manifold3d | 3.5.4 | Apache-2.0 (the classifier, and the wheel's `licenses/LICENSE`). One compiled extension, no Python dependencies but numpy; the Manifold library builds Clipper2 in, which is BSL-1.0. Wheels for CPython 3.9–3.14 on Windows (x64, arm64), Linux (manylinux_2_28 x86_64 and aarch64) and macOS | **Yes** — added with grapy's multipatch features (ADR-238): the booleans on closed solids |
 
 **The image installs the newest of each when it is built**, so the version column says what was read, not what was
 pinned. A wheel whose licence changes would change here only if somebody looked. Pinning is the open part of this row.

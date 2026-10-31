@@ -980,7 +980,9 @@ _REFUSED_NAMES["SetMessageLevels"] = "its message categories are the internal di
 _REFUSED_NAMES.update({
     "Annotation": "annotation features are a geodatabase data model this server does not hold (ADR-224 group 2)",
     "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
-    "Multipatch": "a multipatch is a data model this server does not hold yet (ADR-224 group 2)",
+    "Multipatch": "arcpy documents no Multipatch class — neither its class list nor the Geometry page names one, so "
+                  "its constructor and members are unknown; grapy holds multipatch features (ADR-238) and reads and "
+                  "writes them through the cursors as geometries",
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
     "ListLasDatasetFiles": "it is not documented: absent from ArcPy's function list on pro.arcgis.com on "
                            "2026-10-30, so its parameters and answer are unknown (ADR-229 §5.8)",
