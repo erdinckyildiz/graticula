@@ -39423,7 +39423,13 @@ function machineEffective(m) {
 
 /** Machines — the list, the count and the sentence under it. A timed read keeps the reader's focus and says nothing. */
 async function loadMachines() {
-  machinesNow = await api("/admin/site/machines") || {};
+  try {
+    machinesNow = await api("/admin/site/machines") || {};
+  } catch (e) {
+    // A failed read draws its own refusal into the table, so the next good one must draw whatever it finds.
+    machinesDrawn = null;
+    throw e;
+  }
   const all = machinesNow.machines || [];
   const serving = all.filter(m => machineEffective(m).serving).length;
 
@@ -39456,8 +39462,11 @@ async function loadMachines() {
           : `<button class="tiny" type="button" data-mc-state="started" data-mc-name="${h(m.name)}"
                aria-label="Start ${h(m.name)}">Start</button>`;
 
+      // Each separator inside the item before it, so a line breaks only after a dot, never before one.
       const meta = [m.self ? "this machine" : "", `<code>${h(m.address)}</code>`, `version ${h(m.version)}`]
-        .filter(Boolean).map(x => `<span class="mcmeta">${x}</span>`).join(`<span class="sep" aria-hidden="true">·</span>`);
+        .filter(Boolean)
+        .map((x, i, a) => `<span class="mcmeta">${x}${i < a.length - 1 ? `<span class="sep" aria-hidden="true">·</span>` : ""}</span>`)
+        .join(" ");
 
       return `<tr data-mc="${h(m.name)}">
         <td class="name"><b>${h(m.name)}</b><div class="rowmeta">${meta}</div></td>
@@ -39488,19 +39497,39 @@ async function loadMachines() {
          <b>Under maintenance</b> does the same, and tells another administrator reading this page that the machine is out
          for work, not by accident.`;
 
-    // ADR-012 phase 1: the server directories — shared, and seen from here, or each machine's own.
+    // ADR-012 phase 1: the healthy shared form is a quiet fact here; a site whose directories are not shared is
+    // warned above the table, where it is read before anything else (design review, third pass).
     const dirs = machinesNow.directories;
-    if (dirs?.shared) {
-      note.innerHTML += (dirs.unseen || []).length
-        ? ` <b>Server directories at <code>${h(dirs.path)}</code>: this machine cannot see ${h(dirs.unseen.join(" and "))}'s
-            check file there</b>, so uploads, exports and tiles written there are not shared. Mount the same path on every
-            machine.`
-        : ` Uploads, exports, backups and the tile cache are in the site's server directories at
-            <code>${h(dirs.path)}</code>, which this machine sees for every machine up.`;
-    } else if (all.length > 1) {
-      note.innerHTML += ` <b>Each machine keeps its own server directories</b>: an image uploaded or an export written
-        on one is missing on the others. Set <code>Graticula:ServerDirectories</code> to one shared path on every machine.`;
+    if (dirs?.shared && !(dirs.unseen || []).length) {
+      note.innerHTML += ` Uploads, exports, backups and the tile cache are in the site's server directories at
+        <code>${h(dirs.path)}</code>, shared by every machine that is up.`;
     }
+  }
+
+  const warning = $("mcDirs");
+  if (warning) {
+    const dirs = machinesNow.directories;
+    const unseen = (dirs?.unseen || []).filter(n => n !== machinesNow.thisMachine);
+    const listed = unseen.length < 3 ? unseen.join(" and ") : unseen.slice(0, -1).join(", ") + " and " + unseen.at(-1);
+    const text = dirs?.shared && unseen.length
+      ? `<b>Server directories at <code>${h(dirs.path)}</code> are not shared:</b> ${h(listed)}
+         ${unseen.length === 1 ? "writes" : "write"} to a different folder at that path, so uploads, exports and tiles
+         written on one machine are missing on the others. Mount the same storage at <code>${h(dirs.path)}</code> on every
+         machine.`
+      : !dirs?.shared && all.filter(m => m.status === "up").length > 1
+        ? `<b>Each machine keeps its own server directories:</b> an image uploaded or an export written on one is
+           missing on the others. Set <code>Graticula:ServerDirectories</code> to one shared path on every machine.`
+        : "";
+    warning.hidden = !text;
+    warning.innerHTML = text
+      ? `<svg class="mcdirsicon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/>
+           <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>${text}</span>`
+      : "";
+  }
+
+  if (all.length > 1 && machinesNow.directories && !machinesNow.directories.shared) {
+    $("mcCount").textContent += " · directories not shared";
   }
 
   clearTimeout(machinesTimer);
