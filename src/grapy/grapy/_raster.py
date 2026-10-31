@@ -452,6 +452,9 @@ class Raster:
     def __getitem__(self, index):
         """One cell, ``raster[row, column]``: its value, NaN where it is NoData (INFERRED, the page does not say)."""
         row, column = index
+        if not (0 <= row < self._grid.rows and 0 <= column < self._grid.columns):
+            # INFERRED (ADR-245 §5.7): a read past the edge, which RasterCellIterator's padding allows, is NoData.
+            return float("nan")
         value = self._array[row, column]
         return float("nan") if self._mask[row, column] else value.item()
 

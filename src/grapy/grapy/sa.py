@@ -5190,6 +5190,79 @@ _REFUSED["InterpolateRasterByDimension"] = (
     "only its display labels, so its parameter names and order are unknown (ADR-236)")
 
 
+# ---- ADR-245: the pages that answered 404 on 2026-10-29, read again at their new addresses on 2026-10-31
+from . import _imagefns as _image_fns  # noqa: E402
+from ._raster import RasterInfo as _RasterInfo  # noqa: E402
+
+RasterInfo = _RasterInfo  # arcpy.sa.RasterInfo is arcpy.RasterInfo (arcpy/classes/rasterinfo-class.html)
+UnitConversion = _image_fns.UnitConversion
+HeatIndex = _image_fns.HeatIndex
+WindChill = _image_fns.WindChill
+SpectralConversion = _image_fns.SpectralConversion
+VectorField = _image_fns.VectorField
+InList = _image_fns.InList
+ZonalRemap = _image_fns.ZonalRemap
+ColormapToRGB = _image_fns.ColormapToRGB
+ApplyEnvironment = _image_fns.ApplyEnvironment
+RasterCellIterator = _image_fns.RasterCellIterator
+ColorspaceConversion = _equivalent(*_image_fns.HSV)(_image_fns.ColorspaceConversion)
+Speckle = _equivalent(*_image_fns.SPECKLE)(_image_fns.Speckle)
+ElevationVoidFill = _equivalent(*_image_fns.VOID_FILL)(_image_fns.ElevationVoidFill)
+LinearUnmixing = _equivalent(*_image_fns.UNMIXING)(_image_fns.LinearUnmixing)
+Resample = _equivalent(*_image_fns.RESAMPLE)(_image_fns.Resample)
+GNDVI = _index("GNDVI", ["nir_band_id", "green_band_id"], {"nir_band_id": 5, "green_band_id": 2},
+               lambda nir, green: (nir - green) / (nir + green),
+               "(NIR − Green) / (NIR + Green); the defaults are the page's (arcpy/image-analyst/gnvdi.html), bands 5 and 2.")
+for _built in ("RasterInfo", "UnitConversion", "HeatIndex", "WindChill", "SpectralConversion", "VectorField", "InList",
+               "ZonalRemap", "ColormapToRGB", "ApplyEnvironment", "RasterCellIterator", "ColorspaceConversion",
+               "Speckle", "ElevationVoidFill", "LinearUnmixing", "Resample", "GNDVI"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+
+_REFUSED.update({
+    "MNDWI": "it has no reference page: arcpy/image-analyst/mndwi.html and arcpy/spatial-analyst/mndwi.html answered 404 "
+             "at doc.esri.com and pro.arcgis.com (latest and 3.3), and neither arcpy's table of contents nor the "
+             "Band Arithmetic raster function names an arcpy MNDWI function (checked 2026-10-31), so its parameter "
+             "names, order and default band ids are unknown",
+    "FloatDivide": "it has no reference page: tool-reference/spatial-analyst/float-divide and arcpy/spatial-analyst/"
+                   "floatdivide answered 404 at doc.esri.com, at pro.arcgis.com for 2.9 to 3.5 and latest, and at "
+                   "desktop.arcgis.com, and no table of contents names it (checked 2026-10-31); arcpy documents the / "
+                   "(Division) operator, which grapy's Raster answers",
+    "FloorDivide": "it has no reference page: tool-reference/spatial-analyst/floor-divide answered 404 at doc.esri.com, "
+                   "at pro.arcgis.com for 2.9 to 3.5 and latest, and at desktop.arcgis.com, and no table of contents "
+                   "names it (checked 2026-10-31); arcpy documents the // (Integer Division) operator, which grapy's "
+                   "Raster answers",
+    "VectorFieldRenderer": "its output is a raster \"displayed according to your rendering parameters\" — arrows, wind "
+                           "barbs or ocean-current symbols drawn over thinned tiles — and its page "
+                           "(arcpy/image-analyst/vector-field-renderer.html) does not say what pixel values that "
+                           "rendering holds; VectorField builds the U-V and magnitude-direction bands",
+    "ExportRasterFunctionTemplate": "it exports the raster function chain a Raster carries in its functions property, "
+                                    "and grapy's rasters are computed when they are made and carry no function chain; "
+                                    "the .rft.xml layout it can write is not published",
+    "LabelBadBands": "its only effect is the IsBadBand band property (arcpy/image-analyst/labelbadbands.html), and "
+                     "grapy's rasters carry no band properties to hold it — SubsetBands refuses exclude_bad_bands for "
+                     "the same reason — while how ArcGIS stores the property in a saved raster is not documented",
+    "Colormap": "its answer is the input's values with a colour map attached for display, and grapy's rasters carry no "
+                "colour map (BuildRasterAttributeTable's convert_colormap is refused for the same reason); its named "
+                "maps — Elevation, NDVI, NDVI2, NDVI3 — are described only in words, and its colour ramps by Pro's "
+                "names (arcpy/image-analyst/colormap.html, help/analysis/raster-functions/colormap-function.html, "
+                "read 2026-10-31)",
+    "Render": "it attaches a rendering rule or colour map to a raster for a notebook's display; its page "
+              "(arcpy/image-analyst/render.html) does not say what pixel values a saved rendered raster holds — "
+              "whether stretched to 0–255, how gamma is applied — and its colour schemes are given by name in a PDF of "
+              "swatches",
+    "ShadedRelief": "it merges an elevation-coloured image with a hillshade into RGB, and neither its page nor the Shaded "
+                    "Relief raster function says how the two are merged, nor gives the default colour ramp (Elevation #1) "
+                    "or the SCALED z-factor equation that ps_power and psz_factor enter (read 2026-10-31)",
+    "AspectSlope": "the Aspect-Slope raster function gives only the output's classes — below 20 flat, 21–30, 31–40, 41 "
+                   "and above for low, moderate and high slope — and not how aspect and slope are coded into one value "
+                   "nor the slope breaks (read 2026-10-31)",
+    "ContrastBrightness": "its page and the Contrast And Brightness raster function (Pro's and ArcMap's, read "
+                          "2026-10-31) give the offsets' range, −100 to 100, and no formula mapping an offset to pixel "
+                          "values",
+})
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)

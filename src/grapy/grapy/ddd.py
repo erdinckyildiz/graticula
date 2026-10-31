@@ -1263,3 +1263,12 @@ def __getattr__(name):
 from . import _mpmore  # noqa: E402
 
 SkylineBarrier = _mpmore.SkylineBarrier
+
+
+# ---- SurfaceLength and SurfaceSpot from ArcMap's pages, the legacy tools Pro's arcpy still answers (ADR-245)
+from . import _surfacelegacy  # noqa: E402
+
+SurfaceLength = _surfacelegacy.SurfaceLength
+SurfaceSpot = _surfacelegacy.SurfaceSpot
+for _built in ("SurfaceLength", "SurfaceSpot"):
+    _REFUSED.pop(_built, None)
