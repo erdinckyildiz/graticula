@@ -1419,6 +1419,9 @@ public static class Program
         {
             CallerAddress.Resolve(context, settings.TrustedProxies);
 
+            // ADR-012 phase 3: the scheme and host the client used, from a proxy this deployment names.
+            CallerAddress.ApplyForwarded(context, settings.TrustedProxies);
+
             await next(context).ConfigureAwait(false);
         });
 

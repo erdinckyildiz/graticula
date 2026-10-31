@@ -367,4 +367,20 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
         Assert.True(answer.IsSuccessStatusCode && body.Contains("\"success\":true", StringComparison.Ordinal),
             $"addFeatures on {on.Name} answered {(int)answer.StatusCode}: {body}");
     }
+
+    /// <summary>
+    /// Phase 3's control: a node that names no proxy ignores forwarded headers, so a caller cannot choose the addresses it
+    /// writes.
+    /// </summary>
+    [Fact]
+    public async Task A_node_that_names_no_proxy_ignores_forwarded_headers()
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, "/rest/info?f=json");
+        request.Headers.Add("X-Forwarded-Proto", "http");
+        request.Headers.Add("X-Forwarded-Host", "attacker.example.test");
+        using HttpResponseMessage answer = await A.Http.SendAsync(request);
+        string owning = JsonDocument.Parse(await answer.Content.ReadAsStringAsync()).RootElement.GetProperty("owningSystemUrl").GetString()!;
+
+        Assert.StartsWith($"https://127.0.0.1:{A.Port}", owning, StringComparison.Ordinal);
+    }
 }

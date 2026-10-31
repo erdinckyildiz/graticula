@@ -286,6 +286,14 @@ what landed.
    the proxy keeps `Host`, so absolute addresses stay `https://` and each organisation's host still reaches it — read
    nowhere in `src/` today. *Stickiness by client address for the multi-step paths of phase 2 (Pro's staging, append
    uploads, OGC Processes) is the bridge if phase 3 is wanted before phase 2 is done — INFERRED, not the plan.*
+   **Partly built 2026-10-31.** *Built:* the nodes honour `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxies
+   `Graticula:TrustedProxies` names and from nobody else (`CallerAddress.ApplyForwarded`); both health paths drop a
+   stopped or maintained node; the Caddyfile and settings are written in deployment.md §1.4. Tested against two
+   processes (`ASiteBehindAProxyTests`, and the control that a node naming no proxy ignores the headers). **Unproven:
+   Caddy itself.** It is not installed on this machine and downloading it was refused by this session's permissions,
+   so Caddy's `dynamic a` discovery, its health checks taking a node out and back, its retry across a node killed
+   mid-request, and `Host` reaching the nodes unchanged have not been run. The nodes' own TLS still faces Caddy (with
+   `tls_insecure_skip_verify`), so *the nodes' certificates no longer face clients* holds only once that is set up.
 
 **Phase 4 — rolling upgrade**
 
@@ -353,7 +361,10 @@ what landed.
    download and the tile both observed failing on the build before (condition 2's prototype). **Phase 2: DISCHARGED 2026-10-31** — the three
    phase-2 tests in `ASiteSharesItsServerDirectoriesTests`, each a second step sent to the other node; the Pro split was
    observed failing (400) on the build before, the other two are memory-only there by construction. Nineteen two-node
-   tests in all, passing on this branch, 2026-10-31.
+   tests in all, passing on this branch, 2026-10-31. **Phase 3: PARTLY DISCHARGED 2026-10-31** — the
+   nodes' half is tested against two processes (`ASiteBehindAProxyTests`: the client's address written behind a named
+   proxy, a balancer's health check taking a maintained node out and back; and the control that an unnamed one is
+   ignored, 22 two-node tests in all); Caddy in front was not run (above).
 4. **The owner confirms** the order of the phases and that PostgreSQL's own availability and capacity are decided
    separately. **DISCHARGED 2026-10-31** — confirmed by owner decision (*"Onayla, ölç ve kur"*): phases 0 → 1 → 2 → 3 in this order, condition 1's measurement first, PostgreSQL's availability a decision of its own, and the plan is to be built rather than held. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
 
