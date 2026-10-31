@@ -96,7 +96,7 @@ that works.
   says validity was not measured and counts any rows held in another reference. **SQL Server 2016 or later since
   v1.0.449** ([ADR-210](docs/adr/ADR-210-a-registered-sql-server-database-is-served-to-read.md)): `geometry` and
   `geography` tables queried and edited in place, x and y, a `geography` box drawn as the client drew it and a clockwise
-  polygon turned the way SQL Server reads it — with attachments since v1.0.450, without a history or related records yet, registered through
+  polygon turned the way SQL Server reads it — with attachments since v1.0.450, and a history and related records as MySQL and Oracle have them, registered through
   the admin API (`kind: "sqlserver"`). The host loads ICU for its driver and pins the invariant culture. SQL Server does
   not run on arm64, so the demo does not carry it. **On every registered database but DuckDB** an administrator
   switches on, from the console, attachments and the recording of who created and last edited each feature and when —

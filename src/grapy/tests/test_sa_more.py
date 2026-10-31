@@ -171,8 +171,15 @@ class More(_Fixture):
         two = grid([[1, -9, -9], [-9, -9, -9], [-9, -9, 2]], nodata=-9)
         allocated = cells(sa.CostAllocation(two, grid([[1] * 3] * 3)))
         self.assertEqual((allocated[0][1], allocated[2][1]), (1, 2))
+        # D-332: the source characteristics, as PathDistance takes them; a row of cost 1 steps 10 a cell.
+        row = grid([[1, 1, 1, 1]])
+        start = grid([[1, -9, -9, -9]], nodata=-9)
+        self.assertEqual(cells(sa.CostDistance(start, row, source_start_cost=5, source_resistance_rate=0.1,
+                                               source_direction="TO_SOURCE"), places=4), [[5.0, 15.0, 26.5, 39.15]])
+        self.assertEqual(cells(sa.CostAllocation(grid([[1, -9, -9, -9, 2]], nodata=-9), grid([[1] * 5]),
+                                                 source_capacity=15)), [[1, 1, ND, 2, 2]])
         with self.assertRaises(arcpy.NotBuiltError):
-            sa.CostDistance(source, cost, source_start_cost=5)
+            sa.CostDistance(start, row, source_resistance_rate=0.1)
 
     # ---- hydrology
 

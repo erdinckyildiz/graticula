@@ -247,12 +247,6 @@ class Subtypes(_Workspace):
         finally:
             connection.close()
 
-    def test_a_topology_rule_on_one_subtype_is_refused_by_name(self):
-        with self.assertRaises(NotBuiltError) as said:
-            arcpy.management.AddRuleToTopology(self.gpkg + "/ds/t", "Must Not Overlap (Area)", self.pipes, "1")
-        self.assertIn("subtype", str(said.exception))
-
-
 class GlobalIDs(_Workspace):
     def test_global_ids_fill_every_row_old_and_new(self):
         old = self.insert(self.pipes, ["SHAPE@XY"], [((0, 0),), ((1, 1),)])

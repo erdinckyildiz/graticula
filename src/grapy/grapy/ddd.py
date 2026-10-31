@@ -1172,6 +1172,14 @@ for _built in ("CreateTin", "EditTin", "CopyTin", "DelineateTinDataArea", "TinDo
                "LocateLasPointsByProximity", "LocateOutliers", "ExtractObjectsFromPointCloud", "ClassifyLasBuilding"):
     _REFUSED.pop(_built, None)
 
+from . import _tindiff  # noqa: E402 — ADR-229 condition 6, on the constrained Delaunay triangulation
+
+LandXMLToTin = _tindiff.LandXMLToTin
+SurfaceDifference = _tindiff.SurfaceDifference
+TinDifference = _tindiff.TinDifference
+for _built in ("LandXMLToTin", "SurfaceDifference", "TinDifference"):
+    _REFUSED.pop(_built, None)
+
 # ---- terrain datasets (ADR-234): built in _terrain, answered here under arcpy.ddd's names
 
 from . import _terrain  # noqa: E402
@@ -1209,17 +1217,11 @@ _REFUSED.update({
 })
 _REFUSED.update({
     "DecimateTinNodes": "how the nodes kept are chosen is not documented, for either method (ADR-229 §5.7)",
-    "LandXMLToTin": "it makes a constrained Delaunay TIN, as the page says, and grapy's TINs are conforming Delaunay — "
-                    "scipy has no constrained triangulation (ADR-229 §5.3)",
     "RasterTin": "how it selects the raster's points within the z tolerance is not documented (ADR-229 §5.7)",
     "TINToMultipatch": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
     "LasBuildingMultipatch": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
     "TinSlope": "it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read",
     "TinAspect": "it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read",
-    "SurfaceDifference": "its difference surface is built by constrained Delaunay triangulation, as documented, which "
-                         "grapy does not have (ADR-229 §5.3)",
-    "TinDifference": "it is the legacy name of SurfaceDifference, whose difference surface is built by constrained "
-                     "Delaunay triangulation, which grapy does not have (ADR-229 §5.3)",
     "ClassifyLasNoise": "its page contradicts itself on the isolation limit (fewer than, or no more than, the point "
                         "limit), and its other methods' defaults are not given",
     "LasHeightMetrics": "how the ground surface the heights are measured from is built is not stated",

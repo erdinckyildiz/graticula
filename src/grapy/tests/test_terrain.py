@@ -15,7 +15,7 @@ import shapely
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
-from grapy import _terrain, da  # noqa: E402
+from grapy import _terrain, _tin, da  # noqa: E402
 from grapy._runtime import ExecuteError, NotBuiltError  # noqa: E402
 
 
@@ -98,7 +98,20 @@ class Terrain(unittest.TestCase):
         with self.assertRaises(NotBuiltError):
             arcpy.ddd.CreateTerrain(self.fds, "s", 1, None, None, "WINDOWSIZE", "ZMIN", "MILD")
         with self.assertRaises(NotBuiltError):
-            arcpy.ddd.CreateTerrain(self.fds, "s", 1, None, None, "WINDOWSIZE", "ZMIN", "NONE", 1, "CONSTRAINED_DELAUNAY")
+            arcpy.ddd.CreateTerrain(self.fds, "s", 1, None, None, "WINDOWSIZE", "ZMIN", "NONE", 1, "NATURAL")
+
+    def test_a_constrained_delaunay_terrain_triangulates_its_levels_constrained(self):
+        # ADR-229 condition 6: the terrain's triangulation method reaches every level it is read at.
+        t = arcpy.ddd.CreateTerrain(self.fds, "cd", 0.5, None, None, "WINDOWSIZE", "ZMIN", "NONE", 1,
+                                    "CONSTRAINED_DELAUNAY")[0]
+        arcpy.ddd.AddTerrainPyramidLevel(t, "", ["1 1000"])
+        arcpy.ddd.AddFeatureClassToTerrain(t, [[self.grid, "Shape.Z", "masspoints", 1, "", "", False, False, "", "",
+                                                False]])
+        arcpy.ddd.BuildTerrain(t)
+        out = os.path.join(self.directory, "cdtin")
+        arcpy.ddd.TerrainToTin(t, out)
+        self.assertTrue(_tin.load(out).constrained)
+        self.assertTrue(_terrain.surface(t).constrained)
 
     # ---- the pyramid
 

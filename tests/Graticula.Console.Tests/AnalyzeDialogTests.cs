@@ -96,8 +96,8 @@ public sealed class AnalyzeDialogTests : ConsoleTest
             "A point layer is offered Dissolve boundaries, which takes polygons.");
         Assert.Equal("azTool", await Browser.EvaluateAsync<string>("document.activeElement?.name || ''"));
 
-        await WaitForAsync("document.querySelectorAll('#azOther option').length > 0", "There is no polygon layer to count in.");
-        string[] offered = await Browser.EvaluateAsync<string[]>("[...document.querySelectorAll('#azOther option')].map(o => o.value)")
+        await WaitForAsync("document.querySelectorAll('#azOther option').length > 1", "There is no polygon layer to count in.");
+        string[] offered = await Browser.EvaluateAsync<string[]>("[...document.querySelectorAll('#azOther option')].map(o => o.value).filter(Boolean)")
             ?? Array.Empty<string>();
 
         foreach (string url in offered)
@@ -106,6 +106,36 @@ public sealed class AnalyzeDialogTests : ConsoleTest
                 $"fetch('{url}?f=json', {{ headers: {{ Authorization: 'Bearer ' + token }} }}).then(r => r.json()).then(d => d.geometryType)") ?? string.Empty;
             Assert.Equal("esriGeometryPolygon", kind);
         }
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// D-322: the second-layer list is every layer the reader may see, from one listing — not the portal search's first 100
+    /// services, each by its layer 0, so a polygon layer that is not first in its service is offered too.
+    /// </summary>
+    [Fact]
+    public async Task A_polygon_layer_that_is_not_first_in_its_service_is_offered_to_count_in()
+    {
+        string points = (Environment.GetEnvironmentVariable("GRATICULA_TEST_TEMPORAL") ?? "hosted/ci_observations").Trim('/');
+        (string token, _) = await SignInAsync();
+        await OpenAsync($"/studio/#/service/{points}", token);
+
+        // A started polygon layer past its service's first, as the listing names it.
+        string? deeper = await Browser.EvaluateAsync<string?>(
+            "fetch('/content/layers', { headers: { Authorization: 'Bearer ' + " + System.Text.Json.JsonSerializer.Serialize(token) + " } })"
+            + ".then(r => r.json()).then(d => [...(d.mine || []), ...(d.shared || []), ...(d.notShared || [])]"
+            + ".find(l => l.layerId > 0 && /Polygon/.test(l.geometry || '') && l.status === 'started')?.url || null)");
+        Assert.False(deeper is null, "The fixture has no polygon layer past its service's first, so this proves nothing.");
+
+        await WaitForAsync("!!document.getElementById('analyzeOpen')", "A point layer's page offers no Analyze.");
+        await Browser.EvaluateAsync<bool>("(() => { document.querySelector('#itemActions .itemmore').open = true; return true; })()");
+        await ClickAsync("#analyzeOpen");
+        await WaitForAsync("document.querySelectorAll('#azOther option').length > 1", "There is no polygon layer to count in.");
+
+        string[] offered = await Browser.EvaluateAsync<string[]>("[...document.querySelectorAll('#azOther option')].filter(o => o.value).map(o => new URL(o.value).pathname)")
+            ?? Array.Empty<string>();
+        Assert.Contains(deeper!, offered);
 
         NothingWentWrong(await PageErrorsAsync());
     }
@@ -147,9 +177,18 @@ public sealed class AnalyzeDialogTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             "(() => { const s = document.getElementById('azRelation'); s.value = 'WithinDistance'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
         await WaitForAsync(Shown("#azJoinDistance"), "Within a distance asks no distance.");
-        await WaitForAsync("document.querySelectorAll('#azOther option').length > 0", "There is no layer to join with.");
+        await WaitForAsync("document.querySelectorAll('#azOther option').length > 1", "There is no layer to join with.");
 
+        // Nothing is chosen for the reader (design review 2026-10-31): Run refuses on the field until a layer is.
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('azOther').value"));
         await Browser.EvaluateAsync<bool>("(document.getElementById('azName').value = 'zz_console_join', true)");
+        await ClickAsync("#analyzeGo");
+        await WaitForAsync("document.getElementById('azOther').getAttribute('aria-invalid') === 'true'",
+            "Run with no join layer chosen was not refused on the list.");
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const s = document.getElementById('azOther'); s.selectedIndex = 1; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await WaitForAsync("(document.getElementById('azOtherFrom')?.textContent || '').includes(' · layer ')",
+            "The chosen layer's service and kind are not said under the list.");
         await ClickAsync("#analyzeGo");
         await WaitForAsync(
             "window.__writes.some(w => w.startsWith('POST /rest/services/System/SpatialAnalysisTools/GPServer/JoinFeatures/submitJob "

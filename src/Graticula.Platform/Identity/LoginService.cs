@@ -465,6 +465,62 @@ public sealed class LoginService
     }
 
     /// <summary>
+    /// Verifies a service account's OAuth client secret — ADR-200 condition 2, <c>client_credentials</c> — under the
+    /// throttle a password sign-in is under.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same throttle, keyed by the client id as a password's is by the name</b>: an address that has failed too
+    /// often is refused before anything is looked up, and failures against one account are answered as throttled
+    /// after its budget. A secret is 256 random bits looked up by its SHA-256, as a key is, so there is no hashing cost
+    /// for a decoy to equalise; unknown account, wrong secret, revoked, expired and disabled are one answer.
+    /// </remarks>
+    /// <param name="clientId">The service account's name, sent as <c>client_id</c>.</param>
+    /// <param name="secret">The secret sent as <c>client_secret</c>.</param>
+    /// <param name="address">The source address, or null.</param>
+    /// <param name="keys">Where secrets are kept.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The failure, or <see cref="LoginFailure.None"/>, the account, the secret and when it expires.</returns>
+    public async Task<(LoginFailure Failure, Principal? Principal, Guid Secret, DateTimeOffset? ExpiresAt)> VerifyClientSecretAsync(
+        string clientId,
+        string secret,
+        IPAddress? address,
+        IApiKeyStore keys,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(clientId);
+        ArgumentNullException.ThrowIfNull(secret);
+        ArgumentNullException.ThrowIfNull(keys);
+
+        DateTimeOffset now = _time.GetUtcNow();
+        FailureCounts counts = await _store
+            .CountRecentFailuresAsync(clientId, address, now - _throttle.Window, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (_throttle.RefuseBeforeVerifying(counts))
+        {
+            // Not recorded, for VerifyAsync's reason: a blocked address must not extend its own block.
+            return (LoginFailure.AddressThrottled, null, Guid.Empty, null);
+        }
+
+        var found = secret.StartsWith(ClientSecretToken.Prefix, StringComparison.Ordinal) && clientId.Length > 0
+            ? await keys.FindSecretAsync(clientId, SessionToken.HashOf(secret), now, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        if (found is not { } live)
+        {
+            await _store.RecordAttemptAsync(clientId, address, succeeded: false, cancellationToken).ConfigureAwait(false);
+
+            return (
+                _throttle.ThrottleAfterFailure(counts) ? LoginFailure.AccountThrottled : LoginFailure.InvalidCredentials,
+                null, Guid.Empty, null);
+        }
+
+        await _store.RecordAttemptAsync(clientId, address, succeeded: true, cancellationToken).ConfigureAwait(false);
+
+        return (LoginFailure.None, live.Principal, live.Secret, live.ExpiresAt);
+    }
+
+    /// <summary>
     /// Issues a session to a principal whose right to one was established another way — an OAuth
     /// code or refresh token (ADR-076).
     /// </summary>

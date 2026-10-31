@@ -275,15 +275,15 @@ internal sealed class SqlServerEngine : ISqlEngine
     public IAttachmentStore Attachments(PublishedLayer layer) =>
         new SqlServerAttachmentStore(layer.ConnectionString, layer.Definition, layer.AttachmentQuotaBytes);
 
-    public IFeatureHistory History(PublishedLayer layer) => new SqlServerReadOnly(layer.Definition);
+    public IFeatureHistory History(PublishedLayer layer) => new SqlServerFeatureHistory(layer.ConnectionString, layer.Definition);
 
-    public string? HistoryRefusal(Exception failure, LayerDefinition layer) => null;
+    public string? HistoryRefusal(Exception failure, LayerDefinition layer) => SqlServerFeatureHistory.Refusal(failure, layer);
 
     public IRelatedRecords Related(PublishedLayer origin, PublishedLayer related, bool sameDatabase) =>
-        new SqlServerReadOnly(origin.Definition);
+        new SqlServerRelatedRecords(origin.ConnectionString, origin.Definition, related.Definition, sameDatabase);
 
     public Task<IReadOnlyList<(string Table, long Versions)>> PruneHistoryAsync(string locator, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<(string Table, long Versions)>>([]);
+        SqlServerFeatureHistory.PruneAsync(locator, cancellationToken);
 
     public async Task<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?> ValidityAsync(
         string locator, string schema, string table, string column, TimeSpan timeout, CancellationToken cancellationToken) =>

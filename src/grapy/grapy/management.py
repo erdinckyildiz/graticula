@@ -4736,14 +4736,14 @@ def _class_kind(file, table):
 
 
 def AddRuleToTopology(in_topology, rule_type, in_featureclass, subtype=None, in_featureclass2=None, subtype2=None):
-    """A rule of the documented list added between the topology's classes, of the shape types its name gives. The same
-    rule twice is an error (INFERRED). A rule on one subtype is refused: grapy holds subtypes (ADR-228) but its
-    ValidateTopology evaluates a rule on every feature of a class."""
+    """A rule of the documented list added between the topology's classes, of the shape types its name gives. ``subtype``
+    and ``subtype2`` restrict it to one subtype of the origin and of the destination class -- "Provide the subtype name
+    (not the code)"; blank, the rule applies to all subtypes -- and ValidateTopology evaluates it on those features only
+    (ADR-228 condition 6). The same rule twice, on the same subtypes, is an error (INFERRED). INFERRED: a rule within
+    one class on a subtype compares that subtype's features with each other; a subtype name the class does not have,
+    or a class with no subtypes, is an error."""
     from . import _topology as topo
     from ._runtime import ExecuteError
-    if _given(subtype) or _given(subtype2):
-        raise NotBuiltError("arcpy.management.AddRuleToTopology: a rule on one subtype is not built in grapy; its "
-                            "ValidateTopology evaluates a rule on every feature of a class (ADR-228).")
     name_found, entry = topo.rule(rule_type)
     if entry is None:
         raise ExecuteError(f"ERROR 000800: '{rule_type}' is not a topology rule.")
@@ -4761,15 +4761,39 @@ def AddRuleToTopology(in_topology, rule_type, in_featureclass, subtype=None, in_
         for table, kind in zip([origin, destination], kinds):
             if _class_kind(file, table) != kind:
                 raise ExecuteError(f"ERROR 000800: '{name_found}' takes {kind} features; '{table}' holds others.")
+        if _given(subtype2) and destination is None:
+            raise ExecuteError(f"ERROR 000800: '{name_found}' is a rule within one class; it takes no destination "
+                               "subtype.")
+        codes = [_subtype_code(connection, table, value) if table else None
+                 for table, value in ((origin, subtype), (destination, subtype2))]
         if connection.execute("select 1 from grapy_topology_rule where topology = ? and rule_type = ? and origin = ? and "
-                              "destination is ?", (name, name_found, origin, destination)).fetchone():
+                              "destination is ? and origin_subtype is ? and destination_subtype is ?",
+                              (name, name_found, origin, destination, *codes)).fetchone():
             raise ExecuteError(f"ERROR 001029: the rule '{name_found}' is in the topology already.")
-        connection.execute("insert into grapy_topology_rule (topology, rule_type, origin, destination) values (?, ?, ?, ?)",
-                           (name, name_found, origin, destination))
+        connection.execute("insert into grapy_topology_rule (topology, rule_type, origin, destination, origin_subtype, "
+                           "destination_subtype) values (?, ?, ?, ?, ?, ?)",
+                           (name, name_found, origin, destination, *codes))
         connection.commit()
     finally:
         connection.close()
     return Result(_text(in_topology))
+
+
+def _subtype_code(connection, table, value):
+    """The code of the subtype named ``value`` in ``table`` (None when no subtype is given)."""
+    from . import _subtypes
+    from ._runtime import ExecuteError
+    if not _given(value):
+        return None
+    codes = _subtypes.codes(connection, table)
+    short = table.rsplit("/", 1)[-1]
+    if not codes:
+        raise ExecuteError(f"ERROR 000800: '{short}' has no subtypes; leave the subtype blank.")
+    for code, label in codes.items():
+        if str(label).lower() == str(value).strip().lower():
+            return code
+    raise ExecuteError(f"ERROR 000800: '{value}' is not a subtype of '{short}': give the subtype name, not the code "
+                       f"({', '.join(codes.values())}).")
 
 
 def RemoveRuleFromTopology(in_topology, in_rule):
@@ -4817,15 +4841,26 @@ def _validate_topology(in_topology, visible_extent="Full_Extent"):
     try:
         members = connection.execute("select class_name, xy_rank from grapy_topology_class where topology = ? "
                                      "order by class_id", (name,)).fetchall()
-        rules = connection.execute("select rule_id, rule_type, origin, destination from grapy_topology_rule where "
-                                   "topology = ?", (name,)).fetchall()
+        rules = connection.execute("select rule_id, rule_type, origin, destination, origin_subtype, destination_subtype "
+                                   "from grapy_topology_rule where topology = ?", (name,)).fetchall()
         srid = _schema(f"{file}/{members[0][0]}")[2] if members else 0
+        from . import _subtypes
+        subtype_fields = {table: (_subtypes.field(connection, table) or (None,))[0] for table, _ in members}
     finally:
         connection.close()
-    features = {}
+    features, subtype_of = {}, {}
     for table, _ in members:
-        with da.SearchCursor(f"{file}/{table}", ["OID@", "SHAPE@"]) as rows:
-            features[table] = [(oid, shape._shape) for oid, shape in rows if shape is not None and not shape._shape.is_empty]
+        wanted = ["OID@", "SHAPE@"] + ([subtype_fields[table]] if subtype_fields[table] else [])
+        with da.SearchCursor(f"{file}/{table}", wanted) as rows:
+            found = [r for r in rows if r[1] is not None and not r[1]._shape.is_empty]
+        features[table] = [(r[0], r[1]._shape) for r in found]
+        subtype_of[table] = {r[0]: (r[2] if len(r) > 2 else None) for r in found}
+
+    def of(table, code):
+        """The features a rule reads: the class's, or one subtype's (ADR-228 condition 6)."""
+        if code is None:
+            return features[table]
+        return [f for f in features[table] if subtype_of[table].get(f[0]) == code]
     moved = topo.cluster([(rank, features[table]) for table, rank in members], tolerance)
     for index, (table, _) in enumerate(members):
         changed = {oid: shape for (i, oid), shape in moved.items() if i == index}
@@ -4839,9 +4874,10 @@ def _validate_topology(in_topology, visible_extent="Full_Extent"):
     connection = _gpkg.connect(file)
     try:
         connection.execute("delete from grapy_topology_error where topology = ?", (name,))
-        for rule_id, rule_type, origin, destination in rules:
-            for shape, origin_oid, destination_oid in topo.evaluate(rule_type, features[origin],
-                                                                    features[destination] if destination else []):
+        for rule_id, rule_type, origin, destination, origin_subtype, destination_subtype in rules:
+            for shape, origin_oid, destination_oid in topo.evaluate(rule_type, of(origin, origin_subtype),
+                                                                    of(destination, destination_subtype)
+                                                                    if destination else []):
                 connection.execute(
                     "insert into grapy_topology_error (topology, rule_id, kind, origin_class, origin_oid, destination_class, "
                     "destination_oid, rule_type, description, is_exception, shape) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
@@ -7604,6 +7640,12 @@ RebuildIndexes = _gdbtools.RebuildIndexes
 RegisterWithGeodatabase = _gdbtools.RegisterWithGeodatabase
 
 _REFUSED.update(_gdbtools.REFUSED)
+
+# ---- D-340: a GeoPackage an earlier grapy wrote, upgraded under arcpy's name
+from . import _gpkgupgrade  # noqa: E402
+
+UpgradeGDB = _gpkgupgrade.UpgradeGDB
+_REFUSED.pop("UpgradeGDB", None)
 
 # ---- D-329's sweep: names built on ADR-236's multidimensional rasters and ADR-238's multipatch features
 from . import _mdmore, _mpmore  # noqa: E402

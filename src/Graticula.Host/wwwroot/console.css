@@ -6402,3 +6402,25 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-document .docfile { overflow-wrap: anywhere; }
 #docSays progress, #docNewSays progress { vertical-align: middle; width: 12rem; max-width: 100%; }
 #docSays:empty { display: none; }
+
+/* ADR-200 c2: an open service account's two halves, API keys and client secrets, read as two blocks (design review). */
+#saKeysOf .sahalf + .sahalf { border-top: 1px solid var(--rule); margin-top: var(--gap-6); padding-top: var(--gap-5); }
+#saKeysOf .sahalf > h4 { font-size: 16px; font-weight: 600; margin: 0 0 var(--gap-2); }
+#saKeysOf .sahalf > h4 .val { font-weight: 400; color: var(--muted); }
+#saKeysOf .sanewkey { margin-top: var(--gap-4); }
+#saKeysOf .sanewkey > h5 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 var(--gap-2); }
+@media (min-width: 720px) {
+  #saKeysOf table.sacreds { table-layout: fixed; width: 100%; }
+  #saKeysOf table.sacreds col.c-name { width: 34%; }
+  #saKeysOf table.sacreds col.c-made { width: 17%; }
+  #saKeysOf table.sacreds col.c-life { width: 22%; }
+  #saKeysOf table.sacreds col.c-used { width: 15%; }
+  #saKeysOf table.sacreds col.c-act { width: 12%; }
+}
+#saKeysOf table.sacreds td.name { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+#saKeysOf table.sacreds td.nowrap { white-space: nowrap; }
+#saKeysOf table.sacreds tr.gone { color: var(--muted); }
+#saKeysOf table.sacreds tr.gone td.name { color: var(--muted); font-weight: 500; }
+#saKeysOf .sanewkey > .bad-inline, #saKeysOf .sanewkey > [role="status"] { margin: var(--gap-2) 0 0; }
+#saSecretIssued .copyrow + .hint { margin-top: var(--gap-3); }
+#saCard td.act { white-space: nowrap; }

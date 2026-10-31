@@ -207,7 +207,7 @@
   "unexamined": []
  },
  "arcpy.ddd": {
-  "built": 123,
+  "built": 126,
   "equivalents": {
    "ClassifyLasBuilding": "plane detection by region growing with a smoothness constraint (Rabbani, van den Heuvel and Vosselman 2006)",
    "ClassifyLasGround": "the progressive morphological filter (Zhang et al. 2003)",
@@ -248,7 +248,6 @@
    "Intersect3DLineWithSurface": "arcpy.ddd.Intersect3DLineWithSurface is not built in grapy: how the line is sampled against the surface is not documented.",
    "Intersect3DLines": "arcpy.ddd.Intersect3DLines is not built in grapy: its horizontal tolerance, and how the XY and Z tolerance environments apply, are not given.",
    "Intervisibility": "arcpy.ddd.Intervisibility is not built in grapy: how each sight line is sampled against the obstructions is not documented.",
-   "LandXMLToTin": "arcpy.ddd.LandXMLToTin is not built in grapy: it makes a constrained Delaunay TIN, as the page says, and grapy's TINs are conforming Delaunay — scipy has no constrained triangulation (ADR-229 §5.3).",
    "LasHeightMetrics": "arcpy.ddd.LasHeightMetrics is not built in grapy: how the ground surface the heights are measured from is built is not stated.",
    "Layer3DToFeatureClass": "arcpy.ddd.Layer3DToFeatureClass is not built in grapy: it reads a 3D layer from a map, which a user tool on the server does not have.",
    "LayerToKML": "arcpy.ddd.LayerToKML is not built in grapy: it reads map layers, which a user tool on the server does not have.",
@@ -260,9 +259,7 @@
    "ReclassByASCIIFile": "arcpy.ddd.ReclassByASCIIFile is not built in grapy: the documentation does not specify the remap file's format.",
    "Skyline": "arcpy.ddd.Skyline is not built in grapy: its horizon search and output vertices are not documented.",
    "SkylineGraph": "arcpy.ddd.SkylineGraph is not built in grapy: it reads Skyline's output, which is refused.",
-   "SurfaceDifference": "arcpy.ddd.SurfaceDifference is not built in grapy: its difference surface is built by constrained Delaunay triangulation, as documented, which grapy does not have (ADR-229 §5.3).",
    "TinAspect": "arcpy.ddd.TinAspect is not built in grapy: it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read.",
-   "TinDifference": "arcpy.ddd.TinDifference is not built in grapy: it is the legacy name of SurfaceDifference, whose difference surface is built by constrained Delaunay triangulation, which grapy does not have (ADR-229 §5.3).",
    "TinSlope": "arcpy.ddd.TinSlope is not built in grapy: it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read."
   },
   "unexamined": []
@@ -439,7 +436,7 @@
   "unexamined": []
  },
  "arcpy.management": {
-  "built": 249,
+  "built": 250,
   "equivalents": {
    "CalculateGeometryFieldsAttributeRule": "grapy's own Arcade script computing each geometry property with the Arcade geometry functions (doc.esri.com …/data-management/calculate-geometry-fields-attribute-rule)",
    "ComputeBlockAdjustment": "a bundle adjustment of the collinearity equations by sparse Levenberg–Marquardt least squares (Triggs, McLauchlan, Hartley and Fitzgibbon 2000; Wolf, Dewitt and Wilkinson 2014, ch. 17)",
@@ -654,7 +651,6 @@
    "UpdateInteriorOrientation": "arcpy.management.UpdateInteriorOrientation is not built in grapy: its page (tool-reference/data-management/update-interior-orientation-tool.html, read 2026-10-31) fits the affine from the fiducial table ComputeFiducials writes, whose fields neither page names, and does not say how the affine is fitted or where the film coordinates are kept in the mosaic dataset.",
    "UpdatePortalDatasetOwner": "arcpy.management.UpdatePortalDatasetOwner changes the owner of a dataset's items in an ArcGIS Enterprise portal; it reaches a portal, and a fenced user tool has no network and no access to its portal (ADR-223 §5.3).",
    "UpgradeDataset": "arcpy.management.UpgradeDataset moves a dataset's schema from an earlier ArcGIS release to the current one; grapy keeps the datasets it holds (mosaic and network datasets, utility networks, multipatch classes) in its own tables, which have one form and no ArcGIS release, so there is no earlier schema to upgrade from.",
-   "UpgradeGDB": "arcpy.management.UpgradeGDB upgrades a geodatabase's Esri system tables to the release of the ArcGIS client running it; a GeoPackage has no geodatabase release, and grapy makes its own tables when a tool first needs them.",
    "UpgradeSceneLayer": "arcpy.management.UpgradeSceneLayer needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "UploadFileToPortal": "arcpy.management.UploadFileToPortal reaches a database server, portal or cloud store, and a fenced tool has no network (ADR-223 §5.3).",
    "ValidateJoin": "arcpy.management.ValidateJoin follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",

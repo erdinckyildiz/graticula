@@ -100,8 +100,10 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
    it names.
 2. **PathDistance, PathAllocation, PathBackLink** are built on the legacy network: eight-neighbour steps costed by
    the formula of §4, settled cheapest-first. NoData on any input is a barrier. `source_direction` TO_SOURCE reverses
-   the moving direction and the VRMA's sign. The other source characteristics are refused by name, as CostDistance
-   refuses them (D-332).
+   the moving direction and the VRMA's sign. ~~The other source characteristics are refused by name, as CostDistance
+   refuses them (D-332).~~ *Since 2026-10-31 (D-332, partly repaid)* the start cost, cost multiplier, resistance rate
+   and capacity are built here and in CostDistance to the source characteristics page's formulas; a resistance rate
+   travelling FROM_SOURCE and a field of travel directions stay refused.
 3. **DistanceAccumulation, DistanceAllocation** are built as **equivalents**: fast marching (Sethian 1999) with the
    page's eight network and four Eikonal estimates, the effective slope taken at the cell entered and, where it
    depends on direction, solved again along each Eikonal step's own gradient three times. Barriers (raster, feature
@@ -166,7 +168,9 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
   a surface, 5.8 % with a vertical factor, 8 % with a linear horizontal factor and far more with a cut one (condition
   1, [D-336](../architecture-debt.md)); with sources alone, a cost raster or barriers it agrees to 1e-4. The
   reconstruction and the legacy network are Python loops over a heap: a few hundred thousand cells take seconds to
-  minutes, unmeasured (D-332). The legacy source characteristics stay refused.
+  minutes, ~~unmeasured (D-332)~~ — measured 2026-10-31: 401 × 401 cells in 2.1 s by PathDistance (D-332). ~~The
+  legacy source characteristics stay refused.~~ The legacy source characteristics are built, but for the two D-332
+  names.
 - **Ports created.** None; numpy, shapely and pyproj only, already grapy's.
 
 ## 7. Assumptions this decision rests on

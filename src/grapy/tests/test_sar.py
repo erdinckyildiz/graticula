@@ -731,5 +731,119 @@ class Registered(unittest.TestCase):
             arcpy.ia.S1RadiometricCalibration(F.safe(tempfile.mkdtemp(), "GRD", {"VV": dn}, ipf="002.34"))
 
 
+class Blocks(unittest.TestCase):
+    """D-328: the SAR tools read, compute and write in blocks, and a scene cut into many answers as one held whole.
+    A real IW GRD (S1D_IW_GRDH_1SDV_20261031T054608, 26,325 x 21,331) took RemoveThermalNoise to 22 GB read whole."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.held = _sar.BLOCK_CELLS, _sartools.GTC_TILE_CELLS
+        self.reads = []
+        original = _sar.Band.read
+
+        def read(band, r0=0, r1=None, c0=0, c1=None):
+            out = original(band, r0, r1, c0, c1)
+            self.reads.append(out.size)
+            return out
+        _sar.Band.read = read
+        self.addCleanup(setattr, _sar.Band, "read", original)
+
+    def tearDown(self):
+        _sar.BLOCK_CELLS, _sartools.GTC_TILE_CELLS = self.held
+
+    def _runs(self, tool, *args, **kw):
+        """The tool's output bands run whole (one block) and cut into blocks of 7 rows, the last one short."""
+        got = []
+        for cells in (10 ** 9, 7 * F.COLS + 13):
+            _sar.BLOCK_CELLS = cells
+            _sartools.GTC_TILE_CELLS = 10 ** 9 if cells > 10 ** 6 else 37 * 37
+            out = os.path.join(self.dir, f"{tool.__name__}_{cells}_{len(got)}.tif")
+            self.reads.clear()
+            tool(args[0], out, *args[1:], **kw)
+            self.tool_reads = list(self.reads)
+            got.append({k: np.asarray(v) for k, v in _read(out).bands.items()})
+        return got
+
+    def _grd(self):
+        rng = np.random.default_rng(3)
+        return F.safe(self.dir, "GRD", {"VV": rng.integers(3, 400, (F.ROWS, F.COLS)).astype(np.uint16),
+                                        "VH": rng.integers(1, 90, (F.ROWS, F.COLS)).astype(np.uint16)},
+                      noise_az=(1.0, 2.0))
+
+    def assertSame(self, whole, blocked):
+        self.assertEqual(list(whole), list(blocked))
+        for k in whole:
+            self.assertTrue(np.array_equal(whole[k], blocked[k], equal_nan=True), k)
+
+    def test_a_dataset_is_read_lazily_and_a_blocked_tool_never_holds_more_than_a_block(self):
+        grd = self._grd()
+        sar = _read(grd)
+        self.assertTrue(all(isinstance(dict.__getitem__(sar.bands, k), _sar.Band) for k in sar.names))
+        self.assertEqual(self.reads, [])
+        _sar.BLOCK_CELLS = 7 * F.COLS
+        self.reads.clear()
+        arcpy.ia.RemoveThermalNoise(grd, os.path.join(self.dir, "n.tif"), "VV")
+        self.assertEqual(len(self.reads), math.ceil(F.ROWS / 7))   # VV only, and in blocks
+        self.assertLessEqual(max(self.reads), 7 * F.COLS)
+
+    def test_noise_calibration_units_and_multilook_answer_in_blocks_exactly_as_whole(self):
+        grd = self._grd()
+        whole, blocked = self._runs(arcpy.ia.RemoveThermalNoise, grd, "VV;VH")
+        self.assertSame(whole, blocked)
+        self.assertLessEqual(max(self.tool_reads), 7 * F.COLS + 13)
+        noise = os.path.join(self.dir, "noise.tif")
+        arcpy.ia.RemoveThermalNoise(grd, noise, "VV;VH")
+        for tool, args in ((arcpy.ia.ApplyRadiometricCalibration, (noise, "VV;VH", "SIGMA_NOUGHT")),
+                           (arcpy.ia.ApplyRadiometricCalibration, (grd, "VV", "GAMMA_NOUGHT")),
+                           (arcpy.ia.ConvertSARUnits, (noise, "LINEAR_TO_DB")),
+                           (arcpy.ia.Multilook, (noise, "VV", 3, 7)), (arcpy.ia.Multilook, (grd, "VH", 4, 2))):
+            with self.subTest(tool=tool.__name__, args=args[1:]):
+                self.assertSame(*self._runs(tool, *args))
+
+    def test_despeckle_answers_in_blocks_as_whole(self):
+        rng = np.random.default_rng(5)
+        z = rng.gamma(2, 0.5, (F.ROWS, F.COLS)).astype(np.float32)
+        z[5, 5] = np.nan
+        z[40:43, 10:12] = np.nan
+        path = F.write(os.path.join(self.dir, "i.tif"), {"VV": z}, F.meta(values="intensity"))
+        for kind, size in (("LEE", "5x5"), ("FROST", "11x11"), ("GAMMA_MAP", "7x7"), ("ENHANCED_LEE", "9x9"),
+                           ("KUAN", "3x3"), ("REFINED_LEE", "3x3")):
+            with self.subTest(kind=kind):
+                whole, blocked = self._runs(arcpy.ia.Despeckle, path, filter_type=kind, filter_size=size)
+                a, b = whole["VV"], blocked["VV"]
+                apart = ~np.isclose(a, b, rtol=1e-6, equal_nan=True)
+                # scipy's running sums round differently from another first row; only Refined Lee's ties at the
+                # image's reflected edge, where either half of a window is as good, can turn on that rounding
+                edge = np.zeros_like(apart)
+                edge[:3], edge[-3:], edge[:, :3], edge[:, -3:] = True, True, True, True
+                self.assertFalse((apart & ~edge).any(), np.argwhere(apart).tolist())
+                if kind != "REFINED_LEE":
+                    self.assertFalse(apart.any())
+
+    def test_terrain_correction_reads_windows_and_the_lattice_places_cells_as_the_per_cell_solution(self):
+        m = F.meta()
+        cols = np.tile(np.arange(F.COLS, dtype=float), (F.ROWS, 1))
+        rows = np.tile(np.arange(F.ROWS, dtype=float)[:, None], (1, F.COLS))
+        path = F.write(os.path.join(self.dir, "rc.tif"), {"COL": cols.astype(np.float32),
+                                                          "ROW": rows.astype(np.float32)}, m)
+        whole, tiled = self._runs(arcpy.ia.ApplyGeometricTerrainCorrection, path, "COL;ROW")
+        self.assertLess(max(self.tool_reads), F.ROWS * F.COLS / 4)   # windows, never the whole image
+        for k in ("COL", "ROW"):
+            self.assertTrue(np.array_equal(np.isnan(whole[k]), np.isnan(tiled[k])), k)
+            np.testing.assert_allclose(tiled[k], whole[k], atol=1e-3, equal_nan=True)
+        # the lattice against the per-cell solution, on 800 m of relief, in 20 m cells as a real scene's grid has
+        west, south, east, north = F.footprint(m, margin=0)
+        lon_axis = (west + east) / 2 + np.arange(200) * 0.00018
+        lat_axis = (south + north) / 2 - np.arange(150) * 0.00018
+        lon, lat = np.meshgrid(lon_axis, lat_axis)
+        h = 800 * np.sin(lon * 400) * np.cos(lat * 300)
+        r, c, _ = _sar.backgeocode(m, _sar.ecef(lon.ravel(), lat.ravel(), h.ravel()))
+        r2, c2 = _sar.backgeocode_grid(m, lon_axis, lat_axis, h)
+        np.testing.assert_allclose(r2, r, atol=1e-3)
+        # 0.0055 of the fixture's 2.3 m slant range pixel is 1.3 cm: the slant range's curvature over a lattice cell
+        # of 16 x 20 m, the same with or without the relief (on the real GRD's 10 m pixels, 6e-4 of one)
+        np.testing.assert_allclose(c2, c, atol=0.01)
+
+
 if __name__ == "__main__":
     unittest.main()

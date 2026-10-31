@@ -357,7 +357,7 @@ def _same(a, b):
 
 
 def _item_values(source):
-    shape = source.box()
+    shape = source.footprint()
     c = shape.centroid
     return shape, {"Raster": source.path, "Name": os.path.splitext(os.path.basename(source.path))[0],
                    "LowPS": source.cell, "HighPS": source.cell * source.high, "Category": 1, "Tag": "Dataset",
@@ -372,10 +372,9 @@ def _add(in_mosaic_dataset, files, duplicates, tool, statistics=False):
         existing = _mosaic.items(connection, mosaic)
         bands, kind = rec.bands, rec.pixel_type
         for path in files:
-            source = _mosaic.Source(path)
-            if source.srid and rec.srid and source.srid != rec.srid:
-                _refuse(tool, "input_path", path, f"it is in EPSG:{source.srid} and the mosaic dataset in EPSG:{rec.srid}; "
-                        "projecting items on the fly is not built in grapy")
+            # An item in another reference is projected when the mosaic is read (ADR-230 condition 4); its catalog
+            # row holds its footprint and cell size in the mosaic's.
+            source = _mosaic.Source(path).to(rec.srid)
             if bands is None:
                 bands = source.count
                 connection.execute("update grapy_mosaic set bands = ? where name = ?", (bands, mosaic))
@@ -500,7 +499,7 @@ def SynchronizeMosaicDataset(in_mosaic_dataset, where_clause=None, new_items="NO
             stale = times.get(item["OBJECTID"]) != os.path.getmtime(path)
             if _word(sync_only_stale, "SYNC_STALE") == "SYNC_STALE" and not stale:
                 continue
-            source = _mosaic.Source(path)
+            source = _mosaic.Source(path).to(rec.srid)
             shape, values = _item_values(source)
             values = {k: v for k, v in values.items() if k in ("LowPS", "HighPS", "CenterX", "CenterY")
                       and rewrite and (wanted is None or k.lower() in wanted)}
@@ -698,10 +697,11 @@ def BuildFootprints(in_mosaic_dataset, where_clause=None, reset_footprint="RADIO
                                "footprint is kept.")
                     continue
                 if method == "GEOMETRY":
-                    shape = source.box()
+                    shape = source.to(rec.srid).footprint()
                 else:
                     shape = _radiometry(source, _mosaic.item_nodata(connection, mosaic, item["OBJECTID"]),
                                         min_data_value, max_data_value, int(min_region_size or 0))
+                    shape = source.to(rec.srid).project(shape)
                 if shape is not None and _given(shrink_distance) and float(shrink_distance):
                     shape = shape.buffer(-float(shrink_distance), join_style="mitre")
                 if shape is not None and not shape.is_empty:

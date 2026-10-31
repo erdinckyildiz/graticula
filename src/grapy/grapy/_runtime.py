@@ -296,6 +296,11 @@ def equivalent(method, source):
             return tool(*args, **kwargs)
 
         run.__grapy_equivalent__ = f"{method} ({source})"
+        # ADR-224 §5.6: an equivalent's docstring begins EQUIVALENT: and names its method and source.
+        doc = (tool.__doc__ or "").lstrip()
+        if not doc.upper().startswith("EQUIVALENT"):
+            head = f"EQUIVALENT: {method} ({source})."
+            run.__doc__ = head + "\n\n" + doc if doc else head
         return run
 
     return mark

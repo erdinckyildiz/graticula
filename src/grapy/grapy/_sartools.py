@@ -67,6 +67,13 @@ def _write(out, bands, meta, sar=None):
     return path
 
 
+def _write_blocks(out, names, dtype, shape, meta, blocks, sar=None):
+    """A dataset written block by block (D-328); a map-geometry input keeps its grid."""
+    keep = sar is not None and not sar.radar
+    return _sar.write_blocks(out, names, dtype, shape, meta, blocks, sar.transform if keep else None,
+                             sar.srid if keep else 0)
+
+
 def _keep_pols(meta, names):
     if meta.get("pols"):
         meta["pols"] = {k: v for k, v in meta["pols"].items() if k in names}
@@ -79,12 +86,14 @@ def _keep_pols(meta, names):
 _CALIBRATIONS = {"BETA_NOUGHT": "beta0", "SIGMA_NOUGHT": "sigma0", "GAMMA_NOUGHT": "gamma0"}
 
 
-def _calibration_lut(sar, pol, key, tool):
+def _calibration_lut(sar, pol, key, tool, lines=None):
+    """The calibration LUT at every pixel of the given original ``lines`` (all of the dataset's when none are
+    given); each row depends only on its own line, so a block of rows is answered exactly as the whole would be."""
     cal = (sar.meta.get("pols") or {}).get(pol, {}).get("calibration")
     if not cal:
         raise ExecuteError(f"{tool}: band {pol} carries no calibration look-up table; only Sentinel-1 products, "
                            "which ship theirs, are calibrated.")
-    return _sar.lut(cal, key, sar.meta["lines"], sar.meta["pixels"])
+    return _sar.lut(cal, key, sar.meta["lines"] if lines is None else lines, sar.meta["pixels"])
 
 
 def ApplyRadiometricCalibration(in_radar_data, out_radar_data, polarization_bands=None, calibration_type="BETA_NOUGHT"):
@@ -110,20 +119,30 @@ def ApplyRadiometricCalibration(in_radar_data, out_radar_data, polarization_band
         raise ExecuteError(f"{tool}: '{values}' data cannot be calibrated.")
     names = polarizations(sar, polarization_bands, tool)
     key = _CALIBRATIONS[kind]
-    out = {}
     for pol in names:
-        a = _calibration_lut(sar, pol, key, tool)
-        band = sar.bands[pol]
-        if values == "complex":
-            out[pol] = (band / a).astype(np.complex64)
-        elif values == "amplitude":
-            out[pol] = (band.astype(np.float64) ** 2 / a ** 2).astype(np.float32)
-        else:
-            if sar.meta.get("noise_removed"):   # the noise floor, calibrated as Pro 3.7 calibrates it (NOISE_FLOOR)
-                band = np.where(band == np.float32(NOISE_FLOOR), np.float32(NOISE_FLOOR * FLOOR_CALIBRATED), band)
-            out[pol] = (band / a ** 2).astype(np.float32)
+        _calibration_lut(sar, pol, key, tool, [])   # every band has its table before anything is written
+    lines = np.asarray(sar.meta["lines"], float)
+    floor = sar.meta.get("noise_removed")
+
+    def blocks():   # by rows (D-328): each row's LUT depends only on its line
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            out = {}
+            for pol in names:
+                a = _calibration_lut(sar, pol, key, tool, lines[r0:r1])
+                band = sar.bands.window(pol, r0, r1)
+                if values == "complex":
+                    out[pol] = (band / a).astype(np.complex64)
+                elif values == "amplitude":
+                    out[pol] = (band.astype(np.float64) ** 2 / a ** 2).astype(np.float32)
+                else:
+                    if floor:   # the noise floor, calibrated as Pro 3.7 calibrates it (NOISE_FLOOR)
+                        band = np.where(band == np.float32(NOISE_FLOOR), np.float32(NOISE_FLOOR * FLOOR_CALIBRATED),
+                                        band)
+                    out[pol] = (band / a ** 2).astype(np.float32)
+            yield r0, 0, out
     meta = _keep_pols(sar.copy_meta(calibration=key, values="complex" if values == "complex" else "intensity"), names)
-    return Result(_write(out_radar_data, out, meta, sar))
+    return Result(_write_blocks(out_radar_data, names, "complex64" if values == "complex" else "float32", sar.shape,
+                                meta, blocks(), sar))
 
 
 NOISE_FLOOR = 1e-5   # what Pro 3.7 writes where the noise exceeds the power (RemoveThermalNoise)
@@ -149,20 +168,31 @@ def RemoveThermalNoise(in_radar_data, out_radar_data, polarization_bands=None):
         raise ExecuteError(f"{tool}: '{values}' data has no thermal noise to remove.")
     names = polarizations(sar, polarization_bands, tool)
     calibrated = sar.meta.get("calibration", "none")
-    out = {}
+    tables = {}
     for pol in names:
         vectors = (sar.meta.get("pols") or {}).get(pol, {}).get("noise")
         if not vectors or not vectors.get("range"):
             raise ExecuteError(f"{tool}: band {pol} carries no noise look-up table; only Sentinel-1 products, which "
                                "ship theirs, are corrected.")
-        eta = _sar.noise(vectors, sar.meta["lines"], sar.meta["pixels"])
         if calibrated != "none":
-            eta = eta / _calibration_lut(sar, pol, calibrated, tool) ** 2
-        band = sar.bands[pol]
-        power = np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude") else band.astype(np.float64)
-        out[pol] = np.maximum(power - eta, NOISE_FLOOR).astype(np.float32)
+            _calibration_lut(sar, pol, calibrated, tool, [])
+        tables[pol] = vectors
+    lines, pixels = np.asarray(sar.meta["lines"], float), np.asarray(sar.meta["pixels"], float)
+
+    def blocks():   # by rows (D-328): the noise of a row depends only on its line
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            out = {}
+            for pol in names:
+                eta = _sar.noise(tables[pol], lines[r0:r1], pixels)
+                if calibrated != "none":
+                    eta = eta / _calibration_lut(sar, pol, calibrated, tool, lines[r0:r1]) ** 2
+                band = sar.bands.window(pol, r0, r1)
+                power = (np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude")
+                         else band.astype(np.float64))
+                out[pol] = np.maximum(power - eta, NOISE_FLOOR).astype(np.float32)
+            yield r0, 0, out
     meta = _keep_pols(sar.copy_meta(noise_removed=True, values="intensity"), names)
-    return Result(_write(out_radar_data, out, meta, sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", sar.shape, meta, blocks(), sar))
 
 
 # ---- deburst
@@ -267,12 +297,20 @@ def Multilook(in_radar_data, out_radar_data, polarization_bands=None, range_look
         al = int(azimuth_looks)
     if rl < 1 or al < 1:
         raise ExecuteError(f"{tool}: looks must be whole numbers of at least 1.")
-    out = {}
-    for pol in names:
-        band = sar.bands[pol]
-        power = np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude") else band.astype(np.float64)
-        out[pol] = _block_mean(power, rl, al).astype(np.float32)
-    rows, columns = next(iter(out.values())).shape
+    n, m = sar.shape
+    rows, columns = n // al, m // rl
+
+    def blocks():   # whole looks of rows at a time (D-328); a block's mean is the same in any block
+        for r0, r1 in _sar.row_blocks(sar.shape, al):
+            if (r1 - r0) // al == 0:
+                continue
+            out = {}
+            for pol in names:
+                band = sar.bands.window(pol, r0, r1)
+                power = (np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude")
+                         else band.astype(np.float64))
+                out[pol] = _block_mean(power, rl, al).astype(np.float32)
+            yield r0 // al, 0, out
     lines = np.asarray(sar.meta["lines"], float)[: rows * al].reshape(rows, al).mean(1)
     pixels = np.asarray(sar.meta["pixels"], float)[: columns * rl].reshape(columns, rl).mean(1)
     looks = sar.meta.get("looks", [1, 1])
@@ -282,7 +320,8 @@ def Multilook(in_radar_data, out_radar_data, polarization_bands=None, range_look
         meta["first_line_time"] = sar.meta["first_line_time"] + (al - 1) / 2 * sar.meta["line_interval"]
         meta["line_interval"] = sar.meta["line_interval"] * al
     _say(f"Multilook: {rl} range looks and {al} azimuth looks.")
-    return Result(_write(out_radar_data, out, _keep_pols(meta, names), sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", (rows, columns), _keep_pols(meta, names), blocks(),
+                                sar))
 
 
 # ---- units
@@ -297,40 +336,63 @@ def ConvertSARUnits(in_radar_data, out_radar_data, conversion_type="LINEAR_TO_DB
     kind = word(conversion_type, "LINEAR_TO_DB")
     sar = _sar.read(in_radar_data, tool)
     values, scale = sar.meta.get("values"), sar.meta.get("scale", "linear")
-    out, meta = {}, sar.copy_meta()
+    meta = sar.copy_meta()
 
     def need(ok, what):
         if not ok:
             raise ExecuteError(f"{tool}: {kind} needs {what}; the radar data is {scale} {values}.")
 
-    for pol, band in sar.bands.items():
-        b = band.astype(np.complex128 if np.iscomplexobj(band) else np.float64)
-        if kind == "LINEAR_TO_DB":
-            need(scale == "linear" and values in ("amplitude", "intensity", "coherence"), "linear amplitude or intensity")
+    if kind == "LINEAR_TO_DB":
+        need(scale == "linear" and values in ("amplitude", "intensity", "coherence"), "linear amplitude or intensity")
+        meta["scale"] = "db"
+
+        def convert(b):
             with np.errstate(divide="ignore", invalid="ignore"):
-                r = np.where(b > 0, (20 if values == "amplitude" else 10) * np.log10(np.where(b > 0, b, 1)), np.nan)
-            meta["scale"] = "db"
-        elif kind == "DB_TO_LINEAR":
-            need(scale == "db", "data in decibels")
-            r = 10 ** (b / (20 if values == "amplitude" else 10))
-            meta["scale"] = "linear"
-        elif kind == "AMPLITUDE_TO_INTENSITY":
-            need(scale == "linear" and values == "amplitude", "linear amplitude")
-            r, meta["values"] = b ** 2, "intensity"
-        elif kind == "INTENSITY_TO_AMPLITUDE":
-            need(scale == "linear" and values == "intensity", "linear intensity")
-            r, meta["values"] = np.sqrt(np.maximum(b, 0)), "amplitude"
-        elif kind == "COMPLEX_TO_INTENSITY":
-            need(values == "complex", "complex data")
-            r, meta["values"] = b.real ** 2 + b.imag ** 2, "intensity"
-        elif kind == "PHASE_TO_DISPLACEMENT":
-            need(values == "unwrapped_phase", "an unwrapped interferogram phase")
-            wavelength = C / sar.meta["radar_frequency"]
-            r, meta["values"] = -wavelength * b / (4 * math.pi), "displacement"
-        else:
-            raise ExecuteError(f"{tool}: conversion_type '{conversion_type}' is not a documented conversion.")
-        out[pol] = np.asarray(r).astype(np.float32)
-    return Result(_write(out_radar_data, out, meta, sar))
+                return np.where(b > 0, (20 if values == "amplitude" else 10) * np.log10(np.where(b > 0, b, 1)), np.nan)
+    elif kind == "DB_TO_LINEAR":
+        need(scale == "db", "data in decibels")
+        meta["scale"] = "linear"
+
+        def convert(b):
+            return 10 ** (b / (20 if values == "amplitude" else 10))
+    elif kind == "AMPLITUDE_TO_INTENSITY":
+        need(scale == "linear" and values == "amplitude", "linear amplitude")
+        meta["values"] = "intensity"
+
+        def convert(b):
+            return b ** 2
+    elif kind == "INTENSITY_TO_AMPLITUDE":
+        need(scale == "linear" and values == "intensity", "linear intensity")
+        meta["values"] = "amplitude"
+
+        def convert(b):
+            return np.sqrt(np.maximum(b, 0))
+    elif kind == "COMPLEX_TO_INTENSITY":
+        need(values == "complex", "complex data")
+        meta["values"] = "intensity"
+
+        def convert(b):
+            return b.real ** 2 + b.imag ** 2
+    elif kind == "PHASE_TO_DISPLACEMENT":
+        need(values == "unwrapped_phase", "an unwrapped interferogram phase")
+        wavelength = C / sar.meta["radar_frequency"]
+        meta["values"] = "displacement"
+
+        def convert(b):
+            return -wavelength * b / (4 * math.pi)
+    else:
+        raise ExecuteError(f"{tool}: conversion_type '{conversion_type}' is not a documented conversion.")
+    names = sar.names
+
+    def blocks():   # cell by cell, so by rows (D-328)
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            out = {}
+            for pol in names:
+                band = sar.bands.window(pol, r0, r1)
+                b = band.astype(np.complex128 if np.iscomplexobj(band) else np.float64)
+                out[pol] = np.asarray(convert(b)).astype(np.float32)
+            yield r0, 0, out
+    return Result(_write_blocks(out_radar_data, names, "float32", sar.shape, meta, blocks(), sar))
 
 
 # ---- speckle filters
@@ -499,9 +561,15 @@ def Despeckle(in_radar_data, out_radar_data, polarization_bands=None, filter_typ
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
     names = polarizations(sar, polarization_bands, tool)
-    out = {}
-    for pol in names:
-        z = _sar.intensity(sar.bands[pol]).astype(np.float64)
+    n = sar.shape[0]
+
+    def blocks():   # rows with a halo of DESPECKLE_HALO on each side, which every filter's reach fits in (D-328)
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            h0, h1 = max(0, r0 - DESPECKLE_HALO), min(n, r1 + DESPECKLE_HALO)
+            yield r0, 0, {pol: _despeckle(sar.bands.window(pol, h0, h1))[r0 - h0: r1 - h0] for pol in names}
+
+    def _despeckle(band):
+        z = _sar.intensity(band).astype(np.float64)
         blank = np.isnan(z)
         if blank.any():
             from scipy import ndimage
@@ -523,10 +591,16 @@ def Despeckle(in_radar_data, out_radar_data, polarization_bands=None, filter_typ
             r = gamma_map(z, size, looks)
         else:
             r = frost(z, size, damp)
-        out[pol] = np.where(blank, np.nan, r).astype(np.float32)
+        return np.where(blank, np.nan, r).astype(np.float32)
     values = sar.meta.get("values")
     meta = sar.copy_meta(values="intensity" if values == "complex" else values)
-    return Result(_write(out_radar_data, out, _keep_pols(meta, names), sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", sar.shape, _keep_pols(meta, names), blocks(), sar))
+
+
+#: Rows each Despeckle block reads beyond its own on either side: the NoData fill's 7 x 7 window (3), then Refined
+#: Lee's 3 x 3 means sampled 2 cells off and its 7 x 7 masks (3 + 2 + 3), or the largest documented window (5) —
+#: at most 11, held at 16. Inside it every filter answers as on the whole band, to the rounding of scipy's running sums.
+DESPECKLE_HALO = 16
 
 
 # ---- interferometry
@@ -1322,7 +1396,10 @@ def _tie_heights(meta):
 
     def at(lon, lat):
         h = linear(lon, lat)
-        return np.where(np.isnan(h), nearest(lon, lat), h)
+        out = np.isnan(h)
+        if out.any():
+            h[out] = nearest(np.asarray(lon)[out], np.asarray(lat)[out])
+        return h
     return at
 
 
@@ -1330,7 +1407,8 @@ def ApplyGeometricTerrainCorrection(in_radar_data, out_radar_data, polarization_
                                     geoid="GEOID"):
     """EQUIVALENT (see GTC): every cell of a WGS 84 grid over the scene's footprint is placed on the DEM — or, without
     one, on heights interpolated from the metadata's tie points, as documented — found in the radar image by
-    range-Doppler back-geocoding, and resampled bilinearly. INFERRED: the cell is the finer ground spacing of the
+    range-Doppler back-geocoding (solved exactly on a lattice and interpolated, ``_sar.backgeocode_grid``), and
+    resampled bilinearly. The grid is worked in tiles, so a full scene runs within ADR-223's memory (D-328). INFERRED: the cell is the finer ground spacing of the
     input in degrees of latitude (and the same distance in longitude at the scene's middle latitude)."""
     tool = _tool("ApplyGeometricTerrainCorrection")
     sar = _sar.read(in_radar_data, tool)
@@ -1345,28 +1423,62 @@ def ApplyGeometricTerrainCorrection(in_radar_data, out_radar_data, polarization_
     dlon = spacing / (111320.0 * math.cos(mid))
     columns = int(math.ceil((east - west) / dlon)) + 1
     rows = int(math.ceil((north - south) / dlat)) + 1
-    if rows * columns > 50_000_000:
-        raise ExecuteError(f"{tool}: the output grid would be {rows} × {columns} cells; grapy's limit is 50 million.")
     from rasterio.transform import from_origin
     transform = from_origin(west - dlon / 2, north + dlat / 2, dlon, dlat)
     tie = _tie_heights(sar.meta)
-    out = {p: np.full((rows, columns), np.nan + (1j * np.nan if np.iscomplexobj(sar.bands[p]) else 0),
-                      dtype=sar.bands[p].dtype) for p in names}
-    lon_axis = west + np.arange(columns) * dlon
-    chunk = max(1, 200_000 // columns)
-    for r0 in range(0, rows, chunk):
-        lat_axis = north - np.arange(r0, min(rows, r0 + chunk)) * dlat
-        lon, lat = np.meshgrid(lon_axis, lat_axis)
-        lon, lat = lon.ravel(), lat.ravel()
-        h = tie(lon, lat)
-        if dem is not None:
-            found = dem.at(lon, lat)
-            h = np.where(np.isnan(found), h, found)
-        r, c, _ = _sar.backgeocode(sar.meta, _sar.ecef(lon, lat, h))
-        for p in names:
-            out[p][r0: r0 + len(lat_axis)] = _sar.bilinear(sar.bands[p], r, c).reshape(len(lat_axis), columns)
+    complex_ = any(sar.bands.complex(p) for p in names)
+    n, m = sar.shape
+    heights = np.asarray(sar.meta["grid"], float)[:, 6]
+    low, high = float(heights.min()), float(heights.max())
+    if dem is not None and np.isfinite(dem.values).any():
+        low, high = min(low, float(np.nanmin(dem.values))), max(high, float(np.nanmax(dem.values)))
+
+    def _outside(lon_axis, lat_axis):
+        """Whether a whole tile falls beyond one edge of the radar image at the lowest and the highest height any
+        of its cells can have: nine by nine of its cells, edges included, are back-geocoded at both; a cell's place
+        moves smoothly with height and across the tile, so a tile all past one edge by two cells has nothing to
+        resample, and its heights are never looked up (the bounding box of a rotated swath is a fifth empty)."""
+        lo, la = np.meshgrid(np.linspace(lon_axis[0], lon_axis[-1], 9), np.linspace(lat_axis[0], lat_axis[-1], 9))
+        for level in (low, high):
+            r, c, _ = _sar.backgeocode(sar.meta, _sar.ecef(lo.ravel(), la.ravel(), np.full(lo.size, level)))
+            if not ((r < -2.5).all() or (r > n + 1.5).all() or (c < -2.5).all() or (c > m + 1.5).all()):
+                return False
+        return True
+
+    def blocks():
+        # Tiles of the output grid (D-328): each tile's cells are back-geocoded, and only the window of the radar
+        # image their bilinear neighbours fall in is read, so the image is never held whole.
+        side = max(1, int(math.sqrt(GTC_TILE_CELLS)))
+        blank = np.nan + (1j * np.nan if complex_ else 0)
+        for r0 in range(0, rows, side):
+            lat_axis = north - np.arange(r0, min(rows, r0 + side)) * dlat
+            # a row of tiles is gathered and written at once: the GeoTIFF is in strips of whole rows
+            band = {p: np.full((len(lat_axis), columns), blank, np.complex64 if complex_ else np.float32)
+                    for p in names}
+            for c0 in range(0, columns, side):
+                lon_axis = west + np.arange(c0, min(columns, c0 + side)) * dlon
+                if _outside(lon_axis, lat_axis):
+                    continue
+                lon, lat = np.meshgrid(lon_axis, lat_axis)
+                lon, lat = lon.ravel(), lat.ravel()
+                h = tie(lon, lat)
+                if dem is not None:
+                    found = dem.at(lon, lat)
+                    h = np.where(np.isnan(found), h, found)
+                r, c = _sar.backgeocode_grid(sar.meta, lon_axis, lat_axis, h)
+                (w0, w1), (v0, v1) = _sar.bilinear_reach(r, n), _sar.bilinear_reach(c, m)
+                for p in names:
+                    window = sar.bands.window(p, w0, w1, v0, v1)
+                    band[p][:, c0: c0 + len(lon_axis)] = _sar.bilinear(window, r, c, offset=(w0, v0), shape=(n, m)
+                                                                       ).reshape(len(lat_axis), len(lon_axis))
+            yield r0, 0, band
     meta = sar.copy_meta(geometry="map")
-    return Result(_sar.write(out_radar_data, out, _keep_pols(meta, names), transform, 4326))
+    return Result(_sar.write_blocks(out_radar_data, names, "complex64" if complex_ else "float32", (rows, columns),
+                                    _keep_pols(meta, names), blocks(), transform, 4326))
+
+
+#: Cells of the output grid ApplyGeometricTerrainCorrection back-geocodes at a time, as square tiles (D-328).
+GTC_TILE_CELLS = 512 * 512
 
 
 def _enu(lon, lat):

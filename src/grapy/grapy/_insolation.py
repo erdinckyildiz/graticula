@@ -371,10 +371,13 @@ def horizons(z, cell_w, cell_h, rows, cols, base, directions):
     first) put up to 1.6 hours more sun on steep slopes' flanks (measured 2026-10-31, D-337,
     ``tools/pro-compare/adr243-solar-horizon.py``)."""
     rows, cols = np.asarray(rows, float), np.asarray(cols, float)
-    base = np.asarray(base, float)
+    base = np.broadcast_to(np.asarray(base, float), rows.shape)
     step = min(cell_w, cell_h)
     reach = int(math.ceil(math.hypot(z.shape[0] * cell_h, z.shape[1] * cell_w) / step)) + 1
     bad = np.isnan(z)
+    # A ray is dropped once no cell farther along it can rise above its horizon: the farther cells are at least
+    # (s − 1) steps away and no higher than the surface's highest cell, so the answer is that of tracing every ray to
+    # the edge (test_performance_answers.py holds the two equal).
     top = float(np.nanmax(z)) if np.isfinite(z).any() else 0.0
     out = np.zeros((rows.size, int(directions)))
     last_r, last_c = z.shape[0] - 1, z.shape[1] - 1
@@ -425,21 +428,27 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
     if not sectors:
         return direct, diffuse, duration
     cells = sky.zenith.size
-    # sun sectors: each one's own cells, as a (cells × sectors) averaging matrix
-    rows_, cols_, vals = [], [], []
+    # A sun sector's gap is the mean of its own sky cells' visibility, and a sky sector's likewise: each is a sum of
+    # equal shares, 1 / cells, one per visible cell, added in turn. The visible cells are counted (an exact integer
+    # product), and the sum is read from a table of those running sums, so it is the same double a sparse product
+    # adding the shares one by one gave — at a fraction of the cost (D-334).
+    rows_, cols_, shares = [], [], []
     for k, s in enumerate(sectors):
         hit = sky.cells_of(s.samples)
         rows_.extend(hit.tolist())
         cols_.extend([k] * hit.size)
-        vals.extend([1.0 / hit.size] * hit.size)
-    sun_matrix = sparse.csr_matrix((vals, (rows_, cols_)), shape=(cells, len(sectors)))
-    order, _ = sky.wedge_order(horizon.shape[1])
-    sun_t = sun_matrix[order].T.tocsr()  # (sectors × cells in wedge order): sparse times the dense visibility
+        shares.append((1.0 / hit.size, hit.size))
+    sun_members = sparse.csr_matrix((np.ones(len(rows_)), (rows_, cols_)), shape=(cells, len(sectors)))
+    sun_table = _running_sums(shares)
     ids = sky.sky_sectors(zenith_divisions, azimuth_divisions)
     total = zenith_divisions * azimuth_divisions
     counts = np.bincount(ids, minlength=total).astype(float)
-    sky_matrix = sparse.csr_matrix((1.0 / np.maximum(counts[ids], 1), (np.arange(cells), ids)), shape=(cells, total))
-    sky_t = sky_matrix[order].T.tocsr()
+    sky_members = sparse.csr_matrix((np.ones(cells), (np.arange(cells), ids)), shape=(cells, total))
+    sky_table = _running_sums([(1.0 / max(c, 1), int(c)) for c in counts])
+    order, _ = sky.wedge_order(horizon.shape[1])
+    # (columns × cells in wedge order): each location's count of visible member cells, an exact integer
+    sun_by_cell = sun_members[order].T.tocsr()
+    sky_by_cell = sky_members[order].T.tocsr()
     ring = np.arange(total) // azimuth_divisions
     piece = np.arange(total) % azimuth_divisions
     sky_zenith = (ring + 0.5) * 90.0 / zenith_divisions
@@ -451,9 +460,9 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
     band = np.array([s.band for s in sectors])
     for lo in range(0, n, 256):
         hi = min(lo + 256, n)
-        seen = sky.visible_by_cell(horizon[lo:hi], np.float64)  # (cells × locations)
-        sun_gap = np.asarray(sun_t @ seen).T
-        sky_gap = np.asarray(sky_t @ seen).T
+        seen = sky.visible_by_cell(horizon[lo:hi], np.float64)  # (cells in wedge order × locations)
+        sun_gap = _shares(sun_table, np.asarray(sun_by_cell @ seen).T)
+        sky_gap = _shares(sky_table, np.asarray(sky_by_cell @ seen).T)
         m = optical_path(zen[None, :], elevation[lo:hi, None])
         normal = S_CONST * beta ** m * dur[None, :]  # Wh/m² at normal incidence, unobstructed
         cos_in = cos_incidence(zen[None, :], az[None, :], slope[lo:hi, None], aspect[lo:hi, None])
@@ -468,6 +477,24 @@ def insolation(horizon, elevation, slope, aspect, sky, sectors, bands, zenith_di
             global_normal = normal[:, pick].sum(axis=1) / (1.0 - pdif)  # R_glb · Dur
             diffuse[lo:hi, b] = global_normal * pdif * diffuse_share
     return direct, diffuse, duration
+
+
+def _running_sums(shares):
+    """(most + 1, columns): row c of column j is ``share_j`` added to itself c times in turn, from 0."""
+    most = max([n for _, n in shares] + [0])
+    table = np.zeros((most + 1, len(shares)))
+    for j, (share, n) in enumerate(shares):
+        total = 0.0
+        for c in range(1, n + 1):
+            total += share
+            table[c, j] = total
+    return table
+
+
+def _shares(table, counts):
+    """The running sums for counts (locations, columns) of visible cells."""
+    counts = np.rint(np.asarray(counts)).astype(np.int64)
+    return table[counts, np.arange(table.shape[1])[None, :]]
 
 
 def sun_map(sky, sectors):

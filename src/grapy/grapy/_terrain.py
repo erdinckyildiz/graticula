@@ -188,8 +188,8 @@ def CreateTerrain(in_feature_dataset, out_terrain_name, average_point_spacing, m
     Terrain finish it, in that order, as the page says.
 
     Refused: ``secondary_thinning_method`` other than ``NONE`` — the page names MILD, MODERATE and STRONG and what each
-    suits, not which points they remove; ``CONSTRAINED_DELAUNAY`` — grapy's triangulation is conforming Delaunay
-    (ADR-229 §5.3). ``config_keyword`` is an enterprise geodatabase's and is ignored.
+    suits, not which points they remove. ``CONSTRAINED_DELAUNAY`` triangulates every pyramid level as CreateTin's
+    option does (ADR-229 condition 6). ``config_keyword`` is an enterprise geodatabase's and is ignored.
 
     INFERRED (ADR-234 §5.9): ``max_overview_size`` is kept and reported, and grapy builds no overview of its own — the
     overview is a display level, not one a tool reads by resolution."""
@@ -215,9 +215,8 @@ def CreateTerrain(in_feature_dataset, out_terrain_name, average_point_spacing, m
                 "the page names MILD, MODERATE and STRONG and what each suits, but not which points each removes "
                 "(ADR-234 §5.4)")
     triangulation = str(triangulation_method or "DELAUNAY").upper()
-    if triangulation != "DELAUNAY":
-        _refuse(tool, "triangulation_method", triangulation_method,
-                "grapy's triangulation is conforming Delaunay; scipy has no constrained triangulation (ADR-229 §5.3)")
+    if triangulation not in ("DELAUNAY", "CONSTRAINED_DELAUNAY"):
+        _refuse(tool, "triangulation_method", triangulation_method)
     spacing = float(average_point_spacing)
     if spacing <= 0:
         raise ExecuteError("ERROR 000854: the average point spacing must be greater than 0.")
@@ -935,7 +934,7 @@ def surface(path, resolution=0, tool="terrain"):
         inputs = level_inputs(connection, terrain, level)
     finally:
         connection.close()
-    return _tin.build(inputs, terrain.srid)
+    return _tin.build(inputs, terrain.srid, constrained=terrain.triangulation == "CONSTRAINED_DELAUNAY")
 
 
 def _env_area():
@@ -964,7 +963,7 @@ def TerrainToTin(in_terrain, out_tin, pyramid_level_resolution=0, max_nodes=5000
         inputs = level_inputs(connection, terrain, level, area)
     finally:
         connection.close()
-    built = _tin.build(inputs, terrain.srid)
+    built = _tin.build(inputs, terrain.srid, constrained=terrain.triangulation == "CONSTRAINED_DELAUNAY")
     limit = int(max_nodes) if _given(max_nodes) else 5000000
     if len(built.nodes) > limit:
         raise ExecuteError(f"ERROR: the TIN would have {len(built.nodes)} nodes, more than max_nodes ({limit}); choose a "

@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>4acb258e</code> · 2026-10-31 16:53</p>
+<p class="stamp">Generated from commit <code>bbb581df</code> · 2026-10-31 18:37</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">567/658</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">81 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">578/658</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">70 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">226 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">open debts</div><div class="kpi-n">310 repaid · 5 waiting on a trigger · 6 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">open debts</div><div class="kpi-n">310 repaid · 5 waiting on a trigger · 7 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,912 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5619</div><div class="kpi-l">tests</div><div class="kpi-n">609 source files, 271,525 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">104 items</span></div><p><b>81 ADR conditions</b> outstanding across 57 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">94 items</span></div><p><b>70 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -134,19 +134,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">7</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:86%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-229 · grapy holds LAS datasets and TINs</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-243 · grapy builds the image classifiers</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-249 · grapy carries deep learning on poi</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -170,24 +168,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-181 · The ArcGIS REST API version this s</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-200 · Service accounts sign in with API </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-203 · A deleted item waits in the recycl</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-212 · Editor tracking and attachments on</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-218 · A pinned service is kept warm</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-222 · Geoprocessing is built-in analysis</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-228 · grapy holds subtypes, field defaul</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-230 · grapy holds mosaic datasets</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-231 · grapy holds utility networks</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-232 · grapy holds network diagrams</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-241 · grapy builds path distance, its fa</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-242 · grapy builds Topo to Raster, Segme</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-248 · grapy carries deep learning on PyT</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -228,7 +219,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3/3</td></tr>
 <tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">3/3</td></tr>
 <tr><td class="id">022</td><td>GeometryServer ships in halves, and the projection engine is the datastore&#x27;s</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by…</span><div class="muted-t">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by §2b, 2026-08-15</div></td><td class="muted-t">HIGH for the split · HIGH for the engine · MEDIUM for the vertex cap</td><td class="num">4/4</td></tr>
-<tr><td class="id">023</td><td>The REST Services Directory: an HTML face for the API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">6/7</td></tr>
+<tr><td class="id">023</td><td>The REST Services Directory: an HTML face for the API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">7/7</td></tr>
 <tr><td class="id">024</td><td>Shapefile import, and the exception it costs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/5</td></tr>
 <tr><td class="id">025</td><td>Governance: what a gift owes, and what it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/4</td></tr>
 <tr><td class="id">026</td><td>Serving through a platform-store outage: public-only, while blind</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the policy · MEDIUM for the window</td><td class="num">4/5</td></tr>
@@ -403,19 +394,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">197</td><td>The ArcGIS gap review&#x27;s second half: what a layer says it can count, compute and page</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">198</td><td>The geometry service measures on the ellipsoid when asked</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for lengths, areas and distances — each checked against WGS 84&#x27;s known figures;…</td><td class="num">2/2</td></tr>
 <tr><td class="id">199</td><td>A group may be public: anybody finds it, signed in or not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
-<tr><td class="id">200</td><td>Service accounts sign in with API keys</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
+<tr><td class="id">200</td><td>Service accounts sign in with API keys</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">201</td><td>A member with a password here may have a second factor at sign-in</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">202</td><td>An item has terms of use and categories, and a member keeps favourites</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
-<tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
+<tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">9/16</td></tr>
 <tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">7/8</td></tr>
 <tr><td class="id">206</td><td>Vector tiles are served from the datastore only</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">207</td><td>Attachments and history on registered layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">208</td><td>A registered MySQL database is served like PostGIS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">209</td><td>MariaDB is a dialect of the MySQL provider</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
-<tr><td class="id">210</td><td>A registered SQL Server database is served to read, and edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
+<tr><td class="id">210</td><td>A registered SQL Server database is served to read, and edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">211</td><td>Tables of an attached DuckDB file or MotherDuck database are edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
-<tr><td class="id">212</td><td>Editor tracking and attachments on every registered database&#x27;s layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
+<tr><td class="id">212</td><td>Editor tracking and attachments on every registered database&#x27;s layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/2</td></tr>
 <tr><td class="id">213</td><td>A layer may be a table: ArcGIS&#x27;s standalone table</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">10/10</td></tr>
 <tr><td class="id">214</td><td>The portal&#x27;s item writes do what they answer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">215</td><td>What ArcGIS ignores is not refused</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -427,13 +418,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">221</td><td>The system administrator has a surface of their own</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split, which follows the API&#x27;s own (TenantRouting.SystemOnly) · MEDIUM for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">222</td><td>Geoprocessing is built-in analysis tools, served as ArcGIS&#x27;s Spatial Analysis Service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the protocol is publicly documented and copied as documented; which clients find…</td><td class="num">5/7</td></tr>
 <tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">7/7</td></tr>
-<tr><td class="id">224</td><td>grapy aims at arcpy&#x27;s whole buildable surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
+<tr><td class="id">224</td><td>grapy aims at arcpy&#x27;s whole buildable surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/6</td></tr>
 <tr><td class="id">225</td><td>grapy holds topology rules and relationship classes in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">226</td><td>grapy holds network datasets and solves routes on them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · LOW for agreement with Pro&#x27;s numbers, which this cannot reproduce…</td><td class="num">3/3</td></tr>
 <tr><td class="id">227</td><td>grapy holds branch versions and archives in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
-<tr><td class="id">228</td><td>grapy holds subtypes, field defaults, global IDs and attachments in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
-<tr><td class="id">229</td><td>grapy holds LAS datasets and TINs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the TIN measurements, which are exact on a triangle&#x27;s…</td><td class="num">5/7</td></tr>
-<tr><td class="id">230</td><td>grapy holds mosaic datasets</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the methods and operators the pages define (FIRST, LAST,…</td><td class="num">5/6</td></tr>
+<tr><td class="id">228</td><td>grapy holds subtypes, field defaults, global IDs and attachments in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
+<tr><td class="id">229</td><td>grapy holds LAS datasets and TINs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the TIN measurements, which are exact on a triangle&#x27;s…</td><td class="num">7/7</td></tr>
+<tr><td class="id">230</td><td>grapy holds mosaic datasets</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the methods and operators the pages define (FIRST, LAST,…</td><td class="num">6/6</td></tr>
 <tr><td class="id">231</td><td>grapy holds utility networks</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the configuration tools, whose pages give their parameters,…</td><td class="num">5/6</td></tr>
 <tr><td class="id">232</td><td>grapy holds network diagrams</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the diagram management, template and rule tools, whose pages give their…</td><td class="num">5/6</td></tr>
 <tr><td class="id">233</td><td>grapy holds geostatistical layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the kriging systems, the semivariogram models&#x27; formulas and the cross-validation…</td><td class="num">5/5</td></tr>
@@ -451,7 +442,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">245</td><td>grapy builds the raster functions whose pages answered 404, from the pages at their new addresses, and refuses the display renderings by what each page leaves out</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
 <tr><td class="id">246</td><td>grapy runs custom evaluators, keeps what its solvers traversed, and builds the solver property objects</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH that the three groups are buildable · MEDIUM for the choices the pages leave open…</td><td class="num">2/2</td></tr>
 <tr><td class="id">247</td><td>grapy builds the storage properties a GeoPackage has, the random number generators, and toolboxes in a session, and refuses only what needs Esri&#x27;s format, licensing or catalogue</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
-<tr><td class="id">248</td><td>grapy carries deep learning on PyTorch: training data, training, inference and accuracy for imagery</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
+<tr><td class="id">248</td><td>grapy carries deep learning on PyTorch: training data, training, inference and accuracy for imagery</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">249</td><td>grapy carries deep learning on point clouds: training data, classification, object detection and evaluation</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
@@ -474,16 +465,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill cond">PARTLY</span></td></tr>
-<tr class=""><td class="id">D-322</td><td>The Analyze dialog reads up to a hundred layer documents to open, and offers nothing past them.</td><td class="muted-t">A reader with more than a hundred services, or an open slower than a second.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-328</td><td>grapy&#x27;s SAR tools have run only on synthetic scenes.</td><td class="muted-t">ADR-237 condition 3: the first real product run through the chain, or a user tool that fails on one</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-332</td><td>grapy&#x27;s path distance tools refuse the legacy source characteristics, and none is measured.</td><td class="muted-t">A user tool that passes one of the refused parameters, or one whose distance run reaches ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-334</td><td>grapy&#x27;s insolation is unmeasured against Pro and slow on a real DEM.</td><td class="muted-t">ADR-243 condition 1 (a Pro run of one DEM), or a user tool&#x27;s insolation run reaching ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-333</td><td>grapy&#x27;s Topo to Raster and Segment Mean Shift are unmeasured beyond small grids.</td><td class="muted-t">ADR-242 condition 3, or a user tool reaching ADR-223&#x27;s time or memory limit in either</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-334</td><td>grapy&#x27;s insolation is unmeasured against Pro and slow on a real DEM.</td><td class="muted-t">ADR-243 condition 1 (a Pro run of one DEM), or a user tool&#x27;s insolation run reaching ADR-223&#x27;s time limit</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-338</td><td>grapy&#x27;s utility network traces and diagram layouts differ from Pro&#x27;s where five measurements do not say Pro&#x27;s rule.</td><td class="muted-t">A toolbox whose answer turns on one of these, or a Pro session with a mesh where the propagated attribute is on the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-339</td><td>grapy&#x27;s terrain windows start at a different corner from Pro&#x27;s.</td><td class="muted-t">A rule that predicts the corner from the domain and the spacing, found by more runs of Pro, or a user tool that counts…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-335</td><td>grapy&#x27;s deep learning trains from random weights and is unmeasured on real imagery.</td><td class="muted-t">ADR-248 condition 2 run in CI, or a user tool training on real imagery reaching ADR-223&#x27;s time or memory limit, or the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-341</td><td>grapy&#x27;s point cloud deep learning is unmeasured on real lidar.</td><td class="muted-t">ADR-249 condition 1, or a user tool training on real lidar reaching ADR-223&#x27;s time or memory limit</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-337</td><td>grapy&#x27;s insolation duration and support vector machine still differ from Pro&#x27;s.</td><td class="muted-t">Insolation durations or an SVM classification compared with Pro&#x27;s by a user, or a fourth classifier comparison</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-336</td><td>Two of grapy&#x27;s equivalents differ from ArcGIS Pro 3.7 beyond any tolerance, measured 2026-10-31.</td><td class="muted-t">Esri publishes either method; or a few more Pro runs (a factor field on a straight-line source; Segment Mean Shift on…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-346</td><td>A geoprocessing toolbox is an item, and its delete is final: it never reaches the recycle bin.</td><td class="muted-t">Somebody deletes a toolbox by mistake, or a tool&#x27;s published outputs are found to name a toolbox that is gone.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-340</td><td>A GeoPackage grapy wrote before 2026-10-31 is still unreadable to ArcGIS Pro, and grapy does not repair it.</td><td class="muted-t">A user&#x27;s pre-2026-10-31 GeoPackage reaching Pro, or a request for grapy to upgrade its own files; a tool&#x27;s output whose…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">310 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
@@ -586,28 +578,28 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1540</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.3%"></div></div><div class="bar-n">944</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.8%"></div></div><div class="bar-n">890</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.4%"></div></div><div class="bar-n">560</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.5%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.1%"></div></div><div class="bar-n">371</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">238</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.5%"></div></div><div class="bar-n">131</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.1%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.9%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1552</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:60.8%"></div></div><div class="bar-n">944</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.4%"></div></div><div class="bar-n">891</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.4%"></div></div><div class="bar-n">565</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.3%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">373</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">243</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.4%"></div></div><div class="bar-n">131</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.0%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.8%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">43</div></div>
-<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">27</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">29</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>grapy against arcpy</h2>
 <p class="sub">Names grapy builds, of the public names arcpy 3.7 has in each module. Counted by tools/grapy_surface.py from grapy’s source; a name grapy refuses is not counted.</p><div class="bars">
 <div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:62.8%"></div></div><div class="bar-n">115 / 183</div></div>
 <div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:82.8%"></div></div><div class="bar-n">24 / 29</div></div>
-<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:55.7%"></div></div><div class="bar-n">249 / 447</div></div>
+<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:55.9%"></div></div><div class="bar-n">250 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:87.5%"></div></div><div class="bar-n">35 / 40</div></div>
 <div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:48.4%"></div></div><div class="bar-n">31 / 64</div></div>
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:12.2%"></div></div><div class="bar-n">6 / 49</div></div>
@@ -615,7 +607,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:58.5%"></div></div><div class="bar-n">38 / 65</div></div>
 <div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:76.5%"></div></div><div class="bar-n">289 / 378</div></div>
 <div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:83.0%"></div></div><div class="bar-n">288 / 347</div></div>
-<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:78.8%"></div></div><div class="bar-n">123 / 156</div></div>
+<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:80.8%"></div></div><div class="bar-n">126 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:59.5%"></div></div><div class="bar-n">25 / 42</div></div>
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:74.2%"></div></div><div class="bar-n">46 / 62</div></div>
 <div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:81.1%"></div></div><div class="bar-n">77 / 95</div></div>
@@ -628,11 +620,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.cartography</td><td class="num">9</td><td class="num">8</td><td class="num">40</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.conversion</td><td class="num">31</td><td class="num">2</td><td class="num">33</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.da</td><td class="num">24</td><td class="num">0</td><td class="num">5</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ddd</td><td class="num">123</td><td class="num">19</td><td class="num">33</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ddd</td><td class="num">126</td><td class="num">19</td><td class="num">30</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">16</td><td class="num">6</td><td class="num">3</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">25</td><td class="num">4</td><td class="num">17</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ia</td><td class="num">288</td><td class="num">55</td><td class="num">59</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.management</td><td class="num">249</td><td class="num">20</td><td class="num">198</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.management</td><td class="num">250</td><td class="num">20</td><td class="num">197</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.na</td><td class="num">46</td><td class="num">3</td><td class="num">16</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nax</td><td class="num">77</td><td class="num">9</td><td class="num">18</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">68</td><td class="num">14</td><td class="num">6</td><td class="num">0</td></tr>
@@ -642,6 +634,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>bbb581df</code><time>2026-10-31</time><span>grapy&#x27;s insolation traces horizons over the nearest cell as Pro does and runs 6x faster, fleet routing and segmentation are measured and sped up, and the remaining Pro gaps are bracketed (D-330, D-333 repaid; D-334, D-336, D-337, D-338 measured)</span></li>
 <li><code>4acb258e</code><time>2026-10-31</time><span>Classify Raster writes each class&#x27;s 0-based index with Pro&#x27;s six table fields, and Pro&#x27;s SVM parameters are measured to sit on a flat cross-validation optimum (ADR-243 condition 2, D-337)</span></li>
 <li><code>8c45cb74</code><time>2026-10-31</time><span>grapy&#x27;s terrain windows start where Pro&#x27;s do: at the corner of each tile of round(spacing x sqrt(200000)) from the XY domain&#x27;s origin (ADR-234 condition 4, D-339 partly)</span></li>
 <li><code>7a8b27e6</code><time>2026-10-31</time><span>Owner decisions of 2026-10-31, second round: Q-218 and Q-219 confirmed, client_credentials to be built, clustering&#x27;s phase order confirmed</span></li>
@@ -655,7 +648,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9de084f2</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>e0fe3d70</code><time>2026-10-31</time><span>grapy&#x27;s Sentinel-1 radiometry agrees with ArcGIS Pro 3.7 on a real IW GRD, and grapy now reads that scene&#x27;s geometry (ADR-237 condition 3 partly)</span></li>
 <li><code>f8d08ba9</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>4033ebc8</code><time>2026-10-31</time><span>grapy trains and runs deep learning models on PyTorch, and exports their training data (ADR-248)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

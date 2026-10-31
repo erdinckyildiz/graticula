@@ -308,9 +308,34 @@ class Mosaic(unittest.TestCase):
         self.assertEqual(found[0], [1, 1, 2, 2, 3, 3])
         self.assertEqual(found[3], [4, 4, 5, 5, 6, 6])
         self.assertEqual(found[4], [10, 10, 10, 10, 20, 20])
-        arcpy.management.SetMosaicDatasetProperties(self.md, resampling_type="BILINEAR")
-        with self.assertRaises(NotBuiltError):
-            cells(self.md)
+
+    def test_a_coarser_item_is_read_by_bilinear_and_cubic_beneath_finer_ones(self):
+        # ADR-230 condition 4. A 2 m item over x 0–12, y 4–16 holding the plane f = 1 + u + 3v of its own column u and
+        # row v; read at A's 1 m, a cell centred at (x, y) lies at u = (x − 1) / 2, v = (15 − y) / 2. Bilinear and Keys's
+        # cubic convolution both reproduce a plane exactly, so every cell whose neighbourhood lies inside the item is
+        # f there, by hand.
+        u, v = np.meshgrid(np.arange(6), np.arange(6))
+        coarse = write_tif(os.path.join(self.images, "plane.tif"), 0, 16, 1 + u + 3 * v, size=2, nodata=-1,
+                           dtype="float32")
+        md = arcpy.management.CreateMosaicDataset(self.gpkg, "floats", 3857, 1, "32_BIT_FLOAT")[0]
+        arcpy.management.AddRastersToMosaicDataset(md, "Raster Dataset", [self.a, coarse])
+        for kind, margin in (("BILINEAR", 1), ("CUBIC", 3)):
+            arcpy.management.SetMosaicDatasetProperties(md, resampling_type=kind)
+            found = np.array(cells(md))
+            for row in range(2 * margin, 12 - 2 * margin):
+                for column in range(2 * margin, 12 - 2 * margin):
+                    x, y = column + 0.5, 16 - row - 0.5
+                    expected = 1 + (x - 1) / 2 + 3 * (15 - y) / 2
+                    self.assertAlmostEqual(float(found[row, column]), expected, 4, (kind, row, column))
+
+    def test_majority_reads_coarser_than_an_item_by_the_mode_of_the_cells_it_covers(self):
+        md = arcpy.management.CreateMosaicDataset(self.gpkg, "classes", 3857)[0]
+        item = write_tif(os.path.join(self.directory, "classes", "c.tif"), 0, 4,
+                         [[5, 5, 1, 2], [5, 7, 3, 3], [9, 9, 4, 4], [9, 1, 4, 8]])
+        arcpy.management.AddRastersToMosaicDataset(md, "Raster Dataset", item)
+        arcpy.management.SetMosaicDatasetProperties(md, resampling_type="MAJORITY")
+        layer = arcpy.management.MakeMosaicLayer(md, "coarse_read", cell_size=2)[0]
+        self.assertEqual(cells(layer), [[5, 3], [9, 4]])
 
     def test_an_item_out_of_its_cell_size_range_is_not_in_view(self):
         with da.UpdateCursor(self.md, ["Name", "MaxPS"]) as cursor:
@@ -318,12 +343,34 @@ class Mosaic(unittest.TestCase):
                 cursor.updateRow([row[0], 0.5 if row[0] == "a" else row[1]])
         self.assertEqual(cells(self.md)[0], [GAP, GAP, 20, 20, 20, 20])
 
-    def test_items_whose_cells_do_not_line_up_are_refused(self):
-        odd = write_tif(os.path.join(self.images, "odd.tif"), 0.5, 4, np.full((2, 2), 7))
-        arcpy.management.AddRastersToMosaicDataset(self.md, "Raster Dataset", odd)
-        with self.assertRaises(NotBuiltError) as said:
-            cells(self.md)
-        self.assertIn("line up", str(said.exception))
+    def test_an_item_whose_cells_do_not_line_up_is_resampled_onto_the_grid(self):
+        # ADR-230 condition 4. A 1 m item a quarter cell east of A's grid, x 6.25–10.25, its columns 0, 10, 20 and 30
+        # centred at 6.75 … 9.75. A's grid centres 7.5, 8.5 and 9.5 lie a quarter of the way to the next column.
+        odd = write_tif(os.path.join(self.images, "odd.tif"), 6.25, 4, np.tile([0, 10, 20, 30], (4, 1)), nodata=-1,
+                        dtype="float32")
+        md = arcpy.management.CreateMosaicDataset(self.gpkg, "floats", 3857, 1, "32_BIT_FLOAT")[0]
+        arcpy.management.AddRastersToMosaicDataset(md, "Raster Dataset", [self.a, self.b, odd])
+        found = cells(md)
+        self.assertEqual(found[1][7:10], [10, 20, 30])   # NEAREST: the column whose centre is nearest
+        arcpy.management.SetMosaicDatasetProperties(md, resampling_type="BILINEAR")
+        self.assertEqual([round(v, 6) for v in cells(md)[1][7:10]], [7.5, 17.5, 27.5])
+        self.assertEqual(cells(md)[1][0:6], [10, 10, 10, 10, 20, 20])   # A and B, on the grid, unchanged
+
+    def test_an_item_in_another_reference_is_projected_into_the_mosaics(self):
+        # 0.001° square at the origin in EPSG:4326 is 111.32 m east and north in EPSG:3857.
+        md = arcpy.management.CreateMosaicDataset(self.gpkg, "projected", 3857)[0]
+        item = write_tif(os.path.join(self.directory, "geo", "g.tif"), 0, 0.001, np.full((10, 10), 7), size=0.0001,
+                         epsg=4326)
+        arcpy.management.AddRastersToMosaicDataset(md, "Raster Dataset", item)
+        (area,), = rows_of(md, ["SHAPE@AREA"])   # the footprint is held in the mosaic's reference
+        self.assertAlmostEqual(area, 111.3195 * 111.3195, delta=1.0)
+        raster = arcpy.Raster(md)
+        self.assertEqual(raster.spatialReference.factoryCode, 3857)
+        self.assertAlmostEqual(raster.extent.XMax, 111.32, delta=raster.meanCellWidth + 0.01)
+        self.assertAlmostEqual(raster.extent.YMax, 111.32, delta=raster.meanCellHeight + 0.01)
+        values = np.array(cells(md))
+        self.assertEqual(set(values[values != GAP].tolist()), {7})
+        self.assertGreater(int((values == 7).sum()), 0.9 * values.size)
 
     # ---- bands
 
@@ -466,11 +513,6 @@ class Mosaic(unittest.TestCase):
                 getattr(arcpy.management, name)()
             self.assertNotIn("yet", str(said.exception), name)
             self.assertIn("ADR-2", str(said.exception), name)
-
-    def test_an_item_in_another_reference_is_refused(self):
-        other = write_tif(os.path.join(self.directory, "geo.tif"), 0, 4, np.full((2, 2), 1), epsg=4326)
-        with self.assertRaises(NotBuiltError):
-            arcpy.management.AddRastersToMosaicDataset(self.md, "Raster Dataset", other)
 
 
 if __name__ == "__main__":
