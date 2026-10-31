@@ -1263,3 +1263,60 @@ def __getattr__(name):
 from . import _mpmore  # noqa: E402
 
 SkylineBarrier = _mpmore.SkylineBarrier
+
+
+# ---- ADR-244: the visibility, surface, barrier, footprint and profile tools built as equivalents
+from . import _surfaces3d  # noqa: E402
+
+
+@_equivalent(*_surfaces3d.ObserverPoints.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def ObserverPoints(in_raster, in_observer_point_features, out_raster, z_factor=1, curvature_correction="FLAT_EARTH",
+                   refractivity_coefficient=0.13, out_agl_raster=None):
+    """EQUIVALENT: arcpy.sa.ObserverPoints, saved; see its docstring."""
+    return _saved(sa.ObserverPoints(in_raster, in_observer_point_features, z_factor, curvature_correction,
+                                    refractivity_coefficient, out_agl_raster), out_raster)
+
+
+@_equivalent(*_surfaces3d.Viewshed2.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def Viewshed2(in_raster, in_observer_features, out_raster, out_agl_raster=None, analysis_type="FREQUENCY",
+              vertical_error=0, out_observer_region_relationship_table=None, refractivity_coefficient=0.13,
+              surface_offset=0, observer_elevation=None, observer_offset=1, inner_radius=0, inner_radius_is_3d="GROUND",
+              outer_radius=None, outer_radius_is_3d="GROUND", horizontal_start_angle=0, horizontal_end_angle=360,
+              vertical_upper_angle=90, vertical_lower_angle=-90, analysis_method="ALL_SIGHTLINES",
+              analysis_target_device="GPU_THEN_CPU"):
+    """EQUIVALENT: arcpy.sa.Viewshed2, saved; see its docstring."""
+    return _saved(sa.Viewshed2(in_raster, in_observer_features, out_agl_raster, analysis_type, vertical_error,
+                               out_observer_region_relationship_table, refractivity_coefficient, surface_offset,
+                               observer_elevation, observer_offset, inner_radius, inner_radius_is_3d, outer_radius,
+                               outer_radius_is_3d, horizontal_start_angle, horizontal_end_angle, vertical_upper_angle,
+                               vertical_lower_angle, analysis_method, analysis_target_device), out_raster)
+
+
+@_equivalent(*_surfaces3d.SurfaceParameters.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def SurfaceParameters(in_raster, out_raster, parameter_type="SLOPE", local_surface_type="QUADRATIC",
+                      neighborhood_distance=None, use_adaptive_neighborhood="FIXED_NEIGHBORHOOD", z_unit="METER",
+                      output_slope_measurement="DEGREE", project_geodesic_azimuths="GEODESIC_AZIMUTHS",
+                      use_equatorial_aspect="NORTH_POLE_ASPECT", in_analysis_mask=None):
+    """EQUIVALENT: arcpy.sa.SurfaceParameters, saved; see its docstring."""
+    return _saved(sa.SurfaceParameters(in_raster, parameter_type, local_surface_type, neighborhood_distance,
+                                       use_adaptive_neighborhood, z_unit, output_slope_measurement,
+                                       project_geodesic_azimuths, use_equatorial_aspect, in_analysis_mask), out_raster)
+
+
+@_equivalent(*_surfaces3d.SplineWithBarriers.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def SplineWithBarriers(Input_point_features, Z_value_field, Input_barrier_features=None, Output_cell_size=None,
+                       Output_raster=None, Smoothing_Factor=0.0):
+    """EQUIVALENT: arcpy.sa.SplineWithBarriers, saved; see its docstring."""
+    return _saved(sa.SplineWithBarriers(Input_point_features, Z_value_field, Input_barrier_features, Output_cell_size,
+                                        Smoothing_Factor), Output_raster)
+
+
+ContourWithBarriers = _surfaces3d.ContourWithBarriers
+RegularizeBuildingFootprint = _surfaces3d.RegularizeBuildingFootprint
+RegularizeAdjacentBuildingFootprint = _surfaces3d.RegularizeAdjacentBuildingFootprint
+StackProfile = _surfaces3d.StackProfile
+for _built in ("ObserverPoints", "Viewshed2", "SurfaceParameters", "SplineWithBarriers", "ContourWithBarriers",
+               "RegularizeBuildingFootprint", "RegularizeAdjacentBuildingFootprint", "StackProfile"):
+    _REFUSED.pop(_built, None)
+_REFUSED["TopoToRaster"] = _surfaces3d.TOPO_TO_RASTER
+_REFUSED["TopoToRasterByFile"] = _surfaces3d.TOPO_TO_RASTER_BY_FILE

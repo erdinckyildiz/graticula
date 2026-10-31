@@ -673,7 +673,6 @@ _REFUSED = {
 }
 _MAP = "it works on symbolized layers, labels or annotation in an ArcGIS Pro map — symbols at a reference scale — " \
        "which a run on this server does not have"
-_OUTLINE = "its procedure is described only in outline, not specified closely enough to reproduce"
 _PE_STRING = "it writes an Esri projection-engine string whose exact text grapy cannot reproduce, from the map's " \
              "coordinate system, which a server run does not have"
 _REFUSED.update({name: _MAP for name in (
@@ -685,10 +684,23 @@ _REFUSED.update({name: _MAP for name in (
 _REFUSED.update({name: "control points are vertex flags of a geodatabase geometry, which a GeoPackage geometry does "
                        "not carry" for name in ("ConvertControlPointsToVertices", "SetControlPointAtIntersect",
                                                 "SetControlPointByAngle")})
-_REFUSED.update({name: _OUTLINE for name in (
-    "CollapseHydroPolygon", "CollapseRoadDetail", "MergeDividedRoads", "ThinRoadNetwork", "CreateCartographicPartitions",
-    "GenerateContiguousCartogram", "GenerateHachuresForDefinedSlopes",
-    "StripMapIndexFeatures")})
+_REFUSED.update({
+    "CollapseHydroPolygon": "its pages say what it decides — where a polygon narrower than the collapse width "
+                            "collapses, how a section within the width tolerance is judged by its surroundings, when "
+                            "the minimum length overrides the width, and how a partly collapsed polygon tapers — but "
+                            "not how, and they name no centreline method",
+    "CollapseRoadDetail": "its page names no way to find a road detail — what makes a configuration 'open', how its "
+                          "diameter is measured — and no way to build the connection that replaces it",
+    "MergeDividedRoads": "'How Merge Divided Roads works' does not quantify 'generally parallel', does not say where "
+                         "the merged centreline is placed, and gives the value 1 for two different meanings of MDR_TYPE",
+    "ThinRoadNetwork": "'How Thin Road Network works' does not say how a segment's significance in long journeys is "
+                       "measured or how the minimum length is applied to a segment; it gives the aim, not a method",
+    "GenerateHachuresForDefinedSlopes": "its defaults are undefined: NOT_CONNECTED 'derives' new connections between "
+                                        "the upper and lower lines by no stated rule, and NOT_PERPENDICULAR orients "
+                                        "hachures 'to achieve even spacing' by no stated rule",
+})
+from ._cartomore import (  # noqa: E402 — the equivalents a published method makes buildable (ADR-224 §5.6)
+    CreateCartographicPartitions, GenerateContiguousCartogram, StripMapIndexFeatures)
 _REFUSED.update({name: _PE_STRING for name in ("CalculateUTMZone", "CalculateCentralMeridianAndParallels")})
 _REFUSED.update({
     "CalculateGridConvergenceAngle": "with no coordinate system field it reads the Cartographic Coordinate System "

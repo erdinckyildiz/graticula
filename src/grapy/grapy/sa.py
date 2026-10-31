@@ -5202,3 +5202,19 @@ def __getattr__(name):
         raise NotBuiltError(f"arcpy.sa.{name} is not built in grapy yet" + (f": {later}." if later else "."))
 
     return missing
+
+
+# ---- ADR-244: the visibility, surface and barrier tools built as equivalents, TopoToRaster's own reason
+from . import _surfaces3d  # noqa: E402
+
+ObserverPoints = _surfaces3d.ObserverPoints
+Viewshed2 = _surfaces3d.Viewshed2
+ZonalFill = _surfaces3d.ZonalFill
+SurfaceParameters = _surfaces3d.SurfaceParameters
+SplineWithBarriers = _surfaces3d.SplineWithBarriers
+ContourWithBarriers = _surfaces3d.ContourWithBarriers
+for _built in ("ObserverPoints", "Viewshed2", "ZonalFill", "SurfaceParameters", "SplineWithBarriers",
+               "ContourWithBarriers"):
+    _REFUSED.pop(_built, None)
+_REFUSED["TopoToRaster"] = _surfaces3d.TOPO_TO_RASTER
+_REFUSED["TopoToRasterByFile"] = _surfaces3d.TOPO_TO_RASTER_BY_FILE

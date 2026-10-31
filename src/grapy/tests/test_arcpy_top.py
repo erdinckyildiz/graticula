@@ -400,7 +400,7 @@ class LegacyAndScriptTools(_Folder):
                            ("Render", "symbology")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy, name)
-        for name, said in (("CausalInferenceAnalysis", "estimation"), ("BuildBalancedZones", "random"),
+        for name, said in (("CausalInferenceAnalysis", "estimation"), ("BuildBalancedZones", "genetic growth"),
                            ("GenerateSpatialWeightsMatrix", ".swm"), ("DirectionalTrend", "active map")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy.stats, name)()
