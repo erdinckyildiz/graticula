@@ -303,6 +303,11 @@ superuser.
    likely to forget one, and a pool whose every connection starts with `-c graticula.tenant=…` cannot forget. §5b's
    prototype measured pools per tenant as costing the busy tenant queue time and the connection budget; each tenant's
    pool here is a share, `max(4, 24 / tenants)`, of the request pool's ceiling. **Unmeasured** — condition 14.
+   ~~The tenant is a startup option of a pool per tenant.~~ **Replaced 2026-11-01, by measurement (condition 14):** the
+   pools were the whole of the tenancy slowdown, and every statement now goes to the one platform pool with
+   `SET graticula.tenant = '…'` in the same batch ahead of it — `TenantSource`, which is the only way a store makes a
+   statement, so a statement still cannot forget its tenant; a connection a store opens is set once, and Npgsql's
+   reset on return clears it.
 2. **A deployment of one tenant never routes**: the pool names no tenant and the policy reads every row for such a
    connection. The floor engages when a second tenant exists — which is what §6 promised, *nothing changes until then*.
 3. **Names stay unique across the deployment** — service, folder, layer, group, data source and the rest — rather than
@@ -419,7 +424,7 @@ superuser.
       `hosted/Parcels` were credited each other's traffic. A count carries the organisation the request was made to,
       the flush joins on it, and the store writes and reads on its own pool.
     - The catalogue manifest tool read every organisation's rows and keyed them by name; with several organisations
-      it now refuses without `--organization <key>` and works on that organisation's pool.
+      it now refuses without `--organization <key>` and works as that organisation (on its own pool until 2026-11-01; since then its statements carry the organisation over the one pool, condition 14).
     - `CoveragePyramids` ran outside any organisation and updated every coverage of a service's name; it updates by
       the service's id.
     - `ItemAnnotations` held every organisation's categories in one snapshot and gave the tree, its schema and a path's
@@ -560,7 +565,8 @@ superuser.
     `ACertificateIsAskedForOnlyByANameAnOrganisationListsTests`; the Caddy configuration is in the deployment guide
     §4.1.
 
-**State.** As §6 says, plus: the pools per tenant, node-local, emptied whenever the tenants are read again; each
+**State.** As §6 says, plus: ~~the pools per tenant, node-local, emptied whenever the tenants are read again~~ (gone
+2026-11-01, condition 14 — the tenant travels with each statement over the one pool); each
 member's home, read once per thirty seconds.
 
 ## 6. Consequences
@@ -795,11 +801,20 @@ ame`, shares a layer into the
     accepted by name.** Measured: kept plans make the floored lookup faster than today's. Not measured: what a
     migration does to plans a running server holds, which is the reason this is a condition and not a line in
     the connection string.
-    **Still open 2026-10-31, and now for a measured reason.** Plans are not kept — no `Max Auto Prepare` on any platform
+    ~~**Still open 2026-10-31, and now for a measured reason.** Plans are not kept — no `Max Auto Prepare` on any platform
     pool — and the planning cost cannot honestly be accepted by name while condition 13's HTTP comparison shows the
     query 1.33–2.61× slower with ten organisations and does not say how much of that is planning. Keeping plans is also
     worth less than it was in the prototype: each organisation's pool lets an idle connection go after ten seconds
-    (§5e departure 1), and a prepared plan dies with its connection.
+    (§5e departure 1), and a prepared plan dies with its connection.~~
+    **DISCHARGED 2026-11-01 — the planning cost of the floor is accepted by name, because it measured as nothing.**
+    [benchmarks/tenant-http](../../benchmarks/tenant-http/RESULTS.md), *Clean run*: with the policies disabled and
+    everything else the same, the busy organisation's query p95 at ten organisations was 24 ms against 30–31 with them
+    at 4 callers — inside the spread of runs of the same thing, and the floor-off runs were *slower* at 64 callers — while
+    the pool size alone moved it from 30–31 to 9–11. The slowdown condition 13 measured was the pools (condition 14),
+    not planning; after the fix ten organisations' query p95 is 1.09× one organisation's. **Plans are therefore not
+    kept**, by decision rather than by omission: nothing measured asks for it, and keeping them would add the question
+    this condition raised — what a migration does to plans a running server holds — for no measured gain. Revisit if
+    the floor's share of a statement's time is ever measured above §9's 20 %.
 13. **The HTTP p95 of `/sharing/rest/search`, `/rest/services` and a FeatureServer `query` is measured on the built
     floor against the same build without a second tenant**, and §9's 20 % trigger is read from that rather than
     from the store statements condition 1 measured.
@@ -813,9 +828,20 @@ ame`, shares a layer into the
     stores' SQL — is not taken here, because three things differ between the two modes and the run cannot tell them
     apart: the policies, each organisation's pool of two connections (condition 14), and the per-organisation admission
     shares (condition 6); condition 11's plans show the floor keeping every per-request index, and the prototype
-    measured the small pool making a busy organisation queue behind itself. **What remains:** the same comparison on a
+    measured the small pool making a busy organisation queue behind itself. ~~**What remains:** the same comparison on a
     quiet machine with a Release build, varying one of the three at a time — and the decision §9 asks for once it is
-    known which.
+    known which.~~
+    **DISCHARGED 2026-11-01 — measured cleanly, one factor at a time, and §9's trigger does not fire on the floor.**
+    [benchmarks/tenant-http](../../benchmarks/tenant-http/RESULTS.md), *Clean run*: a Release build, Warning logging,
+    its own PostgreSQL cluster (`max_connections` 300), each run started only once the machine was under 20 % busy,
+    every variant twice and interleaved. Busy organisation's FeatureServer query p95 at 4 / 64 callers: one organisation
+    10–11 / 239–308 ms; ten as built **30–31 / 455–550**; the floor off 24 / 605–629; the admission shares off 32–36 /
+    455–521; **each organisation's pool at the full 24 9–11 / 185–192** (and 136 connections). **The pools were the
+    cause; the floor and the shares cost nothing measurable.** So §9's remedy — the floor into the stores' SQL — is not
+    taken: the floor is not what was slow. Condition 14's remedy was taken instead, and measured after: ten
+    organisations against one at 4 callers, query **1.09×**, search 1.13×, the services directory 1.17× — each under
+    the 20 % — and at 64 callers ten organisations served 359–367 requests a second against one's 185–190, on 46–51
+    connections against 51–57.
 14. **The pools per tenant (§5e.1) are measured against the connection budget** — ten tenants, one busy — as condition
     1 measured the shapes it rejected; if they refuse or queue past the trigger of §9, the per-statement batch replaces
     them.
@@ -838,9 +864,25 @@ ame`, shares a layer into the
     cluster out of slots (`53300` ×172), the breaker opened 346 times, 7,037 requests were 503 and no token was signed
     in afterwards — the misfit the startup check had named (120 against 97), on a cluster without the image's 300. At 4
     callers nothing failed and the platform store's connections peaked at 33–36 against 18–19 with one organisation.
-    **Open:** the replacement the condition names — one pool, the tenant carried in a batch ahead of each statement —
+    ~~**Open:** the replacement the condition names — one pool, the tenant carried in a batch ahead of each statement —
     is a rewrite of the stores' connectionless commands (§5e departure 1 counts about three hundred), and was not
-    started here.
+    started here.~~
+    **DISCHARGED 2026-11-01 — the per-statement batch replaces the pools, measured before and after.** The clean run
+    (condition 13) varied one thing at a time and only the pool size moved the busy organisation; full pools fixed the
+    latency but held 136 connections at 64 callers. The replacement the condition names is built without rewriting the
+    three hundred statements: each store's `_dataSource` is now a `TenantSource` — the one platform pool and the request's
+    tenant — whose `CreateCommand` puts `SET graticula.tenant = '…'` ahead of the statement in the same batch and whose
+    `OpenConnectionAsync` sets it once on the connection; Npgsql resets a connection on return, so a statement naming no
+    tenant never inherits one. After: the busy organisation's query p95 11–13 ms at 4 callers (from 30–31) and 140–142
+    at 64 (from 455–550), throughput 359–367 requests a second (from 154–170), peak connections **46–51** (from 57–58,
+    and against full pools' 136); no breaker, no refusal, every organisation signed in. A deployment of one
+    organisation is unchanged (185–190 req/s against 185–189 on the build before). The startup check no longer adds a
+    pool's worth for the organisations, because there are no organisation pools. Tests:
+    `ATenantIsSentAheadOfEachStatementTests` — a reader, a scalar and a row count are the statement's own behind the
+    `SET`; 1,200 interleaved statements of two tenants and of none over a pool of **one** connection, each reading only
+    its own setting or none; and eight concurrent statements of one organisation among ten use eight connections in one
+    turn — **which fails on the build before** (two connections, the share). Conformance on the grapy-d fixture served
+    as a bound role: see the commit.
 15. **Names become unique per tenant (§5b)** only after every cache keyed by a name is keyed by tenant as well, each
     shown by a test that publishes the same name in two tenants and reads each back at its own host. **PARTLY
     DISCHARGED 2026-10-22** for services and folders (§5e item 14): the five places found are keyed by organisation,

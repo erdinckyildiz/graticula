@@ -57,7 +57,7 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
     private readonly NpgsqlDataSource _root;
 
     /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
-    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
+    private TenantSource _dataSource => TenantDataSources.Route(_root);
     private readonly Task _flusher;
 
     private long _queued;
@@ -264,7 +264,7 @@ public sealed class PostgresClientEventLog : IClientEventLog
     private readonly NpgsqlDataSource _root;
 
     /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
-    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
+    private TenantSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the log.</summary>
     /// <param name="dataSource">The platform store pool.</param>

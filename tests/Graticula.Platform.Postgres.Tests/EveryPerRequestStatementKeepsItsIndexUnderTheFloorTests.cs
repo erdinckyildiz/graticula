@@ -40,8 +40,8 @@ namespace Graticula.Platform.Postgres.Tests;
 /// </para>
 /// <para>
 /// <b>Each statement on the pool the product runs it on.</b> A session is found on the store's root pool, which names
-/// no organisation (ADR-220 §5.6), so <c>FindSessionAsync</c> runs as the floored role with no tenant; the rest on an
-/// organisation's pool. A layer found by name (<c>FindAsync</c>) is an administrative act, not a request's, and is not
+/// no organisation (ADR-220 §5.6), so <c>FindSessionAsync</c> runs as the floored role with no tenant; the rest on a
+/// connection carrying the organisation. A layer found by name (<c>FindAsync</c>) is an administrative act, not a request's, and is not
 /// here; neither are writes.
 /// </para>
 /// <para>
