@@ -226,6 +226,34 @@ None recorded.
    each through `grapy.runner` inside the fence, at ADR-223's 2 GiB of address space and 600 s of CPU, printing
    peak address space, peak resident memory, CPU and wall time. Checked unfenced on Windows with 150,000 points,
    both networks trained; the fenced numbers come from the first dispatched run.)
+   (2026-11-01: **the Linux half has run twice, and Point Transformer V3 did not fit; the networks now train with
+   less held, and the run that would show PTv3 fitting has not been made.** `measure.yml` run 41247467722, without
+   thread limits: RandLA-Net and PTv3 both died at about 2,047 MB of address space. Run 41247769589, after fffb6ed0
+   gave user tools `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` of 1 and `MALLOC_ARENA_MAX` of 2:
+   RandLA-Net finished in 55.8 s of CPU with a peak address space (`VmPeak`) of 1,786 MB and 1,424 MB resident; PTv3
+   failed after 10.3 s at `VmPeak` 2,040 MB with 1,777 MB resident — real memory, not reservations. PTv3 at the
+   paper's widths has 46.2 million parameters: 176 MB of weights, 176 MB of gradients and 352 MB of Adam's moments,
+   704 MB before an activation. What changed, none of it changing what is computed and no default changed (batch 2,
+   patch 1,024, the papers' widths, float32): every classifier **checkpoints its blocks in training** (Chen et al.
+   2016, arXiv:1604.06174; PTv3's blocks, RandLA-Net's and SQN's residual blocks, PointCNN's X-Conv layers) and puts
+   a batch norm's running statistics back after the recomputation, so the batch is counted once; `fit` lets the
+   gradients go after each step instead of at the next backward pass, and reads the best epoch back from the
+   checkpoint `on_epoch` wrote instead of copying the network in memory; the learning rate range test trains the
+   model itself and reads its starting weights back, instead of training a copy; classification training keeps only
+   the attributes it was given and no longer holds a copy of every block's eight; and on glibc, `threads()` fixes
+   `M_MMAP_THRESHOLD` at 1 MiB, so a freed tensor's pages leave the address space rather than staying in an arena —
+   **unmeasured, since the fence and glibc are Linux's and this machine is not.** Measured on Windows instead, as a
+   proxy, on the same synthetic cloud and 10 % epoch, one thread: the peak tensor bytes live in a training step
+   beyond the weights and Adam's moments (the profiler's own count, independent of the allocator) went from 393 to
+   230 MB for PTv3 (176 of the 230 are its gradients), 385 to 172 for RandLA-Net, 564 to 229 for SQN and 1,478 to 362
+   for PointCNN; peak commit for one epoch through the tool went from 2,363 to 1,697 MB for PTv3 and from 1,153 to
+   808 for RandLA-Net, with SQN at 875 and PointCNN at 1,038; with the default learning rate, which runs the range
+   test first, PTv3 peaked at 1,799 MB. Losses are equal and gradients equal to float tolerance with and without the
+   checkpoints (`test_point_cloud_deep_learning.MemorySaving`), and PTv3's one-epoch time fell rather than rose (from
+   177 to 142 s of wall time). **What is not shown:** the 25 % headroom asked for (1,536 MB) — Windows commit runs
+   several hundred MB above the live tensors (about 1,100 MB of them at PTv3's peak, torch and the data included) —
+   the allocator's, which is what the glibc setting is for, and whether it is enough is the Linux number.
+   `measure.yml` now trains all four classifiers; the next dispatched run is the measurement.)
 2. **Run the point cloud tests in CI.** `test_point_cloud_deep_learning.py` runs where torch is installed; it has run
    only on Windows until CI runs it. **DISCHARGED 2026-10-31**: it runs in `ci.yml`'s grapy job, which installs torch
    and torchvision (CPU) on Linux. In main's CI run 41211660456 (75d2398e, v1.0.490), job 124567754106, all 25 of the

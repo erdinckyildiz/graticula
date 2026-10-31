@@ -284,6 +284,110 @@ class Classification(_Fixture):
 
 
 @unittest.skipUnless(HAVE_TORCH, "torch is not installed")
+class MemorySaving(unittest.TestCase):
+    """What lets the networks train inside the fence's 2 GiB (ADR-249 condition 1) changes how much is held, never what
+    is computed."""
+
+    def batch(self, seed=0):
+        import torch
+        g = torch.Generator().manual_seed(seed)
+        return (torch.rand(2, 512, 3, generator=g) * 2 - 1, torch.randn(2, 512, 2, generator=g),
+                torch.randint(0, 3, (2, 512), generator=g))
+
+    def test_a_checkpointed_network_gives_the_plain_ones_loss_and_gradients_and_holds_less(self):
+        import copy
+        import torch
+        xyz, features, labels = self.batch()
+        for architecture in nets.CLASSIFIERS:
+            with self.subTest(architecture=architecture):
+                torch.manual_seed(1)
+                saving = nets.build_classifier(architecture, 2, 3, 0.25)
+                plain = copy.deepcopy(saving)
+                self.assertTrue(saving.checkpointed)
+                plain.checkpointed = False
+                seen = {}
+                for name, net in (("saving", saving), ("plain", plain)):
+                    held = [0]
+
+                    def pack(t, held=held):
+                        held[0] += t.untyped_storage().nbytes()
+                        return t
+
+                    torch.manual_seed(5)        # Point Transformer V3 shuffles its orders from torch's generator
+                    net.train()
+                    with torch.autograd.graph.saved_tensors_hooks(pack, lambda t: t):
+                        loss = torch.nn.functional.cross_entropy(net(xyz, features).reshape(-1, 3),
+                                                                 labels.reshape(-1))
+                    loss.backward()
+                    seen[name] = (float(loss.detach()), held[0],
+                                  {k: p.grad.clone() for k, p in net.named_parameters() if p.grad is not None},
+                                  {k: v.clone() for k, v in net.state_dict().items()})
+                (loss_s, held_s, grads_s, state_s), (loss_p, held_p, grads_p, state_p) = seen["saving"], seen["plain"]
+                self.assertAlmostEqual(loss_s, loss_p, delta=1e-6)
+                self.assertEqual(grads_s.keys(), grads_p.keys())
+                # Summed in another order, so equal to float tolerance; a bias before a normalisation has a gradient
+                # of zero but for rounding, so the tolerance is scaled by the network's largest gradient, not its own.
+                scale = max(float(g.abs().max()) for g in grads_p.values())
+                for k in grads_p:
+                    torch.testing.assert_close(grads_s[k], grads_p[k], rtol=1e-4, atol=1e-5 * scale, msg=k)
+                # A batch norm counts the batch once though the layer ran twice, and keeps the same statistics.
+                for k in state_p:
+                    if k.endswith("num_batches_tracked"):
+                        self.assertTrue(torch.equal(state_s[k], state_p[k]), k)
+                    else:
+                        torch.testing.assert_close(state_s[k], state_p[k], rtol=1e-5, atol=1e-6, msg=k)
+                self.assertLess(held_s, held_p / 2)
+
+    def test_the_range_test_on_the_model_itself_finds_the_same_rate_and_leaves_its_weights(self):
+        import copy
+        import torch
+        from grapy import _deeplearning as dl
+        xyz, features, labels = self.batch()
+        torch.manual_seed(1)
+        model = nets.build_classifier("RANDLANET", 2, 3, 0.25)
+        twin = copy.deepcopy(model)
+        before = {k: v.clone() for k, v in model.state_dict().items()}
+
+        def step(net, batch):
+            return torch.nn.functional.cross_entropy(net(batch[0], batch[1]).reshape(-1, 3), batch[2].reshape(-1))
+
+        scratch = tempfile.mkdtemp()
+        torch.manual_seed(3)
+        in_place = dl.find_learning_rate(model, [(xyz, features, labels)], step, count=4, scratch=scratch)
+        torch.manual_seed(3)
+        on_copy = dl.find_learning_rate(twin, [(xyz, features, labels)], step, count=4)
+        self.assertEqual(in_place, on_copy)
+        for k, v in model.state_dict().items():
+            self.assertTrue(torch.equal(v, before[k]), k)
+        self.assertTrue(all(p.grad is None for p in model.parameters()))
+        self.assertEqual(os.listdir(scratch), [])
+
+    def test_fit_reads_the_best_epoch_back_from_its_checkpoint(self):
+        import torch
+        from grapy import _deeplearning as dl
+        folder = tempfile.mkdtemp()
+        results = []
+        for from_disk in (False, True):
+            torch.manual_seed(0)
+            model = torch.nn.Linear(3, 2)
+            data = [(torch.randn(8, 3), torch.randn(8, 2)) for _ in range(2)]
+            losses = iter([0.5, 0.9, 0.7])          # the first epoch is the best and the last is not
+
+            def save(epoch, net, _scores, from_disk=from_disk):
+                dl.save_weights(net, os.path.join(folder, f"{from_disk}_{epoch}.pth"))
+
+            dl.fit(model, lambda epoch: data, data, lambda net, b: ((net(b[0]) - b[1]) ** 2).mean(),
+                   lambda net, items: {"valid_loss": next(losses)}, 3, 0.1, early_stopping=False, on_epoch=save,
+                   best_from=(lambda epoch: os.path.join(folder, f"True_{epoch}.pth")) if from_disk else None)
+            first = torch.load(os.path.join(folder, f"{from_disk}_1.pth"), weights_only=True)
+            for k, v in model.state_dict().items():
+                self.assertTrue(torch.equal(v, first[k]), k)
+            results.append(model.state_dict())
+        for k in results[0]:
+            self.assertTrue(torch.equal(results[0][k], results[1][k]), k)
+
+
+@unittest.skipUnless(HAVE_TORCH, "torch is not installed")
 class Detection(_Fixture):
     def boxes(self, name, keep):
         rows = []

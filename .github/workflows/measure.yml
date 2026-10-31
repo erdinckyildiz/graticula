@@ -4,9 +4,10 @@
 # Transformer V3 on a real 1.44-million-point 3DEP tile on Windows, where grapy's fence does not exist, so whether a
 # training step fits the fence's 2 GiB of address space was left unmeasured. This job is that half: it installs what
 # ci.yml's grapy job installs, checks that the kernel has Landlock (the fence refuses to start without it), and runs
-# tools/measure_point_cloud_fence.py, which trains each network for one epoch through grapy.runner -- the same fence a
-# user's tool runs in -- on a synthetic cloud of the same size and block shape, and prints peak address space, peak
-# resident memory, CPU and wall time. The numbers land in the job's summary.
+# tools/measure_point_cloud_fence.py, which trains each classifier (RandLA-Net, SQN, PointCNN, Point Transformer V3)
+# for one epoch through grapy.runner -- the same fence a user's tool runs in -- on a synthetic cloud of the same size
+# and block shape, and prints peak address space, peak resident memory, CPU and wall time. The numbers land in the
+# job's summary.
 #
 # workflow_dispatch only: it costs a runner for several minutes and measures a property of the code rather than
 # guarding one, so it runs when somebody asks for the number. A run that does not fit stays green and says so in its
@@ -50,7 +51,7 @@ jobs:
           python -c "import ctypes; v = ctypes.CDLL(None).syscall(444, None, 0, 1); print('Landlock ABI', v); assert v >= 1, 'no Landlock on this kernel'"
           nproc
           free -m
-      - name: train RandLA-Net and Point Transformer V3 one epoch each, fenced
+      - name: train each point cloud classifier one epoch, fenced
         env:
           POINTS: ${{ inputs.points }}
           ITERATIONS: ${{ inputs.epoch_iterations }}

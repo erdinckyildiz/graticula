@@ -533,10 +533,11 @@ def _attributes_wanted(value, available, tool):
     return [a for a in ATTRIBUTES if a in wanted]
 
 
-def normalised(block, attributes, mean, std, size, points, rng):
+def normalised(block, attributes, mean, std, size, points, rng, columns=None):
     """A block as the network's input: ``points`` points (dealt at random, repeated when it holds fewer); x and y about
     the block's centre and z above its lowest point, in half block sizes; the attributes standardised. Answers (xyz,
-    features, the positions of the block's points taken)."""
+    features, the positions of the block's points taken). ``columns``, when given, are the block's attribute columns to
+    use, for a block that holds only the attributes wanted."""
     n = len(block["xyz"])
     take = rng.permutation(n)
     if n < points:
@@ -545,7 +546,7 @@ def normalised(block, attributes, mean, std, size, points, rng):
     half = size / 2.0
     o = block["origin"]
     xyz = (block["xyz"][take] - np.array([o[0] + half, o[1] + half, o[2]])) / half
-    columns = [ATTRIBUTES.index(a) for a in attributes]
+    columns = [ATTRIBUTES.index(a) for a in attributes] if columns is None else list(columns)
     features = (block["attributes"][take][:, columns] - mean) / std if columns else np.zeros((points, 0), np.float32)
     return xyz.astype(np.float32), np.asarray(features, np.float32), take
 
@@ -664,6 +665,14 @@ def TrainPointCloudClassificationModel(in_training_data, out_model_location, out
     std = np.maximum(every[:, columns].std(0), 1e-6) if columns else np.ones(0)
     if pretrained is not None and columns:
         mean, std = np.array(pretrained.grapy["mean"]), np.array(pretrained.grapy["std"])
+    # Only the attributes the network is given are kept from here on: all eight are most of the training data's size,
+    # and with them a copy of the training blocks' attributes was held through training (ADR-249 condition 1).
+    del every
+    for b in training + validation:
+        b["attributes"] = np.ascontiguousarray(b["attributes"][:, columns])
+    for split in (train_split, valid_split):
+        split.arrays.pop("attributes", None)
+    kept = list(range(len(columns)))
     points = int(min(int(document["block_point_limit"]), max(len(b["xyz"]) for b in training)))
     if pretrained is not None:
         points = int(pretrained.grapy["points_per_block"])
@@ -672,7 +681,7 @@ def TrainPointCloudClassificationModel(in_training_data, out_model_location, out
         dl.load_weights(model, pretrained.path_of(), tool)
 
     def tensor(b, local):
-        xyz, features, take = normalised(b, wanted, mean, std, size, points, local)
+        xyz, features, take = normalised(b, wanted, mean, std, size, points, local, columns=kept)
         labels = np.array([lookup.get(int(c), -100) for c in b["classification"][take]], np.int64)
         return xyz, features, labels
 
@@ -741,11 +750,12 @@ def TrainPointCloudClassificationModel(in_training_data, out_model_location, out
 
     rate = learning_rate
     if not _is_given(rate):
-        rate = dl.find_learning_rate(model, epoch_batches(0), step, tool)
+        rate = dl.find_learning_rate(model, epoch_batches(0), step, tool, scratch=checkpoints)
         AddMessage(f"{tool}: the learning rate found by the range test is {rate:.3g}.")
     history = dl.fit(model, epoch_batches, valid_batches, step, evaluate, int(max_epochs or 25), float(rate),
                      monitor=monitor_key, larger_is_better=larger, early_stopping=early, tool=tool,
-                     schedule=strategy, on_epoch=checkpoint)
+                     schedule=strategy, on_epoch=checkpoint,
+                     best_from=lambda epoch: os.path.join(checkpoints, f"{name}_epoch_{epoch}.pth"))
     model_stats = os.path.join(checkpoints, f"{name}_stats.csv")
     with open(model_stats, "w", newline="", encoding="utf-8") as out:
         writer = csv.writer(out)
@@ -1370,12 +1380,13 @@ def TrainPointCloudObjectDetectionModel(in_training_data, out_model_location, ou
 
     rate = learning_rate
     if not _is_given(rate):
-        rate = dl.find_learning_rate(model, epoch_batches(0), step, tool)
+        rate = dl.find_learning_rate(model, epoch_batches(0), step, tool, scratch=checkpoints)
         AddMessage(f"{tool}: the learning rate found by the range test is {rate:.3g}.")
     key, larger = ("valid_loss", False) if monitor == "VALIDATION_LOSS" else ("average_precision", True)
     history = dl.fit(model, epoch_batches, valid_batches, step, evaluate, int(max_epochs or 25), float(rate),
                      monitor=key, larger_is_better=larger, early_stopping=early, tool=tool, schedule=strategy,
-                     on_epoch=checkpoint)
+                     on_epoch=checkpoint,
+                     best_from=lambda epoch: os.path.join(checkpoints, f"{name}_epoch_{epoch}.pth"))
     os.makedirs(folder, exist_ok=True)
     epoch_stats = os.path.join(folder, f"{name}_epoch_stats.csv")
     with open(epoch_stats, "w", newline="", encoding="utf-8") as out:
