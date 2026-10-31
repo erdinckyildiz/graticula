@@ -107,7 +107,10 @@ refused with a sentence rather than half-served.
    - `grant_type=refresh_token` with `client_id` and `refresh_token` → a new access token.
    - `grant_type=exchange_refresh_token` with `client_id`, `redirect_uri` and `refresh_token` → a
      new access token **and a new refresh token**, the old one revoked.
-   - `client_credentials` is refused: this step issues no client secrets.
+   - ~~`client_credentials` is refused: this step issues no client secrets.~~ **Built 2026-10-31 on service
+     accounts, not on these registered apps** ([ADR-200](ADR-200-service-accounts-sign-in-with-api-keys.md) condition 2):
+     `client_id` is a service account's name and `client_secret` one of its secrets; the answer is `access_token` and
+     `expires_in` only, with no refresh token.
    Responses carry `access_token`, `expires_in` (seconds), `username`, `ssl`, and for the first and
    third grants `refresh_token` and `refresh_token_expires_in`. Errors are Esri's shape:
    `{"error":{"code":400,"error":"invalid_grant","error_description":…,"message":…,"details":[]}}`.

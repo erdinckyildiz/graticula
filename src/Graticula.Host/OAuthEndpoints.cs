@@ -403,7 +403,8 @@ internal static class OAuthEndpoints
     // ---------------------------------------------------------------- token and revoke
 
     private static async Task TokenAsync(
-        HttpContext context, IOAuthStore store, LoginService login, HostSettings settings, CancellationToken cancellation)
+        HttpContext context, IOAuthStore store, LoginService login, HostSettings settings, IApiKeyStore keys, IAuditLog audit,
+        CancellationToken cancellation)
     {
         context.Response.Headers.CacheControl = "no-store";
 
@@ -416,6 +417,14 @@ internal static class OAuthEndpoints
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         string clientId = form["client_id"].FirstOrDefault() ?? string.Empty;
         string grant = form["grant_type"].FirstOrDefault() ?? string.Empty;
+
+        // ADR-200 condition 2: a service account's app credentials. Its client id is the account's name, not a registered
+        // app's, so this is decided before the registered apps are looked in.
+        if (grant == "client_credentials")
+        {
+            await ClientCredentialsAsync(context, form, clientId, login, keys, audit, cancellation).ConfigureAwait(false);
+            return;
+        }
 
         if (clientId.Length == 0 || await store.FindAppAsync(clientId, cancellation).ConfigureAwait(false) is not { } app)
         {
@@ -507,18 +516,94 @@ internal static class OAuthEndpoints
                 return;
             }
 
-            case "client_credentials":
-                await TokenErrorAsync(context, "unsupported_grant_type",
-                    "client_credentials needs a client secret, and this server issues none (ADR-076). Sign a person in with authorization_code.")
-                    .ConfigureAwait(false);
-                return;
-
             default:
                 await TokenErrorAsync(context, "unsupported_grant_type",
-                    "grant_type must be authorization_code, refresh_token or exchange_refresh_token.")
+                    "grant_type must be authorization_code, refresh_token, exchange_refresh_token or client_credentials.")
                     .ConfigureAwait(false);
                 return;
         }
+    }
+
+    /// <summary>The lifetime of an app token when <c>expiration</c> is not sent — ArcGIS's two hours.</summary>
+    internal static readonly TimeSpan AppTokenLifetime = TimeSpan.FromHours(2);
+
+    /// <summary>
+    /// <c>client_credentials</c> — ADR-200 condition 2, owner decision 2026-10-31 (*"Kur"*): ArcGIS's app credentials on a
+    /// service account. <c>client_id</c> is the account's name and <c>client_secret</c> one of its secrets.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The token is the account's, with everything a key's carries</b>: it opens the ArcGIS faces and not the native
+    /// administration API (scope <c>arcgis</c>), and the request resolving it takes the administrator role and every
+    /// owning privilege away (<c>ForAMachine</c>), because the principal is a machine whichever way it signed in.
+    /// </para>
+    /// <para>
+    /// <b>No refresh token</b>, as ArcGIS issues none for this grant: the secret is the refresh. The lifetime is what
+    /// <c>expiration</c> asks, in minutes, two hours when absent, never past the deployment's session lifetime nor past
+    /// the secret's own expiry; and revoking the secret ends every token it bought.
+    /// </para>
+    /// </remarks>
+    private static async Task ClientCredentialsAsync(
+        HttpContext context, IFormCollection form, string clientId, LoginService login, IApiKeyStore keys, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        string secret = form["client_secret"].FirstOrDefault() ?? string.Empty;
+
+        if (clientId.Length == 0 || secret.Length == 0)
+        {
+            await TokenErrorAsync(context, "invalid_request", "client_credentials needs client_id and client_secret.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        (LoginFailure failure, Principal? principal, Guid secretId, DateTimeOffset? secretExpires) = await login
+            .VerifyClientSecretAsync(clientId, secret, CallerAddress.Of(context), keys, cancellation)
+            .ConfigureAwait(false);
+
+        if (failure != LoginFailure.None)
+        {
+            await RecordAsync(context, audit, Guid.Empty, clientId, "oauth.clientcredentials", clientId, succeeded: false, cancellation)
+                .ConfigureAwait(false);
+
+            if (failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled)
+            {
+                await TokenErrorAsync(context, "invalid_client", "Too many invalid attempts. Please try again later.", 429)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            // One sentence for every reason, as the key lookup and the sign-in give.
+            await TokenErrorAsync(context, "invalid_client",
+                "Invalid client_id or client_secret: the service account is unknown or disabled, or the secret is wrong, "
+                + "revoked or expired.").ConfigureAwait(false);
+            return;
+        }
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        TimeSpan lifetime = int.TryParse(form["expiration"].FirstOrDefault(), NumberStyles.None, CultureInfo.InvariantCulture, out int minutes)
+            && minutes > 0
+                ? TimeSpan.FromMinutes(minutes)
+                : AppTokenLifetime;
+
+        if (secretExpires is { } ends && ends - now < lifetime)
+        {
+            lifetime = ends - now;
+        }
+
+        (string token, AuthenticatedSession session) = await login
+            .IssueAsync(principal!, CallerAddress.Of(context), cancellation, lifetime, boundTo: null, scope: SessionScopes.ArcGis)
+            .ConfigureAwait(false);
+
+        await keys.LinkSessionAsync(session.SessionId, secretId, cancellation).ConfigureAwait(false);
+
+        await RecordAsync(context, audit, principal!.Id, principal.Name, "oauth.clientcredentials", clientId, succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new Dictionary<string, object>
+        {
+            ["access_token"] = token,
+            ["expires_in"] = (long)Math.Max(0, (session.ExpiresAt - now).TotalSeconds),
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static async Task IssueAsync(
@@ -587,20 +672,20 @@ internal static class OAuthEndpoints
         await Results.Json(new { success = true }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static Task TokenErrorAsync(HttpContext context, string error, string description) =>
+    private static Task TokenErrorAsync(HttpContext context, string error, string description, int status = 400) =>
         Results.Json(
             new
             {
                 error = new
                 {
-                    code = 400,
+                    code = status,
                     error,
                     error_description = description,
                     message = description,
                     details = Array.Empty<string>(),
                 },
             },
-            statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context);
+            statusCode: status).ExecuteAsync(context);
 
     // ---------------------------------------------------------------- registered apps
 

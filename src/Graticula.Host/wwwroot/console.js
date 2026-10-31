@@ -1622,10 +1622,11 @@ let idpGroupsOpenName = null;
 
 /* ------------------------------------------- Organization › Settings › Security: service accounts (ADR-200) */
 
-/** The accounts as last read, the one whose keys are open, and its keys. */
+/** The accounts as last read, the one whose keys are open, its keys and its OAuth client secrets (ADR-200 c2). */
 let saAccounts = [];
 let saOpen = null;
 let saKeys = [];
+let saSecrets = [];
 
 /**
  * Reads the service accounts, and the open one's keys, and draws them — D-303.
@@ -1639,8 +1640,23 @@ async function loadServiceAccounts() {
 
   saAccounts = (await api("/admin/service-accounts") || {}).accounts || [];
   if (saOpen && !saAccounts.some(a => a.name === saOpen)) saOpen = null;
-  saKeys = saOpen ? (await api(`/admin/service-accounts/${encodeURIComponent(saOpen)}/keys`) || {}).keys || [] : [];
+  const of = saOpen ? `/admin/service-accounts/${encodeURIComponent(saOpen)}` : null;
+  [saKeys, saSecrets] = of
+    ? await Promise.all([
+      api(`${of}/keys`).then(r => (r || {}).keys || []),
+      api(`${of}/secrets`).then(r => (r || {}).secrets || []),
+    ])
+    : [[], []];
   drawServiceAccounts();
+}
+
+/** How many live keys and client secrets an account holds, in words. */
+function saLive(a) {
+  const keys = a.liveKeys || 0;
+  const secrets = a.liveSecrets || 0;
+  if (keys === 0 && secrets === 0) return "None";
+  return [keys ? `${num(keys)} key${keys === 1 ? "" : "s"}` : "", secrets ? `${num(secrets)} secret${secrets === 1 ? "" : "s"}` : ""]
+    .filter(Boolean).join(" · ");
 }
 
 /** A key's state in words: revoked, expired, or live until when. */
@@ -1666,53 +1682,126 @@ function drawServiceAccounts(focus) {
         <td class="name"><b>${h(a.name)}</b>
           <div class="rowmeta">${a.description ? `${h(a.description)} · ` : ""}made ${day(a.created)}</div></td>
         <td class="val" data-l="User type and role"><span>${h(a.userType)} · ${h(role)}</span></td>
-        <td class="num" data-l="Live keys">${num(a.liveKeys || 0)}</td>
-        <td class="val" data-l="State"><span>${a.disabled ? "Turned off: its keys are refused" : "On"}</span></td>
+        <td class="val" data-l="Live keys and secrets"><span>${h(saLive(a))}</span></td>
+        <td class="val" data-l="State"><span>${a.disabled ? "Turned off: its keys and secrets are refused" : "On"}</span></td>
         <td class="act" style="text-align:right">
           <button type="button" class="tiny" data-sa-keys="${h(a.name)}" aria-expanded="${open}"
-            aria-controls="saKeysOf">${open ? "Hide keys" : "Keys"}</button>
+            aria-controls="saKeysOf">${open ? "Hide credentials" : "Credentials"}</button>
           <button type="button" class="tiny ghost" data-sa-state="${h(a.name)}">${a.disabled ? "Turn on" : "Turn off"}</button>
           <button type="button" class="tiny danger" data-sa-delete="${h(a.name)}">Delete</button></td>
       </tr>${open ? `
-      <tr class="sakeys"><td colspan="5" id="saKeysOf" role="region" aria-label="Keys of ${h(a.name)}">
+      <tr class="sakeys"><td colspan="5" id="saKeysOf" role="region" aria-label="Keys and client secrets of ${h(a.name)}">
         ${saKeysMarkup(a)}
+        ${saSecretsMarkup(a)}
       </td></tr>` : ""}`;
     }).join("");
 
   if (focus) document.querySelector(focus)?.focus();
 }
 
-function saKeysMarkup(a) {
-  const keys = saKeys;
+/**
+ * One half of an open account's region: its API keys or its OAuth client secrets (ADR-200 c2). The two halves are drawn
+ * by one function so they cannot drift — a design review found them reading as one run of four equal headings — and
+ * each says what happens in it under its own Create button, not at the top of the card where it was off-screen.
+ */
+const SA_HALVES = {
+  key: {
+    title: "API keys", id: "saKeysTitle", noun: "Key", list: () => saKeys, prefix: "saKey", issue: "data-sa-issue",
+    revoke: "data-sa-revoke", revokeName: "data-sa-key-name", create: "Create key", newTitle: "New key",
+    placeholder: "the nightly sync on gis-01",
+    intro: () => "",
+    empty: "No keys yet. A key is what a script sends instead of a password.",
+    daysHint: "Empty, it lives until revoked. A key like that is one nobody remembers making: give it a lifetime unless "
+      + "the script cannot be changed. <i>Last used</i> above is how to find one nobody needs.",
+  },
+  secret: {
+    title: "Client secrets", id: "saSecretsTitle", noun: "Secret", list: () => saSecrets, prefix: "saSecret",
+    issue: "data-sa-secret-issue", revoke: "data-sa-secret-revoke", revokeName: "data-sa-secret-name",
+    create: "Create client secret", newTitle: "New client secret", placeholder: "the field app on the tablets",
+    intro: a => `<p class="hint">For an app that signs in with OAuth app credentials instead of sending a key. Its client
+      ID is <code>${h(a.name)}</code>; it exchanges a secret for a token that lasts two hours unless it asks for less.</p>`,
+    empty: "No client secrets yet. An app that signs in with app credentials uses one.",
+    daysHint: "Empty, it lives until revoked. Revoking it also ends every token it was exchanged for.",
+  },
+};
+
+function saHalfMarkup(a, kind) {
+  const c = SA_HALVES[kind];
+  const rows = c.list();
+  const live = rows.filter(k => !k.revoked && !(k.expires && new Date(k.expires) <= new Date())).length;
   return `
-    <h4 id="saKeysTitle" tabindex="-1">Keys of ${h(a.name)}</h4>
-    ${keys.length === 0 ? `<p class="hint">None yet. A key is what a script sends instead of a password.</p>` : `
-    <table class="rowblocks">
-      <thead><tr><th>Key</th><th>Made</th><th>Lifetime</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
-      <tbody>${keys.map(k => `
-        <tr>
+    <section class="sahalf" aria-labelledby="${c.id}">
+    <h4 id="${c.id}" tabindex="-1">${c.title} <span class="val">· ${num(live)} live</span></h4>
+    ${c.intro(a)}
+    ${rows.length === 0 ? `<p class="hint">${c.empty}</p>` : `
+    <table class="rowblocks sacreds">
+      <colgroup><col class="c-name"><col class="c-made"><col class="c-life"><col class="c-used"><col class="c-act"></colgroup>
+      <thead><tr><th>${c.noun}</th><th>Made</th><th>Lifetime</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>${rows.map(k => `
+        <tr${k.revoked ? ' class="gone"' : ""}>
           <td class="name">${h(k.name)}</td>
-          <td class="val" data-l="Made"><span>${day(k.created)}</span></td>
+          <td class="val nowrap" data-l="Made"><span>${day(k.created)}</span></td>
           <td class="val" data-l="Lifetime"><span>${h(saKeyState(k))}</span></td>
-          <td class="val" data-l="Last used"><span>${k.lastUsed ? historyWhen(k.lastUsed) : "Never"}</span></td>
+          <td class="val nowrap" data-l="Last used"><span>${k.lastUsed ? historyWhen(k.lastUsed) : "Never"}</span></td>
           <td class="act" style="text-align:right">${k.revoked ? "" : `<button type="button" class="tiny danger"
-            data-sa-revoke="${h(k.id)}" data-sa-key-name="${h(k.name)}">Revoke</button>`}</td>
+            ${c.revoke}="${h(k.id)}" ${c.revokeName}="${h(k.name)}">Revoke</button>`}</td>
         </tr>`).join("")}</tbody>
     </table>`}
-    <div class="sanewkey" role="group" aria-labelledby="saNewKeyTitle">
-      <h4 id="saNewKeyTitle">New key</h4>
+    <div class="sanewkey" role="group" aria-labelledby="${c.prefix}NewTitle">
+      <h5 id="${c.prefix}NewTitle">${c.newTitle}</h5>
       <div class="row">
         <label class="field" style="flex:2 1 50%">What it is for
-          <input id="saKeyName" type="text" autocomplete="off" maxlength="100" placeholder="the nightly sync on gis-01"></label>
+          <input id="${c.prefix}Name" type="text" autocomplete="off" maxlength="100" placeholder="${c.placeholder}"></label>
         <label class="field" style="flex:1 1 25%">Days it lives
-          <input id="saKeyDays" type="number" min="1" max="3650" step="1" inputmode="numeric" value="365"
-            aria-describedby="saKeyDaysHint"></label>
+          <input id="${c.prefix}Days" type="number" min="1" max="3650" step="1" inputmode="numeric" value="365"
+            aria-describedby="${c.prefix}DaysHint"></label>
       </div>
-      <p class="hint" id="saKeyDaysHint">Empty, it lives until revoked. A key like that is one nobody remembers making:
-        give it a lifetime unless the script cannot be changed. <i>Last used</i> above is how to find one nobody needs.</p>
-      <button type="button" id="saKeyIssue" data-sa-issue="${h(a.name)}">Create key</button>
-    </div>`;
+      <p class="hint" id="${c.prefix}DaysHint">${c.daysHint}</p>
+      <button type="button" id="${c.prefix}Issue" ${c.issue}="${h(a.name)}">${c.create}</button>
+      <p class="bad-inline" id="${c.prefix}Error" role="alert" hidden></p>
+      <p class="hint" id="${c.prefix}Status" role="status" aria-live="polite" tabindex="-1"></p>
+    </div>
+    </section>`;
 }
+
+function saKeysMarkup(a) { return saHalfMarkup(a, "key"); }
+
+function saSecretsMarkup(a) { return saHalfMarkup(a, "secret"); }
+
+/**
+ * Says something in one half of the open region, under its Create button: an error beside the field it is about, which
+ * is marked invalid until the next attempt, or what was done.
+ */
+function saSayIn(kind, text, field) {
+  const p = SA_HALVES[kind].prefix;
+  for (const id of [`${p}Name`, `${p}Days`]) {
+    const input = $(id);
+    if (!input) continue;
+    input.removeAttribute("aria-invalid");
+    input.setAttribute("aria-describedby", id.endsWith("Days") ? `${p}DaysHint` : "");
+    if (!input.getAttribute("aria-describedby")) input.removeAttribute("aria-describedby");
+  }
+  const error = $(`${p}Error`);
+  const status = $(`${p}Status`);
+  saSay("");
+  if (!error || !status) { saSay(text); return; }
+  if (field) {
+    error.textContent = text;
+    error.hidden = !text;
+    status.textContent = "";
+    const input = $(field);
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", [`${p}Error`, field.endsWith("Days") ? `${p}DaysHint` : ""].filter(Boolean).join(" "));
+    input.focus();
+  } else {
+    error.textContent = "";
+    error.hidden = true;
+    status.textContent = text;
+  }
+}
+
+/** “name”, so a name a person typed is never read as part of the sentence around it. */
+const saQ = name => `\u201c${name}\u201d`;
 
 /** Says something under the card's heading. */
 function saSay(text) { $("saSays").textContent = text; }
@@ -1786,10 +1875,9 @@ async function issueServiceAccountKey(account) {
   const typedDays = $("saKeyDays").value.trim();
   const days = typedDays === "" ? null : Number(typedDays);
 
-  if (!name) { saSay("A key needs a name: say what uses it, so it can be found when it has to be revoked."); $("saKeyName").focus(); return; }
+  if (!name) { saSayIn("key", "A key needs a name: say what uses it, so it can be found when it has to be revoked.", "saKeyName"); return; }
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3650)) {
-    saSay(`"${typedDays}" is not a number of days from 1 to 3650.`);
-    $("saKeyDays").focus();
+    saSayIn("key", `"${typedDays}" is not a number of days from 1 to 3650.`, "saKeyDays");
     return;
   }
 
@@ -1799,7 +1887,7 @@ async function issueServiceAccountKey(account) {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, expiresInDays: days }),
     });
   } catch (e) {
-    saSay(e.message);
+    saSayIn("key", e.message, "saKeyName");
     return;
   }
 
@@ -1814,38 +1902,85 @@ async function issueServiceAccountKey(account) {
   $("saKeyText").select();
 }
 
+async function issueServiceAccountSecret(account) {
+  const name = $("saSecretName").value.trim();
+  const typedDays = $("saSecretDays").value.trim();
+  const days = typedDays === "" ? null : Number(typedDays);
+
+  if (!name) { saSayIn("secret", "A client secret needs a name: say which app uses it, so it can be found when it has to be revoked.", "saSecretName"); return; }
+  if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3650)) {
+    saSayIn("secret", `"${typedDays}" is not a number of days from 1 to 3650.`, "saSecretDays");
+    return;
+  }
+
+  let issued;
+  try {
+    issued = await api(`/admin/service-accounts/${encodeURIComponent(account)}/secrets`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, expiresInDays: days }),
+    });
+  } catch (e) {
+    saSayIn("secret", e.message, "saSecretName");
+    return;
+  }
+
+  // As a key's: in a modal that holds the page, the secret selected, closed only by saying it was copied.
+  $("saSecretClient").value = issued.clientId || account;
+  $("saSecretText").value = issued.clientSecret || "";
+  $("saSecretSays").textContent = "";
+  $("saSecretWhich").textContent = `${name} · ${issued.expires ? `expires ${day(issued.expires)}` : "lives until revoked"}`;
+  $("saSecretIssued").dataset.account = account;
+  $("saSecretIssued").dataset.name = name;
+  $("saSecretIssued").showModal();
+  $("saSecretText").focus();
+  $("saSecretText").select();
+}
+
+/** The secret's dialog is closed by its one button only, and the secret leaves the page with it. */
+async function closeIssuedSecret() {
+  const dialog = $("saSecretIssued");
+  $("saSecretText").value = "";
+  dialog.close();
+  await section("service accounts", loadServiceAccounts, "saRows");
+  requestAnimationFrame(() => saSayIn("secret", `Client secret ${saQ(dialog.dataset.name)} is live for ${dialog.dataset.account}.`));
+  $("saSecretIssue")?.focus();
+}
+
+/** Copies one of a dialog's fields, saying so in the dialog's own status line. */
+async function saCopy(button, fieldId, saysId, what) {
+  const field = $(fieldId);
+  field.focus();
+  field.select();
+  try {
+    await navigator.clipboard.writeText(field.value);
+    $(saysId).textContent = `The ${what} is copied.`;
+    copiedHere(button);
+  } catch {
+    $(saysId).textContent = `This browser would not let the page copy it. The ${what} is selected: copy it with the keyboard.`;
+  }
+}
+
 /** The key dialog is closed by its one button only, and the key leaves the page with it. */
 async function closeIssuedKey() {
   const dialog = $("saKeyIssued");
   $("saKeyText").value = "";
   dialog.close();
   await section("service accounts", loadServiceAccounts, "saRows");
-  saSay(`The key ${dialog.dataset.name} of ${dialog.dataset.account} is live.`);
+  requestAnimationFrame(() => saSayIn("key", `Key ${saQ(dialog.dataset.name)} is live for ${dialog.dataset.account}.`));
   $("saKeyIssue")?.focus();
 }
 
 document.addEventListener("click", async event => {
   const t = event.target.closest?.("button");
-  if (!t || !t.closest("#saCard, #saDialog, #saKeyIssued")) return;
+  if (!t || !t.closest("#saCard, #saDialog, #saKeyIssued, #saSecretIssued")) return;
 
   if (t.id === "saNew") { openServiceAccountForm(); return; }
   if (t.id === "saCancel" || t.id === "saDialogClose") { $("saDialog").close(); $("saNew").focus(); return; }
   if (t.id === "saSave") { createServiceAccount(); return; }
   if (t.id === "saKeyDone") { closeIssuedKey(); return; }
-
-  if (t.id === "saKeyCopy") {
-    const field = $("saKeyText");
-    field.focus();
-    field.select();
-    try {
-      await navigator.clipboard.writeText(field.value);
-      $("saKeySays").textContent = "The key is copied.";
-      copiedHere(t);
-    } catch {
-      $("saKeySays").textContent = "This browser would not let the page copy it. The key is selected: copy it with the keyboard.";
-    }
-    return;
-  }
+  if (t.id === "saSecretDone") { closeIssuedSecret(); return; }
+  if (t.id === "saKeyCopy") { await saCopy(t, "saKeyText", "saKeySays", "key"); return; }
+  if (t.id === "saSecretCopy") { await saCopy(t, "saSecretText", "saSecretSays", "client secret"); return; }
+  if (t.id === "saSecretClientCopy") { await saCopy(t, "saSecretClient", "saSecretSays", "client ID"); return; }
 
   if (t.dataset.saKeys) {
     const name = t.dataset.saKeys;
@@ -1858,6 +1993,7 @@ document.addEventListener("click", async event => {
   }
 
   if (t.dataset.saIssue) { issueServiceAccountKey(t.dataset.saIssue); return; }
+  if (t.dataset.saSecretIssue) { issueServiceAccountSecret(t.dataset.saSecretIssue); return; }
 
   if (t.dataset.saState) {
     const a = saAccounts.find(x => x.name === t.dataset.saState);
@@ -1865,7 +2001,8 @@ document.addEventListener("click", async event => {
 
     if (!a.disabled && !await askServerConfirm({
       title: `Turn off ${a.name}?`,
-      body: `Every key of ${a.name} is refused from its next request, until it is turned on again. Nothing is deleted.`,
+      body: `Every key and client secret of ${a.name}, and every token it holds, is refused from its next request, `
+        + "until it is turned on again. Nothing is deleted.",
       action: "Turn off",
     })) return;
 
@@ -1876,7 +2013,7 @@ document.addEventListener("click", async event => {
     } catch (e) { saSay(e.message); return; }
 
     await section("service accounts", loadServiceAccounts, "saRows");
-    saSay(a.disabled ? `${a.name} is on: its live keys sign in again.` : `${a.name} is turned off: its keys are refused.`);
+    saSay(a.disabled ? `${a.name} is on: its live keys and secrets sign in again.` : `${a.name} is turned off: its keys and secrets are refused.`);
     document.querySelector(`[data-sa-state="${CSS.escape(a.name)}"]`)?.focus();
     return;
   }
@@ -1887,10 +2024,12 @@ document.addEventListener("click", async event => {
 
     if (!await askServerConfirm({
       title: `Delete ${a.name}?`,
-      body: a.liveKeys
-        ? `${a.name} and its ${num(a.liveKeys)} live key${a.liveKeys === 1 ? "" : "s"} are gone for good: every script `
-          + "that sends one is refused from its next request. Turning it off instead can be undone."
-        : `${a.name} is gone for good. It has no live keys, so no script is using it.`,
+      body: (a.liveKeys || a.liveSecrets)
+        ? `${a.name} and its ${[a.liveKeys ? `${num(a.liveKeys)} live key${a.liveKeys === 1 ? "" : "s"}` : "",
+          a.liveSecrets ? `${num(a.liveSecrets)} live client secret${a.liveSecrets === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ")} `
+          + `${(a.liveKeys || 0) + (a.liveSecrets || 0) === 1 ? "is" : "are"} gone for good: every script or app that `
+          + "sends one is refused from its next request. Turning it off instead can be undone."
+        : `${a.name} is gone for good. It has no live keys or secrets, so nothing is using it.`,
       action: "Delete",
     })) return;
 
@@ -1909,8 +2048,8 @@ document.addEventListener("click", async event => {
   if (t.dataset.saRevoke) {
     const keyName = t.dataset.saKeyName;
     if (!await askServerConfirm({
-      title: `Revoke ${keyName}?`,
-      body: `Whatever sends the key ${keyName} of ${saOpen} is refused from its next request. A revoked key cannot be `
+      title: `Revoke key ${saQ(keyName)}?`,
+      body: `Whatever sends the key ${saQ(keyName)} of ${saOpen} is refused from its next request. A revoked key cannot be `
         + "brought back; a new one can be made.",
       action: "Revoke",
     })) return;
@@ -1921,8 +2060,32 @@ document.addEventListener("click", async event => {
     } catch (e) { saSay(e.message); return; }
 
     await section("service accounts", loadServiceAccounts, "saRows");
-    saSay(`The key ${keyName} is revoked.`);
-    $("saKeysTitle")?.focus();
+    requestAnimationFrame(() => {
+      saSayIn("key", `Key ${saQ(keyName)} is revoked.`);
+      $("saKeyStatus")?.focus();
+    });
+    return;
+  }
+
+  if (t.dataset.saSecretRevoke) {
+    const secretName = t.dataset.saSecretName;
+    if (!await askServerConfirm({
+      title: `Revoke client secret ${saQ(secretName)}?`,
+      body: `The app that sends the client secret ${saQ(secretName)} of ${saOpen} gets no new token, and every token it was `
+        + "already given stops working now. A revoked secret cannot be brought back; a new one can be made.",
+      action: "Revoke",
+    })) return;
+
+    try {
+      await api(`/admin/service-accounts/${encodeURIComponent(saOpen)}/secrets/${encodeURIComponent(t.dataset.saSecretRevoke)}`,
+        { method: "DELETE" });
+    } catch (e) { saSay(e.message); return; }
+
+    await section("service accounts", loadServiceAccounts, "saRows");
+    requestAnimationFrame(() => {
+      saSayIn("secret", `Client secret ${saQ(secretName)} is revoked. Tokens issued with it no longer work.`);
+      $("saSecretStatus")?.focus();
+    });
   }
 });
 
@@ -1936,7 +2099,7 @@ document.addEventListener("change", event => {
 //
 // <b>Both the key and the close request are stopped</b>: Chrome lets `cancel` be refused only after a user activation
 // inside the dialog, so the first Escape was refused and a dialog opened by a script closed anyway (the console test).
-for (const id of ["saKeyIssued", "tnIssued"]) {
+for (const id of ["saKeyIssued", "saSecretIssued", "tnIssued"]) {
   const dialog = document.getElementById(id);
   dialog?.addEventListener("keydown", event => { if (event.key === "Escape") event.preventDefault(); });
   dialog?.addEventListener("cancel", event => event.preventDefault());

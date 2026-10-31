@@ -50,6 +50,11 @@ internal static partial class AdminEndpoints
         app.MapPost("/admin/service-accounts/{name}/keys", IssueApiKeyAsync);
         app.MapDelete("/admin/service-accounts/{name}/keys/{key:guid}", RevokeApiKeyAsync);
 
+        // ADR-200 condition 2: OAuth client secrets, for client_credentials at oauth2/token.
+        app.MapGet("/admin/service-accounts/{name}/secrets", ListClientSecretsAsync);
+        app.MapPost("/admin/service-accounts/{name}/secrets", IssueClientSecretAsync);
+        app.MapDelete("/admin/service-accounts/{name}/secrets/{secret:guid}", RevokeClientSecretAsync);
+
         // ADR-201: a member who lost both their phone and their recovery codes is let back in by an administrator.
         app.MapDelete("/admin/members/{name}/second-factor", RemoveMemberSecondFactorAsync);
     }
@@ -95,8 +100,9 @@ internal static partial class AdminEndpoints
                 created = a.CreatedAt,
                 disabled = a.Disabled,
                 liveKeys = a.Keys,
+                liveSecrets = a.Secrets,
             }),
-            note = "A service account is a machine: it signs in only with an API key, never owns an item, never "
+            note = "A service account is a machine: it signs in only with an API key or an OAuth client secret, never owns an item, never "
                 + "administers, and reaches the ArcGIS faces only — not this administration API.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -306,6 +312,112 @@ internal static partial class AdminEndpoints
         }
 
         await AuditAsync(context, audit, "apikey.revoke", name, Detail(new { key }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+        context.Response.StatusCode = 204;
+    }
+
+    private static async Task ListClientSecretsAsync(HttpContext context, string name, IApiKeyStore keys, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await keys.SecretsAsync(name, cancellation).ConfigureAwait(false) is not { } listed)
+        {
+            await Refuse(context, 404, $"No service account '{name}'.").ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new
+        {
+            account = name,
+            clientId = name,
+            secrets = listed.Select(k => new
+            {
+                id = k.Id,
+                name = k.Name,
+                created = k.CreatedAt,
+                expires = k.ExpiresAt,
+                revoked = k.RevokedAt,
+                lastUsed = k.LastUsedAt,
+            }),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Makes an OAuth client secret — ADR-200 condition 2. As a key: named, optionally with a lifetime in days, answered
+    /// once and kept as its SHA-256.
+    /// </summary>
+    private static async Task IssueClientSecretAsync(
+        HttpContext context, string name, ApiKeyRequest request, IApiKeyStore keys, IAuditLog audit, TimeProvider time,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string secretName = request.Name?.Trim() ?? string.Empty;
+
+        if (secretName.Length is 0 or > 100)
+        {
+            await Refuse(context, 400, "'name' says what the secret is for, up to 100 characters.").ConfigureAwait(false);
+            return;
+        }
+
+        if (request.ExpiresInDays is { } days && (days < 1 || days > 3650))
+        {
+            await Refuse(context, 400, "'expiresInDays' is from 1 to 3650, or absent for a secret that lives until revoked.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        string text = ClientSecretToken.Generate();
+        DateTimeOffset? expires = request.ExpiresInDays is { } d ? time.GetUtcNow().AddDays(d) : null;
+
+        if (await keys.IssueSecretAsync(name, secretName, SessionToken.HashOf(text), expires, cancellation).ConfigureAwait(false)
+            is not { } issued)
+        {
+            await Refuse(context, 409, $"No service account '{name}', or it already has a key or secret named '{secretName}'.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "clientsecret.issue", name, Detail(new { secret = issued.Id, name = secretName, expires }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            id = issued.Id,
+            name = secretName,
+            expires,
+            clientId = name,
+            clientSecret = text,
+            note = "This is the only time the secret is shown; the server keeps its hash. Exchange it for a token with "
+                + "POST /sharing/rest/oauth2/token, grant_type=client_credentials, client_id and client_secret, as ArcGIS's "
+                + "app credentials are. The secret itself is not a token.",
+        }, statusCode: 201).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    private static async Task RevokeClientSecretAsync(
+        HttpContext context, string name, Guid secret, IApiKeyStore keys, IAuditLog audit, TimeProvider time,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!await keys.RevokeSecretAsync(name, secret, time.GetUtcNow(), cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404, $"Service account '{name}' has no live client secret {secret}.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "clientsecret.revoke", name, Detail(new { secret }), succeeded: true, cancellation)
             .ConfigureAwait(false);
         context.Response.StatusCode = 204;
     }
