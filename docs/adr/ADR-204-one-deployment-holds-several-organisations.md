@@ -800,6 +800,11 @@ ame`, shares a layer into the
     query 1.33–2.61× slower with ten organisations and does not say how much of that is planning. Keeping plans is also
     worth less than it was in the prototype: each organisation's pool lets an idle connection go after ten seconds
     (§5e departure 1), and a prepared plan dies with its connection.
+    *(Owner decision 2026-10-31, asked what to do about conditions 12, 13 and 14: the owner chose *"Önce temiz ölç,
+    sonra düzelt"* — a clean measurement comes first (a Release build, a quiet machine, one factor at a time: the
+    policies, the per-organisation pools, the admission shares), and then the per-statement batch if the pools are
+    the cause, or the floor moved into the stores' SQL if row-level security is. That measurement is being run by
+    another session on 2026-10-31; this condition's state is unchanged until it reports.)*
 13. **The HTTP p95 of `/sharing/rest/search`, `/rest/services` and a FeatureServer `query` is measured on the built
     floor against the same build without a second tenant**, and §9's 20 % trigger is read from that rather than
     from the store statements condition 1 measured.
@@ -816,6 +821,11 @@ ame`, shares a layer into the
     measured the small pool making a busy organisation queue behind itself. **What remains:** the same comparison on a
     quiet machine with a Release build, varying one of the three at a time — and the decision §9 asks for once it is
     known which.
+    *(Owner decision 2026-10-31, asked what to do about conditions 12, 13 and 14: the owner chose *"Önce temiz ölç,
+    sonra düzelt"* — a clean measurement comes first (a Release build, a quiet machine, one factor at a time: the
+    policies, the per-organisation pools, the admission shares), and then the per-statement batch if the pools are
+    the cause, or the floor moved into the stores' SQL if row-level security is. That measurement is being run by
+    another session on 2026-10-31; this condition's state is unchanged until it reports.)*
 14. **The pools per tenant (§5e.1) are measured against the connection budget** — ten tenants, one busy — as condition
     1 measured the shapes it rejected; if they refuse or queue past the trigger of §9, the per-statement batch replaces
     them.
@@ -841,6 +851,11 @@ ame`, shares a layer into the
     **Open:** the replacement the condition names — one pool, the tenant carried in a batch ahead of each statement —
     is a rewrite of the stores' connectionless commands (§5e departure 1 counts about three hundred), and was not
     started here.
+    *(Owner decision 2026-10-31, asked what to do about conditions 12, 13 and 14: the owner chose *"Önce temiz ölç,
+    sonra düzelt"* — a clean measurement comes first (a Release build, a quiet machine, one factor at a time: the
+    policies, the per-organisation pools, the admission shares), and then the per-statement batch if the pools are
+    the cause, or the floor moved into the stores' SQL if row-level security is. That measurement is being run by
+    another session on 2026-10-31; this condition's state is unchanged until it reports.)*
 15. **Names become unique per tenant (§5b)** only after every cache keyed by a name is keyed by tenant as well, each
     shown by a test that publishes the same name in two tenants and reads each back at its own host. **PARTLY
     DISCHARGED 2026-10-22** for services and folders (§5e item 14): the five places found are keyed by organisation,
