@@ -20,9 +20,12 @@ format — its AMD tables, raster type tables, overviews, item caches (CRF) — 
 
 **Reading.** ``read`` answers the cells of a mosaic dataset, or of a MakeMosaicLayer layer, as one raster: the items in
 view at the read's cell size (MinPS ≤ cell size ≤ MaxPS), ordered by the mosaic method, combined cell by cell by the
-mosaic operator, clipped to the boundary. Items must lie on the mosaic's grid: the same cell size, or a whole multiple
-of it taken by NEAREST (each finer cell lies inside one coarser cell, so the answer is exact), with corners whole
-cells apart. Any other alignment, a reference other than the mosaic's, and any other resampling are refused by name.
+mosaic operator, clipped to the boundary. An item on the read's grid — the same cell size or a whole multiple of it,
+corners whole cells apart — read by NEAREST is placed exactly, each finer cell lying inside one coarser cell. Any other
+item (unaligned, finer than the read, in another reference) or any other resampling (BILINEAR, CUBIC, MAJORITY) is
+warped onto the read's grid by GDAL's warper through rasterio (ADR-230 condition 4): PROJ for the reference; the
+documented methods as GDAL's kernels — nearest, bilinear, cubic convolution (Keys 1981, a = −0.5) and mode for MAJORITY
+— an equivalent, said in the run.
 
 **One reading with the server's.** Where ArcGIS's pages leave a mosaic rule open, grapy reads it as this server's image
 services already draw it (ADR-230 §5.4): North-West and Closest to Center measure from the extent read to the centre of
@@ -335,6 +338,39 @@ class Source:
             factors = source.overviews(1) if source.count else []
         self.path = path
         self.high = max([1, *factors])   # the coarsest overview's factor, 1 with none
+        self.native = None   # (transform, crs, columns, rows) as stored, once ``to`` has put the item in another reference
+
+    def to(self, srid):
+        """The item seen in the reference ``srid``: its grid becomes GDAL's default warp grid there (the extent and cell
+        size ``calculate_default_transform`` gives); ``native`` keeps the stored one, which ``_place`` warps from."""
+        import rasterio
+        from rasterio.warp import calculate_default_transform
+        if not srid or not self.srid or srid == self.srid:
+            return self
+        with rasterio.open(self.path) as source:
+            crs = source.crs
+            transform, columns, rows = calculate_default_transform(crs, f"EPSG:{srid}", source.width, source.height,
+                                                                   *source.bounds)
+            self.native = (source.transform, crs, source.width, source.height)
+        self._native_box = (self.box(), self.srid, min(self.width, self.height))
+        self.left, self.top, self.width, self.height = transform.c, transform.f, transform.a, -transform.e
+        self.columns, self.rows, self.srid = columns, rows, srid
+        return self
+
+    def project(self, shape):
+        """A shape in the item's stored reference, in the reference ``to`` gave it (densified to its stored cell size
+        first, so a projected edge bends as the item's does); unchanged when the item was not moved."""
+        if self.native is None or shape is None:
+            return shape
+        from pyproj import Transformer
+        _, srid, step = self._native_box
+        move = Transformer.from_crs(f"EPSG:{srid}", f"EPSG:{self.srid}", always_xy=True)
+        return shapely.transform(shapely.segmentize(shape, step), lambda xy: np.column_stack(move.transform(xy[:, 0],
+                                                                                                            xy[:, 1])))
+
+    def footprint(self):
+        """The item's extent as a polygon in the reference it is seen in: its box, or its stored box projected."""
+        return self.box() if self.native is None else self.project(self._native_box[0])
 
     @property
     def right(self):
@@ -506,6 +542,9 @@ def read(value, tool="Raster"):
     candidates = [i for i in candidates if i["OBJECTID"] in sources]
     if not candidates:
         raise ExecuteError(f"ERROR 001000: {name} has no raster items to read" + (" where the query selects." if where else "."))
+    # An item in another reference is seen in the mosaic's, on GDAL's default warp grid (ADR-230 condition 4).
+    for source in sources.values():
+        source.to(rec.srid)
 
     # The cell size of the read: the layer's, the mosaic's, or the finest item's (INFERRED, §5.9 (e)).
     finest = min(candidates, key=lambda i: (sources[i["OBJECTID"]].cell, i["OBJECTID"]))
@@ -527,11 +566,6 @@ def read(value, tool="Raster"):
     if bands is None or any(sources[i["OBJECTID"]].count != bands for i in candidates):
         raise NotBuiltError(f"{tool}: items of {name} with different band counts are not built in grapy; which band of "
                             "one is which of another is a raster type's band definition (ADR-230 §5.3).")
-    for i in candidates:
-        s = sources[i["OBJECTID"]]
-        if s.srid and rec.srid and s.srid != rec.srid:
-            raise NotBuiltError(f"{tool}: item {i['OBJECTID']} is in EPSG:{s.srid} and the mosaic dataset in "
-                                f"EPSG:{rec.srid}; projecting items on the fly is not built in grapy.")
 
     # The extent: the layer's template, else the boundary's envelope, else the items' (INFERRED).
     if view is not None and view.extent is not None:
@@ -566,6 +600,9 @@ def read(value, tool="Raster"):
     minimum = int(props.get("minimumPixelContribution") or 0)
     limit = int(props.get("maxRastersPerMosaic") or 0)
     resampling = str(props.get("defaultResamplingMethod") or "NEAREST").upper()
+    if resampling not in _RESAMPLING:
+        raise NotBuiltError(f"{tool}: resampling '{resampling}' is not one of {', '.join(_RESAMPLING)}.")
+    _WARPED.clear()
     placed = []
     for item in ordered:
         s = sources[item["OBJECTID"]]
@@ -585,6 +622,11 @@ def read(value, tool="Raster"):
             break
     if not placed:
         raise ExecuteError(f"ERROR 001000: no raster of {name} has cells in the extent read.")
+    if _WARPED:
+        AddWarning(f"{tool}: items {', '.join(map(str, sorted(_WARPED)))} of {name} are not on the cell grid read and were "
+                   f"warped onto it by {resampling} — GDAL's warper kernel (cubic convolution with a = -0.5 for CUBIC, the "
+                   "mode of the covered cells for MAJORITY), an equivalent of the method the page describes in words "
+                   "(ADR-230 condition 4).")
 
     dtype = np.dtype(PIXEL_TYPES[rec.pixel_type]) if rec.pixel_type in PIXEL_TYPES else np.result_type(
         *[p[0][0].dtype for p in placed])
@@ -675,24 +717,72 @@ def order(candidates, sources, method, order_field, order_base, ascending, area)
                                              criterion(i), i["OBJECTID"]))
 
 
+_RESAMPLING = ("NEAREST", "BILINEAR", "CUBIC", "MAJORITY")
+_WARPED: set = set()   # the items the last read warped, for its one message
+
+
+def _warp(source, item, grid, nodata, clip_footprint, resampling):
+    """An item warped onto the read's grid by GDAL (rasterio.warp.reproject): its bands as float64 with NoData as NaN,
+    so that a kernel leaves NoData cells out; its footprint and BLEND weights by nearest. Integer bands are rounded back
+    to their type."""
+    from rasterio.enums import Resampling
+    from rasterio.transform import from_origin
+    from rasterio.warp import reproject
+    kernel = {"NEAREST": Resampling.nearest, "BILINEAR": Resampling.bilinear, "CUBIC": Resampling.cubic,
+              "MAJORITY": Resampling.mode}[resampling]
+    if source.native is not None:
+        transform, crs, columns, rows = source.native
+    else:
+        transform, crs = from_origin(source.left, source.top, source.width, source.height), None
+        columns, rows = source.columns, source.rows
+    crs = crs or (f"EPSG:{source.srid}" if source.srid else (f"EPSG:{grid.srid}" if grid.srid else None))
+    target = f"EPSG:{grid.srid}" if grid.srid else crs
+    arrays, masks = source.read()
+    masks = apply_nodata(arrays, masks, nodata)
+
+    def onto(array, how, fill=np.nan):
+        out = np.full((grid.rows, grid.columns), fill, np.float64)
+        reproject(np.ascontiguousarray(array, np.float64), out, src_transform=transform, src_crs=crs,
+                  dst_transform=grid.transform(), dst_crs=target, resampling=how, src_nodata=np.nan,
+                  dst_nodata=np.nan)
+        return out
+
+    footprint = onto(np.ones((rows, columns)), Resampling.nearest)
+    cover = footprint == 1
+    if not cover.any():
+        return None, None, None, None
+    if clip_footprint and item["shape"] is not None:
+        from rasterio.features import geometry_mask
+        cover &= ~geometry_mask([item["shape"]], out_shape=(grid.rows, grid.columns), transform=grid.transform())
+    r, c = np.indices((rows, columns))
+    inside = np.minimum(np.minimum(r, rows - 1 - r), np.minimum(c, columns - 1 - c))
+    weight = np.nan_to_num(onto(np.minimum(inside + 1, 64).astype(np.float64), Resampling.nearest))
+    values, valid = [], []
+    for a, m in zip(arrays, masks):
+        warped = onto(np.where(m, np.nan, a.astype(np.float64)), kernel)
+        ok = np.isfinite(warped) & cover
+        filled = np.where(ok, warped, 0.0)
+        if np.issubdtype(a.dtype, np.integer):
+            info = np.iinfo(a.dtype)
+            filled = np.clip(np.rint(filled), info.min, info.max)
+        values.append(filled.astype(a.dtype))
+        valid.append(ok)
+    _WARPED.add(item["OBJECTID"])
+    return values, valid, cover, weight
+
+
 def _place(source, item, grid, nodata, clip_footprint, resampling, tool):
-    """An item's bands on the read's grid: (values, valid masks, covered cells, BLEND weights). A coarser item whose
-    cell is a whole multiple of the grid's is repeated, which is NEAREST; any other resampling or alignment is refused.
-    A cell's BLEND weight is its distance inside its item, counted in the item's own cells, plus one, up to 64 — the
-    server's weighting (ADR-158)."""
+    """An item's bands on the read's grid: (values, valid masks, covered cells, BLEND weights). An item in the read's
+    reference whose cell is a whole multiple of the grid's, corners on it, read by NEAREST, is repeated — exact; any
+    other is warped (``_warp``, ADR-230 condition 4). A cell's BLEND weight is its distance inside its item, counted in
+    the item's own cells, plus one, up to 64 — the server's weighting (ADR-158)."""
     kx, ky = source.width / grid.width, source.height / grid.height
-    if not (np.isclose(kx, round(kx)) and np.isclose(ky, round(ky))) or round(kx) < 1 or round(ky) < 1:
-        raise NotBuiltError(f"{tool}: item {item['OBJECTID']}'s cell size ({source.width} by {source.height}) is not a "
-                            f"whole multiple of the cell size read ({grid.width} by {grid.height}); resampling it is not "
-                            "built in grapy (ADR-230 §5.3).")
-    kx, ky = int(round(kx)), int(round(ky))
-    if (kx > 1 or ky > 1) and resampling != "NEAREST":
-        raise NotBuiltError(f"{tool}: item {item['OBJECTID']} is coarser than the cell size read, and {resampling} "
-                            "resampling is not built in grapy; NEAREST is, exactly (ADR-230 §5.3).")
     fx, fy = (source.left - grid.left) / grid.width, (grid.top - source.top) / grid.height
-    if not (np.isclose(fx, round(fx)) and np.isclose(fy, round(fy))):
-        raise NotBuiltError(f"{tool}: item {item['OBJECTID']}'s cells do not line up with the mosaic's grid; resampling "
-                            "it is not built in grapy (ADR-230 §5.3).")
+    on_grid = (source.native is None and np.isclose(kx, round(kx)) and np.isclose(ky, round(ky)) and round(kx) >= 1
+               and round(ky) >= 1 and np.isclose(fx, round(fx)) and np.isclose(fy, round(fy)))
+    if not on_grid or (resampling != "NEAREST" and (round(kx) > 1 or round(ky) > 1)):
+        return _warp(source, item, grid, nodata, clip_footprint, resampling)
+    kx, ky = int(round(kx)), int(round(ky))
     column0, row0 = int(round(fx)), int(round(fy))
     arrays, masks = source.read()
     masks = apply_nodata(arrays, masks, nodata)
@@ -817,7 +907,7 @@ class Described:
         shapes = [i["shape"] for i in catalog if i["shape"] is not None]
         whole = rec.boundary if rec.boundary is not None else (shapely.union_all(shapes) if shapes else None)
         self.extent = Extent(*whole.bounds, self.spatialReference) if whole is not None and not whole.is_empty else None
-        sources = [s for s in (source_of(i.get("Raster")) for i in catalog) if s is not None]
+        sources = [s.to(rec.srid) for s in (source_of(i.get("Raster")) for i in catalog) if s is not None]
         self.bandCount = rec.bands or (sources[0].count if sources else 0)
         finest = min(sources, key=lambda s: s.cell) if sources else None
         self.meanCellWidth = finest.width if finest else None
