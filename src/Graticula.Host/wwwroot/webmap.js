@@ -693,7 +693,7 @@ function wmDrawBaseList() {
     const drawable = !!held;
     const name = entry.title || (entry.id ? String(entry.id).split("/").pop() : "") || "Basemap layer";
     const failed = held && (held.failed || (held.styleFailed && !held.loaded ? held.styleFailed : ""));
-    const greyed = held && !failed && held.styleFailed ? `${held.styleFailed} Drawn in plain grey.` : "";
+    const greyed = held && !failed && held.styleFailed ? `${held.styleFailed} Drawn in plain gray.` : "";
     return `<li class="${on && drawable && !failed ? "" : "off"}">
       <div class="lhead">
         <input type="checkbox" id="base-${index}" data-act="baseVisible" data-base="${index}" data-focus="base:${index}"
@@ -1613,7 +1613,7 @@ function wmDrawLayerList() {
       ${state.text ? `<div class="lstate ${state.tone}">${wmEscape(state.text)}</div>` : ""}
       ${readable && wmTimeNarrowed(layer) ? `<div class="lstate">Time: only features ${wmEscape(wmTimeBetween())}.</div>` : ""}
       ${readable && kind === "feature" && !run.ownStyle
-        ? `<div class="lstate">Drawn in one colour: its document names no renderer this viewer reads.</div>` : ""}
+        ? `<div class="lstate">Drawn in one color: its document names no renderer this viewer reads.</div>` : ""}
       <div class="lctl">
         <label class="lkind" for="op-${wmEscape(key)}">Opacity</label>
         <input type="range" id="op-${wmEscape(key)}" min="0" max="100" step="5" value="${opacity}"
@@ -1730,14 +1730,14 @@ function wmStyleMarkup(layer, run, key, title) {
     <label class="lkind" for="styHow-${k}">Style</label>
     <select id="styHow-${k}" data-style-how="${k}" data-focus="styHow:${k}">
       ${option("default", "The layer's own style", how)}
-      ${option("single", "One colour", how)}
-      ${texts.length ? option("unique", "A colour per value", how) : ""}
-      ${numbers.length ? option("breaks", "Counts and amounts (colour)", how) : ""}
+      ${option("single", "One color", how)}
+      ${texts.length ? option("unique", "A color per value", how) : ""}
+      ${numbers.length ? option("breaks", "Counts and amounts (color)", how) : ""}
       ${numbers.length && /Point/.test(geometry) ? option("size", "Counts and amounts (size)", how) : ""}
       ${/Point/.test(geometry) ? option("heat", "Heat map", how) : ""}
     </select>
     ${how === "single" ? `<div class="row">
-      <label class="lkind" for="styColour-${k}">Colour</label>
+      <label class="lkind" for="styColour-${k}">Color</label>
       <input type="color" id="styColour-${k}" value="${wmEscape(draft.colour || "#1f5fa8")}">
       <label class="lkind" for="stySize-${k}">${/Point/.test(geometry) ? "Size" : "Width"}</label>
       <input type="number" id="stySize-${k}" min="0.5" max="40" step="0.5" style="width:5em"
@@ -1760,7 +1760,7 @@ function wmStyleMarkup(layer, run, key, title) {
         ${option("esriClassifyEqualInterval", "Equal interval", draft.method)}
         ${option("esriClassifyQuantile", "Quantile", draft.method)}
       </select>
-      <label class="lkind" for="styRamp-${k}">Colours</label>
+      <label class="lkind" for="styRamp-${k}">Colors</label>
       <select id="styRamp-${k}">
         ${Object.entries(WM_RAMPS).map(([name, ramp]) => option(name, ramp.label, draft.ramp)).join("")}
       </select>
@@ -1768,7 +1768,7 @@ function wmStyleMarkup(layer, run, key, title) {
     ${how === "size" ? `<div class="row">
       <label class="lkind" for="styField-${k}">Field</label>
       <select id="styField-${k}">${numbers.map(f => option(f.name, f.alias || f.name, draft.field)).join("")}</select>
-      <label class="lkind" for="styColour-${k}">Colour</label>
+      <label class="lkind" for="styColour-${k}">Color</label>
       <input type="color" id="styColour-${k}" value="${wmEscape(draft.colour || "#1f5fa8")}">
     </div>
     <div class="row">
@@ -1876,7 +1876,7 @@ function wmPopupPanel(layer, run, key, title) {
   const textMode = !!(popup && popup.description);
 
   return `<div class="lstyle ${textMode ? "popmode-text" : "popmode-fields"}" id="pop-${k}">
-    <p class="lsnote">${popup ? "Customised for this map." : "Showing every field (the default)."}</p>
+    <p class="lsnote">${popup ? "Customized for this map." : "Showing every field (the default)."}</p>
     <label class="check"><input type="checkbox" id="popOn-${k}"${enabled ? " checked" : ""}> Show a pop-up when a feature is clicked</label>
     <label class="lkind" for="popTitle-${k}">Title — a field in braces is its value, as {${wmEscape((fields[0] || {}).name || "name")}}</label>
     <input type="text" id="popTitle-${k}" value="${wmEscape((popup && popup.title) || "")}" placeholder="${wmEscape(title)}">
@@ -1915,7 +1915,7 @@ function wmPopupPanel(layer, run, key, title) {
       <button class="tiny" data-act="popupApply" data-layer="${k}" data-focus="popupApply:${k}">Apply to this map</button>
       ${popup ? `<button class="tiny" data-act="popupReset" data-layer="${k}" data-focus="popupReset:${k}">Every field again</button>` : ""}
     </div>
-    <p class="lsnote" id="popSays-${k}" role="status" aria-live="polite">${wmEscape(run.popupSaid || "")}</p>
+    <p class="lsnote" id="popSays-${k}">${wmEscape(run.popupSaid || "")}</p>
   </div>`;
 }
 
@@ -2820,7 +2820,7 @@ async function wmIdentify(coordinate) {
     && layer.popupEnabled !== false && (wmRuntime.get(layer) || {}).status === "ok");
   if (layers.length === 0 && pixels.length === 0 && candidates.length > 0) {
     const heat = candidates[0];
-    wmSay(`${heat.title} is a heat map, which shows density, not single features. To click one, set its Style to One colour.`);
+    wmSay(`${heat.title} is a heat map, which shows density, not single features. To click one, set its Style to One color.`);
     return;
   }
 
@@ -4029,6 +4029,9 @@ async function wmStart() {
   await wmOpen(wmState.doc);
   wmSay(document.body.classList.contains("reader")
     ? "A new, empty map. Sign in to Studio to add layers to it."
+    // On a phone the Layers sheet is closed, so the sentence names the way to it (design review 2026-10-31).
+    : WM_PHONE.matches
+    ? "A new, empty map. Open Layers, then Add layer to list the services you can read."
     : "A new, empty map. Add layer lists the services you can read.");
 }
 
@@ -4296,7 +4299,7 @@ function wmLabelPanel(layer, run, key) {
       <label class="lkind" for="labSize-${k}">Size (pt)</label>
       <input type="number" id="labSize-${k}" min="6" max="36" step="1" value="${label ? label.size : 10}" style="width:5em"
         data-act="labelsApply" data-layer="${k}" data-focus="labSize:${k}">
-      <label class="lkind" for="labColour-${k}">Colour</label>
+      <label class="lkind" for="labColour-${k}">Color</label>
       <input type="color" id="labColour-${k}" value="${wmHex(symbol.color, "#1f2933")}"
         data-act="labelsApply" data-layer="${k}" data-focus="labColour:${k}">
       <label class="check"><input type="checkbox" id="labHalo-${k}"${!raw || Number(symbol.haloSize) > 0 ? " checked" : ""}
@@ -4970,8 +4973,8 @@ function wmStartAdding(layer) {
   const bar = wm$("sketchBar");
   bar.hidden = false;
   wm$("sketchSays").textContent = type === "Point"
-    ? `New feature of ${layer.title}: click the map, or place it at the centre.`
-    : `New feature of ${layer.title}: click the map for each point, or place them at the centre; Finish when done.`;
+    ? `New feature of ${layer.title}: click the map, or place it at the center.`
+    : `New feature of ${layer.title}: click the map for each point, or place them at the center; Finish when done.`;
   wm$("sketchUndo").hidden = type === "Point";
   wm$("sketchFinish").hidden = type === "Point";
   wm$("sketchFinish").disabled = true;

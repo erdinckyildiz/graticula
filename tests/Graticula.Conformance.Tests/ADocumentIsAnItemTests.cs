@@ -258,4 +258,105 @@ public sealed class ADocumentIsAnItemTests : ArcGisClient
             }
         }
     }
+
+    /// <summary>
+    /// D-321: a document keeps a picture its owner gives it, as a Portal item does — through Studio's API and through the
+    /// portal's update, served to whoever may open the document and named as the item's <c>thumbnail</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_document_keeps_the_thumbnail_its_owner_gives_it()
+    {
+        string root = await RequireServerAsync();
+        string? admin = await TokenAsync(root);
+        Assert.False(admin is null, "No administrator credential; set the suite's user and password.");
+
+        string user = Uri.EscapeDataString(Environment.GetEnvironmentVariable("GRATICULA_TEST_USER") ?? "root");
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 1, 2, 3];
+        byte[] jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0];
+        string? id = null;
+
+        static MultipartFormDataContent Picture(byte[] bytes, string part = "file", string name = "cover.png")
+        {
+            MultipartFormDataContent form = new();
+            ByteArrayContent file = new(bytes);
+            file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            form.Add(file, part, name);
+            return form;
+        }
+
+        try
+        {
+            (HttpStatusCode made, string madeBody, _) = await SendAsync(
+                root, admin, HttpMethod.Post, "/content/documents", Upload(Pdf, $"report-{tag}.pdf", $"zz report {tag}"));
+            Assert.True(made == HttpStatusCode.Created, $"Filing a PDF answered {(int)made}: {madeBody}");
+            JsonElement document = JsonDocument.Parse(madeBody).RootElement;
+            id = document.GetProperty("id").GetString()!;
+            Assert.Equal(JsonValueKind.Null, document.GetProperty("thumbnail").ValueKind);
+
+            (_, string before, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
+            Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(before).RootElement.GetProperty("thumbnail").ValueKind);
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail")).Status);
+
+            // What is not a picture is refused by its bytes, whatever it is called; past 1 MB by its size.
+            (HttpStatusCode notPicture, string why, _) = await SendAsync(
+                root, admin, HttpMethod.Put, $"/content/documents/{id}/thumbnail", Picture(Pdf, name: "cover.png"));
+            Assert.True(notPicture == HttpStatusCode.UnsupportedMediaType, $"A PDF as a thumbnail answered {(int)notPicture}: {why}");
+
+            byte[] large = new byte[(1 << 20) + 1];
+            png.CopyTo(large, 0);
+            (HttpStatusCode tooLarge, string said, _) = await SendAsync(
+                root, admin, HttpMethod.Put, $"/content/documents/{id}/thumbnail", Picture(large));
+            Assert.True(tooLarge == HttpStatusCode.RequestEntityTooLarge, $"A picture past 1 MB answered {(int)tooLarge}: {said}");
+
+            // Studio's way.
+            (HttpStatusCode set, string setBody, _) = await SendAsync(
+                root, admin, HttpMethod.Put, $"/content/documents/{id}/thumbnail", Picture(png));
+            Assert.True(set == HttpStatusCode.OK, $"Setting a thumbnail answered {(int)set}: {setBody}");
+            Assert.Equal($"/content/documents/{id}/thumbnail", JsonDocument.Parse(setBody).RootElement.GetProperty("thumbnail").GetString());
+
+            (HttpStatusCode got, _, HttpResponseMessage shown) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail");
+            Assert.Equal(HttpStatusCode.OK, got);
+            Assert.Equal("image/png", shown.Content.Headers.ContentType?.MediaType);
+            Assert.Contains("nosniff", shown.Headers.GetValues("X-Content-Type-Options"));
+            Assert.Equal(png, await shown.Content.ReadAsByteArrayAsync());
+
+            // The portal names it and serves it, as it does a web map's.
+            (_, string item, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
+            string? named = JsonDocument.Parse(item).RootElement.GetProperty("thumbnail").GetString();
+            Assert.Equal("thumbnail/thumbnail.png", named);
+            (HttpStatusCode portal, _, HttpResponseMessage portalPicture) = await SendAsync(
+                root, admin, HttpMethod.Get, $"/sharing/rest/content/items/{id}/info/{named}");
+            Assert.Equal(HttpStatusCode.OK, portal);
+            Assert.Equal(png, await portalPicture.Content.ReadAsByteArrayAsync());
+
+            // ArcGIS's way: item.update(thumbnail=...), a file part named 'thumbnail'.
+            MultipartFormDataContent update = Picture(jpeg, "thumbnail", "cover.jpg");
+            update.Add(new StringContent("json"), "f");
+            (_, string updated, _) = await SendAsync(root, admin, HttpMethod.Post, $"/sharing/rest/content/users/{user}/items/{id}/update", update);
+            Assert.True(updated.Contains("\"success\":true", StringComparison.Ordinal), $"The portal's update answered: {updated}");
+            (_, _, HttpResponseMessage replaced) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail");
+            Assert.Equal("image/jpeg", replaced.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(jpeg, await replaced.Content.ReadAsByteArrayAsync());
+
+            // Removed, it is the kind's tile again: no thumbnail named, none served.
+            (HttpStatusCode removed, string removedBody, _) = await SendAsync(root, admin, HttpMethod.Delete, $"/content/documents/{id}/thumbnail");
+            Assert.True(removed == HttpStatusCode.OK, $"Removing the thumbnail answered {(int)removed}: {removedBody}");
+            Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(removedBody).RootElement.GetProperty("thumbnail").ValueKind);
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail")).Status);
+            (_, string after, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
+            Assert.Equal(JsonValueKind.Null, JsonDocument.Parse(after).RootElement.GetProperty("thumbnail").ValueKind);
+
+            // Anonymous: a private document's picture is as unreadable as its file.
+            await SendAsync(root, admin, HttpMethod.Put, $"/content/documents/{id}/thumbnail", Picture(png));
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(root, null, HttpMethod.Get, $"/content/documents/{id}/thumbnail")).Status);
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await SendAsync(root, admin, HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
 }

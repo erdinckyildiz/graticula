@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(116);
+    public static SchemaVersion ComponentSchemaVersion => new(121);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -150,6 +150,7 @@ public static class PlatformMigrations
         AServiceAccountHoldsClientSecretsV113,
         ABuiltInAppIsEveryOrganisationsV115,
         AServiceIsFoundByAStoredKeyV116,
+        ADocumentKeepsAPictureV121,
     ]);
 
     /// <summary>
@@ -179,6 +180,26 @@ public static class PlatformMigrations
         "drop policy if exists builtin_apps_are_everyones on oauth_app",
 
         "create policy builtin_apps_are_everyones on oauth_app for select using (builtin)");
+
+    /// <summary>
+    /// A document keeps a picture its owner gave it, as Portal's items do — D-321.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Numbered 121, not 117</b>: 117 to 120 were handed to branches built beside this one on 2026-10-31, and the set
+    /// orders by number rather than requiring every number, so the merge keeps all of them in order.
+    /// </para>
+    /// <para>
+    /// <b>Beside the file, in <c>document</c>, not on <c>item</c></b>: a web map keeps its picture on <c>web_map</c>
+    /// (migration 74) and a service draws its own, so the item table has no picture column for this to share.
+    /// </para>
+    /// <para><b>Expand.</b> A nullable column; a build before this one never reads it.</para>
+    /// </remarks>
+    private static Migration ADocumentKeepsAPictureV121 => Migration.Expand(
+        new SchemaVersion(121),
+        "A document keeps a picture its owner gave it (D-321).",
+
+        "alter table document add column if not exists thumbnail bytea");
 
     /// <summary>
     /// A service is found by a stored key, so the lookup every request makes keeps its index under the tenant floor —
