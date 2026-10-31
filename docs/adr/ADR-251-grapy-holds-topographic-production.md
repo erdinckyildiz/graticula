@@ -268,4 +268,10 @@ None recorded.
    CalculateMagneticComponents, GenerateExcelFromGeodatabase's workbook, LoadData through a cross-reference, and
    IdentifyContours' codes — where the page fixes the answer, grapy's must match it.
 3. **WMM2030 bundled** when NOAA publishes it, before 2030.0: a date from 2030.0 is an error by the
-   five-year validity of WMM2025, as long as no later model is bundled.
+   five-year validity of WMM2025, as long as no later model is bundled. *(Read 2026-10-31: this is a date, not
+   work. NOAA and BGS publish each World Magnetic Model near the end of the one before it, as WMM2025 came out in
+   December 2024, so WMM2030 is not expected before late 2029, and nothing can be bundled until then. The
+   behaviour until then is held by a test: `_topo_prod_wmm.model_for` refuses a date no bundled model covers, and
+   `test_topographic_relief.test_the_model_follows_the_epoch` asserts that 2031.0 is refused; it passed on this
+   branch, 21 tests, OK. Proposal for the owner: make this a standing trigger rather than a live condition, or
+   move it to a debt row whose trigger is NOAA's publication.)*
