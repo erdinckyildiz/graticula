@@ -86,6 +86,21 @@ public sealed class PlatformStoreRoleTests
         }
     }
 
+    /// <summary>
+    /// The startup refusal: several organisations over a role the floor does not bind, and nothing else. One organisation
+    /// over a superuser is every deployment shipped before 2026-10-19 and must still start; a database that would not say
+    /// is not a reason to stop.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 2, true)]
+    [InlineData(false, 7, true)]
+    [InlineData(false, 1, false)]
+    [InlineData(true, 7, false)]
+    [InlineData(null, 7, false)]
+    public void A_server_refuses_to_start_only_over_several_organisations_and_an_unbound_role(
+        bool? bound, int organisations, bool refused) =>
+        Assert.Equal(refused, PlatformStoreRole.RefusesToServe(bound, organisations));
+
     private static async Task<(bool? Bound, List<string> Said)> ReportAsync(string connection)
     {
         Recorder recorder = new();

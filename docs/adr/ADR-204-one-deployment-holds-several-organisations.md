@@ -707,8 +707,22 @@ own.
    `graticula_serving` (every datastore layer answered as it does on the live showcase, no permission refused), then
    the real store handed over — `gisserver` and `hosted` the role's, the `showcase` schema granted to it — and the
    server restarted on it through the VPS's `compose.override.yaml`; `compose.yaml` itself is unchanged, as decided.
-   **What remains of this condition is `compose.yaml` for everyone else**, which switches with the first second
-   organisation on a deployment.
+   ~~**What remains of this condition is `compose.yaml` for everyone else**, which switches with the first second
+   organisation on a deployment.~~
+   **DISCHARGED 2026-10-31.** *The refusal at startup:* the handshake counts the store's organisations and, with more
+   than one over a role `rolsuper` or `rolbypassrls` says is not bound, logs event 1095 (critical) and exits 1 —
+   measured on a fixture served as a bound role: an organisation made, the same build restarted as the superuser
+   `gis`, and it stopped with 1095 and exit 1; before this the handshake only warned (1094) and went on to serve
+   (`PlatformStoreRole.RefusesToServe`, held by
+   `A_server_refuses_to_start_only_over_several_organisations_and_an_unbound_role`). It closes the one route the
+   endpoint's refusal left: a store that already holds several organisations reached as a superuser later — a lost
+   override file, a rolled-back serving role. *`compose.yaml` for everyone else:* the server connects as
+   `${GIS_SERVING_ROLE:-gis}` with `${GIS_SERVING_PASSWORD}`, so the switch the owner tied to a deployment's first
+   second organisation is two lines in `.env` after the handover, not an edit of the file; unset, nothing changes for
+   an existing volume. `Graticula__MaintenanceStore` is the superuser always, so backup and restore keep working after
+   the switch. *The deployment guide* §0.3 gives the handover as three `docker compose` commands and says what the
+   server now refuses. **Not run here:** the compose file itself — this machine has no Docker; the interpolation is
+   the Compose specification's nested default, and CI's quickstart rehearsal runs the unset path on its next push.
 10. **The reach tables are kept by triggers that run as a role the floor does not bind**, and tested by sharing
     across tenants as a member who belongs to only one of them — the case that left them empty in the prototype.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's

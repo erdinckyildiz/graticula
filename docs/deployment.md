@@ -193,9 +193,30 @@ PGOPTIONS="-c graticula.serving_role=graticula" psql -d gis -v ON_ERROR_STOP=1 -
 schemas — a registered source's, the organisation's own — keep their owners; grant the new role what it reads.
 Measured on a deployment built entirely as a superuser and then handed over: the same 853 and the same 10.
 
-**`compose.yaml` still connects as the datastore image's superuser.** A volume made before the image creates a
-serving role has none, so changing the default would stop every existing deployment that pulls the new image; the
-switch is waiting on that decision, recorded in ADR-204 condition 9.
+**With `compose.yaml`, the switch is two variables** — and it is not made for you. Unset, the server connects as
+the datastore image's superuser, as every compose deployment did before 2026-10-31: a volume made before then has no
+serving role, so a default that named one would stop every existing deployment that pulled a new image. The owner's
+decision of 2026-10-19 is that the switch comes **with a deployment's first second organisation, not before**
+(ADR-204 condition 9), and the server holds the line itself: it will not make a second organisation over a superuser
+connection, and it will not *start* over a store that already holds several (event 1095, critical) — so a serving
+role lost in an upgrade stops the server instead of letting every organisation read every other's rows.
+
+```bash
+docker compose run --rm server backup                          # first
+docker compose stop server
+docker compose exec datastore psql -U gis -d gis   -c "CREATE ROLE graticula LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '…'"
+docker compose exec -T -e PGOPTIONS="-c graticula.serving_role=graticula" datastore   psql -U gis -d gis -v ON_ERROR_STOP=1 -f - < tools/serving-role.sql
+# then, in .env beside compose.yaml:
+#   GIS_SERVING_ROLE=graticula
+#   GIS_SERVING_PASSWORD=…
+docker compose up -d server                                    # no warning 1094 in its log now
+```
+
+`compose.yaml` also sets `Graticula__MaintenanceStore` to the superuser, always — while the server is itself the
+superuser that changes nothing, and after the switch it is what lets `backup`, `restore` and the backup `migrate
+--apply` takes do what the serving role may not. **A schema the server did not make** — a registered source's, a
+customer's — needs `GRANT USAGE` and `SELECT` to the serving role, or that source's layers answer *permission denied*;
+the showcase's own `showcase` schema was the one its handover found (ADR-204 condition 9).
 
 ---
 
