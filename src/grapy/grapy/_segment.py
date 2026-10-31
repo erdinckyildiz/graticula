@@ -81,6 +81,8 @@ def _mean_shift(colours, mask, hs, hr, iterations=20):
     valid = ~mask
     py, px = yy[valid].astype(np.float64), xx[valid].astype(np.float64)
     pc = colours[valid].astype(np.float64)
+    table = colours.reshape(rows * columns, k).astype(np.float64)   # neighbours read by flat index (D-333)
+    usable = valid.ravel()
     radius = int(np.floor(hs))
     offsets = [(dy, dx) for dy in range(-radius, radius + 1) for dx in range(-radius, radius + 1)
                if dy * dy + dx * dx <= hs * hs]
@@ -97,10 +99,11 @@ def _mean_shift(colours, mask, hs, hr, iterations=20):
             ny, nx = ry + dy, rx + dx
             inside = (ny >= 0) & (ny < rows) & (nx >= 0) & (nx < columns)
             ny, nx = np.where(inside, ny, 0), np.where(inside, nx, 0)
-            take = inside & valid[ny, nx]
+            flat = ny * columns + nx
+            take = inside & usable[flat]
             # In space the window is round the point's own position, not the pixel it rounds to.
             take &= (ny - cy) ** 2 + (nx - cx) ** 2 <= hs * hs
-            neighbour = colours[ny, nx].astype(np.float64)
+            neighbour = table[flat]
             take &= ((neighbour - cc) ** 2).sum(axis=1) <= hr * hr
             sy += np.where(take, ny, 0)
             sx += np.where(take, nx, 0)
@@ -157,17 +160,21 @@ def _region_means(labels, colours):
 
 
 def _adjacent(labels):
-    """Each region's set of 4-neighbouring regions."""
-    pairs = set()
+    """Each region's set of 4-neighbouring regions: the distinct pairs found by numpy, not a Python set per pixel
+    (D-333; the same sets)."""
+    firsts, seconds = [], []
     for x, y in ((labels[:, :-1], labels[:, 1:]), (labels[:-1, :], labels[1:, :])):
         keep = (x != y) & (x > 0) & (y > 0)
-        for p, q in zip(x[keep].tolist(), y[keep].tolist()):
-            pairs.add((p, q))
-            pairs.add((q, p))
-    near = {}
-    for p, q in pairs:
-        near.setdefault(p, set()).add(q)
-    return near
+        firsts += [x[keep], y[keep]]
+        seconds += [y[keep], x[keep]]
+    p = np.concatenate(firsts).astype(np.int64) if firsts else np.zeros(0, np.int64)
+    if not p.size:
+        return {}
+    span = int(labels.max()) + 1
+    key = np.unique(p * span + np.concatenate(seconds).astype(np.int64))
+    p, q = key // span, key % span
+    cuts = np.flatnonzero(np.diff(p)) + 1
+    return {int(a[0]): set(b.tolist()) for a, b in zip(np.split(p, cuts), np.split(q, cuts))}
 
 
 def _renumber(labels):
