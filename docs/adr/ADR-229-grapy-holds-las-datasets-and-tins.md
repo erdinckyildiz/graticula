@@ -175,13 +175,13 @@ fails by name past it (segments meeting at very small angles are the known case)
      BOUNDING_BOX_2D axis-aligned, the concave hull the alpha shape of the Delaunay triangles whose circumradius is at
      most the radius.
    - (s) *Added 2026-10-31 with condition 6, after Q-196 was answered, and not covered by that answer: INFERRED and
-     asked in [Q-223](../open-questions.md) (a).*
+     asked in [Q-223](../open-questions.md) (a).* **Confirmed 2026-10-31 by owner decision in Q-223** (*"Hepsini onayla"*).
      LandXMLToTin: each TIN is `<basename><surface name>` (characters outside letters, digits and `_` dropped), or
      `<basename><position>` for an unnamed surface; it is stored as its points (mass points) and visible faces (a hard
      clip), so EditTin re-triangulates the same faces; the reference is `CoordinateSystem/@epsgCode`; `SourceData`
      breaklines and boundaries are not read, the faces already holding them; an existing target writes nothing, with a
      warning.
-   - (t) *Added 2026-10-31, likewise: INFERRED, [Q-223](../open-questions.md) (b).* SurfaceDifference: the raster cell size defaults to TinRaster's OBSERVATIONS
+   - (t) *Added 2026-10-31, likewise: INFERRED, [Q-223](../open-questions.md) (b).* **Confirmed 2026-10-31 by owner decision in Q-223** (*"Hepsini onayla"*). SurfaceDifference: the raster cell size defaults to TinRaster's OBSERVATIONS
      250; one output TIN, grapy having no node limit; heights within 1e-9 of the z span are the same (Code 0);
      `extent` and `boundary` clip the polygons. TinDifference writes SurfaceDifference's `Volume`, `SArea` and `Code`,
      its own page naming no fields.
@@ -286,5 +286,5 @@ None recorded.
    (`_tindiff`): `test_tin.LandXmlAndDifference` reads a LandXML 1.2 surface whose faces become the TIN's triangles
    and whose invisible face is outside the data area, and SurfaceDifference of z = y against z = x gives ±1 polygons
    of area 50, volume 1000/6 and input surface area 50√2 each, the hand integrals; equal surfaces give Code 0 over
-   their overlap only. INFERRED choices are §5.9 (s) and (t), asked in [Q-223](../open-questions.md).
+   their overlap only. INFERRED choices are §5.9 (s) and (t), asked in [Q-223](../open-questions.md). **Confirmed 2026-10-31 by owner decision in Q-223** (*"Hepsini onayla"*).
 7. **The owner confirms or changes §5.9** ([Q-196](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-196 (*"Hepsini onayla"*).

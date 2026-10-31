@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` for the model, the type and topology tools, records, seeds, building, deleting, selecting, labelling, merging, duplicating, copying, appending, exporting and importing, whose pages state what each does and leave the storage and a few thresholds open (§5.8) · `HIGH` for the least-squares arithmetic on the hand-worked square of the tests, which is the published method, and — since condition 2's measurement on 2026-10-31 — for the names, codes, building, seeds, sequence, gaps and the adjustment's coordinates and corrections, which now answer as Pro 3.7 does (§5.9) · `MEDIUM` for the adjustment's precisions (within 2.5 % of Pro's) · `LOW` where Pro's order could not be pinned (the direction of a shared line, the record of a shared point) and for validation's clustering |
-| **Decided** | 2026-10-31, by owner decision *"Tamamını bitirelim artık"*: the last three group-2 modules — `arcpy.parcel` (this ADR), `arcpy.topographic` (ADR-251) and `arcpy.locref` (ADR-252) — are built, and no name of them may stay refused with a schedule; and by [ADR-224](ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) §5.7 and its condition 5: each group-2 data model has its ADR before its tools. Every storage choice and every reading of a page that does not say is INFERRED and listed for the owner in §5.8 and [Q-220](../open-questions.md). |
+| **Decided** | 2026-10-31, by owner decision *"Tamamını bitirelim artık"*: the last three group-2 modules — `arcpy.parcel` (this ADR), `arcpy.topographic` (ADR-251) and `arcpy.locref` (ADR-252) — are built, and no name of them may stay refused with a schedule; and by [ADR-224](ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) §5.7 and its condition 5: each group-2 data model has its ADR before its tools. Every storage choice and every reading of a page that does not say is INFERRED and listed for the owner in §5.8 and [Q-220](../open-questions.md). **Confirmed 2026-10-31 by owner decision in Q-220** (*"Hepsini onayla"*). |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -130,7 +130,7 @@ that alone fails the 1.96 test, and the clockwise sequence from each corner.
    refused. GenerateParcelFabricLinks moved from refused to an equivalent: its page says the tool runs only on a
    feature service's DEFAULT version, but what it needs from there is each point's earlier location, which ADR-227's
    history holds for a GeoPackage class — refusing it would have been the convenience the owner ruled out.
-8. **INFERRED, for the owner's confirmation** ([Q-220](../open-questions.md)):
+8. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-220** (*"Hepsini onayla"*) ([Q-220](../open-questions.md)):
    - (a) **names**: the classes `<fabric>_Records`, `<fabric>_Points`, `<fabric>_Connections` (the tool page's word;
      the help says *ConnectionLines*), `<fabric>_Adjustment{Lines,Points,Vectors}`, `<type>` and `<type>_Lines` (the
      samples), the topology `<fabric>_Topology`; the tables `grapy_parcel_fabric` and `grapy_parcel_class`;
@@ -287,7 +287,7 @@ None recorded.
 
 ## 11. Conditions
 
-1. **The owner answers [Q-220](../open-questions.md)** — the INFERRED choices of §5.8.
+1. **The owner answers [Q-220](../open-questions.md)** — the INFERRED choices of §5.8. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-220 (*"Hepsini onayla"*).
 2. **Compared with ArcGIS Pro** on a file geodatabase: the three-parcel build of the tests (lines, points, the record
    of each shared line, record polygons and counts), the physical class and field names and the coded values, a
    seed's shape, the least-squares numbers on the tests' square (corrections, statistics, ellipses), the sequence

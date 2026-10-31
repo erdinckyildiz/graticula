@@ -141,7 +141,7 @@ No benchmark is at stake: these are batch tools on a sheet's data.
 6. **Units.** Linear and areal parameters take arcpy's unit words; a decimal-degree default on projected data is
    converted at 111,319.49 m per degree (the WGS 84 equator).
 7. **Messages.** The documented warnings are written with the page's words where it gives them.
-8. **INFERRED, for the owner's confirmation ([Q-221](../open-questions.md)):**
+8. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-221** (*"Hepsini onayla"*) ([Q-221](../open-questions.md)):
    - (a) storage: the cross-reference tables as GeoPackage attributes tables with `Id` an integer column beside the
      object ID, and text columns for everything else; the Version row holds `1`; the WMM files bundled as data;
    - (b) ApplyFeatureLevelMetadata: a null in the favourite is written as null; `MetadataFavoriteName`, `MetadataTokens`
@@ -263,7 +263,7 @@ None recorded.
 
 ## 11. Conditions
 
-1. **The owner answers [Q-221](../open-questions.md).**
+1. **The owner answers [Q-221](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-221 (*"Hepsini onayla"*).
 2. **The built tools compared with ArcGIS Pro** on one small dataset: CalculateMEF (the four specifications),
    CalculateMagneticComponents, GenerateExcelFromGeodatabase's workbook, LoadData through a cross-reference, and
    IdentifyContours' codes — where the page fixes the answer, grapy's must match it. *Not runnable here (checked 2026-10-31):* this machine's Pro 3.7 is ArcInfo with Spatial, Image Analyst, 3D, Network, Geostatistical and Data Reviewer; `arcpy.CheckExtension` answers `NotLicensed` for Foundation (Production Mapping) and Defense, which the topographic production tools need. The comparison needs a session with one of those licences — the owner's to provide.

@@ -131,7 +131,7 @@ correctness on hand-worked networks.
    GenerateLRRouteLog (each writes a report whose rows, columns and order no public page gives); GenerateLrsDataProduct
    (reads the Data Product Designer's template `.json`, whose schema is not published, and writes such a report).
 
-### 5.9 INFERRED, for the owner's confirmation ([Q-222](../open-questions.md))
+### 5.9 INFERRED, for the owner's confirmation ([Q-222](../open-questions.md)) — **Confirmed 2026-10-31 by owner decision in Q-222** (*"Hepsini onayla"*)
 
 - (a) **Storage**: the five `grapy_lrs*` tables and the `grapy_linear_referencing` extension; a network ID unique in the
   geodatabase, since `dLRSNetworks` is one domain per geodatabase; `dActivityType` made with no codes, none being
@@ -228,7 +228,7 @@ None recorded.
 
 ## 11. Conditions
 
-1. **The owner answers Q-222** (§5.9 (a)–(m)).
+1. **The owner answers Q-222** (§5.9 (a)–(m)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-222 (*"Hepsini onayla"*).
 2. **Apply Event Behaviors compared with ArcGIS Pro** on the Roads and Highways pages' worked examples (calibrate,
    extend, realign, retire, reverse), on a file geodatabase LRS: which outcomes agree, and each difference either
    changed to Pro's answer or recorded. Needs a Pro session with a Location Referencing licence. *Not runnable here (checked 2026-10-31):* this machine's Pro 3.7 is ArcInfo without Location Referencing (`arcpy.CheckExtension("LocationReferencing")` answers `NotLicensed`), which conditions 2–4 all need. The comparisons need a session with that licence — the owner's to provide.
