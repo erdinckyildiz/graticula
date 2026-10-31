@@ -493,21 +493,36 @@ def _classify(data, mask, grid, document, tool):
         index = _svm_vote(z, document["machines"], values)
     else:
         raise NotBuiltError(f"{tool}: the classifier '{kind}' in the definition is not one grapy trains.")
+    # ArcGIS Pro 3.7 writes each class's 0-based index in the definition as the cell value and the class value beside
+    # it in the table, Value, Classvalue, Class_name, Red, Green, Blue (measured 2026-10-31, ADR-243 condition 2).
     out = np.zeros(mask.shape, np.int32)
-    out[~mask] = np.asarray(values, dtype=np.int32)[index]
+    out[~mask] = np.asarray(index, dtype=np.int32)
     result = Raster._of(out, mask.copy(), grid)
     from ._raster import _Rat
-    present = np.unique(out[~mask])
-    names = {c["value"]: c["name"] for c in document["classes"]}
-    result._rat = _Rat([("Value", "Integer", 5), ("Count", "Integer", 1), ("ClassName", "String", 0)],
-                       [[int(v), int((out[~mask] == v).sum()), names.get(int(v), str(v))] for v in present])
+    rows = []
+    for i, c in enumerate(document["classes"]):
+        colour = c.get("color") or c.get("colour")
+        if not colour or len(colour) < 3:
+            # INFERRED: Pro gives a class without a colour a random one; grapy's is drawn from the class value.
+            colour = np.random.default_rng(int(c["value"]) & 0xFFFFFFFF).integers(0, 256, 3).tolist()
+        rows.append([i, int(c["value"]), str(c["name"]), *(int(v) for v in colour[:3])])
+    result._rat = _Rat([("Value", "Integer", 5), ("Classvalue", "Integer", 0), ("Class_name", "String", 2),
+                        ("Red", "Integer", 6), ("Green", "Integer", 7), ("Blue", "Integer", 8)], rows)
     return result
+
+
+def class_values(classified, document):
+    """The class value of each cell of ``_classify``'s answer (0 where masked)."""
+    values = np.asarray([c["value"] for c in document["classes"]], np.int64)
+    return np.where(classified._mask, 0, values[np.clip(classified._array, 0, len(values) - 1)])
 
 
 def ClassifyRaster(in_raster, in_classifier_definition, in_additional_raster=None):
     """The raster classified by a classifier definition from grapy's Train tools: each cell (with no NoData in any
-    band) is given the class its classifier's rule picks — see each Train tool. The output is integer, with an
-    attribute table of Value, Count and ClassName (INFERRED: the table's fields)."""
+    band) is given the class its classifier's rule picks — see each Train tool. As ArcGIS Pro 3.7 writes it (measured
+    2026-10-31): the cell holds the class's 0-based index among the definition's classes, and the attribute table
+    Value, Classvalue, Class_name, Red, Green and Blue (INFERRED: a class without a colour gets one drawn from its
+    value, where Pro draws a random one)."""
     tool = "ClassifyRaster"
     _refuse_environment(f"arcpy.sa.{tool}")
     document = _read_ecd(in_classifier_definition, tool)
@@ -551,7 +566,7 @@ def InspectTrainingSamples(in_raster, in_training_features, in_classifier_defini
     document = _read_ecd(in_classifier_definition, tool)
     data, mask, grid, _ = _stack(in_raster, in_additional_raster, tool)
     classified = _classify(data, mask, grid, document, tool)
-    given = np.where(classified._mask, 0, classified._array)
+    given = class_values(classified, document)
     columns = {c.name.lower(): c.name for c in _schema(in_training_features)[0]}
     if "classvalue" not in columns:
         raise ValueError(f"{tool}: the training samples need a classvalue field, as the training tools document.")
