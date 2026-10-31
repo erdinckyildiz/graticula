@@ -308,10 +308,26 @@ public sealed class EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests(ITes
         return (service, reader.GetString(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetFieldValue<byte[]>(3));
     }
 
+    /// <remarks>
+    /// <b>A deadlock is tried again</b> — CI run 41219503131 met 40P01 here: role and grant statements take
+    /// cluster-wide catalogue locks that the suite's tests running beside this one take too, and PostgreSQL resolves
+    /// the cycle by cancelling one side. The statement is repeated, not the test's verdict.
+    /// </remarks>
     private static async Task ExecuteAsync(NpgsqlDataSource dataSource, string sql)
     {
-        await using NpgsqlCommand command = dataSource.CreateCommand(sql);
-        await command.ExecuteNonQueryAsync();
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await using NpgsqlCommand command = dataSource.CreateCommand(sql);
+                await command.ExecuteNonQueryAsync();
+                return;
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.DeadlockDetected && attempt < 5)
+            {
+                await Task.Delay(100 * attempt);
+            }
+        }
     }
 
     /// <summary>Keeps what Npgsql logs of the notices the server sends — <c>auto_explain</c>'s plans among them.</summary>
