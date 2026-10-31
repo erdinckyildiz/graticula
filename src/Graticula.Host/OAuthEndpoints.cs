@@ -4,10 +4,10 @@ using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Core.Markup;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Secrets;
@@ -296,12 +296,13 @@ internal static class OAuthEndpoints
     private static async Task Approval(HttpContext context)
     {
         string code = context.Request.Query["code"].FirstOrDefault() ?? string.Empty;
-        string safe = HtmlEncoder.Default.Encode(code);
 
         context.Response.Headers.CacheControl = "no-store";
 
-        await HtmlAsync(context, 200, $"SUCCESS code={safe}",
-            $"<h1>Signed in</h1><p>Return to the app. If it asks for a code, it is:</p><p class=\"code\">{safe}</p>"
+        // The title is text and the renderer escapes it once. It was escaped here as well until 2026-10-31, so a code
+        // carrying `&` reached the title as `&amp;amp;`; a code this server issues is base64url and never did.
+        await HtmlAsync(context, 200, $"SUCCESS code={code}",
+            Html.OfReferenced($"<h1>Signed in</h1><p>Return to the app. If it asks for a code, it is:</p><p class=\"code\">{code}</p>")
             + OAuthInfo(new Dictionary<string, object?>()),
             formTarget: null).ConfigureAwait(false);
     }
@@ -858,10 +859,8 @@ internal static class OAuthEndpoints
             MaxAge = TimeSpan.FromMinutes(15),
         });
 
-        HtmlEncoder e = HtmlEncoder.Default;
-
-        string Hidden(string name, string? value) =>
-            value is null ? string.Empty : $"<input type=\"hidden\" name=\"{name}\" value=\"{e.Encode(value)}\">";
+        static Html Hidden(string name, string? value) =>
+            value is null ? Html.Empty : Html.OfReferenced($"<input type=\"hidden\" name=\"{name}\" value=\"{value}\">");
 
         string where = string.Equals(request.RedirectUri, OAuthRules.OutOfBand, StringComparison.Ordinal)
             ? "the app on this device"
@@ -876,32 +875,35 @@ internal static class OAuthEndpoints
         // password form is the other way, said as such: the review found the filled button beneath pulling the eye
         // to the form. No autofocus then — it jumped past the provider for a keyboard or a screen reader — unless a
         // failed password brought the person back to the form.
-        string whose = directories.Count == 0
-            ? "For accounts made on this server."
-            : $"For {string.Join(" and ", directories.Select(e.Encode))} accounts and accounts made on this server.";
+        Html whose = directories.Count == 0
+            ? Html.Markup("For accounts made on this server.")
+            : Html.OfReferenced(
+                $"For {Html.Join(Html.Markup(" and "), directories.Select(Html.Referenced))} accounts and accounts made on this server.");
 
         bool several = Graticula.Platform.Tenancy.TenantScope.MultiTenant;
-        string invalid = message is null ? string.Empty : " aria-invalid=\"true\" aria-describedby=\"signinError\"";
+        Html invalid = message is null ? Html.Empty : Html.Markup(" aria-invalid=\"true\" aria-describedby=\"signinError\"");
 
         // ADR-204 §5e item 16: the name field is described by the hint under it too; the password field is not.
-        string nameInvalid = several
-            ? (message is null ? string.Empty : " aria-invalid=\"true\"")
-              + $" aria-describedby=\"{(message is null ? string.Empty : "signinError ")}signinOther\""
+        Html nameInvalid = several
+            ? Html.Markup((message is null ? string.Empty : " aria-invalid=\"true\"")
+              + $" aria-describedby=\"{(message is null ? string.Empty : "signinError ")}signinOther\"")
             : invalid;
         bool focus = !providers || message is not null;
 
-        string body =
-            $"<h1>Sign in</h1>"
-            + $"<p class=\"who\"><b>{e.Encode(app.Title)}</b> wants to sign in to <b>{e.Encode(server)}</b> as you.</p>"
-            + (providers ? ProvidersOffered(buttons, request, formToken) + "<p class=\"or\"><span>or</span></p>" : string.Empty)
+        Html body =
+            Html.Markup("<h1>Sign in</h1>")
+            + Html.OfReferenced($"<p class=\"who\"><b>{app.Title}</b> wants to sign in to <b>{server}</b> as you.</p>")
+            + (providers ? ProvidersOffered(buttons, request, formToken) + Html.Markup("<p class=\"or\"><span>or</span></p>") : Html.Empty)
             + (providers || directories.Count > 0
-                ? $"<p class=\"lead\">{(providers ? "Sign in with a name and password" : "Your name and password")}</p><p class=\"where\">{whose}</p>"
-                : string.Empty)
-            + $"<form method=\"post\" action=\"{Root}/signin\">"
-            + (message is null ? string.Empty
-                : $"<p class=\"bad\" id=\"signinError\">{e.Encode(message)}"
-                  + (providers ? $" {string.Join(" or ", buttons.Select(b => e.Encode(b.Settings.Name)))} can use the button above instead." : string.Empty)
-                  + "</p>")
+                ? Html.OfReferenced($"<p class=\"lead\">{(providers ? "Sign in with a name and password" : "Your name and password")}</p><p class=\"where\">{whose}</p>")
+                : Html.Empty)
+            + Html.OfReferenced($"<form method=\"post\" action=\"{Html.Markup(Root)}/signin\">")
+            + (message is null ? Html.Empty
+                : Html.OfReferenced($"<p class=\"bad\" id=\"signinError\">{message}")
+                  + (providers
+                      ? Html.OfReferenced($" {Html.Join(Html.Markup(" or "), buttons.Select(b => Html.Referenced(b.Settings.Name)))} can use the button above instead.")
+                      : Html.Empty)
+                  + Html.Markup("</p>"))
             + Hidden("form_token", formToken)
             + Hidden("client_id", request.ClientId)
             + Hidden("response_type", request.ResponseType)
@@ -909,14 +911,17 @@ internal static class OAuthEndpoints
             + Hidden("state", request.State)
             + Hidden("code_challenge", request.Challenge)
             + Hidden("code_challenge_method", request.ChallengeMethod)
-            + $"<label for=\"username\">Name</label><input id=\"username\" name=\"username\" autocomplete=\"username\" required"
-            + $"{(typedName is { Length: > 0 } typed ? $" value=\"{e.Encode(typed)}\"" : string.Empty)}{nameInvalid}{(focus ? " autofocus" : string.Empty)}>"
-            + (several ? OtherOrganizationHint : string.Empty)
-            + $"<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required{invalid}>"
+            + Html.Markup("<label for=\"username\">Name</label><input id=\"username\" name=\"username\" autocomplete=\"username\" required")
+            + (typedName is { Length: > 0 } typed ? Html.OfReferenced($" value=\"{typed}\"") : Html.Empty)
+            + nameInvalid
+            + (focus ? Html.Markup(" autofocus") : Html.Empty)
+            + Html.Markup(">")
+            + (several ? Html.Markup(OtherOrganizationHint) : Html.Empty)
+            + Html.OfReferenced($"<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required{invalid}>")
             // ADR-201: the second step, for an account that has one.
-            + $"<label for=\"code\">Code <span class=\"small\">(only if your account asks for one)</span></label><input id=\"code\" name=\"code\" inputmode=\"numeric\" autocomplete=\"one-time-code\">"
-            + $"<button type=\"submit\"{(providers ? " class=\"second\"" : string.Empty)}>{(providers ? "Sign in with password" : "Sign in")}</button></form>"
-            + $"<p class=\"where small\">You will be returned to <code>{e.Encode(where)}</code>.</p>"
+            + Html.Markup("<label for=\"code\">Code <span class=\"small\">(only if your account asks for one)</span></label><input id=\"code\" name=\"code\" inputmode=\"numeric\" autocomplete=\"one-time-code\">")
+            + Html.Markup($"<button type=\"submit\"{(providers ? " class=\"second\"" : string.Empty)}>{(providers ? "Sign in with password" : "Sign in")}</button></form>")
+            + Html.OfReferenced($"<p class=\"where small\">You will be returned to <code>{where}</code>.</p>")
             + OAuthInfo(new Dictionary<string, object?>
             {
                 ["oauth_state"] = oauthState,
@@ -940,10 +945,8 @@ internal static class OAuthEndpoints
     /// <see cref="ExternalAsync"/> accepts it only beside this page's <c>SameSite=Strict</c> cookie, which a link
     /// from anywhere else does not bring.
     /// </remarks>
-    private static string ProvidersOffered(IReadOnlyList<IdentityProvider> buttons, Request request, string formToken)
+    private static Html ProvidersOffered(IReadOnlyList<IdentityProvider> buttons, Request request, string formToken)
     {
-        HtmlEncoder e = HtmlEncoder.Default;
-
         string Query(Guid provider) => string.Join("&",
             new (string Key, string? Value)[]
             {
@@ -954,10 +957,10 @@ internal static class OAuthEndpoints
             .Where(p => p.Value is not null)
             .Select(p => $"{p.Key}={Uri.EscapeDataString(p.Value!)}"));
 
-        return "<ul class=\"providers\">"
-            + string.Concat(buttons.Select(p =>
-                $"<li><a href=\"{Root}/external?{e.Encode(Query(p.Id))}\">Sign in with {e.Encode(p.Settings.Name)}</a></li>"))
-            + "</ul>";
+        return Html.Markup("<ul class=\"providers\">")
+            + Html.Concat(buttons.Select(p =>
+                Html.OfReferenced($"<li><a href=\"{Html.Markup(Root)}/external?{Query(p.Id)}\">Sign in with {p.Settings.Name}</a></li>")))
+            + Html.Markup("</ul>");
     }
 
     /// <summary>
@@ -1104,9 +1107,14 @@ internal static class OAuthEndpoints
     }
 
     private static Task ErrorPageAsync(HttpContext context, int status, string message) =>
-        HtmlAsync(context, status, "Sign-in could not start", $"<h1>Sign-in could not start</h1><p>{HtmlEncoder.Default.Encode(message)}</p>", formTarget: null);
+        HtmlAsync(context, status, "Sign-in could not start", Html.OfReferenced($"<h1>Sign-in could not start</h1><p>{message}</p>"), formTarget: null);
 
-    private static async Task HtmlAsync(HttpContext context, int status, string title, string body, string? formTarget)
+    /// <summary>
+    /// Writes a sign-in page: its title is text, escaped here once, and its body is <see cref="Html"/> — ADR-023
+    /// condition 3. Every value on these pages is escaped by <see cref="Html.Referenced"/>, the encoder they have always
+    /// used, so moving them onto the type changed no byte (crawled before and after, 2026-10-31).
+    /// </summary>
+    private static async Task HtmlAsync(HttpContext context, int status, string title, Html body, string? formTarget)
     {
         context.Response.StatusCode = status;
         context.Response.ContentType = "text/html; charset=utf-8";
@@ -1119,7 +1127,7 @@ internal static class OAuthEndpoints
         string page =
             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            + $"<title>{HtmlEncoder.Default.Encode(title).Replace("SUCCESS code=", "SUCCESS code=", StringComparison.Ordinal)}</title>"
+            + $"<title>{Html.Referenced(title)}</title>"
             + "<style>"
             + ":root{--ground:#f4f6f5;--card:#fff;--ink:#17262b;--muted:#5a6b70;--line:#d3dcdb;--field:#8a9a9e;--accent:#1d6a86;--bad:#a8321f}"
             + "@media (prefers-color-scheme:dark){:root{--ground:#0f171a;--card:#162226;--ink:#e1eaea;--muted:#93a5a9;--line:#2a3a3f;--field:#5b6f75;--accent:#72b8d0;--bad:#f08c78}}"
@@ -1137,7 +1145,7 @@ internal static class OAuthEndpoints
             + "input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
             + "button{margin-top:20px;width:100%;font:inherit;font-weight:600;padding:10px;border:0;border-radius:6px;background:var(--accent);color:var(--card);cursor:pointer}"
             + "</style></head><body><main>"
-            + body
+            + body.ToString()
             + "</main></body></html>";
 
         await context.Response.WriteAsync(page).ConfigureAwait(false);
@@ -1155,8 +1163,13 @@ internal static class OAuthEndpoints
     /// the page's <c>default-src 'none'</c> holds. Serialised with the default encoder, which escapes <c>&lt;</c>, so
     /// nothing in it closes the element.
     /// </remarks>
-    private static string OAuthInfo(Dictionary<string, object?> info) =>
-        $"<script type=\"application/json\" id=\"oAuthInfo\">var oAuthInfo = {JsonSerializer.Serialize(info)};</script>";
+    /// <remarks>
+    /// <b><see cref="Html.Markup"/> because the serializer is the escape here</b>: its default encoder writes
+    /// <c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c> and quotes inside strings as <c>\u</c> escapes, so no value can close the
+    /// script element, and an HTML escape would corrupt the JSON a client reads.
+    /// </remarks>
+    private static Html OAuthInfo(Dictionary<string, object?> info) =>
+        Html.Markup($"<script type=\"application/json\" id=\"oAuthInfo\">var oAuthInfo = {JsonSerializer.Serialize(info)};</script>");
 
     private static SealedState? UnsealState(string carried, SecretProtector protector)
     {

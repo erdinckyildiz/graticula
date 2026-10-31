@@ -544,6 +544,21 @@ which job needs stating before both grow.
    own renderer with `System.Text.Encodings.Web`'s encoder, which writes non-ASCII as numeric references
    where `WebUtility` does not, on pages whose title ArcGIS clients read — a byte change nothing local
    can check, **postponed by owner decision 2026-10-13 until a sign-in through ArcGIS Pro can be tried**; ~~and WMS GetFeatureInfo's `text/html`, in a project the host's type is not visible from.~~ **WMS GetFeatureInfo's `text/html` is on the type since 2026-10-14**: `Html` moved to `Graticula.Core.Markup`, which every protocol project already references, and `FeatureInfoWriter` writes its answer with `HtmlBuilder` and its own escaping helper is gone. Nothing tested that answer before; `FeatureInfoHtmlTests` pins its exact bytes — a value carrying markup, a Latin-1 letter the encoder writes as a numeric reference and a Turkish one it does not — and passes against the hand-written version and the typed one alike, so the move changed no byte. **The OAuth pages are now the only renderer left**, and they wait on the owner's decision rather than on this condition.
+   **DISCHARGED 2026-10-31 — the OAuth sign-in pages are on the type, and no byte of them changed.** What held them back
+   was the escape and not the renderer: their encoder writes `ş` as `&#x15F;` and `Html.Text` writes it as itself, and
+   ArcGIS clients read the title. So the escape became a door of the type rather than a property of the page:
+   `Html.Referenced` and `Html.OfReferenced` escape with `System.Text.Encodings.Web`'s encoder and keep `Html` holes as
+   the other door does, and `OAuthEndpoints`' `HtmlAsync` takes the title as text, escaped once, and the body as `Html`.
+   **Checked byte for byte on the local fixture**, before and after, with an app titled `Şehir & <Harita> "İğne" – ğüşıöç`,
+   an OIDC provider and an LDAP directory with markup and Turkish in their names, and a state and a typed name carrying
+   both: the sign-in page for that app (redirect and out-of-band), for ArcGIS Pro's own client, after a wrong password and
+   after a stale form, the four error pages and the approval page with a base64url code — **ten identical**, form tokens
+   masked. **One differs, and it was a defect**: the approval page escaped the code and then the renderer escaped the
+   title again, so a code carrying `&` reached the title as `&amp;amp;`. Codes this server issues are base64url and never
+   did, which is why no client saw it. `HtmlIsEscapedByTypeTests` now permits only `Html.cs` to call an encoder, so a
+   new page that escapes by hand fails, and `HtmlTests` holds the new door's bytes. The owner's 2026-10-13 postponement
+   was of a byte change that, measured, did not happen; a sign-in through Pro is still worth doing and is no longer what
+   this condition waits for.
 4. **The relationship with [ADR-020](ADR-020-admin-console-and-service-status.md)
    is stated** before the console ships anything that overlaps this directory.
    Two browsable surfaces with no boundary is how both end up half-built.

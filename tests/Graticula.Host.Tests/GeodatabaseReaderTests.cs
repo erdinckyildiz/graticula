@@ -175,6 +175,9 @@ public sealed class GeodatabaseReaderTests
 
                 // `tiff` joined on 2026-10-13: a GeoTIFF opened here before the server opens it (ADR-009 condition 1).
                 "tiff",
+
+                // `pyramid` joined on 2026-10-31: an image's overviews built here, out of the serving process (D-295).
+                "pyramid",
             },
             named);
 

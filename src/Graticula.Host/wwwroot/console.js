@@ -39050,21 +39050,38 @@ document.addEventListener("click", async event => {
   }
 });
 
-/** The hosted layers a tool may be given: every Feature Service this reader can find, its first layer. */
+/**
+ * The hosted layers a tool may be given: every hosted layer this reader may see, from one listing (D-322) — it was the
+ * portal search's first 100 services and each one's first layer, so the 101st and a service's second layer were absent.
+ */
 let toolboxLayers = null;
 
 async function toolboxLayerChoices() {
   if (toolboxLayers) return toolboxLayers;
-  const found = await api(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] }));
-  toolboxLayers = (found.results || []).filter(r => r.url && /\/rest\/services\/hosted\//.test(r.url))
-    .map(r => ({ url: `${new URL(r.url, location.origin).href}/0`, title: r.title || r.name }))
-    .sort((a, b) => a.title.localeCompare(b.title));
+  // A failed read is not kept (design review 2026-10-31): one brief error would say "no hosted layer" all session.
+  let unread = null;
+  const found = await api("/content/layers").catch(e => { unread = e.message || String(e); return null; });
+  if (!found) return Object.assign([], { unread });
+  const listed = [...(found.mine || []), ...(found.shared || []), ...(found.notShared || [])]
+    .filter(l => l.hosted && l.geometry && l.status === "started" && /\/rest\/services\/hosted\//.test(l.url));
+  const key = l => (l.title || l.name).toLocaleLowerCase();
+  const served = l => `${key(l)} (${l.service.toLocaleLowerCase()})`;
+  const count = (f, l) => listed.filter(x => f(x) === f(l)).length;
+  toolboxLayers = listed
+    .map(l => ({
+      url: new URL(l.url, location.origin).href,
+      title: count(key, l) < 2 ? (l.title || l.name)
+        : count(served, l) < 2 ? `${l.title || l.name} (${l.service})` : `${l.title || l.name} (${l.service} / ${l.layerId})`,
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }));
   return toolboxLayers;
 }
 
 /** The toolbox page `#/toolbox/{name}`. */
 async function showToolbox(name) {
   showView("view-toolbox", "content");
+  toolboxLayers = null; // read again on each visit: a layer published since is offered
+
   $("tbTitle").textContent = name;
   $("tbSub").textContent = "";
   $("tbBody").innerHTML = `<p class="hint">Reading the toolbox…</p>`;
@@ -39097,6 +39114,7 @@ async function showToolbox(name) {
         ? `<select id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-kind="layer" data-tb-label="${h(toolboxLabel(p))}"${p.required ? " data-tb-required" : ""}>
             <option value="">Choose a layer</option>${layers.map(l =>
             `<option value="${h(l.url)}">${h(l.title)}</option>`).join("")}</select>`
+        : layers.unread ? `<p class="hint bad-inline">Could not read your layers: ${h(layers.unread)}.</p>`
         : `<p class="hint">You have no hosted layer to give it.</p>`}</div>`;
     }
     if (Array.isArray(p.choiceList) && p.choiceList.length) {

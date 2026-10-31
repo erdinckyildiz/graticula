@@ -192,10 +192,17 @@ public sealed class PostgresRecycleBin : IRecycleBin
         await using NpgsqlTransaction transaction = await connection
             .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken).ConfigureAwait(false);
 
-        List<(string Table, bool Relink, string Row)> rows = [];
+        // <b>A statement per table and depth, not per row</b> — ADR-203 condition 3, 2026-10-31. A row at a time cost
+        // 0.2 ms each, and a service with twenty years of daily usage keeps 7,303 rows: 1.43 s to restore against 0.27 s
+        // to delete. The order is the one the rows were kept in — set-null links last, parents first by depth — and within
+        // one statement a row may name another of the same statement, since a foreign key is checked at its end.
+        List<(string Table, bool Relink, int Depth)> groups = [];
 
         await using (NpgsqlCommand read = new(
-            "select table_name, relink, row::text from recycle_row where entry_id = @entry order by relink, depth, ordinal",
+            """
+            select table_name, relink, depth from recycle_row where entry_id = @entry
+             group by table_name, relink, depth order by relink, depth, min(ordinal)
+            """,
             connection, transaction))
         {
             read.Parameters.AddWithValue("entry", entry);
@@ -203,11 +210,11 @@ public sealed class PostgresRecycleBin : IRecycleBin
 
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                rows.Add((reader.GetString(0), reader.GetBoolean(1), reader.GetString(2)));
+                groups.Add((reader.GetString(0), reader.GetBoolean(1), reader.GetInt32(2)));
             }
         }
 
-        if (rows.Count == 0)
+        if (groups.Count == 0)
         {
             return "Nothing is kept under that entry.";
         }
@@ -216,7 +223,7 @@ public sealed class PostgresRecycleBin : IRecycleBin
 
         try
         {
-            foreach ((string table, bool relink, string row) in rows)
+            foreach ((string table, bool relink, int depth) in groups)
             {
                 if (!shapes.TryGetValue(table, out (string Columns, string Keys) shape))
                 {
@@ -224,14 +231,19 @@ public sealed class PostgresRecycleBin : IRecycleBin
                     shapes[table] = shape;
                 }
 
+                string kept =
+                    $"select p.* from recycle_row r cross join lateral jsonb_populate_record(null::{table}, r.row) p "
+                    + "where r.entry_id = @entry and r.table_name = @table and r.relink = @relink and r.depth = @depth";
+
                 // A row that was set to null gets its link back only if it is still there; one deleted since stays deleted.
                 string sql = relink
                     ? shape.Keys.Length == 0
                         ? string.Empty
-                        : $"update {table} t set ({shape.Columns}) = (select {shape.Columns} from jsonb_populate_record(null::{table}, @row::jsonb)) "
-                            + $"where ({shape.Keys}) = (select {shape.Keys} from jsonb_populate_record(null::{table}, @row::jsonb))"
+                        : $"update {table} t set ({shape.Columns}) = (select {shape.Columns} from ({kept}) k "
+                            + $"where ({Prefixed("k", shape.Keys)}) = ({Prefixed("t", shape.Keys)})) "
+                            + $"where ({shape.Keys}) in (select {shape.Keys} from ({kept}) k)"
                     : $"insert into {table} ({shape.Columns}) overriding system value "
-                        + $"select {shape.Columns} from jsonb_populate_record(null::{table}, @row::jsonb)";
+                        + $"select {shape.Columns} from ({kept} order by r.ordinal) k";
 
                 if (sql.Length == 0)
                 {
@@ -239,7 +251,10 @@ public sealed class PostgresRecycleBin : IRecycleBin
                 }
 
                 await using NpgsqlCommand put = new(sql, connection, transaction);
-                put.Parameters.AddWithValue("row", row);
+                put.Parameters.AddWithValue("entry", entry);
+                put.Parameters.AddWithValue("table", table);
+                put.Parameters.AddWithValue("relink", relink);
+                put.Parameters.AddWithValue("depth", depth);
                 await put.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -356,6 +371,10 @@ public sealed class PostgresRecycleBin : IRecycleBin
             string.Join(", ", reader.GetFieldValue<string[]>(0).Select(Quote)),
             string.Join(", ", reader.GetFieldValue<string[]>(1).Select(Quote)));
     }
+
+    /// <summary>Each of a joined list of quoted columns, qualified by an alias.</summary>
+    private static string Prefixed(string alias, string columns) =>
+        string.Join(", ", columns.Split(", ").Select(c => alias + "." + c));
 
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 }
