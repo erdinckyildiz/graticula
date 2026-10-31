@@ -347,9 +347,14 @@ what landed.
      absolute path; on two machines it is a missing file — *reasoned, and the one row this prototype cannot show*;
    - **a Pro publish split across nodes**: `addItem` on A 200, `addPart` on B **400** *Item does not exist*;
    - **a tenant changed on A**: renamed on A, `whoami` on B still said *Default* — until it restarts.
-   **What remains: the mix measured through both nodes against one.** The run was started and abandoned: other
-   sessions' builds held all sixteen logical cores at 100 % for its length, so neither the one-node nor the two-node
-   numbers were the server's. It is owed on a quiet machine.
+   **What remains: the mix measured through both nodes against one, on a quiet machine.** Tried twice on 2026-10-31.
+   The first run was abandoned with all sixteen logical cores at 100 % from other sessions. The second ran to the end
+   ([two-nodes-2026-10-31.txt](../../benchmarks/node-saturation/two-nodes-2026-10-31.txt); each node two physical
+   cores, the store three): mix 334 req/s on one node and 309 on two, map images 80 and 96, queries 1,152 and 881 —
+   **but the whole machine averaged 90 % CPU, 78 of 125 samples above 95 %**, with neither node nor the store at its
+   own ceiling, so the numbers describe the machine's contention and not the server. They are not used. What they do
+   show, at that contention: no request failed, the authenticated whoami answered on both nodes throughout, and the
+   site held 112 connections at its peak against 297 usable.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
    **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
    a fresh schema (`TwoNodeSite`). The first ten (items 1–6, 11, 12) pass on this branch and **all ten fail on the build
