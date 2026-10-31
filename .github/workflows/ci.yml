@@ -391,6 +391,18 @@ jobs:
           PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
             -f tools/ci-corpus.sql
 
+      # <b>Room for two nodes beside the rest of the suite</b> — run 41253119481: ADR-012's two-node classes,
+      # running in parallel with the other database classes, met `53300 too many connections` on the image's
+      # default of 100. A deployment of two nodes sizes `max_connections` for them (deployment.md §1.3); so does
+      # this job. A service container takes no server arguments, so the setting is written and the container
+      # restarted.
+      - name: raise the database's connection limit
+        run: |
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 -c "alter system set max_connections = 300"
+          docker restart ${{ job.services.postgis.id }}
+          for i in $(seq 1 30); do pg_isready -h 127.0.0.1 -U gis && break; sleep 2; done
+          PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -tAc "show max_connections"
+
       # PostgresFixture creates a private schema per test class and migrates it
       # itself, so nothing has to bootstrap the platform store here.
       #
