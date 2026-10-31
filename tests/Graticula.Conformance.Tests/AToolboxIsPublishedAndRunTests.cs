@@ -145,7 +145,87 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
                 }
             }
 
-            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{name}");
+            await DeleteToolboxAsync(name);
+        }
+    }
+
+    /// <summary>
+    /// D-346, ADR-203 (Q-180): a deleted toolbox waits in the recycle bin as every other item does, and a restore brings
+    /// its GPServer back under the same name and item id. Before the repair the delete was final: no entry was listed
+    /// and the service never came back.
+    /// </summary>
+    [Fact]
+    public async Task A_deleted_toolbox_waits_in_the_recycle_bin_and_comes_back_with_its_id()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string name = "zz_bin_tools_" + Guid.NewGuid().ToString("N")[..8];
+        using HttpClient http = Unverified();
+
+        using MultipartFormDataContent upload = new()
+        {
+            { new StringContent(name), "name" },
+            { new ByteArrayContent(Encoding.UTF8.GetBytes(Toolbox)), "file", "probe.pyt" },
+        };
+        using HttpRequestMessage publish = new(HttpMethod.Post, new Uri($"{root}/content/toolboxes")) { Content = upload };
+        publish.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage published = await http.SendAsync(publish);
+        string said = await published.Content.ReadAsStringAsync();
+        Assert.True((int)published.StatusCode == 201, $"Publishing answered {(int)published.StatusCode}: {said}");
+        string id = JsonDocument.Parse(said).RootElement.GetProperty("id").GetString()!;
+        string gp = $"{root}/rest/services/Tools/{name}/GPServer";
+        string? entry = null;
+
+        try
+        {
+            (int deleted, string deletedBody) = await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{name}");
+            Assert.True(deleted == 200, $"Deleting answered {deleted}: {deletedBody}");
+            Assert.True(JsonDocument.Parse(deletedBody).RootElement.TryGetProperty("recycled", out JsonElement recycled)
+                && recycled.ValueKind == JsonValueKind.String, $"The delete named no recycle-bin entry: {deletedBody}");
+            entry = recycled.GetString()!;
+
+            using (HttpRequestMessage gone = new(HttpMethod.Get, new Uri($"{gp}?f=json")))
+            {
+                gone.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage answer = await http.SendAsync(gone);
+                Assert.Equal(404, (int)answer.StatusCode);
+            }
+
+            (_, string listed) = await AdminAsync(HttpMethod.Get, "/admin/recycle-bin");
+            Assert.Contains(JsonDocument.Parse(listed).RootElement.GetProperty("entries").EnumerateArray(),
+                e => e.GetProperty("id").GetString() == entry && e.GetProperty("kind").GetString() == "toolbox");
+
+            (int restored, string restoredBody) = await AdminAsync(HttpMethod.Post, $"/admin/recycle-bin/{entry}/restore");
+            Assert.True(restored == 200, $"Restoring answered {restored}: {restoredBody}");
+            entry = null;
+
+            JsonElement service = await GetAsync(http, token, $"{gp}?f=json");
+            Assert.Equal(["Count", "Halo"], service.GetProperty("tasks").EnumerateArray().Select(t => t.GetString()));
+
+            (_, string mine) = await AdminAsync(HttpMethod.Get, "/content/toolboxes");
+            Assert.Contains(JsonDocument.Parse(mine).RootElement.GetProperty("toolboxes").EnumerateArray(),
+                t => t.GetProperty("name").GetString() == name && t.GetProperty("id").GetString() == id);
+        }
+        finally
+        {
+            if (entry is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{entry}");
+            }
+
+            await DeleteToolboxAsync(name);
+        }
+    }
+
+    /// <summary>Deletes a toolbox a test made and empties the recycle-bin entry its delete leaves (ADR-203).</summary>
+    private async Task DeleteToolboxAsync(string name)
+    {
+        (int status, string body) = await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{name}");
+
+        if (status == 200 && JsonDocument.Parse(body).RootElement.TryGetProperty("recycled", out JsonElement entry)
+            && entry.ValueKind == JsonValueKind.String)
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{entry.GetString()}");
         }
     }
 
@@ -217,7 +297,7 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
         finally
         {
-            await AdminAsync(HttpMethod.Delete, "/content/toolboxes/zz_tools_refused");
+            await DeleteToolboxAsync("zz_tools_refused");
             await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
         }
     }
@@ -318,7 +398,7 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
         finally
         {
-            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            await DeleteToolboxAsync(toolbox);
             (int status, string body) = await AdminAsync(HttpMethod.Delete, $"/admin/coverages/{image}?folder=hosted");
 
             if (status == 200 && JsonDocument.Parse(body).RootElement.TryGetProperty("recycled", out JsonElement entry) && entry.ValueKind == JsonValueKind.String)
@@ -387,7 +467,7 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
         finally
         {
-            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            await DeleteToolboxAsync(toolbox);
 
             foreach (string coverage in new[] { image, made })
             {
@@ -470,7 +550,7 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
         finally
         {
-            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            await DeleteToolboxAsync(toolbox);
             await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{both}?folder=hosted&drop=true");
             await AdminAsync(HttpMethod.Delete, $"/admin/coverages/{both}?folder=hosted");
         }
@@ -540,7 +620,7 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
         finally
         {
-            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            await DeleteToolboxAsync(toolbox);
             await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
         }
     }

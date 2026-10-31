@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml;
@@ -90,6 +92,123 @@ public sealed class SamlSignInConformanceTests : ArcGisClient
         Assert.True(status == 201, $"Adding the SAML provider answered {status}: {body}");
         JsonElement made = JsonDocument.Parse(body).RootElement;
         return (made.GetProperty("id").GetString()!, made.GetProperty("clientId").GetString()!);
+    }
+
+    /// <summary>The encryption certificate this server's SP metadata publishes for a provider, or null.</summary>
+    private static async Task<X509Certificate2?> PublishedAsync(string root, string providerId)
+    {
+        using HttpClient anyone = new(new HttpClientHandler { ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator });
+        XmlDocument sp = new() { XmlResolver = null };
+        sp.LoadXml(await anyone.GetStringAsync(new Uri($"{root}/rest/auth/saml/{providerId}/metadata")));
+
+        XmlNamespaceManager ns = new(sp.NameTable);
+        ns.AddNamespace("md", "urn:oasis:names:tc:SAML:2.0:metadata");
+        ns.AddNamespace("ds", "http://www.w3.org/2000/09/xmldsig#");
+        XmlNode? published = sp.SelectSingleNode("//md:SPSSODescriptor/md:KeyDescriptor[@use='encryption']//ds:X509Certificate", ns);
+
+        return published is null ? null : X509CertificateLoader.LoadCertificate(Convert.FromBase64String(published.InnerText));
+    }
+
+    /// <summary>
+    /// ADR-090 condition 3: with assertion encryption on, the SP metadata publishes this server's certificate for the
+    /// provider; an assertion encrypted to it signs in, one sent in the clear is refused, and one encrypted to another
+    /// key is refused. A new key is published at once and the one before it still opens; a second rotation drops it.
+    /// </summary>
+    [Fact]
+    public async Task An_assertion_encrypted_to_this_servers_key_signs_in_and_one_in_the_clear_is_refused()
+    {
+        string root = await RequireServerAsync();
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        using FakeSamlIdp idp = new();
+
+        (string id, string entityId) = await ProviderAsync(idp, $"zz SAML enc {suffix}", uploaded: true);
+        string acs = $"{root}/rest/auth/saml/acs";
+        List<string> made = [];
+
+        async Task<string?> SignInAsync(string subject, X509Certificate2? to)
+        {
+            using Started started = await StartAsync(root, id, idp);
+            (HttpStatusCode _, string? name, string _) = await PostAsync(root, started.Browser,
+                idp.Respond(started.RequestId, subject, entityId, acs, encryptTo: to), started.Relay);
+            if (name is not null && !made.Contains(name)) made.Add(name);
+            return name;
+        }
+
+        try
+        {
+            // ---- off: nothing published, and a plain assertion signs in as before ----
+            Assert.Null(await PublishedAsync(root, id));
+
+            // ---- on: a key made and published, with a provider's form left as it was saved ----
+            (int on, string onSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{id}", JsonSerializer.Serialize(new
+            {
+                kind = "saml", name = $"zz SAML enc {suffix}", metadata = idp.Metadata, groupsClaim = FakeSamlIdp.GroupsAttribute,
+                autoCreate = true, defaultRole = "viewer", encryptAssertions = true,
+            }));
+            Assert.True(on == 200, $"Turning encryption on answered {on}: {onSaid}");
+            JsonElement described = JsonDocument.Parse(onSaid).RootElement.GetProperty("saml");
+            Assert.True(described.GetProperty("encryptAssertions").GetBoolean());
+            Assert.DoesNotContain("PRIVATE KEY", onSaid, StringComparison.Ordinal);
+
+            using X509Certificate2? first = await PublishedAsync(root, id);
+            Assert.NotNull(first);
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(first!.RawData)), described.GetProperty("encryptionKey").GetProperty("sha256").GetString());
+
+            // The same certificate alone, for a provider that takes an upload rather than metadata (Entra ID).
+            using (HttpClient anyone = new(new HttpClientHandler { ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator }))
+            {
+                byte[] cer = await anyone.GetByteArrayAsync(new Uri($"{root}/rest/auth/saml/{id}/encryption.cer"));
+                Assert.Equal(first.RawData, cer);
+            }
+
+            Assert.Equal($"eve{suffix}", await SignInAsync($"eve{suffix}@example.org", first));
+            Assert.Null(await SignInAsync($"clear{suffix}@example.org", null));
+
+            using (X509Certificate2 stranger = CertificateRequestFor("stranger"))
+            {
+                Assert.Null(await SignInAsync($"stranger{suffix}@example.org", stranger));
+            }
+
+            // ---- rotated: the new one is published and opens, the one before still opens ----
+            (int rotated, string rotatedSaid) = await AdminAsync(HttpMethod.Post, $"/admin/identity-providers/{id}/saml/encryption-key");
+            Assert.True(rotated == 200, $"Rotating answered {rotated}: {rotatedSaid}");
+            using X509Certificate2? second = await PublishedAsync(root, id);
+            Assert.NotNull(second);
+            Assert.NotEqual(first.Thumbprint, second!.Thumbprint);
+            Assert.Equal($"fay{suffix}", await SignInAsync($"fay{suffix}@example.org", second));
+            Assert.Equal($"gil{suffix}", await SignInAsync($"gil{suffix}@example.org", first));
+
+            // ---- rotated again: the first is dropped ----
+            (int again, string _) = await AdminAsync(HttpMethod.Post, $"/admin/identity-providers/{id}/saml/encryption-key");
+            Assert.Equal(200, again);
+            Assert.Null(await SignInAsync($"hal{suffix}@example.org", first));
+            Assert.Equal($"ivy{suffix}", await SignInAsync($"ivy{suffix}@example.org", second));
+
+            // ---- a form that does not send the flag keeps it on ----
+            (int kept, string keptSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{id}", JsonSerializer.Serialize(new
+            {
+                kind = "saml", name = $"zz SAML enc {suffix}", metadata = idp.Metadata, groupsClaim = FakeSamlIdp.GroupsAttribute,
+                autoCreate = true, defaultRole = "viewer",
+            }));
+            Assert.True(kept == 200, $"Saving without the flag answered {kept}: {keptSaid}");
+            Assert.True(JsonDocument.Parse(keptSaid).RootElement.GetProperty("saml").GetProperty("encryptAssertions").GetBoolean());
+        }
+        finally
+        {
+            foreach (string name in made)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/admin/members/{name}");
+            }
+
+            await AdminAsync(HttpMethod.Delete, $"/admin/identity-providers/{id}");
+        }
+    }
+
+    private static X509Certificate2 CertificateRequestFor(string name)
+    {
+        using RSA key = RSA.Create(2048);
+        return new CertificateRequest($"CN={name}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
     }
 
     [Fact]

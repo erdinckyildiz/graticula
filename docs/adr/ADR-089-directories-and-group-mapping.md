@@ -90,6 +90,16 @@ mapping gives roles; membership of every mapped group as the matched groups say.
 5.5 **The console**: Server › Sign-in adds a directory beside a provider, and each has a *Groups* editor; Members says
 who signs in through what, and whose role comes from where.
 
+5.6 **Added 2026-10-31, conditions 1 and 3.** A directory may be given **a certificate authority to trust**
+(`trustedCertificate`, PEM), against which its TLS certificate is checked besides the machine's own — a domain's own CA,
+as Active Directory Certificate Services issues, which a server outside the domain does not trust. On Windows the chain
+is built here, in the LDAP client's certificate callback, and the host the address names is checked there too; on Linux
+OpenLDAP is told to read a directory of trusted certificates for that connection, written under the state directory.
+Absent from a request, it is kept; empty, it is removed. And a directory may **follow groups inside groups**
+(`nestedGroups`, with `groupBase` where groups are searched, the user base's domain by default): after the person's own
+bind succeeds, one more search with Active Directory's `LDAP_MATCHING_RULE_IN_CHAIN` on `member`, its results added to
+`memberOf`'s. Off by default, as before; OpenLDAP does not answer that rule.
+
 ## 6. Consequences
 
 **Positive.** Active Directory accounts sign in to the console, ArcGIS Pro and Field Maps with the passwords they have;
@@ -107,7 +117,7 @@ check. The image carries `libldap2`.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | A directory's groups are in an attribute of the person's entry (AD's `memberOf`) | True of AD and of OpenLDAP with the memberof overlay; a directory that lists members on the group entry instead is not read — revisit trigger |
+| — | A directory's groups are in an attribute of the person's entry (AD's `memberOf`) | True of AD and of OpenLDAP with the memberof overlay; a directory that lists members on the group entry instead is not read — revisit trigger. Since 2026-10-31 groups inside groups are also read from the group entries' `member`, through AD's chain rule, when a directory asks |
 
 ## 8. Dependencies
 
@@ -140,6 +150,25 @@ None recorded.
    for this operation*, Samba's default and where Windows DCs are heading — so the probe allowed it for the run,
    because the server under test was on Windows and would not trust the DC's self-signed certificate over
    `ldaps://`. **Still owed**: a Windows DC, over `ldaps://` or StartTLS with a certificate the server trusts.
+   **PARTLY DISCHARGED 2026-10-31 — `ldaps://` with a certificate the server trusts, and no plain simple bind; the
+   Windows DC is still owed and is the owner's to provide.** The probe's limit above is gone. The Samba DC now keeps its
+   default — a simple bind over plain LDAP answered *Strong(er) authentication required (8)* on the DC itself — and
+   publishes only 636; its certificate comes from a certificate authority made for the run, for `dc1.graticula.test`,
+   `localhost` and `127.0.0.1` ([tools/ad-probe/setup.sh](../../tools/ad-probe/setup.sh)). Against the local fixture
+   through a tunnel ([signin.py](../../tools/ad-probe/signin.py)): registered with no authority, Check answered `502`
+   and `jane.doe` was refused `401` — the Windows server does not trust that certificate; given the authority as the
+   directory's certificate to trust (§5.6), Check answered *reachable, a directory*, and `jane.doe` signed in as
+   `jane.doe`, `GRATICULA\jane.doe` and `jane.doe@graticula.test` to one account, *Jane Doe*, a publisher by the
+   mapping; a wrong password `401`. The server was configured the way an operator would, by pasting the CA's PEM into
+   the directory's settings — on a Windows server the alternative, the machine's Trusted Root store, needs the
+   administrator rights this run did not have. Regression, in the suite and on CI's Linux too:
+   `DirectorySignInConformanceTests.A_directory_over_ldaps_is_trusted_by_the_authority_it_is_given_and_by_nothing_else`
+   — the suite's directory speaks `ldaps://` with a certificate from a CA made per run; without the authority the
+   check fails at the TLS handshake and nobody is bound, with it the check passes and the person signs in, a form that
+   does not send it keeps it, and taking it away refuses again. It fails without §5.6, which had nowhere to give the
+   authority. **Linux's half** (OpenLDAP told a trusted-certificates directory per connection) was written and not run
+   here — the local server is Windows; that test exercises it on CI's Ubuntu runner. **Still owed, the owner's**: a
+   Windows Server DC, whose LDAP signing and channel-binding defaults are where Samba's differ.
 2. **The design review of the screens here**, with its findings repaired. **DISCHARGED 2026-09-24.** The review
    found three blockers, each confirmed in the code before it was repaired: a role lock that outlived the mapping that
    set it, so removing the mapping left the account unchangeable for ever (now read, not remembered: locked only while
@@ -155,6 +184,17 @@ None recorded.
    `SignInProvidersScreenTests`, three of whose tests fail with the repair taken out of the page served.
 3. **Nested groups** — AD's `memberOf` lists direct groups only; whether an organisation's mapping needs the nested
    ones is not known until one is asked.
+   **DISCHARGED 2026-10-31 — built as a directory's option rather than waiting to be asked** (the owner's *"Tamamını
+   bitirelim artık"*), off by default so nothing changes for a directory already registered (§5.6). Against the same
+   Samba 4 AD DC, over `ldaps://`: `jane.doe` is in `Planners` and `GIS-Publishers`, and `Planners` is in `All-GIS`;
+   her `memberOf` lists the first two only, and the DC's own answer to
+   `(member:1.2.840.113556.1.4.1941:=<her DN>)` is `Planners`, `All-GIS`, `GIS-Publishers`. With `All-GIS` mapped to a
+   group here, she was **not** in it after signing in with nested groups off, and **was** after the next sign-in with
+   them on ([tools/ad-probe/signin.py](../../tools/ad-probe/signin.py), against the local fixture). Regression:
+   `DirectorySignInConformanceTests.Groups_inside_groups_are_followed_when_the_directory_is_set_to` — the suite's
+   directory now answers the chain rule as AD does, walking `member` through groups; off, the group around `Planners`
+   is not reached and the directory is asked no chain search; on, it is, and the mapping's role and group apply; a wrong
+   password asks nothing more. It fails without the option, which the API did not take.
    *(2026-10-16, observed rather than decided: against the same Samba DC, a person in `Planners`, which is itself in
    `All-GIS`, did not join the group `All-GIS` maps to — `memberOf` lists direct groups only, as this condition says.
    Following the chain would be one more filter (`LDAP_MATCHING_RULE_IN_CHAIN`, which Samba and Windows both answer);

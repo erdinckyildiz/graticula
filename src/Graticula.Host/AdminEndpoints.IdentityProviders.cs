@@ -9,6 +9,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -34,6 +35,14 @@ namespace Graticula.Host;
 /// <param name="StartTls">Whether a directory's <c>ldap://</c> is upgraded with StartTLS.</param>
 /// <param name="MetadataUrl">Where a SAML provider publishes its metadata — ADR-090.</param>
 /// <param name="Metadata">A SAML provider's metadata document, uploaded where its URL cannot be reached.</param>
+/// <param name="NestedGroups">Whether a directory's groups inside groups are read too — ADR-089 condition 3; kept as
+/// it was when absent.</param>
+/// <param name="GroupBase">Where a directory's groups are searched for nested membership; kept when absent, empty for
+/// the user base's domain.</param>
+/// <param name="TrustedCertificate">A certificate authority, in PEM, a directory's TLS certificate is also checked
+/// against — ADR-089 condition 1; kept when absent, removed when empty.</param>
+/// <param name="EncryptAssertions">Whether a SAML provider's assertions must arrive encrypted to this server's key —
+/// ADR-090 condition 3; kept when absent. Turning it on makes the key when there is none.</param>
 internal sealed record IdentityProviderRequest(
     string? Name,
     string? Issuer,
@@ -55,7 +64,11 @@ internal sealed record IdentityProviderRequest(
     string? SubjectAttribute = null,
     bool StartTls = false,
     string? MetadataUrl = null,
-    string? Metadata = null);
+    string? Metadata = null,
+    bool? NestedGroups = null,
+    string? GroupBase = null,
+    string? TrustedCertificate = null,
+    bool? EncryptAssertions = null);
 
 /// <summary>A provider's group mappings as the admin surface takes them — ADR-089.</summary>
 /// <param name="Mappings">Each: the directory's or provider's group, and the role and group here it gives.</param>
@@ -85,6 +98,42 @@ internal static partial class AdminEndpoints
         app.MapPost("/admin/identity-providers/{id:guid}/check", CheckIdentityProviderAsync);
         app.MapGet("/admin/identity-providers/{id:guid}/groups", GroupMappingsAsync);
         app.MapPut("/admin/identity-providers/{id:guid}/groups", SetGroupMappingsAsync);
+        app.MapPost("/admin/identity-providers/{id:guid}/saml/encryption-key", RotateSamlKeyAsync);
+    }
+
+    /// <summary>
+    /// A new key for a SAML provider's encrypted assertions — ADR-090 condition 3: published in the SP metadata at once,
+    /// the one before it kept to open assertions still encrypted to it, and any older one dropped.
+    /// </summary>
+    private static async Task RotateSamlKeyAsync(
+        HttpContext context, Guid id, IIdentityProviderStore store, SecretProtector protector, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings.Saml: { } saml } provider)
+        {
+            await Refuse(context, 404, "No SAML provider by that id: only a SAML provider has an encryption key.").ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<SamlEncryptionKey> keys = Graticula.Host.Saml.SamlEncryption.Rotate(saml.EncryptionKeys, protector, DateTimeOffset.UtcNow);
+        IdentityProviderSettings settings = provider.Settings with { Saml = saml with { EncryptionKeys = keys } };
+
+        if (!await store.UpdateAsync(id, settings, null, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 409, "The provider changed while its key was being made; nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "identityProvider.samlKey", provider.Settings.Name,
+            Detail(new { kept = keys.Count, encrypt = saml.EncryptAssertions }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        IdentityProvider now = await store.FindAsync(id, cancellation).ConfigureAwait(false) ?? provider;
+        await Results.Json(DescribeProvider(now)).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static async Task GroupMappingsAsync(
@@ -409,6 +458,16 @@ internal static partial class AdminEndpoints
             {
                 why = await directory.CheckAsync(provider, cancellation).ConfigureAwait(false);
             }
+            catch (System.DirectoryServices.Protocols.LdapException e) when (e.ErrorCode is 81 or -1
+                && (provider.Settings.Issuer.StartsWith("ldaps:", StringComparison.OrdinalIgnoreCase) || provider.Settings.Ldap?.StartTls == true))
+            {
+                // ADR-089 condition 1: a certificate the server does not trust looks to the LDAP client exactly like a
+                // directory that is not there, so the check says both.
+                why = $"{e.Message} If it is running, its certificate may be from an authority this server does not "
+                    + (string.IsNullOrWhiteSpace(provider.Settings.Ldap?.TrustedCertificate)
+                        ? "trust: give that authority as the certificate authority to trust."
+                        : "trust, or name another host than the address: check the certificate authority given and the address.");
+            }
             catch (Exception e) when (e is System.DirectoryServices.Protocols.LdapException
                 or System.DirectoryServices.Protocols.DirectoryException)
             {
@@ -539,6 +598,22 @@ internal static partial class AdminEndpoints
         {
             (samlSettings, samlRefusal) = await SamlSettingsAsync(request, before, cancellation).ConfigureAwait(false);
 
+            // ADR-090 condition 3: what a form that does not show it leaves as it was, and a key made when encryption is
+            // turned on with none held.
+            if (samlSettings is not null)
+            {
+                bool encrypt = request.EncryptAssertions ?? before?.Settings.Saml?.EncryptAssertions ?? false;
+                IReadOnlyList<SamlEncryptionKey>? keys = before?.Settings.Saml?.EncryptionKeys;
+
+                if (encrypt && keys is not { Count: > 0 })
+                {
+                    keys = [Graticula.Host.Saml.SamlEncryption.Make(
+                        context.RequestServices.GetRequiredService<SecretProtector>(), DateTimeOffset.UtcNow)];
+                }
+
+                samlSettings = samlSettings with { EncryptAssertions = encrypt, EncryptionKeys = keys };
+            }
+
             if (samlSettings is not null)
             {
                 issuer = samlSettings.MetadataUrl.Length > 0
@@ -552,6 +627,12 @@ internal static partial class AdminEndpoints
             ? "(&(objectClass=person)(|(sAMAccountName={0})(uid={0})(userPrincipalName={0})))"
             : request.UserFilter.Trim();
         string role = string.IsNullOrWhiteSpace(request.DefaultRole) ? Roles.Viewer : request.DefaultRole.Trim();
+
+        // ADR-089 conditions 1 and 3: what a form that does not show them leaves as it was.
+        LdapSettings? ldapBefore = before?.Settings.Ldap;
+        string trusted = (request.TrustedCertificate ?? ldapBefore?.TrustedCertificate ?? string.Empty).Trim();
+        bool nested = request.NestedGroups ?? ldapBefore?.NestedGroups ?? false;
+        string groupBase = (request.GroupBase ?? ldapBefore?.GroupBase ?? string.Empty).Trim();
         string userType = string.IsNullOrWhiteSpace(request.DefaultUserType) ? UserTypes.Unrestricted : request.DefaultUserType.Trim();
 
         string? refusal = kind is not ("oidc" or "ldap" or "saml")
@@ -562,6 +643,8 @@ internal static partial class AdminEndpoints
                 ? samlRefusal
             : directory && Graticula.Host.Ldap.LdapDirectory.AddressRefusal(issuer, request.StartTls) is { } badAddress
                 ? badAddress
+            : directory && trusted.Length > 0 && Graticula.Host.Ldap.LdapDirectory.CertificateRefusal(trusted) is { } badCertificate
+                ? badCertificate
             : kind == "oidc" && OidcClient.IssuerRefusal(issuer) is { } badIssuer
                 ? badIssuer
                 : kind == "oidc" && clientId.Length == 0
@@ -616,7 +699,10 @@ internal static partial class AdminEndpoints
                     string.IsNullOrWhiteSpace(request.DisplayAttribute) ? "displayName" : request.DisplayAttribute.Trim(),
                     string.IsNullOrWhiteSpace(request.GroupAttribute) ? "memberOf" : request.GroupAttribute.Trim(),
                     (request.SubjectAttribute ?? string.Empty).Trim(),
-                    request.StartTls)
+                    request.StartTls,
+                    nested,
+                    groupBase,
+                    trusted)
                 : null,
             samlSettings);
     }
@@ -687,6 +773,9 @@ internal static partial class AdminEndpoints
         groupAttribute = provider.Settings.Ldap?.GroupAttribute,
         subjectAttribute = provider.Settings.Ldap?.SubjectAttribute,
         startTls = provider.Settings.Ldap?.StartTls ?? false,
+        nestedGroups = provider.Settings.Ldap?.NestedGroups ?? false,
+        groupBase = provider.Settings.Ldap?.GroupBase,
+        trustedCertificate = Graticula.Host.Ldap.LdapDirectory.DescribeCertificate(provider.Settings.Ldap?.TrustedCertificate),
         saml = provider.Settings.Saml is { } saml ? DescribeSaml(provider, saml) : null,
     };
 
@@ -713,6 +802,9 @@ internal static partial class AdminEndpoints
             signOn = idp?.SignOn.OriginalString,
             certificateExpires = idp?.Expires,
             spMetadata = $"/rest/auth/saml/{provider.Id}/metadata",
+            encryptAssertions = saml.EncryptAssertions,
+            encryptionKey = saml.EncryptionKeys is [{ } current, ..] ? Graticula.Host.Saml.SamlEncryption.Describe(current, withPem: true) : null,
+            previousEncryptionKey = saml.EncryptionKeys is [_, { } previous, ..] ? Graticula.Host.Saml.SamlEncryption.Describe(previous, withPem: false) : null,
         };
     }
 }

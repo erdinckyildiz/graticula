@@ -114,7 +114,8 @@ internal sealed class FakeSamlIdp : IDisposable
         bool signWithAnotherKey = false,
         string? confirmFor = null,
         Func<XmlDocument, XmlDocument>? afterSigning = null,
-        string? prologue = null)
+        string? prologue = null,
+        X509Certificate2? encryptTo = null)
     {
         string now = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
         string until = DateTime.UtcNow.AddMinutes(5).ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
@@ -178,7 +179,44 @@ internal sealed class FakeSamlIdp : IDisposable
             document = afterSigning(document);
         }
 
+        if (encryptTo is not null)
+        {
+            Encrypt(document, encryptTo);
+        }
+
         return Convert.ToBase64String(Encoding.UTF8.GetBytes(document.OuterXml));
+    }
+
+    /// <summary>
+    /// Replaces the signed assertion with an <c>EncryptedAssertion</c> to a certificate, as AD FS, Entra ID and Keycloak
+    /// send one: the assertion under AES-256-CBC, its key under RSA-OAEP to the certificate, both written here with the
+    /// base library's <see cref="EncryptedXml"/>.
+    /// </summary>
+    private static void Encrypt(XmlDocument document, X509Certificate2 to)
+    {
+        XmlElement assertion = (XmlElement)document.GetElementsByTagName("Assertion", Assertion)[0]!;
+
+        using Aes aes = Aes.Create();
+        aes.KeySize = 256;
+
+        EncryptedXml encrypting = new();
+        EncryptedData data = new()
+        {
+            Type = EncryptedXml.XmlEncElementUrl,
+            EncryptionMethod = new EncryptionMethod(EncryptedXml.XmlEncAES256Url),
+            CipherData = new CipherData(encrypting.EncryptData(assertion, aes, false)),
+        };
+
+        EncryptedKey key = new()
+        {
+            EncryptionMethod = new EncryptionMethod(EncryptedXml.XmlEncRSAOAEPUrl),
+            CipherData = new CipherData(EncryptedXml.EncryptKey(aes.Key, to.GetRSAPublicKey()!, useOAEP: true)),
+        };
+        data.KeyInfo.AddClause(new KeyInfoEncryptedKey(key));
+
+        XmlElement wrapper = document.CreateElement("saml", "EncryptedAssertion", Assertion);
+        wrapper.AppendChild(document.ImportNode(data.GetXml(), true));
+        assertion.ParentNode!.ReplaceChild(wrapper, assertion);
     }
 
     private static X509Certificate2 Certificate(string name)

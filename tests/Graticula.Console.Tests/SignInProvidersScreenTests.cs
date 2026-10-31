@@ -287,6 +287,49 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// ADR-089 conditions 1 and 3 on screen: a new directory's form takes the certificate authority to trust beside its
+    /// address, and offers groups inside groups under Advanced — opened as a person opens it, so the box is one they can
+    /// see — and Add sends both.
+    /// </summary>
+    [Fact]
+    public async Task A_new_directory_sends_the_authority_to_trust_and_groups_inside_groups()
+    {
+        (string token, _) = await SignInAsync();
+
+        using RSA key = RSA.Create(2048);
+        using X509Certificate2 authority = new CertificateRequest("CN=zz Contoso CA", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+        string pem = authority.ExportCertificatePem();
+
+        await OpenAsync("/studio/#/signin", token);
+        await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
+        await ClickAsync("#idpNew");
+        await WaitForAsync(Shown("[name=idpKind][value=ldap]"), "Add a provider offers no directory.");
+
+        await Browser.EvaluateAsync<bool>(Change("[name=idpKind][value=ldap]", "ldap"));
+        await WaitForAsync(Shown("#idpTrusted"), "A directory's form asks for no certificate authority to trust.");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('idpNested').checked"), "Groups inside groups are on for a new directory.");
+
+        await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpNested').closest('details').querySelector('summary').click(); return true; })()");
+        await WaitForAsync(Shown("#idpNested"), "Opening Advanced did not show Follow groups inside groups.");
+        await ClickAsync("#idpNested");
+
+        await Browser.EvaluateAsync<bool>("(() => {"
+            + " document.getElementById('idpName').value = 'zz Contoso';"
+            + " document.getElementById('idpIssuer').value = 'ldaps://dc01.contoso.com';"
+            + " document.getElementById('idpUserBase').value = 'OU=Staff,DC=contoso,DC=com';"
+            + $" document.getElementById('idpTrusted').value = {JsonSerializer.Serialize(pem)};"
+            + " return true; })()");
+
+        await Browser.EvaluateAsync<bool>(KeepBodies);
+        await ClickAsync("#idpSave");
+        await WaitForAsync("window.__bodies.some(b => b.includes('\\\"nestedGroups\\\":true') && b.includes('BEGIN CERTIFICATE'))",
+            "Add sent no directory with its authority to trust and groups inside groups on.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     [Fact]
     public async Task A_new_saml_provider_gives_this_servers_identifier_and_reply_url_and_asks_for_metadata()
     {
@@ -327,6 +370,56 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         Assert.Contains(await WritesAsync(), w => w.StartsWith("POST", StringComparison.Ordinal) && w.Contains("/admin/identity-providers", StringComparison.Ordinal));
 
         NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// ADR-090 condition 3 on screen: a SAML provider set to require encrypted assertions says when this server's key was
+    /// made and until when its certificate says it is good, offers a new key, and Save sends the setting as it stands.
+    /// </summary>
+    [Fact]
+    public async Task A_saml_provider_requiring_encryption_says_its_key_and_offers_a_new_one()
+    {
+        (string token, _) = await SignInAsync();
+        string name = "zz SAML enc " + Guid.NewGuid().ToString("N")[..8];
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/admin/identity-providers",
+            JsonSerializer.Serialize(new { name, kind = "saml", metadata = SamlMetadata(), encryptAssertions = true }));
+        Assert.True(status == 201, $"Adding a SAML provider answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync("/studio/#/signin", token);
+            string row = $"[...document.querySelectorAll('#idpRows tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(name)}))";
+            await WaitForAsync($"!!({row})", "Organization › Security does not list the SAML provider just added.");
+            await Browser.EvaluateAsync<bool>($"(() => {{ ({row}).querySelector('[data-idp-edit]').click(); return true; }})()");
+
+            await WaitForAsync(Shown("#idpEncrypt"), "Editing the SAML provider offers no encryption setting.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('idpEncrypt').checked"), "Require encrypted assertions is not shown on.");
+            await WaitForAsync("(document.getElementById('idpEncryptHint')?.textContent || '').includes('good until')",
+                "The encryption hint does not say until when the key's certificate is good.");
+            await WaitForAsync(Shown("#idpRotateKey"), "A provider with a key offers no new key.");
+            await WaitForAsync(Shown("#idpKeyCert"), "A provider requiring encryption offers no certificate to download.");
+
+            // A new key leaves what has been typed but not saved where it is (design review 2026-10-31).
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpName').value = 'zz typed, not saved'; return true; })()");
+            await ClickAsync("#idpRotateKey");
+            await WaitForAsync("(window.__writes || []).some(w => w.startsWith('POST') && w.includes('/saml/encryption-key'))",
+                "Make a new key sent nothing.");
+            Assert.Equal("zz typed, not saved", await Browser.EvaluateAsync<string>("document.getElementById('idpName').value"));
+            await Browser.EvaluateAsync<bool>($"(() => {{ document.getElementById('idpName').value = {JsonSerializer.Serialize(name)}; return true; }})()");
+
+            await Browser.EvaluateAsync<bool>(KeepBodies);
+            await ClickAsync("#idpSave");
+            await WaitForAsync("window.__bodies.some(b => b.includes('\\\"encryptAssertions\\\":true'))",
+                "Saving did not send the encryption setting as it stands.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/identity-providers/{id}");
+        }
     }
 
     [Fact]
