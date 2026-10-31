@@ -301,7 +301,7 @@ None recorded.
    (n), (p), (s) of §5.8, as §5.9 lists. What remains is the adjustment on the ellipsoid rather than the grid
    ([D-355](../architecture-debt.md)), the relationship classes, Z and attribute-rule domains Pro makes, the weighted
    points' geodetic rows, and the order Pro gives a shared line's direction and a shared point's record, which one
-   fabric does not pin.
+   fabric does not pin. *(2026-10-31: the owner's decision* "Kabul et, borçta izle" *covers the differences of this condition whose method Pro's outputs do not reveal — the order Pro gives a shared line's direction and a shared point's record. The ellipsoid adjustment is [D-355](../architecture-debt.md), which is being built, and this condition's state is left to that work rather than settled here.)*
 3. **A large fabric measured**: building and adjusting a fabric of some thousands of parcels, whose time the Arcade
    rules on points and the pure-Python node search in building bear on (ADR-224 §5.4 asks nothing of speed, but a
    toolbox will).

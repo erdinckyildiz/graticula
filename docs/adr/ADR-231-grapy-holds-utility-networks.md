@@ -472,5 +472,5 @@ None recorded.
    feed and Pro refuses the trace (ERROR 001797) where no controller is left, while the same 2 on a dead end behind a
    check valve fails only that branch; a controller with no value of the attribute refuses it too. Pinned by
    `MeshNetwork` tests. What stays open of this condition is the function barriers' order, the path traces and the tie
-   of D-338.
+   of D-338. **DISCHARGED 2026-10-31** — compared; the remaining difference accepted by owner decision ("Kabul et, borçta izle") and tracked in [D-338](../architecture-debt.md) with its measurement and trigger.
 6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-199 (*"Hepsini onayla"*).

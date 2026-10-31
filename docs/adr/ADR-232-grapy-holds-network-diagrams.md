@@ -293,5 +293,5 @@ None recorded.
    tree*: Pro fits and centres it the same way, its levels 10.955 m apart on §4's diagram, and spreads T's two leaves
    ±24° about the line where grapy gives each half the circle. Those two stay in
    [D-338](../architecture-debt.md), measured but not followed: one tree shape does not pin a branch's or a wedge's
-   rule.
+   rule. **DISCHARGED 2026-10-31** — compared; the remaining difference accepted by owner decision ("Kabul et, borçta izle") and tracked in [D-338](../architecture-debt.md) with its measurement and trigger.
 6. **The owner confirms or changes §5.9** ([Q-200](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-200 (*"Hepsini onayla"*).

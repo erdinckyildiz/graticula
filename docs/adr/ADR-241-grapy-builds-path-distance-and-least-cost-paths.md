@@ -225,5 +225,5 @@ None recorded.
    agree to 1e-4), 3.1 % with a cost and a surface, 0.7 % with VfLinear, 0.6 % with HfLinear — and Pro is within 0.15
    of the exact VfLinear accumulation on the plane where grapy is 1.29. So the surface part of this condition is
    discharged and the factor part is not: a cost with a surface is 0.78 % from Pro, a vertical factor 3.7 %, a
-   horizontal one 4.5 %, which D-336 keeps.
+   horizontal one 4.5 %, which D-336 keeps. **DISCHARGED 2026-10-31** — compared; the remaining difference accepted by owner decision ("Kabul et, borçta izle") and tracked in [D-336](../architecture-debt.md) with its measurement and trigger.
 2. **The owner answers [Q-210](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-210 (*"Hepsini onayla"*).
