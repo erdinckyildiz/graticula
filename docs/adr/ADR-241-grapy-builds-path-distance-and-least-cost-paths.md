@@ -64,7 +64,7 @@ equivalent should do what the page says the tool does, which is reconstruct the 
 
 ## 3. Counterarguments to the preferred option
 
-- The VRMA *"resolution of 0.25 degrees"* and the diagonal factor in the path distance formula are read one way here
+- The VRMA *"resolution of 0.25 degrees"* and the diagonal factor in the path distance formula are read one way here (Pro 3.7 settled both on 2026-10-31: the diagonal reading held, the rounding did not — §11.1)
   (§5.6 h, i); a Pro run could show the other.
 - Anisotropic fast marching is not causal in general: with a strong horizontal factor, a cell's height may be
   settled before its true cheapest neighbour. The equivalent solves the Eikonal step three times along its own
@@ -107,16 +107,24 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
    depends on direction, solved again along each Eikonal step's own gradient three times. Barriers (raster, feature
    and NoData) are thickened as documented. Initial accumulation, maximum accumulation and cost multiplier are taken
    as numbers or as fields of the source features; `source_direction` as a keyword. GEODESIC is refused by name.
-   Back direction, source direction and the two-band source location are written as documented.
+   Back direction, source direction and the two-band source location are written as documented. **Sources alone**
+   (no cost, surface, factor or barrier, and no source characteristic but the maximum accumulation) **are answered as
+   the straight-line distance**, the back direction pointing straight at the nearest source — Pro 3.7 does this
+   (measured 2026-10-31, condition 1); anything else, even a multiplier of 1, runs the reconstruction. The source
+   direction raster is written in whole degrees as 16-bit integers, as Pro writes it.
 4. **CostPath, CostPathAsPolyline** are built: paths traced over a back-link, D8 flow direction or back-direction
    raster as the range rule on Cost Path's page tells them apart, numbered as that page numbers them.
    **OptimalPathAsRaster, OptimalPathAsLine** are built as **equivalents**: slopeline tracing (Douglas 1994) across
    the lattice as *Distance accumulation algorithm* draws it, or cell by cell over a D8 raster. NETWORK_PATHS is
-   refused by name.
+   refused by name. Three rules of the tracing are Pro 3.7's as measured on 2026-10-31 (condition 1), where the page
+   left them open: on a lattice line the azimuth is the two centres' interpolated linearly; the next line a step stops
+   at is the one beyond the nearest line, not the nearest ahead; a step that ends nearest a source ends at its centre.
+   The raster marks the cells that hold a vertex of the line, and CostPath traces a back-direction raster the same
+   way and marks the same cells.
 5. **Counts** against `grapy-surface` at e56366f7: `arcpy.sa` 208 → 234 built (equivalents 21 → 25), 170 → 144
    refused; `arcpy.ia` 206 → 223 built (equivalents 29), 141 → 124 refused; all modules 1,304 → 1,347 built
    (equivalents 156 → 160), 870 → 827 refused, of 2,174. None of the 43 names is refused any more.
-6. **INFERRED** (Q-210), where the pages leave a choice open:
+6. ~~**INFERRED**~~ **Confirmed 2026-10-31 by owner decision in Q-210** (*"Hepsini onayla"*) (Q-210), where the pages leave a choice open:
    - (a) with a factor raster given and no factor, the Binary graph with its defaults;
    - (b) a factor exactly at a cut angle is finite (*"below which"*, *"beyond which"*);
    - (c) *inverse linear* is `1/(zeroFactor + slope·angle)`, infinite where the line is not positive; a linear line
@@ -128,19 +136,24 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
      is in metres; a geographic one is refused for it;
    - (h) the 1.414214 in the diagonal path distance formula is the diagonal of the base already inside
      `Surf_dist`, counted once — read otherwise, the flat case would not equal Cost Distance, which the page says it
-     does;
-   - (i) the legacy VRMA is rounded to the nearest 0.25° (*"The resolution of the VRMAs is 0.25 degrees"*); the
-     reconstruction does not round;
+     does; **Pro 3.7 measured 2026-10-31: held** (a 10 rise on a diagonal step is 17.3205 on both sides);
+   - (i) ~~the legacy VRMA is rounded to the nearest 0.25° (*"The resolution of the VRMAs is 0.25 degrees"*); the
+     reconstruction does not round;~~ **Pro 3.7 measured 2026-10-31: changed — neither rounds.** A 1-in-10 rise
+     (5.7106°) under `VfLinear(1, -90, 90, 0.1)` costs 15.7106 a step in Pro, not 15.75, and passes a 5.72° binary cut
+     that 5.75 would close;
    - (j) the reconstruction uses the entered cell's own horizontal factor, not two half steps, since its page takes
      the slope at the cell only; a cost of zero or less is 1e-6; corner barriers are closed through the upper open
      cell; an Eikonal estimate belongs to the cheaper of its two neighbours' sources; the maximum accumulation is
      compared with the accumulated cost including the initial one; source location rows and columns count from 0 at
      the upper left;
    - (k) paths are numbered in row-by-row scan order from the upper left; a zone's start is its cheapest cell, the
-     first scanned on a tie; a back direction in CostPath steps to its nearest of the eight neighbours;
+     first scanned on a tie; ~~a back direction in CostPath steps to its nearest of the eight neighbours;~~ **(Pro
+     3.7 measured 2026-10-31: changed — CostPath traces a back direction across the lattice as Optimal Path does,
+     §5.4)**;
      CostPathAsPolyline writes each path whole with `DestID` the destination's value; a one-cell path is no line;
      Optimal Path's default path type is EACH_ZONE (the dialog's first); OptimalPathAsRaster counts each path once
-     in every cell its line passes through;
+     in every cell ~~its line passes through~~ **that holds a vertex of its line (Pro 3.7 measured 2026-10-31:
+     changed)**;
    - (l) of two equally cheap sources, the one settled first wins, as CostDistance already infers.
 
 ## 6. Consequences
@@ -149,7 +162,9 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
   names them; nothing in the catalogue, nothing held between runs.
 - **Positive.** A toolbox that routes a trail, a pipeline or a hiking-time map runs on grapy. Pro's own
   migration path (legacy Path Distance to Distance Accumulation, Cost Path to Optimal Path) runs on both sides.
-- **Negative.** The equivalents' numbers differ from Pro's by an amount nobody has measured against Pro. The
+- **Negative.** The reconstruction differs from Pro's wherever a surface or a factor is given — by up to 1.9 % with
+  a surface, 5.8 % with a vertical factor, 8 % with a linear horizontal factor and far more with a cut one (condition
+  1, [D-336](../architecture-debt.md)); with sources alone, a cost raster or barriers it agrees to 1e-4. The
   reconstruction and the legacy network are Python loops over a heap: a few hundred thousand cells take seconds to
   minutes, unmeasured (D-332). The legacy source characteristics stay refused.
 - **Ports created.** None; numpy, shapely and pyproj only, already grapy's.
@@ -180,5 +195,19 @@ None recorded.
 
 1. **PathDistance and DistanceAccumulation compared with ArcGIS Pro** on `test_pathdist.py`'s grids with a surface, a
    horizontal and a vertical factor: whether the diagonal reading (§5.6 h) and the 0.25° VRMA (§5.6 i) hold, and how
-   far the equivalent is from Pro's reconstruction. Needs a Pro session.
-2. **The owner answers [Q-210](../open-questions.md).**
+   far the equivalent is from Pro's reconstruction. Needs a Pro session. **PARTLY DISCHARGED 2026-10-31**: Pro 3.7
+   and grapy on `tools/pro-compare/adr241-pathdist.py`'s grids (1 × 3 to 41 × 41, a hill, a varying cost, a turning
+   wind; 53 outputs). *Legacy*: PathDistance with every factor and the back-link agree to 9e-5 on all 14 cases once
+   (i) changed — (h) held, (i) did not (Pro does not round the VRMA). *Reconstruction*: sources alone are the
+   straight line in Pro (grapy was up to 5.1 % long: changed, §5.3); with a cost raster, barriers, initial
+   accumulation, a multiplier or TO_SOURCE the two agree to 1e-4, back direction included; with a surface they are
+   1.2–1.9 % apart, a vertical factor 5.8 %, a linear horizontal factor 8–27 %, a cut horizontal factor 84 % with 200
+   cells' reach apart, and all of them together on the 21 × 21 field 48 %. Pro's method is unpublished and its answer
+   on a factor field is nearer the continuous optimum than grapy's (south against the wind it finds the 484 of a
+   zig-zag where grapy answers the straight 500), which is [D-336](../architecture-debt.md). *Paths*: CostPath over a
+   back-link agrees cell for cell; Optimal Path As Line agrees vertex for vertex (17 vertices, length 185.183,
+   PathCost 309.9298) and As Raster and CostPath over a back direction cell for cell, after the three tracing rules
+   of §5.4 changed. Source location agrees; the source direction is now whole degrees. Left open: the factor
+   reconstruction (D-336), and Pro's output extent, which grows by two cells each side when a barrier raster is the
+   only raster given.
+2. **The owner answers [Q-210](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-210 (*"Hepsini onayla"*).

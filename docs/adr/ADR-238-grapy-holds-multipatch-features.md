@@ -103,7 +103,7 @@ No performance claim is made: a user tool runs under ADR-223's limits, and a mes
    LasBuildingMultipatch, SetLasClassCodesUsingRaster, SunShadowFrequency, Import3DFiles, SunShadowVolume (an
    **equivalent**, ADR-224 §5.6: Crow 1977's swept shadow volume), IDW3D and NearestNeighbor3D. AddZInformation's
    SURFACE_AREA and VOLUME, refused for the same missing model, are built with them.
-2. **INFERRED, for confirmation** ([Q-206](../open-questions.md)):
+2. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-206** (*"Hepsini onayla"*) ([Q-206](../open-questions.md)):
    - (a) **storage**: a MultiPolygon Z feature table marked `grapy_multipatch` in `gpkg_extensions`, one polygon per
      planar face; Esri's patches stored as the faces they describe (a strip or fan as its triangles, a ring group as a
      polygon with holes); faces counterclockwise seen from outside; textures and colours not held; `SHAPE@` reads the
@@ -187,7 +187,7 @@ None recorded.
 
 1. **Every built tool is tested against a hand-worked answer.** **DISCHARGED 2026-10-31**: `test_multipatch.py`, 28
    tests (§4's table).
-2. **The owner confirms or changes §5.2** ([Q-206](../open-questions.md)).
+2. **The owner confirms or changes §5.2** ([Q-206](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-206 (*"Hepsini onayla"*).
 3. **The other names that refuse multipatch features as not held** — `conversion.MultipatchToCollada` and
    `MultipatchToRaster`, `management`'s 3D-object and level-of-detail tools, `ddd.SkylineBarrier`,
    PointFileInformation's EXTRUSION, ExtractObjectsFromPointCloud's 3D types and LocateLasPointsByProximity's multipatch
@@ -195,7 +195,10 @@ None recorded.
    **DISCHARGED 2026-10-31** by D-329's sweep (§12): MultipatchToCollada, MultipatchToRaster, SkylineBarrier,
    Export3DObjects, Import3DObjects, EXTRUSION, the 3D convex and concave hulls and the bounding sphere, and multipatch
    proximity are built; Add3DFormats, Remove3DFormats, GenerateLevelOfDetail, BOUNDING_BOX_3D and silhouettes are
-   refused, each for its own reason; `test_lookagain.py`.
+   refused, each for its own reason; `test_lookagain.py`. *(Looked at again 2026-10-31: no name refuses multipatch or 3D object features as not held. One
+   neighbour still gave a schedule — `conversion.MeshToLAS`, "an integrated mesh … which grapy does not hold (ADR-224
+   group 2)", listed beside these in ADR-234 §5.8 — and now refuses for its own: its page names how points are made but
+   not which level of detail is read, nor where a face's one sample lies.)*
 
 ## 12. Amendment 2026-10-31 — D-329's sweep: the names that still said a model was missing
 
@@ -236,7 +239,7 @@ on a model these four ADRs already hold, and the formats written are published s
    pansharpening names kept their reason, less its *multidimensional* clause.
 5. **Fixed in passing**: ExtractObjectsFromPointCloud's BOUNDING_BOX_2D is the smallest *oriented* rectangle, as its
    page says; it was the axis-aligned box.
-6. **INFERRED, for the owner** ([Q-209](../open-questions.md)): (a) Subset's dimension names and intervals; (b)
+6. ~~**INFERRED, for the owner**~~ **Confirmed 2026-10-31 by owner decision in Q-209** (*"Hepsini onayla"*) ([Q-209](../open-questions.md)): (a) Subset's dimension names and intervals; (b)
    Foreach's slice arguments; (c) SummarizeCategoricalRaster's table; (d) ExtractSubDataset's index from 1; (e)
    NetCDFFileProperties' field type words and dimension values; (f) a 3D object feature class is a multipatch class,
    and the models' origin, naming and axes; (g) MultipatchToRaster's grid corner; (h) SkylineBarrier's pairing,

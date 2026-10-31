@@ -473,7 +473,8 @@ def _steps(cost, surface, vertical, vf, horizontal, hf, to_source, cell, meters)
             vrma = np.degrees(np.arctan(np.where(np.isnan(rise), 0.0, rise) / run))
             if to_source:
                 vrma = -vrma
-            vrma = np.round(vrma * 4.0) / 4.0  # "The resolution of the VRMAs is 0.25 degrees."
+            # Not rounded to the page's "0.25 degrees": Pro 3.7 answers a 5.7106° step unrounded (measured
+            # 2026-10-31, ADR-241 §5.6 i).
             vf_ab = vf.value(vrma, meters)
         hf_a = hf_b = 1.0
         if horizontal is not None:
@@ -768,6 +769,28 @@ def _reconstruct(field, sources, barrier, start, maximum):
     return total, owner, back
 
 
+def _straight_line(sources, maximum, cell):
+    """The plain case — sources alone, or with only a maximum accumulation — answered as the straight-line distance to
+    the nearest source centre, with the back direction pointing straight at it. ArcGIS Pro 3.7 does this (measured
+    2026-10-31, ADR-241 §5.3: exact Euclidean on 41 × 41, where the reconstruction is up to 5.1 % long); any cost,
+    surface, factor, barrier or other source characteristic, even a multiplier of 1, puts it back on the
+    reconstruction. Of two equally near sources the first in scan order wins."""
+    rows, columns = sources.shape
+    r, k = np.indices(sources.shape)
+    total = np.full(sources.shape, np.inf)
+    owner = np.full(sources.shape, -1, np.int64)
+    for sr, sk in zip(*np.nonzero(sources)):
+        d = cell * np.hypot(r - sr, k - sk)
+        o = sr * columns + sk
+        nearer = (d < total) & (d <= maximum[o])
+        total[nearer], owner[nearer] = d[nearer], o
+    sr, sk = np.divmod(np.clip(owner, 0, None), columns)
+    back = np.degrees(np.arctan2(sk - k, r - sr)) % 360.0
+    back = np.where(back == 0, 360.0, back)
+    back = np.where(((sr == r) & (sk == k)) | (owner < 0), 0.0, back)
+    return total, owner, back
+
+
 def _accumulate(tool, in_source_data, in_barrier_data, in_surface_raster, in_cost_raster, in_vertical_raster,
                 vertical_factor, in_horizontal_raster, horizontal_factor, source_initial_accumulation,
                 source_maximum_accumulation, source_cost_multiplier, source_direction, distance_method, field=None):
@@ -815,9 +838,15 @@ def _accumulate(tool, in_source_data, in_barrier_data, in_surface_raster, in_cos
     def array(raster, fill=0.0):
         return None if raster is None else np.where(raster._mask, fill, raster._array.astype(np.float64))
 
-    field_ = _Field(c, array(surface), array(vertical), vf, array(horizontal, -1.0), hf, multiplier,
-                    direction == "TO_SOURCE", grid.width, meters)
-    total, owner, back = _reconstruct(field_, sources, barrier, start, maximum)
+    plain = not any(_given(v) for v in (in_barrier_data, in_surface_raster, in_cost_raster, in_vertical_raster,
+                                        in_horizontal_raster, source_initial_accumulation, source_cost_multiplier,
+                                        source_direction))
+    if plain:
+        total, owner, back = _straight_line(sources, maximum, grid.width)
+    else:
+        field_ = _Field(c, array(surface), array(vertical), vf, array(horizontal, -1.0), hf, multiplier,
+                        direction == "TO_SOURCE", grid.width, meters)
+        total, owner, back = _reconstruct(field_, sources, barrier, start, maximum)
     mask = ~np.isfinite(total) | barrier
     return total, owner, back, mask, values, grid
 
@@ -828,9 +857,10 @@ def _source_outputs(owner, mask, grid, out_source_direction_raster, out_source_l
     sr, sk = np.divmod(np.clip(owner, 0, None), columns)
     if _given(out_source_direction_raster):
         r, k = np.indices(owner.shape)
-        azimuth = np.degrees(np.arctan2(sk - k, r - sr)) % 360.0
+        # Whole degrees, as Pro 3.7 writes it (16-bit integers, rounded; measured 2026-10-31); north is 360, not 0.
+        azimuth = np.rint(np.degrees(np.arctan2(sk - k, r - sr)) % 360.0)
         azimuth = np.where((sr == r) & (sk == k), 0.0, np.where(azimuth == 0, 360.0, azimuth))
-        _save(azimuth, mask, grid, out_source_direction_raster, np.float32)
+        _save(azimuth, mask, grid, out_source_direction_raster, np.int16)
     if _given(out_source_location_raster):
         Raster._of_bands([np.where(mask, 0, sr).astype(np.int32), np.where(mask, 0, sk).astype(np.int32)],
                          [mask.copy(), mask.copy()], grid).save(out_source_location_raster)
@@ -845,7 +875,8 @@ def DistanceAccumulation(in_source_data, in_barrier_data=None, in_surface_raster
     """The accumulated distance or cost from the cheapest source, reconstructed as a surface rather than found over a
     network of cell centres (*Distance accumulation algorithm*): straight-line distance without a cost raster, cost
     distance with one, stretched by the surface and weighted by the source's multiplier and the horizontal and
-    vertical factors. Barriers and NoData on any input stay NoData."""
+    vertical factors. Barriers and NoData on any input stay NoData. With sources alone (or with only a maximum
+    accumulation) it is the exact straight-line distance, as Pro 3.7 answers it."""
     from ._raster import Raster
     total, owner, back, mask, _, grid = _accumulate(
         "DistanceAccumulation", in_source_data, in_barrier_data, in_surface_raster, in_cost_raster, in_vertical_raster,
@@ -925,7 +956,8 @@ def _direction_kind(raster, force_flow):
 
 def _cell_trace(direction, mask, kind, start):
     """The cells from ``start`` to a source, a step at a time: a back-link code, a D8 flow direction, or a back
-    direction taken to its nearest of the eight neighbours (INFERRED). Ends on a source (0), off the grid, on NoData
+    direction taken to its nearest of the eight neighbours (no longer CostPath's: it traces a back direction over the
+    lattice since the Pro 3.7 run of 2026-10-31). Ends on a source (0), off the grid, on NoData
     or where the path would revisit a cell."""
     rows, columns = direction.shape
     path, seen = [start], {start}
@@ -965,7 +997,18 @@ def _cost_paths(tool, in_destination_data, in_cost_distance_raster, in_cost_back
     present, values = _destinations(in_destination_data, link._grid, tool, destination_field)
     kind = _direction_kind(link, _parse_flow_force(force_flow_direction_convention))
     starts = _starts(present, values, distance._array, distance._mask | link._mask, path_type, tool)
-    traces = [(start, *_cell_trace(link._array, link._mask, kind, start)) for start in starts]
+    if kind == "direction":
+        # A back direction is traced across the lattice as Optimal Path traces it, and the path is the cells that
+        # hold its vertices: Pro 3.7's Cost Path over a back-direction raster marks the same cells as its Optimal
+        # Path As Raster (measured 2026-10-31, ADR-241 §5.4).
+        limit = 4 * (link._grid.rows + link._grid.columns) * max(link._grid.rows, link._grid.columns)
+        traces = []
+        for start in starts:
+            points, reached = _lattice_trace(link._array, link._mask, start, limit)
+            cells = list(dict.fromkeys((int(math.floor(r + 0.5)), int(math.floor(k + 0.5))) for r, k in points))
+            traces.append((start, cells, reached))
+    else:
+        traces = [(start, *_cell_trace(link._array, link._mask, kind, start)) for start in starts]
     return traces, values, distance, link._grid
 
 
@@ -1019,6 +1062,29 @@ def CostPathAsPolyline(in_destination_data, in_cost_distance_raster, in_cost_bac
     return _write_paths(out_polyline_features, grid, rows, [("DestID", "Integer")])
 
 
+def _edge_azimuth(direction, mask, r, k, cell):
+    """The azimuth at a point on the lattice: a cell centre's own, or on the line between two centres the two
+    centres' azimuths interpolated linearly by distance, the short way round the circle. ArcGIS Pro 3.7 turns this way
+    (measured 2026-10-31, ADR-241 §5.4: every vertex of a 17-vertex path within 0.01° of the interpolation). A source
+    (0) or NoData at either end leaves the nearer cell's own."""
+    own = float(direction[cell])
+    fr, fk = r - math.floor(r), k - math.floor(k)
+    if fr > 1e-9 and fk < 1e-9:
+        a, b, t = (int(math.floor(r)), int(round(k))), (int(math.floor(r)) + 1, int(round(k))), fr
+    elif fk > 1e-9 and fr < 1e-9:
+        a, b, t = (int(round(r)), int(math.floor(k))), (int(round(r)), int(math.floor(k)) + 1), fk
+    else:
+        return own
+    rows, columns = direction.shape
+    if not (0 <= b[0] < rows and 0 <= b[1] < columns) or mask[a] or mask[b]:
+        return own
+    za, zb = float(direction[a]), float(direction[b])
+    if za == 0 or zb == 0:
+        return own
+    turn = (zb - za + 180.0) % 360.0 - 180.0
+    return ((za + t * turn) % 360.0) or 360.0
+
+
 def _lattice_trace(direction, mask, start, limit):
     """A path down a back-direction raster as *Distance accumulation algorithm* draws it: from the start cell's
     centre it runs on the azimuth of the nearest cell to the lattice line it crosses next (the lines through the cell
@@ -1031,18 +1097,20 @@ def _lattice_trace(direction, mask, start, limit):
     for _ in range(limit):
         if mask[cell]:
             return points, False
-        azimuth = float(direction[cell])
+        azimuth = _edge_azimuth(direction, mask, r, k, cell)
         if azimuth == 0:
             if points[-1] != (float(cell[0]), float(cell[1])):
                 points.append((float(cell[0]), float(cell[1])))
             return points, True
         dr, dk = -math.cos(math.radians(azimuth)), math.sin(math.radians(azimuth))
         steps = []
+        # The next line is the one beyond the nearest, not the nearest ahead: Pro 3.7 steps from k = 7.076 west to
+        # k = 6, past the line at 7 (measured 2026-10-31, ADR-241 §5.4).
         if abs(dk) > 1e-12:
-            target = math.floor(k + 1e-9) + 1 if dk > 0 else math.ceil(k - 1e-9) - 1
+            target = round(k) + (1 if dk > 0 else -1)
             steps.append((target - k) / dk)
         if abs(dr) > 1e-12:
-            target = math.floor(r + 1e-9) + 1 if dr > 0 else math.ceil(r - 1e-9) - 1
+            target = round(r) + (1 if dr > 0 else -1)
             steps.append((target - r) / dr)
         t = min(steps)
         r, k = r + t * dr, k + t * dk
@@ -1053,6 +1121,10 @@ def _lattice_trace(direction, mask, start, limit):
         cell = (int(round(r)), int(round(k)))
         if not (0 <= cell[0] < rows and 0 <= cell[1] < columns):
             return points, False
+        if not mask[cell] and float(direction[cell]) == 0:
+            # A step that ends nearest a source ends at its centre, not at the crossing (Pro 3.7, measured 2026-10-31).
+            points.append((float(cell[0]), float(cell[1])))
+            return points, True
         points.append((r, k))
     return points, False
 
@@ -1083,20 +1155,17 @@ def _optimal(tool, in_destination_data, in_distance_accumulation_raster, in_back
 
 
 def _cells_on(points):
-    """The cells a path passes through, sampled every twentieth of a cell along it."""
-    found = {(int(round(points[0][0])), int(round(points[0][1])))}
-    for (r0, k0), (r1, k1) in zip(points, points[1:]):
-        n = max(1, int(math.ceil(math.hypot(r1 - r0, k1 - k0) * 20)))
-        for i in range(1, n + 1):
-            t = i / n
-            found.add((int(round(r0 + t * (r1 - r0) + 1e-9)), int(round(k0 + t * (k1 - k0) + 1e-9))))
-    return found
+    """The cells that hold a vertex of the path. ArcGIS Pro 3.7 marks these and no others (measured 2026-10-31,
+    ADR-241 §5.4); a cell the line only crosses between two vertices is not on it. A vertex on a cell edge, half
+    way between two centres, is in the cell below or to the right (floor of the half-shifted index)."""
+    return {(int(math.floor(r + 0.5)), int(math.floor(k + 0.5))) for r, k in points}
 
 
 def OptimalPathAsRaster(in_destination_data, in_distance_accumulation_raster, in_back_direction_raster,
                         destination_field=None, path_type="EACH_ZONE"):
     """The optimal paths from the destinations to their sources traced down the back direction raster (or a D8 flow
-    direction raster cell by cell), each cell given the number of paths through it, NoData off them."""
+    direction raster cell by cell), each cell that holds a vertex of a path given the number of such paths, NoData
+    off them."""
     from ._raster import Raster
     traces, _, _, grid = _optimal("OptimalPathAsRaster", in_destination_data, in_distance_accumulation_raster,
                                   in_back_direction_raster, destination_field, path_type)

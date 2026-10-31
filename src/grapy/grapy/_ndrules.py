@@ -366,6 +366,8 @@ def _reduce_junction(builder, d, p, ctx):
     for f in candidates(builder, d, p["selector"], ("J",)):
         if f.id not in d.features or f.flags.get("reduce") is False or d.contents(f.id) or f.reduction:
             continue
+        if f.container is not None:   # content stays in its container: Pro 3.7 kept a contained valve (2026-10-31)
+            continue
         if p.get("edge_attributes") and not _same_attributes(builder, d, f, p["edge_attributes"]):
             continue
         near = d.neighbours(f.id)

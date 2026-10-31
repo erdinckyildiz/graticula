@@ -105,17 +105,18 @@ class Ddd(unittest.TestCase):
     def test_idw_weights_by_inverse_square_distance(self):
         points = self.points("p", [(0, 0, 0.0), (100, 100, 100.0)])
         out = ddd.Idw(points, "z", self.out("idw.tif"), 50).getOutput(0)
-        # Centres (25,75) (75,75) / (25,25) (75,25). At (25,25): d² is 1250 to the first point and 11250 to the second,
-        # so 100·(1/11250)/(1/1250 + 1/11250) = 10; (75,75) mirrors it at 90; the other two are equidistant: 50.
+        # On the grid Pro 3.7 lays out (ADR-233 condition 4): cell centres on the points' extent: x and y at 0, 50 and 100. At (50,100):
+        # d² is 12500 to the first point and 2500 to the second, so 100·(1/2500)/(1/2500 + 1/12500) = 83.33; (0,50)
+        # mirrors it at 16.67; a centre on a point takes its value; the centre and the far corners are equidistant: 50.
         got = cells(out)
-        self.assertAlmostEqual(got[0][0], 50.0, places=4)
-        self.assertAlmostEqual(got[0][1], 90.0, places=4)
-        self.assertAlmostEqual(got[1][0], 10.0, places=4)
-        self.assertAlmostEqual(got[1][1], 50.0, places=4)
-        # A fixed radius of 40 reaches only the point 35.36 away; the cells 79.06 from both points find none.
+        expected = [[50.0, 250 / 3, 100.0], [50 / 3, 50.0, 250 / 3], [0.0, 50 / 3, 50.0]]
+        for row, want in zip(got, expected):
+            for value, wanted in zip(row, want):
+                self.assertAlmostEqual(value, wanted, places=4)
+        # A fixed radius of 40 reaches only the point a centre lies on; the others are 50 or more from both.
         fixed = cells(ddd.Idw(points, "z", self.out("fixed.tif"), 50, 2, "FIXED 40 0").getOutput(0), nodata=-1)
-        self.assertEqual([[round(v, 4) for v in r] for r in fixed], [[-1, 100.0], [0.0, -1]])
-        exact = self.points("e", [(0, 0, 0.0), (100, 100, 100.0), (25, 75, 7.0)])
+        self.assertEqual([[round(v, 4) for v in r] for r in fixed], [[-1, -1, 100.0], [-1, -1, -1], [0.0, -1, -1]])
+        exact = self.points("e", [(0, 0, 0.0), (100, 100, 100.0), (0, 100, 7.0)])
         self.assertAlmostEqual(cells(ddd.Idw(exact, "z", self.out("exact.tif"), 50).getOutput(0))[0][0], 7.0, places=4)
         with self.assertRaises(arcpy.NotBuiltError):
             ddd.Idw(points, "z", self.out("barrier.tif"), 50, in_barrier_polyline_features=points)
@@ -123,12 +124,12 @@ class Ddd(unittest.TestCase):
     def test_trend_fits_a_least_squares_polynomial(self):
         plane = self.points("pl", [(x, y, 2 * x + 3 * y + 1) for x in (0, 20) for y in (0, 20)])
         got = cells(ddd.Trend(plane, "z", self.out("trend.tif"), 10).getOutput(0))
-        # Centres (5,15) (15,15) / (5,5) (15,5) on z = 2x + 3y + 1.
-        for row, expected in zip(got, [[56, 76], [26, 46]]):
+        # Centres at 0, 10 and 20 each way (the grid Pro 3.7 lays out (ADR-233 condition 4): cell centres on the points' extent) on z = 2x + 3y + 1.
+        for row, expected in zip(got, [[61, 81, 101], [31, 51, 71], [1, 21, 41]]):
             for value, wanted in zip(row, expected):
                 self.assertAlmostEqual(value, wanted, places=3)
         square = self.points("sq", [(x, y, x * x) for x in (0, 10, 20) for y in (0, 10, 20)])
-        self.assertAlmostEqual(cells(ddd.Trend(square, "z", self.out("t2.tif"), 10, 2).getOutput(0))[1][0], 25.0, places=3)
+        self.assertAlmostEqual(cells(ddd.Trend(square, "z", self.out("t2.tif"), 10, 2).getOutput(0))[1][1], 100.0, places=3)
         with self.assertRaises(arcpy.NotBuiltError):
             ddd.Trend(plane, "z", self.out("lg.tif"), 10, 1, "LOGISTIC")
 

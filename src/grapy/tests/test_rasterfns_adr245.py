@@ -94,19 +94,22 @@ class Bands(_Base):
         with self.assertRaises(NotBuiltError):
             ia.VectorField(grid([[1.0]]), grid([[1.0]]), "Unknown")
 
-    def test_colorspace_conversion_reproduces_the_hues_the_page_lists(self):
+    def test_colorspace_conversion_answers_as_pro_does(self):
         def rgb(*pixels):
             return ia.CompositeBand([grid(np.array([[p[i] for p in pixels]], np.uint8)) for i in range(3)])
         colours = [(255, 0, 0), (255, 255, 0), (0, 255, 0), (0, 255, 255), (0, 0, 255), (255, 0, 255), (128, 128, 128)]
         hsv = ia.ColorspaceConversion(rgb(*colours))
         h, s, v = (cells(b)[0] for b in hsv.getRasterBands())
-        self.assertEqual(h, [0, 40, 80, 120, 160, 201, 0])  # the page: red 0, yellow 40 … magenta 201
+        # ArcGIS Pro 3.7, measured 2026-10-31: degrees × 240/360, red 240 (grey 0), magenta 200 — the page lists red 0
+        # and magenta 201. On every whole-degree hue at four saturations and values Pro and grapy agree exactly.
+        self.assertEqual(h, [240, 40, 80, 120, 160, 200, 0])
         self.assertEqual(s, [255] * 6 + [0])
         self.assertEqual(v, [255] * 6 + [128])
         back = sa.ColorspaceConversion(hsv, "hsv_to_rgb")
         got = np.array(list(zip(*(cells(b)[0] for b in back.getRasterBands()))))
-        # Hue is held in 241 steps, so a colour comes back within a few levels of where it started.
-        np.testing.assert_allclose(got, np.array(colours), atol=4)
+        # The six pure hues come back exactly; Pro's round trip is within 3 levels over every hue, and grapy's
+        # inverse within 1 level of Pro's.
+        np.testing.assert_allclose(got, np.array(colours), atol=0)
         with self.assertRaises(ExecuteError):
             ia.ColorspaceConversion(ia.CompositeBand([grid([[0.5]]), grid([[0.5]]), grid([[0.5]])]))
 
@@ -144,11 +147,38 @@ class Lists(_Base):
         values = grid([[1, 5, 9], [1, 5, 9], [1, 5, 9]])
         zones = grid([[1, 1, 1], [2, 2, 2], [3, 3, 3]])
         out = ia.ZonalRemap(values, table, zones)
-        # Zone 1: 1 → 10, 5 → 20, 9 matches nothing → 255; zone 2's record has no output value → 255; zone 3 has no
-        # record, so it is not remapped and keeps the background, 0.
-        self.assertEqual(cells(out), [[10, 20, 255], [255, 255, 255], [0, 0, 0]])
+        # Zone 1: 1 → 10, 5 → 20, 9 matches nothing and keeps the background, 0; zone 2's record has no output value
+        # → 255; zone 3 has no record → 0 (Pro 3.7's rules, measured 2026-10-31).
+        self.assertEqual(cells(out), [[10, 20, 0], [255, 255, 255], [0, 0, 0]])
         self.assertEqual(cells(sa.ZonalRemap(values, table, zones, where_clause="ZoneValue = 10")),
-                         [[10, 255, 255], [0, 0, 0], [0, 0, 0]])
+                         [[10, 0, 0], [0, 0, 0], [0, 0, 0]])
+
+    def test_zonal_remap_is_pros_on_its_threshold_ends(self):
+        # tools/pro-compare/adr245-colour-remap.py's table and values, and ArcGIS Pro 3.7's answer, 2026-10-31: both
+        # ends exclusive, the later of two overlapping records wins, an unmatched pixel keeps the background (7), the
+        # default (99) is only for a record without an output value, NoData stays NoData, and without a zone raster only
+        # a record without a zone id applies. Rows 1–3 are Pro's answer as measured; row 4 joins a record Pro was run
+        # on in a second table (an empty output value over 1–3) to this one.
+        gdb = arcpy.management.CreateFileGDB(self.directory, "t")[0]
+        table = arcpy.management.CreateTable(gdb, "thresholds")[0]
+        for field, kind in (("ZoneID", "LONG"), ("ZoneMin", "DOUBLE"), ("ZoneMax", "DOUBLE"), ("ZoneValue", "DOUBLE")):
+            arcpy.management.AddField(table, field, kind)
+        with da.InsertCursor(table, ["ZoneID", "ZoneMin", "ZoneMax", "ZoneValue"]) as rows:
+            for row in ([1, 2, 5, 10], [1, 5, 8, 20], [2, 2, 6, 30], [2, 4, 9, 40], [3, None, 3, 50], [3, 9, None, 60],
+                        [None, 4, 6, 80], [4, 1, 3, None]):
+                rows.insertRow(row)
+        v = np.tile(np.arange(0, 12.5, 0.5), (4, 1))
+        v[0, 3] = -9999
+        values = grid(v, nodata=-9999)
+        zones = grid(np.repeat(np.arange(1, 5)[:, None], 25, axis=1))
+        got = cells(ia.ZonalRemap(values, table, zones, background_value=7, default_output_value=99))
+        pro = [[7, 7, 7, ND, 7] + [10] * 5 + [7] + [20] * 5 + [7] * 9,
+               [7] * 5 + [30] * 4 + [40] * 9 + [7] * 7,
+               [50] * 6 + [7] * 13 + [60] * 6,
+               [7] * 3 + [99] * 3 + [7] * 19]
+        self.assertEqual(got, pro)
+        alone = cells(ia.ZonalRemap(values, table, background_value=7))
+        self.assertEqual(alone[1], [7] * 9 + [80] * 3 + [7] * 13)
 
 
 class Filters(_Base):

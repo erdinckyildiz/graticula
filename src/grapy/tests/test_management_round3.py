@@ -1,5 +1,6 @@
 """grapy's third batch: feature datasets, values, pivots, time fields, comparisons, polygon parts, transects, mosaics,
 raster statistics and pyramids, and KML — ADR-224. Every answer is worked out by hand from what is written here."""
+import datetime
 import os
 import sys
 import tempfile
@@ -81,7 +82,7 @@ class Round3(unittest.TestCase):
         source = self.table("src", [("owner", "TEXT"), ("year", "LONG"), ("val", "DOUBLE")],
                             [("a", 2020, 1.0), ("a", 2021, 2.0), ("b", 2020, 3.0)])
         out = arcpy.management.PivotTable(source, "owner", "year", "val", self.out("pivot.gpkg"))[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(out)][1:-1], ["owner", "year2020", "year2021"])
+        self.assertEqual([f.name for f in arcpy.ListFields(out)][1:], ["owner", "year2020", "year2021"])
         self.assertEqual(self.rows(out, ["owner", "year2020", "year2021"]), [("a", 1.0, 2.0), ("b", 3.0, None)])
         tags = self.table("tags", [("id", "LONG"), ("tag", "TEXT"), ("v", "TEXT")], [(1, "colour", "red"), (1, "size", "big")])
         text = arcpy.management.PivotTable(tags, "id", "tag", "v", self.out("tags_p.gpkg"))[0]
@@ -95,16 +96,16 @@ class Round3(unittest.TestCase):
                            [("20261029", 0), ("29/10/2026 03:15 PM", 1700000000), ("not a date", None)])
         convert = arcpy.management.ConvertTimeField
         convert(times, "t", "yyyyMMdd", "d1")
-        self.assertEqual([r[0] for r in self.rows(times, ["d1"])], ["2026-10-29T00:00:00", None, None])
+        self.assertEqual([r[0] for r in self.rows(times, ["d1"])], [datetime.datetime(2026, 10, 29), None, None])
         convert(times, "t", "dd/MM/yyyy hh:mm tt", "d2", "DATE")
-        self.assertEqual(self.rows(times, ["d2"])[1], ("2026-10-29T15:15:00",))
+        self.assertEqual(self.rows(times, ["d2"])[1], (datetime.datetime(2026, 10, 29, 15, 15),))
         convert(times, "d2", None, "label", "TEXT", "MMM dd, yyyy")
         self.assertEqual(self.rows(times, ["label"])[1], ("Oct 29, 2026",))
         convert(times, "d1", None, "number", "LONG", "yyyyMMdd")
         self.assertEqual(self.rows(times, ["number"])[0], (20261029,))
         # 1 700 000 000 seconds after 1970-01-01 is 2023-11-14 22:13:20 UTC.
         convert(times, "n", "unix_s", "u")
-        self.assertEqual([r[0] for r in self.rows(times, ["u"])], ["1970-01-01T00:00:00", "2023-11-14T22:13:20", None])
+        self.assertEqual([r[0] for r in self.rows(times, ["u"])], [datetime.datetime(1970, 1, 1), datetime.datetime(2023, 11, 14, 22, 13, 20), None])
         with self.assertRaises(arcpy.NotBuiltError):
             convert(times, "t", "yyyyMMdd", "z", "DATE", None, "UTC")
 

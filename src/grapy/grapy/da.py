@@ -60,6 +60,17 @@ def _model_tokens(connection, table, fields):
     return out
 
 
+def _date_value(text):
+    """A Date field's stored text as the naive datetime.datetime arcpy.da reads; text that is no date stays text."""
+    import datetime
+    try:
+        found = datetime.datetime.fromisoformat(text.strip())
+    except ValueError:
+        return text
+    return found.replace(tzinfo=None) if found.tzinfo is None or found.utcoffset() == datetime.timedelta(0) else \
+        found.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+
+
 def _shape_token(token, shape, reference):
     token = token.upper()
     if shape is None:
@@ -141,6 +152,10 @@ class _Cursor:
         self._described, _, self._srid, self._geometry = _gpkg.describe(self._connection, self._table)
         self._has_z, self._has_m = _gpkg.dimensions(self._connection, self._table)
         self._oid = _gpkg.oid_column(self._connection, self._table)
+        # A table (an attributes table, GeoPackage §2.4) has no geometry column: SHAPE@ reads None there and takes None,
+        # as it did when grapy's tables carried an empty one.
+        self._shapeless = self._geometry not in [r[1] for r in self._connection.execute(
+            f'pragma table_info("{self._table}")')]
         self._reference = SpatialReference(self._srid) if self._srid > 0 else None
         # A layer with joins (management.AddJoin) is read through them: its fields are qualified, <table>.<field>, for
         # the layer's own table and each join table alike, and an unqualified name is not one of them.
@@ -205,10 +220,28 @@ class _Cursor:
             if upper in ("OID@", "GLOBALID@"):
                 continue
             if upper.startswith("SHAPE@"):
-                out[self._geometry] = _gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m)
+                if self._shapeless:
+                    self._no_shape(value)
+                    continue
+                out[self._geometry] = self._encode(value)
             else:
                 out[self._tokens.get(upper, field)] = value
         return out
+
+    def _no_shape(self, value):
+        if value is not None:
+            raise RuntimeError(f"arcpy.da: '{self._table}' is a table; it has no shape to write.")
+
+    def _encode(self, value):
+        """A shape written as its GeoPackage blob, its bounds kept for the class's gpkg_contents extent, which the
+        cursor widens when it closes (_gpkg.grow_extent)."""
+        shape = _shape_from(value)
+        if shape is not None and not shape.is_empty:
+            b = shape.bounds
+            seen = getattr(self, "_written_bounds", None)
+            self._written_bounds = b if seen is None else (min(seen[0], b[0]), min(seen[1], b[1]),
+                                                           max(seen[2], b[2]), max(seen[3], b[3]))
+        return _gpkg.encode(shape, self._srid, self._has_z, self._has_m)
 
     def _defaults(self, values):
         """``values`` with what a new row does not name: its subtype, defaults and global ID (ADR-228)."""
@@ -246,7 +279,8 @@ class _Cursor:
                 out.append(self._joined.oid_sql if upper == "OID@" else self._joined.geometry_sql
                            if upper.startswith("SHAPE@") else self._joined.sql(f))
             else:
-                out.append(f'"{self._oid}"' if upper == "OID@" else f'"{self._geometry}"' if upper.startswith("SHAPE@")
+                out.append(f'"{self._oid}"' if upper == "OID@" else ("null" if self._shapeless else f'"{self._geometry}"')
+                           if upper.startswith("SHAPE@")
                            else f'"{self._tokens[upper]}"' if upper in self._tokens else f'"{f}"')
         return ", ".join(out)
 
@@ -264,7 +298,17 @@ class _Cursor:
         return _layers.combined(_layers.find(in_table), self._oid, where_clause)
 
     def _value(self, field, raw):
-        return _shape_token(field, _gpkg.decode(raw), self._reference) if field.upper().startswith("SHAPE@") else raw
+        if field.upper().startswith("SHAPE@"):
+            return _shape_token(field, _gpkg.decode(raw), self._reference)
+        if isinstance(raw, str) and field.lower() in self._date_names():
+            return _date_value(raw)
+        return raw
+
+    def _date_names(self):
+        """The Date fields, whose GeoPackage text arcpy.da answers as datetime.datetime (Pro 3.7 measured, ADR-240)."""
+        if not hasattr(self, "_dates"):
+            self._dates = {c.name.lower() for c in getattr(self, "_described", None) or () if c.type == "Date"}
+        return self._dates
 
     def __enter__(self):
         return self
@@ -275,6 +319,9 @@ class _Cursor:
 
     def _close(self):
         if self._connection is not None:
+            if getattr(self, "_written_bounds", None) is not None:
+                _gpkg.grow_extent(self._connection, self._table, self._written_bounds)
+                self._written_bounds = None
             if getattr(self, "_joined", None) is not None:
                 self._connection.commit()
                 for schema in self._joined.attached:
@@ -514,8 +561,11 @@ class UpdateCursor(SearchCursor):
                 values.append(value)
                 continue
             if upper.startswith("SHAPE@"):
+                if self._shapeless:
+                    self._no_shape(value)
+                    continue
                 names.append(self._geometry)
-                values.append(_gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m))
+                values.append(self._encode(value))
             elif self._joined is not None and self._joined.column(field) is None:
                 # A join table's field: read as it was, it is passed over; changed, it is refused — the join is the
                 # layer's, and its table is not written through it.
@@ -1050,6 +1100,7 @@ class Editor:
             raise RuntimeError(f"arcpy.da.Editor: '{self.workspacePath}' is already being edited.")
         self._connection = sqlite3.connect(self.workspacePath, isolation_level=None)
         self._connection.execute("pragma foreign_keys = on")
+        _gpkg.functions(self._connection)  # a file whose RTree triggers call ST_* functions stays writable
         self._connection.execute("begin")
         _EDITING[key] = self._connection
         if self.version is not None:

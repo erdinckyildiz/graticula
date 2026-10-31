@@ -1,4 +1,5 @@
 """Subtypes, field defaults, global IDs and attachments held in the GeoPackage (ADR-228), against hand-worked answers."""
+import datetime
 import os
 import re
 import sqlite3
@@ -503,10 +504,10 @@ class Photos(_Workspace):
         arcpy.management.GeoTaggedPhotosToPoints(self.folder, out, invalid)
         rows = self.rows(out, ["Name", "DateTime", "Direction", "X", "Y", "Z", "SHAPE@XY"])
         self.assertEqual([r[0] for r in rows], ["a.jpg", "c.jpg", "d.jpg", "b.JPG"])    # by path: day2/ after d.jpg
-        self.assertEqual(rows[1][1:], ("2026-05-01 11:40:00", None, None, None, None, None))
+        self.assertEqual(rows[1][1:], (datetime.datetime(2026, 5, 1, 11, 40), None, None, None, None, None))
         self.assertEqual(rows[2][3:], (None, None, None, None))                     # 0,0 is no position
         a = rows[0]
-        self.assertEqual((a[1], a[2], a[5]), ("2026-05-01 11:35:17", 90.0, 50.5))
+        self.assertEqual((a[1], a[2], a[5]), (datetime.datetime(2026, 5, 1, 11, 35, 17), 90.0, 50.5))
         self.assertAlmostEqual(a[6][0], 28.98, places=9)
         self.assertAlmostEqual(a[6][1], 41.01, places=9)
         self.assertEqual(arcpy.Describe(out).spatialReference.factoryCode, 4326)

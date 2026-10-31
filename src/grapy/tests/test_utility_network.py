@@ -986,6 +986,19 @@ class MeshNetwork(unittest.TestCase):
         self.assertEqual(self.trace("DOWNSTREAM", "A1", **ignore), set())
         self.assertEqual(self.trace("UPSTREAM", "D2", **ignore), {"D2", "CV", "D1", "J3"})
 
+    def test_what_pro_answers_when_barriers_leave_nothing(self):
+        # Measured in ArcGIS Pro 3.7 on 2026-10-31 (tools/pro-compare/adr231-mesh-traces.py): an upstream trace cut off
+        # its controllers by a feature or a function barrier is refused, and a shortest path with none left is empty.
+        for more in ({"barriers": ["J2"]}, {"function_barriers": "ADD 'Shape length' IS_GREATER_THAN 12 False"}):
+            with self.assertRaises(ExecuteError) as said:
+                self.trace("UPSTREAM", "C1", **more)
+            self.assertIn("001797", str(said.exception))
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "SHORTEST_PATH", self.locations("ends", ["J4", "J3"]), domain_network="Water",
+                       tier="Pressure", shortest_path_network_attribute_name="Shape length",
+                       condition_barriers="'Device Status' IS_EQUAL_TO SPECIFIC_VALUE 1 #")
+        self.assertFalse(any(layer.selection for layer in _layers.LAYERS.values()))
+
 
 if __name__ == "__main__":
     unittest.main()

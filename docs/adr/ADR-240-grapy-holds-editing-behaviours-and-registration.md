@@ -56,7 +56,8 @@ GeoPackage reader agrees on but Esri's pages never say. A table with an integer 
 database-maintained ID, so AddIncrementingIDField only works on the unregistered tables grapy now makes — literal to
 the page (*"cannot run on tables registered with the geodatabase"*), but narrow. Editor tracking on insert stamps the
 last editor too; the help topic says values are recorded when a row is *"inserted or modified in any way"* but does
-not say so of the editor fields outright, and Pro may differ. The last edit time lands in `last_change`; an ArcGIS
+not say so of the editor fields outright, and Pro may differ — *measured 2026-10-31: Pro 3.7 does stamp them
+(condition 1)*. The last edit time lands in `last_change`; an ArcGIS
 feature service reads its own system table, not the GeoPackage's.
 
 ## 4. Evidence
@@ -114,12 +115,12 @@ No benchmark is at stake: these are schema and metadata operations on the file a
    MakeTrajectoryLayer and RepairTrajectoryDatasetPaths (tables and footprints undefined), and AppendAnnotation —
    with `arcpy.Annotation`, changed to the same reason: the Element BLOB and the symbol collection are Esri's
    unpublished binary.
-6. **INFERRED, for the owner's confirmation** ([Q-208](../open-questions.md)):
+6. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-208** (*"Hepsini onayla"*) ([Q-208](../open-questions.md)):
    - (a) storage: `grapy_editor_tracking`, `grapy_last_edit_time`, `grapy_cogo`, `grapy_incrementing_id` and
      `grapy_unregistered`, registered as the `grapy_edit_behaviours` extension; a feature dataset's last edit time a
      row named `<dataset>/`;
    - (b) editor tracking: with ADD_FIELDS and no field named, the four default names; an insert stamps all four fields;
-     a value an edit gives a tracked field is replaced; the user is `getpass.getuser()`, empty where there is none;
+     a value an edit gives a tracked field is replaced; the user is `getpass.getuser()` in capitals, as Pro 3.7 records it (measured 2026-10-31), empty where there is none;
      DATABASE_TIME is the writing machine's local time; dates are stored to the second as the GeoPackage text grapy
      writes; with NO_ADD_FIELDS an attachment table is tracked only on the fields it has; DisableEditorTracking keeps the
      fields and values;
@@ -157,7 +158,8 @@ No benchmark is at stake: these are schema and metadata operations on the file a
 
 - The GeoPackage standard's `gpkg_contents` is what every reader treats as the list of a file's datasets, so it is the
   nearest reading of *registered with the geodatabase*.
-- The help topic's *"inserted or modified in any way"* covers the editor fields on insert.
+- The help topic's *"inserted or modified in any way"* covers the editor fields on insert. *Measured 2026-10-31: it
+  does in Pro 3.7 (condition 1).*
 
 ## 8. Dependencies
 
@@ -182,4 +184,15 @@ None recorded.
 
 1. **Editor tracking on insert compared with ArcGIS Pro** on a file geodatabase: whether an insert fills the last
    editor and last edit date fields (§5.6 b). Needs a Pro session; until then the reading of §3 stands.
-2. **The owner answers [Q-208](../open-questions.md).**
+   **DISCHARGED 2026-10-31**: Pro 3.7 on a file geodatabase and grapy on a GeoPackage, one point class each, by
+   `tools/pro-compare/adr240-editor-tracking.py`. Identical: an insert fills all four fields, the last editor and last
+   edit date included; an update moves only the last two; a value the edit gives a tracked field is replaced; rows from
+   before stay null; UTC stamps fall in the UTC window and DATABASE_TIME ones in local time (UTC+3 here); an editor-only
+   pair is stamped on insert; DisableEditorTracking keeps the fields and their values and stamps nothing after; Describe's
+   six properties; text fields 255 long. Times agree to the second (Pro wrote one creation date a microsecond past it).
+   Three differences, each changed to Pro's answer: **the login is recorded in capitals** (`ERDINC` for the login
+   `Erdinc`; §5.6 b); **arcpy.da read a Date field as text** — a grapy bug in every cursor, now `datetime.datetime`;
+   **ListFields' lengths** were 0 but for text, now Pro's per type, measured on twelve types (Date, DateOnly, TimeOnly 8,
+   Integer and Single 4, SmallInteger 2, BigInteger and Double 8, TimestampOffset 10, Guid and GlobalID 38, OID 4). What
+   still differs is the GeoPackage's own `fid` and `geom` for Pro's `OBJECTID` and `Shape`.
+2. **The owner answers [Q-208](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-208 (*"Hepsini onayla"*).

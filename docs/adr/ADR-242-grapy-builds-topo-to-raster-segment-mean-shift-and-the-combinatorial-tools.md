@@ -129,7 +129,7 @@ None of the eighteen names. Within them, by name: Topo to Raster's `DISPLAY` ext
 SegMeanShift's `astype` other than 8-bit (the page lists no pixel types); every environment setting
 `_refuse_environment` already refuses for grapy's raster tools.
 
-### 5.4 INFERRED choices (listed in Q-211)
+### 5.4 INFERRED choices (listed in Q-211) — **Confirmed 2026-10-31 by owner decision in Q-211** (*"Hepsini onayla"*)
 
 (a) **Combinatorial**: the parentage fields named after the inputs as Combine names its fields, `constant1` or
 `constant2` for a number, and a row for 0 holding the false cells' count with null parentage.
@@ -214,5 +214,16 @@ None recorded.
 2. **The tools answer worked or hand-computed values.** **DISCHARGED 2026-10-31**: `test_topo_segment.py`, fifteen
    tests (§4), the combinatorial ones on Esri's own example.
 3. **The same contours and spot heights are run through Pro's Topo to Raster and grapy's**, and the same image through
-   Pro's Segment Mean Shift, and the differences recorded beside the time each took on a grid of real size.
-4. **The owner confirms or changes §5.4** ([Q-211](../open-questions.md)).
+   Pro's Segment Mean Shift, and the differences recorded beside the time each took on a grid of real size. **PARTLY
+   DISCHARGED 2026-10-31.** *Topo to Raster* — Pro 3.7 and grapy on `tools/pro-compare/adr242-topo.py`'s analytic
+   2,000 m square (two hills on a tilted plane with a valley, 200–420 m), 29 contours every 10 m and 120 spot heights:
+   on 100 × 100 cells of 20 m they differ by 0.41 m on average and 2.7 m at most; on 200 × 200 cells of 10 m by 0.39 m
+   and 2.9 m. Both are as near the true surface as each other (mean 0.43 and 0.43 m at 20 m; 0.30 m for Pro and 0.45 m
+   for grapy at 10 m). Pro took 2.6 s and 4.1 s, grapy 11.2 s and 13.5 s. A cited equivalent within a fraction of the
+   contour interval: kept. *Segment Mean Shift* — on `tools/pro-compare/adr242-segment.py`'s 160 × 160 3-band image
+   (sixteen patches with a red gradient, a disc, noise σ 6), with the defaults 15.5, 15, 20: Pro 181 segments, grapy
+   859, adjusted Rand index 0.04; at spectral detail 10 they agree (153 and 151 segments, Rand 0.99). On the image's
+   first band alone Pro gives 813 segments at 15.5 and grapy 18, so Pro's spectral scale is neither §5.4 (e)'s
+   `h_r = 21 − spectral_detail` nor one factor of it: coarser than it on colour, finer on grey. Pro took 37–77 s, grapy
+   1.4–9.8 s. Not fixed in this pass; [D-336](../architecture-debt.md).
+4. **The owner confirms or changes §5.4** ([Q-211](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-211 (*"Hepsini onayla"*).

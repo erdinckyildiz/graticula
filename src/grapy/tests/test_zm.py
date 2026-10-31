@@ -302,7 +302,7 @@ class ZTools(unittest.TestCase):
                 rows.insertRow((xyz,))
         # z = x + 2y on three points: a first-order trend reproduces it, read from "Shape" as documented.
         got = arcpy.RasterToNumPyArray(arcpy.sa.Trend(points, "Shape", 10)).tolist()
-        self.assertAlmostEqual(got[1][0], 5 + 2 * 5, places=3)
+        self.assertAlmostEqual(got[1][0], 0 + 2 * 10, places=3)  # the centre (0, 10): cell centres on the extent
 
 
 if __name__ == "__main__":

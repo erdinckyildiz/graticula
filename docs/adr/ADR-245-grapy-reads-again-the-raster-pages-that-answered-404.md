@@ -136,14 +136,19 @@ property); a polygon's length is its boundary's.
 - GetPCSFromDataSource, ViewContext: `arcpy/functions/getpcsfromdatasource.html`, `arcpy/mapping/viewcontext-class.html`
   at doc.esri.com, pro.arcgis.com (latest, 3.3) and desktop.arcgis.com; a web search.
 
-### 5.8 INFERRED choices ([Q-214](../open-questions.md))
+### 5.8 INFERRED choices ([Q-214](../open-questions.md)) — **Confirmed 2026-10-31 by owner decision in Q-214** (*"Hepsini onayla"*)
 
-- (a) ColorspaceConversion: hue degrees × 240/359, the one factor that reproduces all six hues the page lists (240/360
+- (a) ~~ColorspaceConversion: hue degrees × 240/359, the one factor that reproduces all six hues the page lists (240/360
   gives magenta 200, not 201); rounding half up; the inverse uses the same factor, so a colour comes back within a few
-  levels.
-- (b) ZonalRemap: *above the minimum* includes it and *below the maximum* excludes it (min ≤ v < max); the first matching
+  levels.~~ **Pro 3.7 measured 2026-10-31: changed.** Hue is degrees × 240/360 rounded half up, and a chromatic red
+  is 240, not 0 (a grey's hue is 0): Pro writes magenta 200, where the page lists 201. The inverse reads hue × 360/240.
+- (b) **Pro 3.7 measured 2026-10-31: changed — both ends exclusive (min < v < max), the later of two overlapping records
+  wins, an unmatched pixel keeps `background_value` even in a zone with records (`default_output_value` answers only a
+  matching record with no output value), NoData in the value raster is NoData, and without a zone raster only the
+  records with no zone id apply.** What was inferred: ~~ZonalRemap: *above the minimum* includes it and *below the
+  maximum* excludes it (min ≤ v < max); the first matching
   record wins; `background_value` is the answer where a pixel is not remapped at all — NoData in the value raster or a
-  zone with no record — and `default_output_value` where a zone has records and none matches.
+  zone with no record — and `default_output_value` where a zone has records and none matches.~~
 - (c) HeatIndex and WindChill apply the formula everywhere, without the NWS adjustments and validity limits the pages
   do not give.
 - (d) UnitConversion needs both units (their default is None); VectorField's direction is the way the vector points;
@@ -203,5 +208,14 @@ None recorded.
 ## 11. Conditions
 
 1. **ColorspaceConversion's hue scale and ZonalRemap's threshold ends compared with ArcGIS Pro** (§5.8 (a), (b)): one
-   raster through each in Pro 3.7. Needs a Pro session.
-2. **The owner answers [Q-214](../open-questions.md).**
+   raster through each in Pro 3.7. Needs a Pro session. **DISCHARGED 2026-10-31**: Pro 3.7 and grapy on
+   `tools/pro-compare/adr245-colour-remap.py`'s image (every whole-degree hue at four saturations and values, and a
+   grey ramp: 1,800 pixels) and its threshold tables (`adr245-remap-zone-ids.py`). *ColorspaceConversion*: the hue
+   scale was 240/359 and is 240/360 with red at 240 (481 of 1,440 hues differed; now RGB to HSV agrees in every pixel
+   and band, and HSV to RGB within 1 level in 9 band values of 5,400, ties at exactly .5 that Pro rounds either way).
+   Saving the answer also showed that grapy wrote 255 as the NoData value of a full 8-bit band, so every saturation and
+   value of 255 read back as NoData; a raster with no NoData cell is now saved without a NoData value. *ZonalRemap*:
+   five rules of §5.8 (b) changed — the ends, overlap, unmatched pixels, NoData, and records without a zone id — after
+   which all four runs (with and without a zone raster, with the defaults and with background 7 and default 99) agree
+   in every pixel.
+2. **The owner answers [Q-214](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-214 (*"Hepsini onayla"*).

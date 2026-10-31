@@ -208,12 +208,11 @@ def create(file, name, srid, bands=None, pixel_type=None, product="NONE", refere
         ensure(connection)
         drop(connection, name)
         connection.execute(f'drop table if exists "{name}"')
-        connection.execute("delete from gpkg_contents where table_name = ?", (name,))
-        connection.execute("delete from gpkg_geometry_columns where table_name = ?", (name,))
+        _gpkg.forget(connection, name)
         columns = [*FIELDS, *[c for c in extra_columns if c[0].lower() not in {f[0].lower() for f in FIELDS}]]
         defined = "".join(f', "{n}" {_gpkg._TYPES.get(t.upper(), "TEXT")}' for n, t in columns)
         connection.execute(f'create table "{name}" ("{OID}" integer primary key autoincrement, '
-                           f'"{_gpkg.GEOMETRY}" BLOB{defined})')
+                           f'"{_gpkg.GEOMETRY}" MULTIPOLYGON{defined})')  # GeoPackage Requirement 31
         connection.execute("insert into gpkg_contents (table_name, data_type, identifier, srs_id) "
                            "values (?, 'features', ?, ?)", (name, name, srid))
         connection.execute("insert into gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m) "

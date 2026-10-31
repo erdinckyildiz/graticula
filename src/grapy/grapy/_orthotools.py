@@ -786,7 +786,7 @@ def ApplyBlockAdjustment(in_mosaic_dataset, adjustment_operation, input_solution
             from ._mosaictools import _update
             for i, model in models.items():
                 shape = _ortho.footprint(model)
-                _update(connection, mosaic, rec.srid, i, shape, {"CenterX": model.X, "CenterY": model.Y})
+                _update(connection, mosaic, rec.srid, i, shape, _ortho.item_fields(model, shape))
         if _given(DEM) or _given(zoffset):
             properties = dict(rec.properties)
             if _given(DEM):

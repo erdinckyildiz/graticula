@@ -337,8 +337,10 @@ class Raster:
             values = array[~self._mask]
             fits = values.size == 0 or (values.min() > np.iinfo(np.int32).min and values.max() <= np.iinfo(np.int32).max)
             array = array.astype(np.int32 if fits else np.float64)
-        nodata = _nodata_for(array.dtype)
-        written = np.where(self._mask, nodata, array).astype(array.dtype)
+        # No NoData value where no cell is NoData: a full 8-bit band holds 255, which would read back as NoData (as
+        # ColorspaceConversion's saturation and value did, found against Pro 3.7 on 2026-10-31).
+        nodata = _nodata_for(array.dtype) if self._mask.any() else None
+        written = np.where(self._mask, nodata, array).astype(array.dtype) if nodata is not None else array
         g = self._grid
         profile = {"driver": "GTiff", "height": g.rows, "width": g.columns, "count": 1, "dtype": array.dtype.name,
                    "transform": g.transform(), "nodata": nodata}
@@ -355,7 +357,7 @@ class Raster:
     def _save_bands(self, path):
         import rasterio
         dtype = _saved_dtype(np.result_type(*[a.dtype for a in self._arrays]))
-        nodata = _nodata_for(dtype)
+        nodata = _nodata_for(dtype) if any(m.any() for m in self._masks) else None
         g = self._grid
         profile = {"driver": "GTiff", "height": g.rows, "width": g.columns, "count": len(self._arrays),
                    "dtype": dtype.name, "transform": g.transform(), "nodata": nodata}
@@ -364,7 +366,7 @@ class Raster:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with rasterio.open(path, "w", **profile) as out:
             for i, (a, m) in enumerate(zip(self._arrays, self._masks), 1):
-                out.write(np.where(m, nodata, a).astype(dtype), i)
+                out.write((np.where(m, nodata, a) if nodata is not None else a).astype(dtype), i)
                 if self._names is not None:
                     out.set_band_description(i, self._names[i - 1])
         _write_rat(path, None)

@@ -49,6 +49,21 @@ class Geometry(unittest.TestCase):
         np.testing.assert_allclose(r, rows, atol=1e-3)
         np.testing.assert_allclose(c, cols, atol=1e-3)
 
+    def test_tie_points_of_one_line_need_not_share_a_time(self):
+        # A real IW GRD (S1D_IW_GRDH_1SDV_20261031T054608, ADR-237 condition 3): the 21 tie points of a line differ in
+        # azimuth time by 0.55 ms across the swath. Grouped by time they made no row, and back-geocoding failed.
+        m = F.meta()
+        grid = np.asarray(m["grid"], float)
+        spread = (grid[:, 3] - grid[:, 3].min()) / np.ptp(grid[:, 3]) * 0.55e-3 - 0.27e-3
+        grid[:, 0] += spread
+        m["grid"] = grid.tolist()
+        self.assertEqual(len(_sar._grid_rows(m)), len(np.unique(grid[:, 2])))
+        rows, cols = np.array([3.0, 20.0, 45.0]), np.array([5.0, 50.0, 70.0])
+        q = np.array([F.ground(F.T1 + r * F.DT, (F.TAU0 + c / F.FS) * _sar.C / 2) for r, c in zip(rows, cols)])
+        r, c, _ = _sar.backgeocode(m, q)
+        np.testing.assert_allclose(r, rows, atol=1e-3)   # rows come from the orbit; the tie points give the range
+        np.testing.assert_allclose(c, cols, atol=0.05)
+
     def test_a_point_100_m_up_is_found_where_its_range_says(self):
         m = F.meta()
         q = F.ground(F.T1 + 10 * F.DT, (F.TAU0 + 30 / F.FS) * _sar.C / 2, h=100.0)
@@ -97,6 +112,20 @@ class SafeAndCalibration(unittest.TestCase):
     def test_an_ipf_of_2_34_or_earlier_is_refused_as_documented(self):
         with self.assertRaises(ExecuteError):
             arcpy.ia.ApplyRadiometricCalibration(self._grd(ipf="002.34"), os.path.join(self.dir, "x.tif"))
+
+    def test_where_the_noise_exceeds_the_power_pro_writes_1e_5(self):
+        # ArcGIS Pro 3.7 on a real IW GRD (ADR-237 condition 3): every pixel whose DN² − η is negative reads 1e-5.
+        dn = np.full((F.ROWS, F.COLS), 100, np.uint16)
+        dn[10, 20] = 2   # 4 − η < 0
+        name = F.safe(self.dir, "GRD", {"VV": dn})
+        out = os.path.join(self.dir, "floor.tif")
+        arcpy.ia.RemoveThermalNoise(name, out, "VV")
+        self.assertAlmostEqual(float(_read(out).bands["VV"][10, 20]), 1e-5, delta=1e-9)
+        # and calibrates it as 2**19 x 1e-5 / A² (36 floored pixels of the same scene, to seven digits)
+        cal = os.path.join(self.dir, "floor_s0.tif")
+        arcpy.ia.ApplyRadiometricCalibration(out, cal, "VV", "SIGMA_NOUGHT")
+        a = 400.0 + 100.0 * 10 / (F.ROWS - 1)   # the fixture's sigma nought LUT at line 10
+        self.assertAlmostEqual(float(_read(cal).bands["VV"][10, 20]) * a * a / 1e-5, 2 ** 19, delta=1.0)
 
     def test_thermal_noise_is_the_range_lut_times_the_azimuth_lut(self):
         name = self._grd(noise_az=(1.0, 2.0))

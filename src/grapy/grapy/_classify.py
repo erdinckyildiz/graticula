@@ -201,7 +201,7 @@ def _knn(x, samples, labels, k):
     return out
 
 
-def _smo(x, y, c=1.0, tolerance=1e-3, passes=50):
+def _smo(x, y, c=1.0, tolerance=1e-4, passes=10000):
     """A linear soft-margin support vector machine trained by sequential minimal optimisation (Platt 1998): the dual's
     multipliers are optimised two at a time, the second chosen to maximise |E1 − E2|. Answers the hyperplane (w, b)
     with w·x + b > 0 for y = +1."""
@@ -236,21 +236,36 @@ def _smo(x, y, c=1.0, tolerance=1e-3, passes=50):
         alpha[i], alpha[j], b = new_i, new_j, new_b
         return True
 
-    for _ in range(passes):
-        changed = 0
-        for i in range(n):
-            r = errors[i] * y[i]
-            if (r < -tolerance and alpha[i] < c) or (r > tolerance and alpha[i] > 0):
-                j = int(np.argmax(np.abs(errors[i] - errors)))
-                if take(i, j):
-                    changed += 1
-                    continue
-                for j in np.roll(np.arange(n), -i - 1):
-                    if take(i, int(j)):
-                        changed += 1
-                        break
-        if changed == 0:
-            break
+    def examine(i):
+        r = errors[i] * y[i]
+        if not ((r < -tolerance and alpha[i] < c) or (r > tolerance and alpha[i] > 0)):
+            return False
+        if take(i, int(np.argmax(np.abs(errors[i] - errors)))):
+            return True
+        bound = (alpha > 0) & (alpha < c)
+        order = np.roll(np.arange(n), -i - 1)
+        for j in np.concatenate([order[bound[order]], order[~bound[order]]]):
+            if take(i, int(j)):
+                return True
+        return False
+
+    # Platt's outer loop: a pass over every example, then passes over the non-bound ones until none changes, then
+    # every example again, until a pass over every example changes nothing. Measured against ArcGIS Pro 3.7
+    # (2026-10-31, ADR-243 condition 2): fifty plain passes over every example, at a KKT tolerance of 1e-3, stopped
+    # short of the optimum, at twice the optimal objective for one pair of classes. The tolerance is now 1e-4.
+    examine_all, sweeps = True, 0
+    while sweeps < passes:
+        sweeps += 1
+        if examine_all:
+            changed = sum(examine(i) for i in range(n))
+        else:
+            changed = sum(examine(int(i)) for i in np.nonzero((alpha > 0) & (alpha < c))[0])
+        if examine_all:
+            if changed == 0:
+                break
+            examine_all = False
+        elif changed == 0:
+            examine_all = True
     w = (alpha * y) @ x
     return w, b
 
@@ -463,7 +478,10 @@ def _classify(data, mask, grid, document, tool):
     x = data[~mask]
     values = [c["value"] for c in document["classes"]]
     kind = document["classifier"]
-    if kind == "MaximumLikelihood":
+    if kind == "DeepLearning":  # DeepLearningModelToEcd's definition (ADR-248): the model classifies the whole grid
+        from ._dltools import classify_with_ecd
+        index = np.searchsorted(values, classify_with_ecd(data, mask, document, tool)[~mask])
+    elif kind == "MaximumLikelihood":
         index = np.argmax(_gaussian_scores(x, document["means"], document["covariances"])[0], axis=-1)
     elif kind == "IsoCluster":
         index = _nearest_mean(x, [np.asarray(m) for m in document["means"]])

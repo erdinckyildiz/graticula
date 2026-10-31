@@ -111,7 +111,7 @@ No performance claim is made.
    VehicleRoutingProblemSchemaVersion, StopCollectionMode, DrivingSide and Importance (which was listed among the
    direction names and is the VRP's time window and transit factor).
 7. The seed is fixed (`_fleet.SEED`), so a solve is reproducible.
-8. **INFERRED, for the owner's confirmation** ([Q-207](../open-questions.md)):
+8. ~~**INFERRED, for the owner's confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-207** (*"Hepsini onayla"*) ([Q-207](../open-questions.md)):
    - (a) *Storage*: grapy's tables `grapy_network_turn_source`, `grapy_network_turn` and `grapy_network_property`;
      `Edge#FCID` holds the network's source id (1, 2 … as given), a GeoPackage having no feature class ids.
    - (b) *Turn semantics*: the rotation is measured from the last segment of the edge arrived on to the first of the
@@ -125,10 +125,19 @@ No performance claim is made.
      one-side waste collection pass collects the curb side.
    - (f) *The fleet objective*: serving orders first, then TotalCost, plus lateness × CostPerUnitTime × 10 / 1 / 0.1
      for High / Medium / Low importance, excess pair transit likewise, a soft zone's straight-line distance ×
-     CostPerUnitDistance (or CostPerUnitTime), less Revenue; spatial clustering accepted with no term.
+     CostPerUnitDistance (or CostPerUnitTime), less Revenue; spatial clustering accepted with no term. **Measured in
+     Pro 3.7 on 2026-10-31 (condition 5):** High 10 and Medium 1 stand — Pro's choices put them between 7.5 and 10
+     and between 0.91 and 1.11 — and **Low changed from 0.1 to 0.0001**: Pro traded none of half a minute of travel
+     for 499 minutes late, yet broke an exact tie toward the order on time, so Low is above zero and below 0.001; of
+     two plans of equal cost, the one with less travel (changed, a 10⁻⁶ term); excess transit's weights are not
+     measured.
    - (g) *Breaks*: placed by the route's simulation — a time window break when its window opens (or before travel
      would miss it, waiting for it at the last stop otherwise); a travel or work time break part-way along the leg
-     where the limit is reached (or before a service that would pass it); one never needed is not taken.
+     where the limit is reached (or before a service that would pass it); one never needed is not taken. **Measured
+     in Pro 3.7 on 2026-10-31:** a time window break the route must wait for is waited for at the end of its leg, the
+     vehicle driving on first, not where the last service ended (changed); the final travel time break's limit also
+     bounds the drive from it to the end depot, as its page says, and orders that would exceed it are left unassigned
+     (changed); a travel time break part-way along its leg and a work time break at its limit answered as built.
    - (h) *Renewals*: inserted where the load would no longer fit, at the renewal with the least detour, as many as
      needed; a loaded waste route empties at a renewal before its end depot.
    - (i) *Start*: at the earliest start (the start depot's window and InboundArriveTime permitting), then later by as
@@ -195,6 +204,15 @@ None recorded.
 3. **No name of the two kinds is refused with a schedule**: built, or refused with a reason of its own.
    **DISCHARGED 2026-10-31**: of the 33 names, 32 are built and `nax.Turn` is refused with the custom evaluator reason;
    `tools/grapy_refusals.py --check` holds the counts.
-4. **The owner confirms §5.8's inferences**, or names the ones to change ([Q-207](../open-questions.md)).
+4. **The owner confirms §5.8's inferences**, or names the ones to change ([Q-207](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-207 (*"Hepsini onayla"*).
 5. **One instance is solved in ArcGIS Pro and compared**, the differences recorded — the objective weights and the break
-   placement first.
+   placement first. **DISCHARGED 2026-10-31**: one road of 100 m, ten minutes end to end, built into a network by
+   Pro 3.7 in a file geodatabase and by grapy from the same GeoPackage of lines (`tools/pro-compare/adr239-fleet.py`).
+   **Weights:** 62 solves of one open route and two orders where serving the far one first costs a fixed detour and
+   saves L minutes late, swept over L for each importance: 61 choices identical after the change, the other one
+   Pro's whole-second rounding (3.3 s late counted as 3 s, a tie at High); before it, the eight Low solves with L
+   above 5 minutes went the other way. **Breaks:** five instances on a closed route of four orders — none, a time
+   window break open early, one open after the last order, a travel time break, a work time break — identical after
+   the changes in cost, order count, travel, wait, end time and every break's sequence, arrival and departure; before
+   them two differed (the late window ended 9:06 against Pro's 9:03, the travel break served four orders against Pro's
+   two). Pro's order of visits differs only between routes of equal cost. §5.8 (f) and (g) carry what changed.

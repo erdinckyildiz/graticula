@@ -92,7 +92,7 @@ class Joins(unittest.TestCase):
                                                                                         ("p1", "alpha", 2500.0)])
         arcpy.env.qualifiedFieldNames = False
         table = arcpy.management.CopyRows(layer, os.path.join(self.directory, "rows.gpkg"))[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(table)][1:-1], ["name", "kind", "fid_1", "kind_1", "label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(table)][1:], ["name", "kind", "fid_1", "kind_1", "label"])
         with self.assertRaises((arcpy.NotBuiltError, RuntimeError)):
             arcpy.analysis.Buffer(layer, os.path.join(self.directory, "b.gpkg"), 5)
 

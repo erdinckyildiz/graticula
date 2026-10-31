@@ -101,15 +101,16 @@ class Visibility(_Fixture):
         # at t = 1/2 the line is at 0.5 and must rise 9.5 / 0.5 = 19. The Earth's curvature over 40 m is 0.0001 m.
         observer = self.features("one", "POINT", [(point(5, 5),)])
         agl = os.path.join(self.directory, "agl2.tif")
-        self.assertEqual(cells(sa.Viewshed2(grid(RIDGE), observer, out_agl_raster=agl)), [[1, 1, 1, 0, 0]])
+        # A cell no observer sees is NoData, as Pro 3.7 writes it (measured 2026-10-31).
+        self.assertEqual(cells(sa.Viewshed2(grid(RIDGE), observer, out_agl_raster=agl)), [[1, 1, 1, ND, ND]])
         got = cells(arcpy.Raster(agl))[0]
         for value, expected in zip(got, [0.0, 0.0, 0.0, 14.5, 19.0]):
             self.assertAlmostEqual(value, expected, delta=0.01)
         # A ground radius of 15 keeps the two nearest cells.
-        self.assertEqual(cells(sa.Viewshed2(grid(RIDGE), observer, outer_radius=15)), [[1, 1, 0, 0, 0]])
+        self.assertEqual(cells(sa.Viewshed2(grid(RIDGE), observer, outer_radius=15)), [[1, 1, ND, ND, ND]])
         # Looking only east of north-east (azimuth 45 to 135) keeps everything here; 180–360 keeps only the eye's cell.
         self.assertEqual(cells(sa.Viewshed2(grid(RIDGE), observer, horizontal_start_angle=180,
-                                            horizontal_end_angle=360)), [[1, 0, 0, 0, 0]])
+                                            horizontal_end_angle=360)), [[1, ND, ND, ND, ND]])
         with self.assertRaises(arcpy.NotBuiltError):
             sa.Viewshed2(grid(RIDGE), observer, vertical_error=1)
 
@@ -124,6 +125,34 @@ class Visibility(_Fixture):
         ddd.Viewshed2(grid(RIDGE), observers, saved, analysis_type="OBSERVERS")
         self.assertEqual(cells(arcpy.Raster(saved)), [[1, 1, 3, 2, 2]])
 
+
+class AgainstPro(_Fixture):
+    """ArcGIS Pro 3.7's answers on tools/pro-compare/adr244-observers.py's DEM, measured 2026-10-31: 60 × 60 cells of
+    10 m with a ridge between two observers 2 m above the ground for ObserverPoints, 1 m (Viewshed2's default) for
+    Viewshed2. The DEM is on EPSG:3857 here rather than UTM 35N; over 600 m the two differ by far less than a cell."""
+
+    def setUp(self):
+        super().setUp()
+        r, k = np.indices((60, 60), dtype=float)
+        self.dem = grid((100 + 0.2 * r + 25 * np.exp(-((k - 30) ** 2) / 18.0) * (r > 12)
+                         + 12 * np.exp(-((r - 45) ** 2 + (k - 10) ** 2) / 30.0)).tolist())
+        self.observers = self.features("two", "POINT", [(2.0, point(105, 305)), (2.0, point(495, 405))],
+                                       [("OFFSETA", "DOUBLE")])
+
+    def test_observer_points_numbers_the_combinations_as_bits(self):
+        # Pro: Value 0 none, 1 OBS1 only, 2 OBS2 only, 3 both, with 438, 1317, 1733 and 112 cells.
+        got = np.array(cells(sa.ObserverPoints(self.dem, self.observers)))
+        counts = [int((got == v).sum()) for v in range(4)]
+        for mine, pro in zip(counts, [438, 1317, 1733, 112]):
+            self.assertLess(abs(mine - pro), 20)
+
+    def test_viewshed2_hides_what_pro_hides(self):
+        # Pro: 453 cells NoData (seen by neither), 3042 seen once, 105 twice. Bilinear weights come within 17 cells
+        # on UTM; the 1/d weights first built hid 700.
+        got = np.array(cells(sa.Viewshed2(self.dem, self.observers)))
+        counts = [int((got == v).sum()) for v in (ND, 1, 2)]
+        for mine, pro in zip(counts, [453, 3042, 105]):
+            self.assertLess(abs(mine - pro), 25)
 
 class Zonal(_Fixture):
     def test_zonal_fill_takes_the_lowest_weight_on_each_zone_boundary(self):
@@ -193,7 +222,8 @@ class Barriers(_Fixture):
     def setUp(self):
         super().setUp()
         self.points = self.features("pts", "POINT", [(0.0, point(0, 0)), (100.0, point(100, 0))], [("z", "DOUBLE")])
-        self.wall = self.features("wall", "POLYLINE", [(line((50, -10), (50, 10)),)])
+        # The wall at x = 55 runs between two cell centres (the grid Pro 3.7 lays out (ADR-233 condition 4): cell centres on the points' extent).
+        self.wall = self.features("wall", "POLYLINE", [(line((55, -10), (55, 10)),)])
 
     def test_spline_with_barriers_is_free_across_the_barrier(self):
         # Without a barrier the surface honours both points and climbs between them.
@@ -203,7 +233,8 @@ class Barriers(_Fixture):
         self.assertTrue(all(a < b for a, b in zip(free, free[1:])))
         # With the wall each side holds one point, and the least-curvature surface through one value is flat.
         cut = cells(sa.SplineWithBarriers(self.points, "z", self.wall, 10))[0]
-        for value, expected in zip(cut, [0.0] * 5 + [100.0] * 5):
+        self.assertEqual(len(cut), 11)
+        for value, expected in zip(cut, [0.0] * 6 + [100.0] * 5):
             self.assertAlmostEqual(value, expected, delta=1e-6)
         # Full smoothing leaves the surface tied only to the points' mean.
         for value in cells(sa.SplineWithBarriers(self.points, "z", None, 10, 1.0))[0]:

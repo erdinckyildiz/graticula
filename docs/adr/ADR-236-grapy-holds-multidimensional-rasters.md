@@ -100,14 +100,17 @@ in details it does not publish. They are marked `_runtime.equivalent` and say so
    `<unit> since <date>` (CF §4.4) and is called `StdTime`; a vertical one (`axis = "Z"` or `positive`) is `StdZ`; a
    slice of several bands carries a `band` dimension and the band names in the variable's `band_names` attribute.
 3. **A time held in a cell is a decimal year** (INFERRED): ArgStatistics' and FindArgumentStatistics' dimension value,
-   and a change date. A band index held in a cell is one-based, as HighestPosition's is.
+   and a change date. *Pro 3.7 measured 2026-10-31: a detected change's date is days since 1899-12-30; changed for
+   Detect Change only (condition 3). The dimension values are unmeasured.* A band index held in a cell is one-based, as HighestPosition's is.
 4. **An aggregated slice's dimension value is the start of its interval** (INFERRED): the first instant of the hour,
    day, ISO week, dekad, pentad, month, quarter or year; an INTERVAL_VALUE bin's start; an interval range's minimum; a
    recurring interval's first occurrence. A moving window takes the slices there are at either end. A standard deviation
    divides by n.
 5. **The trend models are equivalents** (the page draws them as images): ordinary least squares for linear, polynomial
    and harmonic (Zhu and Woodcock's form), with x in days since the first slice for time — so the intercept is the
-   fitted value at the first slice, as the Trend to RGB page describes it — and the value less the first otherwise;
+   fitted value at the first slice, as the Trend to RGB page describes it — and the value less the first otherwise
+   (*Pro 3.7 measured 2026-10-31: for time x is days since 1899-12-30, Sen's slope is per slice, and the band names
+   are Pro's; changed, condition 3*);
    RMSE divides by n; R2 and Slope_P_Value follow RMSE; the slope p-value is the two-sided t-test of the linear term.
    The Kendall tests follow Mann, Kendall, Sen and Hirsch–Slack–Smith. A trend raster records its model in its
    attributes (`grapy_trend` …) so PredictUsingTrend can evaluate it; one made elsewhere is refused.
@@ -124,7 +127,7 @@ in details it does not publish. They are marked `_runtime.equivalent` and say so
 9. **xarray is added** (Apache-2.0, with pandas BSD-3-Clause, already in the server image): RasterToXarray gives a
    Dataset over arcpy's dimension names, then `y` and `x`, with `crs` and `transform` attributes; XarrayToRaster reads one
    back.
-10. **The INFERRED choices**, for the owner ([Q-204](../open-questions.md)): (a) netCDF-CF as grapy's form, `.crf`
+10. ~~**The INFERRED choices**~~ **Confirmed 2026-10-31 by owner decision in Q-204** (*"Hepsini onayla"*), for the owner ([Q-204](../open-questions.md)): (a) netCDF-CF as grapy's form, `.crf`
     refused; (b) the CF encoding of time, `StdTime`/`StdZ` naming and `band_names`; (c) a time in a cell as a decimal
     year, a band index from one; (d) an aggregated slice dated at its interval's start, WEEKLY as the ISO week, a
     recurring interval at its first occurrence, interval ranges inclusive at both ends, PERCENTILE's default NEAREST;
@@ -198,4 +201,16 @@ None recorded.
    grapy's netCDF; grapy reads a netCDF-4 file GDAL wrote (`test_multidimensional.Model`).
 3. **The equivalents are compared with Pro** on one shared series — Generate Trend Raster (linear, harmonic,
    Mann-Kendall), Analyze Changes Using CCDC and LandTrendr — and each difference is recorded or removed.
-4. **The owner confirms or changes the INFERRED choices** of §5.10 ([Q-204](../open-questions.md)).
+   **DISCHARGED 2026-10-31**: Pro 3.7 and grapy on one series, 20 × 20 cells × 206 slices every 16 days from 2014 to
+   2022, written by grapy as netCDF (Pro reads it; its CCDC fails on the netCDF with ERROR 999999 and was given a CRF
+   copy of the same slices). *Trends:* LINEAR, HARMONIC, POLYNOMIAL (order 2) and MANN-KENDALL agree to 1e-12 —
+   polynomial's constant to 5e-6, the slope p-value to 1.2e-5 — after four differences were removed: x is days since
+   1899-12-30 (grapy had days since the first slice), the bands are named as Pro names them (`Harmonic_sin_1`,
+   `P_Value`, `Score`, `Score_Variance`), a polynomial has no `P_Value` band, and Sen's slope is per slice (grapy's was
+   per day). *Change:* Detect Change writes a date as days since 1899-12-30, a LandTrendr segment at its year's
+   snapping date, as Pro does (grapy wrote decimal years). CCDC and LandTrendr stay cited equivalents (§5.6) and their
+   differences are recorded: with a drop of 0.25 planted on 2018-06-15 in half the cells, the largest CCDC change falls
+   on the break's slice in 189 of 200 cells in grapy and 178 in Pro, with 13 and 47 false changes in the other half,
+   and the dates agree in 189 of the 212 cells both flag; the largest LandTrendr change begins in 2017 in 200 of 200
+   cells in grapy and 119 in Pro, and the dates agree in 238 of 400. Scripts: `tools/pro-compare/adr236-*.py`.
+4. **The owner confirms or changes the INFERRED choices** of §5.10 ([Q-204](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-204 (*"Hepsini onayla"*).

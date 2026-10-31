@@ -449,5 +449,17 @@ None recorded.
    pinned by a test (barriers in the flow, an indeterminate start, isolation around a controller and without barriers,
    terminal IDs from 2, the elements an output filter keeps) or written down as a measured difference (ignored
    indeterminate flow in a mesh, §5.9 (f); a device's path element and a null TERMINALID, §4). The second half is
-   open: no function barrier, propagator or path trace was run in Pro.
-6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)).
+   open: no function barrier, propagator or path trace was run in Pro. **PARTLY DISCHARGED 2026-10-31**, the second
+   half: 35 traces on the two-controller mesh (`MeshNetwork`, with a PRESSURE value on its lines) in Pro 3.7 and grapy,
+   by `tools/pro-compare/adr231-mesh-traces.py`; 15 identical before, **18 after**. Identical: global and local ADD and
+   MAX function barriers on connected traces from S1 (six, with and without barriers kept), connected and downstream
+   traces, loops, a shortest path, upstream with a closed valve. Changed to Pro's answer: an upstream trace that a
+   feature barrier or a function barrier cuts off every controller is refused, ERROR 001797 (grapy answered nothing);
+   a shortest path that barriers leave none of is an empty result, not an error. Measured and not followed —
+   [D-338](../architecture-debt.md): function barrier totals on a downstream trace and from a junction of several
+   edges (five traces), where Pro visits neighbours in an order five traces do not pin down; propagators (six), which
+   Pro refuses with ERROR 001797 where the propagated attribute has no value at the controllers; PATH traces (five),
+   for which Pro returns nearly the whole connected network, dead ends included; a tie of two 30 m shortest paths,
+   Pro taking the one through A2. Pro also needs TERMINALID on a starting point — the terminal on a device with
+   terminals, 1 on a junction — and answers ERROR 001785 without it, where grapy takes the feature.
+6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-199 (*"Hepsini onayla"*).

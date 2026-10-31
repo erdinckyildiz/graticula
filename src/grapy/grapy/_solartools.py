@@ -92,7 +92,8 @@ def AreaSolarRadiation(in_surface_raster, latitude=None, sky_size=200, time_conf
                        diffuse_proportion=0.3, transmittivity=0.5, out_direct_radiation_raster=None,
                        out_diffuse_radiation_raster=None, out_direct_duration_raster=None):
     """Global radiation (direct + diffuse) in watt hours per square metre for every cell; with ``INTERVAL`` one band per
-    interval. The direct duration is integer hours, as the page says.
+    interval. The direct duration is in hours, fractional: Pro 3.7 writes it as 32-bit float (measured 2026-10-31,
+    ADR-243 condition 1), so it is not rounded to whole hours.
 
     INFERRED: the optical path's elevation is the cell's z times z_factor, in metres; a cell's horizon is traced from
     the cell's own height over the whole raster."""
@@ -137,7 +138,7 @@ def AreaSolarRadiation(in_surface_raster, latitude=None, sky_size=200, time_conf
 
     for path, values, integer in ((out_direct_radiation_raster, direct, False),
                                   (out_diffuse_radiation_raster, diffuse, False),
-                                  (out_direct_duration_raster, duration, True)):
+                                  (out_direct_duration_raster, duration, False)):
         if _given(path):
             out(values, integer).save(path)
     return out(direct + diffuse)
@@ -205,8 +206,9 @@ def PointsSolarRadiation(in_surface_raster, in_points_feature_or_table, out_glob
                          diffuse_model_type="UNIFORM_SKY", diffuse_proportion=0.3, transmittivity=0.5,
                          out_direct_radiation_features=None, out_diffuse_radiation_features=None,
                          out_direct_duration_features=None):
-    """Global radiation in watt hours per square metre at each point, written to a copy of the points; with
-    ``INTERVAL`` one field per interval, t0, t1 … as the page names them.
+    """Global radiation in watt hours per square metre at each point, written to new points at the same places; with
+    ``INTERVAL`` one field per interval, t0, t1 … as the page names them. The input's own fields are not carried: Pro
+    3.7 writes only the shape and the T fields (measured 2026-10-31, ADR-243 condition 1).
 
     INFERRED: without intervals the one field is ``T0``, the first of the page's series; a point's elevation is the
     surface interpolated bilinearly at it; its slope and aspect are the cell's (Horn's method) unless the table gives
@@ -243,21 +245,20 @@ def PointsSolarRadiation(in_surface_raster, in_points_feature_or_table, out_glob
     direct, diffuse, duration = _ins.insolation(horizon, ground, slope, aspect, _ins.Sky(size), sectors, len(labels),
                                                 zd, ad, diffuse_model_type, diffuse_proportion, transmittivity)
     every = _flag(each_interval, "INTERVAL")
-    names = [c.name for c in columns]
 
     def write(path, values):
         if not every:
             values = values.sum(axis=1, keepdims=True)
         fields = [f"T{k}" for k in range(values.shape[1])]
         out = _out(path)
-        _gpkg.create(out, shape, g.srid, [*columns, *[_gpkg.Column(f, "Double") for f in fields]])
+        _gpkg.create(out, shape, g.srid, [_gpkg.Column(f, "Double") for f in fields])
         from ._geometry import PointGeometry, Point
         from ._reference import SpatialReference
         reference = SpatialReference(g.srid) if g.srid else None
-        with da.InsertCursor(out, [*names, *fields, "SHAPE@"]) as cursor:
+        with da.InsertCursor(out, [*fields, "SHAPE@"]) as cursor:
             for k, p in enumerate(points):
                 cells = [float(v) if on[k] else None for v in values[k]]
-                cursor.insertRow((*p[4], *cells, PointGeometry(Point(p[0], p[1]), reference)))
+                cursor.insertRow((*cells, PointGeometry(Point(p[0], p[1]), reference)))
         return out
 
     for path, values in ((out_direct_radiation_features, direct), (out_diffuse_radiation_features, diffuse),

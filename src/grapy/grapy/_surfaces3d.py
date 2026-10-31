@@ -4,7 +4,8 @@ the published methods those pages name or describe — ADR-224 §5.6, ADR-244.
 * ObserverPoints — Viewshed's R3 line of sight per observer; each cell's value encodes which observers see it, the
   way *How Geodesic Viewshed works* encodes them, and the attribute table carries OBS1 … OBSn as documented.
 * Viewshed2 — the geodesic sight line of *How Geodesic Viewshed works*: surface and observers in 3D geocentric
-  coordinates, the ground path divided into cell-size steps, the surface by inverse distance weighting.
+  coordinates, the ground path divided into cell-size steps, the surface by distance weighting of the four centres
+  around each step (bilinear, as Pro 3.7 measures nearest).
 * ZonalFill — each zone filled with the lowest weight on its boundary: the pour point of Jenson and Domingue (1988).
 * SurfaceParameters — a quadratic or biquadratic surface fitted by least squares over the neighbourhood (Evans 1980;
   Wood 1996), its derivatives turned into slope, aspect and the curvatures of Minár, Evans and Jenčo (2020).
@@ -196,16 +197,19 @@ def _from_ecef(xyz, a, b):
 
 
 def _idw(raster, x, y):
-    """The surface at each point by linear inverse distance weighting from the four nearest cell centres, as How
-    Geodesic Viewshed works says; NaN where none of them has data. INFERRED: the four centres around the point,
-    weighted by 1/distance; a point on a centre takes that cell's value."""
+    """The surface at each point from the four cell centres around it, each weighted by its nearness along both axes —
+    (1 − dx)(1 − dy) in cell units, the bilinear form of distance weighting. How Geodesic Viewshed works says inverse
+    distance weighting without the weights; the INFERRED 1/d first built hid 700 of 3,600 cells on
+    tools/pro-compare/adr244-observers.py's DEM where Pro 3.7 hides 453, and these weights come within 17 cells
+    (1/d² 39, 1/d³ 24, the nearest centre 344; measured 2026-10-31, ADR-244 §5.4 b). The weights of NoData centres are
+    dropped and the rest renormalised; NaN where all four are NoData or off the raster."""
     g = raster._grid
     fx = (np.asarray(x) - g.left) / g.width - 0.5
     fy = (g.top - np.asarray(y)) / g.height - 0.5
     c0, r0 = np.floor(fx).astype(np.int64), np.floor(fy).astype(np.int64)
+    tx, ty = fx - c0, fy - r0
     total = np.zeros(fx.shape)
     weight = np.zeros(fx.shape)
-    exact = np.full(fx.shape, np.nan)
     z, mask = raster._array.astype(np.float64), raster._mask
     for dr in (0, 1):
         for dc in (0, 1):
@@ -213,22 +217,17 @@ def _idw(raster, x, y):
             ok = (r >= 0) & (r < g.rows) & (c >= 0) & (c < g.columns)
             rr, cc = np.where(ok, r, 0), np.where(ok, c, 0)
             ok &= ~mask[rr, cc]
-            d = np.hypot((fx - c) * g.width, (fy - r) * g.height)
-            value = z[rr, cc]
-            on = ok & (d == 0)
-            exact = np.where(on & np.isnan(exact), value, exact)
-            w = np.where(ok & (d > 0), 1.0 / np.where(d > 0, d, 1.0), 0.0)
-            total += w * value
+            w = np.where(ok, (tx if dc else 1 - tx) * (ty if dr else 1 - ty), 0.0)
+            total += w * z[rr, cc]
             weight += w
-    out = np.where(weight > 0, total / np.where(weight > 0, weight, 1.0), np.nan)
-    return np.where(np.isnan(exact), out, exact)
+    return np.where(weight > 0, total / np.where(weight > 0, weight, 1.0), np.nan)
 
 
 _EARTH_RADIUS = 6370000.0  # metres: half the 12,740,000 m diameter How Viewshed works gives
 
 
 @_equivalent("the geodesic sight line: surface and observers in 3D geocentric coordinates, the ground path divided "
-             "into cell-size steps, the surface by inverse distance weighting",
+             "into cell-size steps, the surface by bilinear distance weighting of the four centres around each step",
              "How Geodesic Viewshed works; Bowring 1976, Survey Review 23; the refraction term of How Viewshed works")
 def Viewshed2(in_raster, in_observer_features, out_agl_raster=None, analysis_type="FREQUENCY", vertical_error=0,
               out_observer_region_relationship_table=None, refractivity_coefficient=0.13, surface_offset=0,
@@ -239,8 +238,9 @@ def Viewshed2(in_raster, in_observer_features, out_agl_raster=None, analysis_typ
     """EQUIVALENT: geodesic viewshed by *How Geodesic Viewshed works*. The surface cells and the observers are put in
     3D geocentric coordinates with the page's own formulas, on the ellipsoid of the raster's coordinate system. A sight
     line runs straight from the observer's eye to the target cell centre. Its ground path is divided into cell-size
-    steps, and at each step d is the line's height above the ellipsoid less the surface there, interpolated by inverse
-    distance weighting from the nearest cell centres. A target is visible when d is positive at every step.
+    steps, and at each step d is the line's height above the ellipsoid less the surface there, interpolated by
+    distance weighting from the four cell centres around it (bilinear weights, nearest Pro 3.7's answer; see
+    ``_idw``). A target is visible when d is positive at every step.
 
     Every observer parameter is a number or a field of the observer features, as documented: no fixed field names are
     read. Defaults as documented: surface offset 0, observer elevation from the surface by bilinear interpolation,
@@ -257,7 +257,8 @@ def Viewshed2(in_raster, in_observer_features, out_agl_raster=None, analysis_typ
     m — the correction How Viewshed works applies, written for a straight line; the surface's values are heights above
     the ellipsoid in metres; ``PERIMETER_SIGHTLINES`` gives ALL_SIGHTLINES' answer, of which it is the documented
     faster approximation; ``analysis_target_device`` is accepted and runs on the CPU; the number of steps is the
-    sight line's length in cells, rounded up; NoData cells are not visible and the steps over them block nothing; the
+    sight line's length in cells, rounded up; NoData cells, and cells no observer sees, are NoData in the output (Pro
+    3.7's output, measured 2026-10-31); the steps over NoData block nothing; the
     AGL is the largest −d/t over the steps, how far the target must rise for the line to clear each; the table has a
     row for each pair of a region and an observer that sees it; a horizontal range whose start exceeds its end wraps
     through north."""
@@ -357,8 +358,9 @@ def Viewshed2(in_raster, in_observer_features, out_agl_raster=None, analysis_typ
             _table(out_observer_region_relationship_table, [("Observer", "Integer"), ("Region", "Integer")],
                    [(observers[i][0], region) for region in regions for i in range(len(observers))
                     if region >> i & 1])
-        return Raster._of(np.where(mask, 0, code).astype(np.int32), mask.copy(), g)
-    return Raster._of(np.where(mask, 0, count).astype(np.int32), mask.copy(), g)
+        # A cell no observer sees is NoData, as Pro 3.7 writes it (measured 2026-10-31, ADR-244 §5.4 b).
+        return Raster._of(np.where(mask, 0, code).astype(np.int32), mask | (code == 0), g)
+    return Raster._of(np.where(mask, 0, count).astype(np.int32), mask | (count == 0), g)
 
 
 # =====================================================================================================================

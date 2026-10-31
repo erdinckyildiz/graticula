@@ -2334,8 +2334,9 @@ def _points(in_point_features, z_field, tool):
 
 
 def _point_grid(in_point_features, cell_size, xs, ys, tool):
-    """The output grid: over the points' extent, its top-left corner at the extent's, at the cell size given or, by
-    the documented rule, the shorter side of the extent divided by 250."""
+    """The output grid at the cell size given or, by the documented rule, the shorter side of the extent divided by
+    250. Laid out as Pro 3.7 lays it (measured 2026-10-31 with Idw at five cell sizes, ADR-233 condition 4): the
+    lower-left cell's centre on the points' lower-left corner, and round(extent / cell) + 1 cells along each side."""
     _refuse_environment(f"arcpy.sa.{tool}")
     cell = _cell_size(cell_size, tool)
     if cell is None:
@@ -2343,7 +2344,12 @@ def _point_grid(in_point_features, cell_size, xs, ys, tool):
         if shorter <= 0:
             _refuse(tool, "cell_size", "(empty)", "the points' extent has no width or height to divide by 250")
         cell = shorter / 250.0
-    return _grid_over(in_point_features, cell)
+    from .analysis import _schema
+    srid = _schema(in_point_features)[2]
+    columns = int(math.floor((xs.max() - xs.min()) / cell + 0.5)) + 1
+    rows_ = int(math.floor((ys.max() - ys.min()) / cell + 0.5)) + 1
+    bottom = ys.min() - cell / 2
+    return _Grid(xs.min() - cell / 2, bottom + rows_ * cell, cell, cell, rows_, columns, srid)
 
 
 class RadiusVariable:
@@ -5436,3 +5442,28 @@ ContourWithBarriers = _surfaces3d.ContourWithBarriers
 for _built in ("ObserverPoints", "Viewshed2", "ZonalFill", "SurfaceParameters", "SplineWithBarriers",
                "ContourWithBarriers"):
     _REFUSED.pop(_built, None)
+
+
+# ---- ADR-248: deep learning (owner decision 2026-10-31, "Tam aç"). ADR-224 group 3's refusal above no longer holds for
+# these names: the two arcpy.sa shares are built here, and arcpy.ia binds the rest. torch is imported only when a tool runs.
+from . import _dlchips, _dltools  # noqa: E402
+
+ExportTrainingDataForDeepLearning = _dlchips.ExportTrainingDataForDeepLearning
+DeepLearningModelToEcd = _dltools.DeepLearningModelToEcd
+for _built in ("ClassifyObjectsUsingDeepLearning", "ClassifyPixelsUsingDeepLearning", "ComputeAccuracyForObjectDetection",
+               "ComputeAccuracyForPixelClassification", "DeepLearningModelToEcd", "DetectChangeUsingDeepLearning",
+               "DetectObjectsUsingDeepLearning", "ExportTrainingDataForDeepLearning", "ExtractFeaturesUsingAIModels",
+               "NonMaximumSuppression", "TrainDeepLearningModel", "TrainUsingAutoDL", "TranslatePixelsUsingDeepLearning",
+               "TransformImageShapes"):
+    _REFUSED.pop(_built, None)
+_REFUSED.update({
+    "DetectObjectsUsingText": "its tool reference page could not be read (404 at doc.esri.com's image-analyst and geoai "
+                              "detect-objects-using-text pages on 2026-10-31), so its parameters are unknown; the "
+                              "text-prompted detection Esri documents elsewhere is its Text SAM model — Grounding DINO "
+                              "and the Segment Anything Model, with pretrained weights from ArcGIS Living Atlas — and "
+                              "Grounding DINO's text encoder and deformable attention are in neither torchvision nor "
+                              "grapy (ADR-248 §5.7)",
+    "DetectControlPoints": "it finds ground control point markers, checkers and crosses, with two deep learning models "
+                           "trained by Esri, as its page says; Esri does not publish those models, and the tool takes "
+                           "no model a user could supply (ADR-248 §5.7; ADR-234 §5.5)",
+})

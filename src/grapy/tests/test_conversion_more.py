@@ -108,13 +108,13 @@ class ConversionMore(unittest.TestCase):
                                ("A3", "s", 5), ("B3", "", 2), ("C3", "e", "#N/A"), ("D3", "s", 6), ("E3", "", 3)],
                         ["city", "n", "x", "big", "Ankara", "Izmir", "mixed"])
         table = arcpy.conversion.ExcelToTable(book, self.out("hand.gpkg"))[0]
-        fields = [(f.name, f.type) for f in arcpy.ListFields(table)][1:-1]
+        fields = [(f.name, f.type) for f in arcpy.ListFields(table)][1:]  # a table lists no shape field (GeoPackage §2.4)
         self.assertEqual(fields, [("city", "String"), ("n", "SmallInteger"), ("x", "Double"), ("COL_D", "String"),
                                   ("big", "Integer")])
         self.assertEqual(self.rows(table, ["city", "n", "x", "COL_D", "big"]),
                          [("Ankara", 1, 1.5, "7", 100000), ("Izmir", 2, None, "mixed", 3)])
         plain = arcpy.conversion.ExcelToTable(book, self.out("plain.gpkg"), "Data", 0, "A2:B3")[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(plain)][1:-1], ["COL_A", "COL_B"])
+        self.assertEqual([f.name for f in arcpy.ListFields(plain)][1:], ["COL_A", "COL_B"])
         self.assertEqual(self.rows(plain, ["COL_A", "COL_B"]), [("Ankara", 1), ("Izmir", 2)])
 
     def test_features_to_json_projects_to_wgs84_when_asked(self):

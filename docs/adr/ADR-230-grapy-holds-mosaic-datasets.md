@@ -138,7 +138,7 @@ falls at x = 3, halfway between the centres. No performance claim is made.
    group-2 entry gives its own reason; `arcpy.ia.DetectControlPoints` and `TransformImageShapes` now name what they
    still lack — sensor orientations — rather than the mosaic dataset. *(Since ADR-234 grapy holds Frame Camera
    orientations, and the two name what they lack now: Esri's deep learning models, and the deep learning tools'
-   undocumented iShape field.)*
+   undocumented iShape field. Since [ADR-248](ADR-248-grapy-carries-deep-learning-on-pytorch.md) TransformImageShapes is built on the iShape grapy's own detector writes, and DetectControlPoints is refused for Esri's models alone.)*
 8. **What a parameter's page leaves undefined is refused, not guessed**: BuildFootprints' `approx_num_vertices` other
    than -1 (how vertices are reduced is not said), `request_size`, `MAINTAIN_EDGES` and their tolerances;
    ExportMosaicDatasetItems' formats other than TIFF, image space and band selection; a `.dbf` paths table.
@@ -256,4 +256,4 @@ None recorded.
    `MosaicRuleTests` checks the order by hand; `An_images_zorder_comes_before_the_mosaic_method_and_is_its_own` checks
    it end to end, with and without a rule, through a rename and back to null. Studio has no control for it yet:
    [D-326](../architecture-debt.md).
-6. **The owner confirms or changes §5.9** ([Q-198](../open-questions.md)).
+6. **The owner confirms or changes §5.9** ([Q-198](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-198 (*"Hepsini onayla"*).

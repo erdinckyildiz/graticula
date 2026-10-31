@@ -191,6 +191,6 @@ None recorded.
 4. **Every remaining subtype and attachment name** is built or refused with its reason. **DISCHARGED 2026-10-30**:
    `tools/grapy-refusals.json` shows none of them unexamined. MigrateRelationshipClass is refused because its page
    answered 404, and a topology rule on one subtype is refused by parameter.
-5. **The owner confirms §5.6's inferences**, or names the ones to change, before data made with them is relied on.
+5. **The owner confirms §5.6's inferences**, or names the ones to change, before data made with them is relied on. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-197 (*"Hepsini onayla"*).
 6. **A topology rule on one subtype** is evaluated by ValidateTopology, so AddRuleToTopology takes its `subtype` and
    `subtype2` parameters.

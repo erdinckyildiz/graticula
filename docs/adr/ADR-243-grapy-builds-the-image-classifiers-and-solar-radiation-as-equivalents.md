@@ -67,7 +67,7 @@ change the answer as the page says. Round one refused for this reason. Alternati
 - *An equivalent that cannot match Pro is a trap.* It warns on every run, it is counted apart on the status page, and
   §11 carries the comparison with Pro as a condition.
 - *grapy's .ecd is not Pro's.* That is true. Train → ClassifyRaster round-trips inside grapy. A Pro-written .ecd is
-  refused by name, not misread. INFERRED and listed in Q-212.
+  refused by name, not misread. INFERRED and listed in Q-212; **Confirmed 2026-10-31 by owner decision in Q-212** (*"Hepsini onayla"*).
 - *The random trees stay refused while the other classifiers are built.* The page names a randomised procedure it does
   not define. A random forest needs a decision-tree learner, and none is among grapy's libraries. scikit-learn was not
   added, by instruction.
@@ -154,7 +154,7 @@ pages say: the latitude parameter, else the raster's mean latitude, else 45°. R
 longitude and latitude for each block of cells. It refuses a lunar surface by name, because NASA's SPICE kernels are not
 in grapy, and it refuses `GPU_ONLY`.
 
-### 5.4 INFERRED (listed in Q-212)
+### 5.4 INFERRED (listed in Q-212) — **Confirmed 2026-10-31 by owner decision in Q-212** (*"Hepsini onayla"*)
 
 1. **Sun position (Area, Points, Graphics).** Spencer's (1971) declination; solar time; no eccentricity correction (the
    page's constant is *"at the mean earth-sun distance"*).
@@ -173,6 +173,7 @@ in grapy, and it refuses `GPU_ONLY`.
 7. **Elevation and slope.** m(θ) reads the cell's z times `z_factor`, in metres. Slope and aspect come from Horn's 3 × 3
    for Area and Points.
 8. **Points output.** One field `T0` without intervals, and `T0`, `T1` … with them. A location off the surface is null.
+   *Pro 3.7 measured 2026-10-31: the input's own fields are not carried, only the shape and the T fields; changed.*
 9. **Raster Solar Radiation.**
    - H3 hexagons are replaced by square blocks of the level's mean area from the page's table.
    - Horizons are traced in 32 directions.
@@ -188,7 +189,8 @@ in grapy, and it refuses `GPU_ONLY`.
     - Training polygons take the cells whose centres they contain.
     - `max_samples_per_class` is drawn with seed 0.
     - ISO seeds are spaced evenly from m − s to m + s.
-    - The SVM is linear with C = 1 on standardised bands.
+    - The SVM is linear with C = 1 on standardised bands. *Pro 3.7 measured 2026-10-31: Pro's is an RBF C-SVC with
+      cross-validated C and γ on cells scaled by the pixel type's range; the linear SVM stays an equivalent (D-337).*
     - A kNN tie goes to the nearest sample.
 12. **Pansharpen, RegionGrow, mean shift.**
     - Pansharpen resamples bilinearly.
@@ -267,7 +269,21 @@ equivalent.
 
 1. **Compare with Pro.** Run AreaSolarRadiation and PointsSolarRadiation on one DEM, with one time configuration, in Pro
    and in grapy. Record the difference per cell for direct, diffuse and duration. Then follow up any systematic part of
-   it.
+   it. **PARTLY DISCHARGED 2026-10-31**: Pro 3.7 and grapy on a 60 × 60 DEM (30 m cells, UTM 36N near 40° N, a hill,
+   a ridge and a pit), `TimeWithinDay(172, 0, 24)` and every default: global radiation max |Δ| 29 Wh/m² (0.50 %), mean
+   |Δ| 3.4 of 5,808; direct max 0.58 %, mean |Δ| 1.9; diffuse max 0.50 %, mean |Δ| 1.8; at twelve points global within
+   0.10 %. Changed to Pro's: the direct duration is written in fractional hours (Pro writes 32-bit float; grapy rounded
+   to whole hours), and PointsSolarRadiation writes only the shape and the T fields. Left: the duration differs by up
+   to 1.6 h inside the raster (mean 0.18 h), systematically longer in grapy on the steep north flanks of the hill, and
+   one hypothesis (count a sector only while the sun is in front of the slope) did not remove it; Pro also treats the
+   top row as unobstructed. Both are [D-337](../architecture-debt.md). Scripts: `tools/pro-compare/adr243-solar-*.py`.
 2. **Compare the classifiers with Pro.** Use one image and one set of training samples, for maximum likelihood and the
-   SVM. Record the agreement as overall accuracy against Pro's classification.
-3. **Confirm Q-212**, the INFERRED choices of §5.4, with the owner.
+   SVM. Record the agreement as overall accuracy against Pro's classification. **PARTLY DISCHARGED 2026-10-31**: Pro
+   3.7 and grapy on a 120 × 120 four-band 8-bit image of five overlapping classes and nine training rectangles (Pro
+   read them from a shapefile of the same rectangles; it cannot open grapy's GeoPackage table for training). Maximum
+   likelihood: 99.95 % of cells agree (κ 0.9994, 7 cells differ). SVM: 85.0 % (κ 0.809) as built, then 96.3 % (κ 0.952)
+   once grapy's SMO was fixed — fifty plain passes stopped at twice the optimal objective for the soil–urban pair (a
+   grapy bug); it now runs Platt's outer loop to convergence. The rest is Pro's kernel: an RBF C-SVC with C and γ chosen
+   by cross-validation, which reproduces Pro's map cell for cell at Pro's own C and γ — [D-337](../architecture-debt.md).
+   Scripts: `tools/pro-compare/adr243-classify-*.py`.
+3. **Confirm Q-212**, the INFERRED choices of §5.4, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-212 (*"Hepsini onayla"*).

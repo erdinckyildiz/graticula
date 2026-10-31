@@ -234,5 +234,17 @@ None recorded.
    2026-10-30**: 23 built (4 equivalents), 19 refused, none for a schedule, none unexamined.
 4. **Held-parameter kriging is compared with ArcGIS Pro** on one dataset — ordinary kriging, spherical, nugget, range
    and sill held, a standard neighbourhood — using the owner's Pro install; predictions and standard errors agree to
-   rounding, or the difference is found and recorded.
-5. **The owner confirms or changes §5.9** ([Q-201](../open-questions.md)).
+   rounding, or the difference is found and recorded. **DISCHARGED 2026-10-31**: Pro 3.7 has no Python route to a
+   geostatistical layer with given parameters (GACreateGeostatisticalLayer needs a model source, which the
+   Geostatistical Wizard writes), so Pro's side is `arcpy.sa.Kriging` with `KrigingModelOrdinary("SPHERICAL", 100,
+   700, 4, 0.3)` and `RadiusVariable(12)` — the same model held, and the nearest twelve as a one-sector standard
+   neighbourhood takes them — on 60 points and 50 m cells (41 × 41). grapy's `sa.Kriging` and its layer's kriging
+   (`_geostat._krige`, `nbrMax` 12) both agree with it: 1,657 of 1,681 cells within 5e-5 in prediction and 1e-4 in
+   variance (the standard error squared); the other 24, max |Δ| 0.19 (1.5 %), are cells where the 12th and 13th
+   nearest points lie within 14 m of each other and Pro takes the 13th (16 of the 24 reproduced by that swap) —
+   recorded, not followed, since Pro's neighbour search is not documented. Changed to Pro's: the sa point
+   interpolators lay out their grid as Pro does — the lower-left cell centred on the points' lower-left corner, and
+   round(extent / cell) + 1 cells a side, measured with Idw at five cell sizes (grapy covered the points' extent from
+   its top-left corner). Seen in passing: with `env.extent` set to the points' extent exactly, Pro leaves out the points
+   on its boundary. Scripts: `tools/pro-compare/adr233-kriging-*.py`.
+5. **The owner confirms or changes §5.9** ([Q-201](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-201 (*"Hepsini onayla"*).

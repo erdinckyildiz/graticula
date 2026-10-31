@@ -572,17 +572,19 @@ def RubbersheetFeatures(in_features, in_link_features, in_identity_links=None, m
         raise ExecuteError("ERROR 001011: rubber-sheeting needs at least three links or identity points.")
     source_array = numpy.array(source, dtype=float)
     target_array = numpy.array(target, dtype=float)
-    triangulation = Delaunay(source_array)
+    corner = source_array.min(axis=0)   # Qhull drops points on projected coordinates (_tin._delaunay)
+    triangulation = Delaunay(source_array - corner)
 
     def move(points):
-        found = triangulation.find_simplex(points)
+        points = numpy.asarray(points, dtype=float)
+        found = triangulation.find_simplex(points - corner)
         out = points.copy()
         for i, simplex in enumerate(found):
             if simplex < 0:
                 continue
             corners = triangulation.simplices[simplex]
             transform = triangulation.transform[simplex]
-            b = transform[:2] @ (points[i] - transform[2])
+            b = transform[:2] @ (points[i] - corner - transform[2])
             weights = numpy.array([b[0], b[1], 1 - b.sum()])
             out[i] = weights @ target_array[corners]
         return out

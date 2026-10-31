@@ -151,7 +151,7 @@ limits.
    raster type); CalibrateP and CalibrateK (the distortion terms' sign convention is not given), ComputeAntennaOffset,
    ComputeShift, rigCamera; PDF reports; PIX4D export; the Geoid correction (no EGM96 grid in the image). `arcpy.ia`:
    Geometric (its Polynomial or Projective approximation of the sensor model is not defined), DetectControlPoints
-   (Esri's deep learning models), TransformImageShapes (the deep learning tools' undocumented iShape field).
+   (Esri's deep learning models), TransformImageShapes (the deep learning tools' undocumented iShape field) — *the last built since [ADR-248](ADR-248-grapy-carries-deep-learning-on-pytorch.md) §5.6, on the iShape grapy's own detector writes in pixel space.*
 6. **Equivalents (ADR-224 §5.6)**, marked, counted apart and announced in their runs:
    - **BuildTerrain's z-tolerance levels**: greedy insertion to the vertical tolerance (Garland and Heckbert 1995;
      Heller 1990) from the convex hull and the anchor points, measured against full resolution. BuildTerrain is counted
@@ -179,17 +179,28 @@ limits.
      pixel size from the fiducial centre (FCS 1); the default AngleDirection −1 takes the angles as Wolf's and +1
      negates them; the default Polarity −1 is Wolf's positive image and +1 mirrors it; the affine A0..B2 maps column
      and row to film x and y; Radial K0;K1;K2;K3 and Tangential P1;P2 are Brown's terms in millimetres, added to ideal
-     film coordinates; RPC line 0, sample 0 at the upper-left pixel's centre;
+     film coordinates; RPC line 0, sample 0 at the upper-left pixel's centre; *(Pro 3.7 measured 2026-10-31, condition
+     5: the film map without an affine, AngleDirection and the radial terms held; **two were changed to Pro's** — the
+     affine's column and row count from the pixel's centre, half a pixel from the film map without one, and the y term
+     2·P1·x·y takes x already distorted; Pro builds no item with Polarity +1, so the mirror stays unmeasured)*
    - (b) a Frame Camera item: a relative Raster path read from the frames table's folder; the cameras table as
      `aux_inputs` `CameraFile <table>`; footprint, LowPS and HighPS at the camera's AverageZ (0 when not given);
-     CenterX and CenterY the perspective centre (its nadir);
+     CenterX and CenterY the perspective centre (its nadir); *(Pro 3.7 measured 2026-10-31, condition 5: **changed to
+     Pro's** — CenterX and CenterY are the footprint's centroid, and LowPS and HighPS the footprint's width across x
+     over the image's columns; Pro refuses an item without AverageZ, "Missing elevation", and reads 0 as missing)*
    - (c) terrain sources: a blank resolution bound is open; an embedded class without an embed name is
      `<name>_embed`; embedding and anchoring only for point and multipoint classes; embed fields refused; anchor points
      kept at every level; a bound change and a line or polygon class's removal leave a terrain built, a mass point
      class's removal invalidates it;
    - (d) pyramids: windows are squares from the extent's lower-left corner; of ties, the earlier point; of two points at
      one x,y the later source's kept; window size levels thinned from the level before (as the page says), z-tolerance
-     levels each from full resolution (so the documented bound holds at every level); the extent grows with the data
+     levels each from full resolution (so the documented bound holds at every level); *(Pro 3.7 measured 2026-10-31,
+     condition 4: **changed to Pro's** — a window size level chooses in each window from full resolution and keeps
+     every coarser level's points, built coarsest first, which is the page's sentence for ZMIN, ZMAX and ZMINMAX on
+     nested windows and not for ZMEAN or for windows that do not nest; ZMEAN's ties are distances within 1e-9; a window
+     is at least twice the average point spacing (ERROR 050073). Pro's windows do not start at the extent's corner but
+     at one that follows the feature dataset's XY domain and the point spacing, which its outputs do not pin down —
+     [D-339](../architecture-debt.md))* the extent grows with the data
      unless UPDATE_EXTENT; an invalidated terrain is not read until built; a level is named by its exact resolution;
      TerrainToPoints' MULTIPOINT writes one multipoint per source, no attributes; ReplaceTerrainPoints within an area
      replaces only the area's points; a point on an area's edge is inside it; `max_overview_size` kept and reported, no
@@ -250,7 +261,7 @@ refused 1206 → 1180, unexamined 0 → 0. Fourteen reasons in `arcpy.management
 | ID | Assumption | Status |
 |---|---|---|
 | — | A user tool's block and terrain fit in its run's memory: images are read whole and the adjustment's Jacobian is held sparse; nothing has been measured, and a block too large fails by ADR-223's limits | Unverified |
-| — | Wolf's rotation convention is the one frames tables written for other packages use | Unverified for Pro (condition 5) |
+| — | Wolf's rotation convention is the one frames tables written for other packages use | Holds for Pro 3.7: measured 2026-10-31 (condition 5), AngleDirection −1 and +1 within 0.002 pixel |
 
 ## 8. Dependencies
 
@@ -289,6 +300,34 @@ None recorded.
    the refused names' reasons are tested in both files.
 4. **A terrain built in Pro and in grapy from the same points is compared**: the window size levels keep the same
    points where §5.9 (d)'s origin holds, and the z-tolerance levels' heights agree within the tolerance.
+   **PARTLY DISCHARGED 2026-10-31**: Pro 3.7 and grapy on 2,500 seeded points in UTM 35N, 100 m square, average spacing
+   2 (`tools/pro-compare/adr234-terrain-*.py`). **Window size**: from the window corner Pro uses (found by search: 2, 6
+   and 14 modulo 4, 8 and 16 in x; 2, 2 and 10 in y), grapy's rule keeps Pro's points at levels 4, 8 and 16 for ZMIN,
+   ZMAX, ZMEAN and ZMINMAX — 642/642, 182/182 and 49/49 for ZMAX, 1,233 for ZMINMAX at 4 — except one point at levels 4
+   and 8 of ZMIN and ZMINMAX and level 4 of ZMEAN, an exact tie in height that Pro breaks the other way; a run at
+   levels 4, 6 and 10 matched within 4 points. **Changed to Pro's (b)**: each level chooses from full resolution and
+   keeps the coarser levels' points (thinning from the level before differed from Pro's 770 points at level 4 by 130 for
+   ZMIN, and from its 918 by 276 for ZMEAN); ZMEAN ties within 1e-9; the 2× minimum window. **Not met**: Pro's window corner is not the
+   extent's corner; it follows the XY domain (moving the domain's origin 1 m moved the windows 1 m) and the point
+   spacing, by a rule its outputs do not pin down, so the same terrain keeps different points in grapy (208 of 642
+   shared at level 4) — [D-339](../architecture-debt.md). **Z-tolerance (c)**: Pro keeps 1,641 points at 0.5 and 193 at
+   2, grapy 1,735 and 206; every full-resolution point lies within the tolerance of both (Pro max 0.498 and 1.961,
+   grapy 0.499 and 1.981); between the points the two surfaces differ by a mean of 0.095 and 0.551 on a 0.5 m grid.
+   The comparison found a grapy bug, fixed: Qhull on UTM coordinates dropped 21 of the 2,500 points as coplanar, so a
+   z-tolerance level missed its own bound by 0.8 m and a TIN lost points silently — grapy now triangulates from the
+   points' corner, in `_tin`, `_terrain`, `_mptools`, `edit`'s rubber-sheeting and `stats`.
 5. **A frame block oriented in Pro is compared with grapy's reading of the same frames table**: the footprints and a
    projected ground point settle §5.9 (a)'s AngleDirection, Polarity, affine and distortion conventions.
-6. **The owner confirms or changes §5.9** ([Q-202](../open-questions.md)).
+   **DISCHARGED 2026-10-31**: Pro 3.7 and grapy on twelve frames of one 300 × 200 camera, 10 µm, f = 50 mm, 1,000 m
+   over AverageZ 10, Omega 5, Phi −3, Kappa 30, one convention varied per frame (`tools/pro-compare/adr234-frames-*.py`).
+   Each image's two bands are its own column and row, so Pro's orthorectified item says which image position Pro
+   projected every ground cell to: about 58,000 cells per frame. **Agreement within 0.002 pixel** for the default film
+   map, AngleDirection +1, the principal point, radial distortion and nadir; footprints within 0.0005 m (Pro draws each
+   edge with 8 or 6 segments, grapy with one; they coincide where the edge is straight). **Changed to Pro's (b)**: the
+   affine maps a pixel's centre (grapy was 0.50 pixel off), the y term's 2·P1·x·y takes x already distorted (0.21
+   pixel off; now 0.0013), CenterX and CenterY the footprint's centroid (grapy wrote the perspective centre, 100 m off
+   at this tilt), LowPS and HighPS the footprint's width over the columns (0.239 where grapy wrote 0.198). **Not
+   settled, recorded**: Pro builds no item with Polarity +1, looking down or up ("Invalid cell size"), so the mirror is
+   unmeasured; with distortion Pro's footprint is up to 0.55 m from the distorted corners, which its own
+   orthorectification does not follow, and grapy keeps the corners (c).
+6. **The owner confirms or changes §5.9** ([Q-202](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-202 (*"Hepsini onayla"*).

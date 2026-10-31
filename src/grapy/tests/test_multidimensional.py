@@ -240,10 +240,11 @@ class Trends(unittest.TestCase):
         times = [_mdim.to_time("2020-01-01") + np.timedelta64(d, "D") for d in days]
         r = cube_raster([2 + 0.5 * d for d in days], times)
         t = ia.GenerateTrend(r, "StdTime", r2=True, slope_p_value=True)
-        self.assertEqual(t.bandNames, ["Slope", "Intercept", "RMSE", "R2", "Slope_P_Value"])
+        self.assertEqual(t.bandNames, ["Slope", "Intercept", "RMSE", "R2", "P_Value"])
         slope, intercept, rmse, r2, p = t.read()[0, 0, 0]
         self.assertAlmostEqual(slope, 0.5)
-        self.assertAlmostEqual(intercept, 2.0)
+        # x is days since 1899-12-30, as Pro 3.7 measured (ADR-236 condition 3); 2020-01-01 is day 43,831.
+        self.assertAlmostEqual(intercept, 2.0 - 0.5 * 43831, places=6)
         self.assertAlmostEqual(rmse, 0.0, delta=1e-9)
         self.assertAlmostEqual(r2, 1.0)
         self.assertAlmostEqual(p, 0.0, delta=1e-9)
@@ -253,20 +254,25 @@ class Trends(unittest.TestCase):
         self.assertEqual(len(predicted.slices), 3)
         self.assertAlmostEqual(slices(predicted)[2][0][0], 6.0)
         r = cube_raster([1 - d + 2 * d * d for d in days], times)
-        quad = ia.GenerateTrendRaster(r, "StdTime", line_type="POLYNOMIAL", frequency=2)
+        quad = ia.GenerateTrendRaster(r, "StdTime", line_type="POLYNOMIAL", frequency=2, slope_p_value="SLOPEPVALUE")
         self.assertEqual(quad.bandNames, ["Polynomial_2", "Polynomial_1", "Polynomial_0", "RMSE"])
-        np.testing.assert_allclose(quad.read()[0, 0, 0, :3], [2, -1, 1], atol=1e-8)
-        # y = 3 + 0.01t + 2·sin(2πt/365.25) − cos(2πt/365.25), sampled every 30 days for three years.
+        # 2(x − X)² − (x − X) + 1 with X = 43,831, written in x.
+        X = 43831.0
+        np.testing.assert_allclose(quad.read()[0, 0, 0, :3], [2, -4 * X - 1, 2 * X * X + X + 1], rtol=1e-9)
+        # y = 3 + 0.01t + 2·sin(2πt/365.25) − cos(2πt/365.25), t in days since 1899-12-30 (2010-01-01 is day 40,179),
+        # sampled every 30 days for three years.
         days = np.arange(0, 1095, 30)
+        t = days + 40179.0
         w = 2 * np.pi / 365.25
         times = [_mdim.to_time("2010-01-01") + np.timedelta64(int(d), "D") for d in days]
-        r = cube_raster(3 + 0.01 * days + 2 * np.sin(w * days) - np.cos(w * days), times)
+        r = cube_raster(3 + 0.01 * t + 2 * np.sin(w * t) - np.cos(w * t), times)
         h = ia.GenerateTrendRaster(r, "StdTime", line_type="HARMONIC", cycle_length=1, cycle_unit="YEARS")
-        self.assertEqual(h.bandNames[:4], ["Slope", "Intercept", "Harmonic_sin1", "Harmonic_cos1"])
+        self.assertEqual(h.bandNames[:4], ["Slope", "Intercept", "Harmonic_sin_1", "Harmonic_cos_1"])
         np.testing.assert_allclose(h.read()[0, 0, 0, :4], [0.01, 3, 2, -1], atol=1e-8)
 
     def test_mann_kendall_by_hand(self):
-        # 1, 2, 3, 4, 5 on days 0–4: S = 10 pairs all rising; var(S) = 5·4·15/18; Z = (S − 1)/√var; Sen's slope 1.
+        # 1, 2, 3, 4, 5 on days 0–4: S = 10 pairs all rising; var(S) = 5·4·15/18; Z = (S − 1)/√var; Sen's slope 1
+        # per slice.
         times = [_mdim.to_time("2020-01-01") + np.timedelta64(d, "D") for d in range(5)]
         r = cube_raster([1, 2, 3, 4, 5], times)
         sen, p, s, var, z = ia.GenerateTrend(r, "StdTime", "MANN-KENDALL").read()[0, 0, 0]
@@ -287,6 +293,10 @@ class Trends(unittest.TestCase):
         self.assertAlmostEqual(var, 2 * 3 * 2 * 11 / 18)
         with self.assertRaisesRegex(ValueError, "not a model"):
             ia.PredictUsingTrend(ia.GenerateTrend(r, "StdTime", "MANN-KENDALL"), "BY_VALUE", "2004-01-01")
+        # Sen's slope is per slice, as Pro 3.7 answers (measured, ADR-236 condition 3): every 16 days rising 1 gives 1.
+        times = [_mdim.to_time("2020-01-01") + np.timedelta64(16 * d, "D") for d in range(5)]
+        sen = ia.GenerateTrend(cube_raster([1, 2, 3, 4, 5], times), "StdTime", "MANN-KENDALL").read()[0, 0, 0, 0]
+        self.assertEqual(sen, 1.0)
 
     def test_trend_to_rgb(self):
         times = [_mdim.to_time("2020-01-01") + np.timedelta64(d, "D") for d in range(3)]
@@ -458,7 +468,8 @@ class Change(unittest.TestCase):
         cc = ia.AnalyzeChangesUsingCCDC(r)
         self.assertEqual(cc.bandNames[-2:], ["Change", "Magnitude"])
         latest = cells(ia.DetectChangeUsingChangeAnalysis(cc, "TIME_OF_LATEST_CHANGE"))
-        self.assertAlmostEqual(latest[0][0], _mdim.decimal_year(_mdim.to_time("2004-01-15")))
+        # Dated as Pro 3.7 dates a change (measured, ADR-236 condition 3): days since 1899-12-30.
+        self.assertEqual(latest[0][0], (datetime.date(2004, 1, 15) - datetime.date(1899, 12, 30)).days)
         self.assertEqual(latest[0][1], ND)
         self.assertEqual(cells(ia.DetectChangeUsingChangeAnalysisRaster(cc, "NUM_OF_CHANGES")), [[1.0, 0.0]])
         with self.assertRaisesRegex(NotBuiltError, "Tmask"):
@@ -476,10 +487,11 @@ class Change(unittest.TestCase):
         # The fall from 1999 to 2000 is the only decrease; its segment starts in 1999 and ends in 2000.
         start = cells(ia.DetectChangeUsingChangeAnalysisRaster(lt, "TIME_OF_LATEST_CHANGE", 1,
                                                                change_direction="DECREASE"))
-        self.assertEqual(start[0][0], 1999.0)
+        # A segment is dated at its year's snapping date (06-30 by default), as Pro 3.7 dates it.
+        self.assertEqual(start[0][0], (datetime.date(1999, 6, 30) - datetime.date(1899, 12, 30)).days)
         end = cells(ia.DetectChangeUsingChangeAnalysisRaster(lt, "TIME_OF_LONGEST_CHANGE", 1, "END_OF_SEGMENT",
                                                              "INCREASE"))
-        self.assertEqual(end[0][0], 2010.0)
+        self.assertEqual(end[0][0], (datetime.date(2010, 6, 30) - datetime.date(1899, 12, 30)).days)
         with self.assertRaises(ValueError):
             ia.DetectChangeUsingChangeAnalysisRaster(ia.AnalyzeChangesUsingCCDC(cube_raster(
                 np.sin(np.arange(24)), monthly([2001, 2002]))), "TIME_OF_LONGEST_CHANGE")

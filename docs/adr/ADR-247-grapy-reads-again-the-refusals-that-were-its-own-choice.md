@@ -128,7 +128,9 @@ forms: `"<seed> <generator>"`, a seed alone, or the object. `management._seed()`
 - ACM599 and STANDARD_C are NumPy's PCG64 from the seed (O'Neill 2014). This is what grapy's tools drew before.
 
 The build is an **equivalent** (ADR-224 §5.6). ArcGIS's seeding of its mt19937 is not published, and a tool's draws
-from the raw stream are NumPy's. `_binsizes` now seeds through `default_rng`, which is the same PCG64 stream for an
+from the raw stream are NumPy's. *Pro 3.7 measured 2026-10-31 (condition 1): the seeding is `init_genrand`, and
+CreateRandomPoints takes one 32-bit word per coordinate, (w + 0.5)/2³²; grapy's CreateRandomPoints draws an area's
+points so and matches Pro exactly. Other seeded tools still draw NumPy's way.* `_binsizes` now seeds through `default_rng`, which is the same PCG64 stream for an
 integer seed.
 
 ### 5.3 Toolboxes in a session (`grapy._toolboxes`)
@@ -165,7 +167,7 @@ Measured against the branch at 68652828:
 | `arcpy` | 104 → 115 | 0 → 1 | 79 → 68 |
 | `arcpy.management` | 245 → 249 | — | 202 → 198 |
 
-### 5.5 INFERRED choices ([Q-217](../open-questions.md))
+### 5.5 INFERRED choices ([Q-217](../open-questions.md)) — **Confirmed 2026-10-31 by owner decision in Q-217** (*"Hepsini onayla"*)
 
 - (a) ACM599 and STANDARD_C draw from PCG64, not from Algorithm 599's generator or a C library's `rand`.
 - (b) A seed outside 0 … 2³² − 1 is taken modulo 2³² for mt19937.
@@ -225,5 +227,10 @@ None recorded.
 ## 11. Conditions
 
 1. **A seeded tool compared with ArcGIS Pro under `"<seed> MERSENNE_TWISTER"`** (§5.2): one CreateRandomPoints run in
-   Pro 3.7 and in grapy, to record how far the streams differ. Needs a Pro session.
-2. **The owner answers [Q-217](../open-questions.md).**
+   Pro 3.7 and in grapy, to record how far the streams differ. Needs a Pro session. **DISCHARGED 2026-10-31**: Pro 3.7
+   and grapy, CreateRandomPoints of 10 points in `"0 0 1000 1000"` under seeds 1, 7 and 12345: Pro's points are
+   mt19937 seeded by `init_genrand`, x and then y from one 32-bit word each, as (w + 0.5)/2³² of the extent
+   (`genrand_real3`), the same run to run. grapy drew NumPy's 53-bit doubles, all x before all y (max |Δ| 931); it now
+   draws an area's points as Pro does and matches to the last digit at all three seeds. Script:
+   `tools/pro-compare/adr247-random-points-*.py`.
+2. **The owner answers [Q-217](../open-questions.md).** **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-217 (*"Hepsini onayla"*).
