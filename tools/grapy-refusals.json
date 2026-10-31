@@ -93,7 +93,7 @@
   "unexamined": []
  },
  "arcpy.cartography": {
-  "built": 6,
+  "built": 9,
   "equivalents": {
    "AggregatePolygons": "morphological closing by the half aggregation distance, less each polygon's own closing (Serra, Image Analysis and Mathematical Morphology, 1982)",
    "CalculateColorTheoremField": "greedy graph colouring in Welsh and Powell's largest-degree-first order, each feature given the least-used colour its neighbours leave free (Welsh and Powell 1967)",
@@ -773,7 +773,7 @@
   "unexamined": []
  },
  "arcpy.sa": {
-  "built": 287,
+  "built": 296,
   "equivalents": {
    "AreaSolarRadiation": "the hemispherical viewshed, sun map and sky map model of Fu and Rich, with the direct and diffuse equations of How solar radiation is calculated (Fu and Rich 2002, Computers and Electronics in Agriculture 37, 25–35; Rich et al. 1994, ASPRS Technical Papers, 524–529; Fu 2000, Ph.D. thesis, University of Kansas; Spencer 1971, Search 2(5); Kasten and Young 1989, Applied Optics 28(22))",
    "ClassProbability": "Bayesian posterior probabilities of normal classes (Richards and Jia 2006, Remote Sensing Digital Image Analysis, 4th ed., §8.3 (Bayes' rule for Gaussian classes))",
@@ -922,7 +922,7 @@
   "unexamined": []
  },
  "arcpy.stats": {
-  "built": 38,
+  "built": 43,
   "equivalents": {
    "BivariateSpatialAssociation": "Lee's L by its documented formulas, its permutations drawn with NumPy's PCG64 from env.randomGenerator (Lee 2001; Lee 2009; Esri's \"How Bivariate Spatial Association (Lee's L) works\")",
    "CalculateCompositeIndex": "the documented scaling, combination and post-processing steps, with the OECD handbook's weighted arithmetic and geometric aggregation (Esri's \"How Calculate Composite Index works\"; OECD/JRC, Handbook on Constructing Composite Indicators, 2008, §6)",

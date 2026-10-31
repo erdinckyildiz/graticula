@@ -67,13 +67,18 @@ def survey():
     out = {}
     for module, built, of, missing in grapy_surface.surface():
         refused, unexamined = {}, []
+        # A name the source scan missed — bound in a loop or through globals() — but that answers as built is built:
+        # counted nowhere, it left built + refused short of the total (17 names on 2026-10-31).
+        late = 0
         for name in missing:
             state, reason = _answer(module, name)
             if state == "refused":
                 refused[name] = reason
             elif state == "unexamined":
                 unexamined.append(name)
-        out[module] = {"built": built, "of": of, "equivalents": _equivalents(module), "refused": refused,
+            else:
+                late += 1
+        out[module] = {"built": built + late, "of": of, "equivalents": _equivalents(module), "refused": refused,
                        "unexamined": sorted(unexamined)}
     return out
 
