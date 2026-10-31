@@ -51,6 +51,12 @@ As §2, Alternative A.
 ## Conditions
 
 1. Google Earth Pro opens a public service's KMZ and draws it as the view moves.
+   *(2026-10-31: still owed. Google Earth Pro's installer (dl.google.com, through winget) installs per machine and
+   is waiting on a Windows elevation prompt on this machine's desktop; nothing was installed. The KMZ itself was read:
+   `generateKml` on `hosted/ci_parcels` answers one `GroundOverlay` whose icon is the service's own WMS `GetMap` with
+   `viewRefreshMode onStop`. **What a person does once it is installed:** open
+   `…/MapServer/generateKml?docName=parcels&layers=0` from a public service in Google Earth Pro, fly to the data, pan;
+   the parcels redraw after each stop, and the server's log shows one `GetMap` per stop with the view's `BBOX`.)*
 
 ## 6. Consequences
 

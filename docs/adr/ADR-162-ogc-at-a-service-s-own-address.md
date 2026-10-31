@@ -81,6 +81,12 @@ the server-wide name, because every layer in that listing belongs to the one ser
    **PARTLY DISCHARGED 2026-10-06.** QGIS 3.28, given a `MapServer/WMSServer` address and `layers=0` — what a project
    saved against ArcGIS Server holds — adds the layer and draws it, after the index naming above; before it, the
    layer was not found. No project file actually saved against an ArcGIS Server has been opened.
+   **DISCHARGED 2026-10-31.** QGIS 3.44.15 (OSGeo4W) saved a project holding Esri's sampleserver6
+   `arcgis/services/USA/MapServer/WMSServer` layer `0`, which it drew; in the saved `.qgs` that address — its two
+   occurrences and nothing else — was replaced with `…/rest/services/hosted/ci_parcels/MapServer/WMSServer` on the
+   fixture, the one edit a move asks of an administrator; QGIS read the moved project, its layer still `layers=0`, valid,
+   and drew the parcels from this server's `GetCapabilities` and `GetMap` (`tools/qgis-probe/wms_project.py`, every
+   request answered 200 through the recording relay).
 
 ## 6. Consequences
 

@@ -273,7 +273,7 @@ internal static class OgcRecordsEndpoints
 
         string? description = Text(PortalQuery.Field(item, "description")) ?? Text(PortalQuery.Field(item, "snippet"));
 
-        List<RecordLink> links = [.. ResourceLinks(origin, entry, ambiguousTiles)];
+        List<RecordLink> links = [.. WithProtocolLinks(ResourceLinks(origin, entry, ambiguousTiles))];
 
         string portalItem = $"{origin}{PortalEndpoints.Path}/content/items/{Uri.EscapeDataString(entry.Id)}";
         links.Add(new RecordLink(portalItem + "?f=json", "related", OgcNames.Json, "Portal item (ArcGIS REST API)"));
@@ -297,6 +297,35 @@ internal static class OgcRecordsEndpoints
                 : Text(PortalQuery.Field(item, "licenseInfo")) is { } terms ? OgcTerms.AsText(terms) : null,
             links);
     }
+
+    /// <summary>The protocol a service link is known by to catalogue clients, by the link's title, or null.</summary>
+    private static string? ProtocolOf(string? title) => title switch
+    {
+        "OGC WMS" => "OGC:WMS",
+        "OGC WFS" => "OGC:WFS",
+        "OGC WCS" => "OGC:WCS",
+        "OGC WMTS" => "OGC:WMTS",
+        "ArcGIS FeatureServer" => "ESRI:ArcGIS:FeatureServer",
+        "ArcGIS MapServer" => "ESRI:ArcGIS:MapServer",
+        _ => null,
+    };
+
+    /// <summary>
+    /// A second link to each service address, typed with the service's <b>protocol</b> rather than a media type —
+    /// ADR-177 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// <b>QGIS's MetaSearch reads a record link's <c>type</c> as its protocol</b> (its OGC API Records backend maps
+    /// <c>type</c> to <c>protocol</c>, then offers <i>Add WMS</i>, <i>Add WFS</i> or <i>Add ArcGIS</i> only for the
+    /// protocol names catalogues have used since CSW: <c>OGC:WMS</c>, <c>OGC:WFS</c>, <c>ESRI:ArcGIS:FeatureServer</c>
+    /// …). With media types alone its dialog found the records and offered no way to add one (measured in QGIS 3.44,
+    /// 2026-10-31). The media-typed link stays, for clients that read <c>type</c> as 20-004r1 means it; this one is
+    /// beside it, same address, same <c>rel</c>.
+    /// </remarks>
+    private static IEnumerable<RecordLink> WithProtocolLinks(IEnumerable<RecordLink> links) =>
+        links.SelectMany(l => l.Rel == "describes" && ProtocolOf(l.Title) is { } protocol
+            ? new[] { l, l with { Type = protocol, Title = $"{l.Title} ({protocol})" } }
+            : new[] { l });
 
     /// <summary>
     /// Where the resource is: <c>describes</c> links to each address that answers for it, by the faces' own rules.

@@ -39,5 +39,7 @@
   <ItemGroup>
     <!-- ADR-176 condition 4: the OGC and W3C schemas an SLD is validated against, offline. Schemas/NOTICE.md. -->
     <None Include="Schemas\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- ADR-191 conditions 3 to 5: small service definitions, written by ServiceDefinitions/make_fixtures.py. -->
+    <None Include="ServiceDefinitions\*.sd" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

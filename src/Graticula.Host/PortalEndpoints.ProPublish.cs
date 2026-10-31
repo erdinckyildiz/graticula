@@ -211,7 +211,7 @@ internal static partial class PortalEndpoints
             return PortalError(400, $"A part is a 'file' with a 'partNum' from 1 to {MaximumParts:N0}.");
         }
 
-        await using FileStream target = File.Create(System.IO.Path.Combine(staged.Directory, $"part-{part:D5}"));
+        await using FileStream target = File.Create(PartPath(staged.Directory, part));
         await file.CopyToAsync(target, cancellation).ConfigureAwait(false);
 
         return Results.Ok(new { success = true, id, partNum = part });
@@ -226,25 +226,41 @@ internal static partial class PortalEndpoints
             return Unknown("Item");
         }
 
-        string[] parts = [.. System.IO.Directory.GetFiles(staged.Directory, "part-*").Order(StringComparer.Ordinal)];
-
-        if (parts.Length > 0)
-        {
-            await using FileStream target = File.Create(staged.File);
-            foreach (string part in parts)
-            {
-                await using (FileStream source = File.OpenRead(part))
-                {
-                    await source.CopyToAsync(target, cancellation).ConfigureAwait(false);
-                }
-
-                File.Delete(part);
-            }
-        }
+        await ReassembleAsync(staged.Directory, staged.File, cancellation).ConfigureAwait(false);
 
         return File.Exists(staged.File)
             ? Results.Ok(new { success = true, id })
             : PortalError(400, "Nothing was uploaded to commit.");
+    }
+
+    /// <summary>Where <c>addPart</c> keeps part <paramref name="number"/>: zero-padded, so name order is number order.</summary>
+    internal static string PartPath(string directory, int number) =>
+        System.IO.Path.Combine(directory, $"part-{number:D5}");
+
+    /// <summary>
+    /// <c>commit</c>'s join: every part in <paramref name="directory"/>, in their numbers' order — not the order they
+    /// arrived in, which Pro does not promise — written into <paramref name="file"/>, each deleted once copied
+    /// (ADR-191 condition 5). Nothing happens when there are no parts: a single-request upload is already the file.
+    /// </summary>
+    internal static async Task ReassembleAsync(string directory, string file, CancellationToken cancellation)
+    {
+        string[] parts = [.. System.IO.Directory.GetFiles(directory, "part-*").Order(StringComparer.Ordinal)];
+
+        if (parts.Length == 0)
+        {
+            return;
+        }
+
+        await using FileStream target = File.Create(file);
+        foreach (string part in parts)
+        {
+            await using (FileStream source = File.OpenRead(part))
+            {
+                await source.CopyToAsync(target, cancellation).ConfigureAwait(false);
+            }
+
+            File.Delete(part);
+        }
     }
 
     /// <summary>Portal's item <c>status</c>: the upload's, or the publish job's when it has one.</summary>

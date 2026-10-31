@@ -2414,6 +2414,15 @@ public static class Program
         // the field asks for an exchange the server refuses, and sign-in that worked would stop working.
         // GET or POST here and on the directory routes below, since 2026-10-16 (D-46 instance 19):
         // Esri's server answers both, and a client that reads documents by POST stopped at a 405.
+        //
+        // <b>`/services/rest/info` answers the same, since 2026-10-31</b> (ADR-181 condition 1): ArcGIS Pro, adding an
+        // ImageServer layer, asks it once on the way in — it derives its SOAP root from the REST address, and this server
+        // has no instance name (`/arcgis`) in front of `/rest`, so it lands at `/services/rest/info` where Esri's own lands
+        // at `/arcgis/rest/info` (measured through a recording relay against both). It was the one refused request left.
+        app.MapMethods("/services/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
+            FeatureServerMetadataWriter.ServerInfo(
+                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
+                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
         app.MapMethods("/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",

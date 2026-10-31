@@ -150,6 +150,17 @@ dropped the inner — now refused (`RasterFunction.TryParseRule`).
 2. **A portal item for an elevation surface opens in Scene Viewer as ground.** The SDK refuses a portal item of type
    *Image Service* where it expects *Image Service Elevation 3D Layer*; what this server's portal says for a surface
    has not been changed.
+   **DISCHARGED 2026-10-31, through the loader Scene Viewer uses.** The portal had since given a surface's item the
+   `Elevation 3D Layer` type keyword Esri's Terrain3D item carries (measured on arcgis.com: type *Image Service*, the
+   same keywords), and nothing had opened it. `tools/sdk-probe/elevation-item.html` hands the Maps SDK 4.30, headless
+   in Brave, only a portal and an item id: `Layer.fromPortalItem` made an **`elevation`** layer of the fixture's
+   public float32 surface, a `SceneView` took it as its only ground layer (`elevation:loaded`, ten `tilemap` answers,
+   all 200), and `ground.queryElevation` read 0.538 and 0.514 inside the raster (the file holds 0.554 and 0.538 at
+   the nearest pixels, LERC's tolerance and resampling between) and 0 outside it. The control, Esri's Terrain3D item
+   on arcgis.com through the same page, answers the same shape (1,170 m on Uludağ). **Without the keyword the same
+   page gets an `imagery` layer and *"Elevation queries require at least one elevation layer"*** (measured by turning
+   the surface off and on). Scene Viewer itself is an ArcGIS Online and Enterprise application this portal does not
+   host; what it does with an item is this loader.
 
 ## 10. Dissent
 
