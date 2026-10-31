@@ -234,7 +234,109 @@ class Propagation:
     def __bool__(self):
         return bool(self.rows)
 
+    def over_paths(self, seeds, arcs, passed, stopped):
+        """Pro 3.7's propagation, measured 2026-10-31 (ADR-231 condition 5, D-338): an element's propagated value
+        combines the values of every element on some path from a controller of the subnetwork to it — through the
+        whole mesh, an element that fails the condition still passing its value on — so a high value between two
+        controllers fails a MAX everywhere both feed, and refuses the trace where no controller is left. Every element
+        on a simple path between two elements is in a biconnected block on the block-cut tree's path between them
+        (Hopcroft and Tarjan 1973), which is how it is computed here: each block's combination, folded along the tree
+        from each controller. A barrier is an end and never between. With a Propagator Resetter or an Attribute
+        Substitution element in the span, the breadth-first carrying of ``__call__`` is kept (not measured)."""
+        element = self.values.graph.elements
+        span = set(passed) | set(stopped)
+        if any(self.values.has_category(element[i], "Propagator Resetter") or
+               self.values.has_category(element[i], "Attribute Substitution") for i in span):
+            return False
+        inside = set(passed)
+        neighbours = defaultdict(set)
+        for a, bs in arcs.items():
+            for b in bs:
+                if a in inside and b in inside and a != b:
+                    neighbours[a].add(b)
+                    neighbours[b].add(a)
+        blocks = _blocks(inside, neighbours)
+        member = defaultdict(list)          # element -> the blocks it is in
+        for k, block in enumerate(blocks):
+            for i in block:
+                member[i].append(k)
+        own = {i: [self.values.attribute(element[i], row[0]) for row in self.rows] for i in span}
+
+        def fold(values, more):
+            out = list(values)
+            for j, (attribute, _, function, _, _, _) in enumerate(self.rows):
+                v = more[j]
+                if v is None:
+                    continue
+                if out[j] is None:
+                    out[j] = v
+                elif function == "PROPAGATED_BITWISE_AND":
+                    out[j] = int(out[j]) & int(v)
+                elif function == "PROPAGATED_MIN":
+                    out[j] = min(float(out[j]), float(v))
+                else:
+                    out[j] = max(float(out[j]), float(v))
+            return out
+        empty = [None] * len(self.rows)
+        aggregate = []
+        for block in blocks:
+            folded = empty
+            for i in block:
+                folded = fold(folded, own[i])
+            aggregate.append(folded)
+        result = {}
+        for seed in sorted(set(seeds) & inside):
+            # the block-cut tree walked from the seed: a cut vertex joins its blocks, a block its vertices
+            start = fold(empty, own[seed])
+            best = {seed: start}
+            stack = [(("v", seed), start)]
+            seen = {("v", seed)}
+            while stack:
+                node, value = stack.pop()
+                if node[0] == "v":
+                    for k in member[node[1]]:
+                        if ("b", k) not in seen:
+                            seen.add(("b", k))
+                            stack.append((("b", k), fold(value, aggregate[k])))
+                else:
+                    for i in blocks[node[1]]:
+                        if ("v", i) not in seen:
+                            seen.add(("v", i))
+                            best[i] = value
+                            stack.append((("v", i), value))
+            for i, value in best.items():
+                result[i] = fold(result.get(i, empty), value)
+        for i in span - inside:
+            value = own[i]
+            for n in sorted(set(arcs.get(i, ())) | {a for a in inside if i in arcs.get(a, ())}):
+                if n in result:
+                    value = fold(value, result[n])
+            result[i] = value
+        self.fixed = {}
+        for i, values in result.items():
+            self.fixed[i] = values
+            for j, row in enumerate(self.rows):
+                self.value[i][row[0]] = values[j]
+        return True
+
+    def unvalued(self, i):
+        """Whether an element has no value of its own for one of the propagated attributes."""
+        element = self.values.graph.elements[i]
+        return any(self.values.attribute(element, row[0]) is None for row in self.rows)
+
+    def fails_at(self, i):
+        values = getattr(self, "fixed", {}).get(i)
+        return values is not None and any(v is not None and not _utility.compare(v, row[3], row[4])
+                                          for v, row in zip(values, self.rows))
+
     def __call__(self, parent, child):
+        if getattr(self, "fixed", None) is not None:
+            values = self.fixed.get(child)
+            fails = values is not None and any(
+                v is not None and not _utility.compare(v, row[3], row[4]) for v, row in zip(values, self.rows))
+            if fails:
+                self.failed.add(child)
+            return fails
         element = self.values.graph.elements[child]
         resetter = self.values.has_category(element, "Propagator Resetter")
         substituting = self.values.has_category(element, "Attribute Substitution")
@@ -264,6 +366,52 @@ class Propagation:
         if fails:
             self.failed.add(child)
         return fails
+
+
+def _blocks(nodes, neighbours):
+    """The biconnected blocks (vertex sets) of an undirected graph, an isolated vertex its own block (Hopcroft and
+    Tarjan 1973), iteratively."""
+    index, low, blocks, counter = {}, {}, [], [0]
+    for root in sorted(nodes):
+        if root in index:
+            continue
+        index[root] = low[root] = counter[0]
+        counter[0] += 1
+        if not neighbours.get(root):
+            blocks.append({root})
+            continue
+        stack = [(root, None, iter(sorted(neighbours[root])))]
+        edges = []
+        while stack:
+            v, parent, children = stack[-1]
+            advanced = False
+            for w in children:
+                if w == parent:
+                    continue
+                if w not in index:
+                    edges.append((v, w))
+                    index[w] = low[w] = counter[0]
+                    counter[0] += 1
+                    stack.append((w, v, iter(sorted(neighbours[w]))))
+                    advanced = True
+                    break
+                if index[w] < index[v]:
+                    edges.append((v, w))
+                    low[v] = min(low[v], index[w])
+            if advanced:
+                continue
+            stack.pop()
+            if parent is not None:
+                low[parent] = min(low[parent], low[v])
+                if low[v] >= index[parent]:
+                    block = set()
+                    while edges:
+                        a, b = edges.pop()
+                        block.update((a, b))
+                        if (a, b) == (parent, v):
+                            break
+                    blocks.append(block)
+    return blocks
 
 
 def substitute(value, code):
@@ -430,7 +578,11 @@ def _subnetwork_based(network, graph, request, values, starts, feature_barriers,
                                + ", ".join(sorted(found_names)) + ".")
         if kind == "SUBNETWORK_CONTROLLERS":
             return finish(found)
-        seeds = {i for i, name in own.items() if name.lower() in {n.lower() for n in found_names}} | found
+        # A subnetwork trace from starting points traces from the controllers those points reach and from no other of
+        # the subnetwork: Pro 3.7, measured 2026-10-31 (ADR-231 condition 5), keeps a closed valve's far side, and the
+        # controller there, out of the trace from the near side.
+        seeds = found if kind == "SUBNETWORK" else \
+            {i for i, name in own.items() if name.lower() in {n.lower() for n in found_names}} | found
     names = {n.lower() for n in found_names}
 
     def user_barrier(i):
@@ -452,13 +604,21 @@ def _subnetwork_based(network, graph, request, values, starts, feature_barriers,
         return i not in seeds and (traversability(i) if directional else user_barrier(i))
 
     propagation = Propagation(request.propagators, values)
+    if propagation:
+        free_gate = _gates(None if directional else functions_gate, None if directional else filter_gate)
+        span, ends = _utility.reach(seeds, controlled, lambda i: closed(i) or boundary(i), gate=free_gate)
+        if propagation.over_paths(seeds, controlled, span, ends) and kind in ("SUBNETWORK", "UPSTREAM") and seeds and                 all(propagation.fails_at(i) or propagation.unvalued(i) for i in seeds):
+            # every controller's propagated value fails, or the attribute has no value on it: Pro 3.7 refuses the
+            # trace (measured 2026-10-31 — with the attribute on the lines alone even a MIN or a bitwise AND is refused)
+            raise ExecuteError("ERROR 001797: No valid subnetwork controllers found.")
     span_gate = _gates(propagation, None if directional else functions_gate, None if directional else filter_gate)
     passed, stopped = _utility.reach(seeds, controlled, lambda i: closed(i) or boundary(i), gate=span_gate)
     for i in passed | stopped:
         if i in own and own[i].lower() not in names:
             raise ExecuteError("ERROR 002081: two or more subnetworks are traversable: "
                                + ", ".join(sorted(found_names | {own[i]})) + ".")
-    failed = propagation.failed
+    # a barrier the propagated value fails is left out too (Pro 3.7: the closed valve whose own value fails a MAX)
+    failed = propagation.failed | {i for i in stopped if propagation.fails_at(i)}
     boundaries = {i for i in stopped if boundary(i)}
     region = passed | stopped
     propagated = dict(propagation.value)

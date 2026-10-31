@@ -5,6 +5,9 @@ test_utility_network.MeshNetwork, in ArcGIS Pro 3.7 (file geodatabase) and in gr
     "C:/Program Files/ArcGIS/Pro/bin/Python/envs/arcgispro-py3/python.exe" adr231_mesh.py pro   <folder>
     D:/temp/grapy-env/Scripts/python.exe                                   adr231_mesh.py grapy <folder> <grapy src>
 
+ADR231_PRESSURE="VB,A3b,CV,D1" sets four of the PRESSURE values (4,4,2,2 by default): 1,1,2,2 and 1,1,1,1 are the
+runs that pinned the propagation rule (2026-10-31), compared with adr231-compare.py.
+
 Each trace asks for the ELEMENTS result in a JSON file (and FUNCTIONS where functions are given); the elements are
 mapped back to their NAME through the global IDs. Prints one JSON document {trace: [names] or error}. A tool, not a
 test: it needs Pro.
@@ -22,7 +25,10 @@ if side == "grapy":
 else:
     import arcpy
 
-work = os.path.join(folder, f"mesh_{side}")
+# ADR231_PRESSURE="VB,A3b,CV,D1": the PRESSURE of the closed valve, the line beside it, the check valve and the line
+# before it — "4,4,2,2" by default, the values of the first run.
+P_VB, P_A3B, P_CV, P_D1 = (int(v) for v in os.environ.get("ADR231_PRESSURE", "4,4,2,2").split(","))
+work = os.path.join(folder, f"mesh_{side}_{os.environ.get('ADR231_PRESSURE', '4,4,2,2').replace(',', '')}")
 if os.path.exists(work):
     shutil.rmtree(work)
 os.makedirs(work)
@@ -78,7 +84,7 @@ LINES = {"A1", "A2", "A3a", "A3b", "A4", "B1", "B2", "B3", "B4", "C1", "D1", "D2
 for table, fields, rows in (
         (device, ["NAME", "ASSETGROUP", "ASSETTYPE", "STATUS", "PRESSURE", "SHAPE@WKT"],
          [("S1", 1, 1, 0, 1, "POINT Z (0 0 0)"), ("S2", 1, 1, 0, 1, "POINT Z (40 0 0)"), ("CV2", 3, 1, 0, 1, "POINT Z (15 10 0)"),
-          ("CV", 3, 1, 0, 2, "POINT Z (30 10 0)"), ("VB", 2, 1, 1, 4, "POINT Z (25 0 0)")]),
+          ("CV", 3, 1, 0, P_CV, "POINT Z (30 10 0)"), ("VB", 2, 1, 1, P_VB, "POINT Z (25 0 0)")]),
         (junction, ["NAME", "ASSETGROUP", "ASSETTYPE", "PRESSURE", "SHAPE@WKT"],
          [("J1", 1, 1, 1, "POINT Z (10 0 0)"), ("J2", 1, 1, 1, "POINT Z (20 0 0)"), ("J3", 1, 1, 1, "POINT Z (30 0 0)"),
           ("J4", 1, 1, 1, "POINT Z (10 10 0)"), ("J5", 1, 1, 1, "POINT Z (20 10 0)")]),
@@ -86,14 +92,14 @@ for table, fields, rows in (
         (line, ["NAME", "ASSETGROUP", "ASSETTYPE", "FROMDEVICETERMINAL", "TODEVICETERMINAL", "PRESSURE", "SHAPE@WKT"],
          [("A1", 1, 1, load, None, 1, "LINESTRING Z (0 0 0, 10 0 0)"), ("A2", 1, 1, None, None, 1, "LINESTRING Z (10 0 0, 20 0 0)"),
           ("A3a", 1, 1, None, None, 1, "LINESTRING Z (20 0 0, 25 0 0)"),
-          ("A3b", 1, 1, None, None, 4, "LINESTRING Z (25 0 0, 30 0 0)"),
+          ("A3b", 1, 1, None, None, P_A3B, "LINESTRING Z (25 0 0, 30 0 0)"),
           ("A4", 1, 1, None, load, 1, "LINESTRING Z (30 0 0, 40 0 0)"),
           ("B1", 1, 1, None, None, 1, "LINESTRING Z (10 0 0, 10 10 0)"),
           ("B2", 1, 1, None, source, 1, "LINESTRING Z (10 10 0, 15 10 0)"),
           ("B3", 1, 1, load, None, 1, "LINESTRING Z (15 10 0, 20 10 0)"),
           ("B4", 1, 1, None, None, 1, "LINESTRING Z (20 10 0, 20 0 0)"),
           ("C1", 1, 1, None, None, 1, "LINESTRING Z (20 0 0, 20 -10 0)"),
-          ("D1", 1, 1, None, source, 2, "LINESTRING Z (30 0 0, 30 10 0)"),
+          ("D1", 1, 1, None, source, P_D1, "LINESTRING Z (30 0 0, 30 10 0)"),
           ("D2", 1, 1, load, None, 1, "LINESTRING Z (30 10 0, 30 20 0)"),
           ("E1", 1, 1, None, None, 1, "LINESTRING Z (10 10 0, 10 20 0)")])):
     with arcpy.da.Editor(gdb), arcpy.da.InsertCursor(table, fields) as written:  # Pro: an edit operation required
@@ -163,6 +169,12 @@ def trace(kind, starts, **more):
 
 closed = "'Device Status' IS_EQUAL_TO SPECIFIC_VALUE 1 #"
 traces = {
+    "sub_C1_closed": ("SUBNETWORK", ["C1"], {"condition_barriers": closed}),
+    "sub_A4_closed": ("SUBNETWORK", ["A4"], {"condition_barriers": closed}),
+    "down_S1_closed": ("DOWNSTREAM", ["S1"], {"condition_barriers": closed}),
+    "prop_max_sub_C1_lt3": ("SUBNETWORK", ["C1"], {"propagators": "Pressure # PROPAGATED_MAX IS_LESS_THAN 3"}),
+    "prop_max_sub_C1_lt5": ("SUBNETWORK", ["C1"], {"propagators": "Pressure # PROPAGATED_MAX IS_LESS_THAN 5"}),
+    "prop_max_down_S1_lt5": ("DOWNSTREAM", ["S1"], {"propagators": "Pressure # PROPAGATED_MAX IS_LESS_THAN 5"}),
     "prop_max_sub_C1_eq1": ("SUBNETWORK", ["C1"], {"propagators": "Pressure # PROPAGATED_MAX IS_EQUAL_TO 1"}),
     "prop_min_sub_C1_eq1": ("SUBNETWORK", ["C1"], {"propagators": "Pressure # PROPAGATED_MIN IS_EQUAL_TO 1"}),
     "prop_max_down_S2_lt4": ("DOWNSTREAM", ["S2"], {"propagators": "Pressure # PROPAGATED_MAX IS_LESS_THAN 4"}),

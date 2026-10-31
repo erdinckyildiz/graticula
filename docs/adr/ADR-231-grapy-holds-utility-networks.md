@@ -462,4 +462,15 @@ None recorded.
    for which Pro returns nearly the whole connected network, dead ends included; a tie of two 30 m shortest paths,
    Pro taking the one through A2. Pro also needs TERMINALID on a starting point — the terminal on a device with
    terminals, 1 on a junction — and answers ERROR 001785 without it, where grapy takes the feature.
+   **Measured further 2026-10-31, propagators** (`tools/pro-compare/adr231-propagators.py` with the attribute on every
+   class and three settings of four of its values, compared by `adr231-compare.py`): **39 of 39 traces now agree**,
+   and the six propagator traces of the mesh run above too (24 of its 35, from 18). Two rules were pinned and grapy
+   follows them: a subnetwork trace from starting points runs from the controllers those points reach and no other of
+   the subnetwork (with VB closed, from C1 S1's side alone, from A4 S2's side alone — without any propagator too); and
+   a propagated value combines the values of every element on some path from a controller of the subnetwork, an
+   element that fails passing its value on, so the 4 on the only way between S1 and S2 fails a MAX everywhere both
+   feed and Pro refuses the trace (ERROR 001797) where no controller is left, while the same 2 on a dead end behind a
+   check valve fails only that branch; a controller with no value of the attribute refuses it too. Pinned by
+   `MeshNetwork` tests. What stays open of this condition is the function barriers' order, the path traces and the tie
+   of D-338.
 6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-199 (*"Hepsini onayla"*).
