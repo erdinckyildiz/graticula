@@ -353,9 +353,11 @@ class Diagrams(unittest.TestCase):
         name = self.create()
         arcpy.nd.ApplySmartTreeLayout(name)
         found = self.content(name)
-        # The tree is centred where the junctions were — (15, 5) — as ArcGIS Pro 3.7 places it (2026-10-31).
-        self.assertEqual(found["J"], {"S": (12, 5), "V1": (14, 5), "T": (16, 5), "E": (18, 6), "V2": (18, 4)})
-        self.assertEqual(found["C"]["VA"], (17.5, 3.5, 18.5, 4.5))
+        # In proportional units the tree is drawn to the diagram's size — its longer side the 30 m the junctions spanned
+        # — and centred where they were, (15, 5): ArcGIS Pro 3.7's answer to the coordinate, vault included
+        # (2026-10-31, tools/pro-compare/adr232-diagrams.py).
+        self.assertEqual(found["J"], {"S": (0, 5), "V1": (10, 5), "T": (20, 5), "E": (30, 10), "V2": (30, 0)})
+        self.assertEqual(found["C"]["VA"], (29.5, -0.5, 30.5, 0.5))
         arcpy.nd.ApplySmartTreeLayout(name, tree_direction="FROM_TOP_TO_BOTTOM", is_unit_absolute="ABSOLUTE_UNIT",
                                       along_absolute="5 Meters", perpendicular_absolute="4 Meters")
         found = self.content(name)
@@ -370,7 +372,7 @@ class Diagrams(unittest.TestCase):
         name = self.create()
         arcpy.nd.ApplySmartTreeLayout(name, edge_display_type="ORTHOGONAL_EDGES", breakpoint_position=0)
         edges = {e[0]: e[3] for e in self.content(name)["E"]}
-        self.assertEqual(edges["L4"], [(16, 5), (16, 6), (18, 6)])
+        self.assertEqual(edges["L4"], [(20, 5), (20, 10), (30, 10)])
 
     def test_the_radial_tree_puts_each_level_on_its_circle(self):
         self.template()
@@ -460,10 +462,10 @@ class Diagrams(unittest.TestCase):
         arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
         arcpy.nd.AddSmartTreeLayout(self.un, "Basic")
         name = self.create()
-        self.assertEqual(self.content(name)["J"]["T"], (16, 5))
+        self.assertEqual(self.content(name)["J"]["T"], (20, 5))
         arcpy.nd.ApplyGeoPositionsLayout(name)
         arcpy.nd.ApplyTemplateLayouts(name)
-        self.assertEqual(self.content(name)["J"]["T"], (16, 5))
+        self.assertEqual(self.content(name)["J"]["T"], (20, 5))
 
     def test_a_feature_selection_limits_the_next_layout(self):
         self.template()

@@ -293,6 +293,7 @@ def _smart_tree(a, units):
     _pair(spacing, "disjoined", a.get("disjoined_graph_absolute"), a.get("disjoined_graph_proportional"), absolute,
           units)
     out.update(spacing)
+    out["proportional"] = not absolute
     _edge_display(out, a.get("are_edges_orthogonal"), a.get("breakpoint_position"), a.get("edge_display_type"))
     if _given(a.get("order_tree_branches")):
         out["order_by_attribute"] = _flag(a["order_tree_branches"], "USE_ORDER_ATTRIBUTE", "USE_CURRENT_GEOMETRY",
