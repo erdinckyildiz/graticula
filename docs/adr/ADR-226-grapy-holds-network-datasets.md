@@ -63,8 +63,15 @@ network too large for them fails by those limits, by name.
    restriction attributes (field or constant evaluators; script evaluators refused), and travel modes. Building it
    writes edge and junction tables.
 2. Solvers: Route, Closest Facility, Service Area, OD Cost Matrix, with the documented outputs and field names.
-   Location-Allocation and Vehicle Routing come later, with a named heuristic, or are refused.
-3. Turns, hierarchy, traffic, time windows and live data are refused by name until each is defined.
+   ~~Location-Allocation and Vehicle Routing come later, with a named heuristic, or are refused.~~ Location-Allocation
+   was built with Teitz and Bart's vertex substitution; **vehicle routing, last mile delivery, waste collection and
+   the travelling salesman order of a route were built on 2026-10-31 by
+   [ADR-239](ADR-239-grapy-solves-fleet-routing-and-honours-turns.md)**, the owner having ruled that no name may be
+   refused with a schedule.
+3. Turns, hierarchy, traffic, time windows and live data are refused by name until each is defined. **Turns and time
+   windows were defined on 2026-10-31 by [ADR-239](ADR-239-grapy-solves-fleet-routing-and-honours-turns.md)** — turn
+   feature classes, global turn categories, U-turn policies, and a solver over the edge-expanded network; hierarchy,
+   traffic and live data stay as this item left them.
 4. Each solver is marked `_runtime.equivalent("Dijkstra's shortest path …", "Dijkstra 1959")` (ADR-224 §5.6).
 5. `arcpy.nax`'s object API (`nax.MakeNetworkDatasetLayer`, `nax.Route` …) is built over the same model as the
    `arcpy.na` tools.

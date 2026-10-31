@@ -65,6 +65,8 @@ def ensure(connection):
         not null, x double not null, y double not null)""")
     if "built_at" not in [r[1] for r in connection.execute("pragma table_info(grapy_network)")]:
         connection.execute("alter table grapy_network add column built_at text")
+    if "u_turns" not in [r[1] for r in connection.execute("pragma table_info(grapy_network_travel_mode)")]:
+        connection.execute("alter table grapy_network_travel_mode add column u_turns text")   # ADR-239
     register(connection, TABLES, EXTENSION, DEFINITION)
 
 
@@ -119,7 +121,8 @@ def create(file, dataset, name, sources, elevation_model, srid):
             connection.execute("insert into grapy_network_evaluator values (?, 'Length', ?, 'BOTH', 'LENGTH', null)",
                                (name, table))
         connection.execute("insert into grapy_network_attribute values (?, 'Length', 'Cost', ?, 0)", (name, _units_name(srid)))
-        connection.execute("insert into grapy_network_travel_mode values (?, 'Length', 'Length', null, 'Length', '[]')", (name,))
+        connection.execute("insert into grapy_network_travel_mode values (?, 'Length', 'Length', null, 'Length', '[]', null)",
+                           (name,))
         connection.commit()
     finally:
         connection.close()
@@ -146,7 +149,11 @@ def set_connectivity(network, source, policy):
 
 
 def _source_name(connection, name, dataset, source):
+    from . import _turns
+    if str(source).upper() == _turns.GLOBAL:
+        return _turns.GLOBAL
     candidates = {r[0] for r in connection.execute("select class_name from grapy_network_source where network = ?", (name,))}
+    candidates |= set(_turns.turn_sources(connection, name))     # ADR-239
     for candidate in (str(source), f"{dataset}/{source}", _gpkg.split(str(source))[1] if ".gpkg" in str(source).lower() else None):
         if candidate in candidates:
             return candidate
@@ -169,11 +176,12 @@ def add_attribute(network, attribute, usage, units=None, evaluators=(), use_by_d
                            (name, attribute, usage, units, int(bool(use_by_default))))
         for source, direction, kind, value in evaluators:
             kind = str(kind).upper()
-            if kind not in ("LENGTH", "FIELD", "CONSTANT"):
+            if kind not in ("LENGTH", "FIELD", "CONSTANT", "TURN_CATEGORY"):
                 raise NotBuiltError(f"A network evaluator of kind '{kind}' is not built in grapy: script evaluators are "
                                     "refused (ADR-226 §5.1).")
             if kind == "LENGTH" and (usage != "Cost" or str(units).upper().replace(" ", "") not in _LINEAR):
                 raise ExecuteError("ERROR 030000: a LENGTH evaluator gives a cost in a linear unit.")
+            value = _turn_evaluator(connection, name, dataset, source, kind, usage, units, value)   # ADR-239
             connection.execute("insert into grapy_network_evaluator values (?, ?, ?, ?, ?, ?)",
                                (name, attribute, _source_name(connection, name, dataset, source), str(direction).upper(),
                                 kind, None if value is None else str(value)))
@@ -183,8 +191,32 @@ def add_attribute(network, attribute, usage, units=None, evaluators=(), use_by_d
         connection.close()
 
 
-def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=None, distance_attribute=None):
-    """A travel mode: the cost attribute minimised and the restrictions honoured."""
+def _turn_evaluator(connection, name, dataset, source, kind, usage, units, value):
+    """A turn evaluator checked (ADR-239): a global ``TURN_CATEGORY`` gives a time cost from its delays in seconds —
+    ``{"straight", "left", "right", "reverse", "minimum", "maximum"}`` — and a turn source's are ``FIELD`` or
+    ``CONSTANT``. Answers the value to store."""
+    from . import _turns
+    table = _source_name(connection, name, dataset, source)
+    if (kind == "TURN_CATEGORY") != (table == _turns.GLOBAL):
+        raise ExecuteError("ERROR 030000: a TURN_CATEGORY evaluator is the global turns' (source GLOBAL_TURNS), and the "
+                           "global turns take no other.")
+    if kind == "TURN_CATEGORY":
+        _turns._seconds_to(units)
+        if usage != "Cost":
+            raise ExecuteError("ERROR 030000: a turn category evaluator gives a cost.")
+        settings = value if isinstance(value, dict) else json.loads(str(value))
+        unknown = set(settings) - {*_turns.CATEGORIES, "minimum", "maximum"}
+        if unknown:
+            raise ExecuteError(f"ERROR 030000: a turn category evaluator has no setting {sorted(unknown)}.")
+        return json.dumps(settings)
+    if kind == "LENGTH" and table in _turns.turn_sources(connection, name):
+        raise ExecuteError("ERROR 030000: a turn has no length to evaluate; give a FIELD or CONSTANT evaluator.")
+    return value
+
+
+def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=None, distance_attribute=None,
+                    u_turns=None):
+    """A travel mode: the cost attribute minimised, the restrictions honoured and its U-turn policy (ADR-239)."""
     connection, _, _, name = open_network(network)
     try:
         attributes = {r[0]: r[1] for r in connection.execute("select name, usage from grapy_network_attribute where "
@@ -192,8 +224,11 @@ def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=No
         if attributes.get(impedance) != "Cost" or any(attributes.get(r) != "Restriction" for r in restrictions):
             raise ExecuteError("ERROR 030000: a travel mode's impedance is a cost attribute and its restrictions are "
                                "restriction attributes of the network.")
-        connection.execute("insert or replace into grapy_network_travel_mode values (?, ?, ?, ?, ?, ?)",
-                           (name, mode, impedance, time_attribute, distance_attribute, json.dumps(list(restrictions))))
+        from ._turns import policy
+        policy(u_turns)
+        connection.execute("insert or replace into grapy_network_travel_mode values (?, ?, ?, ?, ?, ?, ?)",
+                           (name, mode, impedance, time_attribute, distance_attribute, json.dumps(list(restrictions)),
+                            u_turns))
         connection.commit()
     finally:
         connection.close()
@@ -203,9 +238,10 @@ def travel_modes(network):
     connection, _, _, name = open_network(network)
     try:
         return {r[0]: {"name": r[0], "impedance": r[1], "timeAttributeName": r[2], "distanceAttributeName": r[3],
-                       "restrictions": json.loads(r[4])}
-                for r in connection.execute("select name, impedance, time_attribute, distance_attribute, restrictions "
-                                            "from grapy_network_travel_mode where network = ? order by rowid", (name,))}
+                       "restrictions": json.loads(r[4]), "uTurns": r[5] or "ALLOW_UTURNS"}
+                for r in connection.execute("select name, impedance, time_attribute, distance_attribute, restrictions, "
+                                            "u_turns from grapy_network_travel_mode where network = ? order by rowid",
+                                            (name,))}
     finally:
         connection.close()
 
@@ -289,6 +325,8 @@ def build(network):
         connection.commit()
     finally:
         connection.close()
+    from . import _turns
+    _turns.build(network)                                         # ADR-239
     return len(edges), len(junctions)
 
 
@@ -330,7 +368,8 @@ class Graph:
         elif hasattr(travel_mode, "impedance"):
             mode = {"name": travel_mode.name, "impedance": travel_mode.impedance,
                     "restrictions": list(travel_mode.restrictions), "timeAttributeName": travel_mode.timeAttributeName,
-                    "distanceAttributeName": travel_mode.distanceAttributeName}
+                    "distanceAttributeName": travel_mode.distanceAttributeName,
+                    "uTurns": getattr(travel_mode, "uTurns", None)}
         elif str(travel_mode).strip().startswith("{"):
             mode = json.loads(str(travel_mode))
         elif str(travel_mode) in modes:
@@ -429,7 +468,11 @@ class Graph:
     # ---- solving
 
     def solver(self, locations, reverse=False):
-        """A Dijkstra solver over the junctions and the located points (``[(key, edge index, t)]``)."""
+        """A Dijkstra solver over the junctions and the located points (``[(key, edge index, t)]``); over the
+        edge-expanded graph when the network has turns or the travel mode limits U-turns (ADR-239)."""
+        from . import _turns
+        if _turns.model(self).active:
+            return _turns.Solver(self, locations, reverse)
         return _Solver(self, locations, reverse)
 
 
@@ -538,6 +581,10 @@ class _Solver:
     def total(self, arcs, attribute):
         return sum(self.graph.cost(attribute, i, t1 > t0, t0, t1) for i, t0, t1 in arcs)
 
+    def via(self, distances, predecessors, node, i, forward, t0, t1):
+        """The cost at a node of going on along an edge piece — the node's own, with no turns to pay (ADR-239)."""
+        return distances[node]
+
     def shape(self, arcs):
         """The path's line along the network."""
         pieces = []
@@ -575,11 +622,14 @@ def _line(solver, arcs, points, line_shape):
     return solver.shape(arcs)
 
 
-def solve_route(graph, stops, accumulate, line_shape):
+def solve_route(graph, stops, accumulate, line_shape, sequence="USE_CURRENT_ORDER", return_to_start=False):
     """Routes through stops in sequence: a route per ``RouteName`` (case-insensitive, as documented), or one through
     all when no stop has one; stops in ``Sequence`` order, then object id. INFERRED: stops without a route name, when
     others have one, take no part; a route with an unlocated or unreached stop is not written, and its stops' Status
-    says why (1 not located, 5 not reached)."""
+    says why (1 not located, 5 not reached).
+
+    ``FIND_BEST_ORDER``, ``PRESERVE_FIRST``, ``PRESERVE_LAST`` and ``PRESERVE_BOTH`` reorder the stops by
+    ``best_order`` (ADR-239); ``return_to_start`` closes the route at its first stop."""
     solver = graph.solver(_nodes(stops))
     named = any(s.get("RouteName") for s in stops)
     groups: dict = {}
@@ -589,17 +639,23 @@ def solve_route(graph, stops, accumulate, line_shape):
         groups.setdefault(str(stop.get("RouteName") or "").lower(), []).append(stop)
     routes, results = [], {}
     impedance = graph.impedance
+    order = str(sequence or "USE_CURRENT_ORDER").upper()
     for members in groups.values():
         members.sort(key=lambda s: (s.get("Sequence") is None, s.get("Sequence") or 0, s["oid"]))
         costs = [a for a, (usage, _) in graph.attributes.items() if usage == "Cost"]
+        located = not any(s["located"] is None for s in members)
+        if located and order != "USE_CURRENT_ORDER" and len(members) > 2:
+            members[:] = best_order(solver, members, order in ("PRESERVE_FIRST", "PRESERVE_BOTH"),
+                                    order in ("PRESERVE_LAST", "PRESERVE_BOTH") and not return_to_start, return_to_start)
         for n, stop in enumerate(members, start=1):
             results[stop["key"]] = {"Sequence": n, "Status": _status(stop), f"Cumul_{impedance}": None, "_cumul": {}}
-        if any(s["located"] is None for s in members) or len(members) < 2:
+        if not located or len(members) < 2:
             continue
         all_arcs, cumulative, reached = [], 0.0, True
         results[members[0]["key"]][f"Cumul_{impedance}"] = 0.0
         results[members[0]["key"]]["_cumul"] = {a: 0.0 for a in costs}
-        for a, b in zip(members, members[1:]):
+        legs = list(zip(members, members[1:])) + ([(members[-1], members[0])] if return_to_start else [])
+        for a, b in legs:
             _, predecessors = solver.run(a["key"])
             arcs = solver.path(predecessors, a["key"], b["key"])
             if arcs is None:
@@ -607,13 +663,15 @@ def solve_route(graph, stops, accumulate, line_shape):
                 reached = False
                 break
             cumulative += solver.total(arcs, impedance)
-            results[b["key"]][f"Cumul_{impedance}"] = cumulative
             all_arcs.extend(arcs)
-            results[b["key"]]["_cumul"] = {a: solver.total(all_arcs, a) for a in costs}
+            if b is not members[0]:
+                results[b["key"]][f"Cumul_{impedance}"] = cumulative
+                results[b["key"]]["_cumul"] = {a: solver.total(all_arcs, a) for a in costs}
         if not reached:
             continue
-        row = {"Name": members[0].get("RouteName") or f"{members[0]['name']} - {members[-1]['name']}",
-               "FirstStopID": members[0]["oid"], "LastStopID": members[-1]["oid"], "StopCount": len(members),
+        last = members[0] if return_to_start else members[-1]
+        row = {"Name": members[0].get("RouteName") or f"{members[0]['name']} - {last['name']}",
+               "FirstStopID": members[0]["oid"], "LastStopID": last["oid"], "StopCount": len(members),
                f"Total_{impedance}": cumulative}
         for attribute in accumulate:
             row[f"Total_{attribute}"] = solver.total(all_arcs, attribute)
@@ -621,6 +679,74 @@ def solve_route(graph, stops, accumulate, line_shape):
         row["_totals"] = {a: solver.total(all_arcs, a) for a in costs}
         routes.append(row)
     return routes, results
+
+
+def best_order(solver, members, keep_first, keep_last, cycle):
+    """The stops in the order that costs least — the travelling salesman problem, open or (``cycle``) closed at the
+    first stop, its first or last stop kept where asked. Exact by Held and Karp's dynamic programme (Held and Karp 1962)
+    up to ten stops; beyond, the nearest neighbour then 2-opt until no exchange improves (Croes 1958), an equivalent.
+    Ties go to the stop given first."""
+    n = len(members)
+    cost = []
+    for a in members:
+        distances, _ = solver.run(a["key"])
+        cost.append([float(distances[solver.location_node[b["key"]]]) for b in members])
+    first = 0 if keep_first or cycle else None
+    last = n - 1 if keep_last else None
+
+    def length(order):
+        total = sum(cost[a][b] for a, b in zip(order, order[1:]))
+        return total + (cost[order[-1]][order[0]] if cycle else 0.0)
+
+    if n <= 10:
+        full = (1 << n) - 1
+        table = {}
+        starts = [first] if first is not None else [j for j in range(n) if j != last or n == 1]
+        for j in starts:
+            table[(1 << j, j)] = (0.0, None)
+        for mask in range(1, full + 1):
+            for j in range(n):
+                found = table.get((mask, j))
+                if found is None:
+                    continue
+                for k in range(n):
+                    if mask & (1 << k) or (k == last and mask | (1 << k) != full):
+                        continue
+                    key = (mask | (1 << k), k)
+                    value = found[0] + cost[j][k]
+                    if key not in table or value < table[key][0] - 1e-12:
+                        table[key] = (value, j)
+        ends = [last] if last is not None else range(n)
+        best = min(((table[(full, j)][0] + (cost[j][first] if cycle else 0.0), j) for j in ends if (full, j) in table),
+                   default=None)
+        if best is None or not numpy.isfinite(best[0]):
+            return list(members)
+        order, mask, j = [], full, best[1]
+        while j is not None:
+            order.append(j)
+            previous = table[(mask, j)][1]
+            mask &= ~(1 << j)
+            j = previous
+        return [members[k] for k in reversed(order)]
+    order = [first if first is not None else 0]
+    rest = [k for k in range(n) if k not in order and k != last]
+    while rest:
+        k = min(rest, key=lambda r: (cost[order[-1]][r], r))
+        order.append(k)
+        rest.remove(k)
+    if last is not None:
+        order.append(last)
+    improved = True
+    while improved:
+        improved = False
+        low = 1 if first is not None else 0
+        high = n - 1 if last is not None else n
+        for i in range(low, high - 1):
+            for j in range(i + 1, high):
+                trial = order[:i] + order[i:j + 1][::-1] + order[j + 1:]
+                if length(trial) < length(order) - 1e-9:
+                    order, improved = trial, True
+    return [members[k] for k in order]
 
 
 def _ranked(solver, distances, items, cutoff):
@@ -730,7 +856,7 @@ def solve_service_area(graph, facilities, breaks, direction, rings, trim):
     for facility in facilities:
         if facility["located"] is None:
             continue
-        distances, _ = solver.run(facility["key"])
+        distances, search = solver.run(facility["key"])
         parts = []
         for i, edge in enumerate(graph.edges):
             stops = [(0.0, solver.node[edge["u"]])] + sorted(on_edge.get(i, [])) + [(1.0, solver.node[edge["v"]])]
@@ -739,10 +865,15 @@ def solve_service_area(graph, facilities, breaks, direction, rings, trim):
                     continue
                 forward = graph.cost(impedance, i, True, ta, tb) if graph.passable(i, True) else None
                 backward = graph.cost(impedance, i, False, tb, ta) if graph.passable(i, False) else None
+                # The cost at each end of going on along the piece (away) or of having come along it (toward).
+                usable_a = forward if away else backward
+                usable_b = backward if away else forward
+                at_a = solver.via(distances, search, na, i, away, ta, tb) if usable_a is not None else numpy.inf
+                at_b = solver.via(distances, search, nb, i, not away, tb, ta) if usable_b is not None else numpy.inf
                 if away:
-                    pieces = _cheaper(distances[na], forward, True, distances[nb], backward, False)
+                    pieces = _cheaper(at_a, forward, True, at_b, backward, False)
                 else:
-                    pieces = _cheaper(distances[na], backward, False, distances[nb], forward, True)
+                    pieces = _cheaper(at_a, backward, False, at_b, forward, True)
                 for s, e, c0, c1, runs in pieces:
                     parts.append((i, ta + (tb - ta) * s, ta + (tb - ta) * e, c0, c1, runs))
         mine = []
@@ -799,7 +930,7 @@ class Described:
     ``elementType`` (``Edge``, ``Junction``); the system junction source is ``<network>_Junctions`` and numbers after the
     edge sources. ``elevationModel`` is ``None`` unless elevation fields are named — grapy names none."""
 
-    def __init__(self, path, file, dataset, name, sources, attributes, modes, srid):
+    def __init__(self, path, file, dataset, name, sources, attributes, modes, srid, turns=None):
         from ._reference import SpatialReference
         self.catalogPath = str(path)
         self.name = self.baseName = name
@@ -812,7 +943,8 @@ class Described:
                                     connectivityPolicy=policy)
                             for i, (s, policy) in enumerate(sources, start=1)]
         self.junctionSources = []
-        self.turnSources = []
+        self.turnSources = [_Object(name=t.rsplit("/", 1)[-1], sourceID=len(sources) + 2 + n, sourceType="TurnFeature",
+                                    elementType="Turn") for n, t in enumerate(turns or [])]
         self.systemJunctionSource = _Object(name=f"{name}_Junctions", sourceID=len(sources) + 1,
                                             sourceType="SystemJunction", elementType="Junction")
         self.sources = [*self.edgeSources, self.systemJunctionSource]
@@ -824,7 +956,7 @@ class Described:
         self.supportsDirections = False
         self.supportsHistoricalTrafficData = False
         self.supportsLiveTrafficData = False
-        self.supportsTurns = False
+        self.supportsTurns = bool(turns)
         self.timeZoneAttributeName = ""
         self.timeZoneTableName = ""
         self.trafficSupportType = "NONE"
@@ -851,7 +983,10 @@ def describe(path):
                                         "network = ? order by rowid", (name,)).fetchall()
         modes = [r[0] for r in connection.execute("select name from grapy_network_travel_mode where network = ? "
                                                   "order by rowid", (name,))]
+        has_turns = connection.execute("select 1 from sqlite_master where name = 'grapy_network_turn_source'").fetchone()
+        turns = [r[0] for r in connection.execute("select class_name from grapy_network_turn_source where network = ? "
+                                                  "order by rowid", (name,))] if has_turns else []
     finally:
         connection.close()
     srid = _source_srid(file, sources[0][0]) if sources else 0
-    return Described(path, file, dataset, name, sources, attributes, modes, srid)
+    return Described(path, file, dataset, name, sources, attributes, modes, srid, turns)

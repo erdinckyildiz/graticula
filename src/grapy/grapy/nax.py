@@ -1,6 +1,7 @@
 """arcpy.nax — the Network Analyst solver objects, by their documented names, over grapy's network model (ADR-226).
 
-A solver object (Route, ClosestFacility, ServiceArea, OriginDestinationCostMatrix) holds its inputs in memory, locates
+A solver object (Route, ClosestFacility, ServiceArea, OriginDestinationCostMatrix, LocationAllocation, and since ADR-239
+VehicleRoutingProblem, LastMileDelivery and WasteCollection) holds its inputs in memory, locates
 them on the network when it solves, and answers a result object that counts, reads and exports its outputs. Every
 ``solve()`` is an *equivalent* (ADR-224 §5.6, ADR-226 §5.4): Dijkstra's shortest path over the travel mode's impedance,
 said once in the run's messages and marked on each solver class as ``__grapy_equivalent__``.
@@ -272,7 +273,8 @@ class NetworkDataset:
 
     @property
     def turnCount(self):
-        return 0
+        from . import _turns
+        return _turns.turn_count(self._path)
 
     @property
     def travelModes(self):
@@ -396,8 +398,19 @@ class NetworkDataset:
             rows.append(tuple(row))
         return _Rows(rows)
 
-    def turns(self, *_, **__):
-        raise NotBuiltError("arcpy.nax.NetworkDataset.turns: turns are refused until they are defined (ADR-226 §5.3).")
+    def turns(self, turn_properties=None, attribute_names=None, eids=None, travel_mode=None, area_of_interest=None):
+        """The network's turn features, by the documented properties (EID, SOURCEID, SOURCEOID, EDGEEIDS,
+        ISRESTRICTED, COST, TIME, DISTANCE) and the attributes named, under a travel mode (ADR-239). INFERRED: a turn
+        source's id numbers after the system junction source's."""
+        from . import _turns
+        properties, attributes = _names(turn_properties), _names(attribute_names)
+        allowed = ("EID", "SOURCEID", "SOURCEOID", "EDGEEIDS", "ISRESTRICTED", "COST", "TIME", "DISTANCE")
+        self._check(properties, allowed, travel_mode)
+        if eids is not None and area_of_interest is not None:
+            raise ValueError("eids and area_of_interest cannot be used together.")
+        graph = self._graph(travel_mode, None)
+        wanted = None if eids is None else {int(e) for e in _names(eids)}
+        return _Rows(_turns.turn_rows(graph, properties, attributes, wanted, self._within(area_of_interest)))
 
     def getLiveTrafficStatus(self, wait_for_update=False):
         raise NotBuiltError("arcpy.nax.NetworkDataset: live traffic is refused (ADR-226 §5.3).")
@@ -465,8 +478,14 @@ class _Solver:
 
     def _add(self, input_type, values):
         self._check_type(input_type)
-        shape = values.pop("SHAPE@", None) or values.pop("SHAPE@XY", None)
         from .da import _shape_from
+        tokens = [k for k in values if str(k).upper().startswith("SHAPE@")]
+        shapes = {str(k).upper(): values.pop(k) for k in tokens}
+        shape = next((v for v in shapes.values() if v is not None), None)
+        if shapes.get("SHAPE@JSON") is not None:                  # the documented geometry tokens (ADR-239)
+            import json
+            from ._geometry import AsShape
+            shape = AsShape(json.loads(shapes["SHAPE@JSON"]), True)
         point = _shape_from(shape)
         rows = self._inputs[input_type]
         oid = len(rows) + 1
@@ -703,9 +722,10 @@ _EQUIVALENT = f"{_network.DIJKSTRA[0]} ({_network.DIJKSTRA[1]})"
 
 
 class Route(_Solver):
-    """EQUIVALENT: routes through stops by Dijkstra's shortest path (ADR-226 §5.4); see ``_network.solve_route``. Only
-    the current stop order is built: ``findBestSequence`` is the travelling salesman problem. ``returnDirections`` is
-    refused (Esri's direction rules are not published)."""
+    """EQUIVALENT: routes through stops by Dijkstra's shortest path (ADR-226 §5.4); see ``_network.solve_route``.
+    ``findBestSequence`` (with ``preserveFirstStop`` and ``preserveLastStop``) and ``returnToStart`` solve the
+    travelling salesman problem by ``_network.best_order`` (ADR-239). ``returnDirections`` is refused (Esri's direction
+    rules are not published)."""
 
     __grapy_equivalent__ = _EQUIVALENT
     _INPUT_TYPES = tuple(RouteInputDataType)
@@ -721,9 +741,6 @@ class Route(_Solver):
         self.routeShapeType = RouteShapeType.TrueShapeWithMeasures
 
     def solve(self):
-        if self.findBestSequence or self.returnToStart:
-            raise NotBuiltError("arcpy.nax.Route: findBestSequence and returnToStart are the travelling salesman problem, "
-                                "whose heuristic is not chosen yet (ADR-226 §5.2).")
         if self.returnDirections:
             raise NotBuiltError("arcpy.nax.Route: returnDirections writes Esri's direction text, whose rules are not "
                                 "published.")
@@ -732,11 +749,15 @@ class Route(_Solver):
         stops = self._located(graph, RouteInputDataType.Stops, "Stops")
         shape = {RouteShapeType.NoLine: "NO_LINES", RouteShapeType.StraightLine: "STRAIGHT_LINES"}.get(
             self.routeShapeType, "ALONG_NETWORK")
-        routes, results = _network.solve_route(graph, stops, [], shape)
+        order = "USE_CURRENT_ORDER"
+        if self.findBestSequence:
+            order = {(True, True): "PRESERVE_BOTH", (True, False): "PRESERVE_FIRST", (False, True): "PRESERVE_LAST",
+                     (False, False): "FIND_BEST_ORDER"}[(bool(self.preserveFirstStop), bool(self.preserveLastStop))]
+        routes, results = _network.solve_route(graph, stops, [], shape, order, bool(self.returnToStart))
         for n, route in enumerate(routes, start=1):
             route["ObjectID"] = n
+            route.pop(f"Total_{graph.impedance}", None)      # before the totals: an impedance may be named Minutes
             route.update(self._totals(graph, route.pop("_totals"), "Total"))
-            route.pop(f"Total_{graph.impedance}", None)
             route["FirstStopOID"], route["LastStopOID"] = route["FirstStopID"], route["LastStopID"]
         extra = {}
         for key, result in results.items():
@@ -868,38 +889,395 @@ class ServiceArea(_Solver):
         return _Result(outputs, graph.srid, bool(polygons))
 
 
+# ---- fleet routing (ADR-239) ------------------------------------------------------------------------------------------
+
+class Importance(enum.Enum):
+    High = "High"
+    Medium = "Medium"
+    Low = "Low"
+
+
+class DrivingSide(enum.Enum):
+    """The side of the road vehicles drive on. INFERRED values (the page gives the members' type, Integer, but not their
+    numbers). grapy's network holds one (``arcpy.graticula.SetNetworkDrivingSide``); a waste collection pass collects
+    the curb side, which it decides."""
+    Unknown = 0
+    LeftSide = 1
+    RightSide = 2
+
+
+class StopCollectionMode(enum.Enum):
+    """How a waste collection route collects a street's two sides: separately or in one pass."""
+    OneSide = 1
+    BothSides = 2
+
+
+class VehicleRoutingProblemSchemaVersion(enum.Enum):
+    One = "One"
+    Two = "Two"
+
+
+class VehicleRoutingProblemInputDataType(enum.Enum):
+    """Schema version One's inputs."""
+    Orders = "Orders"
+    Depots = "Depots"
+    Routes = "Routes"
+    Breaks = "Breaks"
+    OrderPairs = "OrderPairs"
+    RouteRenewals = "RouteRenewals"
+    RouteZones = "RouteZones"
+    PointBarriers = "PointBarriers"
+    LineBarriers = "LineBarriers"
+    PolygonBarriers = "PolygonBarriers"
+
+
+class VehicleRoutingProblemOutputDataType(enum.Enum):
+    """Schema version One's outputs."""
+    Routes = "Routes"
+    Stops = "Stops"
+    UnassignedStops = "UnassignedStops"
+    Directions = "Directions"
+    DirectionPoints = "DirectionPoints"
+    DirectionLines = "DirectionLines"
+
+
+class VehicleRoutingProblemInputDataType2(enum.Enum):
+    """Schema version Two's inputs."""
+    Orders = "Orders"
+    Depots = "Depots"
+    Routes = "Routes"
+    Breaks = "Breaks"
+    RouteZones = "RouteZones"
+    RouteRenewals = "RouteRenewals"
+    OrderPairs = "OrderPairs"
+    PointBarriers = "PointBarriers"
+    LineBarriers = "LineBarriers"
+    PolygonBarriers = "PolygonBarriers"
+    OrderSpecialties = "OrderSpecialties"
+    RouteSpecialties = "RouteSpecialties"
+
+
+class VehicleRoutingProblemOutputDataType2(enum.Enum):
+    """Schema version Two's outputs."""
+    Orders = "Orders"
+    Depots = "Depots"
+    DepotVisits = "DepotVisits"
+    Breaks = "Breaks"
+    Routes = "Routes"
+    DirectionPoints = "DirectionPoints"
+    DirectionLines = "DirectionLines"
+
+
+class LastMileDeliveryInputDataType(enum.Enum):
+    Orders = "Orders"
+    Depots = "Depots"
+    Routes = "Routes"
+    OrderSpecialties = "OrderSpecialties"
+    RouteSpecialties = "RouteSpecialties"
+    Zones = "Zones"
+    PointBarriers = "PointBarriers"
+    LineBarriers = "LineBarriers"
+    PolygonBarriers = "PolygonBarriers"
+
+
+class LastMileDeliveryOutputDataType(enum.Enum):
+    Orders = "Orders"
+    Depots = "Depots"
+    DepotVisits = "DepotVisits"
+    Routes = "Routes"
+    DirectionPoints = "DirectionPoints"
+    DirectionLines = "DirectionLines"
+
+
+class WasteCollectionInputDataType(enum.Enum):
+    Stops = "Stops"
+    Depots = "Depots"
+    Routes = "Routes"
+    Renewals = "Renewals"
+    RouteRenewals = "RouteRenewals"
+    RenewalVisits = "RenewalVisits"
+    PointBarriers = "PointBarriers"
+    LineBarriers = "LineBarriers"
+    PolygonBarriers = "PolygonBarriers"
+
+
+class WasteCollectionOutputDataType(enum.Enum):
+    Stops = "Stops"
+    Depots = "Depots"
+    Renewals = "Renewals"
+    RenewalVisits = "RenewalVisits"
+    Routes = "Routes"
+    RouteLines = "RouteLines"
+    DirectionPoints = "DirectionPoints"
+    DirectionLines = "DirectionLines"
+
+
+def _fleet_say(name, method):
+    from ._runtime import AddWarning, _SAID_EQUIVALENT
+    key = f"nax.{name}"
+    if key not in _SAID_EQUIVALENT:
+        _SAID_EQUIVALENT.add(key)
+        AddWarning(f"{key}.solve is an equivalent, not ArcGIS Pro's own computation: {method[0]} ({method[1]}). Its "
+                   "numbers may differ from Pro's.")
+
+
+class _FleetSolver(_Solver):
+    """What the three fleet routing solvers share: located inputs by input type name, their equivalence warning, the
+    Directions refusal, and a time-based travel mode."""
+
+    _LOCATED = ("Orders", "Depots", "Stops", "Renewals")
+
+    def _fleet_inputs(self, graph):
+        inputs = {}
+        for input_type, rows in self._inputs.items():
+            if "Barriers" in input_type.name:
+                continue
+            if input_type.name in self._LOCATED:
+                items = self._located(graph, input_type, input_type.name)
+                for item in items:
+                    curb = item.get("CurbApproach")
+                    if curb not in (None, 0, CurbApproach.EitherSideOfVehicle):
+                        raise NotBuiltError(f"arcpy.nax.{type(self).__name__}: CurbApproach {curb} is not built in "
+                                            "grapy; every location is approached from either side.")
+                inputs[input_type.name] = items
+            else:
+                inputs[input_type.name] = [dict(row) for row in rows]
+        return inputs
+
+    def _check(self):
+        if getattr(self, "returnDirections", False):
+            raise NotBuiltError(f"arcpy.nax.{type(self).__name__}: returnDirections writes Esri's direction text, whose "
+                                "rules are not published.")
+        graph = self._graph()
+        from .na import _time_impedance
+        _time_impedance(f"nax.{type(self).__name__}", graph)
+        return graph
+
+    def _result(self, outputs, enum_type, graph, succeeded):
+        rows = {}
+        for member in enum_type:
+            if member.name in outputs:
+                found = outputs[member.name]
+                for n, row in enumerate(found, start=1):
+                    row.setdefault("ObjectID", n)
+                rows[member] = found
+        return _Result(rows, graph.srid, succeeded)
+
+
+class VehicleRoutingProblem(_FleetSolver):
+    """EQUIVALENT: the vehicle routing problem by Solomon's insertion heuristic and ruin and recreate (``grapy._fleet``),
+    over Dijkstra's travel times. Schema version One (the default, as documented) reads and writes the ArcGIS Desktop
+    schema — Stops, UnassignedStops, Routes — and Two the ArcGIS Pro one — Orders, Depots, DepotVisits, Breaks, Routes.
+    Directions and barriers are refused; ``spatiallyClusterRoutes`` is accepted and has no term in grapy's objective
+    (INFERRED)."""
+
+    __grapy_equivalent__ = None  # set below, from grapy._fleet
+
+    def __init__(self, in_network, version=None):
+        self.version = version or VehicleRoutingProblemSchemaVersion.One
+        self._INPUT_TYPES = tuple(VehicleRoutingProblemInputDataType if self.version is
+                                  VehicleRoutingProblemSchemaVersion.One else VehicleRoutingProblemInputDataType2)
+        super().__init__(in_network)
+        self.allowSaveLayerFile = False
+        self.allowSaveRouteData = False
+        self.defaultDate = None
+        self.directionsDistanceUnits = None
+        self.directionsLanguage = "en"
+        self.directionsStyle = None
+        self.distanceUnits = DistanceUnits.Kilometers
+        self.excessTransitFactor = Importance.Medium
+        self.returnDirections = False
+        self.returnStopShapes = False
+        self.routeShapeType = RouteShapeType.TrueShapeWithMeasures
+        self.searchQuery = None
+        self.searchSources = None
+        self.spatiallyClusterRoutes = True
+        self.timeWindowFactor = Importance.Medium
+        self.timeZoneForTimeFields = TimeZoneUsage.LocalTimeAtLocations
+
+    @property
+    def _INPUT_FIELDS(self):
+        if self.version is VehicleRoutingProblemSchemaVersion.One:
+            return _VRP_ONE_FIELDS
+        return _layer_fields("Vehicle Routing Problem")
+
+    def solve(self):
+        from . import _fleet
+        _fleet_say("VehicleRoutingProblem", _fleet.METHOD)
+        graph = self._check()
+        one = self.version is VehicleRoutingProblemSchemaVersion.One
+        problem = _fleet.Fleet(graph, self._fleet_inputs(graph), "VRP", "One" if one else "Two", self.timeUnits.value,
+                               self.distanceUnits.value, _day(self.defaultDate), self.timeWindowFactor,
+                               self.excessTransitFactor, ignore_invalid=self.ignoreInvalidLocations)
+        problem.solve()
+        shape = {RouteShapeType.NoLine: "NO_LINES", RouteShapeType.StraightLine: "STRAIGHT_LINES"}.get(
+            self.routeShapeType, "ALONG_NETWORK")
+        outputs = _fleet.fleet_outputs(problem, shape, "One" if one else "Two")
+        if one and not self.returnStopShapes:
+            for kind in ("Stops", "UnassignedStops"):
+                for row in outputs[kind]:
+                    row["SHAPE"] = None
+        succeeded = any(r.get("OrderCount") for r in outputs["Routes"])
+        return self._result(outputs, VehicleRoutingProblemOutputDataType if one else VehicleRoutingProblemOutputDataType2,
+                            graph, succeeded)
+
+
+class LastMileDelivery(_FleetSolver):
+    """EQUIVALENT: the last mile delivery as the vehicle routing problem is solved (``grapy._fleet``), with its own
+    inputs and outputs: one time window, anchoring, start flexibility, zones by name, Sequence from 0 at the start
+    depot spaced by ``sequenceGap``. Directions and barriers are refused."""
+
+    __grapy_equivalent__ = None
+    _INPUT_TYPES = tuple(LastMileDeliveryInputDataType)
+
+    @property
+    def _INPUT_FIELDS(self):
+        return _layer_fields("Last Mile Delivery")
+
+    def __init__(self, in_network):
+        super().__init__(in_network)
+        self.allowSaveLayerFile = False
+        self.allowSaveRouteData = False
+        self.directionsLanguage = "en"
+        self.distanceUnits = DistanceUnits.Kilometers
+        self.earliestRouteStartDate = None
+        self.earliestRouteStartTime = None
+        self.maxRouteTotalTime = None
+        self.returnDirections = False
+        self.routeShapeType = RouteShapeType.StraightLine
+        self.searchSources = None
+        self.sequenceGap = 1
+        self.timeZoneForTimeFields = TimeZoneUsage.LocalTimeAtLocations
+
+    def solve(self):
+        from . import _fleet
+        if int(self.sequenceGap) < 1:
+            raise ValueError("sequenceGap is a positive integer.")
+        if self.routeShapeType is RouteShapeType.TrueShape:
+            raise ValueError("routeShapeType TrueShape is not supported by LastMileDelivery, as documented.")
+        _fleet_say("LastMileDelivery", _fleet.METHOD)
+        graph = self._check()
+        problem = _fleet.Fleet(graph, self._fleet_inputs(graph), "LMD", "Two", self.timeUnits.value,
+                               self.distanceUnits.value, None, "Medium", "Medium", self.earliestRouteStartDate,
+                               self.earliestRouteStartTime, self.maxRouteTotalTime,
+                               ignore_invalid=self.ignoreInvalidLocations)
+        problem.solve()
+        shape = {RouteShapeType.NoLine: "NO_LINES", RouteShapeType.StraightLine: "STRAIGHT_LINES"}.get(
+            self.routeShapeType, "ALONG_NETWORK")
+        outputs = _fleet.fleet_outputs(problem, shape, "LMD", int(self.sequenceGap))
+        succeeded = any(r.get("OrderCount") for r in outputs["Routes"])
+        return self._result(outputs, LastMileDeliveryOutputDataType, graph, succeeded)
+
+
+class WasteCollection(_FleetSolver):
+    """EQUIVALENT: waste collection as ``grapy._fleet.Waste`` routes it: stops grouped by street edge (and side, when
+    collected one side at a time), each group a task served by traversing its edge, routes minimised then time.
+    One-side passes collect the curb side of the network's driving side (INFERRED: right-hand traffic unless set).
+    Directions, barriers and preassigned renewal visits are refused."""
+
+    __grapy_equivalent__ = None
+    _INPUT_TYPES = tuple(WasteCollectionInputDataType)
+
+    @property
+    def _INPUT_FIELDS(self):
+        return _layer_fields("Waste Collection")
+
+    def __init__(self, in_network):
+        super().__init__(in_network)
+        self.directionsLanguage = "en"
+        self.distanceUnits = DistanceUnits.Kilometers
+        self.maxRouteTotalTime = None
+        self.routeStartTime = None
+        self.searchSources = None
+        self.stopCollectionMode = None
+
+    def solve(self):
+        from . import _fleet, _turns
+        _fleet_say("WasteCollection", _fleet.WASTE_METHOD)
+        graph = self._check()
+        mode = None if self.stopCollectionMode is None else (
+            "ONE_SIDE" if self.stopCollectionMode is StopCollectionMode.OneSide else "BOTH_SIDES")
+        problem = _fleet.Waste(graph, self._fleet_inputs(graph), self.timeUnits.value, self.distanceUnits.value,
+                               self.routeStartTime, self.maxRouteTotalTime, mode,
+                               _turns.driving_side(self.networkDataSource))
+        problem.solve()
+        outputs = _fleet.waste_outputs(problem)
+        succeeded = any(r.get("StopCount") for r in outputs["Routes"])
+        return self._result(outputs, WasteCollectionOutputDataType, graph, succeeded)
+
+
+_VRP_ONE_FIELDS = {
+    "Orders": ["Description", "ServiceTime", "TimeWindowStart1", "TimeWindowEnd1", "TimeWindowStart2", "TimeWindowEnd2",
+               "MaxViolationTime1", "MaxViolationTime2", "InboundArriveTime", "OutboundDepartTime", "DeliveryQuantities",
+               "PickupQuantities", "Revenue", "SpecialtyNames", "AssignmentRule", "RouteName", "Sequence",
+               "CurbApproach", "Bearing", "BearingTol", "NavLatency"],
+    "Depots": ["Description", "TimeWindowStart1", "TimeWindowEnd1", "TimeWindowStart2", "TimeWindowEnd2",
+               "CurbApproach", "Bearing", "BearingTol", "NavLatency"],
+    "Routes": ["Description", "StartDepotName", "EndDepotName", "StartDepotServiceTime", "EndDepotServiceTime",
+               "EarliestStartTime", "LatestStartTime", "ArriveDepartDelay", "Capacities", "FixedCost", "CostPerUnitTime",
+               "CostPerUnitDistance", "OvertimeStartTime", "CostPerUnitOvertime", "MaxOrderCount", "MaxTotalTime",
+               "MaxTotalTravelTime", "MaxTotalDistance", "SpecialtyNames", "AssignmentRule"],
+    "Breaks": ["RouteName", "Precedence", "ServiceTime", "TimeWindowStart", "TimeWindowEnd", "MaxViolationTime",
+               "MaxTravelTimeBetweenBreaks", "MaxCumulWorkTime", "IsPaid", "Sequence"],
+    "OrderPairs": ["FirstOrderName", "SecondOrderName", "MaxTransitTime"],
+    "RouteRenewals": ["RouteName", "DepotName", "ServiceTime", "Sequences"],
+    "RouteZones": ["RouteName", "IsHardZone"],
+}
+
+
+def _layer_fields(solver):
+    """A fleet solver's input fields: its analysis layer's, less the outputs and the network location fields."""
+    from . import na
+    outputs = {f for f, _ in na._VISIT_OUT + na._VIOLATED + na._ROUTE_TOTALS + na._LOCATION}
+    outputs |= {"Status", "ViolationTime", "ArriveCurbApproach", "DepartCurbApproach", "RelativePosition",
+                "TotalBreakServiceTime", "StartTimeUTC", "EndTimeUTC", "RenewalCount", "TotalRenewalServiceTime",
+                "RouteLineID", "StopCount", "TotalTime", "TotalTravelTime", "TotalStopServiceTime", "TotalDistance",
+                "EndTime", "Name"}
+    outputs |= {f"Total{m}" for m in ("Bins_1", "Weight_1", "Volume_1", "Bins_2", "Weight_2", "Volume_2")}
+    return {key: [f for f, _ in fields if f not in outputs]
+            for key, (_, fields) in na._SCHEMAS[solver].items() if not key.endswith("Barriers")}
+
+
+def _day(value):
+    from .na import _date
+    return _date(value)
+
+
+def _mark_fleet():
+    from . import _fleet
+    for solver, method in ((VehicleRoutingProblem, _fleet.METHOD), (LastMileDelivery, _fleet.METHOD),
+                           (WasteCollection, _fleet.WASTE_METHOD)):
+        solver.__grapy_equivalent__ = f"{method[0]} ({method[1]})"
+
+
+_mark_fleet()
+VehicleRoutingProblemResult = LastMileDeliveryResult = WasteCollectionResult = _Result
+
+from .na import (CreateTurnFeatureClass, IncreaseMaximumEdges, PopulateAlternateIDFields,  # noqa: E402,F401
+                 UpdateByAlternateIDFields, UpdateByGeometry)
+
+
 # ---- refused by name -----------------------------------------------------------------------------------------------
 
-_HEURISTIC = "is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2)"
 _REASONS = {
-    _HEURISTIC: ("VehicleRoutingProblem", "VehicleRoutingProblemResult", "LastMileDelivery", "LastMileDeliveryResult",
-                 "WasteCollection", "WasteCollectionResult", "VehicleRoutingProblemInputDataType",
-                 "VehicleRoutingProblemOutputDataType"),
     "reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3)": ("GetWebToolInfo",),
     "lists the languages of Esri's direction text, whose rules are not published": ("ListDirectionsLanguages",),
 }
-_REASONS[_HEURISTIC] += ("LastMileDeliveryInputDataType", "LastMileDeliveryOutputDataType", "WasteCollectionInputDataType",
-                         "WasteCollectionOutputDataType", "VehicleRoutingProblemInputDataType2",
-                         "VehicleRoutingProblemOutputDataType2", "VehicleRoutingProblemSchemaVersion",
-                         "StopCollectionMode")
 _REASONS["writes or customises Esri's direction text, landmarks and street names, whose rules are not published"] = (
     "DirectionPoint", "DirectionPointType", "DirectionsCustomizer", "DirectionsFieldMapping", "DirectionsName",
     "DirectionsQuery", "DirectionsStyle", "ReferenceLandmark", "ReferenceLandmarkType", "SpatialLandmark", "LandmarkSide",
-    "NameClass", "Importance")
+    "NameClass")
 _REASONS["belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — "
          "which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the "
          "elements"] = (
-    "NetworkElement", "Edge", "Junction", "AdjacentEdge", "Attribute", "AttributeEvaluator", "AttributeParameter",
-    "AttributeParameterUsage", "AttributeUsage", "NetworkTimeUsage")
-_REASONS["is a turn, refused until turns are defined (ADR-226 §5.3)"] = ("Turn",)
+    "NetworkElement", "Edge", "Junction", "Turn", "AdjacentEdge", "Attribute", "AttributeEvaluator",
+    "AttributeParameter", "AttributeParameterUsage", "AttributeUsage", "NetworkTimeUsage")
 _REASONS["is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements"] = (
     "TraversedEdge", "TraversedElement", "TraversedElementType", "TraversedJunction", "TraversedTurn")
-_REASONS["needs turns and driving sides, refused until they are defined (ADR-226 §5.3)"] = ("DrivingSide",)
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
 from .na import _REFUSED as _NA_REFUSED  # noqa: E402 — nax documents the same network tools
-for _name in ("CreateNetworkDatasetFromTemplate", "CreateTemplateFromNetworkDataset", "CreateTurnFeatureClass",
-              "DissolveNetwork", "IncreaseMaximumEdges", "PopulateAlternateIDFields", "ShareAsRouteLayers",
-              "UpdateByAlternateIDFields", "UpdateByGeometry"):
+for _name in ("CreateNetworkDatasetFromTemplate", "CreateTemplateFromNetworkDataset", "DissolveNetwork",
+              "ShareAsRouteLayers"):
     _REFUSED[_name] = _NA_REFUSED[_name]
 
 
