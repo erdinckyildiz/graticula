@@ -124,6 +124,17 @@ published standard (20-004r1) and the clients' observable requests only.
    `…/ogc/records/v1/collections/catalog` in the QGIS interface (not only its backend from Python), a record is opened
    and a WMS or WFS link added to a map. **PARTLY DISCHARGED 2026-10-06:** OWSLib 0.25 and MetaSearch's `OARecSearch`
    backend read it from Python; the QGIS dialog has not been driven.
+   **DISCHARGED 2026-10-31, and the dialog found what the backend could not.** QGIS 3.44.15 (OSGeo4W), its MetaSearch
+   dialog driven inside a running QGIS (offscreen, a profile of its own, `tools/qgis-probe/metasearch.py`): the
+   catalogue saved as an *OGC API - Records* connection, *Search* for `ci_parcels` showed two records — **and offered
+   no Add button for either.** MetaSearch reads a record link's `type` as its protocol and offers *Add WFS*, *Add WMS*
+   or *Add ArcGIS* only for the protocol names catalogues have used since CSW (`OGC:WFS`, `OGC:WMS`,
+   `ESRI:ArcGIS:FeatureServer` …); this server typed every link with its media type, as 20-004r1 means `type`. Each
+   service link now has a twin beside it, same address and `rel`, typed with its protocol
+   (`OgcRecordsEndpoints.ProtocolLinks`; `OgcRecordsConformanceTests` asserts the `OGC:WFS` and
+   `ESRI:ArcGIS:FeatureServer` twins). With it the Feature Service record offers *Add WFS* and *Add ArcGIS
+   FeatureServer*; *Add WFS* opened QGIS's WFS window on the record's address, the layer was selected and Add pressed,
+   and `graticula:ci_parcels` is in the project, valid, 12 features, read from `…/FeatureServer/WFSServer`.
 3. The owner confirms the `INFERRED` choices: a record per portal item (§2 A, against B), the portal's item types as
    `type` (§3), `datetime` against the record's change time (§3), and `rights` from the OGC access constraints.
    **DISCHARGED 2026-10-07** — the owner ([Q-164](../open-questions.md)): *"Hepsi onaylı"*.

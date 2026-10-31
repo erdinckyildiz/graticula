@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>907b2fad</code> · 2026-10-31 19:01</p>
+<p class="stamp">Şu commit’ten üretildi: <code>2197fa49</code> · 2026-10-31 19:08</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">584/658</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">64 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">586/658</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">62 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">226 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">309 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5626</div><div class="kpi-l">test</div><div class="kpi-n">609 kaynak dosya, 271,599 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5626</div><div class="kpi-l">test</div><div class="kpi-n">609 kaynak dosya, 271,628 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">89 madde</span></div><p><b>64 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">87 madde</span></div><p><b>62 ADR conditions</b> outstanding across 46 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -138,7 +138,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-243 · grapy builds the image classifiers</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-249 · grapy carries deep learning on poi</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -159,11 +158,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-162 · WMS and WFS at a service&#x27;s own add</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -356,7 +355,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">159</td><td>A multidimensional file is a service of slices</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — checked end to end on a NetCDF of two variables over time and depth; real files…</td><td class="num"></td></tr>
 <tr><td class="id">160</td><td>Datum transformations are listed from the register and applied as named</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — listing and applying are checked end to end; the ranking without an area of…</td><td class="num"></td></tr>
 <tr><td class="id">161</td><td>A mosaic&#x27;s seamline is the halfway line between its images</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — checked end to end on two overlapping images; ArcGIS&#x27;s generated seamlines…</td><td class="num"></td></tr>
-<tr><td class="id">162</td><td>WMS and WFS at a service&#x27;s own address, and image services in WMS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each address and each layer is checked end to end; no ArcGIS-migrated QGIS…</td><td class="num">1/2</td></tr>
+<tr><td class="id">162</td><td>WMS and WFS at a service&#x27;s own address, and image services in WMS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each address and each layer is checked end to end; no ArcGIS-migrated QGIS…</td><td class="num">2/2</td></tr>
 <tr><td class="id">163</td><td>An image service answers WMTS over its own tiles</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a WMTS tile is checked byte for byte against the ArcGIS tile; no WMTS client has…</td><td class="num">1/1</td></tr>
 <tr><td class="id">164</td><td>`generateKml` is a network link to the service&#x27;s map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the document and the request it makes are checked; Google Earth has not been…</td><td class="num">0/1</td></tr>
 <tr><td class="id">165</td><td>OGC API Features filters in Basic CQL2 text</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each claimed class has a case that observes it; no OGC test suite for Part 3 has…</td><td class="num">0/1</td></tr>
@@ -371,7 +370,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">174</td><td>OGC API Processes, over the geometry service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each process is one geometry-engine operation under the geometry service&#x27;s own…</td><td class="num">2/2</td></tr>
 <tr><td class="id">175</td><td>OGC API Maps, over the WMS renderer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a map drawn here is byte-identical to the WMS GetMap for the same box, size and…</td><td class="num">1/2</td></tr>
 <tr><td class="id">176</td><td>OGC API Styles, read-only, over the styles the tile faces already serve</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents, the negotiation and SLD 1.0 beside 1.1 are unit-tested, the face…</td><td class="num">3/4</td></tr>
-<tr><td class="id">177</td><td>OGC API Records is a searchable catalogue of the portal&#x27;s items</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every claimed class has a test against a running server, and OWSLib 0.25 and…</td><td class="num">1/3</td></tr>
+<tr><td class="id">177</td><td>OGC API Records is a searchable catalogue of the portal&#x27;s items</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every claimed class has a test against a running server, and OWSLib 0.25 and…</td><td class="num">2/3</td></tr>
 <tr><td class="id">178</td><td>HTTP Basic on the OGC faces, over HTTPS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — QGIS 3.28 signs in with its own authentication manager and saves a WFS-T insert…</td><td class="num">0/1</td></tr>
 <tr><td class="id">179</td><td>A layer may carry a title</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — one column, one setter, and the three faces that composed a title each read it…</td><td class="num">1/1</td></tr>
 <tr><td class="id">180</td><td>The outbound licence is the Graticula Community License</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision, which is the owner&#x27;s · MEDIUM for the licence text, which no…</td><td class="num">3/3</td></tr>
@@ -634,6 +633,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>2197fa49</code><time>2026-10-31</time><span>The Pro-window and owner-account conditions say exactly what a person must do, and ADR-191&#x27;s two met pane conditions carry their marker</span></li>
 <li><code>907b2fad</code><time>2026-10-31</time><span>An elevation surface&#x27;s portal item opens in the Maps SDK as an elevation layer and serves as a scene&#x27;s ground (ADR-182 condition 2)</span></li>
 <li><code>7354f3df</code><time>2026-10-31</time><span>ArcGIS Pro adds and draws a FeatureServer, MapServer, VectorTileServer and ImageServer layer here with no request refused (ADR-181 condition 1)</span></li>
 <li><code>48ad8b67</code><time>2026-10-31</time><span>A service definition is judged whole before anything is unpacked, and its bounds, its read parts and its reassembly are tested (ADR-191 conditions 3, 4, 5)</span></li>
@@ -647,7 +647,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>6efea248</code><time>2026-10-31</time><span>Every equivalent&#x27;s docstring now says EQUIVALENT with its method and source, and a test holds all three marks (ADR-224 condition 6; conditions 4 and 5 read again)</span></li>
 <li><code>e3be3b9e</code><time>2026-10-31</time><span>The Analyze dialog and the toolbox picker offer every layer the reader may see, from one listing, instead of the first 100 services&#x27; layer 0 (D-322)</span></li>
 <li><code>f0066d06</code><time>2026-10-31</time><span>D-266&#x27;s validator and D-282&#x27;s shared exports stay open, each for a stated reason: no data version a registered table&#x27;s outside writes would move, and ADR-012 phase 1 owning the shared directory</span></li>
-<li><code>30e33d51</code><time>2026-10-31</time><span>An image&#x27;s overviews are built in the import reader&#x27;s process, so the one read that decodes a stranger&#x27;s whole file is out of the serving process (D-295, partly)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
