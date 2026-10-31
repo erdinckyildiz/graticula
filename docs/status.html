@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>2f5ea93d</code> · 2026-10-31 20:26</p>
+<p class="stamp">Generated from commit <code>a69a0988</code> · 2026-10-31 20:39</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
@@ -209,7 +209,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">009</td><td>Raster Engine</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-15, see §0.</div></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">010</td><td>Caching</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">011</td><td>Job System</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4/4</td></tr>
-<tr><td class="id">012</td><td>Clustering</td><td><span class="pill warn">REQUIRES PROTOTYPE (was DEFERRED until…</span><div class="muted-t">REQUIRES PROTOTYPE (was DEFERRED until 2026-10-22, when the owner asked for the plan: &quot;En son server clusteringi planla&quot;)</div></td><td class="muted-t">MEDIUM for the inventory, which is read from the code · LOW for every cost below, none of…</td><td class="num">2/4</td></tr>
+<tr><td class="id">012</td><td>Clustering</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (2026-10-31: the…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (2026-10-31: the prototype of condition 2 ran and the owner confirmed and ordered the plan built — &quot;Onayla, ölç ve kur&quot;; was…</div></td><td class="muted-t">MEDIUM for the inventory, which is read from the code · LOW for every cost below, none of…</td><td class="num">2/4</td></tr>
 <tr><td class="id">013</td><td>Feature Service Data Model: Identity, Relationships and Attachments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/7</td></tr>
 <tr><td class="id">014</td><td>TLS and Certificates</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4/4</td></tr>
 <tr><td class="id">015</td><td>Authentication</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
@@ -635,6 +635,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>a69a0988</code><time>2026-10-31</time><span>The two-node throughput run is recorded and set aside: the machine averaged 90% CPU from other sessions (ADR-012 condition 2 stays partly discharged)</span></li>
 <li><code>2f5ea93d</code><time>2026-10-31</time><span>Nodes behind a proxy write the address the client used, from the proxies a deployment names and no other (ADR-012 phase 3, partly: Caddy itself not run)</span></li>
 <li><code>afeb1e7b</code><time>2026-10-31</time><span>A site shares its server directories, empties every node&#x27;s tiles, hands each next step to any node, and shows every machine&#x27;s log (ADR-012 phase 0 item 13, phases 1 and 2; D-282 closed)</span></li>
 <li><code>3d04b628</code><time>2026-10-31</time><span>A node knows its site: sweeps run once per site, changes are announced, machines register and can be stopped, and a node that differs is refused (ADR-012 phase 0, conditions 1 and 2)</span></li>
@@ -648,7 +649,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e60e594e</code><time>2026-10-31</time><span>RandLA-Net and Point Transformer V3 train on real 3DEP lidar in 8,192-point blocks; an epoch fits ADR-223&#x27;s time, a step does not fit 2 GB here</span></li>
 <li><code>eebb9361</code><time>2026-10-31</time><span>A directory can be trusted by its domain&#x27;s own CA over ldaps:// and can follow groups inside groups (ADR-089 conditions 1 and 3)</span></li>
 <li><code>a9dfe749</code><time>2026-10-31</time><span>Every per-request catalogue statement keeps its index under the tenant floor, and a service is found by a stored key (ADR-204 condition 11, migration 116)</span></li>
-<li><code>1d530e54</code><time>2026-10-31</time><span>grapy&#x27;s U-Net trains on a real Sentinel-2 image inside ADR-223&#x27;s limits and agrees with WorldCover on 95 % of unseen pixels</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

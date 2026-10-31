@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | `REQUIRES PROTOTYPE` *(was `DEFERRED` until 2026-10-22, when the owner asked for the plan: "En son server clusteringi planla")* |
+| **Status** | `ACCEPTED WITH CONDITIONS` *(2026-10-31: the prototype of condition 2 ran and the owner confirmed and ordered the plan built — "Onayla, ölç ve kur"; was `REQUIRES PROTOTYPE` from 2026-10-22, and `DEFERRED` before that, when the owner asked for the plan: "En son server clusteringi planla")* |
 | **Confidence** | `MEDIUM` for the inventory, which is read from the code · `LOW` for every cost below, none of which is measured |
 | **Decided** | 2026-10-22, the plan only — ~~nothing in §5 is built~~ **phase 0 built from 2026-10-31 (owner: *"Onayla, ölç ve kur"*), see §5.** **The model is the owner's**: ArcGIS Server's multiple-machine site (§1c). **The purpose is the owner's**: *"İkinci düğüm work share için gerekli. Performans artırma için"* — a second node is for sharing the work, to raise throughput (§1a). The phases and their order are still INFERRED, for the owner to confirm. |
 
@@ -356,7 +356,8 @@ what landed.
    show, at that contention: no request failed, the authenticated whoami answered on both nodes throughout, and the
    site held 112 connections at its peak against 297 usable.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
-   **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
+   **PARTLY DISCHARGED 2026-10-31** — phases 0, 1 and 2 each landed with such tests; phase 3's tests cover the nodes'
+   half and not Caddy, which was not run; phase 4 is not built. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
    a fresh schema (`TwoNodeSite`). The first ten (items 1–6, 11, 12) pass on this branch and **all ten fail on the build
    before it** (the same test assembly run against the previous `Graticula.Host.dll`, 2026-10-31); item 13's
    (`One_nodes_log_screen_shows_the_other_nodes_warnings_with_their_machine`) reads a route and a field that build does
