@@ -240,7 +240,9 @@ None recorded.
    output does not show — [D-328](../architecture-debt.md). **Memory**: grapy's RemoveThermalNoise on the whole scene
    peaked at **22,009 MB** of committed memory (it reads both polarizations whole and works in float64), eleven times
    ADR-223's 2 GB, and its terrain correction refuses the scene by its 50-million-cell limit (the grid would be about
-   29,000 × 21,000) — D-328. **Not run, the SLC half**: no stripmap SLC pair can be had without an account — Copernicus
+   29,000 × 21,000) — D-328. **Repaid the same day for the GRD chain**: read and written in blocks, RemoveThermalNoise
+   peaks at 762 MB, ApplyRadiometricCalibration at 715 MB, and ApplyGeometricTerrainCorrection, the limit lifted, at
+   1,311 MB and 495 s of CPU for the whole 25,869 × 29,855 grid (772 million cells) (D-328 has the method and what still reads whole). **Not run, the SLC half**: no stripmap SLC pair can be had without an account — Copernicus
    Data Space and ASF both require a login, the AWS registry's Sentinel-1 buckets are requester-pays (an AWS account),
    and Planetary Computer holds GRD and RTC only — so it waits for a product the owner provides.
 4. **The owner confirms or changes §5.8** ([Q-205](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-205 (*"Hepsini onayla"*).
