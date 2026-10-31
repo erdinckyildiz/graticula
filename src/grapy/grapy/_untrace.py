@@ -491,6 +491,13 @@ def _subnetwork_based(network, graph, request, values, starts, feature_barriers,
 
         traced, hit = _utility.reach(inside, forward, stop_here, starts_free=True,
                                      gate=_gates(functions_gate, filter_gate, bits))
+        # Pro 3.7 refuses an upstream trace whose barriers leave it no controller to reach — a feature barrier
+        # cutting the start off its subnetwork, or a function barrier stopping it short (measured 2026-10-31,
+        # ADR-231 condition 5) — and answers nothing, without an error, where indeterminate flow is what ends it.
+        if kind == "UPSTREAM" and starts and not (traced | hit) & set(own) and (
+                any(user_barrier(i) for i in hit) or bool(request.function_barriers)
+                or not any(s in region for s in starts)):
+            raise ExecuteError("ERROR 001797: No valid subnetwork controllers found.")
         kept = traced | {i for i in hit if boundary(i)}
         kept |= (hit - failed - _invalid(bits)) if request.include_barriers else set()
         return finish(kept, resource(arcs), propagated)
@@ -748,6 +755,10 @@ def paths(graph, values, request, start_groups, barrier, free):
     else:
         found = k_shortest(local, hops, source, target, count)
         found = [(c, p) for c, p in found if c <= limit]
+    if not found and kind == "SHORTEST_PATH":
+        # Pro 3.7 succeeds with an empty result when barriers leave no path (measured 2026-10-31, ADR-231 condition 5).
+        AddMessage("No shortest path was found between the locations; the result is empty.")
+        return set()
     if not found:
         raise ExecuteError(f"ERROR 002078: no {kind.lower().replace('_', ' ')} was found between the locations.")
     return {i for _, p in found for i in p if i >= 0}

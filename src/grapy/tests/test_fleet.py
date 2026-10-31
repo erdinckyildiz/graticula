@@ -175,6 +175,38 @@ class Fleet(unittest.TestCase):
         result = self.vrp(network, orders, routes[:1], extra={I2.RouteZones: [zone]}).solve()
         self.assertEqual(self.rows(result, O2.Orders, ["Name", "RouteName"]), [("in", "R1"), ("outside", None)])
 
+    def test_what_pro_answers(self):
+        """ArcGIS Pro 3.7's answers on the same road, measured 2026-10-31 (tools/pro-compare/adr239-fleet.py)."""
+        network = self.line()
+        late = lambda importance, x, minutes: self.vrp(                                       # noqa: E731
+            network, [{"Name": "a", "SHAPE@XY": (x, 0)},
+                      {"Name": "b", "SHAPE@XY": (100, 0), "TimeWindowStart": at(8),
+                       "TimeWindowEnd": at(8) + datetime.timedelta(minutes=(50 - x) / 5 + 5 - minutes)}],
+            [{"Name": "R", "StartDepotName": "D", "EarliestStartTime": at(8), "LatestStartTime": at(8),
+              "CostPerUnitTime": 1.0, "CostPerUnitDistance": 0.0}], extra=None)
+        for importance, x, minutes, first in (("High", 5, 0.04, "a"), ("High", 5, 0.06, "b"), ("Medium", 5, 0.45, "a"),
+                                              ("Medium", 5, 0.55, "b"), ("Low", 5, 8, "a"), ("Low", 0.5, 9, "a"),
+                                              ("Low", 0, 5, "b")):
+            vrp = late(importance, x, minutes)
+            vrp.timeWindowFactor = getattr(nax.Importance, importance)
+            got = min(self.rows(vrp.solve(), O2.Orders, ["Sequence", "Name"]))[1]
+            self.assertEqual(got, first, (importance, x, minutes))
+        orders = [{"Name": f"o{x}", "ServiceTime": 1.0, "SHAPE@XY": (x, 0)} for x in (10, 20, 80, 90)]
+        routes = [{"Name": "R", "StartDepotName": "D", "EndDepotName": "D", "EarliestStartTime": at(8),
+                   "LatestStartTime": at(8), "CostPerUnitTime": 1.0, "CostPerUnitDistance": 0.0}]
+        fields = ["OrderCount", "TotalTravelTime", "TotalWaitTime", "EndTime"]
+        # A window break that opens after the last order is waited for at the end depot, after the drive home.
+        brk = {"RouteName": "R", "Precedence": 1, "ServiceTime": 3.0, "TimeWindowStart": at(9),
+               "TimeWindowEnd": at(9, 30), "IsPaid": 1}
+        result = self.vrp(network, orders, routes, extra={I2.Breaks: [brk]}).solve()
+        self.assertEqual(self.rows(result, O2.Routes, fields), [(4, 16.0, 40.0, at(9, 3))])
+        self.assertEqual(self.rows(result, O2.Breaks, ["Sequence", "ArriveTime"]), [(6, at(8, 20))])
+        # The only travel time break also bounds the drive after it: two orders are left, not served late.
+        brk = {"RouteName": "R", "Precedence": 1, "ServiceTime": 2.0, "MaxTravelTimeBetweenBreaks": 6.0, "IsPaid": 1}
+        result = self.vrp(network, orders, routes, extra={I2.Breaks: [brk]}).solve()
+        self.assertEqual(self.rows(result, O2.Routes, fields), [(2, 8.0, 0.0, at(8, 12))])
+        self.assertEqual(self.rows(result, O2.Breaks, ["Sequence", "ArriveTime"]), [(4, at(8, 8))])
+
     def test_heuristic_finds_the_brute_force_optimum(self):
         network = self.grid()
         points = [(0, 5), (5, 20), (20, 15), (15, 0), (10, 15), (0, 15)]
@@ -359,7 +391,7 @@ class Fleet(unittest.TestCase):
         na.AddLocations(layer, "Orders", orders)
         na.AddVehicleRoutingProblemRoutes(layer, 1, "Van", "D", "D", max_order_count=5)
         na.AddVehicleRoutingProblemBreaks(layer, "Van1", "MAXIMUM_TRAVEL_TIME_BREAK",
-                                          travel_time_properties=[[True, 15, 5]])
+                                          travel_time_properties=[[True, 15, 10]])
         _SAID_EQUIVALENT.discard("na.Solve Vehicle Routing Problem")
         result = na.Solve(layer)
         self.assertEqual(result[1], "true")
@@ -368,11 +400,12 @@ class Fleet(unittest.TestCase):
                                              "EarliestStartTime"]))
         self.assertEqual(routes[0][:4], ("Van1", 2, 16.0, 15.0))
         self.assertTrue(str(routes[0][4]).startswith("2026-01-05 08:00"))
-        # The break is taken five minutes into the drive, part-way along the first leg (4 minutes then 8).
+        # The break is taken ten minutes into the drive, part-way along the second leg (4 minutes then 8); the four
+        # minutes home after it are within its limit, which bounds them too.
         (brk,) = list(arcpy.da.SearchCursor(na.GetNASublayer(layer, "Breaks"),
                                             ["RouteName", "Sequence", "RelativePosition", "CumulTravelTime"]))
         self.assertEqual(brk[:2], ("Van1", 3))
-        self.assertAlmostEqual(brk[3], 5.0)
+        self.assertAlmostEqual(brk[3], 10.0)
         visits = list(arcpy.da.SearchCursor(na.GetNASublayer(layer, "Depot Visits"), ["VisitType", "Sequence"]))
         self.assertEqual(visits, [(1, 1), (2, 5)])
         self.assertIn("arcpy.na.Solve solves a vehicle routing problem by an equivalent", arcpy.GetMessages())
