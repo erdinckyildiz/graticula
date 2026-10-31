@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>c38191c1</code> · 2026-11-01 00:06</p>
+<p class="stamp">Generated from commit <code>981db9b7</code> · 2026-11-01 00:07</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">251</div><div class="kpi-l">ADRs</div><div class="kpi-n">82 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">621/668</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">37 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">622/668</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">36 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">230 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">open debts</div><div class="kpi-n">315 repaid · 13 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">58 items</span></div><p><b>37 ADR conditions</b> outstanding across 28 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">57 items</span></div><p><b>36 ADR conditions</b> outstanding across 27 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -149,7 +149,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -350,7 +349,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">172</td><td>A service may be an INSPIRE View and Download service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents validate against INSPIRE&#x27;s published schemas with and without the…</td><td class="num">1/1</td></tr>
 <tr><td class="id">173</td><td>WCS 1.0.0 is spoken too, so that QGIS opens an image service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — QGIS 3.28&#x27;s own WCS provider opens a coverage through it, its documents validate…</td><td class="num">1/1</td></tr>
 <tr><td class="id">174</td><td>OGC API Processes, over the geometry service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each process is one geometry-engine operation under the geometry service&#x27;s own…</td><td class="num">2/2</td></tr>
-<tr><td class="id">175</td><td>OGC API Maps, over the WMS renderer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a map drawn here is byte-identical to the WMS GetMap for the same box, size and…</td><td class="num">1/2</td></tr>
+<tr><td class="id">175</td><td>OGC API Maps, over the WMS renderer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a map drawn here is byte-identical to the WMS GetMap for the same box, size and…</td><td class="num">2/2</td></tr>
 <tr><td class="id">176</td><td>OGC API Styles, read-only, over the styles the tile faces already serve</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents, the negotiation and SLD 1.0 beside 1.1 are unit-tested, the face…</td><td class="num">4/4</td></tr>
 <tr><td class="id">177</td><td>OGC API Records is a searchable catalogue of the portal&#x27;s items</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every claimed class has a test against a running server, and OWSLib 0.25 and…</td><td class="num">3/3</td></tr>
 <tr><td class="id">178</td><td>HTTP Basic on the OGC faces, over HTTPS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — QGIS 3.28 signs in with its own authentication manager and saves a WFS-T insert…</td><td class="num">0/1</td></tr>
@@ -629,6 +628,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>981db9b7</code><time>2026-11-01</time><span>The Pro differences whose method Pro&#x27;s outputs do not reveal are accepted and tracked in D-336, D-337 and D-338</span></li>
 <li><code>c38191c1</code><time>2026-11-01</time><span>Q-220 to Q-223 are answered: the owner confirmed the parcel, topographic, LRS and late grapy choices as built</span></li>
 <li><code>3c71ca37</code><time>2026-10-31</time><span>The map engine is its own ADR (ADR-253: OpenLayers draws 2D, the Maps SDK draws image views and scenes), and ADR-074&#x27;s reopen condition is recorded as honoured by ADR-077</span></li>
 <li><code>26e23782</code><time>2026-10-31</time><span>Status pages regenerated: 47 live ADR conditions, 13 parked debts</span></li>
@@ -642,7 +642,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>39f88d26</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>e4d286a4</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>a497d511</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
-<li><code>66c3130b</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

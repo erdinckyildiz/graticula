@@ -123,6 +123,7 @@ the image size ceiling. A fourth ETS-run suite must be maintained, and this one 
    the core check compares the https spelling exactly, and the requirement-class enum writes `ogcapi-Maps-1` with a
    capital M, so no lowercase URI could ever match it. **Not sent**: filing on another project's repository is the
    owner's to approve.)*
+   **DISCHARGED 2026-10-31 by the owner:** *"Bildirme, kayda geçir"* — not reported upstream, on the same line as the DuckDB decision of 2026-10-15 ([ADR-067](ADR-067-duckdb-sources-beyond-a-local-folder.md) condition 3, *"Bildirme, kapat"*). The two drafts stay in the repository unsent. The suite's failures stay recorded here as the suite's: §4 names the four (three test classes run without being declared, and a transparent background asked to carry `bgcolor`'s RGB), the draft names the `conf/core` spelling, and `tools/cite-baselines.json` holds the count, to be lowered when the suite changes.
 
 ## 9. Revisit triggers
 
