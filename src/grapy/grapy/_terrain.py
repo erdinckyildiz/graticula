@@ -485,19 +485,70 @@ def _dedupe(points, sources):
     return points[keep], sources[keep]
 
 
+#: ArcGIS Pro 3.7's default XY domain origin for the UTM zones and SWEREF99 TM, by EPSG code (read with arcpy's
+#: ``SpatialReference(code).domain``, 2026-10-31): north zones (-5120900, -9998100), south zones (-5120900, 1900).
+#: Other coordinate systems' defaults follow their own extents and are not tabulated.
+_UTM_NORTH = (-5120900.0, -9998100.0)
+_UTM_SOUTH = (-5120900.0, 1900.0)
+#: An axis whose tile index from the domain's origin reaches this (between 23,169 and 23,170, measured) has its tiles
+#: centred on the data instead.
+_TILE_INDEX_LIMIT = 23170
+
+
+def default_xy_origin(srid):
+    """Pro's default XY domain origin for ``srid`` where it is known (WGS 84, WGS 72, NAD 83 and ETRS 89 UTM zones,
+    SWEREF99 TM), else None."""
+    try:
+        code = int(srid)
+    except (TypeError, ValueError):
+        return None
+    if 32601 <= code <= 32660 or 32201 <= code <= 32260 or 26901 <= code <= 26923 or 25828 <= code <= 25838 \
+            or code == 3006:
+        return _UTM_NORTH
+    if 32701 <= code <= 32760:
+        return _UTM_SOUTH
+    return None
+
+
+def window_anchors(points, spacing, srid, corner):
+    """Where each point's windows start, per axis: ArcGIS Pro 3.7's rule, measured 2026-10-31 on 45 terrains (D-339,
+    ``tools/pro-compare/adr234-terrain-corner.py``). The data is cut into square tiles of ``round(spacing * √200000)``
+    from the XY domain's origin and each tile's windows start at its own corner; an axis whose tile index reaches
+    23,170 has its tiles centred on the data's extent instead. Where the domain is not known (``default_xy_origin``),
+    INFERRED: one tile from the extent's lower-left ``corner``."""
+    n = len(points)
+    origin = default_xy_origin(srid)
+    if origin is None or not n:
+        return np.full(n, float(corner[0])), np.full(n, float(corner[1]))
+    tile = float(round(float(spacing) * math.sqrt(200000.0)))
+    out = []
+    for axis in (0, 1):
+        v = points[:, axis]
+        index = np.floor((v - origin[axis]) / tile)
+        if index.max() >= _TILE_INDEX_LIMIT:
+            start = (v.min() + v.max()) / 2 - tile / 2
+            out.append(start + np.floor((v - start) / tile) * tile)
+        else:
+            out.append(origin[axis] + index * tile)
+    return out[0], out[1]
+
+
 def window_thin(points, anchors, size, origin, method):
-    """Indexes kept by window size thinning: the area cut into ``size`` squares from ``origin``, and in each the point
-    the window size method selects — of ties, the earlier point, ZMEAN's distances to the mean equal within 1e-9 (as
-    ArcGIS Pro 3.7 breaks them, measured 2026-10-31). Anchor points are always kept."""
+    """Indexes kept by window size thinning: the area cut into ``size`` squares from ``origin`` — a pair of per-point
+    arrays (``window_anchors``), or one corner — and in each the point the window size method selects; of ties, the
+    earlier point, ZMEAN's distances to the mean equal within 1e-9 (as ArcGIS Pro 3.7 breaks them, measured
+    2026-10-31). Anchor points are always kept."""
     keep = set(np.nonzero(anchors)[0].tolist())
     candidates = np.nonzero(~anchors)[0]
     if not len(candidates):
         return np.array(sorted(keep), np.int64)
-    ix = np.floor((points[candidates, 0] - origin[0]) / size + 1e-12).astype(np.int64)
-    iy = np.floor((points[candidates, 1] - origin[1]) / size + 1e-12).astype(np.int64)
+    ox = np.broadcast_to(np.asarray(origin[0], np.float64), (len(points),))[candidates]
+    oy = np.broadcast_to(np.asarray(origin[1], np.float64), (len(points),))[candidates]
+    ix = np.floor((points[candidates, 0] - ox) / size + 1e-12).astype(np.int64)
+    iy = np.floor((points[candidates, 1] - oy) / size + 1e-12).astype(np.int64)
     windows: dict = {}
-    for k, i, j in zip(candidates, ix, iy):
-        windows.setdefault((int(i), int(j)), []).append(int(k))
+    for k, a, b, i, j in zip(candidates, ox, oy, ix, iy):
+        windows.setdefault((float(a), float(b), int(i), int(j)), []).append(int(k))
     for members in windows.values():
         zs = points[members, 2]
         if method in ("ZMIN", "ZMINMAX"):
@@ -573,9 +624,11 @@ def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
     measured against full resolution, which is the bound the page states. The lines and polygons are read and kept for the levels within their resolution bounds. The extent
     grows to the data; ``UPDATE_EXTENT`` computes it again from the data alone, as documented.
 
-    INFERRED (ADR-234 §5.9 (d)): windows are squares from the extent's lower-left corner — Pro's start elsewhere, at
-    a corner that follows the feature dataset's XY domain and the point spacing and that its outputs do not pin down
-    (D-339); of two points at one x,y the later source's is kept; z-tolerance levels each start from full resolution,
+    Windows start where Pro 3.7's do (``window_anchors``, measured 2026-10-31): at the corner of each tile of
+    ``round(spacing * √200000)`` from the XY domain's origin, which grapy knows for the UTM zones; elsewhere,
+    INFERRED (ADR-234 §5.9 (d)), from the extent's lower-left corner. At a seam between two tiles Pro keeps a few
+    points fewer than grapy (5 of 193 at one level, measured, D-339). INFERRED: of two points at one x,y the later
+    source's is kept; z-tolerance levels each start from full resolution,
     so the bound holds at every level."""
     tool = "BuildTerrain"
     mode = str(update_extent or "NO_UPDATE_EXTENT").upper()
@@ -629,8 +682,9 @@ def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
         store(0.0, range(len(points)))
         if terrain.pyramid_type == "WINDOWSIZE":
             coarser = np.zeros(0, np.int64)
+            starts = window_anchors(points, terrain.point_spacing, terrain.srid, box[:2] if box else (0, 0))
             for resolution, _ in sorted(terrain.levels, reverse=True):
-                chosen = window_thin(points, anchor, resolution, box[:2] if box else (0, 0), terrain.window_method)
+                chosen = window_thin(points, anchor, resolution, starts, terrain.window_method)
                 coarser = np.union1d(chosen, coarser)
                 store(resolution, coarser)
         else:

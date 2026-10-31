@@ -127,6 +127,34 @@ class Terrain(unittest.TestCase):
         self.assertTrue(four <= two <= one)
         self.assertEqual(len(four), 9)   # windows of 4 from 0: [0,4) [4,8) [8,12) on each axis
 
+    def test_windows_start_at_pros_tile_corners_on_a_utm_dataset(self):
+        # ArcGIS Pro 3.7, measured 2026-10-31 on 45 terrains (D-339, tools/pro-compare/adr234-terrain-corner.py): tiles
+        # of round(spacing * sqrt(200000)) from the XY domain's origin, windows from each tile's corner; an axis whose
+        # tile index reaches 23,170 is centred on the data. Pro's corners on 2,500 points at 500000-500100,
+        # 4400000-4400100 in UTM 35N, default domain (-5120900, -9998100): spacing 2 -> x 499678, y 4399770
+        # (windows of 4, 8, 16 at 2, 6, 14 and 2, 2, 10 modulo the window); spacing 1 -> y centred, 4399826.48.
+        pts = np.array([[500000.01, 4400000.01, 0], [500099.91, 4400099.95, 0]])
+        ax, ay = _terrain.window_anchors(pts, 2, 32635, (0, 0))
+        self.assertEqual((ax[0], ay[0]), (499678.0, 4399770.0))
+        self.assertEqual([(ax[0] % w, ay[0] % w) for w in (4, 8, 16)], [(2, 2), (6, 2), (14, 10)])
+        ax, ay = _terrain.window_anchors(pts, 1, 32635, (0, 0))
+        self.assertEqual(ax[0], -5120900 + 12574 * 447)
+        self.assertAlmostEqual(ay[0], 4400049.98 - 223.5, 6)
+        self.assertEqual(_terrain.window_anchors(pts, 2, 32735, (0, 0))[1][0], 1900 + 4919 * 894)
+        ax, ay = _terrain.window_anchors(pts, 2, 3857, (7, 9))   # a domain grapy does not know: the extent's corner
+        self.assertEqual((ax[0], ay[0]), (7, 9))
+        # BuildTerrain uses them: a 16 m window from 4399770 + 16k holds y 4400000..4400010, not one from 4400000.
+        utm = arcpy.management.CreateFeatureDataset(self.gpkg, "utm", 32635)[0]
+        xyz = [(500000.5, 4400000.5, 5.0), (500000.5, 4400009.5, 4.0), (500000.5, 4400010.5, 3.0)]
+        p = self.points("u", xyz, dataset=utm)
+        t = arcpy.ddd.CreateTerrain(utm, "ut", 2, None, None, "WINDOWSIZE", "ZMIN")[0]
+        arcpy.ddd.AddTerrainPyramidLevel(t, "", ["16 1000"])
+        arcpy.ddd.AddFeatureClassToTerrain(t, [[p, "Shape.Z", "masspoints", 1, "", "", False, False, "", "", False]])
+        arcpy.ddd.BuildTerrain(t)
+        out = arcpy.ddd.TerrainToPoints(t, os.path.join(self.gpkg, "ul"), 16, None, "POINT")[0]
+        with da.SearchCursor(out, ["SHAPE@Z"]) as rows:
+            self.assertEqual(sorted(r[0] for r in rows), [3.0, 4.0])   # windows [4399994, 4400010) and [4400010, ...)
+
     def test_each_level_chooses_from_full_resolution_and_keeps_the_coarser_levels_points(self):
         # ArcGIS Pro 3.7, measured 2026-10-31 (ADR-234 condition 4): a ZMEAN level's windows choose the point closest to
         # the mean of ALL the window's points, and a finer level keeps every coarser level's points as well. Thinning
