@@ -299,6 +299,40 @@ for _built in ("Kriging", "NaturalNeighbor", "Viewshed", "Visibility", "Spline")
     _REFUSED.pop(_built, None)
 
 
+# ---- Topo to Raster (ADR-242): arcpy.sa's equivalent, saved, with 3D Analyst's value table of inputs
+
+
+@_equivalent(*sa._topo.METHOD)
+def TopoToRaster(in_topo_features, out_surface_raster, cell_size=None, extent=None, margin=20, minimum_z_value=None,
+                 maximum_z_value=None, enforce="ENFORCE", data_type="CONTOUR", maximum_iterations=20,
+                 roughness_penalty=None, discrete_error_factor=1, vertical_standard_error=0, tolerance_1=None,
+                 tolerance_2=None, out_stream_features=None, out_sink_features=None, out_diagnostic_file=None,
+                 out_parameter_file=None, profile_penalty=0, out_residual_feature=None,
+                 out_stream_cliff_error_feature=None, out_contour_error_feature=None):
+    """EQUIVALENT: arcpy.sa.TopoToRaster, saved; ``in_topo_features`` is the page's value table, ``"path field Type;
+    …"`` with ``#`` for no field, or Topo objects. See arcpy.sa.TopoToRaster's docstring."""
+    plan = sa._topo.plan_of(in_topo_features, cell_size, extent, margin, minimum_z_value, maximum_z_value, enforce,
+                            data_type, maximum_iterations, roughness_penalty, discrete_error_factor,
+                            vertical_standard_error, tolerance_1, tolerance_2, out_diagnostic_file, out_parameter_file,
+                            profile_penalty)
+    return _saved(sa._topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                               out_stream_cliff_error_feature, out_contour_error_feature), out_surface_raster)
+
+
+@_equivalent(*sa._topo.METHOD)
+def TopoToRasterByFile(in_parameter_file, out_surface_raster, out_stream_features=None, out_sink_features=None,
+                       out_residual_feature=None, out_stream_cliff_error_feature=None, out_contour_error_feature=None):
+    """EQUIVALENT: arcpy.sa.TopoToRasterByFile, saved; see its docstring."""
+    plan = sa._topo.read_parameter_file(in_parameter_file)
+    return _saved(sa._topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                               out_stream_cliff_error_feature, out_contour_error_feature, tool="TopoToRasterByFile"),
+                  out_surface_raster)
+
+
+for _built in ("TopoToRaster", "TopoToRasterByFile"):
+    _REFUSED.pop(_built, None)
+
+
 # ---- Z on features (grapy's feature classes carry z and m since the GeoPackage Z/M support)
 
 import math as _math  # noqa: E402

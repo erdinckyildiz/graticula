@@ -176,8 +176,7 @@ class Ddd(unittest.TestCase):
             ddd.AddSurfaceInformation(points, surface, "Z_MEAN")
 
     def test_tools_not_built_say_why(self):
-        for name, words in (("BIMToTerrain", "BIM file workspace"), ("RasterDomain", "corner"),
-                            ("TopoToRaster", "not specified")):
+        for name, words in (("BIMToTerrain", "BIM file workspace"), ("RasterDomain", "corner")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(ddd, name)("a", "b", "c")
             self.assertIn(words, str(raised.exception))

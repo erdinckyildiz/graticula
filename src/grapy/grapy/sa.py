@@ -5215,6 +5215,81 @@ Complex = _md_more.Complex  # on ADR-237's complex rasters
 for _built in ("Subset", "Foreach", "SummarizeCategoricalRaster", "Complex"):
     _REFUSED.pop(_built, None)
     _NOT_YET.pop(_built, None)
+# ---- Topo to Raster, Segment Mean Shift and the combinatorial tools (ADR-242)
+from . import _combinatorial, _segment, _topo  # noqa: E402
+
+CombinatorialAnd = _combinatorial.CombinatorialAnd
+CombinatorialOr = _combinatorial.CombinatorialOr
+CombinatorialXOr = _combinatorial.CombinatorialXOr
+SegmentMeanShift = _equivalent(*_segment.SEGMENT_MEAN_SHIFT)(_segment.SegmentMeanShift)
+SegMeanShift = _equivalent(*_segment.SEGMENT_MEAN_SHIFT)(_segment.SegMeanShift)
+ComputeSegmentAttributes = _equivalent(*_segment.SEGMENT_ATTRIBUTES)(_segment.ComputeSegmentAttributes)
+RemoveRasterSegmentTilingArtifacts = _equivalent(*_segment.TILING_ARTIFACTS)(
+    _segment.RemoveRasterSegmentTilingArtifacts)
+TopoPointElevation = _topo.TopoPointElevation
+TopoContour = _topo.TopoContour
+TopoStream = _topo.TopoStream
+TopoSink = _topo.TopoSink
+TopoBoundary = _topo.TopoBoundary
+TopoLake = _topo.TopoLake
+TopoCliff = _topo.TopoCliff
+TopoExclusion = _topo.TopoExclusion
+TopoCoast = _topo.TopoCoast
+
+
+@_equivalent(*_topo.METHOD)
+def TopoToRaster(in_topo_features, cell_size=None, extent=None, margin=20, minimum_z_value=None, maximum_z_value=None,
+                 enforce="ENFORCE", data_type="CONTOUR", maximum_iterations=20, roughness_penalty=None,
+                 discrete_error_factor=1, vertical_standard_error=0, tolerance_1=None, tolerance_2=None,
+                 out_stream_features=None, out_sink_features=None, out_diagnostic_file=None, out_parameter_file=None,
+                 profile_penalty=0, out_residual_feature=None, out_stream_cliff_error_feature=None,
+                 out_contour_error_feature=None):
+    """EQUIVALENT: ANUDEM after Hutchinson's published descriptions (1989; 2009; 2011); see grapy._topo's docstring
+    for the method. Every parameter is the page's, with its defaults: margin 20 cells; z limits 20 percent below and
+    above the data; ENFORCE; CONTOUR; 20 iterations; roughness 0 for CONTOUR and 0.5 for SPOT; discretisation error
+    factor 1; vertical standard error 0; tolerances 2.5 and 100 for CONTOUR, 0 and 200 for SPOT; profile penalty 0.
+    The cell size, when not given, is the extent's shorter side over 250.
+
+    The outputs: the stream polylines with ``Code`` 1 (input stream not over a cliff), 2 (over a cliff, one cell
+    long) and 3 (a chain that cleared a sink), as the page numbers them; the remaining sinks with their
+    ``Elevation``; the diagnostic file (grapy's own layout: inputs, parameters, and per resolution and iteration the
+    sinks found, cleared and remaining); the parameter file, in Topo to Raster by File's documented syntax; the
+    residuals with ``Elevation``, ``Residual`` and ``Scaled`` (by the local discretisation error); stream and cliff
+    errors with ``Code`` 1, 4, 5 and 8; contour errors with ``ErrorValue`` 1 (contours of different heights meeting,
+    as documented) and 2 with ``Bias`` (a contour biased by more than five standard deviations).
+
+    INFERRED (ADR-242 §5.4): the roughness functional's form and the λ rule; the resolutions; the first grid's slopes;
+    the chain's shape; data in lakes, exclusions and outside the z limits unused; the special coast value, the z limit
+    less 1; the output field names; residuals written when their scaled value exceeds 1; codes 4, 5, 6, 7, 9 and
+    10–13 of the polylines and points never written, the equivalent not deriving lines from contour corners nor
+    meeting those conditions; no failure at 8,000 sinks or at more points than cells, which are Pro's limits."""
+    plan = _topo.plan_of(in_topo_features, cell_size, extent, margin, minimum_z_value, maximum_z_value, enforce,
+                         data_type, maximum_iterations, roughness_penalty, discrete_error_factor,
+                         vertical_standard_error, tolerance_1, tolerance_2, out_diagnostic_file, out_parameter_file,
+                         profile_penalty)
+    return _topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                     out_stream_cliff_error_feature, out_contour_error_feature)
+
+
+@_equivalent(*_topo.METHOD)
+def TopoToRasterByFile(in_parameter_file, out_stream_features=None, out_sink_features=None, out_residual_feature=None,
+                       out_stream_cliff_error_feature=None, out_contour_error_feature=None):
+    """EQUIVALENT: TopoToRaster run from a parameter file in the syntax the page documents (``Contour <Path> <Item>``,
+    ``ENFORCE ON``, ``TOLERANCES 2.5 100.0`` …); see TopoToRaster.
+
+    INFERRED: a coastal polygon's line is ``Coast <Path>`` (the page's table writes ``Boundary <Path>`` for it, which
+    would read back as a boundary); a path with spaces in double quotes; output keywords without paths ignored."""
+    plan = _topo.read_parameter_file(in_parameter_file)
+    return _topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                     out_stream_cliff_error_feature, out_contour_error_feature, tool="TopoToRasterByFile")
+
+
+for _built in ("CombinatorialAnd", "CombinatorialOr", "CombinatorialXOr", "SegmentMeanShift", "SegMeanShift",
+               "ComputeSegmentAttributes", "RemoveRasterSegmentTilingArtifacts", "TopoToRaster", "TopoToRasterByFile",
+               "TopoPointElevation", "TopoContour", "TopoStream", "TopoSink", "TopoBoundary", "TopoLake", "TopoCliff",
+               "TopoExclusion", "TopoCoast"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
 _REFUSED["InterpolateRasterByDimension"] = (
     "arcpy documents no Python signature for it: there is no arcpy reference page, and the raster function page gives "
     "only its display labels, so its parameter names and order are unknown (ADR-236)")

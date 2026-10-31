@@ -25,6 +25,11 @@ from .sa import (  # noqa: E402,F401 — the path distance factor classes, arcpy
     HfBinary, HfForward, HfInverseLinear, HfLinear, HfTable, VfBidirHikingTime, VfBinary, VfCos, VfCosSec,
     VfHikingTime, VfInverseLinear, VfLinear, VfSec, VfSecCos, VfSymInverseLinear, VfSymLinear, VfTable,
 )
+from .sa import (  # noqa: E402,F401 — ADR-242, shared with arcpy.sa
+    CombinatorialAnd, CombinatorialOr, CombinatorialXOr, ComputeSegmentAttributes, RemoveRasterSegmentTilingArtifacts,
+    SegMeanShift, SegmentMeanShift, TopoBoundary, TopoCliff, TopoCoast, TopoContour, TopoExclusion, TopoLake,
+    TopoPointElevation, TopoSink, TopoStream,
+)
 
 
 # ---- multidimensional rasters (ADR-236)
