@@ -566,7 +566,7 @@ class Refusals(unittest.TestCase):
         self.assertTrue(callable(arcpy.da.ListSubtypes))
         with self.assertRaises(NotBuiltError) as said:
             arcpy.management.MigrateRelationshipClass("x.gpkg/rc")
-        self.assertIn("404", str(said.exception))
+        self.assertIn("foreign key", str(said.exception))
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import os
 from . import _gpkg, da
 from ._result import Result
 from ._runtime import NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _out(path):
@@ -190,7 +191,7 @@ def RasterToPolygon(in_raster, out_polygon_features, simplify="SIMPLIFY", raster
     _refuse_environment("RasterToPolygon")
     if str(simplify).upper() != "NO_SIMPLIFY":
         raise NotBuiltError("RasterToPolygon: simplify 'SIMPLIFY' is not built in grapy yet; pass 'NO_SIMPLIFY'.")
-    if max_vertices_per_feature not in (None, "", "#"):
+    if _is_given(max_vertices_per_feature):
         raise NotBuiltError("RasterToPolygon: max_vertices_per_feature is not built in grapy yet.")
     raster = _raster_of(in_raster, "RasterToPolygon")
     if not raster.isInteger:
@@ -262,7 +263,7 @@ def RasterToPoint(in_raster, out_point_features, raster_field="Value"):
 def _feature_grid(in_features, cellsize, tool):
     from ._runtime import NotBuiltError
     from .sa import _grid_over
-    if cellsize in (None, "", "#"):
+    if not _is_given(cellsize):
         raise NotBuiltError(f"{tool}: the default cell size (the extent's shorter side over 250) is not built in grapy yet; pass cellsize.")
     if hasattr(cellsize, "meanCellWidth"):
         cellsize = cellsize.meanCellWidth
@@ -1299,7 +1300,7 @@ def PolylineToRaster(in_features, value_field, out_rasterdataset, cell_assignmen
     if any(isinstance(v, str) for _, v, _, _ in lines):
         texts = sorted({str(v) for _, v, _, _ in lines})
         lines = [(o, texts.index(str(v)) + 1, p, s) for o, v, p, s in lines]
-    if cellsize in (None, "", "#"):
+    if not _is_given(cellsize):
         x0, y0, x1, y1 = shapely.union_all([s for _, _, _, s in lines]).bounds
         cellsize = min(x1 - x0, y1 - y0) / 250 or max(x1 - x0, y1 - y0) / 250
     grid = _grid_over(path, float(cellsize))

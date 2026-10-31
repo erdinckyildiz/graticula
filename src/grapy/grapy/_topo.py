@@ -50,6 +50,7 @@ import numpy as np
 
 from ._raster import Raster, _Grid
 from ._runtime import AddWarning, ExecuteError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 METHOD = ("ANUDEM's locally adaptive thin plate fit at successively finer resolutions with drainage enforcement by "
           "descending chains through the lowest saddle",
@@ -194,7 +195,7 @@ def _parse_extent(extent, boxes, tool):
     from ._reference import Extent
     if isinstance(extent, Extent):
         return float(extent.XMin), float(extent.YMin), float(extent.XMax), float(extent.YMax)
-    text = str(extent).strip().upper() if extent not in (None, "", "#") else "MAXOF"
+    text = str(extent).strip().upper() if _is_given(extent) else "MAXOF"
     if text in ("MAXOF", "DEFAULT"):
         return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
     if text == "MINOF":
@@ -234,7 +235,7 @@ class _Plan:
 
 
 def _num(value, default, cast=float):
-    return default if value in (None, "", "#") else cast(value)
+    return default if not _is_given(value) else cast(value)
 
 
 def _validate(plan, tool):
@@ -829,7 +830,7 @@ def _outputs(plan, result, level, f, zscale, zmid, srid, contour_features, strea
             return False
         return any(shapely.intersects(c, LineString([at(a), at(b)])) for c in cliffs)
 
-    if out_stream not in (None, "", "#"):
+    if _is_given(out_stream):
         rows = []
         for cells, _ in result["streams"]:
             run = [cells[0]] if cells else []
@@ -848,10 +849,10 @@ def _outputs(plan, result, level, f, zscale, zmid, srid, contour_features, strea
                 rows.append((3, LineString([at(c) for c in path])))
         target = _create(out_stream, "Polyline", srid, [("Code", "Integer")])
         _insert(target, ["Code", "SHAPE@"], rows)
-    if out_sink not in (None, "", "#"):
+    if _is_given(out_sink):
         target = _create(out_sink, "Point", srid, [("Elevation", "Double")])
         _insert(target, ["Elevation", "SHAPE@"], [(float(f[r, c]), Point(at((r, c)))) for r, c in result["remaining"]])
-    if out_residual not in (None, "", "#"):
+    if _is_given(out_residual):
         rows = []
         for (r, c), w in zip(result["keys"], result["w"]):
             z = result["data"][(r, c)]
@@ -862,11 +863,11 @@ def _outputs(plan, result, level, f, zscale, zmid, srid, contour_features, strea
         target = _create(out_residual, "Point", srid, [("Elevation", "Double"), ("Residual", "Double"),
                                                          ("Scaled", "Double")])
         _insert(target, ["Elevation", "Residual", "Scaled", "SHAPE@"], rows)
-    if out_errors not in (None, "", "#"):
+    if _is_given(out_errors):
         rows = _stream_cliff_errors(result, level, f, streams, cliffs, at, crosses)
         target = _create(out_errors, "Point", srid, [("Code", "Integer")])
         _insert(target, ["Code", "SHAPE@"], rows)
-    if out_contour_errors not in (None, "", "#"):
+    if _is_given(out_contour_errors):
         rows = _contour_errors(contour_features, level, f)
         target = _create(out_contour_errors, "Point", srid, [("ErrorValue", "Integer"), ("Bias", "Double")])
         _insert(target, ["ErrorValue", "Bias", "SHAPE@"], rows)
@@ -1088,7 +1089,7 @@ def plan_of(in_topo_features, cell_size, extent, margin, minimum_z_value, maximu
     plan = _Plan()
     plan.inputs = _inputs(in_topo_features)
     plan.cell = _cell_size(cell_size, "TopoToRaster")
-    plan.extent = None if extent in (None, "", "#") else extent
+    plan.extent = None if not _is_given(extent) else extent
     plan.margin = _num(margin, 20, int)
     plan.zmin = _num(minimum_z_value, None)
     plan.zmax = _num(maximum_z_value, None)
@@ -1101,6 +1102,6 @@ def plan_of(in_topo_features, cell_size, extent, margin, minimum_z_value, maximu
     plan.tol1 = _num(tolerance_1, None)
     plan.tol2 = _num(tolerance_2, None)
     plan.profile = _num(profile_penalty, 0.0)
-    plan.diagnostic = None if out_diagnostic_file in (None, "", "#") else os.fspath(out_diagnostic_file)
-    plan.parameter_file = None if out_parameter_file in (None, "", "#") else os.fspath(out_parameter_file)
+    plan.diagnostic = None if not _is_given(out_diagnostic_file) else os.fspath(out_diagnostic_file)
+    plan.parameter_file = None if not _is_given(out_parameter_file) else os.fspath(out_parameter_file)
     return plan

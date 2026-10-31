@@ -1558,6 +1558,49 @@ def _source_id_of(lines_path):
         connection.close()
 
 
+# ---- CheckIntersectingFeatures --------------------------------------------------------------------------------------
+
+def CheckIntersectingFeatures(network_dataset_path, feature_layer, cutoff=5000):
+    """True when the edge source features of the network dataset that the layer's features intersect number no more
+    than ``cutoff`` (default 5000), False otherwise, as the function's page documents
+    (arcpy/network-analyst/checkintersectingfeatures.html, read 2026-10-31). The layer's definition query and selection
+    are honoured, as documented. INFERRED: an edge source feature is counted once however many of the layer's features
+    touch it, the page counting "edge source features" and not intersections; a layer in another coordinate system
+    than the network is refused rather than projected."""
+    from . import da
+    import shapely
+    from .management import _schema, _source
+    connection, file, dataset, name = _network.open_network(network_dataset_path)
+    try:
+        sources = [r[0] for r in connection.execute(
+            "select class_name from grapy_network_source where network = ? order by rowid", (name,))]
+    finally:
+        connection.close()
+    limit = 5000 if not _given(cutoff) else int(cutoff)
+    path, where = _source(feature_layer)
+    srid = _schema(path)[2]
+    with da.SearchCursor(path, ["SHAPE@"], where) as rows:
+        shapes = [r[0]._shape for r in rows if r[0] is not None and not r[0]._shape.is_empty]
+    if not shapes:
+        return True
+    tree = shapely.STRtree(shapes)
+    count = 0
+    for table in sources:
+        source = f"{file}/{table}"
+        if srid and _schema(source)[2] and _schema(source)[2] != srid:
+            raise NotBuiltError("arcpy.na.CheckIntersectingFeatures: a feature layer in another coordinate system than "
+                                "the network dataset is not built in grapy; project it first.")
+        with da.SearchCursor(source, ["SHAPE@"]) as rows:
+            for (shape,) in rows:
+                if shape is None or shape._shape.is_empty:
+                    continue
+                if len(tree.query(shape._shape, predicate="intersects")):
+                    count += 1
+                    if count > limit:
+                        return False
+    return True
+
+
 # ---- refused by name -----------------------------------------------------------------------------------------------
 
 _REASONS = {
@@ -1581,8 +1624,6 @@ _REASONS = {
         "SolveVehicleRoutingProblem",),
     "copies the network elements a solve traversed, and grapy's solvers keep routes, not their traversed elements": (
         "CopyTraversedSourceFeatures",),
-    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/network-analyst/"
-    "check-intersecting-features.html answered 404 (checked 2026-10-30)": ("CheckIntersectingFeatures",),
 }
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
 

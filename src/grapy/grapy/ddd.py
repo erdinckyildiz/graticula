@@ -22,6 +22,7 @@ from . import sa
 from ._raster import Raster, _combine, _refuse_environment, as_raster
 from ._result import Result
 from ._runtime import ExecuteError, NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _refuse(tool, parameter, value, why=""):
@@ -81,10 +82,10 @@ def Slice(in_raster, out_raster, number_zones=None, slice_type="EQUAL_INTERVAL",
     kind = str(slice_type or "EQUAL_INTERVAL").upper()
     if kind not in ("EQUAL_INTERVAL", "EQUAL_AREA"):
         _refuse("Slice", "slice_type", slice_type)
-    if number_zones in (None, "", "#"):
+    if not _is_given(number_zones):
         raise ExecuteError(f"ERROR 000735: Slice needs number_zones for {kind}.")
     sliced = sa.Slice(in_raster, number_zones, kind, base_output_zone)
-    if nodata_to_value not in (None, "", "#"):
+    if _is_given(nodata_to_value):
         array = np.where(sliced._mask, int(nodata_to_value), sliced._array).astype(sliced._array.dtype)
         sliced = Raster._of(array, np.zeros(array.shape, bool), sliced._grid)
     return _saved(sliced, out_raster)
@@ -118,7 +119,8 @@ def Int(in_raster_or_constant, out_raster):
 def Divide(in_raster_or_constant1, in_raster_or_constant2, out_raster):
     """The first input divided by the second, cell by cell; NoData where the divisor is zero. As the ddd page documents,
     two integer inputs give an integer division (3 / 2 is 1) and an integer raster; otherwise the output is floating
-    point. This is not arcpy.sa.Divide as grapy builds it, which is always floating point, so it is computed here.
+    point — the rule of arcpy.sa.Divide's page too, and not that of the ``/`` operator, whose output is always floating
+    point.
 
     INFERRED: the integer division truncates toward zero (−3 / 2 is −1); the page's only example is positive.
     """
@@ -381,7 +383,7 @@ def FeatureTo3DByAttribute(in_features, out_feature_class, height_field, to_heig
     names = [c.name for c in columns]
     lower = {n.lower(): n for n in names}
     first = lower.get(str(height_field).lower())
-    second = lower.get(str(to_height_field).lower()) if to_height_field not in (None, "", "#") else None
+    second = lower.get(str(to_height_field).lower()) if _is_given(to_height_field) else None
     if first is None:
         raise ExecuteError(f"ERROR 000728: '{height_field}' is not a field of {in_features}.")
     out = _out(out_feature_class)
@@ -538,7 +540,7 @@ def Near3D(in_features, near_features, search_radius=None, location="NO_LOCATION
             for oid, shape in rows:
                 if shape is not None:
                     targets.append((path, oid, shape._shape))
-    radius = float(str(search_radius).split()[0]) if search_radius not in (None, "", "#") else None
+    radius = float(str(search_radius).split()[0]) if _is_given(search_radius) else None
     fields = ["NEAR_FID", "NEAR_DIST", "NEAR_DIST3"]
     if str(location).upper() == "LOCATION":
         fields += ["NEAR_FROMX", "NEAR_FROMY", "NEAR_FROMZ", "NEAR_X", "NEAR_Y", "NEAR_Z"]
@@ -630,7 +632,7 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
     if preserve and kind_of != "NEAREST":
         raise ExecuteError("InterpolateShape: PRESERVE is available only with NEAREST, as documented.")
     raster = as_raster(in_surface, "InterpolateShape")
-    step = float(sample_distance) if sample_distance not in (None, "", "#") else raster.meanCellWidth
+    step = float(sample_distance) if _is_given(sample_distance) else raster.meanCellWidth
     every = str(vertices_only or "DENSIFY").upper() != "VERTICES_ONLY"
     zf = float(z_factor if z_factor is not None else 1)
     columns, kind, srid, _, _ = _z_class(in_feature_class, "InterpolateShape")
@@ -684,7 +686,7 @@ def UpdateFeatureZ(in_features, in_surface, method="BILINEAR", status_field=None
     if not has_z:
         _refuse("UpdateFeatureZ", "in_features", in_features, "it is a 2D feature class")
     raster = as_raster(in_surface, "UpdateFeatureZ")
-    fields = ["SHAPE@"] + ([status_field] if status_field not in (None, "", "#") else [])
+    fields = ["SHAPE@"] + ([status_field] if _is_given(status_field) else [])
     with da.UpdateCursor(in_features, fields) as rows:
         for row in rows:
             if row[0] is None:
@@ -706,7 +708,7 @@ def _update_on_tin(in_features, tin, status_field):
     _, _, _, has_z, has_m = _z_class(in_features, "UpdateFeatureZ")
     if not has_z:
         _refuse("UpdateFeatureZ", "in_features", in_features, "it is a 2D feature class")
-    fields = ["SHAPE@"] + ([status_field] if status_field not in (None, "", "#") else [])
+    fields = ["SHAPE@"] + ([status_field] if _is_given(status_field) else [])
     with da.UpdateCursor(in_features, fields) as rows:
         for row in rows:
             if row[0] is None:
@@ -883,7 +885,7 @@ def FeatureClassZToASCII(in_feature_class, output_location, out_file, format="GE
     if comma and separator == ",":
         raise ExecuteError("ERROR 000800: a comma delimiter cannot go with a decimal comma.")
     fmt = str(decimal_format or "AUTOMATIC").upper()
-    if fmt == "FIXED" and digits_after_decimal in (None, "", "#"):
+    if fmt == "FIXED" and not _is_given(digits_after_decimal):
         _refuse("FeatureClassZToASCII", "digits_after_decimal", "(empty)", "FIXED needs it; no default is documented")
     _, kind, _, has_z, _ = _z_class(in_feature_class, "FeatureClassZToASCII")
     if not has_z:
@@ -1032,7 +1034,7 @@ def ConstructSightLines(in_observer_points, in_target_features, out_line_feature
 
     def source(given, columns, has_z):
         names = {c.name.lower(): c.name for c in columns}
-        if given in (None, "", "#"):
+        if not _is_given(given):
             for candidate in _HEIGHT_FIELDS:
                 if candidate == "Shape.Z" and has_z:
                     return "SHAPE"
@@ -1047,7 +1049,7 @@ def ConstructSightLines(in_observer_points, in_target_features, out_line_feature
 
     o_height, t_height = source(observer_height_field, o_columns, o_z), source(target_height_field, t_columns, t_z)
     three_d = o_height is not None and t_height is not None
-    join = str(join_field) if join_field not in (None, "", "#") else None
+    join = str(join_field) if _is_given(join_field) else None
 
     def read(path, height, columns):
         names = [c.name for c in columns]
@@ -1198,7 +1200,8 @@ for _built in ("CreateTerrain", "AddTerrainPyramidLevel", "RemoveTerrainPyramidL
 _REFUSED.update({
     "AddTerrainPoints": "its reference page could not be read: doc.esri.com/en/arcgis-pro/latest/tool-reference/"
                         "3d-analyst/add-terrain-points.html answered 404, and pro.arcgis.com's add-terrain-points.htm "
-                        "redirects to it (checked 2026-10-30); AppendTerrainPoints, which grapy builds, adds points to a "
+                        "redirects to it, and doc.esri.com's ArcGIS Pro 3.7 sitemap lists no page for it under any name "
+                        "(checked 2026-10-31); AppendTerrainPoints, which grapy builds, adds points to a "
                         "terrain (ADR-234)",
     "BIMToTerrain": "it reads a TIN surface from an AutoCAD Civil 3D drawing or an IFC file through ArcGIS's BIM file "
                     "workspace, which grapy does not hold — Civil 3D's drawing format is Autodesk's and unpublished, and "

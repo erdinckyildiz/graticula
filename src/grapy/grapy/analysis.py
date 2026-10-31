@@ -12,6 +12,7 @@ import math
 from . import _gpkg, _units, da
 from ._result import Result
 from ._runtime import NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 
@@ -303,7 +304,7 @@ def SpatialJoin(target_features, join_features, out_feature_class, join_operatio
     from shapely.strtree import STRtree
     t_columns, t_kind, srid, _ = _schema(target_features)
     j_columns, _, _, _ = _schema(join_features)
-    radius = _distance(search_radius, srid) if search_radius not in (None, "", "#") else 0.0
+    radius = _distance(search_radius, srid) if _is_given(search_radius) else 0.0
     targets, joins = _read(target_features), _read(join_features, srid)
     tree = STRtree([s for _, _, s in joins]) if joins else None
     many = str(join_operation).upper() == "JOIN_ONE_TO_MANY"
@@ -361,7 +362,7 @@ def Near(in_features, near_features, search_radius=None, location="NO_LOCATION",
     from shapely.ops import nearest_points
     from shapely.strtree import STRtree
     _, _, srid, _ = _schema(in_features)
-    radius = _distance(search_radius, srid) if search_radius not in (None, "", "#") else 0.0
+    radius = _distance(search_radius, srid) if _is_given(search_radius) else 0.0
     factor = _unit_factor(distance_unit, _units.NEAR, srid, "Near", "distance_unit")
     candidates = [c for path in _list(near_features) for c in [(path, *f) for f in _read(path, srid)]]
     tree = STRtree([c[3] for c in candidates]) if candidates else None
@@ -508,7 +509,7 @@ def _refuse(tool, parameter, value, why=""):
 
 def _unit_factor(unit, table, srid, tool, parameter, power=1):
     """What a measure in the data's units is multiplied by to be in ``unit``; 1 when no unit is named."""
-    if unit in (None, "", "#") or str(unit).upper() == "UNKNOWN":
+    if not _is_given(unit) or str(unit).upper() == "UNKNOWN":
         return 1.0
     name = str(unit).upper()
     if name not in table:
@@ -537,7 +538,7 @@ def _table(out_table, columns):
 
 
 def _radius(search_radius, srid):
-    return _distance(search_radius, srid) if search_radius not in (None, "", "#") else None
+    return _distance(search_radius, srid) if _is_given(search_radius) else None
 
 
 # ---- Proximity
@@ -658,14 +659,14 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
         _refuse("GenerateOriginDestinationLinks", "line_type", line_type, "geodesic links are not built")
     if str(aggregate_links).upper() != "NO_AGGREGATE":
         _refuse("GenerateOriginDestinationLinks", "aggregate_links", aggregate_links)
-    grouped = origin_group_field not in (None, "", "#") or destination_group_field not in (None, "", "#")
-    if grouped and (origin_group_field in (None, "", "#") or destination_group_field in (None, "", "#")):
+    grouped = _is_given(origin_group_field) or _is_given(destination_group_field)
+    if grouped and (not _is_given(origin_group_field) or not _is_given(destination_group_field)):
         raise ExecuteError("ERROR 000735: origin and destination group fields are given together.")
     o_columns, _, srid, _ = _schema(origin_features)
     d_columns = _schema(destination_features)[0]
     factor = _unit_factor(distance_unit, _units.OD_LINKS, srid, "GenerateOriginDestinationLinks", "distance_unit")
-    limit = float(search_distance) / factor if search_distance not in (None, "", "#") else None
-    nearest = int(float(num_nearest)) if num_nearest not in (None, "", "#") else None
+    limit = float(search_distance) / factor if _is_given(search_distance) else None
+    nearest = int(float(num_nearest)) if _is_given(num_nearest) else None
 
     def located(path, columns, field):
         index = [c.name.lower() for c in columns].index(field.lower()) if grouped else None
@@ -864,7 +865,7 @@ def CountOverlappingFeatures(in_features, out_feature_class, min_overlap_count=1
                 continue
             fid = written.insertRow((len(covering), len({k for k, _, _ in covering}), shape))
             links += [(fid, oid, _stem(paths[k])) for k, oid, _ in covering]
-    if out_overlap_table not in (None, "", "#"):
+    if _is_given(out_overlap_table):
         several = len(paths) > 1
         table = _table(out_overlap_table, [_gpkg.Column("OVERLAP_OID", "Integer"), _gpkg.Column("ORIG_OID", "Integer"),
                                            *([_gpkg.Column("ORIG_NAME", "String")] if several else [])])
@@ -1035,7 +1036,7 @@ def GraphicBuffer(in_features, out_feature_class, buffer_distance_or_field, line
             if deviation:
                 quad = max(1, math.ceil(math.pi / (4 * math.acos(max(-1.0, 1 - deviation / abs(distance))))))
             drawn = shape.buffer(distance, quad_segs=quad, cap_style=caps[cap], join_style=joins[join],
-                                 mitre_limit=float(miter_limit) if miter_limit not in (None, "", "#") else 10.0)
+                                 mitre_limit=float(miter_limit) if _is_given(miter_limit) else 10.0)
             if drawn.is_empty:
                 from ._runtime import AddWarning
                 AddWarning(f"GraphicBuffer: feature {oid} collapsed at a distance of {distance} and was not written.")
@@ -1111,9 +1112,9 @@ def ApportionPolygon(in_features, apportion_fields, target_features, out_feature
     """
     if str(method or "AREA").upper() != "AREA":
         _refuse("ApportionPolygon", "method", method)
-    if estimation_features not in (None, "", "#"):
+    if _is_given(estimation_features):
         _refuse("ApportionPolygon", "estimation_features", estimation_features)
-    if weight_field not in (None, "", "#"):
+    if _is_given(weight_field):
         _refuse("ApportionPolygon", "weight_field", weight_field)
     if str(maintain_geometries or "MAINTAIN_GEOMETRIES").upper() != "MAINTAIN_GEOMETRIES":
         _refuse("ApportionPolygon", "maintain_geometries", maintain_geometries)
@@ -1431,7 +1432,7 @@ def SummarizeWithin(in_polygons, in_sum_features, out_feature_class, keep_all_po
     add_shape = sum_shape is True or (sum_shape is not False and word(sum_shape or "ADD_SHAPE_SUM") in
                                       ("ADD_SHAPE_SUM", "TRUE"))
     entries = []
-    if sum_fields not in (None, "", "#"):
+    if _is_given(sum_fields):
         rows = [part.split() for part in sum_fields.split(";") if part.strip()] if isinstance(sum_fields, str) \
             else [list(r) for r in sum_fields]
         for row in rows:
@@ -1449,7 +1450,7 @@ def SummarizeWithin(in_polygons, in_sum_features, out_feature_class, keep_all_po
         count_name = _unclaimed("point_count" if shape == "points" else "count", taken)
         if shape != "points":
             units = _SUM_LENGTH_UNITS if shape == "lines" else _SUM_AREA_UNITS
-            asked = word(shape_unit) if shape_unit not in (None, "", "#") else ("METERS" if shape == "lines"
+            asked = word(shape_unit) if _is_given(shape_unit) else ("METERS" if shape == "lines"
                                                                                 else "SQUAREMETERS")
             if asked not in units:
                 raise ValueError(f"arcpy.analysis.{tool}: shape_unit for {shape} is one of {', '.join(units)}.")
@@ -1458,11 +1459,11 @@ def SummarizeWithin(in_polygons, in_sum_features, out_feature_class, keep_all_po
     outputs = [(field, statistic, _unclaimed(_column_name_for(f"{statistic}_{field}"), taken))
                for field, statistic in entries]
     group = None
-    if group_field not in (None, "", "#"):
+    if _is_given(group_field):
         if str(group_field).lower() not in by_name:
             raise ValueError(f"arcpy.analysis.{tool}: group_field is a field of the summary features; there is no "
                              f"'{group_field}'.")
-        if out_group_table in (None, "", "#"):
+        if not _is_given(out_group_table):
             raise ValueError(f"arcpy.analysis.{tool}: out_group_table is required with a group_field.")
         group = by_name[str(group_field).lower()].name
         majority = add_min_maj is True or word(add_min_maj or "NO_MIN_MAJ") in ("ADD_MIN_MAJ", "TRUE")
@@ -1580,8 +1581,13 @@ _REFUSED = {
                        "3), and for straight-line distance the documentation does not name the fields it writes",
     "PairwiseIntegrate": "the documentation does not say which coordinate a cluster of vertices within the tolerance "
                          "takes",
-    "GeographicallyWeightedRegression": "its page is no longer in Esri's documentation (404 on 2026-10-29); the "
-                                        "documented regression is arcpy.stats.GWR",
+    "GeographicallyWeightedRegression": "no page documents this name: tool-reference/analysis/"
+                                        "geographically-weighted-regression.html answers 404 (checked 2026-10-31), "
+                                        "and the table of contents' big-data-analytics/"
+                                        "geographically-weighted-regression.html documents arcpy.geoanalytics.GWR, "
+                                        "a GeoAnalytics Server tool that runs on that server and writes to its data "
+                                        "store; the local regressions are arcpy.stats.GeographicallyWeightedRegression "
+                                        "and arcpy.stats.GWR, which grapy builds",
 }
 
 

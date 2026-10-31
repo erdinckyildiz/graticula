@@ -30,6 +30,7 @@ import shapely
 from . import _gpkg
 from ._result import Result
 from ._runtime import ExecuteError, NotBuiltError, env
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 LAYERS: dict = {}
 _FORMAT = "grapy LAS dataset (Graticula ADR-229)"
@@ -38,7 +39,7 @@ _CONSTRAINT_TYPES = ("anchorpoints", "hardline", "softline", "hardclip", "softcl
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _refuse(module, tool, parameter, value, why=""):

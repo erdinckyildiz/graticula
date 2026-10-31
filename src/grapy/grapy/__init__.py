@@ -20,6 +20,7 @@ from ._runtime import (AddError, AddIDMessage, AddMessage, AddReturnMessage, Add
                        GetSeverity, GetSeverityLevel, GetSystemEnvironment, ListEnvironments, NotBuiltError, ResetEnvironments,
                        ResetProgressor, SetParameter, SetParameterAsText, SetProgressor, SetProgressorLabel,
                        SetProgressorPosition, SetSeverityLevel, env)
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 __version__ = "0.1.0"
 
@@ -383,7 +384,7 @@ def ListFeatureClasses(wild_card=None, feature_type=None, feature_dataset=None):
     """The feature classes of the current workspace, filtered by a case-insensitive wildcard and by shape type (Point,
     Multipoint, Polyline, Polygon; Line is Polyline). INFERRED: a GeoPackage has no feature datasets, so naming one
     answers an empty list, and the feature types grapy cannot hold (Annotation, Dimension, Multipatch …) find none."""
-    if feature_dataset not in (None, "", "#"):
+    if _is_given(feature_dataset):
         return []
     wanted = str(feature_type or "All").upper()
     wanted = "POLYLINE" if wanted == "LINE" else wanted
@@ -754,7 +755,7 @@ class Value:
 
     @property
     def isEmpty(self):
-        return self.value in (None, "")
+        return self.value is None or (isinstance(self.value, str) and self.value == "")
 
     def __str__(self):
         return "" if self.value is None else str(self.value)

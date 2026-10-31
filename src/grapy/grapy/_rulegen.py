@@ -20,6 +20,7 @@ from . import _gpkg, _runtime
 from ._result import Result
 from ._runtime import ExecuteError, NotBuiltError
 from ._ruletools import _EXPORT, _flag, _list, _table, _text
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _literal(value):
@@ -76,7 +77,7 @@ def _describe(tool, in_table):
 def _distance(tool, value, per_unit, geographic):
     """A linear unit value ("20 Feet") in the input's units; a bare number is in them already."""
     from . import _units
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return None
     if isinstance(value, (int, float)):
         return float(value)
@@ -107,7 +108,7 @@ def _rows(value):
 
 def _where(where_clause, otherwise):
     """A guard that returns ``otherwise`` for a feature the where clause leaves out."""
-    if where_clause in (None, "", "#"):
+    if not _is_given(where_clause):
         return ""
     return f"if (!FeatureInFilter($feature, {_literal(where_clause)})) {{ return {otherwise} }}\n"
 
@@ -191,12 +192,12 @@ def CalculateGeometryFieldsAttributeRule(in_table, out_folder, geometry_attribut
     if not pairs:
         raise ExecuteError(f"ERROR 000735: {tool}: name at least one field and geometry property.")
     length_factor = area_factor = None
-    if length_unit not in (None, "", "#"):
+    if _is_given(length_unit):
         metres = _units.linear(str(length_unit).replace("_", ""))
         if metres is None:
             raise ExecuteError(f"ERROR 000800: {tool}: '{length_unit}' is not a length unit.")
         length_factor = metres
-    if area_unit not in (None, "", "#"):
+    if _is_given(area_unit):
         square = _units.areal(str(area_unit))
         if square is None:
             raise ExecuteError(f"ERROR 000800: {tool}: '{area_unit}' is not an area unit.")

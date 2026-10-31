@@ -27,6 +27,7 @@ import math
 from . import _gpkg, da
 from ._result import Result
 from ._runtime import NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 # ---- shared: reading, centroids, refusals ------------------------------------------------------------------------
@@ -51,7 +52,7 @@ def _refuse(tool, parameter, value, why):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _keyword(value):
@@ -3931,16 +3932,44 @@ _REFUSED.update({name: _FIT for name in (
 _REFUSED.update({
     "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",
     "ConvertSSPopup": "it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts",
-    "CalculateAreas": "its page is retired (404), so its output field cannot be checked; "
-                      "management.CalculateGeometryAttributes does its work",
     "GroupingAnalysis": "it was retired for Multivariate Clustering, whose seeds are random",
-    "EvaluateBinSizes": "its page answers 404, so its recommendation cannot be checked",
-    "HotSpotAnalysisComparison": "its page answers 404, so its similarity measures cannot be checked",
 })
 
 
 from ._statsmore import (  # noqa: E402,F401 — ADR-244: built with a seeded generator
     LocalBivariateRelationships, PrepareData, SpatiallyConstrainedMultivariateClustering)
+from ._binsizes import EvaluateBinSizes  # noqa: E402,F401 — ADR-224: its page found again 2026-10-31
+from ._hscompare import HotSpotAnalysisComparison  # noqa: E402,F401 — ADR-224: its page found again 2026-10-31
+
+
+def CalculateAreas(Input_Feature_Class, Output_Feature_Class):
+    """A copy of the polygons with ``F_AREA`` added or overwritten: each polygon's area in square units of the output
+    coordinate system, the features projected to ``env.outputCoordinateSystem`` first when it is set, as the tool's page
+    documents. Pro's documentation dropped the page; ArcMap's still documents ``arcpy.stats.CalculateAreas`` under this
+    name and these parameters (desktop.arcgis.com/en/arcmap/latest/tools/spatial-statistics-toolbox/calculate-areas.htm,
+    read 2026-10-31), and calls it deprecated. INFERRED (Q-215): ``F_AREA`` is a double, and in a geographic system the
+    area is in square degrees, the page saying only "square units"."""
+    from . import management
+    from ._reference import reference_of
+    from ._runtime import ExecuteError, env
+    source, _ = management._source(Input_Feature_Class)
+    _, kind, srid, _ = management._schema(source)
+    if kind != "Polygon":
+        raise ExecuteError("ERROR 000035: Input_Feature_Class must be polygons.")
+    target = env.outputCoordinateSystem
+    if target is not None and reference_of(target).factoryCode not in (None, 0, srid):
+        out = management.Project(Input_Feature_Class, Output_Feature_Class, target).getOutput(0)
+    else:
+        out = management.CopyFeatures(Input_Feature_Class, Output_Feature_Class).getOutput(0)
+    names = {c.name.lower() for c in management._schema(out)[0]}
+    if "f_area" not in names:
+        management.AddField(out, "F_AREA", "DOUBLE")
+    with da.SearchCursor(out, ["OID@", "SHAPE@AREA"]) as rows:
+        areas = dict(rows)
+    with da.UpdateCursor(out, ["OID@", "F_AREA"]) as rows:
+        for oid, _ in rows:
+            rows.updateRow([oid, areas.get(oid)])
+    return Result(out)
 
 
 def __getattr__(name):

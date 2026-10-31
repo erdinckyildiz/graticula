@@ -17,6 +17,7 @@ from . import _sar
 from ._result import Result
 from ._runtime import AddMessage, ExecuteError, NotBuiltError, env
 from ._sar import C, polarizations, word
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 # (method, source) of each equivalent, read by arcpy.ia when it marks the tool
 DEBURST = ("bursts joined at the middle of each overlap, invalid samples blanked",
@@ -250,9 +251,9 @@ def Multilook(in_radar_data, out_radar_data, polarization_bands=None, range_look
         raise ExecuteError(f"{tool}: '{values}' data is not multilooked.")
     names = polarizations(sar, polarization_bands, tool)
     rl, al = square_looks(sar.meta)
-    if range_looks not in (None, "", "#"):
+    if _is_given(range_looks):
         rl = int(range_looks)
-    if azimuth_looks not in (None, "", "#"):
+    if _is_given(azimuth_looks):
         al = int(azimuth_looks)
     if rl < 1 or al < 1:
         raise ExecuteError(f"{tool}: looks must be whole numbers of at least 1.")
@@ -481,8 +482,8 @@ def Despeckle(in_radar_data, out_radar_data, polarization_bands=None, filter_typ
     model = word(noise_model, "MULTIPLICATIVE_NOISE")
     if model not in ("MULTIPLICATIVE_NOISE", "ADDITIVE_NOISE", "ADDITIVE_AND_MULTIPLICATIVE_NOISE"):
         raise ExecuteError(f"{tool}: noise_model '{noise_model}' is not a documented noise model.")
-    looks = float(number_of_looks if number_of_looks not in (None, "", "#") else 1)
-    damp = float(damp_factor if damp_factor not in (None, "", "#") else 1)
+    looks = float(number_of_looks if _is_given(number_of_looks) else 1)
+    damp = float(damp_factor if _is_given(damp_factor) else 1)
     if looks <= 0:
         raise ExecuteError(f"{tool}: number_of_looks must be positive.")
     sar = _sar.read(in_radar_data, tool)
@@ -499,8 +500,8 @@ def Despeckle(in_radar_data, out_radar_data, polarization_bands=None, filter_typ
             mean = ndimage.uniform_filter(filled, 7) / np.where(weight > 0, weight, 1)
             z = np.where(blank, mean, z)
         if kind == "LEE":
-            r = lee(z, size, model, float(noise_variance if noise_variance not in (None, "", "#") else 0.25),
-                    float(add_noise_mean or 0), float(mult_noise_mean if mult_noise_mean not in (None, "", "#") else 1),
+            r = lee(z, size, model, float(noise_variance if _is_given(noise_variance) else 0.25),
+                    float(add_noise_mean or 0), float(mult_noise_mean if _is_given(mult_noise_mean) else 1),
                     looks)
         elif kind == "REFINED_LEE":
             r = refined_lee(z, looks)
@@ -544,8 +545,8 @@ def ComputeCoherence(in_reference_radar_data, in_secondary_radar_data, out_radar
     from scipy import ndimage
     tool = _tool("ComputeCoherence")
     ref, sec, pols = _pair(in_reference_radar_data, in_secondary_radar_data, tool, polarization_bands)
-    rw = int(range_window_size if range_window_size not in (None, "", "#") else 10)
-    aw = int(azimuth_window_size) if azimuth_window_size not in (None, "", "#") else square_looks(ref.meta, rw)[1]
+    rw = int(range_window_size if _is_given(range_window_size) else 10)
+    aw = int(azimuth_window_size) if _is_given(azimuth_window_size) else square_looks(ref.meta, rw)[1]
     out = {}
     for p in pols:
         s1 = np.nan_to_num(ref.bands[p].astype(np.complex128))
@@ -611,7 +612,7 @@ def GenerateInterferogram(in_reference_radar_data, in_secondary_radar_data, out_
         raise ExecuteError(f"{tool}: the inputs must be in radar geometry.")
     dem = None
     if topo:
-        if in_dem_raster in (None, "", "#"):
+        if not _is_given(in_dem_raster):
             raise ExecuteError(f"{tool}: remove_topographic_phase TOPO needs in_dem_raster.")
         dem = _sar.Dem(in_dem_raster, "GenerateInterferogram", geoid)
     p = pols[0]
@@ -622,17 +623,17 @@ def GenerateInterferogram(in_reference_radar_data, in_secondary_radar_data, out_
     if topo:
         topo_phase = _reference_phase(ref, sec, dem, shape)
         out = raw * np.exp(-1j * topo_phase)
-        if out_flattened_interferogram not in (None, "", "#"):
+        if _is_given(out_flattened_interferogram):
             _write(out_flattened_interferogram, {p: (raw * np.exp(-1j * flat)).astype(np.complex64)},
                    _keep_pols(dict(meta, topographic_phase_removed=False), [p]), ref)
         meta["topographic_phase_removed"] = True
     else:
         out = raw * np.exp(-1j * flat)
-        if out_flattened_interferogram not in (None, "", "#"):
+        if _is_given(out_flattened_interferogram):
             _write(out_flattened_interferogram, {p: out.astype(np.complex64)}, _keep_pols(dict(meta), [p]), ref)
         meta["topographic_phase_removed"] = False
     path = _write(out_radar_data, {p: out.astype(np.complex64)}, _keep_pols(meta, [p]), ref)
-    outputs = [path] + ([_sar.out_path(out_flattened_interferogram)] if out_flattened_interferogram not in (None, "", "#") else [])
+    outputs = [path] + ([_sar.out_path(out_flattened_interferogram)] if _is_given(out_flattened_interferogram) else [])
     return Result(*outputs)
 
 
@@ -678,11 +679,11 @@ def ApplyComplexDataFilter(in_radar_data, out_radar_data, polarization_bands=Non
     tool = _tool("ApplyComplexDataFilter")
     if word(filter_type, "GOLDSTEIN_PHASE_FILTER") != "GOLDSTEIN_PHASE_FILTER":
         raise ExecuteError(f"{tool}: filter_type '{filter_type}' is not GOLDSTEIN_PHASE_FILTER.")
-    a = float(alpha if alpha not in (None, "", "#") else 0.5)
+    a = float(alpha if _is_given(alpha) else 0.5)
     if not 0 <= a <= 1:
         raise ExecuteError(f"{tool}: alpha must be from 0 to 1.")
-    inner = int(inner_window_size if inner_window_size not in (None, "", "#") else 8)
-    outer = int(outer_window_size if outer_window_size not in (None, "", "#") else 64)
+    inner = int(inner_window_size if _is_given(inner_window_size) else 8)
+    outer = int(outer_window_size if _is_given(outer_window_size) else 64)
     if inner < 2 or outer < inner:
         raise ExecuteError(f"{tool}: the windows must be at least 2 cells, the outer no smaller than the inner.")
     sar = _sar.read(in_radar_data, tool)
@@ -778,7 +779,7 @@ def UnwrapPhase(in_radar_data, out_radar_data, polarization_bands=None, unwrap_p
     tool = _tool("UnwrapPhase")
     if word(unwrap_phase_method, "LEAST_SQUARES_PCG") != "LEAST_SQUARES_PCG":
         raise ExecuteError(f"{tool}: unwrap_phase_method '{unwrap_phase_method}' is not LEAST_SQUARES_PCG.")
-    threshold = float(effective_coherence_threshold if effective_coherence_threshold not in (None, "", "#") else 0.3)
+    threshold = float(effective_coherence_threshold if _is_given(effective_coherence_threshold) else 0.3)
     sar = _sar.read(in_radar_data, tool)
     if sar.meta.get("values") != "complex":
         raise ExecuteError(f"{tool}: the input must be a complex wrapped interferogram.")
@@ -922,7 +923,7 @@ def _linear_text(value):
 
 
 def _areal_m2(value, default):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return default
     text = str(value).strip().split()
     number = float(text[0])
@@ -938,10 +939,10 @@ def _water(sar, tool, mask_features, feature_type, dem, tolerance):
     """Which cells are open water, from mask features (LAND or WATER) or, failing them, the DEM (INFERRED: water
     where the DEM is at or below 0). The land is grown by the tolerance (INFERRED: a WATER polygon is shrunk by it)."""
     import shapely
-    if mask_features in (None, "", "#") and dem is None:
+    if not _is_given(mask_features) and dem is None:
         return None
     lon, lat = _sar.cell_lonlat(sar, dem)
-    if mask_features not in (None, "", "#"):
+    if _is_given(mask_features):
         kind = word(feature_type, "")
         if kind not in ("LAND", "WATER"):
             raise ExecuteError(f"{tool}: feature_type must be LAND or WATER when mask features are given.")
@@ -982,11 +983,11 @@ def GenerateMaskedSARRaster(in_radar_data, out_radar_data, polarization_bands=No
     tool = _tool("GenerateMaskedSARRaster")
     sar = _sar.read(in_radar_data, tool)
     names = polarizations(sar, polarization_bands, tool)
-    dem = _sar.Dem(in_dem_raster, "GenerateMaskedSARRaster", geoid) if in_dem_raster not in (None, "", "#") else None
-    if in_mask_features in (None, "", "#") and dem is None:
+    dem = _sar.Dem(in_dem_raster, "GenerateMaskedSARRaster", geoid) if _is_given(in_dem_raster) else None
+    if not _is_given(in_mask_features) and dem is None:
         raise ExecuteError(f"{tool}: give mask features or a DEM.")
     lon, lat = _sar.cell_lonlat(sar, dem)
-    if in_mask_features not in (None, "", "#"):
+    if _is_given(in_mask_features):
         inside = shapely.contains_xy(_features(in_mask_features, tool), lon, lat)
         area = word(mask_area, "INSIDE")
         if area not in ("INSIDE", "OUTSIDE"):
@@ -1066,12 +1067,12 @@ def DetectBrightOceanObjects(in_radar_data, out_feature_class, out_type="BOUNDS"
                                          min_object_length or "50 Meters", max_object_length or "500 Meters")]
     if min(limits) <= 0:
         raise ExecuteError(f"{tool}: object widths and lengths must be positive.")
-    tolerance = _linear_text(mask_tolerance) if mask_tolerance not in (None, "", "#") else 100.0
+    tolerance = _linear_text(mask_tolerance) if _is_given(mask_tolerance) else 100.0
     if tolerance < 0:
         raise ExecuteError(f"{tool}: mask_tolerance cannot be negative.")
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
-    dem = _sar.Dem(in_dem_raster, "DetectBrightOceanObjects", geoid) if in_dem_raster not in (None, "", "#") else None
+    dem = _sar.Dem(in_dem_raster, "DetectBrightOceanObjects", geoid) if _is_given(in_dem_raster) else None
     z = _sar.intensity(sar.bands[sar.names[0]]).astype(np.float64)
     blank = np.isnan(z)
     water = _water(sar, tool, mask_features, feature_type, dem, tolerance)
@@ -1125,12 +1126,12 @@ def DetectDarkOceanAreas(in_radar_data, out_raster, min_area="10000 SquareMeters
     area = _areal_m2(min_area, 10000.0)
     if area < 0:
         raise ExecuteError(f"{tool}: min_area cannot be negative.")
-    tolerance = _linear_text(mask_tolerance) if mask_tolerance not in (None, "", "#") else 100.0
+    tolerance = _linear_text(mask_tolerance) if _is_given(mask_tolerance) else 100.0
     if tolerance < 0:
         raise ExecuteError(f"{tool}: mask_tolerance cannot be negative.")
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
-    dem = _sar.Dem(in_dem_raster, "DetectDarkOceanAreas", geoid) if in_dem_raster not in (None, "", "#") else None
+    dem = _sar.Dem(in_dem_raster, "DetectDarkOceanAreas", geoid) if _is_given(in_dem_raster) else None
     z = _sar.intensity(sar.bands[sar.names[0]]).astype(np.float64)
     blank = np.isnan(z)
     water = _water(sar, tool, mask_features, feature_type, dem, tolerance)
@@ -1326,7 +1327,7 @@ def ApplyGeometricTerrainCorrection(in_radar_data, out_radar_data, polarization_
     if not sar.radar:
         raise ExecuteError(f"{tool}: the radar data is already terrain corrected.")
     names = polarizations(sar, polarization_bands, tool)
-    dem = _sar.Dem(in_dem_raster, "ApplyGeometricTerrainCorrection", geoid) if in_dem_raster not in (None, "", "#") else None
+    dem = _sar.Dem(in_dem_raster, "ApplyGeometricTerrainCorrection", geoid) if _is_given(in_dem_raster) else None
     west, south, east, north = _footprint(sar.meta, sar.shape, dem)
     spacing = min(_sar.ground_spacing(sar.meta))
     mid = math.radians((south + north) / 2)
@@ -1381,13 +1382,13 @@ def ApplyRadiometricTerrainFlattening(in_radar_data, out_radar_data, in_dem_rast
     tool = _tool("ApplyRadiometricTerrainFlattening")
     for name, value in (("out_geometric_distortion", out_geometric_distortion),
                         ("out_geometric_distortion_mask", out_geometric_distortion_mask)):
-        if value not in (None, "", "#"):
+        if _is_given(value):
             raise NotBuiltError(f"{tool}: {name} is not built in grapy: the page does not define the foreshortening "
                                 "ratio nor the boundaries between the distortion classes.")
     kind = word(calibration_type, "GAMMA_NOUGHT")
     if kind not in ("GAMMA_NOUGHT", "SIGMA_NOUGHT"):
         raise ExecuteError(f"{tool}: calibration_type '{calibration_type}' is not GAMMA_NOUGHT or SIGMA_NOUGHT.")
-    if in_dem_raster in (None, "", "#"):
+    if not _is_given(in_dem_raster):
         raise ExecuteError(f"{tool}: in_dem_raster is required.")
     sar = _sar.read(in_radar_data, tool)
     if not sar.radar:
@@ -1459,7 +1460,7 @@ def ApplyRadiometricTerrainFlattening(in_radar_data, out_radar_data, in_dem_rast
                          values="intensity")
     path = _write(out_radar_data, out, _keep_pols(meta, names), sar)
     outputs = [path]
-    if out_scattering_area not in (None, "", "#"):
+    if _is_given(out_scattering_area):
         side = sar.copy_meta(values="scattering_area")
         side.pop("pols", None)
         outputs.append(_write(out_scattering_area, {"Area": np.where(area > 0, area, np.nan).astype(np.float32)}, side, sar))
@@ -1491,7 +1492,7 @@ def ApplyCoregistration(in_reference_radar_data, in_secondary_radar_data, out_se
     for p in names:
         if p not in sec.bands:
             raise ExecuteError(f"{tool}: the secondary radar data has no band {p}.")
-    dem = _sar.Dem(in_dem_raster, "ApplyCoregistration", geoid) if in_dem_raster not in (None, "", "#") else None
+    dem = _sar.Dem(in_dem_raster, "ApplyCoregistration", geoid) if _is_given(in_dem_raster) else None
     shape = ref.shape
     rs, cs = _lattice(shape)
     rr, cc = np.meshgrid(rs, cs, indexing="ij")
@@ -1549,7 +1550,7 @@ def ApplyOrbitCorrection(in_radar_data, in_orbit_file, folder=None):
     home = sar.path if sar.path and os.path.isdir(sar.path) else os.path.dirname(sar.path or "")
     path = os.fspath(in_orbit_file)
     if not os.path.exists(path):
-        path = os.path.join(os.fspath(folder) if folder not in (None, "", "#") else home, os.path.basename(path))
+        path = os.path.join(os.fspath(folder) if _is_given(folder) else home, os.path.basename(path))
     if not os.path.exists(path):
         raise ExecuteError(f"{tool}: the orbit file '{in_orbit_file}' was not found.")
     vectors = read_eof(path, tool)
@@ -1598,13 +1599,13 @@ def GenerateRadiometricTerrainCorrectedData(in_radar_data, out_radar_data, in_de
     tool = _tool("GenerateRadiometricTerrainCorrectedData")
     for name, value in (("username", username), ("password", password),
                         ("cloud_storage_connection", cloud_storage_connection)):
-        if value not in (None, "", "#"):
+        if _is_given(value):
             raise NotBuiltError(f"{tool}: {name} is not built in grapy: it downloads an orbit file, and a user tool on "
                                 "this server has no network (ADR-223 §5.3); run ApplyOrbitCorrection with a file.")
     units = word(output_units, "LINEAR")
     if units not in ("LINEAR", "DECIBEL"):
         raise ExecuteError(f"{tool}: output_units '{output_units}' is not LINEAR or DECIBEL.")
-    if processing_level in (None, "", "#"):
+    if not _is_given(processing_level):
         levels = []
     else:
         levels = [str(x).strip().upper() for x in (processing_level if isinstance(processing_level, (list, tuple))
@@ -1612,10 +1613,10 @@ def GenerateRadiometricTerrainCorrectedData(in_radar_data, out_radar_data, in_de
     for level in levels:
         if level not in _LEVELS:
             raise ExecuteError(f"{tool}: processing_level '{level}' is not one of TNR, CalB0, DBST, ML, RTFG0, DSPK, GTC.")
-    if levels and out_folder in (None, "", "#"):
+    if levels and not _is_given(out_folder):
         raise ExecuteError(f"{tool}: out_folder is needed to keep processing levels.")
     work = tempfile.mkdtemp(prefix="rtc_", dir=env.scratchWorkspace or None)
-    keep = os.fspath(out_folder) if out_folder not in (None, "", "#") else None
+    keep = os.fspath(out_folder) if _is_given(out_folder) else None
     if keep:
         os.makedirs(keep, exist_ok=True)
 
@@ -1667,6 +1668,32 @@ def RadarCalibration(raster, calibration_type="BETA_NOUGHT"):
     import tempfile
     out = os.path.join(tempfile.mkdtemp(prefix="radarcal_", dir=env.scratchWorkspace or None), "calibrated.tif")
     ApplyRadiometricCalibration(path, out, ";".join(sar.names), kind)
+    result = Raster(out)
+    result.isTemporary = True
+    return result
+
+
+def S1RadiometricCalibration(raster, calibration_type="BETA_NOUGHT"):
+    """EQUIVALENT — arcpy.ia's Sentinel-1 Radiometric Calibration raster function, as RadarCalibration computes it. Its
+    raster function page (help/analysis/raster-functions/sentinel-1-radiometric-calibration.html, read 2026-10-31) names
+    the input raster and the calibration type — Beta nought (the default), Sigma nought, Gamma nought or None — and
+    says a product of IPF 2.34 or earlier is not calibrated, its look-up table possibly being wrong, which
+    ApplyRadiometricCalibration already refuses.
+    INFERRED (Q-215): the parameters are named ``raster`` and ``calibration_type``, as RadarCalibration's are, no
+    arcpy page for the function being published."""
+    return RadarCalibration(raster, calibration_type)
+
+
+def S1ThermalNoiseRemoval(raster):
+    """EQUIVALENT — arcpy.ia's Sentinel-1 Thermal Noise Removal raster function, as RemoveThermalNoise computes it on
+    every polarization band. Its raster function page (help/analysis/raster-functions/sentinel-1-thermal-noise-removal
+    .html, read 2026-10-31) names only the input raster. INFERRED (Q-215): the parameter is named ``raster``, and the
+    result is a Raster saved in the scratch workspace with its SAR metadata, as RadarCalibration's is."""
+    import tempfile
+    from ._raster import Raster
+    path = _sar._path_of(raster)
+    out = os.path.join(tempfile.mkdtemp(prefix="s1noise_", dir=env.scratchWorkspace or None), "denoised.tif")
+    RemoveThermalNoise(path, out)
     result = Raster(out)
     result.isTemporary = True
     return result

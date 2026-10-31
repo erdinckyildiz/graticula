@@ -11,6 +11,7 @@ import math
 
 from ._result import Result
 from ._runtime import ExecuteError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 _MODES = ("OVERWRITE", "UPDATE_NULL_ONLY", "USE_MINIMUM_DIFFERENCE", "DO_NOT_UPDATE")
 
@@ -24,7 +25,7 @@ def _mode(value, name):
 
 def _factor(value, attributes, tool):
     """A number, or an Arcade expression evaluated on the feature (``$feature``), as the page allows."""
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return None
     if isinstance(value, (int, float)):
         return float(value)
@@ -90,10 +91,10 @@ def UpdateCOGO(in_line_features, distances_type="OVERWRITE", distance_tolerance=
         raise ExecuteError(f"ERROR: arcpy.edit.{tool}: '{in_line_features}' is not COGO enabled, as the tool needs "
                            "(EnableCOGO).")
     distance_mode, direction_mode = _mode(distances_type, "distances_type"), _mode(direction_type, "direction_type")
-    tolerance = float(_distance(distance_tolerance, srid)) if distance_tolerance not in (None, "", "#") else 0.0
-    seconds = float(minimum_direction_difference) if minimum_direction_difference not in (None, "", "#") else 0.0
+    tolerance = float(_distance(distance_tolerance, srid)) if _is_given(distance_tolerance) else 0.0
+    seconds = float(minimum_direction_difference) if _is_given(minimum_direction_difference) else 0.0
     lateral = float(_distance(minimum_direction_lateral_offset, srid)) \
-        if minimum_direction_lateral_offset not in (None, "", "#") else 0.0
+        if _is_given(minimum_direction_lateral_offset) else 0.0
     names = {c.name.lower(): c.name for c in columns}
     cogo = [names[f.lower()] for f in _behaviours.COGO_FIELDS]
     direction_f, distance_f, arc_f, radius_f, radius2_f = cogo

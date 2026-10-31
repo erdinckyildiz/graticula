@@ -41,6 +41,7 @@ import shapely
 from . import _gpkg, _tin
 from ._result import Result
 from ._runtime import AddWarning, ExecuteError, NotBuiltError, env
+from ._runtime import _is_given, _is_set  # noqa: E402 — a Raster is never compared with ==
 
 EXTENSION = "grapy_terrain"
 DEFINITION = "Graticula ADR-234: grapy's terrain datasets"
@@ -55,7 +56,7 @@ def _refuse(tool, parameter, value, why=""):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _text(value):
@@ -325,7 +326,7 @@ _ADD_COLUMNS = 11   # input features, height field, type, group, min res, max re
 
 
 def _flag(value, default=False):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return default
     if isinstance(value, bool):
         return value
@@ -872,7 +873,7 @@ def surface(path, resolution=0, tool="terrain"):
 def _env_area():
     from ._reference import Extent
     value = env.extent
-    if value in (None, "", "MAXOF", "MINOF", "INTERSECTION_OF_INPUTS", "DEFAULT"):
+    if not _is_set(value, "MAXOF", "MINOF", "INTERSECTION_OF_INPUTS", "DEFAULT"):
         return None
     if isinstance(value, Extent):
         return shapely.box(value.XMin, value.YMin, value.XMax, value.YMax)

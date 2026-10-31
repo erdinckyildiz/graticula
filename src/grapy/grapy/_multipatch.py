@@ -27,6 +27,7 @@ import shapely
 
 from . import _gpkg
 from ._runtime import ExecuteError, NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 EXTENSION = "grapy_multipatch"
 DEFINITION = "Graticula ADR-238: grapy's multipatch features, faces as MultiPolygon Z"
@@ -39,7 +40,7 @@ def _refuse(module, tool, parameter, value, why=""):
 
 
 def given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 # ---- the model in the GeoPackage

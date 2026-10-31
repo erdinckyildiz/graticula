@@ -480,9 +480,7 @@ class ManagementMore(unittest.TestCase):
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.management.DetectFeatureChanges()
         self.assertIn("Esri does not document", str(raised.exception))
-        with self.assertRaises(arcpy.NotBuiltError) as raised:
-            arcpy.management.StandardizeField()
-        self.assertIn("standardize-field.html answered 404", str(raised.exception))
+        self.assertTrue(callable(arcpy.management.StandardizeField))   # its page found again 2026-10-31
 
 
 if __name__ == "__main__":

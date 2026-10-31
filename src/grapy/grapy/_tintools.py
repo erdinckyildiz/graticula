@@ -15,6 +15,7 @@ import shapely
 from . import _gpkg, _tin
 from ._result import Result
 from ._runtime import ExecuteError, NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 _FLAT = 1e-12
 
@@ -24,7 +25,7 @@ def _refuse(tool, parameter, value, why=""):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def surface_of(value, tool, pyramid_level_resolution=0):

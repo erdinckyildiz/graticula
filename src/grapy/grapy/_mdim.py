@@ -27,6 +27,7 @@ import re
 import numpy as np
 
 from ._runtime import NotBuiltError, env
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 EPOCH = np.datetime64("1970-01-01T00:00:00", "s")
 TIME = "StdTime"
@@ -196,7 +197,7 @@ class Cube:
 
 
 def _names(value):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return []
     if isinstance(value, (list, tuple)):
         return [str(v) for v in value if v not in (None, "")]

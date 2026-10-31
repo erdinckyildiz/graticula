@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 from ._runtime import ExecuteError, NotBuiltError, env
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 SIDE = ".sar.json"
 FORMAT = "grapy-sar/1"
@@ -183,7 +184,7 @@ def _quiet():
 
 def polarizations(sar, value, tool):
     """The bands a ``polarization_bands`` parameter names; the first band when none is named, as documented."""
-    if value in (None, "", "#") or value == []:
+    if not _is_given(value) or (isinstance(value, list) and not value):
         return [sar.names[0]]
     wanted = value if isinstance(value, (list, tuple)) else str(value).replace(",", ";").split(";")
     out = []
@@ -199,7 +200,7 @@ def polarizations(sar, value, tool):
 
 
 def word(value, default):
-    return str(value).upper() if value not in (None, "", "#") else default
+    return str(value).upper() if _is_given(value) else default
 
 
 # ---- Sentinel-1 SAFE

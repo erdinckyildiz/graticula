@@ -21,6 +21,7 @@ from ._result import Result
 from ._runtime import AddMessage, ExecuteError, NotBuiltError
 from .analysis import _distance
 from .management import _list, _pairs, _schema
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _refuse(tool, parameter, value, why=""):
@@ -38,7 +39,7 @@ def _single_line(shape, tool):
 
 
 def _length(value, srid, tool, parameter):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return None
     try:
         return _distance(value, srid)
@@ -74,7 +75,7 @@ def Densify(in_features, densification_method="DISTANCE", distance=None, max_dev
         _refuse("Densify", "distance", "(empty)", "its default is a function of an x,y tolerance grapy does not hold")
     if step <= 0:
         raise ExecuteError("ERROR 000859: Densify's distance must be greater than zero.")
-    if max_vertex_per_segment not in (None, "", "#") and int(max_vertex_per_segment) > 0:
+    if _is_given(max_vertex_per_segment) and int(max_vertex_per_segment) > 0:
         _refuse("Densify", "max_vertex_per_segment", max_vertex_per_segment,
                 "the documentation allows the count to be met within one either way and does not say how")
     with da.UpdateCursor(in_features, ["SHAPE@"]) as rows:
@@ -493,7 +494,7 @@ def _errors(links, transform, out_link_table):
     target = numpy.array([t for _, _, t in links], dtype=float)[:, :2]
     residuals = numpy.hypot(*(transform(source) - target).T)
     rmse = float(numpy.sqrt(numpy.mean(residuals ** 2)))
-    if out_link_table not in (None, "", "#"):
+    if _is_given(out_link_table):
         from .analysis import _out
         out = _out(out_link_table)
         columns = [_gpkg.Column("Orig_FID", "Integer"), *[_gpkg.Column(n, "Double") for n in
@@ -562,7 +563,7 @@ def RubbersheetFeatures(in_features, in_link_features, in_identity_links=None, m
     links = _links(in_link_features, srid)
     source = [tuple(s[:2]) for _, s, _ in links]
     target = [tuple(t[:2]) for _, _, t in links]
-    if in_identity_links not in (None, "", "#"):
+    if _is_given(in_identity_links):
         with da.SearchCursor(in_identity_links, ["SHAPE@XY"]) as rows:
             for (xy,) in rows:
                 source.append(tuple(xy))
@@ -604,7 +605,7 @@ def _features_of(path, fields=()):
 
 
 def _match_pairs(match_fields):
-    pairs = _pairs(match_fields) if match_fields not in (None, "", "#") else []
+    pairs = _pairs(match_fields) if _is_given(match_fields) else []
     return [(p[0], p[1] if len(p) > 1 else p[0]) for p in pairs]
 
 
@@ -655,7 +656,7 @@ def GenerateRubbersheetLinks(source_features, target_features, out_feature_class
     source or target feature, as documented; one link per source location, the lowest source id's. Refused:
     out_match_table."""
     tool = "GenerateRubbersheetLinks"
-    if out_match_table not in (None, "", "#"):
+    if _is_given(out_match_table):
         _refuse(tool, "out_match_table", out_match_table, "its match groups and confidence levels are not specified")
     _, _, srid, _ = _schema(source_features)
     distance = _length(search_distance, srid, tool, "search_distance")
@@ -755,19 +756,19 @@ def EdgematchFeatures(in_features, in_link_features, method="MOVE_ENDPOINT", adj
     with da.SearchCursor(in_link_features, ["SRC_FID", "ADJ_FID", "SHAPE@"]) as rows:
         links = [(r[0], r[1], _ends(r[2]._shape)) for r in rows if r[2] is not None]
     border = None
-    if border_features not in (None, "", "#"):
+    if _is_given(border_features):
         border = shapely.union_all([f[2] for f in _features_of(border_features)])
     moves_in, moves_adjacent = {}, {}
     for source, adjacent, (start, end) in links:
         if border is not None:
             middle = Point((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
             target = tuple(nearest_points(border, middle)[0].coords[0][:2])
-        elif adjacent_features not in (None, "", "#"):
+        elif _is_given(adjacent_features):
             target = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
         else:
             target = end
         moves_in.setdefault(source, []).append((start, target))
-        if adjacent_features not in (None, "", "#"):
+        if _is_given(adjacent_features):
             moves_adjacent.setdefault(adjacent, []).append((end, target))
 
     def adjust(path, moves):
@@ -800,7 +801,7 @@ def EdgematchFeatures(in_features, in_link_features, method="MOVE_ENDPOINT", adj
                 rows.updateRow([oid, LineString(coordinates)])
 
     adjust(in_features, moves_in)
-    if adjacent_features not in (None, "", "#"):
+    if _is_given(adjacent_features):
         adjust(adjacent_features, moves_adjacent)
     return Result(in_features)
 
@@ -865,9 +866,9 @@ def TransferAttributes(source_features, target_features, transfer_fields, search
     with a target field's name is written with ``_1`` (``_2`` …), as documented; a missing source value transfers
     nothing. Refused: out_match_table and transfer_rule_fields."""
     tool = "TransferAttributes"
-    if out_match_table not in (None, "", "#"):
+    if _is_given(out_match_table):
         _refuse(tool, "out_match_table", out_match_table, "its match groups and confidence levels are not specified")
-    if transfer_rule_fields not in (None, "", "#"):
+    if _is_given(transfer_rule_fields):
         _refuse(tool, "transfer_rule_fields", transfer_rule_fields, "its rule evaluation is not in this equivalent")
     _, _, srid, _ = _schema(target_features)
     distance = _length(search_distance, srid, tool, "search_distance")

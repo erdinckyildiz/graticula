@@ -13,6 +13,7 @@ import os
 from . import _gpkg, _rules
 from ._result import Result
 from ._runtime import ExecuteError, NotBuiltError
+from ._runtime import _is_given, _is_set  # noqa: E402 — a Raster is never compared with ==
 
 _TRUE = ("TRUE", "1", "YES", "Y")
 
@@ -36,7 +37,7 @@ def _table(tool, in_table):
 
 
 def _keyword(tool, name, value, allowed, default):
-    word = default if value in (None, "", "#") else str(value).strip().upper()
+    word = default if not _is_given(value) else str(value).strip().upper()
     if isinstance(value, bool):
         word = allowed[0] if value else allowed[1]
     if word not in allowed:
@@ -412,7 +413,7 @@ def _error_table(connection, file, kind, srid):
 
 
 def _extent_filter(extent):
-    if extent in (None, "", "#", "MAXOF", "MINOF"):
+    if not _is_set(extent, "MAXOF", "MINOF"):
         return None
     if hasattr(extent, "XMin"):
         return (extent.XMin, extent.YMin, extent.XMax, extent.YMax)

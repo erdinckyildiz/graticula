@@ -2013,7 +2013,8 @@ _REASONS = {
     "loads an asset package, Esri's geodatabase layout of a whole utility network, which grapy does not read: its "
     "networks are kept in grapy's own tables (ADR-231 §5.2)": ("MigrateToUtilityNetwork",),
     "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/utility-networks/"
-    "update-utility-network-schema.html answered 404 (checked 2026-10-30)": ("UpdateUtilityNetworkSchema",),
+    "update-utility-network-schema.html answered 404, and doc.esri.com's ArcGIS Pro 3.7 sitemap lists no page for it "
+    "under any name (checked 2026-10-31)": ("UpdateUtilityNetworkSchema",),
 }
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
 

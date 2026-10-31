@@ -17,6 +17,7 @@ import numpy as np
 
 from ._raster import Raster, _Grid, _refuse_environment, as_raster
 from ._runtime import env
+from ._runtime import _is_set  # noqa: E402 — a Raster is never compared with ==
 
 _CONDITIONS = {
     "CombinatorialAnd": lambda a, b: a != 0 and b != 0,
@@ -45,7 +46,7 @@ def _constant_grid(tool):
     """The grid two constants answer on: the page requires the cell size and extent environments."""
     from ._reference import Extent
     cell, extent = env.cellSize, env.extent
-    if cell in (None, "", "MAXOF", "MINOF") or extent in (None, "", "MAXOF", "MINOF"):
+    if not _is_set(cell, "MAXOF", "MINOF") or not _is_set(extent, "MAXOF", "MINOF"):
         raise ValueError(f"{tool}: to give a number for both inputs, set the cell size and extent environments first, "
                          "as the page says.")
     if not isinstance(extent, Extent):

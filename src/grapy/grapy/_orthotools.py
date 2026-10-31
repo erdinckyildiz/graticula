@@ -19,6 +19,7 @@ from . import _gpkg, _mosaic, _ortho
 from ._ortho import CHECK, GCP, TIE
 from ._result import Result
 from ._runtime import AddMessage, AddWarning, ExecuteError, NotBuiltError, env
+from ._runtime import _is_set  # noqa: E402 — a Raster is never compared with ==
 
 _refuse = _ortho._refuse
 _given = _ortho._given
@@ -1034,7 +1035,7 @@ def _out_grid(boxes, cell, srid):
 
 def _env_cell():
     value = env.cellSize
-    if value in (None, "", "MAXOF", "MINOF"):
+    if not _is_set(value, "MAXOF", "MINOF"):
         return None
     return float(value)
 

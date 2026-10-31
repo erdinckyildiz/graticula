@@ -43,6 +43,7 @@ import shapely
 
 from . import _gpkg
 from ._runtime import AddWarning, ExecuteError, NotBuiltError, env
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 EXTENSION = "grapy_mosaic"
 DEFINITION = "Graticula ADR-230: grapy's mosaic datasets"
@@ -94,7 +95,7 @@ def _refuse(tool, parameter, value, why=""):
 
 
 def given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def text(value):

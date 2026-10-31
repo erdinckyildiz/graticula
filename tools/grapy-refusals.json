@@ -95,7 +95,7 @@
   "refused": {
    "Enrich": "arcpy.analysis.Enrich is not built in grapy: it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3).",
    "EnrichLayer": "arcpy.analysis.EnrichLayer is not built in grapy: it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3).",
-   "GeographicallyWeightedRegression": "arcpy.analysis.GeographicallyWeightedRegression is not built in grapy: its page is no longer in Esri's documentation (404 on 2026-10-29); the documented regression is arcpy.stats.GWR.",
+   "GeographicallyWeightedRegression": "arcpy.analysis.GeographicallyWeightedRegression is not built in grapy: no page documents this name: tool-reference/analysis/geographically-weighted-regression.html answers 404 (checked 2026-10-31), and the table of contents' big-data-analytics/geographically-weighted-regression.html documents arcpy.geoanalytics.GWR, a GeoAnalytics Server tool that runs on that server and writes to its data store; the local regressions are arcpy.stats.GeographicallyWeightedRegression and arcpy.stats.GWR, which grapy builds.",
    "PairwiseIntegrate": "arcpy.analysis.PairwiseIntegrate is not built in grapy: the documentation does not say which coordinate a cluster of vertices within the tolerance takes.",
    "SummarizeNearby": "arcpy.analysis.SummarizeNearby is not built in grapy: its driving, trucking and walking distances need Esri's network services (ADR-224 groups 2 and 3), and for straight-line distance the documentation does not name the fields it writes."
   },
@@ -238,7 +238,7 @@
   },
   "of": 156,
   "refused": {
-   "AddTerrainPoints": "arcpy.ddd.AddTerrainPoints is not built in grapy: its reference page could not be read: doc.esri.com/en/arcgis-pro/latest/tool-reference/3d-analyst/add-terrain-points.html answered 404, and pro.arcgis.com's add-terrain-points.htm redirects to it (checked 2026-10-30); AppendTerrainPoints, which grapy builds, adds points to a terrain (ADR-234).",
+   "AddTerrainPoints": "arcpy.ddd.AddTerrainPoints is not built in grapy: its reference page could not be read: doc.esri.com/en/arcgis-pro/latest/tool-reference/3d-analyst/add-terrain-points.html answered 404, and pro.arcgis.com's add-terrain-points.htm redirects to it, and doc.esri.com's ArcGIS Pro 3.7 sitemap lists no page for it under any name (checked 2026-10-31); AppendTerrainPoints, which grapy builds, adds points to a terrain (ADR-234).",
    "BIMToTerrain": "arcpy.ddd.BIMToTerrain is not built in grapy: it reads a TIN surface from an AutoCAD Civil 3D drawing or an IFC file through ArcGIS's BIM file workspace, which grapy does not hold — Civil 3D's drawing format is Autodesk's and unpublished, and conversion.BIMFileToGeodatabase is refused for the same model (ADR-234 §5.4).",
    "CalculateMissingZValues": "arcpy.ddd.CalculateMissingZValues is not built in grapy: the page does not give its interpolation or extrapolation, nor how a placeholder z is matched.",
    "ClassifyLasNoise": "arcpy.ddd.ClassifyLasNoise is not built in grapy: its page contradicts itself on the isolation limit (fewer than, or no more than, the point limit), and its other methods' defaults are not given.",
@@ -330,7 +330,7 @@
   "unexamined": []
  },
  "arcpy.ia": {
-  "built": 272,
+  "built": 274,
   "equivalents": {
    "AnalyzeChangesUsingCCDC": "Continuous Change Detection and Classification: a harmonic model of up to three harmonics fitted by least squares and monitored by a chi-squared test on consecutive normalised residuals (Zhu and Woodcock 2014, Remote Sensing of Environment 144, 152–171)",
    "AnalyzeChangesUsingLandTrendr": "LandTrendr temporal segmentation: despiking, vertex search by largest departure, culling by angle, continuous piecewise-linear least squares and selection by the F-test's p-value (Kennedy, Yang and Cohen 2010, Remote Sensing of Environment 114, 2897–2910)",
@@ -369,6 +369,8 @@
    "RegionGrow": "seeded region growing from each seed point, within its radius and spectral threshold (Adams and Bischof 1994, IEEE Trans. Pattern Analysis and Machine Intelligence 16(6))",
    "RemoveRasterSegmentTilingArtifacts": "segments cut by a tile seam merged when their common boundary lies wholly on the seam and their colours agree within the default spectral radius (Comaniciu and Meer 2002 §4.2's range bandwidth applied across the seams Segment Mean Shift's page says its tiled processing leaves)",
    "Resample": "nearest neighbour, bilinear and Keys cubic convolution (a = −0.5) on cell centres; majority over the 4×4 nearest centres; average, minimum and maximum over the input cells whose centres the output cell covers (Keys, IEEE TASSP 29(6) 1981; Parker, Kenyon and Troxel, IEEE TMI 2(1) 1983)",
+   "S1RadiometricCalibration": "ApplyRadiometricCalibration's calibration on every band (ESA-EOPG-CSCOP-TN-0002)",
+   "S1ThermalNoiseRemoval": "RemoveThermalNoise's denoising on every band (ESA MPC-0392)",
    "SegMeanShift": "mean shift filtering in the joint spatial-range domain with a flat kernel, region delineation and small-region merging (Comaniciu and Meer 2002, IEEE Transactions on Pattern Analysis and Machine Intelligence 24(5), §4.1-4.2)",
    "SegmentMeanShift": "mean shift filtering in the joint spatial-range domain with a flat kernel, region delineation and small-region merging (Comaniciu and Meer 2002, IEEE Transactions on Pattern Analysis and Machine Intelligence 24(5), §4.1-4.2)",
    "Speckle": "Lee (1980), Enhanced Lee and Gamma-MAP (Lopes et al. 1990), Frost (1982), Kuan (1985) and Refined Lee (Lee 1981) local-statistics filters, as arcpy.ia.Despeckle builds them (Lee, IEEE PAMI 2(2) 1980; Lee, CGIP 17 1981; Lopes, Touzi and Nezry, IEEE TGRS 28(6) 1990; Frost et al., IEEE PAMI 4(2) 1982; Kuan et al., IEEE PAMI 7(2) 1985)",
@@ -439,8 +441,6 @@
    "Render": "arcpy.ia.Render is not built in grapy: it attaches a rendering rule or colour map to a raster for a notebook's display; its page (arcpy/image-analyst/render.html) does not say what pixel values a saved rendered raster holds — whether stretched to 0–255, how gamma is applied — and its colour schemes are given by name in a PDF of swatches.",
    "Reproject": "arcpy.ia.Reproject is not built in grapy: no resampling method is specified.",
    "ResampleLibrarySpectra": "arcpy.ia.ResampleLibrarySpectra is not built in grapy: it reads or writes spectral libraries (.esl, .sli) whose layout the page does not give.",
-   "S1RadiometricCalibration": "arcpy.ia.S1RadiometricCalibration is not built in grapy: its arcpy.ia reference page could not be read (doc.esri.com's arcpy/image-analyst and raster function pages answered 404 on 2026-10-31), so its parameters are unknown; ApplyRadiometricCalibration and RadarCalibration calibrate Sentinel-1 data.",
-   "S1ThermalNoiseRemoval": "arcpy.ia.S1ThermalNoiseRemoval is not built in grapy: its arcpy.ia reference page could not be read (doc.esri.com's arcpy/image-analyst and raster function pages answered 404 on 2026-10-31), so its parameters are unknown; RemoveThermalNoise removes Sentinel-1 thermal noise.",
    "Sample": "arcpy.ia.Sample is not built in grapy: the documentation does not name the fields it writes for each raster.",
    "ShadedRelief": "arcpy.ia.ShadedRelief is not built in grapy: it merges an elevation-coloured image with a hillshade into RGB, and neither its page nor the Shaded Relief raster function says how the two are merged, nor gives the default colour ramp (Elevation #1) or the SCALED z-factor equation that ps_power and psz_factor enter (read 2026-10-31).",
    "Statistics": "arcpy.ia.Statistics is not built in grapy: its page states the defaults of stat_type and fill_no_data_only two ways that disagree, and is silent on edges.",
@@ -462,7 +462,7 @@
   "unexamined": []
  },
  "arcpy.management": {
-  "built": 244,
+  "built": 245,
   "equivalents": {
    "CalculateGeometryFieldsAttributeRule": "grapy's own Arcade script computing each geometry property with the Arcade geometry functions (doc.esri.com …/data-management/calculate-geometry-fields-attribute-rule)",
    "ComputeBlockAdjustment": "a bundle adjustment of the collinearity equations by sparse Levenberg–Marquardt least squares (Triggs, McLauchlan, Hartley and Fitzgibbon 2000; Wolf, Dewitt and Wilkinson 2014, ch. 17)",
@@ -522,7 +522,7 @@
    "ComputeCameraModel": "arcpy.management.ComputeCameraModel is not built in grapy: it estimates the cameras from the images' EXIF headers, computes tie points, adjusts and refines by steps its page names without describing, and writes a DSM and a flight path by methods it does not give (ADR-234 §5.5); with frames and cameras tables, ComputeTiePoints and ComputeBlockAdjustment do the documented part.",
    "ComputeDepthMap": "arcpy.management.ComputeDepthMap is not built in grapy: it writes a .dm depth map file per image, Esri's own format, by a method its page does not describe (ADR-234 §5.5).",
    "ComputeDirtyArea": "arcpy.management.ComputeDirtyArea is not built in grapy: its page does not say how a changed item is identified or what fields its output has (ADR-230 §5.5).",
-   "ComputeFiducials": "arcpy.management.ComputeFiducials is not built in grapy: its page does not name how fiducials are found from the templates, nor the fields of the fiducial table it writes, and the one tool that reads that table, UpdateInteriorOrientation, has no page grapy could read (ADR-234 §5.5).",
+   "ComputeFiducials": "arcpy.management.ComputeFiducials is not built in grapy: its page does not name how fiducials are found from the templates, nor the fields of the fiducial table it writes, and the one tool that reads that table, UpdateInteriorOrientation, does not name them either (ADR-234 §5.5).",
    "ComputeMosaicCandidates": "arcpy.management.ComputeMosaicCandidates is not built in grapy: how candidates are chosen is not documented (ADR-230 §5.5).",
    "ComputePansharpenWeights": "arcpy.management.ComputePansharpenWeights needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method grapy does not build (ADR-224 §5.5).",
    "ConfigureGeodatabaseLogFileTables": "arcpy.management.ConfigureGeodatabaseLogFileTables sets how an enterprise geodatabase keeps the log file tables ArcGIS clients write for large selections (session, shared or temporary tables per user); grapy's selections live in its layers, and no log file table is written.",
@@ -634,7 +634,7 @@
    "MergeMosaicDatasetItems": "arcpy.management.MergeMosaicDatasetItems is not built in grapy: an item made of several rasters is Esri's item raster, whose pixels and footprint the page does not say how to form; grapy's items are one raster file each (ADR-230 §5.2).",
    "MigrateDateFieldToHighPrecision": "arcpy.management.MigrateDateFieldToHighPrecision is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "MigrateObjectIDTo64Bit": "arcpy.management.MigrateObjectIDTo64Bit is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
-   "MigrateRelationshipClass": "arcpy.management.MigrateRelationshipClass has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/migrate-relationship-class.html answered 404 (checked 2026-10-30), so which fields it adds and what becomes of the old keys is unknown; grapy's classes have carried GlobalID fields since ADR-228.",
+   "MigrateRelationshipClass": "arcpy.management.MigrateRelationshipClass is not built in grapy: its page (tool-reference/data-management/migrate-relationship-class-tool.html, read 2026-10-31) says only that an ObjectID-based class becomes a GlobalID-based one, and not what the destination's integer foreign key becomes — retyped, replaced or joined by a new GUID field, under which name — nor what becomes of a many-to-many class's relationship table; grapy's classes have carried GlobalID fields since ADR-228.",
    "MigrateStorage": "arcpy.management.MigrateStorage moves a dataset's geometry or raster storage from one DBMS type to another (Esri's binary, ST_Geometry, SDO_Geometry, PostGIS geometry …); a GeoPackage has one geometry storage, the standard's binary encoding.",
    "MigrateTextField": "arcpy.management.MigrateTextField is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "MosaicDatasetToMobileMosaicDataset": "arcpy.management.MosaicDatasetToMobileMosaicDataset is not built in grapy: a mobile mosaic dataset is Esri's mobile geodatabase format (ADR-230 §5.5).",
@@ -669,7 +669,6 @@
    "SharePackage": "arcpy.management.SharePackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "SplitMosaicDatasetItems": "arcpy.management.SplitMosaicDatasetItems is not built in grapy: it splits items made of several rasters, which grapy's mosaic datasets do not hold (ADR-230 §5.2).",
    "SplitRaster": "arcpy.management.SplitRaster resamples or transforms cells by a method or extent rule the page does not define exactly.",
-   "StandardizeField": "arcpy.management.StandardizeField has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/standardize-field.html answered 404, and pro.arcgis.com's .../data-management/standardize-field.htm redirects to it (checked 2026-10-29), so its formulas and field names are unknown.",
    "SubdividePolygon": "arcpy.management.SubdividePolygon follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "SynchronizeChanges": "arcpy.management.SynchronizeChanges works on a geodatabase replica, which grapy cannot make: CreateReplica replicates data registered as traditionally versioned in an enterprise geodatabase and synchronises through its version states, and grapy's GeoPackages hold branch versions only (ADR-227, ADR-235 §5.6).",
    "TINCompare": "arcpy.management.TINCompare is not built in grapy: the columns of its comparison file are not documented.",
@@ -679,7 +678,7 @@
    "UpdateDataLoadingWorkspace": "arcpy.management.UpdateDataLoadingWorkspace reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "UpdateEnterpriseGeodatabaseLicense": "arcpy.management.UpdateEnterpriseGeodatabaseLicense writes an ArcGIS Server authorization (keycodes) file into an enterprise geodatabase's licence; a GeoPackage needs no licence, and Esri's keycodes are Esri's to issue.",
    "UpdateGeodatabaseConnectionPropertiesToBranch": "arcpy.management.UpdateGeodatabaseConnectionPropertiesToBranch is traditional versioning's or enterprise geodatabase administration, which grapy's branch versions do not have (ADR-227 §5.4).",
-   "UpdateInteriorOrientation": "arcpy.management.UpdateInteriorOrientation has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/update-interior-orientation.html answered 404, and pro.arcgis.com's update-interior-orientation.htm redirects to it (checked 2026-10-30), so its parameters and how it fits the affine are unknown.",
+   "UpdateInteriorOrientation": "arcpy.management.UpdateInteriorOrientation is not built in grapy: its page (tool-reference/data-management/update-interior-orientation-tool.html, read 2026-10-31) fits the affine from the fiducial table ComputeFiducials writes, whose fields neither page names, and does not say how the affine is fitted or where the film coordinates are kept in the mosaic dataset.",
    "UpdatePortalDatasetOwner": "arcpy.management.UpdatePortalDatasetOwner changes the owner of a dataset's items in an ArcGIS Enterprise portal; it reaches a portal, and a fenced user tool has no network and no access to its portal (ADR-223 §5.3).",
    "UpgradeDataset": "arcpy.management.UpgradeDataset is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "UpgradeGDB": "arcpy.management.UpgradeGDB upgrades a geodatabase's Esri system tables to the release of the ArcGIS client running it; a GeoPackage has no geodatabase release, and grapy makes its own tables when a tool first needs them.",
@@ -694,7 +693,7 @@
   "unexamined": []
  },
  "arcpy.na": {
-  "built": 36,
+  "built": 37,
   "equivalents": {
    "Solve": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
    "UpdateFleetRoutingAssignments": "Or-opt moves of each collection unit within its own route, traversal directions by dynamic programming (Or 1976; Beullens et al. 2003)",
@@ -702,7 +701,6 @@
   },
   "of": 62,
   "refused": {
-   "CheckIntersectingFeatures": "arcpy.na.CheckIntersectingFeatures has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/network-analyst/check-intersecting-features.html answered 404 (checked 2026-10-30).",
    "ClosestFacilitySolverProperties": "arcpy.na.ClosestFacilitySolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
    "CopyTraversedSourceFeatures": "arcpy.na.CopyTraversedSourceFeatures copies the network elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
    "CreateNetworkDatasetFromTemplate": "arcpy.na.CreateNetworkDatasetFromTemplate reads or writes Esri's network dataset template XML, whose schema is not published.",
@@ -962,7 +960,7 @@
   "unexamined": []
  },
  "arcpy.stats": {
-  "built": 37,
+  "built": 38,
   "equivalents": {
    "BivariateSpatialAssociation": "Lee's L by its documented formulas, its permutations drawn with NumPy's PCG64 from env.randomGenerator (Lee 2001; Lee 2009; Esri's \"How Bivariate Spatial Association (Lee's L) works\")",
    "CalculateCompositeIndex": "the documented scaling, combination and post-processing steps, with the OECD handbook's weighted arithmetic and geometric aggregation (Esri's \"How Calculate Composite Index works\"; OECD/JRC, Handbook on Constructing Composite Indicators, 2008, §6)",
@@ -971,9 +969,11 @@
    "DecomposeSpatialStructure": "Moran eigenvector maps: the eigenvectors of the doubly centred, symmetric spatial weights matrix (Griffith 1996; Dray, Legendre and Peres-Neto 2006)",
    "DensityBasedClustering": "DBSCAN (Ester, Kriegel, Sander and Xu 1996)",
    "DimensionReduction": "principal component analysis by the eigendecomposition of the sample covariance (or correlation) matrix (James, Witten, Hastie and Tibshirani, An Introduction to Statistical Learning, 2014, §10.2; Jolliffe, Principal Component Analysis, 2nd ed., 2002)",
+   "EvaluateBinSizes": "bin sizes scored over a full tessellation by the documented criteria, the scores smoothed by a cubic smoothing spline chosen by generalized cross-validation and bootstrapped with a seeded generator (Ramos 2025, Finding an Adequate Areal Unit to Map Crime, doi:10.1007/978-3-031-81580-5_2; Craven and Wahba 1979; Efron and Tibshirani 1993)",
    "GWR": "geographically weighted regression with a Gaussian or bisquare kernel and an AICc bandwidth chosen by golden-section search (Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002)",
    "GeneralizedLinearRegression": "a generalized linear model fitted by iteratively reweighted least squares — Gaussian identity, binomial logit, Poisson log (McCullagh and Nelder, Generalized Linear Models, 2nd ed., 1989)",
    "GeographicallyWeightedRegression": "geographically weighted regression with a Gaussian kernel, the bandwidth by golden-section search on AICc or cross-validation (Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002)",
+   "HotSpotAnalysisComparison": "the spatial fuzzy kappa as its pages define it, the expected similarity's random pairings drawn with NumPy's PCG64 from env.randomGenerator (How Hot Spot Analysis Comparison works; Hagen-Zanker 2009, IJGIS 23:1, 61-73)",
    "IncrementalSpatialAutocorrelation": "Global Moran's I over a series of fixed distance bands, its peaks read as distances (the Spatial Autocorrelation page's formulas; the outputs as the tool page's own sample reads them)",
    "LocalBivariateRelationships": "joint entropy by the power-weighted minimum spanning tree with a permutation test, the relationship typed by linear and quadratic least squares compared on AICc, its permutations drawn with NumPy's PCG64 from env.randomGenerator (Guo 2010; Hero, Ma, Michel and Gorman 2002; Hurvich and Tsai 1989; Benjamini and Hochberg 1995; Esri's \"How Local Bivariate Relationships works\")",
    "MGWR": "multiscale geographically weighted regression by back-fitting, a bandwidth per variable chosen on AICc (Fotheringham, Yang and Kang 2017; Oshan, Li, Kang, Wolf and Fotheringham 2019 (mgwr))",
@@ -990,7 +990,6 @@
   "refused": {
    "AttributeUncertainty": "arcpy.stats.AttributeUncertainty is not built in grapy — it reruns the analysis that made its input, which it identifies — tool and parameters — from the geoprocessing history ArcGIS Pro writes into the result layer's metadata, and grapy's outputs carry none; its pages also leave unstated the spread a margin of error at a confidence level gives, the bounds of its uniform and triangular draws and the fields it writes.",
    "BuildBalancedZones": "arcpy.stats.BuildBalancedZones is not built in grapy — its genetic growth algorithm leaves open which neighbour a growing zone adds next and how crossover combines two parents (shown only as a diagram), and does not say how equal area or compactness is measured.",
-   "CalculateAreas": "arcpy.stats.CalculateAreas is not built in grapy — its page is retired (404), so its output field cannot be checked; management.CalculateGeometryAttributes does its work.",
    "CausalInferenceAnalysis": "arcpy.stats.CausalInferenceAnalysis is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
    "CompareNeighborhoodConceptualizations": "arcpy.stats.CompareNeighborhoodConceptualizations is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
    "ConvertSSPopup": "arcpy.stats.ConvertSSPopup is not built in grapy — it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts.",
@@ -1000,7 +999,6 @@
    "DescribeSSMFile": "arcpy.stats.DescribeSSMFile is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "DirectionalTrend": "arcpy.stats.DirectionalTrend is not built in grapy — its output is a chart on a layer in the active map, and the tool cannot run without one.",
    "EstimateTimeToEvent": "arcpy.stats.EstimateTimeToEvent is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
-   "EvaluateBinSizes": "arcpy.stats.EvaluateBinSizes is not built in grapy — its page answers 404, so its recommendation cannot be checked.",
    "EvaluateVariableInfluence": "arcpy.stats.EvaluateVariableInfluence is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "ExploratoryRegression": "arcpy.stats.ExploratoryRegression is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
    "FilterSpatialAutocorrelationFromField": "arcpy.stats.FilterSpatialAutocorrelationFromField is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
@@ -1009,7 +1007,6 @@
    "GenerateNetworkSpatialWeights": "arcpy.stats.GenerateNetworkSpatialWeights is not built in grapy — it needs a network dataset and writes an .swm file.",
    "GenerateSpatialWeightsMatrix": "arcpy.stats.GenerateSpatialWeightsMatrix is not built in grapy — its output, an .swm file, has no published layout.",
    "GroupingAnalysis": "arcpy.stats.GroupingAnalysis is not built in grapy — it was retired for Multivariate Clustering, whose seeds are random.",
-   "HotSpotAnalysisComparison": "arcpy.stats.HotSpotAnalysisComparison is not built in grapy — its page answers 404, so its similarity measures cannot be checked.",
    "PredictUsingSSMFile": "arcpy.stats.PredictUsingSSMFile is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "PresenceOnlyPrediction": "arcpy.stats.PresenceOnlyPrediction is not built in grapy — its MaxEnt fit is named but not specified: its pages give neither the regularization penalty nor its values, nor the hinge function's linear segment, nor how background points are sampled or the entropy term H of its link functions is found.",
    "SetSSMFileProperties": "arcpy.stats.SetSSMFileProperties is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published."
@@ -1058,7 +1055,7 @@
    "SetCircuitProperties": "arcpy.un.SetCircuitProperties needs a telecom domain network: the Add Telecom Domain Network page names the tool's parameters but not the classes and tables a telecom domain network has — its circuits, sections, subcircuits, unit identifiers and colour and wavelength schemes — and every telecom tool and the circuit trace read or write those, so grapy cannot build them from the pages without inventing Esri's telecom schema.",
    "SetTelecomObjectCombinePolicy": "arcpy.un.SetTelecomObjectCombinePolicy needs a telecom domain network: the Add Telecom Domain Network page names the tool's parameters but not the classes and tables a telecom domain network has — its circuits, sections, subcircuits, unit identifiers and colour and wavelength schemes — and every telecom tool and the circuit trace read or write those, so grapy cannot build them from the pages without inventing Esri's telecom schema.",
    "SetTelecomObjectDividePolicy": "arcpy.un.SetTelecomObjectDividePolicy needs a telecom domain network: the Add Telecom Domain Network page names the tool's parameters but not the classes and tables a telecom domain network has — its circuits, sections, subcircuits, unit identifiers and colour and wavelength schemes — and every telecom tool and the circuit trace read or write those, so grapy cannot build them from the pages without inventing Esri's telecom schema.",
-   "UpdateUtilityNetworkSchema": "arcpy.un.UpdateUtilityNetworkSchema has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/utility-networks/update-utility-network-schema.html answered 404 (checked 2026-10-30).",
+   "UpdateUtilityNetworkSchema": "arcpy.un.UpdateUtilityNetworkSchema has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/utility-networks/update-utility-network-schema.html answered 404, and doc.esri.com's ArcGIS Pro 3.7 sitemap lists no page for it under any name (checked 2026-10-31).",
    "VerifyCircuits": "arcpy.un.VerifyCircuits needs a telecom domain network: the Add Telecom Domain Network page names the tool's parameters but not the classes and tables a telecom domain network has — its circuits, sections, subcircuits, unit identifiers and colour and wavelength schemes — and every telecom tool and the circuit trace read or write those, so grapy cannot build them from the pages without inventing Esri's telecom schema.",
    "VerifyNetworkTopology": "arcpy.un.VerifyNetworkTopology checks or repairs the consistency of Esri's persisted network index, which grapy does not hold: grapy's topology is rebuilt from its record at every trace (ADR-231 §5.4)."
   },

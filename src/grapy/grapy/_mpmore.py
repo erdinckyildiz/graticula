@@ -32,6 +32,7 @@ import shapely
 from . import _multipatch as M
 from ._result import Result
 from ._runtime import AddWarning, ExecuteError, NotBuiltError
+from ._runtime import _is_given, _is_set  # noqa: E402 — a Raster is never compared with ==
 
 _DWG_FBX = "it is Autodesk's format, and Autodesk has not published it"
 _FORMATS = {
@@ -55,7 +56,7 @@ def _refuse(module, tool, parameter, value, why):
 
 
 def _list(value):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return []
     if isinstance(value, (list, tuple)):
         return [str(v).strip() for v in value if str(v).strip()]
@@ -63,7 +64,7 @@ def _list(value):
 
 
 def _flag(value, on, default=False):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return default
     if isinstance(value, bool):
         return value
@@ -233,7 +234,7 @@ def MultipatchToCollada(in_features, output_folder, prepend_source="PREPEND_NONE
     os.makedirs(output_folder, exist_ok=True)
     prefix = _source_name(in_features) + "_" if _flag(prepend_source, "PREPEND_SOURCE_NAME") else ""
     field = None
-    if field_name not in (None, "", "#"):
+    if _is_given(field_name):
         field = next((c.name for c in columns if c.name.lower() == str(field_name).lower()), None)
         if field is None and str(field_name).upper() not in ("OBJECTID", "OID", "FID", "OID@"):
             raise ExecuteError(f"ERROR 000728: the field '{field_name}' does not exist in '{in_features}'.")
@@ -330,7 +331,7 @@ def MultipatchToRaster(in_multipatch_features, out_raster, cell_size=None, cell_
     right, top = tris[:, :, 0].max(), tris[:, :, 1].max()
     snap = as_raster(env.snapRaster, f"arcpy.conversion.{tool}") if getattr(env, "snapRaster", None) else None
     size = _cell(cell_size, f"arcpy.conversion.{tool}")
-    if size is None and getattr(env, "cellSize", None) not in (None, "", "MAXOF", "MINOF"):
+    if size is None and _is_set(getattr(env, "cellSize", None), "MAXOF", "MINOF"):
         size = _cell(env.cellSize, f"arcpy.conversion.{tool}")
     if size is None and snap is not None:
         size = float(snap._grid.width)
@@ -482,7 +483,7 @@ def SkylineBarrier(in_observer_point_features, in_features, out_feature_class, m
         raise ExecuteError(f"ERROR: arcpy.ddd.{tool}: there is no observer point.")
 
     def amount(value, values):
-        if value in (None, "", "#"):
+        if not _is_given(value):
             return 0.0
         if isinstance(value, str) and value.lower() in names:
             v = values[names[value.lower()]]
@@ -750,7 +751,7 @@ def Export3DObjects(in_features, target_folder, formats, name_field=None, overwr
         raise ExecuteError(f"ERROR 000732: arcpy.management.{tool}: the target folder '{target_folder}' does not exist.")
     columns, srid, rows = _features(in_features, tool, "management")
     field = None
-    if name_field not in (None, "", "#"):
+    if _is_given(name_field):
         field = next((c.name for c in columns if c.name.lower() == str(name_field).lower()), None)
         if field is None:
             raise ExecuteError(f"ERROR 000728: the field '{name_field}' does not exist in '{in_features}'.")
@@ -811,7 +812,7 @@ def _read_model(path, y_up):
 
 
 def _point(value):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return 0.0, 0.0
     if hasattr(value, "X"):
         return float(value.X), float(value.Y)
@@ -843,9 +844,9 @@ def Import3DObjects(files_and_folders, updated_features, update="UPDATE_EXISTING
         raise ExecuteError(f"ERROR 000735: arcpy.management.{tool} found no 3D model to import.")
     y_up = str(y_is_up or "Y_IS_UP").upper() != "Z_IS_UP"
     dx, dy = _point(translate)
-    dz = float(elevation) if elevation not in (None, "", "#") else 0.0
-    k = float(scale) if scale not in (None, "", "#") else 1.0
-    angle = math.radians(float(rotate)) if rotate not in (None, "", "#") else 0.0
+    dz = float(elevation) if _is_given(elevation) else 0.0
+    k = float(scale) if _is_given(scale) else 1.0
+    angle = math.radians(float(rotate)) if _is_given(rotate) else 0.0
     turn = np.array([[math.cos(angle), math.sin(angle), 0], [-math.sin(angle), math.cos(angle), 0], [0, 0, 1]])
     models = []
     for path in paths:
