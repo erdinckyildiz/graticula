@@ -10,6 +10,7 @@ import os
 from . import _gpkg, _units
 from ._result import Result
 from ._runtime import NotBuiltError
+from ._runtime import _is_given, _is_set  # noqa: E402 — a Raster is never compared with ==
 
 _FIELD_TYPES = {"SHORT": "SmallInteger", "LONG": "Integer", "BIGINTEGER": "BigInteger", "FLOAT": "Single",
                 "DOUBLE": "Double", "TEXT": "String", "DATE": "Date", "GUID": "Guid", "BLOB": "Blob"}
@@ -3155,15 +3156,13 @@ def AlterAliasName(table, alias):
 # ---- random points ------------------------------------------------------------------------------------------------------
 
 def _seed():
-    """The seed of ``env.randomGenerator`` — ``"<seed> <generator>"`` or a number — and 0 when it is not set.
-    INFERRED: grapy draws with NumPy's PCG64 from that seed, so a run repeats itself exactly; it cannot repeat arcpy's
-    own generator, whose sequence is not published."""
+    """What ``numpy.random.default_rng`` is seeded with for ``env.randomGenerator`` — ``"<seed> <generator>"``, a
+    number, or a RandomNumberGenerator (CreateRandomValueGenerator), 0 when it is not set: the seed for ACM599 and
+    STANDARD_C (NumPy's PCG64), and for MERSENNE_TWISTER an MT19937 seeded by init_genrand (ADR-247 §5.2, see
+    ``grapy._randomgen``). A run repeats itself exactly; it cannot repeat arcpy's own streams, which are not published."""
+    from ._randomgen import _numpy_seed
     from ._runtime import env
-    value = getattr(env, "randomGenerator", None)
-    if value is None or str(value).strip() == "":
-        return 0
-    first = str(value).split()[0]
-    return int(float(first))
+    return _numpy_seed(getattr(env, "randomGenerator", None))
 
 
 def CreateRandomPoints(out_path, out_name, constraining_feature_class=None, constraining_extent=None,
@@ -3394,9 +3393,9 @@ def GetRasterProperties(in_raster, property_type=None, band_index=None):
     from ._raster import _band_number
     whole = _raster_in(in_raster, "GetRasterProperties", bands=True)
     raster = whole
-    if band_index not in (None, "", "#") or whole.bandCount > 1:
+    if _is_given(band_index) or whole.bandCount > 1:
         # INFERRED: band_index is one-based or a band's name; the first band when none is given.
-        number = 1 if band_index in (None, "", "#") else _band_number(str(band_index), whole.bandNames,
+        number = 1 if not _is_given(band_index) else _band_number(str(band_index), whole.bandNames,
                                                                        "GetRasterProperties' raster")
         raster = whole._band(number)
     kind = str(property_type or "").upper()
@@ -4187,7 +4186,7 @@ def BuildPyramids(in_raster_dataset, pyramid_level=-1, SKIP_FIRST="NONE", resamp
     file's own. Deleting pyramids (level 0) is not built."""
     import rasterio
     from rasterio.enums import Resampling
-    level = int(pyramid_level if pyramid_level not in (None, "", "#") else -1)
+    level = int(pyramid_level if _is_given(pyramid_level) else -1)
     if level == 0:
         raise NotBuiltError("arcpy.management.BuildPyramids: deleting pyramids (pyramid_level 0) is not built in grapy.")
     technique = {"NEAREST": Resampling.nearest, "BILINEAR": Resampling.bilinear, "CUBIC": Resampling.cubic}.get(
@@ -4787,7 +4786,7 @@ def _validate_topology(in_topology, visible_extent="Full_Extent"):
     Cracking (inserting a shared vertex where features cross) is not done; the rules' predicates do not need it."""
     from . import _topology as topo, da
     from ._runtime import env
-    if str(visible_extent or "Full_Extent").upper() in ("VISIBLE_EXTENT", "TRUE") or env.extent not in (None, "", "DEFAULT", "MAXOF"):
+    if str(visible_extent or "Full_Extent").upper() in ("VISIBLE_EXTENT", "TRUE") or _is_set(env.extent, "DEFAULT", "MAXOF"):
         raise NotBuiltError("arcpy.management.ValidateTopology over the visible or an environment extent is not built in "
                             "grapy; a server tool has no map view, and the whole topology is validated.")
     connection, file, _, name, (_, tolerance) = _topology(in_topology)
@@ -5209,11 +5208,6 @@ _REASONS = {
         "LoadDataToPreview", "GenerateMappingTable", "EditRasterFunction", "ConvertRasterFunctionTemplate",
         "GenerateRasterFromRasterFunction", "GenerateTableFromRasterFunction", "CreateCustomGeoTransformation",
         "CreateCustomVerticalTransformation", "CreateParquetCache", "ResampleLibrarySpectra", "CreateSpatialReference"),
-    "is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages": (
-        "CompressFileGeodatabaseData", "UncompressFileGeodatabaseData", "RecoverFileGDB", "GenerateFgdbLicense",
-        "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
-        "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
-        "CalculateDefaultClusterTolerance", "AddFullTextIndex"),
     "needs colormapped rasters, raster properties grapy does not keep, or a colour-composite or pansharpening method "
     "grapy does not build (ADR-224 §5.5)": (
         "CreateColorComposite", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights",
@@ -5250,10 +5244,6 @@ _REFUSED = {name: f"needs a data model this server does not hold yet (ADR-224 gr
             for model, names in _GROUP_2_MODELS.items() for name in names}
 _REFUSED.update({name: reason for reason, names in _REASONS.items() for name in names})
 
-_REFUSED["StandardizeField"] = (
-    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/standardize-field.html "
-    "answered 404, and pro.arcgis.com's .../data-management/standardize-field.htm redirects to it (checked 2026-10-29), "
-    "so its formulas and field names are unknown")
 
 
 def __getattr__(name):
@@ -6242,6 +6232,60 @@ def TransformField(in_table, fields, method="BOX-COX", power=None, shift=None):
         with da.UpdateCursor(path, [source, own[name.lower()]]) as rows:
             for row in rows:
                 rows.updateRow([row[0], transform(row[0])])
+    return Result(_text(in_table))
+
+
+def StandardizeField(in_table, fields, method="Z-SCORE", min_value=None, max_value=None):
+    """Each field's values rescaled into an output field added to the input, by the page's four equations
+    (tool-reference/data-management/standardizefield.html, read 2026-10-31): ``Z-SCORE`` (x − mean) / σ with σ the
+    population standard deviation, as the page says (dividing by N); ``MIN-MAX`` a + (x − min)(b − a) / (max − min);
+    ``MAXABS`` x / max|x|; ``ROBUST`` (x − median) / IQR. ``fields`` is a value table of [input_field, output_field],
+    the output name optional; an existing output field is overwritten, as documented. INFERRED (Q-215), the page being
+    silent: a missing output name is ``<field>_<METHOD>`` with ``-`` written ``_`` (``votes_Z_SCORE``, the form of the
+    page's own example); MIN-MAX's scale is 0 to 1 when no minimum or maximum is given; the interquartile range is
+    numpy's linear percentile (Hyndman and Fan's type 7); a null stays null, and a field whose spread is zero gives
+    nulls; the new field is a double."""
+    import numpy
+    from . import da
+    from ._runtime import ExecuteError
+    kind = str(method or "Z-SCORE").upper().replace("_", "-")
+    kind = {"MINMAX": "MIN-MAX", "ZSCORE": "Z-SCORE"}.get(kind, kind)
+    if kind not in ("Z-SCORE", "MIN-MAX", "MAXABS", "ROBUST"):
+        raise ExecuteError(f"ERROR 000800: method '{method}' is not Z-SCORE, MIN-MAX, MAXABS or ROBUST.")
+    low = float(min_value) if _given(min_value) else 0.0
+    high = float(max_value) if _given(max_value) else 1.0
+    path = _plain("StandardizeField", in_table)
+    own = {c.name.lower(): c.name for c in _schema(path)[0]}
+    for pair in _pairs(fields):
+        source = own.get(str(pair[0]).lower())
+        if source is None:
+            raise ExecuteError(f"ERROR 000728: field '{pair[0]}' does not exist within table.")
+        target = str(pair[1]) if len(pair) > 1 and _given(pair[1]) else f"{source}_{kind.replace('-', '_')}"
+        with da.SearchCursor(path, [source]) as rows:
+            present = numpy.array([float(r[0]) for r in rows if r[0] is not None])
+        if kind == "Z-SCORE":
+            centre, spread = (present.mean(), present.std()) if present.size else (0.0, 0.0)
+        elif kind == "MIN-MAX":
+            centre = present.min() if present.size else 0.0
+            spread = (present.max() - centre) / (high - low) if present.size and high != low else 0.0
+        elif kind == "MAXABS":
+            centre, spread = 0.0, (numpy.abs(present).max() if present.size else 0.0)
+        else:
+            q1, median, q3 = numpy.percentile(present, [25, 50, 75]) if present.size else (0.0, 0.0, 0.0)
+            centre, spread = median, q3 - q1
+        offset = low if kind == "MIN-MAX" else 0.0
+
+        def rescale(x):
+            if x is None or not spread:
+                return None
+            return offset + (float(x) - centre) / spread
+
+        if target.lower() not in own:
+            AddField(path, target, "DOUBLE")
+            own[target.lower()] = target
+        with da.UpdateCursor(path, [source, own[target.lower()]]) as rows:
+            for row in rows:
+                rows.updateRow([row[0], rescale(row[0])])
     return Result(_text(in_table))
 
 
@@ -7287,9 +7331,10 @@ for _built in ("AddSubtype", "AlterSubtype", "RemoveSubtype", "SetDefaultSubtype
                "UpgradeAttachments", "GeoTaggedPhotosToPoints", "MatchPhotosToRowsByTime"):
     _REFUSED.pop(_built, None)
 _REFUSED["MigrateRelationshipClass"] = (
-    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/"
-    "migrate-relationship-class.html answered 404 (checked 2026-10-30), so which fields it adds and what becomes of "
-    "the old keys is unknown; grapy's classes have carried GlobalID fields since ADR-228")
+    "is not built in grapy: its page (tool-reference/data-management/migrate-relationship-class-tool.html, read "
+    "2026-10-31) says only that an ObjectID-based class becomes a GlobalID-based one, and not what the destination's "
+    "integer foreign key becomes — retyped, replaced or joined by a new GUID field, under which name — nor what "
+    "becomes of a many-to-many class's relationship table; grapy's classes have carried GlobalID fields since ADR-228")
 
 
 # ---- LAS datasets and TINs (ADR-229): built in _las and _tintools, answered here under arcpy.management's names
@@ -7501,11 +7546,12 @@ _REFUSED.update({
                       "which grapy never writes (ADR-234 §5.5)",
     "ComputeFiducials": "is not built in grapy: its page does not name how fiducials are found from the templates, nor "
                         "the fields of the fiducial table it writes, and the one tool that reads that table, "
-                        "UpdateInteriorOrientation, has no page grapy could read (ADR-234 §5.5)",
-    "UpdateInteriorOrientation": "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/"
-                                 "data-management/update-interior-orientation.html answered 404, and pro.arcgis.com's "
-                                 "update-interior-orientation.htm redirects to it (checked 2026-10-30), so its "
-                                 "parameters and how it fits the affine are unknown",
+                        "UpdateInteriorOrientation, does not name them either (ADR-234 §5.5)",
+    "UpdateInteriorOrientation": "is not built in grapy: its page (tool-reference/data-management/"
+                                 "update-interior-orientation-tool.html, read 2026-10-31) fits the affine from the "
+                                 "fiducial table ComputeFiducials writes, whose fields neither page names, and does not "
+                                 "say how the affine is fitted or where the film coordinates are kept in the mosaic "
+                                 "dataset",
     "GeneratePointCloud": "is not built in grapy: its page says repeated runs give different points because of random "
                           "sampling, and its ETM and MVM matchers are described without their algorithms; only SGM is "
                           "cited (ADR-234 §5.5)",
@@ -7541,3 +7587,12 @@ from . import _mdmore, _mpmore  # noqa: E402
 ExtractSubDataset = _mdmore.ExtractSubDataset
 Export3DObjects = _mpmore.Export3DObjects
 Import3DObjects = _mpmore.Import3DObjects
+
+# ---- ADR-247: storage properties read again against a GeoPackage
+from . import _storage  # noqa: E402
+
+AddFullTextIndex = _storage.AddFullTextIndex
+CalculateDefaultClusterTolerance = _storage.CalculateDefaultClusterTolerance
+MigrateDateFieldToHighPrecision = _storage.MigrateDateFieldToHighPrecision
+MigrateObjectIDTo64Bit = _storage.MigrateObjectIDTo64Bit
+_REFUSED.update(_storage.REFUSED)

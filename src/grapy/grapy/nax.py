@@ -239,12 +239,17 @@ class NetworkDataset:
     ``edges()`` and ``junctions()`` answer the documented properties, then the values of the attributes named, under a
     travel mode. INFERRED: an edge is read once in each direction, ``DIRECTION`` True along its digitised direction, its
     positions and junctions in the direction of travel; every junction is a system junction here, with the system
-    junction source's id, its own EID as SOURCEOID, no cost and no restriction. Turns, time of day, live traffic,
-    custom evaluators and custom directions are refused."""
+    junction source's id, its own EID as SOURCEOID, no cost and no restriction. ``customEvaluators`` holds temporary
+    custom evaluators for the solvers made from this object, and ``updateNetworkDatasetSchema(custom_evaluators=...)``
+    persists them (ADR-246). Time of day, live traffic and custom directions are refused."""
 
     def __init__(self, in_network):
         self._path = str(_network.LAYERS.get(str(in_network), in_network))
         _network.open_network(self._path)[0].close()
+        self._evaluators = []
+
+    def __str__(self):
+        return self._path
 
     def _query(self, sql, parameters=()):
         connection, _, _, name = _network.open_network(self._path)
@@ -282,12 +287,16 @@ class NetworkDataset:
 
     @property
     def customEvaluators(self):
-        return []
+        return list(self._evaluators)
 
     @customEvaluators.setter
     def customEvaluators(self, value):
-        if value:
-            raise NotBuiltError("arcpy.nax: custom evaluators are script evaluators, refused (ADR-226 §5.1).")
+        from ._evaluators import AttributeEvaluator
+        evaluators = list(value or [])
+        for evaluator in evaluators:
+            if not isinstance(evaluator, AttributeEvaluator):
+                raise TypeError("customEvaluators takes instances of subclasses of arcpy.nax.AttributeEvaluator.")
+        self._evaluators = evaluators
 
     @property
     def directionsCustomizer(self):
@@ -322,7 +331,7 @@ class NetworkDataset:
         if time_of_day is not None:
             raise NotBuiltError("arcpy.nax.NetworkDataset: time_of_day needs traffic, refused until it is defined "
                                 "(ADR-226 §5.3).")
-        return _network.Graph(self._path, travel_mode)
+        return _network.Graph(self._path, travel_mode, self._evaluators)
 
     @staticmethod
     def _check(properties, allowed, travel_mode):
@@ -420,10 +429,15 @@ class NetworkDataset:
 
     def updateNetworkDatasetSchema(self, custom_evaluators=None, custom_directions=None, openlr_traffic_service_id=None,
                                    openlr_traffic_feed_ids=None, travel_modes=None):
-        """Only ``travel_modes`` is built: each travel mode given added or replaced. INFERRED: the others are kept."""
-        if custom_evaluators or custom_directions or openlr_traffic_service_id or openlr_traffic_feed_ids:
-            raise NotBuiltError("arcpy.nax: custom evaluators (script evaluators), custom directions and live traffic are "
-                                "refused (ADR-226 §5.1, §5.3).")
+        """``travel_modes`` - each travel mode given added or replaced - and ``custom_evaluators`` - persisted custom
+        evaluators, {attribute: {"class": "folder.module.Class", "sourceNames": [...]}} (ADR-246). INFERRED: the
+        others are kept. Custom directions and live traffic are refused."""
+        if custom_directions or openlr_traffic_service_id or openlr_traffic_feed_ids:
+            raise NotBuiltError("arcpy.nax: custom directions write Esri's direction text, whose rules are not published, "
+                                "and live traffic is refused (ADR-226 §5.3).")
+        if custom_evaluators:
+            from ._evaluators import persist
+            persist(self._path, custom_evaluators)
         for name, mode in (travel_modes or {}).items():
             travel = TravelMode(mode)
             _network.add_travel_mode(self._path, name, travel.impedance, travel.restrictions, travel.timeAttributeName,
@@ -450,6 +464,7 @@ class _Solver:
     _INPUT_TYPES: tuple = ()
 
     def __init__(self, in_network):
+        self._evaluators = list(getattr(in_network, "_evaluators", None) or [])   # a NetworkDataset's temporary ones
         source = str(in_network)
         if source.lower().startswith(("http://", "https://")) or isinstance(in_network, dict):
             raise NotBuiltError("A portal or ArcGIS Server routing service reaches a network, and a fenced tool has none "
@@ -557,7 +572,7 @@ class _Solver:
         if self.timeOfDay is not None:
             raise NotBuiltError("arcpy.nax: timeOfDay needs traffic, refused until it is defined (ADR-226 §5.3).")
         _refuse_mode(self.travelMode)
-        return _network.Graph(self.networkDataSource, self.travelMode)
+        return _network.Graph(self.networkDataSource, self.travelMode, self._evaluators)
 
     def _located(self, graph, input_type, prefix):
         per = _network._per_unit(graph.srid) or 1.0
@@ -613,6 +628,16 @@ class _Solver:
                 out[f"{prefix}_{attribute}_Other"] = value
         return out
 
+    def _traverse(self, graph, routes, outputs, wanted):
+        """What the routes traversed (ADR-246): each output asked for, written from the paths the solve kept."""
+        from . import _traversal
+        traversal = _traversal.of_routes(graph, routes)
+        rows = _traversal.result_rows(traversal, self._totals)
+        for kind, (asked, output_type) in wanted.items():
+            if asked:
+                outputs[output_type] = rows[kind]
+        return traversal
+
     def _inputs_out(self, items, extra=None):
         rows = []
         for item in items:
@@ -627,8 +652,9 @@ class _Solver:
 class _Result:
     """A solve's outputs, by output type: counted, read with a cursor, exported to a feature class."""
 
-    def __init__(self, outputs, srid, succeeded):
+    def __init__(self, outputs, srid, succeeded, traversal=None):
         self._outputs, self._srid = outputs, srid
+        self._traversal = traversal
         self.solveSucceeded = succeeded
         self.isPartialSolution = False
 
@@ -640,7 +666,7 @@ class _Result:
     def _rows(self, output_type):
         if output_type not in self._outputs:
             raise NotBuiltError(f"arcpy.nax: the output {getattr(output_type, 'name', output_type)} is not built in grapy "
-                                "(route edges, junctions, turns and directions are not).")
+                                "(directions are not: Esri's direction rules are not published).")
         return self._outputs[output_type]
 
     def count(self, output_type):
@@ -725,7 +751,9 @@ class Route(_Solver):
     """EQUIVALENT: routes through stops by Dijkstra's shortest path (ADR-226 §5.4); see ``_network.solve_route``.
     ``findBestSequence`` (with ``preserveFirstStop`` and ``preserveLastStop``) and ``returnToStart`` solve the
     travelling salesman problem by ``_network.best_order`` (ADR-239). ``returnDirections`` is refused (Esri's direction
-    rules are not published)."""
+    rules are not published). ``returnRouteEdges``, ``returnRouteJunctions`` and ``returnRouteTurns`` keep what the
+    routes traversed as RouteEdges, RouteJunctions and RouteTurns (ADR-246), True by default as documented for a
+    network dataset."""
 
     __grapy_equivalent__ = _EQUIVALENT
     _INPUT_TYPES = tuple(RouteInputDataType)
@@ -738,6 +766,7 @@ class Route(_Solver):
         self.preserveLastStop = False
         self.returnToStart = False
         self.returnDirections = False
+        self.returnRouteEdges = self.returnRouteJunctions = self.returnRouteTurns = True
         self.routeShapeType = RouteShapeType.TrueShapeWithMeasures
 
     def solve(self):
@@ -764,8 +793,12 @@ class Route(_Solver):
             cumul = result.pop("_cumul", {})
             result.pop(f"Cumul_{graph.impedance}", None)
             extra[key] = {**result, **(self._totals(graph, cumul, "Cumul") if cumul else {})}
-        return _Result({RouteOutputDataType.Routes: routes, RouteOutputDataType.Stops: self._inputs_out(stops, extra)},
-                       graph.srid, bool(routes))
+        outputs = {RouteOutputDataType.Routes: routes, RouteOutputDataType.Stops: self._inputs_out(stops, extra)}
+        traversal = self._traverse(graph, routes, outputs, {
+            "edges": (self.returnRouteEdges, RouteOutputDataType.RouteEdges),
+            "junctions": (self.returnRouteJunctions, RouteOutputDataType.RouteJunctions),
+            "turns": (self.returnRouteTurns, RouteOutputDataType.RouteTurns)})
+        return _Result(outputs, graph.srid, bool(routes), traversal)
 
 
 class ClosestFacility(_Solver):
@@ -801,9 +834,11 @@ class ClosestFacility(_Solver):
             route["ObjectID"] = n
             route.pop(f"Total_{graph.impedance}", None)
             route.update(self._totals(graph, route.pop("_totals"), "Total"))
-        return _Result({ClosestFacilityOutputDataType.Routes: routes,
-                        ClosestFacilityOutputDataType.Facilities: self._inputs_out(facilities),
-                        ClosestFacilityOutputDataType.Incidents: self._inputs_out(incidents)}, graph.srid, bool(routes))
+        outputs = {ClosestFacilityOutputDataType.Routes: routes,
+                   ClosestFacilityOutputDataType.Facilities: self._inputs_out(facilities),
+                   ClosestFacilityOutputDataType.Incidents: self._inputs_out(incidents)}
+        traversal = self._traverse(graph, routes, outputs, {"edges": (True, ClosestFacilityOutputDataType.RouteEdges)})
+        return _Result(outputs, graph.srid, bool(routes), traversal)
 
 
 class OriginDestinationCostMatrix(_Solver):
@@ -1256,6 +1291,27 @@ VehicleRoutingProblemResult = LastMileDeliveryResult = WasteCollectionResult = _
 from .na import (CreateTurnFeatureClass, IncreaseMaximumEdges, PopulateAlternateIDFields,  # noqa: E402,F401
                  UpdateByAlternateIDFields, UpdateByGeometry)
 
+# ---- custom evaluators and traversed elements (ADR-246) -------------------------------------------------------------
+
+from . import _evaluators, _traversal  # noqa: E402
+
+AttributeEvaluator = _evaluators.AttributeEvaluator
+NetworkElement = _evaluators.NetworkElement
+Edge = _evaluators.Edge
+AdjacentEdge = _evaluators.AdjacentEdge
+Junction = _evaluators.Junction
+Turn = _evaluators.Turn
+Attribute = _evaluators.Attribute
+AttributeParameter = _evaluators.AttributeParameter
+AttributeUsage = _evaluators.AttributeUsage
+AttributeParameterUsage = _evaluators.AttributeParameterUsage
+NetworkTimeUsage = _evaluators.NetworkTimeUsage
+TraversedElement = _traversal.TraversedElement
+TraversedEdge = _traversal.TraversedEdge
+TraversedJunction = _traversal.TraversedJunction
+TraversedTurn = _traversal.TraversedTurn
+TraversedElementType = _traversal.TraversedElementType
+
 
 # ---- refused by name -----------------------------------------------------------------------------------------------
 
@@ -1267,13 +1323,6 @@ _REASONS["writes or customises Esri's direction text, landmarks and street names
     "DirectionPoint", "DirectionPointType", "DirectionsCustomizer", "DirectionsFieldMapping", "DirectionsName",
     "DirectionsQuery", "DirectionsStyle", "ReferenceLandmark", "ReferenceLandmarkType", "SpatialLandmark", "LandmarkSide",
     "NameClass")
-_REASONS["belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — "
-         "which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the "
-         "elements"] = (
-    "NetworkElement", "Edge", "Junction", "Turn", "AdjacentEdge", "Attribute", "AttributeEvaluator",
-    "AttributeParameter", "AttributeParameterUsage", "AttributeUsage", "NetworkTimeUsage")
-_REASONS["is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements"] = (
-    "TraversedEdge", "TraversedElement", "TraversedElementType", "TraversedJunction", "TraversedTurn")
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
 from .na import _REFUSED as _NA_REFUSED  # noqa: E402 — nax documents the same network tools
 for _name in ("CreateNetworkDatasetFromTemplate", "CreateTemplateFromNetworkDataset", "DissolveNetwork",

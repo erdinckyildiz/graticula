@@ -20,6 +20,7 @@ from ._runtime import (AddError, AddIDMessage, AddMessage, AddReturnMessage, Add
                        GetSeverity, GetSeverityLevel, GetSystemEnvironment, ListEnvironments, NotBuiltError, ResetEnvironments,
                        ResetProgressor, SetParameter, SetParameterAsText, SetProgressor, SetProgressorLabel,
                        SetProgressorPosition, SetSeverityLevel, env)
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 __version__ = "0.1.0"
 
@@ -383,7 +384,7 @@ def ListFeatureClasses(wild_card=None, feature_type=None, feature_dataset=None):
     """The feature classes of the current workspace, filtered by a case-insensitive wildcard and by shape type (Point,
     Multipoint, Polyline, Polygon; Line is Polyline). INFERRED: a GeoPackage has no feature datasets, so naming one
     answers an empty list, and the feature types grapy cannot hold (Annotation, Dimension, Multipatch …) find none."""
-    if feature_dataset not in (None, "", "#"):
+    if _is_given(feature_dataset):
         return []
     wanted = str(feature_type or "All").upper()
     wanted = "POLYLINE" if wanted == "LINE" else wanted
@@ -754,7 +755,7 @@ class Value:
 
     @property
     def isEmpty(self):
-        return self.value in (None, "")
+        return self.value is None or (isinstance(self.value, str) and self.value == "")
 
     def __str__(self):
         return "" if self.value is None else str(self.value)
@@ -970,15 +971,11 @@ def InsertCursor(dataset, spatial_reference=None):
 # ---- the remaining names, each refused with its reason ---------------------------------------------------------------
 
 _NO_ARCGIS = "it answers about an ArcGIS installation, license or product, and grapy is not ArcGIS"
-_NO_TOOLBOXES = "it reads Esri's toolbox catalogue — tool parameters, usage text, toolbox lists — which grapy does not reproduce"
 _NO_NETWORK_STORAGE = "it reaches cloud storage, and a fenced user tool has no network (ADR-223 §5.4)"
 _ESRI_CATALOGUE = "it answers from Esri's own catalogue of coordinate systems, transformations or raster products, " \
                   "which grapy does not hold"
 _REFUSED_NAMES.update({name: _NO_ARCGIS for name in ("GetInstallInfo", "ProductInfo", "ListInstallations", "SetProduct",
                                                      "GetPackageInfo")})
-_REFUSED_NAMES.update({name: _NO_TOOLBOXES for name in ("AddToolbox", "ImportToolbox", "RemoveToolbox", "ListToolboxes",
-                                                        "ListTools", "Usage", "GetParameterInfo", "GetParameterValue",
-                                                        "Command")})
 _REFUSED_NAMES.update({name: _NO_NETWORK_STORAGE for name in ("AIO", "AIOFileOpen", "CloudPathType")})
 _REFUSED_NAMES.update({name: _ESRI_CATALOGUE for name in ("ListSpatialReferences", "ListTransformations",
                                                           "ListRasterProducts")})
@@ -1012,9 +1009,6 @@ _REFUSED_NAMES.update({
              "are unknown"
        for name, path in (("GetPCSFromDataSource", "functions/getpcsfromdatasource"),
                           ("ViewContext", "mapping/viewcontext-class"))},
-    "RandomNumberGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same answer",
-    "CreateRandomValueGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same "
-                                  "answer",
 })
 
 
@@ -1062,3 +1056,8 @@ def __getattr__(name):
 
 # ---- ADR-245: GetUTMFromLocation from ArcMap's arcpy page, and arcpy.ia's Mensuration, which arcpy also answers
 from ._imagefns import GetUTMFromLocation, Mensuration  # noqa: E402,F401
+
+# ---- ADR-247: random number generators, and toolboxes in a session (Python toolboxes and grapy's own tools)
+from ._randomgen import CreateRandomValueGenerator, RandomNumberGenerator  # noqa: E402,F401
+from ._toolboxes import (AddToolbox, Command, GetParameterInfo, GetParameterValue, ImportToolbox,  # noqa: E402,F401
+                         ListToolboxes, ListTools, RemoveToolbox, Usage)

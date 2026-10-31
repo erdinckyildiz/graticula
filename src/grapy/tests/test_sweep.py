@@ -114,6 +114,24 @@ class Sweep(unittest.TestCase):
         # The two natural groups 1–3 and 10–12.
         self.assertEqual([r[0] for r in self.rows(groups, ["nb_CLASS"])], [1, 1, 1, 2, 2, 2])
 
+    def test_standardize_field_by_the_pages_four_equations(self):
+        data = self.table("s", [("x", "DOUBLE")], [(v,) for v in (1.0, 2.0, 3.0, 4.0, None)])
+        arcpy.management.StandardizeField(data, "x")
+        # Z-score with the population deviation (dividing by N): mean 2.5, sigma sqrt(1.25).
+        z = [r[0] for r in self.rows(data, ["x_Z_SCORE"])]
+        for got, want in zip(z, [(v - 2.5) / math.sqrt(1.25) for v in (1, 2, 3, 4)]):
+            self.assertAlmostEqual(got, want, delta=1e-12)
+        self.assertIsNone(z[4])
+        arcpy.management.StandardizeField(data, [["x", "scaled"]], "MIN-MAX", 10, 20)
+        self.assertEqual([r[0] for r in self.rows(data, ["scaled"])][:4], [10.0, 10 + 10 / 3, 10 + 20 / 3, 20.0])
+        arcpy.management.StandardizeField(data, "x", "MAXABS")
+        self.assertEqual([r[0] for r in self.rows(data, ["x_MAXABS"])][:4], [0.25, 0.5, 0.75, 1.0])
+        arcpy.management.StandardizeField(data, "x", "ROBUST")
+        # median 2.5, IQR 3.25 - 1.75 = 1.5 (linear percentiles)
+        robust = [r[0] for r in self.rows(data, ["x_ROBUST"])][:4]
+        for got, want in zip(robust, [(v - 2.5) / 1.5 for v in (1, 2, 3, 4)]):
+            self.assertAlmostEqual(got, want, delta=1e-12)
+
     def test_convert_coordinate_notation(self):
         origin = self.table("o", [("lon", "DOUBLE"), ("lat", "DOUBLE")], [(0.0, 0.0), (500.0, 0.0)])
         mgrs = arcpy.management.ConvertCoordinateNotation(origin, self.out("m.gpkg"), "lon", "lat", "DD_2", "MGRS")[0]

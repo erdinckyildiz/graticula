@@ -23,6 +23,7 @@ import os
 import numpy as np
 
 from ._runtime import NotBuiltError, equivalent as _equivalent
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _sa():
@@ -35,7 +36,7 @@ def _refuse(module, tool, parameter, value, why):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 # =====================================================================================================================

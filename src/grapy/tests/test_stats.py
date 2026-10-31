@@ -57,6 +57,17 @@ class Stats(unittest.TestCase):
         with arcpy.da.SearchCursor(path, fields) as read:
             return [tuple(r) for r in read]
 
+    # ---- Calculate Areas (ArcMap's page; Pro's documentation dropped it)
+
+    def test_calculate_areas_writes_f_area_in_square_units_of_the_output_system(self):
+        squares = self.make("sq", "POLYGON", [("F_AREA", "DOUBLE")],
+                            [(1.0, "POLYGON((0 0,10 0,10 10,0 10,0 0))"), (None, "POLYGON((0 0,2 0,2 3,0 3,0 0))")])
+        out = arcpy.stats.CalculateAreas(squares, self.out("areas"))[0]
+        self.assertEqual([r[0] for r in self.rows(out, ["F_AREA"])], [100.0, 6.0])     # overwritten, as documented
+        lines = self.make("ln", "POLYLINE", [], [("LINESTRING(0 0,1 1)",)])
+        with self.assertRaises(arcpy.ExecuteError):
+            arcpy.stats.CalculateAreas(lines, self.out("bad"))
+
     # ---- Average Nearest Neighbor
 
     def test_average_nearest_neighbor_by_the_documented_formula(self):

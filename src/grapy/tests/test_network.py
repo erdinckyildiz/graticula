@@ -336,15 +336,27 @@ class Network(unittest.TestCase):
         self.assertIn("direction", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError):
             _network.add_attribute(self.network, "Script", "Cost", "Meters", [("roads", "BOTH", "SCRIPT", "x")])
-        for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "RouteSolverProperties", "solver"),
-                                    (nax, "Edge", "custom evaluators"), (nax, "TraversedEdge", "traversed"),
-                                    (nax, "DissolveNetwork", "dissolves")):
+        for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "Directions", "direction"),
+                                    (nax, "DirectionsQuery", "direction"), (nax, "DissolveNetwork", "dissolves")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(module, name)()
             self.assertIn(words, str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.nd.ApplyRotateTreeLayout("diagram")
         self.assertIn("pivot junctions", str(raised.exception))
+
+    def test_check_intersecting_features_counts_edge_source_features_against_the_cutoff(self):
+        # The function's page: True when the edge source features the layer intersects are no more than the cutoff.
+        box = arcpy.management.CreateFeatureclass(self.directory, "box.gpkg", "POLYGON", spatial_reference=3857)[0]
+        arcpy.management.AddField(box, "Name", "TEXT")
+        with arcpy.da.InsertCursor(box, ["Name", "SHAPE@"]) as written:
+            written.insertRow(("west", "POLYGON((-1 -1,11 -1,11 1,-1 1,-1 -1))"))   # AB, BC, BD: three roads
+            written.insertRow(("far", "POLYGON((50 50,60 50,60 60,50 60,50 50))"))   # none
+        self.assertTrue(na.CheckIntersectingFeatures(self.network, box))
+        self.assertTrue(na.CheckIntersectingFeatures(self.network, box, 3))
+        self.assertFalse(na.CheckIntersectingFeatures(self.network, box, 2))
+        layer = arcpy.management.MakeFeatureLayer(box, "far_only", "Name = 'far'")[0]
+        self.assertTrue(na.CheckIntersectingFeatures(self.network, layer, 0))
 
 
 if __name__ == "__main__":

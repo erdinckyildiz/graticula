@@ -22,6 +22,7 @@ from . import _gpkg
 from ._geometry import Geometry, Point, wrap
 from ._reference import SpatialReference
 from ._runtime import NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _columns(fields, described, oid):
@@ -821,7 +822,7 @@ def CreateTable(path, fields=None, shape=None, configuration=None):
     class (ADR-238). A default value and ``configuration`` (enterprise geodatabases only) are refused by name."""
     from . import ValidateFieldName
     from ._reference import reference_of
-    if configuration not in (None, "", "#"):
+    if _is_given(configuration):
         raise NotBuiltError("arcpy.da.CreateTable: configuration applies to enterprise geodatabases only, which a GeoPackage is not.")
     columns = []
     if fields is not None and hasattr(fields, "names") and fields.names:

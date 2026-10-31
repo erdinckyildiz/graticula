@@ -18,6 +18,7 @@ import os
 from . import _gpkg, da
 from ._result import Result
 from ._runtime import NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _out(path):
@@ -42,7 +43,7 @@ def _refuse(tool, parameter, value, why):
 def _given(value):
     if isinstance(value, (list, tuple)):
         return any(_given(v) for v in value)
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _beside(path, suffix):

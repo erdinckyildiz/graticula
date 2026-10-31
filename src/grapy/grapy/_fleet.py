@@ -1585,6 +1585,7 @@ def fleet_outputs(fleet, line_shape="ALONG_NETWORK", schema="Two", sequence_gap=
                     "TotalDistance": dist(plan["distance"]), "StartTime": stamp(plan["start"]),
                     "EndTime": stamp(plan["end"]), "TotalWaitTime": t(plan["wait"]),
                     "TotalViolationTime": t(plan["violation"]), "SHAPE": shape})
+        out["_legs"] = list(legs)                                     # what the route traversed (ADR-246)
         if not lmd:
             out.update({"TotalBreakServiceTime": t(plan["break_service"]), "StartTimeUTC": None, "EndTimeUTC": None,
                         "RenewalCount": len(plan["segments"] or [1]) - 1,

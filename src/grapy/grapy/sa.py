@@ -18,6 +18,7 @@ import numpy as np
 from ._raster import Raster, _Bands, _combine, _Grid, _open_bands, _refuse_environment, as_raster
 from ._raster import NumPyArrayToRaster, RasterToNumPyArray  # noqa: F401 — arcpy.sa answers these too
 from ._runtime import NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 # ---- one-input mathematics
 
@@ -627,7 +628,7 @@ def Slice(in_raster, number_zones, slice_type="EQUAL_INTERVAL", base_output_zone
           class_interval_size=None):
     """Zones of equal width (``EQUAL_INTERVAL``) or equal count (``EQUAL_AREA``) over the input's range."""
     for name, value in (("nodata_to_value", nodata_to_value), ("class_interval_size", class_interval_size)):
-        if value not in (None, "", "#"):
+        if _is_given(value):
             raise NotBuiltError(f"Slice: {name} is not built in grapy yet.")
     raster = as_raster(in_raster, "Slice")
     values = raster._values().astype(np.float64)
@@ -788,7 +789,7 @@ def EucDistance(in_source_data, maximum_distance=None, cell_size=None, out_direc
         sources = ~empty
     distance = distance_transform_edt(~sources, sampling=(grid.height, grid.width))
     mask = np.zeros(distance.shape, bool)
-    if maximum_distance not in (None, "", "#"):
+    if _is_given(maximum_distance):
         mask = distance > float(maximum_distance)
     return Raster._of(np.where(mask, 0, distance).astype(np.float32), mask, grid)
 
@@ -1011,7 +1012,7 @@ def _refuse(tool, parameter, value, why=""):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _is_raster(value):

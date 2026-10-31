@@ -12,6 +12,7 @@ import shapely
 
 from ._result import Result
 from ._runtime import ExecuteError, NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 
 def _refuse(tool, parameter, value, why=""):
@@ -19,7 +20,7 @@ def _refuse(tool, parameter, value, why=""):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _field(path, name):

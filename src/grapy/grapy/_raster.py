@@ -8,9 +8,13 @@ arcpy's documented rules:
 - **Several rasters are combined over the intersection of their extents**, arcpy's default for map algebra, when
   their cells line up: the same cell size and origins a whole number of cells apart. Grids that do not line up need
   resampling, which is not built, and are refused by name.
-- **Integer stays integer** where arcpy's operator keeps it (+, -, *, //, %, comparisons and Boolean operators), and
-  so does ``/`` of two integers: Esri's Divide page says *"If both inputs are integers, an integer division is
-  performed … if 3 is divided by 2, the output is 1."* INFERRED: it truncates toward zero, so −3 / 2 is −1.
+- **Integer stays integer** where arcpy's operator keeps it (+, -, *, //, %, comparisons and Boolean operators).
+  ``/`` does not: the "/ (Division) operator" page (doc.esri.com, read 2026-10-31) says *"The floating-point division
+  of Python 3 is used for this operator, and the output will always be a floating-point value"* and points to ``//``
+  for an integer output. The Divide *tool* (arcpy.sa.Divide, arcpy.ddd.Divide) is a different name with a different
+  rule — its page, read the same day, says *"If both inputs are integers, an integer division is performed … if 3 is
+  divided by 2, the output is 1"* — so the tool keeps it (``_divide(..., integer=True)``) and the operator does not.
+  INFERRED: the tool's integer division truncates toward zero, so −3 / 2 is −1.
 """
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ import os
 import numpy as np
 
 from ._reference import SpatialReference
-from ._runtime import NotBuiltError, env
+from ._runtime import NotBuiltError, _is_set, env
 
 
 class _Grid:
@@ -66,9 +70,9 @@ class _Grid:
 def _refuse_environment(tool):
     """Settings arcpy's raster tools honour and grapy does not yet: refused rather than ignored."""
     for name in ("cellSize", "mask", "snapRaster"):
-        if getattr(env, name, None) not in (None, "", "MAXOF", "MINOF"):
+        if _is_set(getattr(env, name, None), "MAXOF", "MINOF"):
             raise NotBuiltError(f"{tool}: the '{name}' environment setting is not built in grapy yet.")
-    if env.extent not in (None, "", "MAXOF", "MINOF", "INTERSECTION_OF_INPUTS", "DEFAULT"):
+    if _is_set(env.extent, "MAXOF", "MINOF", "INTERSECTION_OF_INPUTS", "DEFAULT"):
         raise NotBuiltError(f"{tool}: the 'extent' environment setting is not built for rasters in grapy yet.")
 
 
@@ -527,8 +531,8 @@ class Raster:
     def __rsub__(self, o): return self._rbinary(o, np.subtract)
     def __mul__(self, o): return self._binary(o, np.multiply)
     def __rmul__(self, o): return self._rbinary(o, np.multiply)
-    def __truediv__(self, o): return _divide(self, o)
-    def __rtruediv__(self, o): return _divide(o, self)
+    def __truediv__(self, o): return _divide(self, o, integer=False)
+    def __rtruediv__(self, o): return _divide(o, self, integer=False)
     def __floordiv__(self, o): return _combine([self, o], _floor_divide)
     def __rfloordiv__(self, o): return _combine([o, self], _floor_divide)
     def __mod__(self, o): return _combine([self, o], _modulo)
@@ -686,12 +690,14 @@ def _combine(values, operation, keep_integer=True, tool="arcpy.sa"):
     return Raster._of(result, mask, grid)
 
 
-def _divide(a, b):
+def _divide(a, b, integer=True):
+    """Division with NoData where the divisor is zero. ``integer`` is the Divide tool's rule (two integers divide as
+    integers); the ``/`` operator passes False, because its page says its output is always floating point."""
     def operation(x, y):
         x, y = np.asarray(x), np.asarray(y)
         zero = y == 0
         quotient = np.divide(x.astype(float), np.where(zero, 1.0, y.astype(float)))
-        if np.issubdtype(x.dtype, np.integer) and np.issubdtype(y.dtype, np.integer):
+        if integer and np.issubdtype(x.dtype, np.integer) and np.issubdtype(y.dtype, np.integer):
             return np.trunc(quotient).astype(np.int64), zero
         return quotient, zero
     return _combine([a, b], operation)

@@ -7,6 +7,22 @@ from __future__ import annotations
 
 import os
 
+def _is_given(value):
+    """Whether an optional parameter was given: not None, and not an empty or ``#`` string. Tested by type and
+    identity, never with ``in (None, \"\", \"#\")``: that compares with ``==``, which on a Raster is map algebra
+    and answers a (truthy) Raster, so a Raster passed as an optional argument read as not given."""
+    return value is not None and not (isinstance(value, str) and value.strip() in ("", "#"))
+
+
+def _is_set(value, *unset):
+    """Whether an environment setting or keyword parameter holds something other than None, an empty or ``#`` string,
+    or one of the ``unset`` keywords (``MAXOF``, ``MINOF`` …), compared without case. By type, as ``_is_given``: a
+    Raster in ``env.mask``, ``env.snapRaster`` or ``env.cellSize`` is set."""
+    if not _is_given(value):
+        return False
+    return not (isinstance(value, str) and value.strip().upper() in {w.upper() for w in unset})
+
+
 MESSAGES: list[dict] = []
 PARAMETERS: list = []
 

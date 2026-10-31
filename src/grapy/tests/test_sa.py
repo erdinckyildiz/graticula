@@ -52,14 +52,27 @@ class MapAlgebra(unittest.TestCase):
         self.assertEqual(cells((a > 1) & (b < 30)), [[0, 1], [0, -1]])
         self.assertEqual(cells(~(a > 1)), [[1, 0], [0, -1]])
 
-    def test_division_of_integers_is_integer_and_a_zero_divisor_is_nodata(self):
-        # Divide's page: "If both inputs are integers, an integer division is performed … 3 divided by 2 is 1."
+    def test_the_divide_tool_divides_integers_as_integers_and_a_zero_divisor_is_nodata(self):
+        # The Divide tool's page: "If both inputs are integers, an integer division is performed … 3 divided by 2 is 1."
         a = grid([[1, 3], [4, 8]])
         b = grid([[2, 0], [4, 3]])
-        divided = a / b
+        divided = sa.Divide(a, b)
         self.assertTrue(divided.isInteger)
         self.assertEqual(cells(divided), [[0, -1], [1, 2]])
         self.assertEqual(cells(sa.Divide(grid([[-3, 3]]), 2)), [[-1, 1]])
+        self.assertEqual(cells(sa.Divide(grid([[3]]), 2.0)), [[1.5]])
+
+    def test_the_division_operator_is_always_floating_point(self):
+        # The "/ (Division) operator" page: "the output will always be a floating-point value" — 3 / 2 is 1.5 —
+        # and // is the operator for an integer output.
+        a = grid([[1, 3], [4, 8]])
+        b = grid([[2, 0], [4, 3]])
+        divided = a / b
+        self.assertFalse(divided.isInteger)
+        self.assertEqual(cells(divided), [[0.5, -1], [1.0, 8 / 3]])
+        self.assertEqual(cells(grid([[3, -3]]) / 2), [[1.5, -1.5]])
+        self.assertEqual(cells(6 / grid([[4]])), [[1.5]])
+        self.assertTrue((a // b).isInteger)
         floating = sa.Float(a) / b
         self.assertFalse(floating.isInteger)
         self.assertEqual(cells(floating), [[0.5, -1], [1.0, 8 / 3]])
@@ -246,6 +259,41 @@ class DistanceAndExtraction(unittest.TestCase):
         self.assertEqual((constant.width, constant.height, cells(constant)[0][0]), (3, 2, 7))
         a = grid([[1, 2], [3, 4]])
         self.assertEqual(cells(sa.RasterCalculator([a], ["dem"], "Con(dem > 2, dem * 10, 0)")), [[0, 0], [30, 40]])
+
+
+class RasterAsAnOptionalArgument(unittest.TestCase):
+    """A Raster's == is map algebra, so ``value not in (None, "", "#")`` asked it ``raster == None`` and took the
+    (truthy) Raster that came back for a match: a Raster passed as an optional argument read as not given."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+
+    def tearDown(self):
+        arcpy.env.mask = None
+
+    def test_given_is_decided_by_type_not_by_equality(self):
+        from grapy._runtime import _is_given, _is_set
+        raster = grid([[0, 0], [0, 0]])
+        self.assertTrue(sa._given(raster))
+        self.assertTrue(_is_given(raster))
+        self.assertTrue(_is_set(raster, "MAXOF", "MINOF"))
+        for unset in (None, "", "#", " "):
+            self.assertFalse(sa._given(unset))
+        self.assertFalse(_is_set("maxof", "MAXOF", "MINOF"))
+        self.assertTrue(sa._given(0))
+
+    def test_a_weight_raster_object_weights_flow_accumulation(self):
+        dem = [[100 - 10 * k - 3 * r for k in range(4)] for r in range(4)]
+        direction = sa.FlowDirection(grid(dem))
+        plain = cells(sa.FlowAccumulation(direction))
+        weighted = cells(sa.FlowAccumulation(direction, grid([[2] * 4] * 4)))
+        self.assertEqual(weighted, [[2 * v for v in row] for row in plain])
+
+    def test_a_raster_in_the_mask_environment_is_refused_not_ignored(self):
+        arcpy.env.mask = grid([[1, 1], [1, 1]])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.Divide(grid([[4]]), 2)
 
 
 if __name__ == "__main__":

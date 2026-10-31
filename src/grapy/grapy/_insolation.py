@@ -33,6 +33,7 @@ import datetime as _dt
 import math
 
 import numpy as np
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 S_CONST = 1367.0  # W/m², the page's World Radiation Center solar constant
 
@@ -77,7 +78,7 @@ class TimeMultipleDays(_Time):
     _fields = ("year", "startDay", "endDay")
 
     def __init__(self, year=None, startDay=5, endDay=160):
-        self.year = int(year) if year not in (None, "", "#") else _current_year()
+        self.year = int(year) if _is_given(year) else _current_year()
         self.startDay, self.endDay = int(startDay), int(endDay)
 
 
@@ -91,7 +92,7 @@ class TimeWholeYear(_Time):
     _fields = ("year",)
 
     def __init__(self, year=None):
-        self.year = int(year) if year not in (None, "", "#") else _current_year()
+        self.year = int(year) if _is_given(year) else _current_year()
 
 
 def _leap(year):

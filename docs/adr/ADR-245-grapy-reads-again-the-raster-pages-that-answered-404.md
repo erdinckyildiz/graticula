@@ -170,9 +170,11 @@ property); a polygon's length is its boundary's.
   (equivalents 29 → 34), `arcpy.sa` 208 → 225 (equivalents 21 → 26).
 - No refusal says *404 on 2026-10-29*, *could not be found* or *display rendering* any more.
 - **Negative.** Two names rest on ArcMap's page. A Raster read past its edge now answers NaN instead of wrapping.
-- **Found, not changed.** The `/ (Division) operator` page now says *"the output will always be a floating-point value
-  … if 3 is divided by 2, the output is 1.5"*; grapy's `Raster.__truediv__` follows the earlier wording (two integers divide
-  as integers, `_raster.py`'s module docstring). Raised in the report for whoever holds that code.
+- **Found, then changed.** The `/ (Division) operator` page now says *"the output will always be a floating-point value
+  … if 3 is divided by 2, the output is 1.5"*; grapy's `Raster.__truediv__` followed the earlier wording (two integers divide
+  as integers, `_raster.py`'s module docstring). Changed on branch grapy-a, 2026-10-31: `/` is always floating point. The
+  Divide *tool* pages (Spatial Analyst and 3D Analyst, read the same day) still document integer division of two
+  integers, so `arcpy.sa.Divide`, `arcpy.ia.Divide` and `arcpy.ddd.Divide` keep it — two names, two documented rules.
 - **Ports created.** None; numpy, scipy, rasterio and pyproj, already held.
 
 ## 7. Assumptions this decision rests on

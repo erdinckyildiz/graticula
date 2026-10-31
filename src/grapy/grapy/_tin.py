@@ -33,6 +33,7 @@ import shapely
 
 from . import _gpkg
 from ._runtime import AddWarning, ExecuteError, NotBuiltError, env
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 EXTENSION = "grapy_tin"
 DEFINITION = "Graticula ADR-229: grapy's TINs"
@@ -393,7 +394,7 @@ def rows_of(value, columns):
     """A value table parameter as rows of ``columns`` strings: a ValueTable, a list of lists or strings, or a string
     with ``;`` between rows and spaces between values."""
     from ._parameter import ValueTable, _tokens
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return []
     if isinstance(value, ValueTable):
         value = [[value.getValue(r, c) for c in range(value.columnCount)] for r in range(value.rowCount)]

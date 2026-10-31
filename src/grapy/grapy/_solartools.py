@@ -11,6 +11,7 @@ import numpy as np
 
 from . import _insolation as _ins
 from ._runtime import NotBuiltError, equivalent
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 LEGACY = (_ins.FU_RICH, _ins.FU_RICH_SOURCE)
 MODERN = ("the Fu and Rich direct and diffuse equations evaluated each half hour with the sun placed by NOAA's "
@@ -27,7 +28,7 @@ def _refuse(tool, parameter, value, why):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _flag(value, yes, default=False):

@@ -664,10 +664,10 @@ class Registered(unittest.TestCase):
         for name in ("Deburst", "Despeckle", "ComputeCoherence", "GenerateInterferogram", "ApplyComplexDataFilter",
                      "UnwrapPhase", "ComputeSARIndices", "DetectBrightOceanObjects", "DetectDarkOceanAreas",
                      "ExtractOceanWinds", "ApplyGeometricTerrainCorrection", "ApplyRadiometricTerrainFlattening",
-                     "ApplyCoregistration", "GenerateRadiometricTerrainCorrectedData", "RadarCalibration"):
+                     "ApplyCoregistration", "GenerateRadiometricTerrainCorrectedData", "RadarCalibration",
+                     "S1RadiometricCalibration", "S1ThermalNoiseRemoval"):
             self.assertTrue(getattr(arcpy.ia, name).__grapy_equivalent__, name)
-        for name, words in (("DownloadOrbitFile", "no network"), ("S1RadiometricCalibration", "404"),
-                            ("S1ThermalNoiseRemoval", "404"), ("ExtractVideoFramesToImages", "no video"),
+        for name, words in (("DownloadOrbitFile", "no network"), ("ExtractVideoFramesToImages", "no video"),
                             ("VideoMultiplexer", "no video"), ("VideoMetadataToFeatureClass", "no video"),
                             ("GenerateVideoMetadataStationary", "no video")):
             with self.assertRaises(NotBuiltError) as said:
@@ -684,6 +684,22 @@ class Registered(unittest.TestCase):
         self.assertTrue(out.catalogPath.startswith(d))
         self.assertIsInstance(out, arcpy.Raster)
         self.assertAlmostEqual(float(out._array[0, 0]), 100 ** 2 / 400 ** 2, delta=1e-6)
+
+    def test_the_sentinel_1_raster_functions_answer_as_their_tools_do(self):
+        # The Sentinel-1 Radiometric Calibration and Thermal Noise Removal raster function pages (read 2026-10-31).
+        d = tempfile.mkdtemp()
+        dn = np.full((F.ROWS, F.COLS), 100, np.uint16)
+        name = F.safe(d, "GRD", {"VV": dn})
+        with arcpy.EnvManager(scratchWorkspace=d):
+            calibrated = arcpy.ia.S1RadiometricCalibration(name, "SIGMA_NOUGHT")
+            self.assertAlmostEqual(float(calibrated._array[0, 0]), 100 ** 2 / 400 ** 2, delta=1e-6)
+            denoised = arcpy.ia.S1ThermalNoiseRemoval(name)
+        tool = os.path.join(d, "tool.tif")
+        arcpy.ia.RemoveThermalNoise(name, tool)
+        self.assertIsInstance(denoised, arcpy.Raster)
+        self.assertTrue(np.allclose(denoised._array, arcpy.Raster(tool)._array))
+        with self.assertRaises(arcpy.ExecuteError):
+            arcpy.ia.S1RadiometricCalibration(F.safe(tempfile.mkdtemp(), "GRD", {"VV": dn}, ipf="002.34"))
 
 
 if __name__ == "__main__":

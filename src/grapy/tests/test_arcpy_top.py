@@ -394,7 +394,7 @@ class LegacyAndScriptTools(_Folder):
         self.assertFalse(arcpy.Exists(multi + "/nowhere"))
 
     def test_each_refused_name_says_why(self):
-        for name, said in (("GetInstallInfo", "not ArcGIS"), ("ListTools", "toolbox catalogue"),
+        for name, said in (("GetInstallInfo", "not ArcGIS"), ("GetIDMessage", "message catalogue"),
                            ("AIO", "network"), ("ListTransformations", "catalogue"), ("Multipatch", "documents no Multipatch class"),
                            ("Annotation", "Element BLOB field"), ("Chart", "application"), ("ViewContext", "has no documentation"),
                            ("Render", "symbology")):

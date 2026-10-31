@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import math
 import re
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 # Standard (winter) offsets in hours of Windows' time zone names (CLDR's windowsZones mapping, offsets of the
 # standard time of each zone).
@@ -72,7 +73,7 @@ ZONES = {
 
 def offset(time_zone, default=0.0):
     """Hours east of UTC of a time zone name; ``UTC±h[:mm]`` is read as written."""
-    if time_zone in (None, "", "#"):
+    if not _is_given(time_zone):
         return float(default)
     name = str(time_zone).strip().replace(" ", "_")
     for key, hours in ZONES.items():

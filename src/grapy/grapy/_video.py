@@ -17,6 +17,7 @@ import shlex
 
 from ._result import Result
 from ._runtime import AddMessage, ExecuteError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 #: (MISB ST 0601 tag, name as the page writes it, the kind of unit it is held in)
 FIELDS = [
@@ -54,7 +55,7 @@ _BY_KEY = {_key(name): (tag, name, kind) for tag, name, kind in FIELDS}
 def _rows_of(value):
     """A value table as rows of (target, source, unit): a list of lists, or arcpy's text form, rows split by ';'
     and values by spaces, quoted where they hold one."""
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return []
     if isinstance(value, (list, tuple)):
         rows = [list(r) if isinstance(r, (list, tuple)) else shlex.split(str(r)) for r in value]
@@ -145,7 +146,7 @@ def ConvertVideoMetadata(in_metadata_file, out_metadata_file, out_mapping_file=N
         w.writerow(out_header)
         w.writerows(written)
     outputs = [target]
-    if out_mapping_file not in (None, "", "#"):
+    if _is_given(out_mapping_file):
         mapping = os.fspath(out_mapping_file)
         with open(mapping, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)

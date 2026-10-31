@@ -125,6 +125,9 @@ ApplyCoregistration = _equivalent(*_sar_tools.COREGISTRATION)(_sar_tools.ApplyCo
 GenerateRadiometricTerrainCorrectedData = _equivalent(*_sar_tools.RTC)(
     _sar_tools.GenerateRadiometricTerrainCorrectedData)
 RadarCalibration = _equivalent(*_sar_tools.CALIBRATION_FUNCTION)(_sar_tools.RadarCalibration)
+S1RadiometricCalibration = _equivalent(*_sar_tools.CALIBRATION_FUNCTION)(_sar_tools.S1RadiometricCalibration)
+S1ThermalNoiseRemoval = _equivalent("RemoveThermalNoise's denoising on every band", "ESA MPC-0392")(
+    _sar_tools.S1ThermalNoiseRemoval)
 ConvertVideoMetadata = _video.ConvertVideoMetadata
 
 for _built in ("ApplyRadiometricCalibration", "RemoveThermalNoise", "Multilook", "ConvertSARUnits",
@@ -132,20 +135,16 @@ for _built in ("ApplyRadiometricCalibration", "RemoveThermalNoise", "Multilook",
                "Despeckle", "ComputeCoherence", "GenerateInterferogram", "ApplyComplexDataFilter", "UnwrapPhase",
                "ComputeSARIndices", "DetectBrightOceanObjects", "DetectDarkOceanAreas", "ExtractOceanWinds",
                "ApplyGeometricTerrainCorrection", "ApplyRadiometricTerrainFlattening", "ApplyCoregistration",
-               "GenerateRadiometricTerrainCorrectedData", "RadarCalibration", "ConvertVideoMetadata"):
+               "GenerateRadiometricTerrainCorrectedData", "RadarCalibration", "ConvertVideoMetadata",
+               "S1RadiometricCalibration", "S1ThermalNoiseRemoval"):
     _REFUSED.pop(_built, None)
 
 _NO_VIDEO = ("and a user tool on this server has no video demuxer, muxer or decoder: none is among grapy's libraries, "
              "and grapy does not vendor one (ADR-237 §5.6)")
-_NO_S1_PAGE = ("its arcpy.ia reference page could not be read (doc.esri.com's arcpy/image-analyst and raster function "
-               "pages answered 404 on 2026-10-31), so its parameters are unknown")
 _REFUSED.update({
     "DownloadOrbitFile": "it downloads orbit files from the Copernicus Data Space Ecosystem, and a user tool on this "
                          "server has no network (ADR-223 §5.3); ApplyOrbitCorrection applies an orbit file the tool "
                          "is given",
-    "S1RadiometricCalibration": _NO_S1_PAGE + "; ApplyRadiometricCalibration and RadarCalibration calibrate "
-                                              "Sentinel-1 data",
-    "S1ThermalNoiseRemoval": _NO_S1_PAGE + "; RemoveThermalNoise removes Sentinel-1 thermal noise",
     "ExtractVideoFramesToImages": "it decodes the frames of a video file (.ts, .mp4, .avi …) into images, " + _NO_VIDEO,
     "GenerateVideoMetadataStationary": "it writes a .ts video file, its input's video stream multiplexed with "
                                        "generated MISB ST 0601 metadata, " + _NO_VIDEO,

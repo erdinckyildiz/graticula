@@ -22,6 +22,7 @@ from __future__ import annotations
 import numpy as np
 
 from ._raster import Raster, _open_bands, _refuse_environment
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 SEGMENT_MEAN_SHIFT = ("mean shift filtering in the joint spatial-range domain with a flat kernel, region delineation "
                       "and small-region merging",
@@ -56,7 +57,7 @@ def _chosen_bands(source, band_indexes, tool):
     """The bands used: as given; else all three of a 3-band raster; else bands 1, 2 and 3, since grapy's rasters do not
     record which bands are red, green and blue (the page's own fallback); a single band is grey."""
     count = source.bandCount
-    if band_indexes not in (None, "", "#"):
+    if _is_given(band_indexes):
         parts = band_indexes if isinstance(band_indexes, (list, tuple)) else str(band_indexes).replace(",", " ").split()
         numbers = [int(p) for p in parts]
         for n in numbers:
@@ -274,7 +275,7 @@ def _painted(labels, colours, mask, grid):
 
 
 def _detail(value, default, name, tool, integer=False):
-    if value in (None, "", "#"):
+    if not _is_given(value):
         return default
     number = float(value)
     if not 1.0 <= number <= 20.0:
@@ -298,8 +299,8 @@ def SegmentMeanShift(in_raster, spectral_detail=None, spatial_detail=None, min_s
     _refuse_environment(f"arcpy.sa.{tool}")
     spectral = _detail(spectral_detail, _DEFAULT_SPECTRAL, "spectral_detail", tool)
     spatial = _detail(spatial_detail, _DEFAULT_SPATIAL, "spatial_detail", tool, integer=True)
-    minimum = int(min_segment_size) if min_segment_size not in (None, "", "#") else _DEFAULT_MINIMUM
-    maximum = int(max_segment_size) if max_segment_size not in (None, "", "#") else -1
+    minimum = int(min_segment_size) if _is_given(min_segment_size) else _DEFAULT_MINIMUM
+    maximum = int(max_segment_size) if _is_given(max_segment_size) else -1
     source = _open_bands(in_raster, tool)
     numbers = _chosen_bands(source, band_indexes, tool)
     mask = np.logical_or.reduce([source._masks[n - 1] for n in numbers])
@@ -319,14 +320,14 @@ def SegMeanShift(raster, spectral_detail=None, spatial_detail=None, spectral_rad
     source = _open_bands(raster, tool)
     if source.bandCount != 3 or any(a.dtype != np.uint8 for a in source._arrays):
         raise ValueError("SegMeanShift: the input raster must be a 3-band, unsigned 8-bit image, as the page says.")
-    if astype not in (None, "", "#") and str(astype).upper() not in ("U8", "UINT8", "8_BIT_UNSIGNED"):
+    if _is_given(astype) and str(astype).upper() not in ("U8", "UINT8", "8_BIT_UNSIGNED"):
         from .sa import _refuse
         _refuse(tool, "astype", astype, "the segments' colours are 8-bit, and the page lists no other pixel type")
 
     def radius(given, detail, default, name):
-        if given not in (None, "", "#"):
+        if _is_given(given):
             value = float(given)
-        elif detail not in (None, "", "#"):
+        elif _is_given(detail):
             value = 21.0 - float(detail)
         else:
             return 21.0 - default
@@ -336,7 +337,7 @@ def SegMeanShift(raster, spectral_detail=None, spatial_detail=None, spectral_rad
 
     hr = radius(spectral_radius, spectral_detail, _DEFAULT_SPECTRAL, "spectral_radius")
     hs = radius(spatial_radius, spatial_detail, _DEFAULT_SPATIAL, "spatial_radius")
-    minimum = int(min_num_pixels_per_segment) if min_num_pixels_per_segment not in (None, "", "#") else _DEFAULT_MINIMUM
+    minimum = int(min_num_pixels_per_segment) if _is_given(min_num_pixels_per_segment) else _DEFAULT_MINIMUM
     mask = np.logical_or.reduce(source._masks)
     colours = np.stack([a.astype(np.float64) for a in source._arrays], axis=-1)
     labels = segment(colours, mask, hs, hr, minimum)
@@ -393,7 +394,7 @@ def ComputeSegmentAttributes(in_segmented_raster, in_additional_raster=None, use
     from .management import _list
     tool = "ComputeSegmentAttributes"
     _refuse_environment(f"arcpy.sa.{tool}")
-    chosen = [str(a).upper() for a in _list(used_attributes)] if used_attributes not in (None, "", "#") else \
+    chosen = [str(a).upper() for a in _list(used_attributes)] if _is_given(used_attributes) else \
         ["COLOR", "COUNT", "COMPACTNESS", "RECTANGULARITY"]
     for name in chosen:
         if name not in _ATTRIBUTES:
@@ -462,8 +463,8 @@ def RemoveRasterSegmentTilingArtifacts(in_segmented_raster, tileSizeX=None, tile
     INFERRED: the criterion; the seams counted from the top-left corner; the output keeps the input's bands."""
     tool = "RemoveRasterSegmentTilingArtifacts"
     _refuse_environment(f"arcpy.sa.{tool}")
-    tx = int(tileSizeX) if tileSizeX not in (None, "", "#") else 512
-    ty = int(tileSizeY) if tileSizeY not in (None, "", "#") else 512
+    tx = int(tileSizeX) if _is_given(tileSizeX) else 512
+    ty = int(tileSizeY) if _is_given(tileSizeY) else 512
     if tx <= 0 or ty <= 0:
         raise ValueError(f"{tool}: the tile width and height are positive numbers of pixels.")
     source = _open_bands(in_segmented_raster, tool)

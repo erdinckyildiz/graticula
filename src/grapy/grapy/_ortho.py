@@ -37,6 +37,7 @@ import shapely
 
 from . import _gpkg, _mosaic
 from ._runtime import ExecuteError, NotBuiltError
+from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
 EXTENSION = "grapy_ortho"
 DEFINITION = "Graticula ADR-234: grapy's ortho mapping sensor models"
@@ -55,7 +56,7 @@ def _refuse(tool, parameter, value, why=""):
 
 
 def _given(value):
-    return value not in (None, "", "#")
+    return _is_given(value)
 
 
 def _word(value, default):
