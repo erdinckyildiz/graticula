@@ -957,7 +957,7 @@ def _delaunay_neighbours(tool, xy):
     if len({tuple(p) for p in points}) != len(points):
         _refuse(tool, "neighborhood_type", "DELAUNAY_TRIANGULATION", "coincident points have no Delaunay triangulation")
     try:
-        triangulation = Delaunay(points)
+        triangulation = Delaunay(points - points.min(axis=0))   # Qhull drops points on projected coordinates
     except Exception:  # Collinear points: scipy's Qhull raises its own error type.
         _refuse(tool, "neighborhood_type", "DELAUNAY_TRIANGULATION", "the points are collinear and have no triangulation")
     scale = float(np.ptp(points, axis=0).max()) or 1.0

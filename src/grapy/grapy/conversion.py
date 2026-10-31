@@ -1345,8 +1345,10 @@ _REASONS = {
         "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
     "needs a point cloud scene layer (I3S or a scene layer package) as input, which grapy does not hold; LAS datasets "
     "are held since ADR-229 and LasDatasetToRaster reads them (ADR-224 group 2)": ("PointCloudToRaster",),
-    "reads an integrated mesh scene layer (I3S or a scene layer package), which grapy does not hold (ADR-224 group 2)": (
-        "MeshToLAS",),
+    "reads an integrated mesh (a scene layer package or I3S service, OGC 17-014r9), and its page — read 2026-10-31 — "
+    "names how points are made (a triangle's vertices, or samples on its face, one per face or per subdivision under a "
+    "maximum area) but not which of the mesh's levels of detail is read, nor where on a face its one sample lies; "
+    "grapy's multipatch features (ADR-238) are not an integrated mesh": ("MeshToLAS",),
     "reads a BIM file workspace (Revit or IFC), which grapy does not hold (ADR-224 group 2)": (
         "BIMFileToGeodatabase", "ExtractBIMFileFloorplan"),
 

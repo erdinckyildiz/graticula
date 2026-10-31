@@ -195,7 +195,10 @@ None recorded.
    **DISCHARGED 2026-10-31** by D-329's sweep (§12): MultipatchToCollada, MultipatchToRaster, SkylineBarrier,
    Export3DObjects, Import3DObjects, EXTRUSION, the 3D convex and concave hulls and the bounding sphere, and multipatch
    proximity are built; Add3DFormats, Remove3DFormats, GenerateLevelOfDetail, BOUNDING_BOX_3D and silhouettes are
-   refused, each for its own reason; `test_lookagain.py`.
+   refused, each for its own reason; `test_lookagain.py`. *(Looked at again 2026-10-31: no name refuses multipatch or 3D object features as not held. One
+   neighbour still gave a schedule — `conversion.MeshToLAS`, "an integrated mesh … which grapy does not hold (ADR-224
+   group 2)", listed beside these in ADR-234 §5.8 — and now refuses for its own: its page names how points are made but
+   not which level of detail is read, nor where a face's one sample lies.)*
 
 ## 12. Amendment 2026-10-31 — D-329's sweep: the names that still said a model was missing
 

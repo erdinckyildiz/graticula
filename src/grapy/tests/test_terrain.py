@@ -43,7 +43,7 @@ class Terrain(unittest.TestCase):
         return path
 
     def terrain(self, levels=("1 1000", "4 10000"), pyramid="WINDOWSIZE", method="ZMIN", sources=None, name="terr"):
-        t = arcpy.ddd.CreateTerrain(self.fds, name, 1, None, None, pyramid, method)[0]
+        t = arcpy.ddd.CreateTerrain(self.fds, name, 0.5, None, None, pyramid, method)[0]
         arcpy.ddd.AddTerrainPyramidLevel(t, "", list(levels))
         arcpy.ddd.AddFeatureClassToTerrain(t, sources or [[self.grid, "Shape.Z", "masspoints", 1, "", "", False, False,
                                                             "", "", False]])
@@ -121,11 +121,53 @@ class Terrain(unittest.TestCase):
                     expected.add(members[int(np.argmin(np.abs(np.array(values) - np.mean(values))))])
             self.assertEqual({(p[0], p[1]) for p in self.level(t, 2)}, expected, method)
 
-    def test_window_size_levels_are_thinned_from_the_level_before(self):
+    def test_window_size_levels_nest(self):
         t = self.terrain(("1 1000", "2 5000", "4 10000"), "WINDOWSIZE", "ZMAX")
         one, two, four = (set(self.level(t, r)) for r in (1, 2, 4))
         self.assertTrue(four <= two <= one)
         self.assertEqual(len(four), 9)   # windows of 4 from 0: [0,4) [4,8) [8,12) on each axis
+
+    def test_each_level_chooses_from_full_resolution_and_keeps_the_coarser_levels_points(self):
+        # ArcGIS Pro 3.7, measured 2026-10-31 (ADR-234 condition 4): a ZMEAN level's windows choose the point closest to
+        # the mean of ALL the window's points, and a finer level keeps every coarser level's points as well. Thinning
+        # from the level before keeps a different point at level 4 here.
+        z = {(x, y): (x * 7 + y * 3) % 5 + 0.25 * x for x in range(4) for y in range(4)}
+        order = [(x, y) for x in range(4) for y in range(4)]
+        pts = self.points("m", [(x, y, z[(x, y)]) for x, y in order])
+        source = [[pts, "Shape.Z", "masspoints", 1, "", "", False, False, "", "", False]]
+        t = self.terrain(("2 1000", "4 5000"), "WINDOWSIZE", "ZMEAN", source, name="mean")
+
+        def closest(members):
+            d = np.abs(np.array([z[m] for m in members]) - np.mean([z[m] for m in members]))
+            return members[int(np.nonzero(d <= d.min() + 1e-9)[0][0])]
+        four = {closest(order)}
+        two = {closest([m for m in order if (m[0] // 2, m[1] // 2) == w]) for w in [(0, 0), (0, 1), (1, 0), (1, 1)]}
+        self.assertEqual({(p[0], p[1]) for p in self.level(t, 4)}, four)
+        self.assertEqual({(p[0], p[1]) for p in self.level(t, 2)}, two | four)
+        self.assertNotEqual(four, {closest(sorted(two, key=order.index))})   # what thinning level 2 would have kept
+
+    def test_a_window_is_at_least_twice_the_average_point_spacing(self):
+        # ArcGIS Pro 3.7's ERROR 050073, measured at spacings 0.5, 1, 1.5, 2, 3, 7 and 10: the smallest window is 2x.
+        t = arcpy.ddd.CreateTerrain(self.fds, "spaced", 2, None, None, "WINDOWSIZE", "ZMIN")[0]
+        with self.assertRaises(ExecuteError) as refused:
+            arcpy.ddd.AddTerrainPyramidLevel(t, "", "3.9 1000")
+        self.assertIn("050073", str(refused.exception))
+        arcpy.ddd.AddTerrainPyramidLevel(t, "", "4 1000")
+        z = arcpy.ddd.CreateTerrain(self.fds, "spacedz", 2, None, None, "ZTOLERANCE")[0]
+        arcpy.ddd.AddTerrainPyramidLevel(z, "", "0.01 1000")   # a z-tolerance is a height, not bound by the spacing
+
+    def test_projected_coordinates_lose_no_point_to_the_triangulation(self):
+        # The comparison's points (tools/pro-compare/adr234-terrain-points.py): on UTM coordinates Qhull dropped 21 of 2,500 as
+        # coplanar, and the z-tolerance level missed its own bound by 0.8 m. Triangulated from their corner, none is lost.
+        rng = np.random.default_rng(234)
+        x, y = np.round(rng.uniform(0, 100, 2500), 2), np.round(rng.uniform(0, 100, 2500), 2)
+        z = np.round(50 + 8 * np.sin(x / 13.0) + 6 * np.cos(y / 9.0) + 0.05 * x + rng.normal(0, 0.6, 2500), 3)
+        xyz = np.column_stack([500000.0 + x, 4400000.0 + y, z])
+        from grapy import _tin
+        self.assertEqual(len(np.unique(_tin._delaunay(xyz[:, :2]))), 2500)
+        kept = _terrain.ztolerance_thin(xyz, np.zeros(2500, bool), 0.5)
+        heights, _ = _terrain._interpolate(xyz[kept], xyz[:, :2])
+        self.assertLessEqual(float(np.nanmax(np.abs(heights - z))), 0.5 + 1e-9)
 
     def test_a_plane_stays_a_plane_at_every_level_of_either_pyramid(self):
         for pyramid in ("WINDOWSIZE", "ZTOLERANCE"):

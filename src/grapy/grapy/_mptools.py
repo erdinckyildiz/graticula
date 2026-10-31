@@ -1133,7 +1133,7 @@ def LasBuildingMultipatch(in_las_dataset, in_features, ground, out_feature_class
         nodes = np.concatenate([pts, np.column_stack([edge, pts[nearest, 2]])])
         nodes = nodes[np.unique(np.round(nodes[:, :2], 9), axis=0, return_index=True)[1]]
         try:
-            triangulation = Delaunay(nodes[:, :2])
+            triangulation = Delaunay(nodes[:, :2] - nodes[:, :2].min(axis=0))   # see _tin._delaunay
         except QhullError:
             AddWarning(f"{tool}: footprint {oid}'s points lie on a line and write no feature.")
             continue

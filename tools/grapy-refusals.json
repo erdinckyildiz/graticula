@@ -180,7 +180,7 @@
    "KMLToGeodatabase": "arcpy.conversion.KMLToGeodatabase uses a KML parser of its own whose output fields and feature class names the page does not define; KMLToLayer reads KML.",
    "LayerToKML": "arcpy.conversion.LayerToKML writes placemarks, pop-ups and styles whose content the page does not document.",
    "MapToKML": "arcpy.conversion.MapToKML needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold.",
-   "MeshToLAS": "arcpy.conversion.MeshToLAS reads an integrated mesh scene layer (I3S or a scene layer package), which grapy does not hold (ADR-224 group 2).",
+   "MeshToLAS": "arcpy.conversion.MeshToLAS reads an integrated mesh (a scene layer package or I3S service, OGC 17-014r9), and its page — read 2026-10-31 — names how points are made (a triangle's vertices, or samples on its face, one per face or per subdivision under a maximum area) but not which of the mesh's levels of detail is read, nor where on a face its one sample lies; grapy's multipatch features (ADR-238) are not an integrated mesh.",
    "MobileGdbToFileGdb": "arcpy.conversion.MobileGdbToFileGdb reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's workspace is a GeoPackage.",
    "PDFToTIFF": "arcpy.conversion.PDFToTIFF needs a PDF renderer, which grapy does not carry.",
    "PointCloudToRaster": "arcpy.conversion.PointCloudToRaster needs a point cloud scene layer (I3S or a scene layer package) as input, which grapy does not hold; LAS datasets are held since ADR-229 and LasDatasetToRaster reads them (ADR-224 group 2).",
