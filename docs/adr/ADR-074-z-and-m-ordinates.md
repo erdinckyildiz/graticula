@@ -166,7 +166,7 @@ If 3D is taken up, this is the sequence, and each step is its own ADR:
    so the scope decision this condition reserves for the owner was taken by the owner. What did not happen is the
    letter of the condition: ADR-077 was written as its own ADR, as §5 says each step is, and this ADR was never
    marked `REOPENED`. Whether ADR-077 discharges this condition, or this ADR is to be reopened now, is a question
-   for the owner and not a trigger for a debt row; the state is unchanged here.)*
+   for the owner and not a trigger for a debt row; the state is unchanged here.)* **DISCHARGED 2026-10-31** — honoured when it fired: step 2 was started on 2026-09-16 by the owner's choice (*"3B adım 2: geometri modeli"*) and written as its own ADR, [ADR-077](ADR-077-z-and-m-ride-beside-x-and-y.md), not amended into this one — which is what the condition asked. Marking this ADR `REOPENED` as well would have recorded a second decision that was never taken.
 
 ## 7. Consequences
 

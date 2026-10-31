@@ -259,7 +259,7 @@ way they expect, and the caching page says the thing that is true about this eng
    cannot draw a scene, and the SDK is a proprietary script fetched from Esri at run time. Writing that ADR needs
    no owner data; choosing between those two costs is the owner's call.
    **DISCHARGED 2026-10-31 — the last of the seven has its decision, by owner decision.** Asked to choose between
-   those costs, the owner chose *"2B OpenLayers, sahne SDK"*: **OpenLayers draws every 2D map** — the Map Viewer
+   those costs, the owner chose *"2B OpenLayers, sahne SDK"* (its own ADR: [ADR-253](ADR-253-openlayers-draws-2d-and-the-maps-sdk-draws-scenes.md)): **OpenLayers draws every 2D map** — the Map Viewer
    with its Style, Pop-ups and Labels panels, the item viewer and the console's own maps — **and the ArcGIS Maps
    SDK, loaded from `js.arcgis.com`, draws image-service views and 3D scenes** (`map.html`). The condition's *one
    map engine* is therefore two, by name, each where the code already has it, and MapLibre is not adopted. **The
