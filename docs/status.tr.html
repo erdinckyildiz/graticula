@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0d12e4ab</code> · 2026-11-02 01:21</p>
+<p class="stamp">Şu commit’ten üretildi: <code>0707ea84</code> · 2026-11-02 01:23</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">252</div><div class="kpi-l">ADR</div><div class="kpi-n">82 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">637/670</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">23 canlı · 10 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık borç</div><div class="kpi-n">326 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-225</b> — Does the portal take content the way ArcGIS API for Python adds it — addItem for CSV, Shapefile, File Geodatabase, GeoJSON and documents, then publish with filetype; createService for an empty hosted layer or a view; append from an item (appendItemId) and…</p><p><b>Q-224</b> — Do portal groups take writes — createGroup, then addUsers, removeUsers, update, delete, join, leave?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">3 açık</span></div><p><b>Q-226</b> — Does Graticula front an open geocoder — Photon over OpenStreetMap — with ArcGIS&#x27;s GeocodeServer (findAddressCandidates, suggest, reverseGeocode), so Pro, the JS SDK and Field Maps find a locator?</p><p><b>Q-225</b> — Does the portal take content the way ArcGIS API for Python adds it — addItem for CSV, Shapefile, File Geodatabase, GeoJSON and documents, then publish with filetype; createService for an empty hosted layer or a view; append from an item (appendItemId) and…</p><p><b>Q-224</b> — Do portal groups take writes — createGroup, then addUsers, removeUsers, update, delete, join, leave?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">28 madde</span></div><p><b>23 ADR conditions</b> outstanding across 19 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -426,6 +426,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-224</span><span class="owner">**[OWNER]**</span></div><p>Do portal groups take writes — createGroup, then addUsers, removeUsers, update, delete, join, leave?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-225</span><span class="owner">**[OWNER]**</span></div><p>Does the portal take content the way ArcGIS API for Python adds it — addItem for CSV, Shapefile, File Geodatabase, GeoJSON and documents, then publish with filetype; createService for an empty hosted layer or a view; append from an item (appendItemId) and…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-226</span><span class="owner">**[OWNER]**</span></div><p>Does Graticula front an open geocoder — Photon over OpenStreetMap — with ArcGIS&#x27;s GeocodeServer (findAddressCandidates, suggest, reverseGeocode), so Pro, the JS SDK and Field Maps find a locator?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -616,6 +617,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>0707ea84</code><time>2026-11-02</time><span>The portal&#x27;s content writes go to the owner as Q-225, from the ArcGIS veteran&#x27;s review</span></li>
 <li><code>0d12e4ab</code><time>2026-11-02</time><span>The portal&#x27;s group writes go to the owner as Q-224, with the reverted createGroup beside them</span></li>
 <li><code>64646f46</code><time>2026-11-02</time><span>Revert &quot;The portal makes a group through community/createGroup&quot;, until the owner decides</span></li>
 <li><code>63882071</code><time>2026-11-02</time><span>A KML export reads in Google Earth as written, and Pro&#x27;s sharing engine is followed at a second organisation (ADR-106, ADR-164, ADR-079, ADR-214)</span></li>
@@ -629,7 +631,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>ff219d6e</code><time>2026-11-01</time><span>Topo to Raster factors its system with grapy&#x27;s own nested-dissection Cholesky, 400 x 400 fits in 709 MB, and both D-333 tools can be measured inside the Linux fence</span></li>
 <li><code>be88ab96</code><time>2026-11-01</time><span>Goldstein filtering&#x27;s worst case fits ADR-223 with the same bits, and D-357 is closed</span></li>
 <li><code>6ad24a6e</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>f8b8ea16</code><time>2026-11-01</time><span>ADR-254 condition 2: the imagery formats test passes against the published 1.0.492 images, not only a Windows fixture</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
