@@ -392,6 +392,68 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     }
 
     /// <inheritdoc/>
+    public async Task<GroupChange> JoinAsync(Guid acting, string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // <b>One statement, for LeaveAsync's reason.</b> Whether the group may be joined and the insert are read
+        // together, so an owner closing the group between the two halves of a request keeps it closed. Findable is
+        // ListAsync's rule narrowed to the caller's own organisation: a public group is findable from another one, but
+        // a member of another organisation reaches a group only through ADR-204's admission, which is a manager's act.
+        const string Sql = """
+            insert into sharing_group_member (group_id, principal_id, membership, added_by)
+            select g.id, @who, 'member', @who
+              from sharing_group g
+             where lower(g.name) = lower(@name)
+               and g.join_policy = 'self'
+               and g.owner_principal_id <> @who
+               and g.visibility in ('public', 'organization')
+               and exists (select 1 from principal o
+                            where o.id = @who and o.tenant_id = g.tenant_id
+                              and o.disabled_at is null and o.kind = 'user')
+            on conflict (group_id, principal_id) do nothing
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("who", acting);
+
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+        {
+            return GroupChange.Done;
+        }
+
+        // Nothing was inserted: already in it, not findable, or closed — and the caller is owed which.
+        const string Why = """
+            select g.owner_principal_id = @who
+                     or exists (select 1 from sharing_group_member m
+                                 where m.group_id = g.id and m.principal_id = @who) as inside,
+                   g.visibility in ('public', 'organization')
+                     and exists (select 1 from principal o where o.id = @who and o.tenant_id = g.tenant_id) as findable
+              from sharing_group g
+             where lower(g.name) = lower(@name)
+             limit 1
+            """;
+
+        await using NpgsqlCommand asking = _dataSource.CreateCommand(Why);
+        asking.Parameters.AddWithValue("name", name);
+        asking.Parameters.AddWithValue("who", acting);
+
+        await using NpgsqlDataReader reader = await asking.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return GroupChange.Absent;
+        }
+
+        // Already in it is done: what the caller asked for is true. Not findable reads as absent, as LeaveAsync's
+        // not-a-member does, so a hidden group cannot be found by trying to join it.
+        return reader.GetBoolean(0) ? GroupChange.Done
+            : reader.GetBoolean(1) ? GroupChange.InvitationOnly
+            : GroupChange.Absent;
+    }
+
+    /// <inheritdoc/>
     public async Task<GroupChange> RemoveMemberAsync(
         Guid acting,
         bool administrator,

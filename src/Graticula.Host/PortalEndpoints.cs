@@ -274,6 +274,7 @@ internal static partial class PortalEndpoints
         MapProPublishCapture(app);
         MapItemWrites(app);
         MapItemControls(app);
+        MapGroupWrites(app);
     }
 
     /// <summary>
@@ -355,6 +356,31 @@ internal static partial class PortalEndpoints
         if (current.Authorization.Allows(Privilege.FeaturesFullEdit))
         {
             held.Add("features:user:fullEdit");
+        }
+
+        // <b>Group writes, ADR-256 §5.4</b>: each word is said where Studio's act would let this caller do it.
+        // createGroup is Studio's groups:create. Joining asks for no privilege — it is the caller's own membership, and the
+        // group's policy decides — so every signed-in member holds joinGroup. An administrator changes and deletes any
+        // group (admin:manageAllContent), and adds anybody to one with groups:manageMembers beside it (INFERRED: the
+        // nearest of ArcGIS's administrative group privileges).
+        if (current.Authorization.Allows(Privilege.GroupsCreate))
+        {
+            held.Add("portal:user:createGroup");
+        }
+
+        if (!current.Principal.IsAnonymous)
+        {
+            held.Add("portal:user:joinGroup");
+        }
+
+        if (current.Authorization.Allows(Privilege.AdminManageAllContent))
+        {
+            held.AddRange(["portal:admin:updateGroups", "portal:admin:deleteGroups"]);
+
+            if (current.Authorization.Allows(Privilege.GroupsManageMembers))
+            {
+                held.Add("portal:admin:assignToGroups");
+            }
         }
 
         return [.. held];

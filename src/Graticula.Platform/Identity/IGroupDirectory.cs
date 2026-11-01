@@ -306,6 +306,11 @@ public enum GroupChange
     /// A join policy the schema admits and the application does not honour yet.
     /// </summary>
     NotBuilt,
+
+    /// <summary>
+    /// The group takes members only by invitation, so the caller cannot add themselves — ADR-256.
+    /// </summary>
+    InvitationOnly,
 }
 
 /// <summary>
@@ -523,6 +528,27 @@ public interface IGroupDirectory
     /// the group forbids leaving.
     /// </returns>
     Task<GroupChange> LeaveAsync(Guid acting, string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A member of the organisation adds themselves to a group whose join policy is
+    /// <see cref="GroupJoinPolicy.Self"/> — ADR-256.
+    /// </summary>
+    /// <remarks>
+    /// <b>The setting existed and nothing honoured it.</b> Studio has offered *they add themselves* since ADR-036 §4g,
+    /// and until ADR-256 there was no act by which anybody could; a policy stored and shown and honoured nowhere is
+    /// D-67's shape. The rule is one statement: the group is findable by the caller (public or organisation-visible,
+    /// in the caller's own organisation), its policy is <c>self</c>, and the caller is not already in it.
+    /// </remarks>
+    /// <param name="acting">Who is joining.</param>
+    /// <param name="name">The group.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>
+    /// <see cref="GroupChange.Done"/>, also when the caller was already in it;
+    /// <see cref="GroupChange.Absent"/> when there is no such group or the caller cannot find it — the same answer, so
+    /// joining does not become a way to learn which hidden groups exist; and
+    /// <see cref="GroupChange.InvitationOnly"/> when the group is findable and takes members only by invitation.
+    /// </returns>
+    Task<GroupChange> JoinAsync(Guid acting, string name, CancellationToken cancellationToken);
 
     /// <summary>
     /// Marks a group as admitting members of other tenants, or not — ADR-204 §5c: the only route between organisations.
