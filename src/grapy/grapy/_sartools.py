@@ -741,8 +741,14 @@ def goldstein(z, alpha, patch, need=None):
 
     With ``need``, a boolean grid of the cells whose answer will be used, a patch holding none of them is not
     filtered (D-357): every patch that reaches a needed cell is, in the same order, so a needed cell's answer is the
-    same doubles; the others are left unfiltered and are not to be read."""
+    same doubles; the others are left unfiltered and are not to be read.
+
+    The arithmetic is laid out for speed and keeps every double (D-357, `test_goldstein_keeps_the_reference_doubles`):
+    on a patch whose side is a power of two (both defaults), scipy's pocketfft gives numpy's transforms bit for bit at
+    a third of the cost on 8 × 8 patches — on other sides the two round differently, and numpy's is kept; the
+    weighting is done in place, and a batch whose patches tile a run of columns without a gap is added as one slice."""
     from numpy.lib.stride_tricks import sliding_window_view
+    from scipy import fft as sfft
     from scipy import ndimage
     n, m = z.shape
     step = max(1, patch // 2)
@@ -757,6 +763,7 @@ def goldstein(z, alpha, patch, need=None):
     row_starts = np.arange(0, zp.shape[0] - patch + 1, step)
     col_starts = np.arange(0, zp.shape[1] - patch + 1, step)
     span = np.arange(patch)
+    transform = sfft if patch & (patch - 1) == 0 else np.fft
     held = None
     if need is not None:
         # how many needed cells each patch holds, from a summed-area table of the padded grid
@@ -777,16 +784,27 @@ def goldstein(z, alpha, patch, need=None):
                 cols = batch if held is None else batch[held[i, b::q]]
                 if not len(cols):
                     continue
-                where = (cols[:, None] + span[None, :]).ravel()   # the batch's columns, none repeated
                 blocks = sliding_window_view(zp[r: r + patch], patch, axis=1)[:, cols, :].transpose(1, 0, 2)
-                spectrum = np.fft.fft2(blocks)
-                smooth = ndimage.uniform_filter(np.abs(spectrum), (1, 3, 3), mode="wrap")
-                peak = smooth.max(axis=(1, 2), keepdims=True)
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    h = np.where(peak > 0, (smooth / np.where(peak > 0, peak, 1)) ** alpha, 1.0)
-                result = np.fft.ifft2(spectrum * h) * taper
-                out[r: r + patch, where] += result.transpose(1, 0, 2).reshape(patch, -1)
-                weight[r: r + patch, where] += np.tile(taper, (1, len(cols)))
+                spectrum = transform.fft2(blocks)
+                h = ndimage.uniform_filter(np.abs(spectrum), (1, 3, 3), mode="wrap")
+                peak = h.max(axis=(1, 2), keepdims=True)
+                flat = ~(peak[:, 0, 0] > 0)
+                h /= np.where(flat[:, None, None], 1.0, peak)
+                h **= alpha                         # numpy's scalar power: a square root for α = ½, as `h ** α` is
+                h[flat] = 1.0
+                spectrum *= h
+                result = transform.ifft2(spectrum)               # scipy's overwrite_x would change the rounding
+                result *= taper
+                c0, c1 = int(cols[0]), int(cols[-1]) + patch
+                if c1 - c0 == patch * len(cols):    # the patches tile [c0, c1) with no gap and no overlap
+                    tiles = out[r: r + patch, c0: c1].reshape(patch, len(cols), patch)   # a view: no copy
+                    tiles += result.transpose(1, 0, 2)
+                    tiles = weight[r: r + patch, c0: c1].reshape(patch, len(cols), patch)
+                    tiles += taper[:, None, :]
+                else:
+                    where = (cols[:, None] + span[None, :]).ravel()   # the batch's columns, none repeated
+                    out[r: r + patch, where] += result.transpose(1, 0, 2).reshape(patch, -1)
+                    weight[r: r + patch, where] += np.tile(taper, (1, len(cols)))
     with np.errstate(divide="ignore", invalid="ignore"):   # cells no patch reached when `need` left them out
         return (out / weight)[:n, :m]
 
@@ -829,7 +847,8 @@ def ApplyComplexDataFilter(in_radar_data, out_radar_data, polarization_bands=Non
     def filtered_rows(z, r0, r1, h0):
         blank = np.isnan(z)
         zz = np.where(blank, 0, z)
-        unit = np.where(np.abs(zz) > 0, zz / np.where(np.abs(zz) > 0, np.abs(zz), 1), 0)
+        size = np.abs(zz)
+        unit = np.where(size > 0, zz / np.where(size > 0, size, 1), 0)
         if a == 0:
             filtered = unit
         else:
@@ -843,7 +862,7 @@ def ApplyComplexDataFilter(in_radar_data, out_radar_data, polarization_bands=Non
             large = goldstein(unit, a, outer, need=~coherent & wanted)
             filtered = np.where(coherent, small, large)
         k = slice(r0 - h0, r1 - h0)
-        result = np.abs(zz[k]) * np.exp(1j * np.angle(filtered[k]))
+        result = size[k] * np.exp(1j * np.angle(filtered[k]))
         return np.where(blank[k], np.nan + 1j * np.nan, result).astype(np.complex64)
 
     # Rows with a halo of the outer window, its first row on both patch grids and their batch classes (D-328): every
