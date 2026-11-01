@@ -279,9 +279,11 @@ what landed.
 **Phase 3 — two nodes behind Caddy**
 
 9. Two containers of the same image, Caddy's `reverse_proxy` with `health_uri /healthz/ready`, and TLS at Caddy, so
-   the nodes' own certificates no longer face clients. Caddy is the **Web Adaptor** (§1c): with containers its upstreams
+   the nodes' own certificates no longer face clients. Caddy is the **Web Adaptor** (§1c): ~~with containers its upstreams
    are `dynamic a` — the compose service's name — so a node added is found and one that stops answering is skipped
-   without editing the Caddyfile; nodes never forward to each other, ArcGIS's single cluster mode. **The proxy says what
+   without editing the Caddyfile~~ **its upstreams are the nodes, listed** — *corrected 2026-11-01 by the run below:
+   `dynamic a` finds the nodes but Caddy does not health-check what it finds, so a drained node is never taken out*;
+   nodes never forward to each other, ArcGIS's single cluster mode. **The proxy says what
    it ended**: the nodes honour `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxies the deployment names, and
    the proxy keeps `Host`, so absolute addresses stay `https://` and each organisation's host still reaches it — read
    nowhere in `src/` today. *Stickiness by client address for the multi-step paths of phase 2 (Pro's staging, append
@@ -289,11 +291,28 @@ what landed.
    **Partly built 2026-10-31.** *Built:* the nodes honour `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxies
    `Graticula:TrustedProxies` names and from nobody else (`CallerAddress.ApplyForwarded`); both health paths drop a
    stopped or maintained node; the Caddyfile and settings are written in deployment.md §1.4. Tested against two
-   processes (`ASiteBehindAProxyTests`, and the control that a node naming no proxy ignores the headers). **Unproven:
+   processes (`ASiteBehindAProxyTests`, and the control that a node naming no proxy ignores the headers). ~~**Unproven:
    Caddy itself.** It is not installed on this machine and downloading it was refused by this session's permissions,
    so Caddy's `dynamic a` discovery, its health checks taking a node out and back, its retry across a node killed
    mid-request, and `Host` reaching the nodes unchanged have not been run. The nodes' own TLS still faces Caddy (with
-   `tls_insecure_skip_verify`), so *the nodes' certificates no longer face clients* holds only once that is set up.
+   `tls_insecure_skip_verify`), so *the nodes' certificates no longer face clients* holds only once that is set up.~~
+   **Run against a real Caddy 2026-11-01** (owner: *"VPS'teki Caddy'yle sına"*) — `tools/caddy-site-probe.py`: a
+   throwaway `caddy:2.9-alpine` container on the VPS, bound to 127.0.0.1, its two upstreams two local nodes reached
+   through SSH reverse tunnels, itself reached through a forward tunnel; removed afterwards. **18 of 18 checks hold,
+   in both arrangements** — TLS ended at Caddy with the nodes on plain HTTP, and deployment.md's nodes-keep-HTTPS form
+   with `tls_insecure_skip_verify`: requests alternate A B A B; the address the client used reaches both nodes, and a
+   site that does not name Caddy in `TrustedProxies` writes `http://` behind it (so the trust is what makes it
+   `https://`), forwarded headers a client sends through Caddy are replaced by Caddy's, and the same headers sent to a
+   node directly from the LAN are ignored; `Host` arrives unchanged; a token from `/rest/auth/login` and one from
+   `/rest/generateToken`, each issued through one node, are honoured by both; Pro's staging (`addItem`, two `addPart`,
+   `commit`, `status`) completes with every step on the other node and `commit` joins both nodes' parts into one
+   1,500-byte file, and an append upload sent to one node is appended by the other; a node put in maintenance is out
+   of rotation within 1.7–6.2 s and back within 3.7–5.9 s of being started; a node killed outright is skipped with **no
+   failed request** among those sent across the kill (`lb_try_duration`) and is back within 6.3 s of restarting; a node
+   naming another proxy than its site is refused at start. **One finding, which changed the plan's text:** with
+   `dynamic a`, Caddy 2.9.1 and 2.10.2 both find and alternate the nodes but do not health-check them — a node in
+   maintenance kept being sent requests — so deployment.md §1.4 now lists the nodes. *Not run:* a real compose network
+   (the tunnels stood in for it) and reloading a changed node list under load.
 
 **Phase 4 — rolling upgrade**
 
@@ -369,8 +388,9 @@ what landed.
    Defender, a Disk Cleanup, another fixture) averaged 21–45 % of it during the runs; both repetitions agree within
    about a tenth, and the ratios, not the absolute rates, are the finding — as for condition 1.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
-   **PARTLY DISCHARGED 2026-10-31** — phases 0, 1 and 2 each landed with such tests; phase 3's tests cover the nodes'
-   half and not Caddy, which was not run; phase 4 is not built. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
+   **PARTLY DISCHARGED 2026-10-31** — phases 0, 1 and 2 each landed with such tests; ~~phase 3's tests cover the nodes'
+   half and not Caddy, which was not run~~ phase 3 too, Caddy included, since 2026-11-01; **phase 4 is not built**, and
+   is what keeps this condition open. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
    a fresh schema (`TwoNodeSite`). The first ten (items 1–6, 11, 12) pass on this branch and **all ten fail on the build
    before it** (the same test assembly run against the previous `Graticula.Host.dll`, 2026-10-31); item 13's
    (`One_nodes_log_screen_shows_the_other_nodes_warnings_with_their_machine`) reads a route and a field that build does
@@ -380,10 +400,14 @@ what landed.
    download and the tile both observed failing on the build before (condition 2's prototype). **Phase 2: DISCHARGED 2026-10-31** — the three
    phase-2 tests in `ASiteSharesItsServerDirectoriesTests`, each a second step sent to the other node; the Pro split was
    observed failing (400) on the build before, the other two are memory-only there by construction. Nineteen two-node
-   tests in all, passing on this branch, 2026-10-31. **Phase 3: PARTLY DISCHARGED 2026-10-31** — the
-   nodes' half is tested against two processes (`ASiteBehindAProxyTests`: the client's address written behind a named
-   proxy, a balancer's health check taking a maintained node out and back; and the control that an unnamed one is
-   ignored, 22 two-node tests in all); Caddy in front was not run (above).
+   tests in all, passing on this branch, 2026-10-31. ~~**Phase 3: PARTLY DISCHARGED 2026-10-31**~~ **Phase 3: DISCHARGED
+   2026-11-01** — the nodes' half is tested against two processes (`ASiteBehindAProxyTests`: the client's address
+   written behind a named proxy, a balancer's health check taking a maintained node out and back; and the control that
+   an unnamed one is ignored, 22 two-node tests in all); ~~Caddy in front was not run (above)~~ and Caddy in front is
+   run by `tools/caddy-site-probe.py` against two processes behind a real Caddy (§5 item 9): 18 of 18 checks, exit 0,
+   in both TLS arrangements, 2026-11-01. It fails without the change it proves: the same site not naming Caddy as its
+   proxy writes `http://` behind it — the probe's own control — and phase 2's steps on the other node were observed
+   failing on the build before it (above). Not CI: it needs a Caddy and a host to run it on.
 4. **The owner confirms** the order of the phases and that PostgreSQL's own availability and capacity are decided
    separately. **DISCHARGED 2026-10-31** — confirmed by owner decision (*"Onayla, ölç ve kur"*): phases 0 → 1 → 2 → 3 in this order, condition 1's measurement first, PostgreSQL's availability a decision of its own, and the plan is to be built rather than held. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
 

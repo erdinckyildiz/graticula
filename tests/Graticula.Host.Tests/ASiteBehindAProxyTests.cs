@@ -43,10 +43,9 @@ public sealed class TwoProxiedNodes : IAsyncLifetime
 /// check sends a stopped node nothing.
 /// </summary>
 /// <remarks>
-/// <b>Caddy itself is not in this test</b>: it is not installed on the machine this was written on and downloading it
-/// was refused, so the proxy is played by the test's own requests, sending what Caddy's <c>reverse_proxy</c> sends
-/// (<c>X-Forwarded-Proto</c>, <c>X-Forwarded-Host</c>) from the loopback address. ADR-012 records what that leaves
-/// unproven.
+/// <b>Caddy itself is not in this test</b>: CI has no Caddy, so the proxy is played by the test's own requests, sending
+/// what Caddy's <c>reverse_proxy</c> sends (<c>X-Forwarded-Proto</c>, <c>X-Forwarded-Host</c>) from the loopback address.
+/// The real Caddy in front of two nodes is <c>tools/caddy-site-probe.py</c>, run by hand (ADR-012 §5 item 9).
 /// </remarks>
 [Trait("Needs", "TwoNodes")]
 public sealed class ASiteBehindAProxyTests(TwoProxiedNodes nodes) : IClassFixture<TwoProxiedNodes>

@@ -319,11 +319,10 @@ Graticula__NodeName=node-a                             # optional; the host name
 
 ```text
 gis.example.com {
-    reverse_proxy {
-        # With compose, the service's name: a node added is found and one that stops answering is skipped.
-        dynamic a graticula 8443
+    # Every node by name: with compose, each node is a service of its own (graticula-a, graticula-b).
+    reverse_proxy graticula-a:8443 graticula-b:8443 {
         lb_policy round_robin
-        lb_try_duration 5s
+        lb_try_duration 5s                 # a request that finds a node gone is tried on the other
         health_uri /healthz/ready          # or /rest/info/healthcheck, ArcGIS's
         health_interval 5s
         transport http {
@@ -333,17 +332,33 @@ gis.example.com {
 }
 ```
 
+**The nodes are listed, not discovered.** `dynamic a graticula 8443` — one compose service scaled to two, found by its
+name — finds both nodes and alternates between them, but **Caddy does not run the health check on upstreams found
+that way** (Caddy 2.9.1 and 2.10.2, measured 2026-11-01): a node put in *Maintenance* keeps being sent requests, so
+nothing drains. Adding a node therefore means adding it to this line and reloading Caddy (`caddy reload`, which drops
+no connection).
+
+**Or end TLS at Caddy alone.** With `Graticula__RequireHttps=false` on every node and no `transport` block, the hop from
+Caddy to a node is plain HTTP inside the network, and the node's own certificate is never used. The nodes then learn
+that the client used `https` only from `X-Forwarded-Proto`, which is why `TrustedProxies` must name Caddy's address:
+a node that does not writes `http://` addresses. Each node warns at start that it serves plain HTTP — true, and
+expected here, since its port must be reachable from Caddy only.
+
 Caddy keeps `Host` and sends `X-Forwarded-Proto` and `X-Forwarded-Host`, which the nodes honour from
 `Graticula:TrustedProxies` only, so every address they write is `https://gis.example.com`. **System › Machines**
 lists the nodes; *Stop* or *Maintenance* makes a node answer 503 on both health paths so Caddy sends it nothing new
 before it is restarted or upgraded. One node needs none of this: unset, `ServerDirectories` leaves every directory
 under the state path.
 
-**What has run and what has not.** Two nodes over one store, sharing their server directories, have run on one
-machine against tests that start real processes (`Needs=TwoNodes`, 22 tests). **Caddy in front of them has not**:
-it was not installed where this was built, and the Caddyfile above is written from Caddy's documentation, not
-from a run — the forwarded headers and the health paths it relies on are tested; Caddy's own `dynamic a`
-discovery and failover are not.
+**What has run.** Two nodes over one store, sharing their server directories, against tests that start real processes
+(`Needs=TwoNodes`, 22 tests); and the Caddyfile above, both forms, in front of two such nodes —
+[`tools/caddy-site-probe.py`](../tools/caddy-site-probe.py), run 2026-11-01 against the official `caddy:2.9-alpine`
+image: requests alternate; a node in *Maintenance*, and a node killed outright, is taken out within one health interval
+and put back once it answers ready, with no request failing in between; a token issued through one node is honoured by
+the other; Pro's staging and an ArcGIS append upload complete with each step on a different node; `Host` reaches the
+nodes unchanged, forwarded headers a client sends are replaced by Caddy's, and the same headers sent to a node from
+anywhere but Caddy are ignored. Not run: Caddy reloading a changed node list under load, and a real compose network
+(the probe joined Caddy to the nodes through SSH tunnels).
 
 ---
 
