@@ -132,6 +132,20 @@ public sealed class TurkishTextSurvivesEveryExportFormatTests
                 Assert.True(wrote.RootElement.GetProperty("ok").GetBoolean(), $"{format}: {wrote.RootElement}");
             }
 
+            if (format == FeatureExportFormat.Kml)
+            {
+                // As Google Earth Pro shows it (ADR-106 condition 3): its default balloon labelled a row
+                // "D:/temp/turkce.kml:şehir", and "turkce:şehir" once the schema had a name, so every placemark uses the
+                // document's own balloon, which names the rows by their displayName; and a placemark is named by the
+                // first text field rather than "[no name]".
+                string kml = await File.ReadAllTextAsync(output);
+                Assert.Contains("<SimpleField name=\"şehir\" type=\"string\"><displayName>şehir</displayName></SimpleField>", kml, StringComparison.Ordinal);
+                Assert.DoesNotContain("graticula_kml_name", kml, StringComparison.Ordinal);
+                Assert.Contains("<Schema name=\"turkce\"", kml, StringComparison.Ordinal);
+                Assert.Contains("<td>$[turkce/şehir/displayName]</td><td>$[turkce/şehir]</td>", kml, StringComparison.Ordinal);
+                Assert.Contains("</name><styleUrl>#graticula_balloon_turkce</styleUrl>", kml, StringComparison.Ordinal);                Assert.Contains("<name>İstanbul</name>", kml, StringComparison.Ordinal);
+            }
+
             if (format == FeatureExportFormat.Shapefile)
             {
                 Assert.True(
