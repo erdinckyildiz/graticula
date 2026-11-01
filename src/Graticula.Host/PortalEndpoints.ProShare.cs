@@ -66,9 +66,15 @@ internal static partial class PortalEndpoints
         HttpContext context, CatalogFallback catalog, ServiceContexts contexts, Graticula.Geometries.IProjector projector,
         IAdminCatalog admin, IWebMapStore maps, string username, string id, CancellationToken cancellation)
     {
-        if (Self(context, username) is null)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { } acting)
         {
             return Unknown("User");
+        }
+
+        // A service definition Pro or a script has added and not yet published, to its owner (StagedItem).
+        if (StagedItem(context, id) is { } staged)
+        {
+            return Results.Ok(new { item = staged, sharing = new { access = "private", groups = Array.Empty<string>() } });
         }
 
         if (await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false) is not { } visible)
@@ -99,9 +105,10 @@ internal static partial class PortalEndpoints
             });
         }
 
-        // A web map — one Pro added with Share As Web Map, which it reads back here — when it is the user's.
+        // A web map — one Pro added with Share As Web Map, which it reads back here — when it is the user's the path names
+        // (the caller's own, or the member's an administrator acts for).
         if (WebMaps.IsId(id) && await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map
-            && Self(context, username) is { } owner && map.Owner == owner.Principal.Id)
+            && map.Owner == acting.Owner)
         {
             return Results.Ok(new
             {
@@ -122,7 +129,7 @@ internal static partial class PortalEndpoints
         HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, IWebMapStore maps, string username, string id,
         CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }
@@ -142,7 +149,7 @@ internal static partial class PortalEndpoints
         HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, IWebMapStore maps, string username,
         CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }

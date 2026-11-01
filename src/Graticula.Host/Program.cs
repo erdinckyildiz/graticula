@@ -3137,7 +3137,7 @@ public static class Program
     /// are also unreadable would 404 — turning a store outage into *your folder does not
     /// exist*, which is a worse answer than an empty directory (ADR-026).
     /// </remarks>
-    private static async Task<bool> FolderExistsAsync(
+    internal static async Task<bool> FolderExistsAsync(
         PostgresLayerCatalog catalog, string folder, CancellationToken cancellation)
     {
         try
@@ -3171,7 +3171,7 @@ public static class Program
     /// </param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>The folder names.</returns>
-    private static async Task<string[]> FoldersAsync(
+    internal static async Task<string[]> FoldersAsync(
         PostgresLayerCatalog catalog,
         PostgresSystemServices system,
         IReadOnlyList<PublishedService> services,
@@ -3302,6 +3302,42 @@ public static class Program
         return counts;
     }
 
+    /// <summary>
+    /// Whether the services directory lists a service in <paramref name="folder"/> (null for the root) to this caller:
+    /// in that folder, running or seen by somebody who may manage the server, and readable by them.
+    /// </summary>
+    /// <remarks>
+    /// <b>One rule, read by two listings</b> — this directory and the hosting server's admin listing Pro and the ArcGIS
+    /// API for Python read (<c>PortalEndpoints.HostingAdminAsync</c>, the ArcGIS veteran's review of 2026-11-02, D).
+    /// Lifted out of <see cref="CatalogueAsync"/> unchanged so that the two cannot list different services.
+    /// </remarks>
+    internal static bool DirectoryLists(PublishedService service, string? folder, RequestPrincipal current, bool seesStopped) =>
+        string.Equals(service.Folder ?? string.Empty, folder ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+        && (service.IsRunning || seesStopped)
+        && LayerAccess
+            .Evaluate(service.Sharing, service.Owner, current.Principal, current.Authorization, service.SharedWith)
+            .IsAllowed();
+
+    /// <summary>Whether the services directory lists a system service in <paramref name="folder"/> to this caller.</summary>
+    internal static bool DirectoryLists(SystemService service, string? folder, RequestPrincipal current) =>
+        string.Equals(service.Folder, folder, StringComparison.OrdinalIgnoreCase)
+        && LayerAccess
+            // <b>No group shares for a system service, and that is a scope statement
+            // rather than an omission.</b> `sharing_group_item` references `service`;
+            // the Utilities services live in `system_service` and are part of the
+            // server rather than somebody's content, so *share this with the planning
+            // team* is not a thing to say about the geometry service.
+            .Evaluate(service.Sharing, null, current.Principal, current.Authorization)
+            .IsAllowed();
+
+    /// <summary>Whether the services directory lists an image service in <paramref name="folder"/> to this caller.</summary>
+    internal static bool DirectoryLists(PublishedCoverage coverage, string? folder, RequestPrincipal current, bool seesStopped) =>
+        string.Equals(coverage.Folder ?? string.Empty, folder ?? string.Empty, StringComparison.Ordinal)
+        && (seesStopped || coverage.Status == ServiceStatus.Started)
+        && LayerAccess
+            .Evaluate(coverage.Sharing, coverage.Owner, current.Principal, current.Authorization, coverage.SharedWith)
+            .IsAllowed();
+
     private static async Task<IResult> CatalogueAsync(
         HttpContext context,
         CatalogFallback catalog,
@@ -3363,17 +3399,7 @@ public static class Program
         // against the folder, with no list of which ones are allowed to have contents.
         List<PublishedService> visible =
         [
-            .. services.Where(service =>
-                string.Equals(
-                    service.Folder ?? string.Empty,
-                    folder ?? string.Empty,
-                    StringComparison.OrdinalIgnoreCase)
-                && (service.IsRunning || seesStopped)
-                && LayerAccess
-                    .Evaluate(
-                        service.Sharing, service.Owner, current.Principal, current.Authorization,
-                        service.SharedWith)
-                    .IsAllowed()),
+            .. services.Where(service => DirectoryLists(service, folder, current, seesStopped)),
         ];
 
         // The folder is advertised at the root whether or not anything in it is
@@ -3414,15 +3440,7 @@ public static class Program
         :
         [
             .. (await system.ListAsync(cancellation).ConfigureAwait(false))
-                .Where(s => string.Equals(s.Folder, folder, StringComparison.OrdinalIgnoreCase)
-                    && LayerAccess
-                        // <b>No group shares for a system service, and that is a scope statement
-                        // rather than an omission.</b> `sharing_group_item` references `service`;
-                        // the Utilities services live in `system_service` and are part of the
-                        // server rather than somebody's content, so *share this with the planning
-                        // team* is not a thing to say about the geometry service.
-                        .Evaluate(s.Sharing, null, current.Principal, current.Authorization)
-                        .IsAllowed())
+                .Where(s => DirectoryLists(s, folder, current))
                 .Select(s => (
                     Name: folder is null ? s.Name : $"{folder}/{s.Name}",
                     Type: s.Kind)),
@@ -3510,11 +3528,7 @@ public static class Program
         :
         [
             .. (await coverages.ListAsync(cancellation).ConfigureAwait(false))
-                .Where(c => string.Equals(
-                    c.Folder ?? string.Empty, folder ?? string.Empty, StringComparison.Ordinal))
-                .Where(c => seesStopped || c.Status == ServiceStatus.Started)
-                .Where(c => LayerAccess.Evaluate(
-                    c.Sharing, c.Owner, current.Principal, current.Authorization, c.SharedWith).IsAllowed()),
+                .Where(c => DirectoryLists(c, folder, current, seesStopped)),
         ];
 
         List<(string Name, string Type)> everything =
