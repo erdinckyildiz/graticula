@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>77f0b5e5</code> · 2026-11-01 03:34</p>
+<p class="stamp">Şu commit’ten üretildi: <code>044a8ac6</code> · 2026-11-01 03:36</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">251</div><div class="kpi-l">ADR</div><div class="kpi-n">82 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">629/668</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">29 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">16</div><div class="kpi-l">açık borç</div><div class="kpi-n">318 ödendi · 14 tetiğini bekliyor · 3 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">318 ödendi · 15 tetiğini bekliyor · 3 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5687</div><div class="kpi-l">test</div><div class="kpi-n">618 kaynak dosya, 275,570 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">49 madde</span></div><p><b>29 ADR conditions</b> outstanding across 25 decisions — the largest commitment on this page.</p><p><b>16 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">48 madde</span></div><p><b>29 ADR conditions</b> outstanding across 25 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -440,7 +440,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-262</td><td>The product&#x27;s own containers are amd64 only, so docker compose up — the first command README.md offers — fails on every arm64 machine.</td><td class="muted-t">The release workflow publishing both architectures, which GitHub&#x27;s arm64 runners make free for a public repository; and…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-266</td><td>Only FeatureServer query answering features is cacheable (ADR-069); every other read a map draws from is not, and a PostGIS layer has no validator.</td><td class="muted-t">A second client family drawing from one of the uncovered faces; or a cheap PostGIS data version appearing (an edit…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill muted">PARKED</span></td></tr>
-<tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-328</td><td>grapy&#x27;s SAR tools have run only on synthetic scenes.</td><td class="muted-t">ADR-237 condition 3: the first real product run through the chain, or a user tool that fails on one</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-332</td><td>grapy&#x27;s path distance tools refuse the legacy source characteristics, and none is measured.</td><td class="muted-t">A user tool that passes one of the refused parameters, or one whose distance run reaches ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -626,6 +626,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>044a8ac6</code><time>2026-11-01</time><span>The import reader&#x27;s GDAL draws PDF through Poppler, which is GPL, so D-321&#x27;s PDF thumbnail is parked on the owner&#x27;s licence decision (D-380)</span></li>
 <li><code>77f0b5e5</code><time>2026-11-01</time><span>A caller with no token is challenged on /rest/services, so the ArcGIS Maps SDK sends the token it holds to an organisation-shared service (D-347)</span></li>
 <li><code>626c8621</code><time>2026-11-01</time><span>D-04 is repaid: the noisy organisation is bounded at admission and at the connections, ADR-204 condition 14 being discharged</span></li>
 <li><code>92d5aa3c</code><time>2026-11-01</time><span>Point cloud training fits the fence: all four networks train an epoch on Linux inside 2 GiB and 600 s (ADR-249 condition 1, measure.yml run 41254391064)</span></li>
@@ -639,7 +640,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>204dfeea</code><time>2026-11-01</time><span>A serving request queues for the platform store inside ADR-046&#x27;s bound and is refused on arrival past it; the admitted median no longer doubles with the callers (ADR-046 condition 1 partly, D-374)</span></li>
 <li><code>fffb6ed0</code><time>2026-11-01</time><span>A user tool runs torch with one thread per numeric runtime and two malloc arenas, as one epoch of point cloud training reached the fence&#x27;s 2 GiB address space without them</span></li>
 <li><code>9af77c8b</code><time>2026-11-01</time><span>grapy adjusts a parcel fabric on the ellipsoid as ArcGIS Pro does, and builds and adjusts 10,000 parcels inside ADR-223&#x27;s limits (ADR-250 conditions 2 and 3, D-355 repaid)</span></li>
-<li><code>14b6d224</code><time>2026-11-01</time><span>Organisations share the one platform pool, the tenant sent ahead of each statement: the pools were the whole tenancy slowdown (ADR-204 conditions 12, 13, 14)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
