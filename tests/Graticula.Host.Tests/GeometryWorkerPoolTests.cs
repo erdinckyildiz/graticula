@@ -143,7 +143,9 @@ public sealed class GeometryWorkerPoolTests
     {
         RequireWorker();
 
-        await using GeometryWorkerPool pool = Pool();
+        // A minute's deadline: this test is about the answer, not the clock, and CI run 41287311194 met the default
+        // deadline on Difference while the two-node tests loaded the same runner.
+        await using GeometryWorkerPool pool = Pool(deadline: TimeSpan.FromSeconds(60));
 
         EngineResult result = await pool.ComputeAsync(
             new EngineRequest(operation, [Square(0, 0, 10)], [Square(5, 5, 10)], 3857)
