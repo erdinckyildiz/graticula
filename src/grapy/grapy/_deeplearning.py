@@ -45,7 +45,7 @@ import zipfile
 
 import numpy as np
 
-from ._runtime import AddMessage, NotBuiltError, _is_given, env
+from ._runtime import AddMessage, AddWarning, NotBuiltError, _is_given, env
 
 GRAPY_CONFIGURATION = "grapy"
 DEFINITION_VERSION = 1
@@ -345,6 +345,51 @@ def _range_test(torch, trial, batches, step, low, high, count, seconds):
     return best_rate / 10.0
 
 
+# What training leaves of the CPU limit for the tool to write its model after the last epoch (INFERRED, ADR-249 §11
+# condition 1's remainder, D-341): saving even Point Transformer V3's 176 MB of weights and its statistics takes a few
+# seconds, so 20 s is several times that, and a twentieth of the limit where the limit is large.
+CPU_RESERVE_SECONDS = 20.0
+
+
+def _cpu_used():
+    """The CPU seconds this process has used, every thread counted, as RLIMIT_CPU counts them; None off POSIX."""
+    try:
+        import resource
+    except ImportError:
+        return None
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    return usage.ru_utime + usage.ru_stime
+
+
+def cpu_limit():
+    """The CPU limit this process runs under (the fence sets RLIMIT_CPU, soft and hard alike, ADR-223), or None where
+    there is none. At the limit the kernel kills the process, which no handler can catch, so a long training has to
+    stop before it rather than at it."""
+    try:
+        import resource
+    except ImportError:
+        return None
+    soft, _ = resource.getrlimit(resource.RLIMIT_CPU)
+    if soft == resource.RLIM_INFINITY or soft < 0:
+        return None
+    return float(soft)
+
+
+def _another_epoch_fits(longest, tool):
+    """Whether one more epoch as long as the ``longest`` so far, a quarter over for its variation, still leaves the
+    reserve under the CPU limit; True where there is no limit. Says why when it does not."""
+    limit, used = cpu_limit(), _cpu_used()
+    if limit is None or used is None or longest is None:
+        return True
+    reserve = max(CPU_RESERVE_SECONDS, 0.05 * limit)
+    if used + 1.25 * longest + reserve <= limit:
+        return True
+    AddWarning(f"{tool}: training stops before the CPU limit of {limit:.0f} s: {used:.0f} s are used and an epoch "
+               f"has taken up to {longest:.0f} s, so another would not leave {reserve:.0f} s to write the model. "
+               "The model keeps its best epoch's weights.")
+    return False
+
+
 def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_rate, monitor="valid_loss",
         larger_is_better=False, early_stopping=True, patience=5, tool="grapy", parameters=None, seconds=None,
         schedule="ONE_CYCLE", on_epoch=None, best_from=None):
@@ -353,7 +398,9 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
     ``evaluate(model, valid_batches)`` answers a dict holding ``monitor``. The model ends with the weights of the best
     epoch. With ``early_stopping`` training stops when ``monitor`` has not improved for ``patience`` epochs (INFERRED: 5).
 
-    With ``seconds``, training also stops after the epoch in which that much time has passed. ``schedule`` ``FIXED``
+    With ``seconds``, training also stops after the epoch in which that much time has passed. Under a CPU limit (the
+    fence's RLIMIT_CPU, ADR-223) training stops before an epoch that would not leave ``CPU_RESERVE_SECONDS`` to write
+    the model, so a long training ends with its best epoch's weights rather than being killed with nothing (D-341). ``schedule`` ``FIXED``
     keeps ``learning_rate`` throughout instead of the one-cycle schedule; ``on_epoch(epoch, model, scores)``, when given,
     is called after each epoch (the point cloud tools write their checkpoints from it, ADR-249). With ``best_from``, a
     callable answering the path of the weights ``on_epoch`` wrote for an epoch, the best epoch's weights are read back
@@ -372,8 +419,12 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
                 if str(schedule).upper() != "FIXED" else torch.optim.lr_scheduler.LambdaLR(optimiser, lambda _: 1.0))
     history, best, best_state, waited = [], None, None, 0
     best_epoch = None
+    longest = None
     started = time.time()
     for epoch in range(int(epochs)):
+        if epoch and not _another_epoch_fits(longest, tool):
+            break
+        epoch_started = _cpu_used()
         model.train()
         losses = []
         for k, batch in enumerate(first if epoch == 0 else train_batches(epoch)):
@@ -397,6 +448,9 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
         history.append(scores)
         if on_epoch is not None:
             on_epoch(epoch + 1, model, scores)
+        if epoch_started is not None:
+            spent = _cpu_used() - epoch_started
+            longest = spent if longest is None else max(longest, spent)
         value = scores.get(monitor)
         AddMessage(f"{tool}: epoch {epoch + 1}: train loss {scores['train_loss']:.4f}, "
                    + ", ".join(f"{k} {v:.4f}" for k, v in scores.items() if k not in ("epoch", "train_loss")
