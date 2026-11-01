@@ -988,7 +988,11 @@ public static class Program
         builder.Services.AddSingleton(serverLog);
         builder.Logging.AddProvider(serverLog);
 
-        WebApplication app = builder.Build();
+        // <b>Disposed on every way out, refusals included</b> — found 2026-11-01 when CI run 41307103059 read an empty log
+        // from a node the store had refused: the console logger writes from a queue of its own, and `return 1` before
+        // the host was disposed left the critical line in that queue. An operator would have seen the exit code and not
+        // the reason. Disposing flushes every logger provider.
+        await using WebApplication app = builder.Build();
 
         // ADR-012 phase 0 item 2: who reloads what when another node of the site announces a change.
         {

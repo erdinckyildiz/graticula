@@ -21,6 +21,9 @@ if arcpy.Exists(gdb):
     arcpy.management.Delete(gdb)
 arcpy.management.CreateFileGDB(out, "t.gdb")
 sr = arcpy.SpatialReference(int(os.environ.get("SRID", "32635")))  # SRID: another system's default domain (D-339)
+if os.environ.get("WKT_FILE"):  # a system Pro does not know by code, given as ESRI WKT (D-339, 2026-11-01)
+    sr = arcpy.SpatialReference()
+    sr.loadFromString(open(os.environ["WKT_FILE"]).read())
 if len(sys.argv) > 7:
     sr.XYResolution = float(sys.argv[7])
     sr.XYTolerance = float(sys.argv[7]) * 10

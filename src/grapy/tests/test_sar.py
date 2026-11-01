@@ -450,8 +450,77 @@ class Interferometry(unittest.TestCase):
             arcpy.ia.ApplyCoregistration(a, a, os.path.join(self.dir, "tc.tif"))
 
 
+def goldstein_before(z, alpha, patch, need=None):
+    """_sartools.goldstein as it was before D-357's second cut (numpy's transforms, the weighting in new arrays, every
+    batch added through an index array), kept as the reference the faster one must answer to the bit."""
+    from numpy.lib.stride_tricks import sliding_window_view
+    from scipy import ndimage
+    n, m = z.shape
+    step = max(1, patch // 2)
+    pad_n = (int(math.ceil(max(n - patch, 0) / step)) * step + patch) - n
+    pad_m = (int(math.ceil(max(m - patch, 0) / step)) * step + patch) - m
+    zp = np.pad(z, ((0, pad_n), (0, pad_m)), mode="reflect" if min(n, m) > 1 else "edge")
+    out = np.zeros(zp.shape, complex)
+    weight = np.zeros(zp.shape)
+    taper1 = 1 - np.abs(np.arange(patch) - (patch - 1) / 2) / (patch / 2)
+    taper = np.outer(taper1, taper1) + 1e-6
+    q = int(math.ceil(patch / step))
+    row_starts = np.arange(0, zp.shape[0] - patch + 1, step)
+    col_starts = np.arange(0, zp.shape[1] - patch + 1, step)
+    span = np.arange(patch)
+    held = None
+    if need is not None:
+        padded = np.zeros(zp.shape, np.int32)
+        padded[:n, :m] = np.asarray(need, bool)
+        table = np.zeros((zp.shape[0] + 1, zp.shape[1] + 1), np.int64)
+        table[1:, 1:] = padded.cumsum(0).cumsum(1)
+        rr, cc = row_starts[:, None], col_starts[None, :]
+        held = (table[rr + patch, cc + patch] - table[rr, cc + patch] - table[rr + patch, cc] + table[rr, cc]) > 0
+    for a in range(q):
+        for b in range(q):
+            batch = col_starts[b::q]
+            if not len(batch):
+                continue
+            for i, r in zip(range(a, len(row_starts), q), row_starts[a::q]):
+                cols = batch if held is None else batch[held[i, b::q]]
+                if not len(cols):
+                    continue
+                where = (cols[:, None] + span[None, :]).ravel()
+                blocks = sliding_window_view(zp[r: r + patch], patch, axis=1)[:, cols, :].transpose(1, 0, 2)
+                spectrum = np.fft.fft2(blocks)
+                smooth = ndimage.uniform_filter(np.abs(spectrum), (1, 3, 3), mode="wrap")
+                peak = smooth.max(axis=(1, 2), keepdims=True)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    h = np.where(peak > 0, (smooth / np.where(peak > 0, peak, 1)) ** alpha, 1.0)
+                result = np.fft.ifft2(spectrum * h) * taper
+                out[r: r + patch, where] += result.transpose(1, 0, 2).reshape(patch, -1)
+                weight[r: r + patch, where] += np.tile(taper, (1, len(cols)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return (out / weight)[:n, :m]
+
+
 class SpeedKeepsTheAnswer(unittest.TestCase):
     """D-357: the faster paths answer what the ones they replaced did."""
+
+    def test_goldstein_keeps_the_reference_doubles(self):
+        # D-357: scipy's transforms on power-of-two patches, the weighting in place and gap-free batches added as one
+        # slice give the replaced code's doubles, on odd and even patches, with and without `need`, with zero cells.
+        from grapy import _sartools
+        rng = np.random.default_rng(3357)
+        for trial in range(16):
+            n, m = int(rng.integers(20, 160)), int(rng.integers(20, 160))
+            clean = np.cumsum(rng.normal(0, 0.2, (n, m)), axis=1)
+            z = np.exp(1j * (clean + np.where(rng.random((n, m)) > 0.6, rng.uniform(-3, 3, (n, m)), 0)))
+            z *= rng.gamma(2, 1, (n, m))
+            if trial % 3 == 0:
+                z[: n // 3, : m // 3] = 0
+            patch = (2, 3, 5, 8, 12, 16, 32, 64)[trial % 8]
+            alpha = (0.5, 1.0, 0.3, 0.77)[trial % 4]
+            need = None if trial % 2 else rng.random((n, m)) > 0.5
+            want = goldstein_before(z, alpha, patch, need=need)
+            got = _sartools.goldstein(z, alpha, patch, need=need)
+            used = np.ones((n, m), bool) if need is None else need
+            self.assertTrue(np.array_equal(want[used], got[used], equal_nan=True), (trial, patch, alpha))
 
     def test_the_wind_inversion_finds_the_bisections_root(self):
         from grapy import _sartools

@@ -494,7 +494,9 @@ def _domains():
     """``_terrain_domains.txt``: ArcGIS Pro 3.7's default XY domain origin for each of the 5,767 EPSG coordinate
     systems Pro knows, read with arcpy's ``SpatialReference(code).domain`` on 2026-11-01
     (``tools/pro-compare/adr234-terrain-domains-pro.py``, D-339) — a measured table, since the rule Pro derives the
-    domain from each projection's own horizon by is not published."""
+    domain from each projection's own horizon by is not published — and for 131 of the 190 codes Pro does not know by
+    number, the domain Pro gives the system's ESRI WKT (``adr234-terrain-domains-wkt-pro.py``); Pro refuses the other
+    WKTs, so no terrain can be built in Pro in those systems."""
     global _DOMAINS
     if _DOMAINS is None:
         table = {}
@@ -510,7 +512,7 @@ def _domains():
 
 def default_xy_origin(srid):
     """Pro's default XY domain origin for the EPSG code ``srid`` (``_domains``) — for a UTM zone on WGS 84 north
-    (-5120900, -9998100), south (-5120900, 1900) — or None for a code Pro does not know."""
+    (-5120900, -9998100), south (-5120900, 1900) — or None for a code Pro knows neither by number nor as WKT."""
     try:
         code = int(srid)
     except (TypeError, ValueError):

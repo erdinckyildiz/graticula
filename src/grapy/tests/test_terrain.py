@@ -165,6 +165,14 @@ class Terrain(unittest.TestCase):
         self.assertEqual(_terrain.default_xy_origin(27700), (-5220400.0, -15524400.0))   # British National Grid
         ax, ay = _terrain.window_anchors(pts, 2, 0, (7, 9))   # no coordinate system Pro knows: the extent's corner
         self.assertEqual((ax[0], ay[0]), (7, 9))
+        # A code Pro does not know by number but loads as ESRI WKT takes the domain Pro gives that WKT (D-339,
+        # 2026-11-01): Pro 3.7 on these points in EPSG:3207 kept all 285 points this rule predicts at spacings 2 and 8
+        # (the extent's corner would reproduce 30). One Pro refuses even as WKT (2046) keeps the extent's corner.
+        self.assertEqual(_terrain.default_xy_origin(3207), (-34954200.0, -33675300.0))
+        ax, ay = _terrain.window_anchors(pts, 8, 3207, (7, 9))
+        self.assertEqual(ax[0], -34954200 + math.floor((500000.01 + 34954200) / 3578) * 3578)
+        self.assertIsNone(_terrain.default_xy_origin(2046))
+        self.assertEqual(_terrain.window_anchors(pts, 2, 2046, (7, 9))[0][0], 7)
         # BuildTerrain uses them: a 16 m window from 4399770 + 16k holds y 4400000..4400010, not one from 4400000.
         utm = arcpy.management.CreateFeatureDataset(self.gpkg, "utm", 32635)[0]
         xyz = [(500000.5, 4400000.5, 5.0), (500000.5, 4400009.5, 4.0), (500000.5, 4400010.5, 3.0)]

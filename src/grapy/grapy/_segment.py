@@ -74,6 +74,10 @@ def _chosen_bands(source, band_indexes, tool):
     return numbers
 
 
+#: Points moved at a time by ``_mean_shift`` (D-333): the answer does not depend on it, the memory does.
+MEAN_SHIFT_CHUNK = 1 << 18
+
+
 def _mean_shift(colours, mask, hs, hr, iterations=20):
     """Comaniciu and Meer's filtering: the convergence point (y, x, colour) of every pixel."""
     rows, columns, k = colours.shape
@@ -90,30 +94,34 @@ def _mean_shift(colours, mask, hs, hr, iterations=20):
     for _ in range(iterations):
         if not active.any():
             break
-        index = np.flatnonzero(active)
-        cy, cx, cc = py[index], px[index], pc[index]
-        ry, rx = np.rint(cy).astype(int), np.rint(cx).astype(int)
-        sy, sx = np.zeros(index.size), np.zeros(index.size)
-        sc, n = np.zeros((index.size, k)), np.zeros(index.size)
-        for dy, dx in offsets:
-            ny, nx = ry + dy, rx + dx
-            inside = (ny >= 0) & (ny < rows) & (nx >= 0) & (nx < columns)
-            ny, nx = np.where(inside, ny, 0), np.where(inside, nx, 0)
-            flat = ny * columns + nx
-            take = inside & usable[flat]
-            # In space the window is round the point's own position, not the pixel it rounds to.
-            take &= (ny - cy) ** 2 + (nx - cx) ** 2 <= hs * hs
-            neighbour = table[flat]
-            take &= ((neighbour - cc) ** 2).sum(axis=1) <= hr * hr
-            sy += np.where(take, ny, 0)
-            sx += np.where(take, nx, 0)
-            sc += np.where(take[:, None], neighbour, 0)
-            n += take
-        n = np.maximum(n, 1)
-        ny_, nx_, nc_ = sy / n, sx / n, sc / n[:, None]
-        moved = (np.hypot(ny_ - cy, nx_ - cx) >= 0.1) | (np.abs(nc_ - cc).max(axis=1) >= 0.1)
-        py[index], px[index], pc[index] = ny_, nx_, nc_
-        active[index[~moved]] = False
+        # Each point moves on the image alone, never on the other points, so the active points are moved a chunk at
+        # a time: the same doubles, and the temporaries of one chunk rather than of the whole image (D-333).
+        everyone = np.flatnonzero(active)
+        for start in range(0, everyone.size, MEAN_SHIFT_CHUNK):
+            index = everyone[start: start + MEAN_SHIFT_CHUNK]
+            cy, cx, cc = py[index], px[index], pc[index]
+            ry, rx = np.rint(cy).astype(int), np.rint(cx).astype(int)
+            sy, sx = np.zeros(index.size), np.zeros(index.size)
+            sc, n = np.zeros((index.size, k)), np.zeros(index.size)
+            for dy, dx in offsets:
+                ny, nx = ry + dy, rx + dx
+                inside = (ny >= 0) & (ny < rows) & (nx >= 0) & (nx < columns)
+                ny, nx = np.where(inside, ny, 0), np.where(inside, nx, 0)
+                flat = ny * columns + nx
+                take = inside & usable[flat]
+                # In space the window is round the point's own position, not the pixel it rounds to.
+                take &= (ny - cy) ** 2 + (nx - cx) ** 2 <= hs * hs
+                neighbour = table[flat]
+                take &= ((neighbour - cc) ** 2).sum(axis=1) <= hr * hr
+                sy += np.where(take, ny, 0)
+                sx += np.where(take, nx, 0)
+                sc += np.where(take[:, None], neighbour, 0)
+                n += take
+            n = np.maximum(n, 1)
+            ny_, nx_, nc_ = sy / n, sx / n, sc / n[:, None]
+            moved = (np.hypot(ny_ - cy, nx_ - cx) >= 0.1) | (np.abs(nc_ - cc).max(axis=1) >= 0.1)
+            py[index], px[index], pc[index] = ny_, nx_, nc_
+            active[index[~moved]] = False
     modes = np.zeros((rows, columns, k + 2))
     modes[valid] = np.column_stack([py, px, pc])
     return modes
@@ -160,22 +168,32 @@ def _region_means(labels, colours):
     return sums / np.maximum(sizes, 1)[:, None], sizes
 
 
-def _adjacent(labels):
-    """Each region's set of 4-neighbouring regions: the distinct pairs found by numpy, not a Python set per pixel
-    (D-333; the same sets)."""
+def _adjacency(labels, count=None):
+    """Each region's 4-neighbouring regions as compressed rows: region r's are ``near[ptr[r]:ptr[r + 1]]``, ascending.
+    Held as two integer arrays rather than a Python set per region (D-333: at 1,280 x 1,280 the million first regions'
+    sets were most of a 1.6 GB peak)."""
+    count = int(labels.max()) + 1 if count is None else int(count)
     firsts, seconds = [], []
     for x, y in ((labels[:, :-1], labels[:, 1:]), (labels[:-1, :], labels[1:, :])):
         keep = (x != y) & (x > 0) & (y > 0)
         firsts += [x[keep], y[keep]]
         seconds += [y[keep], x[keep]]
     p = np.concatenate(firsts).astype(np.int64) if firsts else np.zeros(0, np.int64)
+    ptr = np.zeros(count + 1, np.int64)
     if not p.size:
-        return {}
+        return ptr, np.zeros(0, np.int64)
     span = int(labels.max()) + 1
     key = np.unique(p * span + np.concatenate(seconds).astype(np.int64))
     p, q = key // span, key % span
-    cuts = np.flatnonzero(np.diff(p)) + 1
-    return {int(a[0]): set(b.tolist()) for a, b in zip(np.split(p, cuts), np.split(q, cuts))}
+    ptr[1:] = np.cumsum(np.bincount(p, minlength=count))
+    return ptr, q
+
+
+def _adjacent(labels):
+    """Each region's set of 4-neighbouring regions: the distinct pairs found by numpy, not a Python set per pixel
+    (D-333; the same sets)."""
+    ptr, near = _adjacency(labels)
+    return {r: set(near[ptr[r]: ptr[r + 1]].tolist()) for r in np.flatnonzero(np.diff(ptr)).tolist()}
 
 
 def _renumber(labels):
@@ -198,22 +216,26 @@ def _merge_small(labels, colours, minimum):
         return labels
     for _ in range(int(labels.max()) + 1):
         means, sizes = _region_means(labels, colours)
-        small = [r for r in range(1, len(sizes)) if 0 < sizes[r] < minimum]
-        if not small:
+        small = np.flatnonzero((sizes > 0) & (sizes < minimum))
+        small = small[small >= 1]
+        if not small.size:
             break
-        near = _adjacent(labels)
-        small.sort(key=lambda r: (sizes[r], r))
+        ptr, near = _adjacency(labels, len(sizes))
+        ptr = ptr.tolist()
+        small = small[np.lexsort((small, sizes[small]))].tolist()      # the smallest first, ties to the lower label
         lookup = np.arange(len(sizes))
-        done = set()
+        done = np.zeros(len(sizes), bool)
         for r in small:
-            if r in done or not near.get(r):
+            if done[r] or ptr[r] == ptr[r + 1]:
                 continue
-            candidates = sorted(near[r] - done, key=lambda q: (float(((means[q] - means[r]) ** 2).sum()), q))
-            if not candidates:
+            candidates = near[ptr[r]: ptr[r + 1]]
+            candidates = candidates[~done[candidates]]
+            if not candidates.size:
                 continue
-            target = candidates[0]
+            distance = ((means[candidates] - means[r]) ** 2).sum(axis=1)
+            target = int(candidates[distance == distance.min()][0])   # the nearest colour, ties to the lower label
             lookup[r] = target
-            done.update({r, target})
+            done[r] = done[target] = True
         if (lookup == np.arange(len(sizes))).all():
             break
         while True:
