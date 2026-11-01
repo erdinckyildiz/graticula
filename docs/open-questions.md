@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-224 | **Do portal groups take writes — `createGroup`, then `addUsers`, `removeUsers`, `update`, `delete`, `join`, `leave`?** [ADR-040](adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md) §4a made them read-only on purpose: a second write path to one table with a different authorization story is how two surfaces come to disagree. Found 2026-11-01 sharing to a group from Pro at a second organisation: `createGroup` answers 404, so the Python API's `gis.groups.create` fails, and the ArcGIS veteran's review of the same night ranks group membership writes as the next thing such a script calls ("make the group, add the users, share" breaks at line two). A `createGroup` was written that night through the same `IGroupDirectory.CreateAsync` and `groups:create` privilege the admin API uses — so the authorization story is one, not two — and reverted the same night because the decision is the owner's (`git revert` of 64646f46 brings it back). **Recommendation: open the writes, each through the admin API's own directory call and privilege**, which answers §4a's reason rather than overriding it. | **[OWNER]** | INFERRED recommendation, 2026-11-02; the code is on branch grapy-surface |
 
 ## Answered
 
