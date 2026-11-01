@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>11ae1fc4</code> · 2026-11-01 03:59</p>
+<p class="stamp">Generated from commit <code>7580b92c</code> · 2026-11-01 04:13</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">251</div><div class="kpi-l">ADRs</div><div class="kpi-n">82 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">629/668</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">29 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">230 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">319 repaid · 17 waiting on a trigger · 5 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">319 repaid · 17 waiting on a trigger · 6 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">5686</div><div class="kpi-l">tests</div><div class="kpi-n">617 source files, 275,444 lines</div></div>
@@ -448,7 +448,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-334</td><td>grapy&#x27;s insolation is unmeasured against Pro and slow on a real DEM.</td><td class="muted-t">ADR-243 condition 1 (a Pro run of one DEM), or a user tool&#x27;s insolation run reaching ADR-223&#x27;s time limit</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-338</td><td>grapy&#x27;s utility network traces and diagram layouts differ from Pro&#x27;s where five measurements do not say Pro&#x27;s rule.</td><td class="muted-t">Esri publishes the trace&#x27;s neighbour order, the PATH trace&#x27;s rule or the radial and mainline tree layouts; or a user&#x27;s…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-339</td><td>grapy&#x27;s terrain windows start at a different corner from Pro&#x27;s.</td><td class="muted-t">A rule that predicts the corner from the domain and the spacing, found by more runs of Pro, or a user tool that counts…</td><td><span class="pill cond">PARTLY</span></td></tr>
-<tr class=""><td class="id">D-357</td><td>Three of grapy&#x27;s SAR tools do not fit ADR-223 on a full IW swath, by time or by the size of the grid.</td><td class="muted-t">A user tool that runs Goldstein filtering or ocean winds on a full swath, or unwraps one, on this server; or ADR-223&#x27;s…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-357</td><td>Three of grapy&#x27;s SAR tools do not fit ADR-223 on a full IW swath, by time or by the size of the grid.</td><td class="muted-t">A user tool that runs Goldstein filtering or ocean winds on a full swath, or unwraps one, on this server; or ADR-223&#x27;s…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-358</td><td>Three OGC API conformance claims rest on this repository&#x27;s own tests, because OGC publishes no executable test suite for them.</td><td class="muted-t">An OGC executable test suite is published for OGC API Features Part 3 / CQL2, OGC API Styles or OGC API Records.</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-359</td><td>Three limits and windows are guesses until a real deployment measures them.</td><td class="muted-t">The first deployment that matters, or a real customer&#x27;s data.</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-360</td><td>Plugins stay closed, and the reason for reopening them is an event nobody is watching for.</td><td class="muted-t">ADR-006 §2.3, verbatim: &quot;Someone needs a provider, output format or geoprocessing operation that we have decided not to…</td><td><span class="pill muted">PARKED</span></td></tr>
@@ -624,6 +624,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7580b92c</code><time>2026-11-01</time><span>grapy&#x27;s cost and path distance tools build the four parameters still refused: FROM_SOURCE resistance, a field of directions, GEODESIC and NETWORK_PATHS (D-332 repaid)</span></li>
 <li><code>11ae1fc4</code><time>2026-11-01</time><span>grapy&#x27;s terrain windows start at Pro&#x27;s tile corners in every EPSG system Pro knows, read from Pro itself (D-339 part 1)</span></li>
 <li><code>9add951c</code><time>2026-11-01</time><span>grapy keeps a GeoPackage class&#x27;s extent whatever writes it and gives every class it makes the RTree index, so D-340 is repaid</span></li>
 <li><code>15659d7a</code><time>2026-11-01</time><span>A long deep learning training stops before the fence&#x27;s CPU limit and keeps its best epoch, so D-341 is repaid</span></li>
@@ -637,7 +638,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>5f2dd1b4</code><time>2026-11-01</time><span>Merge repair: ADR-250 condition 2 keeps both the owner&#x27;s decision note and its discharge, and Q-220&#x27;s answered row carries the ellipsoid measurement</span></li>
 <li><code>822bef57</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>204dfeea</code><time>2026-11-01</time><span>A serving request queues for the platform store inside ADR-046&#x27;s bound and is refused on arrival past it; the admitted median no longer doubles with the callers (ADR-046 condition 1 partly, D-374)</span></li>
-<li><code>fffb6ed0</code><time>2026-11-01</time><span>A user tool runs torch with one thread per numeric runtime and two malloc arenas, as one epoch of point cloud training reached the fence&#x27;s 2 GiB address space without them</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
