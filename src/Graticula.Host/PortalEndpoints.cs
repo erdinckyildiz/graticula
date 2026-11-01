@@ -265,6 +265,7 @@ internal static partial class PortalEndpoints
         MapProShare(app);
         MapProPublishCapture(app);
         MapItemWrites(app);
+        MapGroupWrites(app);
     }
 
     /// <summary>
@@ -346,6 +347,12 @@ internal static partial class PortalEndpoints
         if (current.Authorization.Allows(Privilege.FeaturesFullEdit))
         {
             held.Add("features:user:fullEdit");
+        }
+
+        // community/createGroup exists since 2026-11-01 (PortalEndpoints.GroupWrites), so a role that may make a group is told.
+        if (current.Authorization.Allows(Privilege.GroupsCreate))
+        {
+            held.Add("portal:user:createGroup");
         }
 
         return [.. held];
