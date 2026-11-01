@@ -669,11 +669,15 @@ def _rebuild(connection, table, oid, shape_field=None, stored=None):
     others = [(n, stored if shape_field is not None and n == shape_field else d) for n, d in listed if n != oid]
     temporary = f"{table}__registering"
     defined = ", ".join([f'"{oid}" integer primary key autoincrement'] + [f'"{n}" {d}'.rstrip() for n, d in others])
+    # The RTree index is keyed by the old key and its triggers go with the old table, so it is made again (D-340).
+    indexed = _gpkg.drop_index(connection, table)
     connection.execute(f'create table "{temporary}" ({defined})')
     names = ", ".join(f'"{n}"' for n in [oid] + [n for n, _ in others])
     connection.execute(f'insert into "{temporary}" ({names}) select {names} from "{table}"')
     connection.execute(f'drop table "{table}"')
     connection.execute(f'alter table "{temporary}" rename to "{table}"')
+    if indexed:
+        _gpkg.add_index(connection, table)
 
 
 # ---- views ----------------------------------------------------------------------------------------------------------

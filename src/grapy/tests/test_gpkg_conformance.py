@@ -210,6 +210,7 @@ class OtherWriters(unittest.TestCase):
         # an update keep the index as the file's writer would.
         file = os.path.join(self.directory, "indexed.gpkg")
         arcpy.management.CreateFeatureclass(file, "pts", "POINT", spatial_reference=arcpy.SpatialReference(3857))
+        arcpy.management.RemoveSpatialIndex(f"{file}/pts")   # grapy makes its own since D-340; this is another writer's
         c = sqlite3.connect(file)
         c.executescript("""
             create virtual table rtree_pts_geom using rtree(id, minx, maxx, miny, maxy);
@@ -247,6 +248,90 @@ class OtherWriters(unittest.TestCase):
             c.close()
         self.assertTrue(wkt1.startswith("PROJCS["))
         self.assertTrue(wkt2.startswith("PROJCRS["))
+
+
+class SpatialIndexAndExtent(unittest.TestCase):
+    """D-340: grapy gives every feature class it makes the RTree index of Annex F.3, and a class's extent widens
+    whatever statement writes its shapes, a tool's own SQL as much as a da cursor."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        self.file = os.path.join(self.directory, "indexed.gpkg")
+        arcpy.env.overwriteOutput = True
+        arcpy.management.CreateFeatureclass(self.file, "pts", "POINT", spatial_reference=arcpy.SpatialReference(3857))
+
+    def query(self, sql, *args):
+        c = sqlite3.connect(self.file)
+        try:
+            return c.execute(sql, args).fetchall()
+        finally:
+            c.close()
+
+    def test_a_new_class_has_the_annex_f3_index_and_it_follows_every_edit(self):
+        self.assertEqual(self.query("select table_name, column_name, extension_name, scope from gpkg_extensions "
+                                    "where extension_name = 'gpkg_rtree_index'"),
+                         [("pts", "geom", "gpkg_rtree_index", "write-only")])
+        triggers = {r[0] for r in self.query("select name from sqlite_master where type = 'trigger'")}
+        self.assertEqual(triggers, {f"rtree_pts_geom_{s}" for s in
+                                    ("insert", "update2", "update4", "update5", "update6", "update7", "delete")})
+        with arcpy.da.InsertCursor(f"{self.file}/pts", ["SHAPE@XY"]) as rows:
+            rows.insertRow(((1.0, 2.0),))
+            rows.insertRow(((5.0, 6.0),))
+            rows.insertRow((None,))
+        self.assertEqual(self.query("select * from rtree_pts_geom order by id"),
+                         [(1, 1.0, 1.0, 2.0, 2.0), (2, 5.0, 5.0, 6.0, 6.0)])
+        with arcpy.da.UpdateCursor(f"{self.file}/pts", ["OID@", "SHAPE@XY"]) as rows:
+            for oid, _ in rows:
+                if oid == 1:
+                    rows.updateRow((oid, (9.0, 9.0)))
+                elif oid == 2:
+                    rows.deleteRow()
+                else:
+                    rows.updateRow((oid, (-3.0, 4.0)))
+        self.assertEqual(self.query("select * from rtree_pts_geom order by id"),
+                         [(1, 9.0, 9.0, 9.0, 9.0), (3, -3.0, -3.0, 4.0, 4.0)])
+
+    def test_a_tools_own_sql_widens_the_extent(self):
+        connection = _gpkg.connect(self.file)
+        try:
+            for x, y in ((10.0, 20.0), (-4.0, 7.0)):
+                connection.execute("insert into pts (geom) values (?)",
+                                   (_gpkg.encode(__import__("shapely").Point(x, y), 3857),))
+            connection.execute("insert into pts (geom) values (null)")
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertEqual(self.query("select min_x, min_y, max_x, max_y from gpkg_contents where table_name = 'pts'"),
+                         [(-4.0, 7.0, 10.0, 20.0)])
+        # The extent's triggers are the connection's own: nothing of them is written to the file.
+        self.assertFalse([r for r in self.query("select name from sqlite_master where name like 'grapy_extent%'")])
+
+    def test_rename_and_delete_carry_the_index(self):
+        with arcpy.da.InsertCursor(f"{self.file}/pts", ["SHAPE@XY"]) as rows:
+            rows.insertRow(((1.0, 2.0),))
+        arcpy.management.Rename(f"{self.file}/pts", f"{self.file}/wells")
+        names = {r[0] for r in self.query("select name from sqlite_master")}
+        self.assertIn("rtree_wells_geom", names)
+        self.assertFalse([n for n in names if n.startswith("rtree_pts")])
+        self.assertEqual(self.query("select * from rtree_wells_geom"), [(1, 1.0, 1.0, 2.0, 2.0)])
+        self.assertEqual(self.query("select table_name from gpkg_extensions where extension_name = 'gpkg_rtree_index'"),
+                         [("wells",)])
+        arcpy.management.Delete(f"{self.file}/wells")
+        self.assertFalse([r for r in self.query("select name from sqlite_master where name like 'rtree%'")])
+        self.assertFalse(self.query("select * from gpkg_extensions where extension_name = 'gpkg_rtree_index'"))
+
+    def test_remove_and_add_spatial_index(self):
+        with arcpy.da.InsertCursor(f"{self.file}/pts", ["SHAPE@XY"]) as rows:
+            rows.insertRow(((1.0, 2.0),))
+        arcpy.management.RemoveSpatialIndex(f"{self.file}/pts")
+        self.assertFalse([r for r in self.query("select name from sqlite_master where name like 'rtree%'")])
+        with arcpy.da.InsertCursor(f"{self.file}/pts", ["SHAPE@XY"]) as rows:   # writes with no index
+            rows.insertRow(((3.0, 4.0),))
+        arcpy.management.AddSpatialIndex(f"{self.file}/pts")
+        self.assertEqual(self.query("select * from rtree_pts_geom order by id"),
+                         [(1, 1.0, 1.0, 2.0, 2.0), (2, 3.0, 3.0, 4.0, 4.0)])
+        arcpy.management.AddSpatialIndex(f"{self.file}/pts")    # a second time changes nothing
+        self.assertEqual(len(self.query("select * from rtree_pts_geom")), 2)
 
 
 if __name__ == "__main__":

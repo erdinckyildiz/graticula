@@ -210,6 +210,7 @@ def create(file, name, srid, bands=None, pixel_type=None, product="NONE", refere
         _gpkg._ensure_metadata(connection, srid)
         ensure(connection)
         drop(connection, name)
+        _gpkg.drop_index(connection, name)
         connection.execute(f'drop table if exists "{name}"')
         _gpkg.forget(connection, name)
         columns = [*FIELDS, *[c for c in extra_columns if c[0].lower() not in {f[0].lower() for f in FIELDS}]]
