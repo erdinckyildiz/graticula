@@ -200,6 +200,14 @@ internal static partial class PortalEndpoints
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
         app.MapPost($"{Path}/content/users/{{username}}/items/{{id}}/move", MoveItemAsync)
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
+
+        // <b>And from inside a folder</b> — the ArcGIS veteran's review of 2026-11-02, B. The portal documents
+        // `content/users/{user}/[{folderId}]/items/{id}/move`, and the ArcGIS API for Python writes the item's
+        // `ownerFolder` into the path whenever it has one, so moving an item out of a folder met a 404 here while
+        // update, delete, share and unshare already answered both forms. The folder in the path names where the item
+        // is, which the move does not need; `moveItems` has no folder form in the portal API, so it has none here.
+        app.MapPost($"{Path}/content/users/{{username}}/{{folderId:length(32)}}/items/{{id}}/move", MoveItemAsync)
+            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
         app.MapPost($"{Path}/content/users/{{username}}/moveItems", MoveItemsAsync)
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
 
@@ -918,8 +926,8 @@ internal static partial class PortalEndpoints
                 && context.RequestServices.GetService<TenantDirectory>()?.All.FirstOrDefault(t => t.Key == home) is { } theirs
                     ? theirs.PortalId
                     : PortalId(context),
-            role = administrator ? "org_admin" : "org_user",
-            roleId = administrator ? "org_admin" : "org_user",
+            role = RoleOf(current, administrator),
+            roleId = RoleOf(current, administrator),
 
             // <b>What this account may do, and nothing it may not.</b> A client
             // reads these to decide which buttons to offer, so a generous list is a
@@ -944,6 +952,19 @@ internal static partial class PortalEndpoints
             groups,
         };
     }
+
+    /// <summary>The ArcGIS role this account is reported under: <c>org_admin</c>, <c>org_publisher</c> or <c>org_user</c>.</summary>
+    /// <remarks>
+    /// <b>A publisher was reported as a user — the ArcGIS veteran's review of 2026-11-02, G.</b> ArcGIS names three
+    /// built-in roles, and a client that reads <c>role</c> rather than the privilege list — the ArcGIS API for Python's
+    /// <c>user.role</c>, and scripts that branch on it before calling <c>publish</c> — took a member who may publish for
+    /// one who may not. <c>org_publisher</c> follows this server's own <see cref="Privilege.ContentPublishFeatures"/>,
+    /// as <c>portal:publisher:publishFeatures</c> in the privilege list does; an administrator stays <c>org_admin</c>.
+    /// </remarks>
+    internal static string RoleOf(RequestPrincipal current, bool administrator) =>
+        administrator ? "org_admin"
+        : current.Authorization.Allows(Privilege.ContentPublishFeatures) ? "org_publisher"
+        : "org_user";
 
     /// <summary>
     /// A portal's subscription, of which this server has none.
@@ -1327,6 +1348,65 @@ internal static partial class PortalEndpoints
             : current;
     }
 
+    /// <summary>Who is acting on the content a <c>content/users/{username}</c> path names, and whose content it is.</summary>
+    /// <param name="Caller">The signed-in caller, whose privileges every per-item check still reads.</param>
+    /// <param name="Owner">The account the path names: the caller's own, or the member an administrator acts for.</param>
+    /// <param name="OwnerName">That account's name, as it is held.</param>
+    internal sealed record ActingFor(RequestPrincipal Caller, Guid Owner, string OwnerName);
+
+    /// <summary>
+    /// The caller acting on <paramref name="username"/>'s content: themselves, or an administrator who may manage all
+    /// content acting for a member of the request's organisation; otherwise null.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The ArcGIS veteran's review of 2026-11-02, A: an administrator could not act through the owner's path.</b>
+    /// Every item write under <c>content/users/{username}</c> asked <see cref="Self(HttpContext, string)"/> first, which
+    /// refuses a path that names anybody but the caller — so <see cref="Manages"/>, which honours
+    /// <see cref="Privilege.AdminManageAllContent"/>, was never reached. ArcGIS builds these paths from the item's owner
+    /// (the ArcGIS API for Python's <c>item.update</c>, <c>item.delete</c>, <c>item.move</c> and <c>item.share</c> all
+    /// write <c>content/users/{owner}/items/{id}/…</c>), so an administrator's script was told the owner did not exist.
+    /// </para>
+    /// <para>
+    /// <b>A bare name, found inside the request's organisation only</b> — through
+    /// <c>graticula_principal_named</c>, ADR-204 §5e item 16, which <see cref="IIdentityStore.FindForLoginAsync"/>
+    /// asks. A name with <c>\</c> is how an outsider is named there, and an administrator of this organisation does not
+    /// act on another organisation's content through it, so it is refused before anything is looked up. Everybody
+    /// else is refused exactly as before: the same <c>User does not exist</c>, whether or not the member exists.
+    /// </para>
+    /// </remarks>
+    private static async Task<ActingFor?> ActingForAsync(HttpContext context, string username, CancellationToken cancellation)
+    {
+        if (Self(context, username) is { } self)
+        {
+            return new ActingFor(self, self.Principal.Id, self.Principal.Name);
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (!MayActForAnother(current, username)
+            || context.RequestServices.GetService<IIdentityStore>() is not { } identity)
+        {
+            return null;
+        }
+
+        return await identity.FindForLoginAsync(username.Trim(), cancellation).ConfigureAwait(false) is { } found
+            && found.Principal.Kind != PrincipalKind.Anonymous
+                ? new ActingFor(current, found.Principal.Id, found.Principal.Name)
+                : null;
+    }
+
+    /// <summary>
+    /// Whether the caller may act for another member at all — signed in, holding
+    /// <see cref="Privilege.AdminManageAllContent"/>, and naming them by a bare name — before anybody is looked up.
+    /// </summary>
+    internal static bool MayActForAnother(RequestPrincipal current, string username) =>
+        current.Principal != Principal.Anonymous
+        && current.Principal.Kind != PrincipalKind.Anonymous
+        && current.Authorization.Allows(Privilege.AdminManageAllContent)
+        && !string.IsNullOrWhiteSpace(username)
+        && !username.Contains('\\', StringComparison.Ordinal);
+
     private static IResult PortalError(int code, string message) => Results.Json(
         new { error = new { code, message, details = Array.Empty<string>() } });
 
@@ -1392,23 +1472,23 @@ internal static partial class PortalEndpoints
             return PortalError(403, "Send a token to change your content from another site.");
         }
 
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { } acting)
         {
             return Unknown("User");
         }
 
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
-        (Guid? to, IResult? refused) = await MoveTargetAsync(form["folder"].ToString(), current, folders, cancellation).ConfigureAwait(false);
+        (Guid? to, IResult? refused) = await MoveTargetAsync(form["folder"].ToString(), acting.Owner, folders, cancellation).ConfigureAwait(false);
 
         if (refused is not null)
         {
             return refused;
         }
 
-        string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation, context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
+        string? error = await MoveOneAsync(id, to, acting.Owner, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation, context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
 
         return error is null
-            ? Results.Ok(new { success = true, itemId = id, owner = current.Principal.Name, folder = to?.ToString("N") })
+            ? Results.Ok(new { success = true, itemId = id, owner = acting.OwnerName, folder = to?.ToString("N") })
             : PortalError(400, error);
     }
 
@@ -1422,13 +1502,13 @@ internal static partial class PortalEndpoints
             return PortalError(403, "Send a token to change your content from another site.");
         }
 
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { } acting)
         {
             return Unknown("User");
         }
 
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
-        (Guid? to, IResult? refused) = await MoveTargetAsync(form["folder"].ToString(), current, folders, cancellation).ConfigureAwait(false);
+        (Guid? to, IResult? refused) = await MoveTargetAsync(form["folder"].ToString(), acting.Owner, folders, cancellation).ConfigureAwait(false);
 
         if (refused is not null)
         {
@@ -1439,7 +1519,7 @@ internal static partial class PortalEndpoints
 
         foreach (string id in form["items"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation, context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
+            string? error = await MoveOneAsync(id, to, acting.Owner, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation, context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
             results.Add(error is null
                 ? new { itemId = id, success = true, error = (object?)null }
                 : new { itemId = id, success = false, error = (object?)new { code = 400, message = error } });
@@ -1448,9 +1528,9 @@ internal static partial class PortalEndpoints
         return Results.Ok(new { results });
     }
 
-    /// <summary>The folder a move names: <c>/</c> or empty for the root, or one of the caller's folders.</summary>
+    /// <summary>The folder a move names: <c>/</c> or empty for the root, or one of the owner's folders.</summary>
     private static async Task<(Guid? To, IResult? Refused)> MoveTargetAsync(
-        string raw, RequestPrincipal current, IContentFolderStore folders, CancellationToken cancellation)
+        string raw, Guid owner, IContentFolderStore folders, CancellationToken cancellation)
     {
         string folder = raw.Trim();
 
@@ -1461,20 +1541,23 @@ internal static partial class PortalEndpoints
 
         return Guid.TryParse(folder, out Guid id)
             && await folders.FindAsync(id, cancellation).ConfigureAwait(false) is { } found
-            && found.Owner == current.Principal.Id
+            && found.Owner == owner
             ? (id, null)
             : (null, Unknown("Folder"));
     }
 
-    /// <summary>Moves one of the caller's own items by its portal id, or says why not.</summary>
+    /// <summary>
+    /// Moves one of <paramref name="owner"/>'s items by its portal id, or says why not — the caller's own, or, for an
+    /// administrator acting through the owner's path (<see cref="ActingForAsync"/>), the member's, into the member's folder.
+    /// </summary>
     private static async Task<string?> MoveOneAsync(
-        string id, Guid? to, RequestPrincipal current, IContentFolderStore folders, CatalogFallback published,
+        string id, Guid? to, Guid owner, IContentFolderStore folders, CatalogFallback published,
         IWebMapStore maps, ICoverageCatalog? coverages, CancellationToken cancellation, IDocumentStore? documents = null)
     {
         if (Guid.TryParse(id, out Guid serviceId)
             && (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?.FirstOrDefault(s => s.Id == serviceId) is { } service)
         {
-            return service.Owner != current.Principal.Id
+            return service.Owner != owner
                 ? "Item does not exist or is inaccessible."
                 : await folders.MoveServiceAsync(service.Id, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.";
         }
@@ -1485,7 +1568,7 @@ internal static partial class PortalEndpoints
             && (await coverages.ListAsync(cancellation).ConfigureAwait(false))
                 .FirstOrDefault(c => string.Equals(CoverageItemId(c), id, StringComparison.OrdinalIgnoreCase)) is { } image)
         {
-            return image.Owner != current.Principal.Id
+            return image.Owner != owner
                 ? "Item does not exist or is inaccessible."
                 : await folders.MoveServiceAsync(image.ServiceId, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.";
         }
@@ -1494,13 +1577,13 @@ internal static partial class PortalEndpoints
         if (documents is not null
             && await documents.FindAsync(id.ToLowerInvariant(), cancellation).ConfigureAwait(false) is { } document)
         {
-            return document.Owner == current.Principal.Id
+            return document.Owner == owner
                 && await folders.MoveDocumentAsync(document.Id, to, cancellation).ConfigureAwait(false)
                     ? null
                     : "Item does not exist or is inaccessible.";
         }
 
-        return await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map && map.Owner == current.Principal.Id
+        return await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map && map.Owner == owner
             ? (await folders.MoveMapAsync(map.Id, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.")
             : "Item does not exist or is inaccessible.";
     }
@@ -1706,13 +1789,21 @@ internal static partial class PortalEndpoints
         CancellationToken cancellation)
     {
         string query = context.Request.Query["q"].ToString();
+        IFormCollection? form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : null;
 
-        if (query.Length == 0 && context.Request.HasFormContentType)
+        if (query.Length == 0 && form is not null)
         {
-            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
-                .ConfigureAwait(false);
-
             query = form["q"].ToString();
+        }
+
+        // The ArcGIS veteran's review of 2026-11-02, E: categories narrow, bbox and filter are refused by name.
+        PortalSearchParameters.Narrowing narrowing = PortalSearchParameters.Of(context, form);
+
+        if (narrowing.Refused is { } refusedWhy)
+        {
+            return PortalError(400, refusedWhy);
         }
 
         if (await ListAsync(context, catalog, maps, coverages, query, cancellation).ConfigureAwait(false)
@@ -1721,8 +1812,8 @@ internal static partial class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> results = [.. listed.Select(entry => entry.Item)];
-        PortalPage.Page page = PortalPage.Of(results, context, context.Request.HasFormContentType ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false) : null);
+        List<object> results = [.. listed.Select(entry => entry.Item).Where(item => PortalSearchParameters.InCategories(item, narrowing.Categories))];
+        PortalPage.Page page = PortalPage.Of(results, context, form);
 
         return Results.Ok(new
         {
@@ -1751,18 +1842,26 @@ internal static partial class PortalEndpoints
         CancellationToken cancellation)
     {
         string asked = context.Request.Query["q"].ToString();
+        IFormCollection? form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : null;
 
-        if (asked.Length == 0 && context.Request.HasFormContentType)
+        if (asked.Length == 0 && form is not null)
         {
-            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
-                .ConfigureAwait(false);
-
             asked = form["q"].ToString();
         }
 
         if (!Guid.TryParse(groupId, out Guid group))
         {
             return Unknown("Group");
+        }
+
+        // The same narrowing as the portal's search (PortalSearchParameters): a group's search takes the same parameters.
+        PortalSearchParameters.Narrowing narrowing = PortalSearchParameters.Of(context, form);
+
+        if (narrowing.Refused is { } refusedWhy)
+        {
+            return PortalError(400, refusedWhy);
         }
 
         string query = string.IsNullOrWhiteSpace(asked) ? $"group:{group:N}" : $"group:{group:N} AND ({asked})";
@@ -1773,8 +1872,8 @@ internal static partial class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> results = [.. listed.Select(entry => entry.Item)];
-        PortalPage.Page page = PortalPage.Of(results, context);
+        List<object> results = [.. listed.Select(entry => entry.Item).Where(item => PortalSearchParameters.InCategories(item, narrowing.Categories))];
+        PortalPage.Page page = PortalPage.Of(results, context, form);
 
         return Results.Ok(new
         {
@@ -1810,6 +1909,12 @@ internal static partial class PortalEndpoints
         if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is { } document)
         {
             return Results.Ok(DocumentItem(context, document));
+        }
+
+        // A service definition added and not yet published, to its owner: needs no catalogue either (StagedItem).
+        if (StagedItem(context, id) is { } staged)
+        {
+            return Results.Ok(staged);
         }
 
         IReadOnlyList<PublishedService>? visible =

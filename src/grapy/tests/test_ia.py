@@ -95,9 +95,25 @@ class ImageAnalyst(unittest.TestCase):
         self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "4 3 0.5", 2)), 0.2 / 1.3 * 1.5, places=6)
         # WNDWI with green 0.2, NIR 0.5, SWIR 0.3 and α 0.5: (0.2 − 0.25 − 0.15) / (0.2 + 0.25 + 0.15).
         self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "2 4 3", 23)), -0.2 / 0.6, places=6)
-        for method in (0, 8, 14, 18):
+        # 14, MTVI2, in the raster function page's order NIR Red Green, and 18, NDWI, in its order NIR Green.
+        self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "4 3 2", 14)), self.MTVI2_CELL_1, places=5)
+        self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "4 2", 18)), (0.2 - 0.5) / 0.7, places=6)
+        for method in (0, 8):
             with self.assertRaises(arcpy.NotBuiltError):
                 ia.BandArithmetic(self.bands, "4 3", method)
+
+    # Haboudane et al. 2004's MTVI2 for NIR 0.5, red 0.3, green 0.2, worked by hand:
+    # 1.5 (1.2 × 0.3 − 2.5 × 0.1) / √((2 × 0.5 + 1)² − (6 × 0.5 − 5√0.3) − 0.5) = 0.165 / √(3.5 − 3 + 5√0.3).
+    MTVI2_CELL_1 = 0.165 / math.sqrt(3.5 - 3 + 5 * math.sqrt(0.3))
+
+    def test_mtvi2_is_the_published_quotient_with_the_pages_defaults(self):
+        self.assertAlmostEqual(self.first(ia.MTVI2(self.bands, 4, 3, 2)), self.MTVI2_CELL_1, places=5)
+        self.assertAlmostEqual(self.first(arcpy.sa.MTVI2(self.bands, nir_band_id=4, red_band_id=3, green_band_id=2)),
+                               self.MTVI2_CELL_1, places=5)
+        # Cell 2: NIR 0 and red 0, green 0.2 — 1.5 (−0.24 + 0.5) / √(1 − 0 − 0.5), a product would be 0.39 × 0.707.
+        self.assertAlmostEqual(cells(ia.MTVI2(self.bands, 4, 3, 2))[0][1], 0.39 / math.sqrt(0.5), places=5)
+        with self.assertRaises(ValueError):
+            ia.MTVI2(self.bands)  # the page's defaults are bands 7, 5 and 3, which a four-band raster does not have
 
     def test_local_statistics_across_rasters(self):
         a, b, c = grid([[1, 5]]), grid([[3, -9]], nodata=-9), grid([[2, 2]])

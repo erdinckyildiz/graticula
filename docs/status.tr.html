@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>8ac8394f</code> · 2026-11-01 15:21</p>
+<p class="stamp">Şu commit’ten üretildi: <code>f663b009</code> · 2026-11-02 01:41</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">252</div><div class="kpi-l">ADR</div><div class="kpi-n">82 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">633/670</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">27 canlı · 10 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
+<div class="kpi good"><div class="kpi-v">637/670</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">23 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık borç</div><div class="kpi-n">326 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5703</div><div class="kpi-l">test</div><div class="kpi-n">619 kaynak dosya, 275,942 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5728</div><div class="kpi-l">test</div><div class="kpi-n">620 kaynak dosya, 276,567 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-227</b> — Does a portal search for a category find the items in its child categories?</p><p><b>Q-226</b> — Does Graticula front an open geocoder — Photon over OpenStreetMap — with ArcGIS&#x27;s GeocodeServer (findAddressCandidates, suggest, reverseGeocode), so Pro, the JS SDK and Field Maps find a locator?</p><p><b>Q-225</b> — Does the portal take content the way ArcGIS API for Python adds it — addItem for CSV, Shapefile, File Geodatabase, GeoJSON and documents, then publish with filetype; createService for an empty hosted layer or a view; append from an item (appendItemId) and…</p><p><b>Q-224</b> — Do portal groups take writes — createGroup, then addUsers, removeUsers, update, delete, join, leave?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">32 madde</span></div><p><b>27 ADR conditions</b> outstanding across 23 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">28 madde</span></div><p><b>23 ADR conditions</b> outstanding across 19 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -143,12 +143,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -277,7 +273,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">103</td><td>A hosted layer is updated from a file: append, or overwrite</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the write path is the import&#x27;s, measured by its own tests; what is new is one…</td><td class="num">4/4</td></tr>
 <tr><td class="id">104</td><td>A web map styles its own layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the storage is the ArcGIS Web Map specification&#x27;s own place for it and the…</td><td class="num">3/3</td></tr>
 <tr><td class="id">105</td><td>ArcGIS clients append to a hosted layer through `uploads/upload` and `append`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the two operations are shaped as the public ArcGIS REST reference documents them…</td><td class="num">2/2</td></tr>
-<tr><td class="id">106</td><td>A layer&#x27;s data can be exported as a file</td><td><span class="pill warn">DRAFT</span></td><td class="muted-t">MEDIUM — every format rests on a GDAL driver measured present and able to create on both…</td><td class="num">8/9</td></tr>
+<tr><td class="id">106</td><td>A layer&#x27;s data can be exported as a file</td><td><span class="pill warn">DRAFT</span></td><td class="muted-t">MEDIUM — every format rests on a GDAL driver measured present and able to create on both…</td><td class="num">9/9</td></tr>
 <tr><td class="id">107</td><td>A layer is exported as a GeoPackage, a zipped shapefile or a workbook</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — GDAL writes the files and is the same GDAL the import reads with; what is…</td><td class="num">3/3</td></tr>
 <tr><td class="id">108</td><td>An item&#x27;s owner is changed by an administrator; *Move* waits for content folders</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for Change owner — one row, the member transfer&#x27;s rule for one item; MEDIUM for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">110</td><td>A web map sets its layers&#x27; pop-ups</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — stored where the ArcGIS Web Map specification keeps it and drawn by the viewer…</td><td class="num">2/2</td></tr>
@@ -334,7 +330,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">161</td><td>A mosaic&#x27;s seamline is the halfway line between its images</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — checked end to end on two overlapping images; ArcGIS&#x27;s generated seamlines…</td><td class="num"></td></tr>
 <tr><td class="id">162</td><td>WMS and WFS at a service&#x27;s own address, and image services in WMS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each address and each layer is checked end to end; no ArcGIS-migrated QGIS…</td><td class="num">2/2</td></tr>
 <tr><td class="id">163</td><td>An image service answers WMTS over its own tiles</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a WMTS tile is checked byte for byte against the ArcGIS tile; no WMTS client has…</td><td class="num">1/1</td></tr>
-<tr><td class="id">164</td><td>`generateKml` is a network link to the service&#x27;s map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the document and the request it makes are checked; Google Earth has not been…</td><td class="num">0/1</td></tr>
+<tr><td class="id">164</td><td>`generateKml` is a network link to the service&#x27;s map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the document and the request it makes are checked; Google Earth has not been…</td><td class="num">1/1</td></tr>
 <tr><td class="id">165</td><td>OGC API Features filters in Basic CQL2 text</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each claimed class has a case that observes it; no OGC test suite for Part 3 has…</td><td class="num">1/1</td></tr>
 <tr><td class="id">166</td><td>A service&#x27;s OGC faces are turned off one by one</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — each face is checked against the switch end to end; ArcGIS Manager&#x27;s vocabulary…</td><td class="num"></td></tr>
 <tr><td class="id">167</td><td>A service&#x27;s own OGC documents describe it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the documents are checked; ArcGIS Manager&#x27;s other OGC properties (contact a…</td><td class="num"></td></tr>
@@ -361,7 +357,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">188</td><td>A document is an item: a file kept in the platform store and shared like a web map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">189</td><td>Studio holds the organization and Server the engine</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every part is an owner decision of one day, taken against Portal and Server…</td><td class="num"></td></tr>
 <tr><td class="id">190</td><td>Members are searched in the database, sorted into categories, and have profiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is Portal&#x27;s and the owner&#x27;s; the search has not been measured past a…</td><td class="num"></td></tr>
-<tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
+<tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">192</td><td>A screen is a path, not a fragment</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — measured on dev.graticula.com in a browser before release; the old addresses are…</td><td class="num"></td></tr>
 <tr><td class="id">193</td><td>Backup and restore are the server&#x27;s own commands, and they take the database with them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">194</td><td>An ArcGIS shop&#x27;s addresses answer: `/arcgis` and `/server/rest`, always</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -373,7 +369,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">201</td><td>A member with a password here may have a second factor at sign-in</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">202</td><td>An item has terms of use and categories, and a member keeps favourites</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
-<tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">15/16</td></tr>
+<tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">16/16</td></tr>
 <tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">7/8</td></tr>
 <tr><td class="id">206</td><td>Vector tiles are served from the datastore only</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">207</td><td>Attachments and history on registered layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
@@ -428,6 +424,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-224</span><span class="owner">**[OWNER]**</span></div><p>Do portal groups take writes — createGroup, then addUsers, removeUsers, update, delete, join, leave?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-225</span><span class="owner">**[OWNER]**</span></div><p>Does the portal take content the way ArcGIS API for Python adds it — addItem for CSV, Shapefile, File Geodatabase, GeoJSON and documents, then publish with filetype; createService for an empty hosted layer or a view; append from an item (appendItemId) and…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-226</span><span class="owner">**[OWNER]**</span></div><p>Does Graticula front an open geocoder — Photon over OpenStreetMap — with ArcGIS&#x27;s GeocodeServer (findAddressCandidates, suggest, reverseGeocode), so Pro, the JS SDK and Field Maps find a locator?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-227</span><span class="owner">**[OWNER]**</span></div><p>Does a portal search for a category find the items in its child categories?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -556,20 +556,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1614</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:58.5%"></div></div><div class="bar-n">944</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.8%"></div></div><div class="bar-n">900</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:35.4%"></div></div><div class="bar-n">571</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.4%"></div></div><div class="bar-n">377</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.1%"></div></div><div class="bar-n">243</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.1%"></div></div><div class="bar-n">131</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.7%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.6%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1633</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:57.8%"></div></div><div class="bar-n">944</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">906</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:35.0%"></div></div><div class="bar-n">571</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.9%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.1%"></div></div><div class="bar-n">377</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:14.9%"></div></div><div class="bar-n">243</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.0%"></div></div><div class="bar-n">131</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.6%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.5%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.3%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">54</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">50</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">43</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.6%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">29</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">24</div></div>
 </div></section>
@@ -583,10 +583,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:12.2%"></div></div><div class="bar-n">6 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">16 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:58.5%"></div></div><div class="bar-n">38 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:76.5%"></div></div><div class="bar-n">289 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:83.0%"></div></div><div class="bar-n">288 / 347</div></div>
-<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:80.8%"></div></div><div class="bar-n">126 / 156</div></div>
-<div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:59.5%"></div></div><div class="bar-n">25 / 42</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:77.5%"></div></div><div class="bar-n">293 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:83.3%"></div></div><div class="bar-n">289 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:82.7%"></div></div><div class="bar-n">129 / 156</div></div>
+<div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:61.9%"></div></div><div class="bar-n">26 / 42</div></div>
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:74.2%"></div></div><div class="bar-n">46 / 62</div></div>
 <div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:81.1%"></div></div><div class="bar-n">77 / 95</div></div>
 <div class="bar"><div class="bar-l">arcpy.nd</div><div class="bar-t"><div class="bar-f" style="width:91.9%"></div></div><div class="bar-n">68 / 74</div></div>
@@ -601,37 +601,37 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.cartography</td><td class="num">9</td><td class="num">8</td><td class="num">40</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.conversion</td><td class="num">32</td><td class="num">3</td><td class="num">32</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.da</td><td class="num">25</td><td class="num">0</td><td class="num">4</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ddd</td><td class="num">126</td><td class="num">19</td><td class="num">30</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ddd</td><td class="num">129</td><td class="num">19</td><td class="num">27</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">16</td><td class="num">6</td><td class="num">3</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ga</td><td class="num">25</td><td class="num">4</td><td class="num">17</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">288</td><td class="num">55</td><td class="num">59</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ga</td><td class="num">26</td><td class="num">5</td><td class="num">16</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">289</td><td class="num">55</td><td class="num">58</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.locref</td><td class="num">42</td><td class="num">9</td><td class="num">7</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">252</td><td class="num">20</td><td class="num">195</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.na</td><td class="num">46</td><td class="num">3</td><td class="num">16</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nax</td><td class="num">77</td><td class="num">9</td><td class="num">18</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">68</td><td class="num">14</td><td class="num">6</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.parcel</td><td class="num">25</td><td class="num">5</td><td class="num">1</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">298</td><td class="num">58</td><td class="num">80</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">302</td><td class="num">60</td><td class="num">76</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">43</td><td class="num">23</td><td class="num">22</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.topographic</td><td class="num">37</td><td class="num">21</td><td class="num">18</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.un</td><td class="num">101</td><td class="num">16</td><td class="num">23</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>f663b009</code><time>2026-11-02</time><span>A category search finding its children is recorded as INFERRED (Q-227)</span></li>
+<li><code>21557c10</code><time>2026-11-02</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
+<li><code>504d774c</code><time>2026-11-02</time><span>The portal answers an ArcGIS client as ArcGIS does: seven findings of the ArcGIS veteran&#x27;s review of 2026-11-02</span></li>
+<li><code>0576dc35</code><time>2026-11-02</time><span>Photon measured with a Türkiye extract on the VPS; whether to front it is Q-226</span></li>
+<li><code>0707ea84</code><time>2026-11-02</time><span>The portal&#x27;s content writes go to the owner as Q-225, from the ArcGIS veteran&#x27;s review</span></li>
+<li><code>0d12e4ab</code><time>2026-11-02</time><span>The portal&#x27;s group writes go to the owner as Q-224, with the reverted createGroup beside them</span></li>
+<li><code>64646f46</code><time>2026-11-02</time><span>Revert &quot;The portal makes a group through community/createGroup&quot;, until the owner decides</span></li>
+<li><code>63882071</code><time>2026-11-02</time><span>A KML export reads in Google Earth as written, and Pro&#x27;s sharing engine is followed at a second organisation (ADR-106, ADR-164, ADR-079, ADR-214)</span></li>
+<li><code>7a6b4135</code><time>2026-11-02</time><span>The portal makes a group through community/createGroup, as the Python API and scripts ask it to</span></li>
+<li><code>60fdf97a</code><time>2026-11-02</time><span>A layer published from Pro lands on the showcase as a hosted layer (ADR-191 condition 1)</span></li>
+<li><code>5deaac8a</code><time>2026-11-02</time><span>ArcGIS Pro publishes to and reads from a second organisation (ADR-204 condition 3)</span></li>
+<li><code>a04b43e2</code><time>2026-11-01</time><span>Postgres test classes migrate their schemas one at a time across the cluster, as the policies and grants the migrations now create deadlocked two at once (CI run 41311505377)</span></li>
+<li><code>9f1f0d35</code><time>2026-11-01</time><span>A refused node&#x27;s reason reaches its log: the host is disposed on every way out of Main, and D-333 is repaid inside the Linux fence</span></li>
 <li><code>8ac8394f</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>a92716d9</code><time>2026-11-01</time><span>131 coordinate systems Pro knows only as WKT start their terrain windows at Pro&#x27;s tile corners, and the seam is pinned to the windows it cuts short (D-339 narrowed)</span></li>
-<li><code>ff219d6e</code><time>2026-11-01</time><span>Topo to Raster factors its system with grapy&#x27;s own nested-dissection Cholesky, 400 x 400 fits in 709 MB, and both D-333 tools can be measured inside the Linux fence</span></li>
-<li><code>be88ab96</code><time>2026-11-01</time><span>Goldstein filtering&#x27;s worst case fits ADR-223 with the same bits, and D-357 is closed</span></li>
-<li><code>6ad24a6e</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>f8b8ea16</code><time>2026-11-01</time><span>ADR-254 condition 2: the imagery formats test passes against the published 1.0.492 images, not only a Windows fixture</span></li>
-<li><code>24a4269d</code><time>2026-11-01</time><span>D-328 is parked on the data it waits for: a real stripmap SLC pair, which needs an account the owner holds</span></li>
-<li><code>a1504aea</code><time>2026-11-01</time><span>ADR-254 condition 1: the v1.0.492 image builds on both architectures with no Poppler, 82 MB smaller, and its reader runs GDAL 3.13.3 on the showcase</span></li>
-<li><code>81484327</code><time>2026-11-01</time><span>The aliased directory is compared with a root directory that held still across it, as parallel classes add and delete services (CI run 41292371943)</span></li>
-<li><code>f81bc384</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
-<li><code>0738c748</code><time>2026-11-01</time><span>The store gate queues a burst and refuses a standing queue, so several HTTP/2 map viewers panning at once are served (ADR-046 §5a)</span></li>
-<li><code>712a886b</code><time>2026-11-01</time><span>A geometry worker test about the answer gives the worker a minute, as a loaded runner met the default deadline (CI run 41287311194)</span></li>
-<li><code>8bb8a0f8</code><time>2026-11-01</time><span>gdal-natives reads the binding&#x27;s C# sources on Linux too: the zip stores backslashes, which zipfile turns into slashes only on Windows (CI run 41286846464)</span></li>
-<li><code>f0519103</code><time>2026-11-01</time><span>Owner decision of 2026-11-01 on D-383: the server image&#x27;s Python readline module (GPL-3.0) is removed, and the datastore&#x27;s PostGIS Poppler is accepted as part of an aggregate</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

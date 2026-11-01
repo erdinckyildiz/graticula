@@ -6,7 +6,9 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -89,7 +91,9 @@ internal static partial class PortalEndpoints
     /// The hosting server's admin documents Pro reads before it shares: the server, its directories and its folders.
     /// Recorded like the portal calls, and answered with this server's own facts in the admin API's shape.
     /// </summary>
-    private static async Task<IResult> HostingAdminAsync(HttpContext context, IAdminCatalog catalog, string? rest, CancellationToken cancellation)
+    private static async Task<IResult> HostingAdminAsync(
+        HttpContext context, CatalogFallback catalog, PostgresSystemServices system, ICoverageCatalog coverages, string? rest,
+        CancellationToken cancellation)
     {
         RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
         if (!caller.Authorization.Allows(Privilege.ContentPublishFeatures))
@@ -149,22 +153,164 @@ internal static partial class PortalEndpoints
             });
         }
 
-        if (what == "services")
+        // The root's services and folders, and one folder's services — never a service's own document or an operation,
+        // which keep the refusal below (a name with a dot is a service: `services/{folder}/{name}.{type}`).
+        if (what == "services"
+            || (what.StartsWith("services/", StringComparison.Ordinal) && what.Count(c => c == '/') == 1
+                && !what.Contains('.', StringComparison.Ordinal)))
         {
-            IReadOnlyList<string> folders = (await catalog.ListFoldersAsync(cancellation).ConfigureAwait(false))
-                .Select(folder => folder.Name).Order(StringComparer.Ordinal).ToList();
-
-            return Results.Ok(new
-            {
-                folderName = "/",
-                description = "Root folder",
-                folders,
-                foldersDetail = folders.Select(name => new { folderName = name, description = (string?)null, webEncrypted = false, isDefault = false }),
-                services = Array.Empty<object>(),
-            });
+            return await AdminServicesAsync(
+                    context, catalog, system, coverages, what == "services" ? null : what["services/".Length..], cancellation)
+                .ConfigureAwait(false);
         }
 
         return Results.Json(new { status = "error", messages = new[] { $"'{what}' is not answered by this server." }, code = 404 });
+    }
+
+    /// <summary>What the admin listing says when the catalogue cannot be read and nothing is remembered.</summary>
+    private static readonly string[] CatalogueUnreachable =
+        ["The catalogue is not reachable and this server has no remembered listing to answer from. Retry shortly; see /healthz/ready."];
+
+    /// <summary>One service as the hosting server's admin API lists it.</summary>
+    /// <param name="Folder">Its folder, or null for the root.</param>
+    /// <param name="Name">Its name within the folder.</param>
+    /// <param name="Type">The face: <c>FeatureServer</c>, <c>MapServer</c>, <c>VectorTileServer</c>, <c>ImageServer</c> or a system service's type.</param>
+    /// <param name="Description">Its description, or null.</param>
+    internal sealed record AdminListedService(string? Folder, string Name, string Type, string? Description);
+
+    /// <summary>
+    /// The admin API's <c>services</c> resource, for the root (<paramref name="folder"/> null) or one folder: the services
+    /// this caller may see there, in the order given, and — at the root — the folders.
+    /// </summary>
+    internal static object AdminServicesFolder(string? folder, IReadOnlyList<string>? folders, IEnumerable<AdminListedService> services)
+    {
+        object[] listed =
+        [
+            .. services.Select(s => new
+            {
+                folderName = s.Folder ?? "/",
+                serviceName = s.Name,
+                type = s.Type,
+                description = s.Description ?? string.Empty,
+                isDefault = false,
+            }),
+        ];
+
+        return folder is null
+            ? (object)new
+            {
+                folderName = "/",
+                description = "Root folder",
+                webEncrypted = false,
+                isDefault = true,
+                folders = folders ?? [],
+                foldersDetail = (folders ?? []).Select(name => new { folderName = name, description = (string?)null, webEncrypted = false, isDefault = false }),
+                services = listed,
+            }
+            : new
+            {
+                folderName = folder,
+                description = (string?)null,
+                webEncrypted = false,
+                isDefault = false,
+                folders = Array.Empty<string>(),
+                foldersDetail = Array.Empty<object>(),
+                services = listed,
+            };
+    }
+
+    /// <summary>
+    /// The hosting server's services, as its admin API lists them: what the services directory lists this caller, by
+    /// the same catalogue and the same rule (<see cref="Program.DirectoryLists(PublishedService, string?, RequestPrincipal, bool)"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The ArcGIS veteran's review of 2026-11-02, D: the admin listing said this server had no services.</b>
+    /// <c>/arcgis/admin/services</c> answered its folders and <c>services: []</c>, and a folder answered an error, so the
+    /// ArcGIS API for Python's <c>server.services.list()</c> and every admin script that walks a server found nothing to
+    /// walk, and Pro's view of its hosting server was empty. The listing is now the directory's, in the admin API's shape
+    /// — <c>folderName</c>, <c>serviceName</c>, <c>type</c>, <c>description</c> — one entry per face, as the directory
+    /// lists one entry per face, and for whoever may read the hosting server's administration at all.
+    /// </para>
+    /// <para>
+    /// <b>A listing, and nothing more.</b> A service's own admin document and its operations — <c>start</c>,
+    /// <c>stop</c>, <c>edit</c>, <c>delete</c> — are not answered through this address and still refuse; a listing that
+    /// implied otherwise would be a set of links that fail. A folder this server does not have refuses as one, by the
+    /// rule the directory's 404 keeps, and the folders at the root are the directory's folders.
+    /// </para>
+    /// </remarks>
+    private static async Task<IResult> AdminServicesAsync(
+        HttpContext context, CatalogFallback catalog, PostgresSystemServices system, ICoverageCatalog coverages, string? folder,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        CatalogListing listing = await catalog.ListServicesAsync(cancellation).ConfigureAwait(false);
+
+        if (listing.Services is not { } services)
+        {
+            return Results.Json(new
+            {
+                status = "error",
+                messages = CatalogueUnreachable,
+                code = 503,
+            });
+        }
+
+        bool blind = listing.Blind;
+        bool seesStopped = current.Authorization.Allows(Privilege.AdminManageServer);
+        List<AdminListedService> listed = [];
+
+        foreach (PublishedService service in services
+            .Where(s => Program.DirectoryLists(s, folder, current, seesStopped))
+            .OrderBy(s => s.Name, StringComparer.Ordinal))
+        {
+            if (ServiceFaces.AnswersFeatures(service))
+            {
+                listed.Add(new AdminListedService(service.Folder, service.Name, "FeatureServer", service.Description));
+            }
+
+            if (ServiceFaces.AnswersMap(service))
+            {
+                listed.Add(new AdminListedService(service.Folder, service.Name, "MapServer", service.Description));
+            }
+
+            if (ServiceFaces.AnswersTiles(service))
+            {
+                listed.Add(new AdminListedService(service.Folder, service.Name, "VectorTileServer", service.Description));
+            }
+        }
+
+        // Not read while blind, as the directory does not read them: neither catalogue has a memory in front of it.
+        if (!blind)
+        {
+            foreach (PublishedCoverage coverage in (await coverages.ListAsync(cancellation).ConfigureAwait(false))
+                .Where(c => Program.DirectoryLists(c, folder, current, seesStopped))
+                .OrderBy(c => c.Name, StringComparer.Ordinal))
+            {
+                listed.Add(new AdminListedService(coverage.Folder, coverage.Name, "ImageServer", coverage.Description));
+            }
+
+            foreach (SystemService service in (await system.ListAsync(cancellation).ConfigureAwait(false))
+                .Where(s => Program.DirectoryLists(s, folder, current))
+                .OrderBy(s => s.Name, StringComparer.Ordinal))
+            {
+                listed.Add(new AdminListedService(service.Folder, service.Name, service.Kind, null));
+            }
+        }
+
+        if (folder is null)
+        {
+            string[] folders = await Program.FoldersAsync(catalog.Catalog!, system, services, blind, cancellation).ConfigureAwait(false);
+            return Results.Ok(AdminServicesFolder(null, folders, listed));
+        }
+
+        if (listed.Count == 0 && !blind
+            && !await Program.FolderExistsAsync(catalog.Catalog!, folder, cancellation).ConfigureAwait(false))
+        {
+            return Results.Json(new { status = "error", messages = new[] { $"Folder '{folder}' does not exist." }, code = 404 });
+        }
+
+        return Results.Ok(AdminServicesFolder(folder, null, listed));
     }
 
     /// <summary>Records one publishing call and answers it just far enough for Pro to make the next.</summary>

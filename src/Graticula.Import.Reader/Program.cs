@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Linq;
 using Graticula.Coverages;
 using Graticula.Raster.Tiff;
@@ -1251,13 +1253,43 @@ internal static class Program
                 options.AddRange(["-lco", points ? "GEOMETRY=AS_XY" : "GEOMETRY=AS_WKT", "-lco", "WRITE_BOM=YES"]);
             }
 
-            using Dataset written = Gdal.wrapper_GDALVectorTranslateDestName(
-                output, source, new GdalVectorTranslateOptions([.. options]), null, null)
-                ?? throw new InvalidOperationException($"GDAL refused to write '{layer}' as {driver}. {string.Join(" ", said)}");
+            // <b>KML as Google Earth shows it — ADR-106 condition 3, 2026-11-01.</b> Google Earth Pro labelled each of a
+            // Schema's SimpleFields in a balloon with the schema's resolved address — "D:/temp/turkce.kml:şehir" — and
+            // named every placemark "[no name]". The fields stay SimpleFields, because GDAL reads plain Data elements back
+            // with every non-ASCII letter as an underscore; the balloon is the document's own (KmlForGoogleEarth, after
+            // the file is written); and the first text field names the placemark, as an ArcGIS KML's display field does.
+            if (format == "kml")
+            {
+                // The name is a copy, so the field it came from stays in the balloon: LIBKML moves its name field out
+                // of the attributes, and naming by şehir itself took şehir out of every placemark's data.
+                if (FirstTextField(source) is { } named)
+                {
+                    string from = source.GetLayer(0).GetName().Replace("\"", "\"\"", StringComparison.Ordinal);
+                    options.AddRange(["-dialect", "SQLITE", "-sql",
+                        $"SELECT *, \"{named.Replace("\"", "\"\"", StringComparison.Ordinal)}\" AS graticula_kml_name FROM \"{from}\""]);
+                    Gdal.SetConfigOption("LIBKML_NAME_FIELD", "graticula_kml_name");
+                }
+            }
+
+            try
+            {
+                using Dataset written = Gdal.wrapper_GDALVectorTranslateDestName(
+                    output, source, new GdalVectorTranslateOptions([.. options]), null, null)
+                    ?? throw new InvalidOperationException($"GDAL refused to write '{layer}' as {driver}. {string.Join(" ", said)}");
+            }
+            finally
+            {
+                Gdal.SetConfigOption("LIBKML_NAME_FIELD", null);
+            }
         }
         finally
         {
             _messages = null;
+        }
+
+        if (format == "kml" && output.EndsWith(".kml", StringComparison.OrdinalIgnoreCase))
+        {
+            File.WriteAllText(output, KmlForGoogleEarth(File.ReadAllText(output)));
         }
 
         // After the dataset GDAL wrote is closed: the domains are added to the file it left.
@@ -1266,6 +1298,69 @@ internal static class Program
             : [];
 
         return new { ok = true, messages = said, domains = domained };
+    }
+
+    /// <summary>
+    /// A KML file as GDAL wrote it, with each Schema named, each field given a displayName, and a balloon of the
+    /// document's own that every placemark uses.
+    /// </summary>
+    /// <remarks>
+    /// Measured in Google Earth Pro on 2026-11-01: its default balloon labels a SimpleField with the schema's resolved
+    /// address whether or not the field has a displayName; a BalloonStyle that names the rows by
+    /// <c>$[schema/field/displayName]</c> shows them as written, Turkish letters included. The template needs the
+    /// schema's name, which LIBKML does not write.
+    /// </remarks>
+    internal static string KmlForGoogleEarth(string kml)
+    {
+        Regex schemas = new("<Schema id=\"(?<id>(?<name>[^\"]*?)(\\.schema)?)\">(?<fields>.*?)</Schema>", RegexOptions.Singleline);
+        Regex field = new("<SimpleField name=\"(?<name>[^\"]*)\" type=\"(?<type>[^\"]*)\"\\s*/>");
+
+        return schemas.Replace(kml, schema =>
+        {
+            string name = schema.Groups["name"].Value;
+            string style = "graticula_balloon_" + name;
+            StringBuilder rows = new();
+
+            string fields = field.Replace(schema.Groups["fields"].Value, simple =>
+            {
+                string column = simple.Groups["name"].Value;
+                rows.Append(CultureInfo.InvariantCulture,
+                    $"<tr><td>$[{name}/{column}/displayName]</td><td>$[{name}/{column}]</td></tr>");
+
+                return $"<SimpleField name=\"{column}\" type=\"{simple.Groups["type"].Value}\"><displayName>{column}</displayName></SimpleField>";
+            });
+
+            return $"<Schema name=\"{name}\" id=\"{schema.Groups["id"].Value}\">{fields}</Schema>"
+                + $"<Style id=\"{style}\"><BalloonStyle><text><![CDATA[<b>$[name]</b><table border=\"1\">{rows}</table>]]></text></BalloonStyle></Style>";
+        }) is var named && schemas.Match(kml) is { Success: true } first
+            ? Regex.Replace(
+                named,
+                "(<Placemark[^>]*>\\s*(<name>[^<]*</name>)?)",
+                $"$1<styleUrl>#graticula_balloon_{first.Groups["name"].Value}</styleUrl>")
+            : kml;
+    }
+
+    /// <summary>The first text field of a dataset's first layer, or null when it has none.</summary>
+    private static string? FirstTextField(Dataset source)
+    {
+        if (source.GetLayerCount() == 0)
+        {
+            return null;
+        }
+
+        FeatureDefn definition = source.GetLayer(0).GetLayerDefn();
+
+        for (int i = 0; i < definition.GetFieldCount(); i++)
+        {
+            using FieldDefn field = definition.GetFieldDefn(i);
+
+            if (field.GetFieldType() == FieldType.OFTString)
+            {
+                return field.GetName();
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

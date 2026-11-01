@@ -56,7 +56,7 @@ As §2, Alternative A.
    `generateKml` on `hosted/ci_parcels` answers one `GroundOverlay` whose icon is the service's own WMS `GetMap` with
    `viewRefreshMode onStop`. **What a person does once it is installed:** open
    `…/MapServer/generateKml?docName=parcels&layers=0` from a public service in Google Earth Pro, fly to the data, pan;
-   the parcels redraw after each stop, and the server's log shows one `GetMap` per stop with the view's `BBOX`.)*
+   the parcels redraw after each stop, and the server's log shows one `GetMap` per stop with the view's `BBOX`.)* **DISCHARGED 2026-11-01** — Google Earth Pro opened `hosted/tr_ilce/MapServer/generateKml` from the showcase and drew the districts over Türkiye; the owner panned and zoomed, and the showcase's request log holds one WMS `GetMap` per stop between 21:51:07 and 21:52 UTC, each with that view's `BBOX` and `WIDTH=756` — six answered `200`, and one `499` where Google Earth let go of a request when the view moved again before it was answered.
 
 ## 6. Consequences
 

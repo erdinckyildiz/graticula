@@ -685,6 +685,16 @@ own.
    to Pro is a change to Pro's portal list, which this work may not make — the owner's, with
    `https://<org-host>/studio`. And the SDK did not send its token to an organisation-shared hosted service under
    `/studio` at either organisation — [D-347](../architecture-debt.md), not a tenancy difference.
+   **DISCHARGED 2026-11-01** — ArcGIS Pro 3.7 at a second organisation of the showcase, `kontrol`, at
+   `https://kontrol.graticula.com/studio`. The owner added the portal to Pro, made it active and signed in (21:07 UTC);
+   arcpy then published a four-point layer through Pro's own sharing engine (`getWebLayerSharingDraft`, `StageService`,
+   `UploadServiceDefinition`) and read it back with Pro's cursors — four rows, the layer's count four. The request log
+   holds it all inside the organisation: the portal checks, the sign-in, `isServiceNameAvailable`, search,
+   `addItem`/`addPart`/`commit`, `publish`, `updateItems`, `shareItems`, then the layer and its query, each `200`, the
+   organisation's own id in every `accounts`/`portals` path. Three `404`s Pro asks during a publish —
+   `/rest/rest/info`, `/rest/sharing/rest`, `accounts/self/cost` — were also asked at dev's main organisation on all of
+   its forty Pro publishes, so they are not a tenancy difference. Script: none kept; the layer `Kontrol_Cities` stays in
+   that organisation as the evidence.
 4. **A token from one tenant opens another's host as an outsider and nothing more**, tested on every face that
    `LayerAccess` guards — not on the portal alone. *(Partly, 2026-10-22: the portal, FeatureServer, its query, MapServer,
    VectorTileServer and the administration API in `TenantsAreKeptApartTests`; by hand the same with warm caches both
