@@ -787,6 +787,60 @@ internal static partial class PortalEndpoints
         }
     }
 
+    /// <summary>
+    /// A service definition added and not yet forgotten, as the portal item <c>addItem</c> made it — to its owner; null
+    /// for anybody else, and for an id that names no staged definition.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The ArcGIS veteran's review of 2026-11-02, F: <c>addItem</c> answered an id nothing would read back.</b> The
+    /// ArcGIS API for Python's <c>gis.content.add</c> returns an <c>Item</c> for the id and reads it at once — its
+    /// <c>type</c>, its <c>title</c>, its <c>owner</c> — before <c>item.publish()</c>; <c>content/items/{id}</c> and the
+    /// owner's item route both answered <i>does not exist</i>, because neither looked among the staged definitions.
+    /// </para>
+    /// <para>
+    /// <b>Its owner's only, as an item added and never shared is.</b> Anybody else gets the same answer as for an id that
+    /// names nothing — the rule <see cref="ItemAsync"/> keeps for every item. A definition whose folder the scratch
+    /// sweep has taken is gone, and answers as gone. It stays readable after a publish, as the portal keeps the service
+    /// definition item beside the service it made.
+    /// </para>
+    /// </remarks>
+    private static object? StagedItem(HttpContext context, string id)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous || !Guid.TryParseExact(id, "N", out _)
+            || StagedById(id) is not { } staged || staged.Owner != current.Principal.Id
+            || !System.IO.Directory.Exists(staged.Directory))
+        {
+            return null;
+        }
+
+        long created = staged.Created.ToUnixTimeMilliseconds();
+
+        return new
+        {
+            id = staged.Id,
+            owner = current.Principal.Name,
+            orgId = PortalId(context),
+            ownerFolder = (string?)null,
+            title = staged.Title,
+            name = staged.Title,
+            type = "Service Definition",
+            typeKeywords = new[] { "Data", "Service Definition", "sd" },
+            description = (string?)null,
+            snippet = (string?)null,
+            tags = Array.Empty<string>(),
+            categories = Array.Empty<string>(),
+            url = (string?)null,
+            access = "private",
+            extent = Array.Empty<double[]>(),
+            size = File.Exists(staged.File) ? new FileInfo(staged.File).Length : -1,
+            created,
+            modified = created,
+        };
+    }
+
     /// <summary>The staged definition with this id, when it is the caller's.</summary>
     private static StagedDefinition? Mine(string id, RequestPrincipal current) =>
         StagedById(id) is { } staged && staged.Owner == current.Principal.Id

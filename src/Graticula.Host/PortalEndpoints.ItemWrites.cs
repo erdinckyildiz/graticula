@@ -130,6 +130,45 @@ internal static partial class PortalEndpoints
             : null;
     }
 
+    /// <summary>
+    /// The one text a service item's update writes, from the <c>description</c> and <c>snippet</c> it was sent and the
+    /// text held; or, when the two were both changed to different texts, why nothing is written.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The ArcGIS veteran's review of 2026-11-02, C: a summary was dropped and the update answered success.</b> A
+    /// service keeps one text, which its item shows as both <c>snippet</c> and <c>description</c>. Until today the
+    /// description won whenever both were sent and it had changed, so <c>item.update({"snippet": a, "description": b})</c>
+    /// wrote <i>b</i>, lost <i>a</i> and said <c>success:true</c> — the silent success this file exists to remove.
+    /// </para>
+    /// <para>
+    /// <b>Refused only when both are changes, and to different texts.</b> The JS SDK's <c>PortalItem.update</c> sends
+    /// every property it read, so a description edited in a client arrives beside the summary it read — the held text,
+    /// unchanged. That is one change and an echo, and it is written; so is either field sent alone, and both sent as
+    /// the same new text. Two different new texts cannot both be kept in one, and the answer says so by name rather
+    /// than choosing. Keeping a summary of its own is a column this server does not have, and not added here.
+    /// </para>
+    /// </remarks>
+    /// <param name="description">The <c>description</c> sent, trimmed, or null.</param>
+    /// <param name="snippet">The <c>snippet</c> sent, trimmed, or null.</param>
+    /// <param name="held">The service's text as held, or null.</param>
+    /// <returns>The text to write (null for no change), or the reason nothing is written.</returns>
+    internal static (string? Text, string? Conflict) ServiceTextOf(string? description, string? snippet, string? held)
+    {
+        string current = held ?? string.Empty;
+        bool describes = description is not null && description != current;
+        bool summarises = snippet is not null && snippet != current;
+
+        if (describes && summarises && description != snippet)
+        {
+            return (null,
+                "a service item's 'snippet' and 'description' are one text here, and this update changes them to two "
+                + "different ones. Send one of them, or the same text in both.");
+        }
+
+        return (describes ? description : summarises ? snippet : null, null);
+    }
+
     /// <summary>Whether the caller may change an item: its owner, or whoever may manage all content.</summary>
     private static bool Manages(RequestPrincipal current, WritableItem item) =>
         item.Owner == current.Principal.Id || current.Authorization.Allows(Privilege.AdminManageAllContent);
@@ -142,7 +181,7 @@ internal static partial class PortalEndpoints
         HttpContext context, IAdminCatalog catalog, IWebMapStore maps, IDocumentStore documents, IItemAnnotationStore annotations,
         ItemAnnotations held, IAuditLog audit, string username, string id, CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }
@@ -266,11 +305,13 @@ internal static partial class PortalEndpoints
                     + "service is not something an item update does.");
             }
 
-            // One text is both the summary and the description of a service here (Item: snippet = description), so the
-            // description wins where both are sent and differ from what is held, and a changed summary otherwise.
-            string? text = Given("description") is { } description && description != (service.Description ?? string.Empty)
-                ? description
-                : Given("snippet") is { } snippet && snippet != (service.Description ?? string.Empty) ? snippet : null;
+            // One text is both the summary and the description of a service here (Item: snippet = description).
+            (string? text, string? conflict) = ServiceTextOf(Given("description"), Given("snippet"), service.Description);
+
+            if (conflict is not null)
+            {
+                return PortalError(400, $"'{service.Name}' was not changed: {conflict}");
+            }
 
             if (text is { Length: > AdminEndpoints.MaximumDescriptionLength })
             {
@@ -630,7 +671,7 @@ internal static partial class PortalEndpoints
     /// <summary>Portal's item <c>delete</c>.</summary>
     private static async Task<IResult> DeleteUserItemAsync(HttpContext context, string username, string id, CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }
@@ -647,7 +688,7 @@ internal static partial class PortalEndpoints
     /// <summary>Portal's <c>deleteItems</c>: several, each answered on its own.</summary>
     private static async Task<IResult> DeleteItemsAsync(HttpContext context, string username, CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }
@@ -809,7 +850,7 @@ internal static partial class PortalEndpoints
     private static async Task<IResult> UnshareItemAsync(
         HttpContext context, IGroupDirectory groups, string username, string id, CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }
@@ -828,7 +869,7 @@ internal static partial class PortalEndpoints
     private static async Task<IResult> UnshareItemsAsync(
         HttpContext context, IGroupDirectory groups, string username, CancellationToken cancellation)
     {
-        if (Self(context, username) is not { } current)
+        if (await ActingForAsync(context, username, cancellation).ConfigureAwait(false) is not { Caller: var current })
         {
             return Unknown("User");
         }
