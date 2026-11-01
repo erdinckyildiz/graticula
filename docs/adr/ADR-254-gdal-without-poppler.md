@@ -163,7 +163,18 @@ formats), [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) (w
    licences file is there, and no file named Poppler, PDFium or librttopo is anywhere under `/app`. Discharged when a
    green release run is recorded here with the image size beside 1.0.491's. **DISCHARGED 2026-11-01**: release run 41296322182 (v1.0.492) green on amd64 and arm64 with every check above; the arm64 image is 747 MB against 1.0.491's 829 MB; on the showcase, `find /app -iname '*poppler*'` finds nothing, `ldd` resolves every library of `libgdal.so.39`, and the reader answers `{"op":"ping"}` with GDAL 3.13.3.
 2. **The conformance suite's imagery test passes against an image built from this**, not only against a Windows
-   fixture: JPEG 2000, NetCDF, the ASCII grid, and the PDF and MrSID refusals.
+   fixture: JPEG 2000, NetCDF, the ASCII grid, and the PDF and MrSID refusals. **DISCHARGED 2026-11-01**: a
+   throwaway deployment on the showcase VPS (arm64) from the published `graticula:1.0.492` and
+   `graticula-datastore:1.0.492` images, set up as the quickstart does (keygen, `migrate --apply` to schema 125,
+   setup token, administrator), reached through an SSH tunnel; `ImageryFormatsConformanceTests` passed from a Windows
+   test runner against it — the JPEG 2000 read back 12, the NetCDF's three steps became three dated images with
+   `time` choosing between them, the ASCII grid was published as 4326 and read back 7, MrSID was refused naming the
+   SDK and the PDF naming Poppler. The other imagery classes ran beside it (`ImageryUploadTests`,
+   `ImageryDisplayTests`, `ImageryGroupSharingTests`, `MultidimensionalConformanceTests`): 16 of 17 passed. The one
+   failure, `An_image_registered_without_overviews_is_given_them_beside_its_file`, registers a file the test writes to
+   its own temporary folder, and its own comment states the precondition that the server is on the same machine; a
+   server in a container on another host answered *This server cannot see* that path, which is the refusal it should
+   give. The server's log held no unhandled error, and the probe's containers, network and volumes were removed.
 
 ## 11. Dissent
 
