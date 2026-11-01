@@ -254,6 +254,7 @@ None recorded.
    several hundred MB above the live tensors (about 1,100 MB of them at PTv3's peak, torch and the data included) —
    the allocator's, which is what the glibc setting is for, and whether it is enough is the Linux number.
    `measure.yml` now trains all four classifiers; the next dispatched run is the measurement.)
+   **DISCHARGED 2026-11-01**: measure.yml run 41254391064 on CI's Linux runner, inside the fence (Landlock, seccomp, 2 GiB of address space, 600 s of CPU), one epoch on 8,192-point blocks of the 1.44M-point cloud: RandLA-Net VmPeak 1,186 MB / 91 s CPU, SQN 1,238 MB / 140 s, PointCNN 1,371 MB / 266 s, Point Transformer V3 1,885 MB / 176 s — all four fit, PTv3 with 163 MB to spare. With the real 3DEP tile measured on 2026-10-31 (time, memory and accuracy above), the condition's two halves are both shown. Two causes were found on the way: user tools ran torch with a thread per core and a glibc arena per thread (fffb6ed0), and training held activations, gradients and a second copy of the network it did not need (ce59f970). A full default training (25 epochs) still passes 600 s of CPU — that is D-341's, not this condition's.
 2. **Run the point cloud tests in CI.** `test_point_cloud_deep_learning.py` runs where torch is installed; it has run
    only on Windows until CI runs it. **DISCHARGED 2026-10-31**: it runs in `ci.yml`'s grapy job, which installs torch
    and torchvision (CPU) on Linux. In main's CI run 41211660456 (75d2398e, v1.0.490), job 124567754106, all 25 of the
