@@ -225,6 +225,28 @@ public abstract class PostgresFixture : IAsyncLifetime
     protected PostgresPlatformSchemaStore Store() => new(DataSource);
 
     /// <summary>Brings the private schema up to the shipped level.</summary>
-    protected Task<MigrationReport> MigrateAsync() =>
-        new SchemaMigrator(Store(), PlatformMigrations.All).ApplyAsync(CancellationToken.None);
+    /// <remarks>
+    /// <b>One class migrates at a time, across the cluster</b> — CI run 41311505377: the migrations now create policies
+    /// and grants that lock shared catalogues, and two classes migrating their own schemas at once met 40P01. The lock is
+    /// a session advisory lock on a connection of its own, so test processes sharing the cluster queue too; the tests
+    /// themselves still run side by side.
+    /// </remarks>
+    protected async Task<MigrationReport> MigrateAsync()
+    {
+        await using NpgsqlConnection gate = await DataSource.OpenConnectionAsync(CancellationToken.None);
+        await using (NpgsqlCommand take = new("select pg_advisory_lock(hashtextextended('tests:migrate', 0))", gate))
+        {
+            await take.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+
+        try
+        {
+            return await new SchemaMigrator(Store(), PlatformMigrations.All).ApplyAsync(CancellationToken.None);
+        }
+        finally
+        {
+            await using NpgsqlCommand give = new("select pg_advisory_unlock(hashtextextended('tests:migrate', 0))", gate);
+            await give.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+    }
 }
