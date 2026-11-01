@@ -9,6 +9,11 @@
 # and block shape, and prints peak address space, peak resident memory, CPU and wall time. The numbers land in the
 # job's summary.
 #
+# D-333: Topo to Raster and Segment Mean Shift measured inside the same fence. Both were measured on Windows by peak
+# commit, which counts what SuperLU reserved and not what the fence's address-space limit sees; the raster-fence job
+# runs tools/measure_fence.py, which makes a synthetic terrain and image in the run's folder and runs each tool through
+# grapy.runner. Choose the job with the `job` input.
+#
 # workflow_dispatch only: it costs a runner for several minutes and measures a property of the code rather than
 # guarding one, so it runs when somebody asks for the number. A run that does not fit stays green and says so in its
 # table -- a red run here means the workflow itself broke.
@@ -30,6 +35,20 @@ on:
       cpu_seconds:
         description: "the fence's CPU limit in seconds (ADR-223's default is 600)"
         default: "600"
+      job:
+        description: "which measurement to run"
+        type: choice
+        options: [all, point-cloud, raster]
+        default: all
+      topo_grid:
+        description: "Topo to Raster's output grid, cells square (D-333 measured 400)"
+        default: "400"
+      topo_points:
+        description: "Topo to Raster's spot heights (D-333 measured 10,000)"
+        default: "10000"
+      segment_sizes:
+        description: "Segment Mean Shift image sides, space separated"
+        default: "1280 2048"
 
 permissions:
   contents: read
@@ -37,6 +56,7 @@ permissions:
 jobs:
   point-cloud-fence:
     name: point cloud training inside the fence
+    if: inputs.job == 'all' || inputs.job == 'point-cloud'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -60,3 +80,29 @@ jobs:
         run: |
           python tools/measure_point_cloud_fence.py --points "$POINTS" --epoch-iterations "$ITERATIONS" \
             --memory-gib "$MEMORY" --cpu-seconds "$CPU"
+
+  raster-fence:
+    name: Topo to Raster and Segment Mean Shift inside the fence
+    if: inputs.job == 'all' || inputs.job == 'raster'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: grapy's dependencies, as ci.yml installs them
+        run: |
+          python -m pip install --quiet shapely pyproj numpy pyarrow rasterio scipy laspy lazrs xarray manifold3d
+          python -c "import ctypes; v = ctypes.CDLL(None).syscall(444, None, 0, 1); print('Landlock ABI', v); assert v >= 1, 'no Landlock on this kernel'"
+          nproc
+          free -m
+      - name: run each tool inside the fence
+        env:
+          GRID: ${{ inputs.topo_grid }}
+          POINTS: ${{ inputs.topo_points }}
+          SIZES: ${{ inputs.segment_sizes }}
+          MEMORY: ${{ inputs.memory_gib }}
+          CPU: ${{ inputs.cpu_seconds }}
+        run: |
+          python tools/measure_fence.py --topo-grid "$GRID" --topo-points "$POINTS" --segment-sizes $SIZES --memory-gib "$MEMORY" --cpu-seconds "$CPU"

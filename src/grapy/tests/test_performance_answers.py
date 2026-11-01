@@ -88,6 +88,36 @@ def adjacent_before(labels):
     return near
 
 
+def merge_small_before(labels, colours, minimum):
+    """_segment._merge_small before D-333's second cut: a Python set of neighbours per region, candidates sorted."""
+    for _ in range(int(labels.max()) + 1):
+        means, sizes = _segment._region_means(labels, colours)
+        small = [r for r in range(1, len(sizes)) if 0 < sizes[r] < minimum]
+        if not small:
+            break
+        near = adjacent_before(labels)
+        small.sort(key=lambda r: (sizes[r], r))
+        lookup = np.arange(len(sizes))
+        done = set()
+        for r in small:
+            if r in done or not near.get(r):
+                continue
+            candidates = sorted(near[r] - done, key=lambda q: (float(((means[q] - means[r]) ** 2).sum()), q))
+            if not candidates:
+                continue
+            lookup[r] = candidates[0]
+            done.update({r, candidates[0]})
+        if (lookup == np.arange(len(sizes))).all():
+            break
+        while True:
+            again = lookup[lookup]
+            if (again == lookup).all():
+                break
+            lookup = again
+        labels = lookup[labels]
+    return _segment._renumber(labels)
+
+
 def mean_shift_before(colours, mask, hs, hr, iterations=20):
     rows, columns, k = colours.shape
     yy, xx = np.mgrid[0:rows, 0:columns]
@@ -193,6 +223,26 @@ class Segmentation(unittest.TestCase):
             self.assertTrue(np.array_equal(_segment._mean_shift(colours, mask, hs, hr),
                                            mean_shift_before(colours, mask, hs, hr)))
 
+    def test_mean_shift_in_chunks_and_merging_by_compressed_rows_are_the_same(self):
+        # D-333: points moved a chunk at a time, and neighbours held as two arrays rather than a set per region.
+        rng = np.random.default_rng(5)
+        r, k = np.indices((70, 90), dtype=float)
+        palette = rng.integers(20, 235, size=(16, 3))
+        colours = palette[((r // 12) * 4 + (k // 12)).astype(int) % 16] + rng.normal(0, 6, (70, 90, 3))
+        colours = np.clip(colours, 0, 255).astype(np.uint8)
+        mask = np.zeros((70, 90), bool)
+        mask[5:9, 10:30] = True
+        self.addCleanup(setattr, _segment, "MEAN_SHIFT_CHUNK", _segment.MEAN_SHIFT_CHUNK)
+        _segment.MEAN_SHIFT_CHUNK = 97
+        self.assertTrue(np.array_equal(_segment._mean_shift(colours, mask, 6.0, 5.5),
+                                       mean_shift_before(colours, mask, 6.0, 5.5)))
+        labels = rng.integers(1, 400, (70, 90))
+        labels[mask] = 0
+        image = colours.astype(np.float64)
+        for minimum in (3, 20, 60):
+            self.assertTrue(np.array_equal(_segment._merge_small(labels, image, minimum),
+                                           merge_small_before(labels, image, minimum)), minimum)
+
 
 class Topo(unittest.TestCase):
     def setUp(self):
@@ -246,6 +296,64 @@ class Topo(unittest.TestCase):
             got[symmetric] = arcpy.RasterToNumPyArray(out).astype(float)
         spread = float(np.nanmax(got[False]) - np.nanmin(got[False]))
         self.assertLess(float(np.nanmax(np.abs(got[True] - got[False]))), 1e-9 * spread)
+
+    def test_the_grid_factor_gives_superlus_surface_to_rounding(self):
+        # D-333: the nested-dissection Cholesky (_gridchol) in place of SuperLU, whose reservation for the factor put a
+        # 400 x 400 grid past ADR-223's memory: another order of elimination, so equal to rounding.
+        self.addCleanup(setattr, _topo, "GRID_FACTOR", True)
+        z = rough(50, 70, 9)
+        rng = np.random.default_rng(10)
+        picks = rng.choice(z.size, 400, replace=False)
+        path = os.path.join(self.directory, "spots3.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "spots3.gpkg", "POINT", spatial_reference=3857)
+        arcpy.management.AddField(path, "z", "DOUBLE")
+        with arcpy.da.InsertCursor(path, ["SHAPE@XY", "z"]) as cursor:
+            for i in picks:
+                r, c = divmod(int(i), 70)
+                cursor.insertRow([(c * 10.0 + 5, 500 - r * 10.0 - 5), float(z.flat[i])])
+        got = {}
+        for grid in (True, False):
+            _topo.GRID_FACTOR = grid
+            out = sa.TopoToRaster([sa.TopoPointElevation([[path, "z"]])], 10, "0 0 700 500", data_type="SPOT",
+                                  tolerance_1=5, profile_penalty=0.3, roughness_penalty=0.01)
+            got[grid] = arcpy.RasterToNumPyArray(out).astype(float)
+        spread = float(np.nanmax(got[False]) - np.nanmin(got[False]))
+        self.assertLess(float(np.nanmax(np.abs(got[True] - got[False]))), 1e-9 * spread)
+
+    def test_the_grid_factor_solves_a_cliff_cut_system_as_spsolve_does(self):
+        from scipy.sparse import diags
+        from scipy.sparse.linalg import spsolve
+        from grapy import _gridchol
+        rng = np.random.default_rng(11)
+        for rows, columns in ((1, 9), (5, 3), (37, 61), (64, 40)):
+            cut_h = np.zeros((rows, max(columns - 1, 0)), bool)
+            cut_v = np.zeros((max(rows - 1, 0), columns), bool)
+            if rows > 6 and columns > 6:
+                cut_h[rows // 3, :] = True
+                cut_v[:, columns // 2] = True
+            ops = _topo._operators(rows, columns, cut_h, cut_v)
+            f = rng.normal(size=(rows, columns)).cumsum(0).cumsum(1)
+            profile = _topo._profile_operator(f, rows, columns, cut_h, cut_v)
+            penalty = ops["dxx"].T @ ops["dxx"] + 2 * (ops["dxy"].T @ ops["dxy"]) + ops["dyy"].T @ ops["dyy"]
+            if profile is not None:
+                penalty = penalty + profile.T @ profile
+            n = rows * columns
+            weight = np.where(rng.random(n) < 0.2, rng.uniform(1, 100, n), 0.0)
+            weight[0] = 1e8                                         # a pinned cell, as a stream chain makes
+            for lam in (1e-6, 1.0, 1e6):
+                system = (diags(weight) + lam * penalty + diags(np.full(n, 1e-10))).tocsc()
+                right = weight * rng.normal(size=n)
+                want = spsolve(system, right)
+                got = _gridchol.GridCholesky(system, rows, columns).solve(right)
+                # both direct, so judged as a direct solve is: by the residual, which a backward-stable factor keeps
+                # at rounding whatever the conditioning (λ = 1e6 on 15 cells is near singular, and there the two
+                # answers themselves may part by more than rounding)
+                scale = float(np.abs(right).max()) + float(abs(system).max()) * float(np.abs(want).max())
+                residual = float(np.abs(system @ got - right).max())
+                self.assertLess(residual, max(10 * float(np.abs(system @ want - right).max()), 1e-13 * scale),
+                                (rows, columns, lam))
+                if lam == 1.0:
+                    self.assertLess(float(np.abs(got - want).max()), 1e-9 * float(np.abs(want).max()))
 
 
 if __name__ == "__main__":

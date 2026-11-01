@@ -439,6 +439,12 @@ def _chain_cells(level, line):
 #: rounding, about 1e-13 of the surface's range; a test sets this False to compare with spsolve's default.
 SYMMETRIC_FACTOR = True
 
+#: Whether the symmetric system is factored by grapy's own nested-dissection Cholesky (``_gridchol``, D-333) rather
+#: than SuperLU. SuperLU sets aside room for its factor in proportion to the matrix before it knows the fill — 1.46 GB
+#: on a 400 x 400 grid — and that, not the fill, put a run past ADR-223's memory; the grid factor holds what it
+#: computes (28 million numbers there, 221 MB). Equal to SuperLU's answer to rounding; a test sets this False.
+GRID_FACTOR = True
+
 
 def _solve(ops, profile_op, plan, n, data_index, data_value, data_weight, pins, lam):
     from scipy.sparse import diags
@@ -460,6 +466,10 @@ def _solve(ops, profile_op, plan, n, data_index, data_value, data_weight, pins, 
         weight[keys] = big
         right[keys] = big * values
     system = (diags(weight) + lam * penalty + diags(np.full(n, 1e-10))).tocsc()
+    if SYMMETRIC_FACTOR and GRID_FACTOR:
+        from ._gridchol import GridCholesky
+        rows, columns = ops["index"].shape
+        return GridCholesky(system, rows, columns).solve(right)
     if SYMMETRIC_FACTOR:
         return splu(system, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.0,
                     options={"SymmetricMode": True}).solve(right)
