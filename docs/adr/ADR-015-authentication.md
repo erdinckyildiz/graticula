@@ -243,7 +243,7 @@ token keeps 498; OGC API, WMS, WFS, WMTS and the native API keep 404; a browser 
 the console's viewers (`map.js`, `view.js`, `webmap.js`) read 499 as the refusal they already say, and `map.js` tells
 the SDK not to open its own sign-in dialog over it.
 
-**INFERRED — for the owner's confirmation.** The instruction was to fix the server side of D-347; that the fix is a
+~~**INFERRED — for the owner's confirmation.**~~ **Confirmed 2026-11-01 by owner decision** (*"Onayla"*: anonymous refusals on `/rest/services` answer 499 for an absent name as for a hidden service; a signed-in caller and the OGC and native faces keep 404). The instruction was to fix the server side of D-347; that the fix is a
 challenge for every anonymous refusal on the services surface, rather than for organisation-shared services only
 (which would say which names exist), is this session's reading of the trade.
 

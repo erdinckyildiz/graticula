@@ -160,7 +160,7 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
      changed)**;
    - (l) of two equally cheap sources, the one settled first wins, as CostDistance already infers.
 10. **Added 2026-11-01 (D-332): what the pages specify of the four names that were still refused.** INFERRED where
-    marked, for the owner's confirmation:
+    marked — **confirmed 2026-11-01 by owner decision** (*"Hepsini onayla"*), with D-341's 20 s reserve before the CPU limit:
     - (a) *A resistance rate travelling FROM_SOURCE*: the page's `a5 = c1 + c2(1+r) + … + c5(1+r)^4` — the i-th step
       from the source times the cost multiplier times `(1+r)^(i−1)`, on top of the start cost. INFERRED: the start
       cost is not compounded (the page's form has none; travelling TO_SOURCE it is, as its `a1` feeds every later
