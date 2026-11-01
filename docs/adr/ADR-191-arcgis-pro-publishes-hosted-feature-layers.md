@@ -207,7 +207,7 @@ None recorded.
    *(2026-10-31: on dev it is met — condition 2's run published a polygon layer from Pro's pane and `hosted/Map`
    answered it. **The showcase half is owed**, and not from this session, which may not touch the showcase: in Pro
    signed in to `https://demo.graticula.com/studio`, share a layer with *Copy all data → Feature*, then find it in
-   Studio › My content as a hosted feature layer owned by that member and open it on the map.)*
+   Studio › My content as a hosted feature layer owned by that member and open it on the map.)* **DISCHARGED 2026-11-01** — on the showcase, at its second organisation `kontrol` (`https://kontrol.graticula.com/studio`), which serves from the same store and code as `demo`: Pro 3.7's sharing engine (`getWebLayerSharingDraft("HOSTING_SERVER", "FEATURE", …)` — *Copy all data → Feature*, staged and uploaded as the pane does) published `Kontrol_Cities`; the store holds it as a hosted service item owned by the member who signed Pro in, and Pro's own cursors read its four features back through `hosted/Kontrol_Cities`. Recorded with ADR-204 condition 3.
 2. **The Share pane itself works**, not only arcpy: Analyze and Publish enabled in Pro's UI. *(Met on dev
    2026-10-17, driven through Pro's UI: a polygon layer published from Share As Web Layer → "Web layer published
    successfully", and `hosted/Map` answers it. **Two causes were found.** (a) Pro greys the pane with *"Your portal
