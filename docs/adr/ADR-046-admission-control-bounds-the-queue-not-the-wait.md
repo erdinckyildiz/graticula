@@ -258,6 +258,24 @@ queues, one after the other — see condition 1 and [D-374](../architecture-debt
 the error line a failure gets, because a flood's refusals are most of what it is answered; the request log records each
 as its 503 (condition 3).
 
+**Amended the same day: the depth is a standing queue's, not a burst's.** Measured against bursts
+([benchmarks/admission-control/2026-11-01-bursts](../../benchmarks/admission-control/2026-11-01-bursts/RESULTS.md)):
+one HTTP/2 viewer is never refused (Kestrel's 100 streams per connection is below 24 + 96), but three viewers firing 64
+requests at once lost **27.5–37.5 %** to 503 and five lost **about 60 %**, while every such burst was otherwise served in
+43–139 ms. Four per permit is the data-source rule, where a permit lasts a whole query; here it lasts four store
+statements, and 96 waiting is a queue the store clears in tens of milliseconds. So `StoreGate` now enforces the depth
+**only while its queue is standing** — CoDel's test: requests have been granted only after waiting more than 50 ms for at
+least 100 ms without the queue emptying, the last such grant under 100 ms ago — and otherwise queues up to a **ceiling of
+16 per permit (384)** that nothing passes. After: every 64-request burst from up to five viewers and every 128 from three
+is served whole; three viewers at 256 or five at 128 are still partly refused. **The flood is still refused on arrival**
+— 85–90 % at 240 callers, interleaved with the old build's 91–92 % — **and pays for the burst tolerance at 480 callers**:
+the admitted p95 roughly doubles (537–625 ms against 314–352) and the median moves from 200–216 to 202–266 ms, because
+in the moments the queue is not standing (15–18 % of samples) it can fill to the ceiling. Eight per permit was measured
+too and halves that cost, but still refused about 30 % of five viewers' 64-request pans and of three viewers' 128;
+sixteen is chosen because its price is paid under overload and eight's under ordinary use. Cached tiles cannot simply be
+exempted: each runs four store statements (session, grants, layers, group layers — the catalogue read is per request by
+[D-17](../architecture-debt.md)'s decision).
+
 ## 6. Consequences
 
 **Positive.** The queue is bounded and observable, which it was not: the count is on
@@ -486,6 +504,11 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    other service. [D-374](../architecture-debt.md) holds it. `StoreGateTests` (five) pin the bound: an arrival past the
    queue is refused at once, a request gives its permit back when it asks for a source (fails without
    `ConnectionBudget.EnterAsync` calling `StoreGate.Leave`), and the count never passes the depth under a burst.
+   *(Amended later on 2026-11-01, §5a: the depth now applies while the store's queue is standing, with a ceiling of 384
+   otherwise, so a burst is served. Re-run interleaved with the old build, the first clause still holds — 84.8 % and
+   90.1 % refused at 240 callers against 92.2 % and 90.7 % — and the second moves at 480 callers: admitted median
+   202–266 ms against 200–216, p95 537–625 against 314–352. `StoreGateTests` are nine; four fail on the gate that
+   compared the count alone.)*
    *The `/rest/info` control's 4–12 ms of 2026-10-31* is the closed loop's contention on a shared machine, not the
    pipeline: in the open loop it answers in 0.0–0.5 ms at 500 and 1,000 requests a second on both builds.
    **DISCHARGED 2026-11-01** — the saturated source refuses on arrival (first clause, measured), and the admitted median's remaining growth — bounded, about 15 % per doubling, from two bounded queues in a row — is kept by owner decision (*"Yalıtımı koru"*): flattening it would let one slow source hold every store permit, which is what ADR-007's N4 and this gate exist to prevent. The choice is [D-374](../architecture-debt.md), parked on its trigger.

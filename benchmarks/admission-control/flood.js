@@ -144,6 +144,8 @@ const qSamples = new Counter('q_samples');
 const qStore = new Trend('q_store');
 const qStoreAtDepth = new Rate('q_store_at_depth');
 const qStoreInside = new Trend('q_store_inside');
+// Whether the store's queue was standing (2026-11-01, bursts): its depth is enforced only then.
+const qStoreStanding = new Rate('q_store_standing');
 const healthMs = new Trend('health_ms', true);
 
 // The server's own counters, cumulative, sampled beside the queue. The difference
@@ -360,6 +362,9 @@ export function sample(data) {
     qStore.add(admission.store.waiting);
     qStoreInside.add(admission.store.inside);
     qStoreAtDepth.add(admission.store.queueDepth > 0 && admission.store.waiting >= admission.store.queueDepth);
+    if (admission.store.standing !== undefined) {
+      qStoreStanding.add(admission.store.standing === true);
+    }
   }
   qWorker.add(admission.waitingForWorker);
   qNonEmpty.add(waiting > 0);
@@ -504,6 +509,7 @@ export function handleSummary(data) {
       storeMax: num(m, 'q_store', 'max'),
       storeAtDepthShare: num(m, 'q_store_at_depth', 'rate'),
       storeInsideMedian: num(m, 'q_store_inside', 'med'),
+      storeStandingShare: num(m, 'q_store_standing', 'rate'),
     },
     // Little's law, from the client's side: throughput x mean latency is how many
     // requests were outstanding on average. It is the number the old measurement could
@@ -555,7 +561,9 @@ export function handleSummary(data) {
   if (report.queue.storeMax !== null) {
     lines.push(`    store gate: waiting median ${f(report.queue.storeMedian, 0)}, max ${f(report.queue.storeMax, 0)}, ` +
                `at depth in ${f(100 * (report.queue.storeAtDepthShare || 0))}%, inside median ` +
-               `${f(report.queue.storeInsideMedian, 0)}`);
+               `${f(report.queue.storeInsideMedian, 0)}` +
+               (report.queue.storeStandingShare !== null
+                 ? `, standing in ${f(100 * report.queue.storeStandingShare)}%` : ''));
   }
   lines.push(`    control /rest/info median ${f(report.controlPath.medianMs)} ms, ` +
              `p95 ${f(report.controlPath.p95Ms)} ms`);
