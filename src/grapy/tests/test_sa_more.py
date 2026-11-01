@@ -178,8 +178,9 @@ class More(_Fixture):
                                                source_direction="TO_SOURCE"), places=4), [[5.0, 15.0, 26.5, 39.15]])
         self.assertEqual(cells(sa.CostAllocation(grid([[1, -9, -9, -9, 2]], nodata=-9), grid([[1] * 5]),
                                                  source_capacity=15)), [[1, 1, ND, 2, 2]])
-        with self.assertRaises(arcpy.NotBuiltError):
-            sa.CostDistance(start, row, source_resistance_rate=0.1)
+        # FROM_SOURCE, the default: start 5 uncompounded, then 10, 11, 12.1 (D-332).
+        self.assertEqual(cells(sa.CostDistance(start, row, source_start_cost=5, source_resistance_rate=0.1),
+                               places=4), [[5.0, 15.0, 26.0, 38.1]])
 
     # ---- hydrology
 
