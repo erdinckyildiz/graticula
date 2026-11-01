@@ -98,8 +98,8 @@ public sealed class SharedWithEveryOrganisationTests : ArcGisClient
             Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{everyone}/FeatureServer/0?f=json", host, member)).Status);
             Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{own}/FeatureServer/0?f=json", host, member)).Status);
 
-            // Nobody who has not signed in.
-            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{everyone}/FeatureServer/0?f=json", host)).Status);
+            // Nobody who has not signed in: asked for a token (ADR-015 §4b, 499), as for a name that does not exist.
+            Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{everyone}/FeatureServer/0?f=json", host)).Status);
 
             // Found from home, with the address to open it at; the organisation-only one is not.
             (HttpStatusCode searched, JsonElement found) = await SendAsync(HttpMethod.Get, $"/admin/search/elsewhere?q={run}", token: member);

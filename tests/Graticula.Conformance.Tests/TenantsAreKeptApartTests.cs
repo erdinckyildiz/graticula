@@ -173,7 +173,8 @@ public sealed class TenantsAreKeptApartTests : ArcGisClient
             {
                 name = $"x{run}", geometryType = "Point", srid = 4326, fields = Array.Empty<object>(),
             })).Status);
-            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(HttpMethod.Get, shared, jvHost)).Status);
+            // Signed out: asked for a token (ADR-015 §4b, 499), as for a name that does not exist.
+            Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(HttpMethod.Get, shared, jvHost)).Status);
         }
         finally
         {
