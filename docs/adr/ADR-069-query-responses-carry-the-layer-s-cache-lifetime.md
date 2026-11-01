@@ -149,6 +149,17 @@ see §9.
 ***Amended 2026-10-29 ([D-266](../architecture-debt.md)):*** they are now, and so are OGC API Features `items`,
 WFS `GetFeature` and MapServer `query` — the same lifetime through the same `ApplyAsync`, each after its last
 refusal. What is still not covered is a validator for a PostGIS layer.
+***Amended 2026-11-01 ([D-266](../architecture-debt.md)):*** it is covered, from PostgreSQL's cumulative statistics —
+`PostGisFeatureSource.CacheValidatorAsync` reads a plain table's inserted, updated and deleted counters
+(`pg_stat_user_tables`), its file node and the database's and background writer's reset times, in one catalogue read
+with no scan, through the connection budget (`IDatabaseCacheValidator`). Measured on PostgreSQL 16: every insert,
+update and delete moves it, `TRUNCATE` moves the file node, a counter reset and a crash move a reset time; `ANALYZE`,
+`VACUUM` and a clean restart move nothing. **Its price is lateness**: a backend sends its counts when it goes idle, at
+most once a second, so a write within a second of its last send is seen up to 10.0 s later (measured); a revalidation
+in that window is told 304, and a read-only layer's answer can be stale by its lifetime plus ten seconds. None for a
+standby, with `track_counts` off, or for a view, materialised view, foreign, partitioned or inherited table. The
+statement costs 1.07 ms p50 on a database of 1,282 relations. The §9 trigger below — *a cheap, table-wide validator* —
+was this.
 
 ## 6. Consequences
 

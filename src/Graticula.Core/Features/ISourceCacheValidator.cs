@@ -25,7 +25,7 @@ namespace Graticula.Features;
 /// queried to answer it.
 /// </para>
 /// <para>
-/// <b>Registered PostGIS data has no cheap answer, so it has no implementation.</b> A table's
+/// ~~<b>Registered PostGIS data has no cheap answer, so it has no implementation.</b> A table's
 /// version would have to be a full scan, a trigger-maintained column nothing here can assume
 /// exists, or the same <c>xmin</c> read <see cref="IFeatureVersions"/> already charges a round
 /// trip for — none of which is cheaper than just answering the query it would be validating in
@@ -33,7 +33,11 @@ namespace Graticula.Features;
 /// either: that response is streamed (ADR-062), and buffering a multi-megabyte body to hash it
 /// is the allocation A-037 already measured as the binding constraint on this face. A layer
 /// with no cheap validator is still cached — <c>Cache-Control: max-age</c> alone — and simply
-/// cannot be revalidated for less than its full cost once that expires.
+/// cannot be revalidated for less than its full cost once that expires.~~ <b>Corrected 2026-11-01 (D-266): it has
+/// one, from PostgreSQL's cumulative statistics</b> — a table's write counters, its file node and the two reset times,
+/// one catalogue read with no scan of the table. It is a round trip, so the PostGIS source says so with
+/// <see cref="IDatabaseCacheValidator"/> and the connection budget counts it. What it costs in freshness is measured
+/// where it is implemented (<c>PostGisFeatureSource.CacheValidatorAsync</c>).
 /// </para>
 /// <para>
 /// <b>An opaque string, deliberately</b> — the caller (<c>QueryResponseCaching</c>) compares it
@@ -48,4 +52,16 @@ public interface ISourceCacheValidator
     /// <param name="cancellationToken">The caller's.</param>
     /// <returns>An opaque version that changes whenever the underlying data does.</returns>
     Task<string?> CacheValidatorAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// A <see cref="ISourceCacheValidator"/> whose answer is a round trip to the database, so a caller that bounds database
+/// work (the connection budget) counts it — D-266. A file's validator, read from a stat, is not one.
+/// </summary>
+/// <remarks>
+/// <b>A marker rather than a member with a default body</b>: a decorator that forwards the interface does not forward a
+/// default member's override, and a bound silently skipped is the shape D-196 records.
+/// </remarks>
+public interface IDatabaseCacheValidator : ISourceCacheValidator
+{
 }
