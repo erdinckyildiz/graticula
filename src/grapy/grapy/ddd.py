@@ -76,6 +76,11 @@ def ReclassByTable(in_raster, in_remap_table, from_value_field, to_value_field, 
                                     missing_values), out_raster)
 
 
+def ReclassByASCIIFile(in_raster, in_remap_file, out_raster, missing_values="DATA"):
+    """arcpy.sa.ReclassByASCIIFile, saved: the 3D Analyst page (tool-reference/3d-analyst/reclass-by-ascii-file.html,
+    read 2026-11-02) gives the same parameters with out_raster third, and the same notes."""
+    return _saved(sa.ReclassByASCIIFile(in_raster, in_remap_file, missing_values), out_raster)
+
 def Slice(in_raster, out_raster, number_zones=None, slice_type="EQUAL_INTERVAL", base_output_zone=1, nodata_to_value=None,
           class_interval_size=None):
     """arcpy.sa.Slice, saved; a ``nodata_to_value`` writes that integer where the input is NoData."""
@@ -275,7 +280,6 @@ _REFUSED.update({name: _UNSPECIFIED for name in (
 _REFUSED.update({
     "CutFill": _NO_RAT + " — the VOLUME and AREA of each region",
     "Lookup": _NO_RAT,
-    "ReclassByASCIIFile": "the documentation does not specify the remap file's format",
     "LayerToKML": "it reads map layers, which a user tool on the server does not have",
     "MapToKML": "it reads a map, which a user tool on the server does not have",
     "Skyline": _NO_Z, "SkylineBarrier": _NO_Z, "SkylineGraph": _NO_Z,
@@ -1139,6 +1143,8 @@ TinContour = _tintools.TinContour
 SurfaceContour = _tintools.SurfaceContour
 SurfaceSlope = _tintools.SurfaceSlope
 SurfaceAspect = _tintools.SurfaceAspect
+TinSlope = _tintools.TinSlope  # deprecated name, read 2026-11-02 (see _tintools.TinSlope)
+TinAspect = _tintools.TinAspect
 SurfaceVolume = _tintools.SurfaceVolume
 PolygonVolume = _tintools.PolygonVolume
 TinPolygonVolume = _tintools.TinPolygonVolume
@@ -1169,7 +1175,8 @@ for _built in ("CreateTin", "EditTin", "CopyTin", "DelineateTinDataArea", "TinDo
                "SurfaceVolume", "PolygonVolume", "TinPolygonVolume", "LasDatasetToTin", "LASToMultipoint", "ExtractLas",
                "ChangeLasClassCodes", "ClassifyLasByHeight", "SetLasClassCodesUsingFeatures", "LasPointStatsByArea",
                "PointFileInformation", "ClassifyLasGround", "ColorizeLas", "ThinLas", "TileLas", "ClassifyLasOverlap",
-               "LocateLasPointsByProximity", "LocateOutliers", "ExtractObjectsFromPointCloud", "ClassifyLasBuilding"):
+               "LocateLasPointsByProximity", "LocateOutliers", "ExtractObjectsFromPointCloud", "ClassifyLasBuilding",
+               "TinSlope", "TinAspect"):
     _REFUSED.pop(_built, None)
 
 from . import _tindiff  # noqa: E402 — ADR-229 condition 6, on the constrained Delaunay triangulation
@@ -1220,8 +1227,6 @@ _REFUSED.update({
     "RasterTin": "how it selects the raster's points within the z tolerance is not documented (ADR-229 §5.7)",
     "TINToMultipatch": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
     "LasBuildingMultipatch": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
-    "TinSlope": "it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read",
-    "TinAspect": "it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read",
     "ClassifyLasNoise": "its page contradicts itself on the isolation limit (fewer than, or no more than, the point "
                         "limit), and its other methods' defaults are not given",
     "LasHeightMetrics": "how the ground surface the heights are measured from is built is not stated",

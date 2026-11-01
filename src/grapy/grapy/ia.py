@@ -9,7 +9,7 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
     BooleanOr, BooleanXOr, Buffered, CIg, CIre, CellStatistics, ClayMinerals, CompositeBand, Con, Contour, Cos,
     CosH, Curvature, Diff, Divide, EVI, EqualTo, EqualToFrequency, Exp, Exp10, Exp2, Extent, ExtractBand,
     FerrousMinerals, Float, FocalStatistics, FuzzyGaussian, FuzzyLarge, FuzzyLinear, FuzzyMSLarge, FuzzyMSSmall,
-    FuzzyNear, FuzzySmall, GEMI, GVITM, GreaterThan, GreaterThanEqual, GreaterThanFrequency, HighestPosition,
+    FuzzyNear, FuzzySmall, GEMI, MTVI2, GVITM, GreaterThan, GreaterThanEqual, GreaterThanFrequency, HighestPosition,
     Hillshade, Int, IronOxide, IsNull, KrigingModelOrdinary, KrigingModelUniversal, LessThan, LessThanEqual,
     LessThanFrequency, Ln, Log10, Log2, Lookup, LowestPosition, MSAVI, Majority, Max, Mean, Median, Merge, Min,
     Minority, Minus, Mod, NBR, NDBI, NDMI, NDSI, NDVI, NDVIre, NDWI, NbrAnnulus, NbrCircle, NbrIrregular,
