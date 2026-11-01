@@ -138,7 +138,9 @@ class Terrain(unittest.TestCase):
         t = self.terrain(("1 1000", "2 5000", "4 10000"), "WINDOWSIZE", "ZMAX")
         one, two, four = (set(self.level(t, r)) for r in (1, 2, 4))
         self.assertTrue(four <= two <= one)
-        self.assertEqual(len(four), 9)   # windows of 4 from 0: [0,4) [4,8) [8,12) on each axis
+        # Web Mercator near its origin: the tile index passes 23,170 on both axes, so the tile of 224 (spacing 0.5)
+        # is centred on the data, 0..10, and starts at 5 - 112 = -107: windows of 4 at [-3,1) [1,5) [5,9) [9,13).
+        self.assertEqual(len(four), 16)
 
     def test_windows_start_at_pros_tile_corners_on_a_utm_dataset(self):
         # ArcGIS Pro 3.7, measured 2026-10-31 on 45 terrains (D-339, tools/pro-compare/adr234-terrain-corner.py): tiles
@@ -154,7 +156,14 @@ class Terrain(unittest.TestCase):
         self.assertEqual(ax[0], -5120900 + 12574 * 447)
         self.assertAlmostEqual(ay[0], 4400049.98 - 223.5, 6)
         self.assertEqual(_terrain.window_anchors(pts, 2, 32735, (0, 0))[1][0], 1900 + 4919 * 894)
-        ax, ay = _terrain.window_anchors(pts, 2, 3857, (7, 9))   # a domain grapy does not know: the extent's corner
+        # Web Mercator's default domain (-20037700, -30241100), read from Pro (D-339): x from the tile, y centred;
+        # Pro 3.7 kept the points this rule predicts at every level on these points (625 of 627, 181, 55).
+        ax, ay = _terrain.window_anchors(pts, 2, 3857, (7, 9))
+        self.assertEqual(ax[0], -20037700 + 22972 * 894)
+        self.assertAlmostEqual(ay[0], (4400000.01 + 4400099.95) / 2 - 447, 6)
+        self.assertEqual(_terrain.default_xy_origin(2154), (-35597500.0, -23641900.0))   # Lambert 93
+        self.assertEqual(_terrain.default_xy_origin(27700), (-5220400.0, -15524400.0))   # British National Grid
+        ax, ay = _terrain.window_anchors(pts, 2, 0, (7, 9))   # no coordinate system Pro knows: the extent's corner
         self.assertEqual((ax[0], ay[0]), (7, 9))
         # BuildTerrain uses them: a 16 m window from 4399770 + 16k holds y 4400000..4400010, not one from 4400000.
         utm = arcpy.management.CreateFeatureDataset(self.gpkg, "utm", 32635)[0]
@@ -174,17 +183,24 @@ class Terrain(unittest.TestCase):
         # from the level before keeps a different point at level 4 here.
         z = {(x, y): (x * 7 + y * 3) % 5 + 0.25 * x for x in range(4) for y in range(4)}
         order = [(x, y) for x in range(4) for y in range(4)]
-        pts = self.points("m", [(x, y, z[(x, y)]) for x, y in order])
+        # Placed where Pro's windows start at the points' own corner: the 100th tile of 224 (spacing 0.5) from UTM
+        # 35N's default domain origin (-5120900, -9998100), a multiple of 4 on both axes.
+        x0, y0 = -5120900 + 224 * 100, -9998100 + 224 * 100
+        utm = arcpy.management.CreateFeatureDataset(self.gpkg, "mean_utm", 32635)[0]
+        pts = self.points("m", [(x0 + x, y0 + y, z[(x, y)]) for x, y in order], dataset=utm)
         source = [[pts, "Shape.Z", "masspoints", 1, "", "", False, False, "", "", False]]
-        t = self.terrain(("2 1000", "4 5000"), "WINDOWSIZE", "ZMEAN", source, name="mean")
+        t = arcpy.ddd.CreateTerrain(utm, "mean", 0.5, None, None, "WINDOWSIZE", "ZMEAN")[0]
+        arcpy.ddd.AddTerrainPyramidLevel(t, "", ["2 1000", "4 5000"])
+        arcpy.ddd.AddFeatureClassToTerrain(t, source)
+        arcpy.ddd.BuildTerrain(t)
 
         def closest(members):
             d = np.abs(np.array([z[m] for m in members]) - np.mean([z[m] for m in members]))
             return members[int(np.nonzero(d <= d.min() + 1e-9)[0][0])]
         four = {closest(order)}
         two = {closest([m for m in order if (m[0] // 2, m[1] // 2) == w]) for w in [(0, 0), (0, 1), (1, 0), (1, 1)]}
-        self.assertEqual({(p[0], p[1]) for p in self.level(t, 4)}, four)
-        self.assertEqual({(p[0], p[1]) for p in self.level(t, 2)}, two | four)
+        self.assertEqual({(p[0] - x0, p[1] - y0) for p in self.level(t, 4)}, four)
+        self.assertEqual({(p[0] - x0, p[1] - y0) for p in self.level(t, 2)}, two | four)
         self.assertNotEqual(four, {closest(sorted(two, key=order.index))})   # what thinning level 2 would have kept
 
     def test_a_window_is_at_least_twice_the_average_point_spacing(self):
@@ -349,13 +365,13 @@ class Terrain(unittest.TestCase):
         t = self.terrain(("4 10000",), "WINDOWSIZE", "ZMIN")
         tin = os.path.join(self.directory, "fromterrain")
         arcpy.ddd.TerrainToTin(t, tin, 4)
-        self.assertEqual(arcpy.Describe(tin).nodeCount, 9)
+        self.assertEqual(arcpy.Describe(tin).nodeCount, 16)   # four windows of 4 an axis, as above
         with self.assertRaises(ExecuteError):
             arcpy.ddd.TerrainToTin(t, os.path.join(self.directory, "big"), 0, 100)
         multi = arcpy.ddd.TerrainToPoints(t, os.path.join(self.gpkg, "multi"), 4)[0]
         rows = list(da.SearchCursor(multi, ["SHAPE@"]))
         self.assertEqual(len(rows), 1)
-        self.assertEqual(len(rows[0][0]._shape.geoms), 9)
+        self.assertEqual(len(rows[0][0]._shape.geoms), 16)
         arcpy.env.extent = arcpy.Extent(0, 0, 4.5, 4.5)
         try:
             clipped = os.path.join(self.directory, "clipped")

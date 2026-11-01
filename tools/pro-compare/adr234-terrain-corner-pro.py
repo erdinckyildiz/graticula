@@ -20,7 +20,7 @@ gdb = os.path.join(out, "t.gdb")
 if arcpy.Exists(gdb):
     arcpy.management.Delete(gdb)
 arcpy.management.CreateFileGDB(out, "t.gdb")
-sr = arcpy.SpatialReference(32635)
+sr = arcpy.SpatialReference(int(os.environ.get("SRID", "32635")))  # SRID: another system's default domain (D-339)
 if len(sys.argv) > 7:
     sr.XYResolution = float(sys.argv[7])
     sr.XYTolerance = float(sys.argv[7]) * 10
