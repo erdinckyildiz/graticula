@@ -6442,3 +6442,24 @@ ol.sfsteps > li > b { margin-left: -30px; }
 }
 #view-machines .mcdirs[hidden] { display: none; }
 #view-machines .mcdirs .mcdirsicon { flex: none; margin-top: 2px; }
+/* ADR-012 phase 4: a rolling upgrade is a state an administrator chose, so it is told in the accent, not the warning --
+   the lead and the icon in the accent ink, the sentences in the page's own, so the box does not read as a link. */
+#view-machines .mcupgrade {
+  display: flex; gap: var(--gap-2, 8px); align-items: flex-start;
+  margin: 0 0 var(--gap-3, 12px); padding: 10px 12px; font-size: var(--t-small); border-radius: 7px;
+  background: var(--accent-soft); color: var(--ink); border: 1px solid var(--accent-line);
+}
+#view-machines .mcupgrade[hidden] { display: none; }
+#view-machines .mcupgrade .mcupgradeicon { flex: none; margin-top: 2px; color: var(--accent-ink); }
+#view-machines .mcupgrade b { color: var(--accent-ink); }
+#view-machines .mcupgrade p { margin: 0; }
+#view-machines .mcupgrade p + p { margin-top: 6px; }
+#view-machines .mcupgrade .mcname { white-space: nowrap; }
+#mcSays:empty { display: none; }
+/* Narrow: the machine's name and its address take the whole row, and its buttons go under them, so another machine's
+   address -- its first meta item, unbroken -- never runs under the Stop button (design review of phase 4). */
+@media (max-width: 719px) {
+  #mcRows td.name { grid-column: 1 / -1; }
+  #mcRows td.act, .widetable #mcRows td.act:last-child { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  #mcRows .rowmeta code { white-space: normal; overflow-wrap: anywhere; }
+}
