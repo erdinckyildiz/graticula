@@ -267,7 +267,11 @@ RUN apt-get update  && apt-get install --yes --no-install-recommends curl liblda
 # ADR-248: PyTorch and torchvision for grapy's deep learning tools, the CPU builds from PyTorch's own index, which holds
 # both x86-64 and aarch64 wheels (PyPI's x86-64 wheel brings CUDA's libraries). No pretrained weights are baked in.
 # ADR-229 condition 5: lazrs is laspy's LAZ backend (MIT); the build fails if laspy cannot find it.
+# D-383, owner decision 2026-11-01 ("readline'ı sil, PostGIS'i kabul et"): Ubuntu Python's readline module links GNU
+# readline (GPL-3.0) and nothing of ours imports it, so it is removed, and the build fails if it comes back.
 RUN apt-get update && apt-get install --yes --no-install-recommends python3 python3-venv && rm -rf /var/lib/apt/lists/* \
+ && rm -f /usr/lib/python3*/lib-dynload/readline.cpython-*.so \
+ && ! python3 -c "import readline" 2>/dev/null \
  && python3 -m venv /opt/grapy \
  && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas rasterio scipy laspy lazrs xarray manifold3d \
  && /opt/grapy/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision \

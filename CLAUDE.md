@@ -224,7 +224,7 @@ These came from the project owner and are inputs, not open questions. See
   GPL library**: the reader's GDAL is conda-forge's `libgdal-core` without the PDF driver,
   and `tools/gdal-natives.py` refuses a GPL library in it. Two GPL libraries remain in
   unmodified distribution packages beside our code — the datastore image's Poppler and
-  Ubuntu Python's readline ([D-383](docs/architecture-debt.md)). Obligations are tracked in
+  Ubuntu Python's readline ([D-383](docs/architecture-debt.md)); the readline module was removed from the image and the datastore's Poppler accepted as part of an aggregate, by owner decision. Obligations are tracked in
   [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
 - **Scale target:** 100–1,000 services. Larger figures are stress models, not
   requirements. Do not make small deployments painful to serve hypothetical

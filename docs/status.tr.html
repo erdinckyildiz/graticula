@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>81ab368a</code> · 2026-11-01 10:27</p>
+<p class="stamp">Şu commit’ten üretildi: <code>0627ddff</code> · 2026-11-01 10:44</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">252</div><div class="kpi-l">ADR</div><div class="kpi-n">82 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">631/670</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">29 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
-<div class="kpi "><div class="kpi-v">5</div><div class="kpi-l">açık borç</div><div class="kpi-n">324 ödendi · 20 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">açık borç</div><div class="kpi-n">324 ödendi · 21 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5699</div><div class="kpi-l">test</div><div class="kpi-n">619 kaynak dosya, 275,834 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">38 madde</span></div><p><b>29 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>5 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">37 madde</span></div><p><b>29 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>4 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -453,7 +453,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-362</td><td>The connection listing&#x27;s reach rests on one privilege staying whole.</td><td class="muted-t">ADR-055 condition 2, verbatim: &quot;The listing&#x27;s reach is re-argued if the privilege ever splits.&quot; A narrower privilege…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-363</td><td>The World Magnetic Model grapy bundles stops at 2030.0.</td><td class="muted-t">ADR-251 condition 3, verbatim: &quot;WMM2030 bundled when NOAA publishes it, before 2030.0&quot;.</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-364</td><td>Migration 55&#x27;s conversion of domains has never run on a real store with domains.</td><td class="muted-t">ADR-087 condition 2, verbatim: &quot;Discharged by the first real store with domains going through it.&quot; That is a store run…</td><td><span class="pill muted">PARKED</span></td></tr>
-<tr class=""><td class="id">D-383</td><td>Two GPL libraries remain in what the project distributes, outside the server&#x27;s own code, found by ADR-254&#x27;s inventory.</td><td class="muted-t">The owner&#x27;s reading of ADR-180 for aggregated GPL programs, or a release that changes either image&#x27;s base</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-383</td><td>Two GPL libraries remain in what the project distributes, outside the server&#x27;s own code, found by ADR-254&#x27;s inventory.</td><td class="muted-t">The owner&#x27;s reading of ADR-180 for aggregated GPL programs, or a release that changes either image&#x27;s base</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-337</td><td>grapy&#x27;s insolation duration and support vector machine still differ from Pro&#x27;s.</td><td class="muted-t">Esri publishes how Area Solar Radiation samples horizons for duration, or Train Support Vector Machine Classifier&#x27;s…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-336</td><td>Two of grapy&#x27;s equivalents differ from ArcGIS Pro 3.7 beyond any tolerance, measured 2026-10-31.</td><td class="muted-t">Esri publishes the Distance Accumulation reconstruction or Segment Mean Shift&#x27;s colour distance; or a user&#x27;s toolbox is…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-373</td><td>What a comparison with ArcGIS Pro has not settled about grapy&#x27;s parcel fabric, tracked rather than chased, by owner decision.</td><td class="muted-t">Esri publishes the fabric&#x27;s shared-line direction and record assignment rule; or a user&#x27;s toolbox is seen to relate…</td><td><span class="pill muted">PARKED</span></td></tr>
@@ -621,6 +621,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>0627ddff</code><time>2026-11-01</time><span>CLAUDE.md says what ADR-254 made true: nothing of ours links a GPL library, and the two GPL libraries left in distribution packages are D-383</span></li>
+<li><code>7f9d77d5</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>14bfed15</code><time>2026-11-01</time><span>D-380 is repaid by ADR-254, and DEPENDENCY-LICENSES.md enumerates the GDAL that now ships, without Poppler</span></li>
+<li><code>7b619785</code><time>2026-11-01</time><span>The import reader&#x27;s GDAL is conda-forge&#x27;s libgdal-core without the PDF driver, so no Poppler ships (ADR-254, owner decision on D-380)</span></li>
 <li><code>81ab368a</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>6ce33e84</code><time>2026-11-01</time><span>ADR-012 condition 3 is discharged: phase 4, the rolling upgrade, is built and holds with tests against two processes</span></li>
 <li><code>26c7d4fe</code><time>2026-11-01</time><span>System &gt; Machines says when a rolling upgrade is in progress, which machine is next and when it is over (ADR-012 phase 4)</span></li>
@@ -631,10 +635,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>38bb59e3</code><time>2026-11-01</time><span>Two nodes behind a real Caddy hold every phase-3 check, and Caddy&#x27;s upstreams are listed because it does not health-check dynamic ones (ADR-012 condition 3, phase 3 discharged)</span></li>
 <li><code>4da77de5</code><time>2026-11-01</time><span>Owner decision of 2026-11-01: the admission gate keeps a slow source isolated rather than flattening the admitted median (ADR-046 condition 1 discharged, D-374 parked)</span></li>
 <li><code>1073d6cd</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>2abc213e</code><time>2026-11-01</time><span>Status pages regenerated after merging grapy-b</span></li>
-<li><code>5173f215</code><time>2026-11-01</time><span>Area Solar Radiation runs a 1,000 x 1,000 DEM in 319 s and 1.4 GB, its horizons taken a step of every ray at once (D-334 repaid)</span></li>
-<li><code>4780f4fc</code><time>2026-11-01</time><span>Topo to Raster factors its symmetric system symmetrically: 10,000 heights on 400 x 400 take 284 s, not 723 (D-333 time half)</span></li>
-<li><code>8da9cd94</code><time>2026-11-01</time><span>Ocean winds, Goldstein filtering and phase unwrapping finish a full IW swath inside ADR-223&#x27;s limits (D-357 partly)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
