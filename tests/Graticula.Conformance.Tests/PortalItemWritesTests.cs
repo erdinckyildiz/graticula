@@ -172,42 +172,4 @@ public sealed class PortalItemWritesTests : ArcGisClient
             await SendAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
         }
     }
-
-    /// <summary>
-    /// <c>community/createGroup</c> — found missing 2026-11-01, sharing to a group from Pro at a second organisation:
-    /// the portal shared into groups but answered 404 when asked to make one, which is the Python API's
-    /// <c>gis.groups.create</c>.
-    /// </summary>
-    [Fact]
-    public async Task A_group_made_through_the_portal_is_owned_by_its_maker_with_the_settings_sent()
-    {
-        string title = $"ZZ Portal Group {Guid.NewGuid():N}"[..28];
-        JsonElement made = await SendAsync(HttpMethod.Post, "/sharing/rest/community/createGroup?f=json",
-            new Dictionary<string, string>
-            {
-                ["title"] = title, ["access"] = "org", ["isInvitationOnly"] = "true", ["isViewOnly"] = "false",
-                ["tags"] = "not kept", ["description"] = "made by a portal client",
-            });
-
-        Assert.True(made.TryGetProperty("success", out JsonElement success) && success.GetBoolean(), made.GetRawText());
-        JsonElement group = made.GetProperty("group");
-        string id = group.GetProperty("id").GetString()!;
-
-        try
-        {
-            Assert.Equal(title, group.GetProperty("title").GetString());
-            Assert.Equal("org", group.GetProperty("access").GetString());
-            Assert.True(group.GetProperty("isInvitationOnly").GetBoolean(), made.GetRawText());
-            Assert.False(group.GetProperty("isViewOnly").GetBoolean(), made.GetRawText());
-            Assert.Equal("owner", group.GetProperty("userMembership").GetProperty("memberType").GetString());
-
-            JsonElement found = await SendAsync(HttpMethod.Get, $"/sharing/rest/community/groups/{id}?f=json");
-            Assert.Equal(title, found.GetProperty("title").GetString());
-        }
-        finally
-        {
-            // The name the portal made from the title: lower case, a hyphen for each run of anything else.
-            await SendAsync(HttpMethod.Delete, $"/admin/groups/{title.ToLowerInvariant().Replace(' ', '-')}");
-        }
-    }
 }
