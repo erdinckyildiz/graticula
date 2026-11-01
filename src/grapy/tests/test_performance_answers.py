@@ -224,6 +224,29 @@ class Topo(unittest.TestCase):
             got[remember] = arcpy.RasterToNumPyArray(out)
         self.assertTrue(np.array_equal(got[True], got[False], equal_nan=True))
 
+    def test_the_symmetric_factor_gives_the_general_solves_surface_to_rounding(self):
+        # D-333: SuperLU on a symmetric ordering without pivoting, against spsolve's default; a different order of
+        # elimination, so equal to rounding rather than to the bit: within 1e-9 of the surface's range.
+        self.addCleanup(setattr, _topo, "SYMMETRIC_FACTOR", True)
+        z = rough(60, 60, 7)
+        rng = np.random.default_rng(8)
+        picks = rng.choice(z.size, 300, replace=False)
+        path = os.path.join(self.directory, "spots2.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "spots2.gpkg", "POINT", spatial_reference=3857)
+        arcpy.management.AddField(path, "z", "DOUBLE")
+        with arcpy.da.InsertCursor(path, ["SHAPE@XY", "z"]) as cursor:
+            for i in picks:
+                r, c = divmod(int(i), 60)
+                cursor.insertRow([(c * 10.0 + 5, 600 - r * 10.0 - 5), float(z.flat[i])])
+        got = {}
+        for symmetric in (True, False):
+            _topo.SYMMETRIC_FACTOR = symmetric
+            out = sa.TopoToRaster([sa.TopoPointElevation([[path, "z"]])], 10, "0 0 600 600", data_type="SPOT",
+                                  tolerance_1=5)
+            got[symmetric] = arcpy.RasterToNumPyArray(out).astype(float)
+        spread = float(np.nanmax(got[False]) - np.nanmin(got[False]))
+        self.assertLess(float(np.nanmax(np.abs(got[True] - got[False]))), 1e-9 * spread)
+
 
 if __name__ == "__main__":
     unittest.main()
