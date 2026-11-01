@@ -18,11 +18,25 @@ public sealed class ArcGisAddressesConformanceTests : ArcGisClient
     [InlineData("/server")]
     public async Task The_directory_under_either_name_is_the_roots(string prefix)
     {
-        JsonElement root = await GetJsonAsync("/rest/services");
-        JsonElement aliased = await GetJsonAsync($"{prefix}/rest/services");
+        // <b>Compared against a directory that held still</b>: other classes make and delete `zz_` services while this
+        // runs, and CI run 41292371943 read one between the two requests. The root is read before and after the alias;
+        // only when those agree is the alias compared with them.
+        for (int attempt = 1; ; attempt++)
+        {
+            JsonElement before = await GetJsonAsync("/rest/services");
+            JsonElement aliased = await GetJsonAsync($"{prefix}/rest/services");
+            JsonElement after = await GetJsonAsync("/rest/services");
 
-        Assert.Equal(root.GetProperty("folders").GetRawText(), aliased.GetProperty("folders").GetRawText());
-        Assert.Equal(root.GetProperty("services").GetRawText(), aliased.GetProperty("services").GetRawText());
+            if (before.GetRawText() != after.GetRawText() && attempt < 10)
+            {
+                await Task.Delay(200);
+                continue;
+            }
+
+            Assert.Equal(before.GetProperty("folders").GetRawText(), aliased.GetProperty("folders").GetRawText());
+            Assert.Equal(before.GetProperty("services").GetRawText(), aliased.GetProperty("services").GetRawText());
+            return;
+        }
     }
 
     [Theory]
