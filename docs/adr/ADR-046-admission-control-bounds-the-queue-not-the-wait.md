@@ -488,6 +488,7 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    `ConnectionBudget.EnterAsync` calling `StoreGate.Leave`), and the count never passes the depth under a burst.
    *The `/rest/info` control's 4–12 ms of 2026-10-31* is the closed loop's contention on a shared machine, not the
    pipeline: in the open loop it answers in 0.0–0.5 ms at 500 and 1,000 requests a second on both builds.
+   **DISCHARGED 2026-11-01** — the saturated source refuses on arrival (first clause, measured), and the admitted median's remaining growth — bounded, about 15 % per doubling, from two bounded queues in a row — is kept by owner decision (*"Yalıtımı koru"*): flattening it would let one slow source hold every store permit, which is what ADR-007's N4 and this gate exist to prevent. The choice is [D-374](../architecture-debt.md), parked on its trigger.
 
 2. **The depth is chosen against the measurement rather than asserted.** Four per permit is a
    judgement; the condition is to run the probe at several depths and write the table down, so
