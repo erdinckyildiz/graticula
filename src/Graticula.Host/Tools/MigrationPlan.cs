@@ -211,6 +211,7 @@ internal static class MigrationPlan
         string services = InventoryScan.ServicesRoot(source);
 
         List<Entry> entries = [];
+        int unreadable = 0;
         HashSet<string> featureServices = new(StringComparer.OrdinalIgnoreCase);
         List<(string Name, string Type)> listed = await ListAsync(http, services, token, cancellationToken).ConfigureAwait(false);
 
@@ -288,6 +289,19 @@ internal static class MigrationPlan
                         .ConfigureAwait(false);
                     continue;
                 }
+                catch (InvalidOperationException broken)
+                {
+                    // <b>One layer that cannot be read does not stop the plan — CI 2026-11-02.</b> A layer being deleted
+                    // loses its table before its registration, and its document answers 500 ("the table behind this
+                    // layer no longer exists") for that moment; a layer whose table was dropped by hand answers the same
+                    // for good. Neither can be migrated, and neither is a reason not to plan the rest. Said by name; and
+                    // when no layer at all could be read the plan still fails below, so a fault that breaks every read is
+                    // not reported as an empty plan.
+                    unreadable++;
+                    await output.WriteLineAsync($"skipped {name}/{type}/{id}: could not be read ({broken.Message})")
+                        .ConfigureAwait(false);
+                    continue;
+                }
 
                 string layerName = layer.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? $"{id}" : $"{id}";
                 (Table? match, string note) = Match(layerName, tables, isTable);
@@ -305,6 +319,13 @@ internal static class MigrationPlan
                     note,
                     isTable));
             }
+        }
+
+        if (unreadable > 0 && entries.Count == 0)
+        {
+            await output.WriteLineAsync($"No layer of {source} could be read ({unreadable} tried); no plan was written.")
+                .ConfigureAwait(false);
+            return 1;
         }
 
         string plan = Write(source, named, entries);
