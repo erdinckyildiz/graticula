@@ -981,7 +981,7 @@ _THREE_D = ("its input is a 3D geostatistical layer, which only EmpiricalBayesia
             "for its own reason")
 
 _REFUSED = {name: _EBK for name in ("EmpiricalBayesianKriging", "EmpiricalBayesianKriging3D", "EBKRegressionPrediction")}
-_REFUSED.update({name: _RANDOM for name in ("CreateSpatiallyBalancedPoints", "SubsetFeatures")})
+_REFUSED.update({name: _RANDOM for name in ("CreateSpatiallyBalancedPoints",)})
 _REFUSED.update({name: _UNSPECIFIED for name in ("KernelInterpolationWithBarriers", "DiffusionInterpolationWithBarriers")})
 _REFUSED.update({name: _THREE_D for name in ("GALayer3DToMultidimensionalRaster", "GALayer3DToNetCDF")})
 _REFUSED["GaussianGeostatisticalSimulations"] = "it is a conditioned simulation, and its answer is drawn at random"
@@ -998,6 +998,15 @@ _REFUSED["ArealInterpolationLayerToPolygons"] = ("its input is an areal interpol
 _REFUSED["GenerateSubsetPolygons"] = "its curve through the points and its segmentation are described, not specified"
 _REFUSED["ExtractValuesToTable"] = "the output table's fields are not named in the documentation"
 _REFUSED["DirectionalTrend"] = "its output is a chart on a layer in the active map, and the tool cannot run without one"
+
+
+# ---- Subset Features: the same tool as arcpy.management.SubsetFeatures. Its page and Data Management's (doc.esri.com,
+# read 2026-11-02: tool-reference/geostatistical-analyst/subset-features.html and data-management/subset-features.html)
+# carry the same summary, the same five parameters in the same order with the same options, and the same note that only
+# the Mersenne Twister generator is supported; grapy builds the Data Management one as an equivalent (ADR-224 §5.6), and
+# this name answers with it, its equivalent mark and all. The refusal it replaces, "its answer is drawn at random", was
+# lifted from the Data Management name and left on this one.
+from .management import SubsetFeatures  # noqa: E402,F401
 
 
 # ---- 3D interpolation to a netCDF grid of voxels (ADR-238)

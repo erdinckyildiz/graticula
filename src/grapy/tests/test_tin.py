@@ -242,6 +242,36 @@ class Tin(unittest.TestCase):
         self.assertEqual(code, 7)   # it falls to the west: 270°, the class W 247.5–292.5
         self.assertAlmostEqual(area, 100.0, 9)
 
+    def test_tin_slope_and_tin_aspect_are_surface_slope_and_aspect_as_their_pages_say(self):
+        # tin-slope.html and tin-aspect.html (read 2026-11-02): deprecated, superseded by Surface Slope and Surface
+        # Aspect; TIN Slope's units are honoured only with a class breaks table. A rise of 0.23 over 10 is 2.3 %, in the
+        # percent class 3 (2.15–4.64), and atan(0.023) = 1.32°, in the degree class 2 (0.57–1.43).
+        gentle = self.feature_class("tilted", "POINT", [(0, 0, 0), (10, 0, 0.23), (10, 10, 0.23), (0, 10, 0)])
+        tin = os.path.join(self.directory, "tilted")
+        arcpy.ddd.CreateTin(tin, None, [[gentle, "Shape.Z", "masspoints", ""]])
+        arcpy.ddd.SurfaceSlope(tin, self.gpkg + "/surface_degree", "DEGREE")
+        self.assertEqual([c for c, in rows(self.gpkg + "/surface_degree", ["SlopeCode"])], [2])
+        arcpy.ddd.TinSlope(tin, self.gpkg + "/tin_degree", "DEGREE")
+        self.assertEqual([c for c, in rows(self.gpkg + "/tin_degree", ["SlopeCode"])], [3])  # units ignored: no table
+        breaks = arcpy.management.CreateTable(self.gpkg, "breaks")[0]
+        arcpy.management.AddField(breaks, "Upper", "DOUBLE")
+        arcpy.management.AddField(breaks, "Code", "LONG")
+        with da.InsertCursor(breaks, ["Upper", "Code"]) as cursor:
+            cursor.insertRow([2.0, 11])
+            cursor.insertRow([90.0, 12])
+        arcpy.ddd.TinSlope(tin, self.gpkg + "/tin_table_degree", "DEGREE", breaks, "Steep")
+        self.assertEqual([c for c, in rows(self.gpkg + "/tin_table_degree", ["Steep"])], [11])   # 1.32° ≤ 2
+        arcpy.ddd.TinSlope(tin, self.gpkg + "/tin_table_percent", "PERCENT", breaks)
+        self.assertEqual([c for c, in rows(self.gpkg + "/tin_table_percent", ["SlopeCode"])], [12])  # 2.3 % > 2
+        arcpy.ddd.TinAspect(tin, self.gpkg + "/tin_aspect", None, "Facing")
+        (code, area), = rows(self.gpkg + "/tin_aspect", ["Facing", "SHAPE@AREA"])
+        self.assertEqual(code, 7)   # it falls to the west: 270°, the class W 247.5–292.5
+        self.assertAlmostEqual(area, 100.0, 9)
+        with self.assertRaises(arcpy.ExecuteError):
+            arcpy.ddd.TinSlope(os.path.join(self.directory, "missing"), self.gpkg + "/none")
+        with self.assertRaises(NotBuiltError):
+            arcpy.ddd.TinSlope(tin, self.gpkg + "/radians", "RADIAN")
+
     def test_surface_volume_is_exact_over_the_planes(self):
         text = os.path.join(self.directory, "volume.txt")
         arcpy.ddd.SurfaceVolume(self.tin, text, "BELOW", 20)

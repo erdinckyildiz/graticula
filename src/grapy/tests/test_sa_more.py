@@ -531,5 +531,102 @@ class Equivalents(_Fixture):
         self.assertEqual(cells(sa.MajorityFilter(joined, "EIGHT"))[1][2], 3)
 
 
+class ReclassByAsciiFile(unittest.TestCase):
+    """The remap file's format as How Reclass by ASCII File works gives it (read 2026-11-02): ``in : out`` or
+    ``min max : out`` lines, # comments, ascending, a shared boundary going to the lower range."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        arcpy.env.extent = None
+
+    def tearDown(self):
+        arcpy.env.outputCoordinateSystem = None
+
+    def remap(self, name, *lines):
+        path = os.path.join(self.directory, name)
+        with open(path, "w", encoding="utf-8") as written:
+            for line in lines:
+                print(line, file=written)
+        return path
+
+    def test_ranges_and_single_values_follow_the_documented_format(self):
+        raster = grid([[1, 3, 4], [5, 6, 9]])
+        ranges = self.remap("ranges.rmp", "# the page's own example", "1 3 : 4", "3 5 : 6", "5 7 : 8")
+        # 1 and 3 are in 1 ≤ v ≤ 3; 4 and 5 in 3 < v ≤ 5; 6 in 5 < v ≤ 7; 9 is in none and keeps its value.
+        self.assertEqual(cells(sa.ReclassByASCIIFile(raster, ranges)), [[4, 4, 6], [6, 8, 9]])
+        self.assertEqual(cells(sa.ReclassByASCIIFile(raster, ranges, "NODATA")), [[4, 4, 6], [6, 8, ND]])
+        single = self.remap("single.txt", "5 : 100", "", "  # a comment", "7 : 200", "9 : 300")
+        self.assertEqual(cells(sa.ReclassByASCIIFile(raster, single)), [[1, 3, 4], [100, 6, 300]])
+        saved = arcpy.ddd.ReclassByASCIIFile(raster, single, os.path.join(self.directory, "out.tif"), "NODATA")
+        self.assertEqual(cells(arcpy.Raster(saved.getOutput(0))), [[ND, ND, ND], [100, ND, 300]])
+
+    def test_what_the_pages_forbid_or_leave_open_is_refused(self):
+        raster = grid([[1, 3, 4], [5, 6, 9]])
+        for name, lines in (("mixed.rmp", ["1 : 2", "3 5 : 6"]), ("descending.rmp", ["5 : 1", "2 : 3"]),
+                            ("overlap.rmp", ["1 4 : 1", "3 6 : 2"]), ("words.rmp", ["one : 2"]),
+                            ("nocolon.rmp", ["1 2"]), ("empty.rmp", ["# nothing"])):
+            with self.assertRaises(ValueError, msg=name):
+                sa.ReclassByASCIIFile(raster, self.remap(name, *lines))
+        with self.assertRaises(ValueError):
+            sa.ReclassByASCIIFile(raster, self.remap("remap.csv", "1 : 2"))   # .rmp, .txt or .asc
+        # The tool page says a floating-point output halts with an error; How it works says it is truncated.
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "truncated"):
+            sa.ReclassByASCIIFile(raster, self.remap("float.rmp", "1 : 2.5"))
+        # The output is always integer, so a floating-point value kept by DATA cannot be written.
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.ReclassByASCIIFile(grid([[1.5, 2.5]]), self.remap("one.asc", "1 2 : 7"))
+        self.assertEqual(cells(sa.ReclassByASCIIFile(grid([[1.5, 2.5]]), self.remap("two.asc", "1 2 : 7"), "NODATA")),
+                         [[7, ND]])
+
+
+class RandomRasters(unittest.TestCase):
+    """Create Random Raster and Create Normal Raster (tool-reference/spatial-analyst/create-random-raster.html and
+    create-normal-raster.html, read 2026-11-02), built as equivalents: their pages document the distribution, the grid
+    and the type, and say the random stream does not repeat even for one seed, so only those are checked."""
+
+    def setUp(self):
+        arcpy.env.outputCoordinateSystem = None
+        arcpy.env.cellSize = None
+        arcpy.env.snapRaster = None
+        arcpy.env.extent = None
+
+    def tearDown(self):
+        self.setUp()
+
+    def test_random_raster_is_uniform_on_zero_to_one_over_the_documented_grid(self):
+        self.assertTrue(sa.CreateRandomRaster.__grapy_equivalent__)
+        default = sa.CreateRandomRaster(3)
+        values = arcpy.RasterToNumPyArray(default)
+        self.assertEqual(values.shape, (250, 250))   # the default extent, 0 0 250 250 at the default cell size of 1
+        e = default.extent
+        self.assertEqual((e.XMin, e.YMin, e.XMax, e.YMax), (0.0, 0.0, 250.0, 250.0))
+        self.assertEqual(values.dtype.kind, "f")   # always floating point
+        self.assertTrue(((values >= 0) & (values < 1)).all())
+        # Uniform on [0, 1): mean ½ and variance 1/12; over 62,500 cells the mean's standard error is 0.0012.
+        self.assertAlmostEqual(float(values.mean()), 0.5, delta=0.01)
+        self.assertAlmostEqual(float(values.var()), 1 / 12, delta=0.003)
+        self.assertEqual(arcpy.RasterToNumPyArray(sa.CreateRandomRaster(3)).tolist(), values.tolist())
+        self.assertNotEqual(arcpy.RasterToNumPyArray(sa.CreateRandomRaster(4)).tolist(), values.tolist())
+        given = sa.CreateRandomRaster(1, 10, "0 0 100 50")
+        self.assertEqual(arcpy.RasterToNumPyArray(given).shape, (5, 10))
+        self.assertEqual(given.meanCellWidth, 10.0)
+        arcpy.env.cellSize = 2
+        self.assertEqual(sa.CreateRandomRaster(1).extent.XMax, 500.0)   # 250 columns of the environment's cell size
+        arcpy.env.snapRaster = given
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.CreateRandomRaster(1)
+
+    def test_normal_raster_has_mean_zero_and_standard_deviation_one(self):
+        self.assertTrue(sa.CreateNormalRaster.__grapy_equivalent__)
+        raster = sa.CreateNormalRaster()
+        values = arcpy.RasterToNumPyArray(raster)
+        self.assertEqual((values.shape, values.dtype.kind), ((250, 250), "f"))
+        # Over 62,500 draws the mean's standard error is 0.004 and the standard deviation's 0.003.
+        self.assertAlmostEqual(float(values.mean()), 0.0, delta=0.03)
+        self.assertAlmostEqual(float(values.std()), 1.0, delta=0.03)
+        self.assertEqual(arcpy.RasterToNumPyArray(sa.CreateNormalRaster(25, "0 0 100 75")).shape, (3, 4))
+
+
 if __name__ == "__main__":
     unittest.main()

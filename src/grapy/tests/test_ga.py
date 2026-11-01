@@ -96,9 +96,28 @@ class Ga(unittest.TestCase):
 
     def test_layer_and_kriging_tools_are_refused_with_their_reason(self):
         for name, said in (("GALayer3DToNetCDF", "3D geostatistical layer"), ("EmpiricalBayesianKriging", "semivariogram"),
-                           ("SubsetFeatures", "random"), ("DirectionalTrend", "active map")):
+                           ("CreateSpatiallyBalancedPoints", "random"), ("DirectionalTrend", "active map")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(ga, name)()
+
+    def test_subset_features_is_data_managements_subset_features(self):
+        # The two pages (read 2026-11-02) document one tool: same parameters, options and generator note.
+        self.assertIs(ga.SubsetFeatures, arcpy.management.SubsetFeatures)
+        self.assertTrue(ga.SubsetFeatures.__grapy_equivalent__)
+        ten = self.points("ten", [(i, 0, float(i)) for i in range(10)])
+        arcpy.env.randomGenerator = "7 ACM599"
+        try:
+            ga.SubsetFeatures(ten, self.out("train.gpkg"), self.out("test.gpkg"), 4, "ABSOLUTE_VALUE")
+            again = arcpy.management.SubsetFeatures(ten, self.out("train2.gpkg"), None, 4, "ABSOLUTE_VALUE")
+        finally:
+            arcpy.env.randomGenerator = None
+
+        def zs(path):
+            with arcpy.da.SearchCursor(path, ["z"]) as rows:
+                return sorted(r[0] for r in rows)
+        train, test = zs(self.out("train.gpkg")), zs(self.out("test.gpkg"))
+        self.assertEqual((len(train), len(test), sorted(train + test)), (4, 6, [float(i) for i in range(10)]))
+        self.assertEqual(zs(again.getOutput(0)), train)   # the same seed draws the same subset under either name
 
 
 if __name__ == "__main__":

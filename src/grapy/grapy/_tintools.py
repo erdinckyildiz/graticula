@@ -549,6 +549,34 @@ def SurfaceAspect(in_surface, out_feature_class, class_breaks_table=None, aspect
                          [_gpkg.Column(str(aspect_field or "AspectCode"), "Integer")], False, rows))
 
 
+def TinSlope(in_tin, out_feature_class, units=None, class_breaks_table=None, slope_field=None, z_factor=1):
+    """The deprecated name of SurfaceSlope on a TIN: its page (doc.esri.com, read 2026-11-02:
+    ``tool-reference/3d-analyst/tin-slope.html``) says it "has been superseded by the Surface Slope tool" and gives the
+    same parameters but the last, with z_factor 1 by default. One difference is written on it: *"Units are only honored
+    when using a class breaks table"* — so without a table its classes are Surface Slope's default classes in percent,
+    whatever ``units`` says. INFERRED: units default to PERCENT, Surface Slope's default, the page naming none; the field
+    is SurfaceSlope's ``SlopeCode``."""
+    if not _tin.exists(in_tin):
+        raise ExecuteError(f"ERROR 000732: Input TIN: Dataset {in_tin} does not exist or is not supported.")
+    kind = str(units).upper() if _given(units) else "PERCENT"
+    if kind not in ("PERCENT", "DEGREE"):
+        _refuse("TinSlope", "units", units)
+    return SurfaceSlope(in_tin, out_feature_class, kind if _given(class_breaks_table) else "PERCENT",
+                        class_breaks_table, slope_field if _given(slope_field) else "SlopeCode", z_factor)
+
+
+def TinAspect(in_tin, out_feature_class, class_breaks_table=None, aspect_field=None):
+    """The deprecated name of SurfaceAspect on a TIN: its page (doc.esri.com, read 2026-11-02:
+    ``tool-reference/3d-analyst/tin-aspect.html``) says it "has been superseded by the Surface Aspect tool", gives the
+    same parameters but the last, and the same default classes — −1 flat, 1 to 9 for N, NE … NW and N again — and the
+    same class breaks table, breaks in its first column and codes in its second. INFERRED: the field is SurfaceAspect's
+    ``AspectCode``."""
+    if not _tin.exists(in_tin):
+        raise ExecuteError(f"ERROR 000732: Input TIN: Dataset {in_tin} does not exist or is not supported.")
+    return SurfaceAspect(in_tin, out_feature_class, class_breaks_table,
+                         aspect_field if _given(aspect_field) else "AspectCode")
+
+
 # ---- volumes
 
 

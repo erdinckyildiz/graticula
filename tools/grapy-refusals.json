@@ -206,7 +206,7 @@
   "unexamined": []
  },
  "arcpy.ddd": {
-  "built": 126,
+  "built": 129,
   "equivalents": {
    "ClassifyLasBuilding": "plane detection by region growing with a smoothness constraint (Rabbani, van den Heuvel and Vosselman 2006)",
    "ClassifyLasGround": "the progressive morphological filter (Zhang et al. 2003)",
@@ -255,11 +255,8 @@
    "RasterDomain": "arcpy.ddd.RasterDomain is not built in grapy: how cells joined only at a corner are traced into its perimeter through cell centres is not documented.",
    "RasterTin": "arcpy.ddd.RasterTin is not built in grapy: how it selects the raster's points within the z tolerance is not documented (ADR-229 §5.7).",
    "RasterToMultipoint": "arcpy.ddd.RasterToMultipoint is not built in grapy: how the cells' points are grouped into multipoint features is not documented.",
-   "ReclassByASCIIFile": "arcpy.ddd.ReclassByASCIIFile is not built in grapy: the documentation does not specify the remap file's format.",
    "Skyline": "arcpy.ddd.Skyline is not built in grapy: its horizon search and output vertices are not documented.",
-   "SkylineGraph": "arcpy.ddd.SkylineGraph is not built in grapy: it reads Skyline's output, which is refused.",
-   "TinAspect": "arcpy.ddd.TinAspect is not built in grapy: it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read.",
-   "TinSlope": "arcpy.ddd.TinSlope is not built in grapy: it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read."
+   "SkylineGraph": "arcpy.ddd.SkylineGraph is not built in grapy: it reads Skyline's output, which is refused."
   },
   "unexamined": []
  },
@@ -282,12 +279,13 @@
   "unexamined": []
  },
  "arcpy.ga": {
-  "built": 25,
+  "built": 26,
   "equivalents": {
    "GACreateGeostatisticalLayer": "kriging and cokriging with the semivariogram fitted by weighted least squares (Cressie 1993, Statistics for Spatial Data, §2.4, §3.2–3.4; Cressie 1985, Mathematical Geology 17(5); Isaaks and Srivastava 1989, An Introduction to Applied Geostatistics, ch. 12–17; models of Johnston et al. 2001, Appendix A, and Chilès and Delfiner 2012, §2.5)",
    "GAMovingWindowKriging": "kriging with the semivariogram refitted in each moving window by weighted least squares (Haas 1990, Atmospheric Environment 24A(7); Cressie 1985, Mathematical Geology 17(5))",
    "LocalPolynomialInterpolation": "local polynomial regression by kernel-weighted least squares (Cleveland and Devlin 1988, JASA 83(403); Fan and Gijbels 1996, Local Polynomial Modelling, ch. 3; kernels of Silverman 1986, Table 3.1)",
-   "RadialBasisFunctions": "exact radial basis function interpolation in the search neighbourhood (Franke 1982, Mathematics of Computation 38(157); Hardy 1971, JGR 76(8); Mitášová and Mitáš 1993, Mathematical Geology 25(6))"
+   "RadialBasisFunctions": "exact radial basis function interpolation in the search neighbourhood (Franke 1982, Mathematics of Computation 38(157); Hardy 1971, JGR 76(8); Mitášová and Mitáš 1993, Mathematical Geology 25(6))",
+   "SubsetFeatures": "a uniform random sample without replacement, NumPy's PCG64 seeded from env.randomGenerator (NumPy random Generator)"
   },
   "of": 42,
   "refused": {
@@ -306,13 +304,12 @@
    "GASemivariogramSensitivity": "arcpy.ga.GASemivariogramSensitivity is not built in grapy — its nugget, sill and range values are drawn at random within the spans (the page: Mersenne Twister, seed 0 differing on every run).",
    "GaussianGeostatisticalSimulations": "arcpy.ga.GaussianGeostatisticalSimulations is not built in grapy — it is a conditioned simulation, and its answer is drawn at random.",
    "GenerateSubsetPolygons": "arcpy.ga.GenerateSubsetPolygons is not built in grapy — its curve through the points and its segmentation are described, not specified.",
-   "KernelInterpolationWithBarriers": "arcpy.ga.KernelInterpolationWithBarriers is not built in grapy — its kernel or fitting is named but not given as a formula.",
-   "SubsetFeatures": "arcpy.ga.SubsetFeatures is not built in grapy — its answer is drawn at random."
+   "KernelInterpolationWithBarriers": "arcpy.ga.KernelInterpolationWithBarriers is not built in grapy — its kernel or fitting is named but not given as a formula."
   },
   "unexamined": []
  },
  "arcpy.ia": {
-  "built": 288,
+  "built": 289,
   "equivalents": {
    "AnalyzeChangesUsingCCDC": "Continuous Change Detection and Classification: a harmonic model of up to three harmonics fitted by least squares and monitored by a chi-squared test on consecutive normalised residuals (Zhu and Woodcock 2014, Remote Sensing of Environment 144, 152–171)",
    "AnalyzeChangesUsingLandTrendr": "LandTrendr temporal segmentation: despiking, vertex search by largest departure, culling by angle, continuous piecewise-linear least squares and selection by the F-test's p-value (Kennedy, Yang and Cohen 2010, Remote Sensing of Environment 114, 2897–2910)",
@@ -406,7 +403,6 @@
    "LabelBadBands": "arcpy.ia.LabelBadBands is not built in grapy: its only effect is the IsBadBand band property (arcpy/image-analyst/labelbadbands.html), and grapy's rasters carry no band properties to hold it — SubsetBands refuses exclude_bad_bands for the same reason — while how ArcGIS stores the property in a saved raster is not documented.",
    "LinearSpectralUnmixing": "arcpy.ia.LinearSpectralUnmixing is not built in grapy: the page does not name the solver or how its constraints are enforced.",
    "MNDWI": "arcpy.ia.MNDWI is not built in grapy: it has no reference page: arcpy/image-analyst/mndwi.html and arcpy/spatial-analyst/mndwi.html answered 404 at doc.esri.com and pro.arcgis.com (latest and 3.3), and neither arcpy's table of contents nor the Band Arithmetic raster function names an arcpy MNDWI function (checked 2026-10-31), so its parameter names, order and default band ids are unknown.",
-   "MTVI2": "arcpy.ia.MTVI2 is not built in grapy: the formula on its page is rendered garbled in the text, and grapy does not guess where the root falls.",
    "Mask": "arcpy.ia.Mask is not built in grapy: the page does not say whether included_ranges include their ends or how they combine with no_data_values.",
    "NbrWedge": "arcpy.ia.NbrWedge is not built in grapy: the page does not say where the wedge's apex is, whether its boundary angles are inclusive, or how a start angle above the end angle wraps.",
    "NbrWeight": "arcpy.ia.NbrWeight is not built in grapy: the page does not say how Focal Statistics combines the weighted values (weighted sum or mean).",
@@ -792,7 +788,7 @@
   "unexamined": []
  },
  "arcpy.sa": {
-  "built": 298,
+  "built": 302,
   "equivalents": {
    "AreaSolarRadiation": "the hemispherical viewshed, sun map and sky map model of Fu and Rich, with the direct and diffuse equations of How solar radiation is calculated (Fu and Rich 2002, Computers and Electronics in Agriculture 37, 25–35; Rich et al. 1994, ASPRS Technical Papers, 524–529; Fu 2000, Ph.D. thesis, University of Kansas; Spencer 1971, Search 2(5); Kasten and Young 1989, Applied Optics 28(22))",
    "ClassProbability": "Bayesian posterior probabilities of normal classes (Richards and Jia 2006, Remote Sensing Digital Image Analysis, 4th ed., §8.3 (Bayes' rule for Gaussian classes))",
@@ -802,6 +798,8 @@
    "Combine": "unique combinations numbered from 1 in the order a row-major scan first meets them (the scan order the Region Group page documents for numbering its regions)",
    "ComputeSegmentAttributes": "compactness as area over the area of the smallest enclosing circle, rectangularity as area over the area of the minimum rotated bounding rectangle (MacEachren 1985, Geografiska Annaler 67B(1); Rosin 1999, Machine Vision and Applications 11)",
    "ContourWithBarriers": "How contouring works' contours drawn on each side of the barriers apart (Esri's How contouring works; the barriers as Terzopoulos 1988 treats discontinuities)",
+   "CreateNormalRaster": "standard normal values from NumPy's PCG64 generator, seeded from the system clock (NumPy random Generator; the page names no generator)",
+   "CreateRandomRaster": "uniform values in [0, 1) from NumPy's PCG64 generator, seeded with seed_value (NumPy random Generator; the page's ACM algorithm 599 stream is not published)",
    "DarcyFlow": "finite-difference Darcy flux and volume balance (Darcy's law on a finite-difference grid with harmonic-mean face transmissivity, as How Darcy Flow and Darcy Velocity work writes it; Anderson, Woessner and Hunt 2015, Applied Groundwater Modeling, ch. 3)",
    "DarcyVelocity": "finite-difference Darcy seepage velocity (Darcy's law on a finite-difference grid with harmonic-mean face transmissivity, as How Darcy Flow and Darcy Velocity work writes it; Anderson, Woessner and Hunt 2015, Applied Groundwater Modeling, ch. 3)",
    "DistanceAccumulation": "fast marching surface reconstruction, eight network estimates and four Eikonal steps per cell, the direction-dependent slope solved again along each step's own gradient (Sethian 1999, Level Set Methods and Fast Marching Methods, as Distance accumulation algorithm cites it)",
@@ -868,8 +866,6 @@
    "Convolution": "arcpy.sa.Convolution is not built in grapy: the page maps only two of its 22 kernel codes to kernels, and edge handling is not documented.",
    "CostConnectivity": "arcpy.sa.CostConnectivity is not built in grapy: the spanning tree's construction, neighbours and PATHCOST are not specified.",
    "CreateAccuracyAssessmentPoints": "arcpy.sa.CreateAccuracyAssessmentPoints is not built in grapy: its random sampling has no documented seed and its output fields are not named.",
-   "CreateNormalRaster": "arcpy.sa.CreateNormalRaster is not built in grapy: it is seeded from the system clock with no documented seed or generator.",
-   "CreateRandomRaster": "arcpy.sa.CreateRandomRaster is not built in grapy: its generator (ACM algorithm 599) is named but not specified, and the page says even a fixed seed does not reproduce a raster.",
    "Dendrogram": "arcpy.sa.Dendrogram is not built in grapy: its VARIANCE distance between classes is given only as an image, and the ASCII graph it writes is shown by one example without the rules for its layout, scale bars or rounding.",
    "DeriveContinuousFlow": "arcpy.sa.DeriveContinuousFlow is not built in grapy: the page does not say how flats and spurious sinks are routed, nor give MFD's partition function.",
    "DeriveStreamAsLine": "arcpy.sa.DeriveStreamAsLine is not built in grapy: its routing is not formally defined and the output fields are not named.",
@@ -893,7 +889,6 @@
    "LinearSpectralUnmixing": "arcpy.sa.LinearSpectralUnmixing is not built in grapy: the page does not name the solver or how its constraints are enforced.",
    "LocateDepressions": "arcpy.sa.LocateDepressions is not built in grapy: the page does not give its fill or thresholds and does not name the depression id field.",
    "LocateRegions": "arcpy.sa.LocateRegions is not built in grapy: its region growth, seed placement and selection are described in words only.",
-   "MTVI2": "arcpy.sa.MTVI2 is not built in grapy: the formula on its page is rendered garbled in the text, and grapy does not guess where the root falls.",
    "Mask": "arcpy.sa.Mask is not built in grapy: the page does not say whether included_ranges include their ends or how they combine with no_data_values.",
    "MulticriteriaOverlay": "arcpy.sa.MulticriteriaOverlay is not built in grapy: its weighted overlay rescaling, quantifier-guided OWA and TOPSIS closeness are not given.",
    "MultiscaleSurfaceDeviation": "arcpy.sa.MultiscaleSurfaceDeviation is not built in grapy: the page does not say whether the deviation is signed, whether the centre is in the mean, how scales follow from nonlinearity, or how edges are handled.",
@@ -907,7 +902,6 @@
    "PorousPuff": "arcpy.sa.PorousPuff is not built in grapy: the page gives the puff only by reference; its one equation is an image.",
    "RasterToWeightedPoints": "arcpy.sa.RasterToWeightedPoints is not built in grapy: its default point placement is stated two ways that conflict, and distance_from_cell_center has no default.",
    "RasterizeFeatures": "arcpy.sa.RasterizeFeatures is not built in grapy: the page does not say whether a cell is assigned by its centre or by any feature it touches.",
-   "ReclassByASCIIFile": "arcpy.sa.ReclassByASCIIFile is not built in grapy: the documentation does not specify the remap file's format.",
    "Render": "arcpy.sa.Render is not built in grapy: it attaches a rendering rule or colour map to a raster for a notebook's display; its page (arcpy/image-analyst/render.html) does not say what pixel values a saved rendered raster holds — whether stretched to 0–255, how gamma is applied — and its colour schemes are given by name in a PDF of swatches.",
    "Sample": "arcpy.sa.Sample is not built in grapy: the documentation does not name the fields it writes for each raster.",
    "ShadedRelief": "arcpy.sa.ShadedRelief is not built in grapy: it merges an elevation-coloured image with a hillshade into RGB, and neither its page nor the Shaded Relief raster function says how the two are merged, nor gives the default colour ramp (Elevation #1) or the SCALED z-factor equation that ps_power and psz_factor enter (read 2026-10-31).",

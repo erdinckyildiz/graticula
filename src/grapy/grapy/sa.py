@@ -2844,16 +2844,14 @@ def BandArithmetic(raster, band_ids, method=1):
     ``"5 4"`` — in the order the method documents, constants following the bands (``"4 3 0.5"`` for SAVI).
 
     Refused: 0, a user-defined expression, whose syntax the page shows only by one example; 8, Sultan's formula, which
-    answers three bands; 14, MTVI2, whose formula the page's text renders garbled; 18, NDWI, whose band order the page
-    gives as NIR then Green while the formula reads Green first.
+    answers three bands. 14, MTVI2, and 18, NDWI, are built at the end of this module (see ``MTVI2``).
 
     INFERRED: GVITM's six ids are Bands 1, 2, 3, 4, 5 and 7 of the formula, in that order; WNDWI's α defaults to 0.5,
     as the page says, when only three ids are given."""
     code = int(method)
     if code not in _METHODS:
         reasons = {0: "a user-defined expression's syntax is shown only by one example",
-                   8: "Sultan's formula answers three bands", 14: "the page's text renders the formula garbled",
-                   18: "the page's band order and formula disagree"}
+                   8: "Sultan's formula answers three bands"}
         _refuse("BandArithmetic", "method", method, reasons.get(code, "it is not one of the documented codes"))
     name, count, formula = _METHODS[code]
     parts = [p for p in str(band_ids).replace(",", " ").split() if p]
@@ -3036,7 +3034,6 @@ _REFUSED.update({
     "Lookup": _NO_RAT, "ZonalGeometry": "how PERIMETER and THICKNESS treat cell edges and the raster's edge is not documented",
     "TabulateArea": "the documentation does not name the fields it writes for each class",
     "Sample": "the documentation does not name the fields it writes for each raster",
-    "ReclassByASCIIFile": "the documentation does not specify the remap file's format",
     "CutFill": _NO_RAT + " — the VOLUME and AREA of each region",
 })
 
@@ -3077,7 +3074,6 @@ _IMAGE_REFUSED.update({name: _IA_UNSPECIFIED for name in (
     "Threshold", "Pansharpen", "TasseledCap", "RegionGrow",
 )})
 _IMAGE_REFUSED.update({
-    "MTVI2": "the formula on its page is rendered garbled in the text, and grapy does not guess where the root falls",
     "Stretch": "its pages describe MinMax, StdDev and PercentClip without giving their formulas",
     "Convolution": "the page maps only two of its 22 kernel codes to kernels, and edge handling is not documented",
     "Percentile": "which interpolation AUTO_DETECT's NEAREST and LINEAR use between two values is not specified",
@@ -3320,8 +3316,6 @@ _REFUSED.update({
     "CombinatorialOr": "Combinatorial And's page, its sibling, does not say how combination values are numbered",
     "CombinatorialXOr": "Combinatorial And's page, its sibling, does not say how combination values are numbered",
     "ComputeConfusionMatrix": "the output table's fields are shown only by example, and the IoU it mentions is not in it",
-    "CreateRandomRaster": "its generator (ACM algorithm 599) is named but not specified, and the page says even a fixed "
-                          "seed does not reproduce a raster",
     "CutFill": _NO_RAT + " — the VOLUME and AREA of each region",
 })
 
@@ -3488,7 +3482,6 @@ _REFUSED.update({
     "IsoClusterUnsupervisedClassification": "it runs Iso Cluster, whose isodata algorithm is not specified",
     "CreateAccuracyAssessmentPoints": "its random sampling has no documented seed and its output fields are not named",
     "UpdateAccuracyAssessmentPoints": "it updates Create Accuracy Assessment Points' output, whose fields are not named",
-    "CreateNormalRaster": "it is seeded from the system clock with no documented seed or generator",
     "BandCollectionStats": "the page does not say whether covariance divides by n or n - 1",
     "RasterizeFeatures": "the page does not say whether a cell is assigned by its centre or by any feature it touches",
     "ValuePercentileContours": "the percentile definition and the output fields are not documented",
@@ -5476,3 +5469,196 @@ _REFUSED.update({
                            "trained by Esri, as its page says; Esri does not publish those models, and the tool takes "
                            "no model a user could supply (ADR-248 §5.7; ADR-234 §5.5)",
 })
+
+
+# ---- refusals read again, 2026-11-02: each reason below no longer holds, and the public source that settles it is named
+
+
+def _mtvi2(nir, red, green):
+    """MTVI2 = 1.5 (1.2 (NIR − Green) − 2.5 (Red − Green)) / √((2 NIR + 1)² − (6 NIR − 5 √Red) − 0.5).
+
+    The pages (doc.esri.com, read 2026-11-02: ``arcpy/spatial-analyst/mtvi2.html``, ``arcpy/image-analyst/mtvi2.html``
+    and the Band Arithmetic raster function, ``help/analysis/raster-functions/band-arithmetic-function.html``) render
+    this formula with its fraction bar lost: every term is there — the outer root over the whole bracket, the inner
+    root over Red alone, the 0.5 inside the outer root — and only the operator before the outer root is missing. The
+    index is published as that quotient by Haboudane, Miller, Pattey, Zarco-Tejada and Strachan (2004), *Hyperspectral
+    vegetation indices and novel algorithms for predicting green LAI of crop canopies*, Remote Sensing of Environment
+    90, 337–352, whose terms the pages' are, one for one; the Band Arithmetic page cites the same group's 2002 paper."""
+    return 1.5 * (1.2 * (nir - green) - 2.5 * (red - green)) / np.sqrt((2 * nir + 1) ** 2 - (6 * nir - 5 * np.sqrt(red))
+                                                                     - 0.5)
+
+
+MTVI2 = _index("MTVI2", ["nir_band_id", "red_band_id", "green_band_id"],
+               {"nir_band_id": 7, "red_band_id": 5, "green_band_id": 3}, _mtvi2,
+               "1.5(1.2(NIR − Green) − 2.5(Red − Green)) / √((2 NIR + 1)² − (6 NIR − 5√Red) − 0.5), Haboudane et al. "
+               "2004; the defaults are the page's, bands 7, 5 and 3. Where the root has no real value the cell is "
+               "NoData.")
+# Band Arithmetic's 14 (MTVI2) and 18 (NDWI), in the band orders the raster function page gives: "NIR Red Green" and
+# "NIR Green". NDWI's refusal said that order and its formula, (Green − NIR) / (Green + NIR), disagree; they do not —
+# the order names which id is which band and the page's example, "5 3", is Landsat 8's NIR then green — and it is the
+# reading arcpy.ia.NDWI already builds (nir_band_id first, the formula Green first).
+_METHODS[14] = ("MTVI2", 3, _mtvi2)
+_METHODS[18] = ("NDWI", 2, lambda nir, green: (green - nir) / (green + nir))
+
+
+def _random_grid(tool, cell_size, extent):
+    """The grid of Create Random Raster and Create Normal Raster, as their pages give it (doc.esri.com, read 2026-11-02:
+    ``tool-reference/spatial-analyst/create-random-raster.html`` and ``create-normal-raster.html``): the cell size from
+    the parameter, else the Cell Size environment, else 1; the extent from the parameter, else 250 rows by 250 columns
+    from (0, 0) — "(0, 0, 250, 250)" at a cell size of 1; the spatial reference the Output Coordinate System
+    environment's, else unknown.
+
+    Refused rather than ignored: the Snap Raster and Extent environments and a Cell Size of MAXOF or MINOF, which these
+    tools would honour and grapy does not here. INFERRED: an extent that is not a whole number of cells is widened to
+    the next whole cell, as CreateConstantRaster does."""
+    from ._runtime import env, _is_set
+    from ._reference import reference_of
+    if _is_set(getattr(env, "snapRaster", None)) or _is_set(env.extent, "DEFAULT"):
+        raise NotBuiltError(f"arcpy.sa.{tool}: the Snap Raster and Extent environments are not built for it in grapy; "
+                            f"pass the extent.")
+    if _given(cell_size):
+        size = cell_size
+    elif _is_set(getattr(env, "cellSize", None)):
+        size = env.cellSize
+    else:
+        size = 1.0
+    if isinstance(size, Raster) or (isinstance(size, str) and _is_raster(size)):
+        size = as_raster(size, tool)._grid.width
+    elif isinstance(size, str) and size.strip().upper() in ("MAXOF", "MINOF"):
+        _refuse(tool, "cell_size", size, "there are no inputs to take it from")
+    cell = float(size)
+    if cell <= 0:
+        raise ValueError(f"{tool}: the cell size must be positive.")
+    srid = 0
+    if _given(extent):
+        if isinstance(extent, str):
+            xmin, ymin, xmax, ymax = (float(v) for v in extent.replace(",", " ").split()[:4])
+        else:
+            xmin, ymin, xmax, ymax = extent.XMin, extent.YMin, extent.XMax, extent.YMax
+            srid = getattr(getattr(extent, "spatialReference", None), "factoryCode", 0) or 0
+    else:
+        xmin, ymin, xmax, ymax = 0.0, 0.0, 250 * cell, 250 * cell
+    if env.outputCoordinateSystem is not None:
+        srid = srid or reference_of(env.outputCoordinateSystem).factoryCode or 0
+    columns = max(1, int(math.ceil((xmax - xmin) / cell - 1e-9)))
+    rows = max(1, int(math.ceil((ymax - ymin) / cell - 1e-9)))
+    return _Grid(xmin, ymin + rows * cell, cell, cell, rows, columns, srid)
+
+
+@_equivalent("uniform values in [0, 1) from NumPy's PCG64 generator, seeded with seed_value",
+             "NumPy random Generator; the page's ACM algorithm 599 stream is not published")
+def CreateRandomRaster(seed_value=None, cell_size=None, extent=None):
+    """EQUIVALENT: a raster of random floating-point values between 0.0 and 1.0, as documented
+    (``tool-reference/spatial-analyst/create-random-raster.html``, read 2026-11-02), drawn by NumPy's PCG64 generator.
+    The page names ACM algorithm 599 and says that even the same seed does not reproduce a raster, so no stream of
+    values is part of what it documents; the distribution, the grid (see ``_random_grid``) and the floating-point
+    output with up to seven decimals are, and those are what is built.
+
+    ``seed_value`` reseeds the generator; with none, the system clock does, as documented. INFERRED: a given seed is
+    truncated to an integer and taken modulo 2³², NumPy taking no negative seed, so — unlike the page — the same seed
+    gives the same raster; the values are 32-bit floating point."""
+    import time
+    grid = _random_grid("CreateRandomRaster", cell_size, extent)
+    seed = int(float(seed_value)) % 2 ** 32 if _given(seed_value) else time.time_ns() % 2 ** 32
+    values = np.random.default_rng(seed).random((grid.rows, grid.columns)).astype(np.float32)
+    # float32 rounds a value just below 1 up to 1.0; the page's range ends below it.
+    values = np.minimum(values, np.nextafter(np.float32(1), np.float32(0)))
+    return Raster._of(values, np.zeros(values.shape, bool), grid)
+
+
+@_equivalent("standard normal values from NumPy's PCG64 generator, seeded from the system clock",
+             "NumPy random Generator; the page names no generator")
+def CreateNormalRaster(cell_size=None, extent=None):
+    """EQUIVALENT: a raster of random values with a normal (Gaussian) distribution of mean 0.0 and standard deviation
+    1.0, as documented (``tool-reference/spatial-analyst/create-normal-raster.html``, read 2026-11-02), drawn by NumPy's
+    PCG64 generator seeded from the system clock, as the page says the tool is; the grid is ``_random_grid``'s.
+
+    INFERRED: the page's note that reseeding Create Random Raster reseeds this tool too is not kept — each run is seeded
+    from the clock — and the values are 32-bit floating point."""
+    import time
+    grid = _random_grid("CreateNormalRaster", cell_size, extent)
+    values = np.random.default_rng(time.time_ns() % 2 ** 32).standard_normal((grid.rows, grid.columns))
+    values = values.astype(np.float32)
+    return Raster._of(values, np.zeros(values.shape, bool), grid)
+
+
+for _built in ("MTVI2", "CreateRandomRaster", "CreateNormalRaster"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+
+
+def _read_remap_file(path, tool):
+    """The remap of an ASCII remap file, as *How Reclass by ASCII File works* gives it (doc.esri.com, read 2026-11-02:
+    ``tool-reference/spatial-analyst/how-reclass-by-ascii-file-works.html``): comment lines begin with #; each
+    assignment line is ``in_value : out_value`` or ``in_min_value in_max_value : out_value``, numbers only, every line in
+    the same form, in ascending order, ranges overlapping only at a boundary — where the higher end of the lower range
+    is inclusive and the lower end of the higher range exclusive. Allowed extensions are .rmp, .txt and .asc (the tool
+    page).
+
+    Refused: a floating-point out_value. The tool page says such a file returns an error and halts, and the How it works
+    page that it is truncated; the two disagree. INFERRED: blank lines are skipped; a # after leading spaces still
+    begins a comment."""
+    text = str(path)
+    if not text.lower().endswith((".rmp", ".txt", ".asc")):
+        raise ValueError(f"{tool}: '{text}' is not a remap file: the allowed extensions are .rmp, .txt and .asc.")
+    rows = []
+    with open(text, encoding="utf-8") as lines:
+        for number, line in enumerate(lines, start=1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            left, colon, right = line.partition(":")
+            ins, outs = left.split(), right.split()
+            if not colon or len(ins) not in (1, 2) or len(outs) != 1:
+                raise ValueError(f"{tool}: line {number} of {text} is not 'in_value : out_value' nor "
+                                 f"'in_min_value in_max_value : out_value'.")
+            try:
+                ins = [float(v) for v in ins]
+                float(outs[0])
+            except ValueError:
+                raise ValueError(f"{tool}: line {number} of {text}: only numeric values are accepted on an assignment "
+                                 f"line.") from None
+            try:
+                out = int(outs[0])
+            except ValueError:
+                raise NotBuiltError(f"arcpy.sa.{tool}: the floating-point out_value '{outs[0]}' on line {number} is not "
+                                    f"built in grapy: the tool page says it halts with an error and How Reclass by ASCII "
+                                    f"File works that it is truncated.") from None
+            rows.append((ins, out))
+    if not rows:
+        raise ValueError(f"{tool}: {text} has no assignment lines.")
+    if len({len(ins) for ins, _ in rows}) > 1:
+        raise ValueError(f"{tool}: all assignment lines in an ASCII remap file must be in the same format.")
+    if len(rows[0][0]) == 1:
+        values = [ins[0] for ins, _ in rows]
+        if any(b <= a for a, b in zip(values, values[1:])):
+            raise ValueError(f"{tool}: the assignment lines must be in ascending order, the lowest value first.")
+        return RemapValue([[ins[0], out] for ins, out in rows])
+    for (low, high), _ in rows:
+        if high < low:
+            raise ValueError(f"{tool}: a range is written lowest value first; {low} {high} is not.")
+    for ((_, high), _), ((low, _), _) in zip(rows, rows[1:]):
+        if low < high:
+            raise ValueError(f"{tool}: the input ranges must be in ascending order and not overlap except at a "
+                             f"boundary.")
+    # In ascending order, Reclassify's earlier row takes a shared boundary: the lower range's higher end, as documented.
+    return RemapRange([[low, high, out] for (low, high), out in rows])
+
+
+def ReclassByASCIIFile(in_raster, in_remap_file, missing_values="DATA"):
+    """Reclassify by the single values or ranges an ASCII remap file names (see ``_read_remap_file`` for its format and
+    the page that gives it); a value the file does not name keeps its value with ``DATA`` and becomes NoData with
+    ``NODATA``, as the tool page says. The output is always integer (the tool page), so a floating-point value kept by
+    ``DATA`` is refused, as ReclassByTable refuses it.
+
+    The refusal this replaces — "the documentation does not specify the remap file's format" — read the tool page,
+    which links to *How Reclass by ASCII File works*, where the format is given."""
+    remap = _read_remap_file(in_remap_file, "ReclassByASCIIFile")
+    result = Reclassify(in_raster, "VALUE", remap, missing_values)
+    if not result.isInteger:
+        _refuse("ReclassByASCIIFile", "missing_values", missing_values, "a kept floating-point value cannot be written "
+                "to the always-integer output; map every value or use NODATA")
+    return result
+
+
+_REFUSED.pop("ReclassByASCIIFile", None)
