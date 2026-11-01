@@ -138,6 +138,13 @@ widen it will come from convenience, and the register is the only thing that wil
 ## 5a. Reversed the same day, and the reason is that §2's Alternative A was argued against a
 constraint that had already gone
 
+> **Amended 2026-11-01 by [ADR-254](ADR-254-gdal-without-poppler.md), owner decision on D-380.** The binding named
+> below, `MaxRev.Gdal.Core` with its runtime packages, linked Poppler (GPL-2.0-or-later) into GDAL and into every
+> wrapper, and is gone. The reader now loads conda-forge's `libgdal-core` without the PDF driver, through GDAL's own
+> C# binding (`gdal-csharp`) compiled into it. Everything else this section decides stands: one kind of worker, a
+> .NET child process, GDAL in it and nowhere else. The reader's `convert` operation is retired with the Parquet
+> driver, which narrows condition 3's closed set by one.
+
 **The owner: *"iyi de öyle saçmalık mı olur. Ben gdalsız dedim. eğer ki illa gdal kullanacaksam .net de
 olur. gidip dockerize gdal mı kullanılır"*.** They are right, and the error is visible in this
 document's own structure.

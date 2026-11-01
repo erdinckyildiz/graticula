@@ -115,3 +115,6 @@ benchmarks/mvt-compression/corpus/
 # Noto Sans CJK is fetched at build time by `tools/make-glyphs.py --cjk` and pinned by hash in
 # tools/fonts/stack.json (ADR-100 §4). 16 MB that git would keep forever for an opt-in.
 tools/fonts/*.otf
+
+# GDAL for the import reader, laid out by tools/gdal-natives.py from deploy/gdal/gdal-natives.lock.json (ADR-254)
+.gdal/

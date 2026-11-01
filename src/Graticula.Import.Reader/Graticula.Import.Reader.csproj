@@ -37,17 +37,51 @@
     -->
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="MaxRev.Gdal.Core" />
+  <!--
+    <b>GDAL without Poppler — ADR-254, owner decision 2026-11-01 on D-380 ("PDF'siz GDAL'a geç").</b>
+    MaxRev.Gdal's payload linked Poppler (GPL-2.0-or-later) into libgdal and into every SWIG wrapper.
+    GDAL now comes from a pinned set of conda-forge packages — libgdal-core, the JPEG 2000, NetCDF and
+    HDF plugins, and gdal-csharp's wrappers — which tools/gdal-natives.py downloads, checks against the
+    SHA-256s in deploy/gdal/gdal-natives.lock.json, and lays out in .gdal/<rid>/. It refuses a closure
+    with a GPL library in it, a file named Poppler, PDFium, PoDoFo or librttopo, or a wrapper missing an
+    entry point the C# calls. The C# binding is GDAL's own SWIG output, compiled into this assembly.
 
-    <!--
-      The native payload, per platform. Both are referenced because the development machine is Windows
-      and ADR-016 §2's images are Linux; NuGet resolves by RID at publish, so carrying both costs a
-      package reference rather than a payload.
-    -->
-    <PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" />
-    <PackageReference Include="MaxRev.Gdal.LinuxRuntime.Minimal" />
+    GdalRuntimes: the platforms whose libraries go beside the reader, separated by commas. Set it in the
+    environment (GdalRuntimes=linux-x64,linux-arm64), because MSBuild's /p: splits a value at commas too. This machine's by default; the
+    server image's build asks for both Linux architectures and keeps one per image, as it does for
+    DuckDB and Skia. GdalFetch=false when the directory was laid out beforehand (the Docker stage that
+    has Python; the SDK image has none).
+  -->
+  <PropertyGroup>
+    <!-- The SWIG output marshals arrays with pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GdalNatives Condition="'$(GdalNatives)' == ''">$(MSBuildThisFileDirectory)../../.gdal/</GdalNatives>
+    <GdalFetch Condition="'$(GdalFetch)' == ''">true</GdalFetch>
+    <GdalPython Condition="'$(GdalPython)' == '' And '$(OS)' == 'Windows_NT'">python</GdalPython>
+    <GdalPython Condition="'$(GdalPython)' == ''">python3</GdalPython>
+    <GdalRuntimes Condition="'$(GdalRuntimes)' == '' And '$(OS)' == 'Windows_NT'">win-x64</GdalRuntimes>
+    <GdalRuntimes Condition="'$(GdalRuntimes)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">linux-arm64</GdalRuntimes>
+    <GdalRuntimes Condition="'$(GdalRuntimes)' == ''">linux-x64</GdalRuntimes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <GdalRuntime Include="$([MSBuild]::Unescape($(GdalRuntimes.Replace(',', ';'))))" />
   </ItemGroup>
+
+  <Target Name="GdalNatives" BeforeTargets="BeforeBuild;CoreCompile">
+    <Exec Condition="'$(GdalFetch)' == 'true'"
+          Command="&quot;$(GdalPython)&quot; -I &quot;$(MSBuildThisFileDirectory)../../tools/gdal-natives.py&quot; fetch %(GdalRuntime.Identity) &quot;$(GdalNatives)%(GdalRuntime.Identity)&quot;" />
+    <Error Condition="!Exists('$(GdalNatives)%(GdalRuntime.Identity)/.complete')"
+           Text="GDAL for %(GdalRuntime.Identity) is not laid out in $(GdalNatives)%(GdalRuntime.Identity). Run tools/gdal-natives.py fetch (ADR-254)." />
+    <ItemGroup>
+      <!-- The binding's sources are the same for every platform; the first platform's copy is compiled. -->
+      <Compile Include="$(GdalNatives)$(GdalRuntimes.Replace(',', ';').Split(';')[0])/csharp/**/*.cs" />
+      <_GdalPayload Include="$(GdalNatives)%(GdalRuntime.Identity)/**/*" Exclude="$(GdalNatives)%(GdalRuntime.Identity)/csharp/**;$(GdalNatives)%(GdalRuntime.Identity)/.complete">
+        <Runtime>%(GdalRuntime.Identity)</Runtime>
+      </_GdalPayload>
+      <None Include="@(_GdalPayload)" Link="gdal/%(_GdalPayload.Runtime)/%(_GdalPayload.RecursiveDir)%(_GdalPayload.Filename)%(_GdalPayload.Extension)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <!--

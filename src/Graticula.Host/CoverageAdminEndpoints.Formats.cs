@@ -70,6 +70,17 @@ internal static partial class CoverageAdminEndpoints
                 return null;
             }
 
+            // ADR-254: GDAL is built without its PDF driver, because the driver reads through Poppler, which is GPL
+            // (owner decision 2026-11-01 on D-380). A GeoPDF is refused by name, as MrSID is, rather than as a format
+            // nobody has heard of.
+            if (extension is ".pdf")
+            {
+                await Refuse(context, 400, $"{named}: a PDF is not read as imagery. The PDF reader GDAL has is Poppler, whose "
+                    + "GPL licence keeps it out of this server's build. Export the map as a GeoTIFF — ArcGIS Pro, QGIS and "
+                    + "Global Mapper do — and upload that.").ConfigureAwait(false);
+                return null;
+            }
+
             if (extension is ".tif" or ".tiff")
             {
                 string path = Path.Combine(directory, $"{Guid.NewGuid():N}.tif");

@@ -19,7 +19,7 @@ namespace Graticula.Import.Reader;
 /// <b>Read from the XML the geodatabase keeps, because the binding cannot hand over a coded value.</b>
 /// GDAL reads a geodatabase's field domains, and its C# binding exposes a range's bounds — but not the
 /// list of codes of a coded-value domain, which is the kind that matters (measured 2026-09-12 against
-/// MaxRev.Gdal.Core 3.13.1: <c>GetMinAsDouble</c> is bound, <c>GetEnumeration</c> is not). Subtypes are
+/// GDAL 3.13's C# binding: <c>GetMinAsDouble</c> is bound, <c>GetEnumeration</c> is not). Subtypes are
 /// not in GDAL's API at all. Both are in the <c>GDB_Items</c> system table, which the OpenFileGDB driver
 /// lists when asked with <c>LIST_ALL_TABLES=YES</c>: each item's <c>Definition</c> is an XML document in
 /// the geodatabase XML schema Esri publishes — <c>GPCodedValueDomain2</c> and <c>GPRangeDomain2</c> for

@@ -46,17 +46,17 @@ public sealed class GeodatabaseReaderTests
     }
 
     /// <summary>
-    /// Ping answers, names a GDAL version, and reports the two drivers this design depends on.
+    /// Ping answers, names a GDAL version, and reports the driver this design depends on.
     /// </summary>
     /// <remarks>
-    /// <b>The drivers are the assertion, not the version string.</b> <c>OpenFileGDB</c> is what reads a
-    /// geodatabase and <c>Parquet</c> is what the conversion writes — Q-74's boundary, chosen because
-    /// GeoParquet carries the schema and the CRS with the data. A build whose native payload is missing
-    /// still answers <c>ping</c>; it answers with both of these false, which is the failure this asserts
-    /// against.
+    /// <b>The driver is the assertion, not the version string.</b> <c>OpenFileGDB</c> is what reads a
+    /// geodatabase. A build whose native payload is missing still answers <c>ping</c>; it answers with this
+    /// false, which is the failure this asserts against. <c>Parquet</c> was the second driver until 2026-11-01:
+    /// it was what <c>convert</c> wrote, Q-74's boundary, which nothing had used since ADR-038 put features on
+    /// this pipe, and ADR-254's GDAL — built without Poppler — leaves the Arrow plugin out with it.
     /// </remarks>
     [Fact]
-    public async Task Ping_answers_with_a_version_and_the_two_drivers_this_design_needs()
+    public async Task Ping_answers_with_a_version_and_the_driver_this_design_needs()
     {
         using JsonDocument answer = await Reader()
             .AskAsync(new { op = "ping" }, TimeSpan.FromSeconds(30));
@@ -69,8 +69,8 @@ public sealed class GeodatabaseReaderTests
 
         Assert.False(
             string.IsNullOrWhiteSpace(version),
-            "The reader started and answered without a GDAL version, which means GdalBase.ConfigureAll "
-            + "found nothing to configure.");
+            "The reader started and answered without a GDAL version, which means GdalNative.Configure "
+            + "found nothing to load (ADR-254).");
 
         JsonElement drivers = root.GetProperty("drivers");
 
@@ -80,10 +80,9 @@ public sealed class GeodatabaseReaderTests
             + "The native payload is incomplete rather than absent — an absent one would not have "
             + "answered at all.");
 
-        Assert.True(
-            drivers.GetProperty("parquet").GetBoolean(),
-            $"GDAL {version} loaded without the Parquet driver, so a layer can be listed and not "
-            + "converted. Q-74 chose GeoParquet as the boundary between the reader and the importer.");
+        Assert.False(
+            drivers.TryGetProperty("parquet", out _),
+            "The reader reports a Parquet driver again; ADR-254 retired `convert` and the driver with it.");
     }
 
     /// <summary>
@@ -107,7 +106,7 @@ public sealed class GeodatabaseReaderTests
         // It names what it does answer, because a refusal that only says *no* sends the reader to the
         // source to find out what the operations are.
         Assert.Contains("layers", error, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("convert", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("features", error, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -162,7 +161,8 @@ public sealed class GeodatabaseReaderTests
         Assert.Equal(
             new HashSet<string>(StringComparer.Ordinal)
             {
-                "ping", "layers", "convert", "features", "fixture",
+                // `convert` left on 2026-11-01: the GeoParquet copy nothing sent after ADR-038 (ADR-254).
+                "ping", "layers", "features", "fixture",
 
                 // `export` joined on 2026-10-01: a layer written out as GPKG, a shapefile or XLSX (ADR-107).
                 "export",

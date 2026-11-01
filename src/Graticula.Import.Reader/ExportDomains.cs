@@ -25,8 +25,7 @@ namespace Graticula.Import.Reader;
 /// <para>
 /// <b>A coded-value domain is made through GDAL's C function.</b> The C# bindings wrap range and glob domains and not
 /// <c>OGR_CodedFldDomain_Create</c>, whose argument is an array of structures; so the function is looked up in the GDAL
-/// library MaxRev has already loaded — <c>gdal.dll</c>, or <c>libgdal.so.N</c> on Linux, a name <c>DllImport</c> would
-/// not find — and its result handed to the bindings' own <see cref="FieldDomain"/>, which then owns it.
+/// library <see cref="GdalNative"/> loaded — <c>gdal.dll</c>, or <c>libgdal.so.39</c> on Linux — and its result handed to the bindings' own <see cref="FieldDomain"/>, which then owns it.
 /// </para>
 /// </remarks>
 internal static class ExportDomains
@@ -150,30 +149,9 @@ internal static class ExportDomains
         }
     }
 
-    /// <summary>GDAL's C function, from the library already loaded beside this program.</summary>
-    private static CodedCreate Find()
-    {
-        IEnumerable<string> candidates = Directory
-            .EnumerateFiles(AppContext.BaseDirectory, "*gdal*", SearchOption.AllDirectories)
-            .Where(path =>
-            {
-                string file = Path.GetFileName(path);
-                return file.Equals("gdal.dll", StringComparison.OrdinalIgnoreCase)
-                    || file.StartsWith("libgdal.so", StringComparison.Ordinal)
-                    || file.StartsWith("libgdal.", StringComparison.Ordinal) && file.EndsWith(".dylib", StringComparison.Ordinal);
-            })
-            .Where(path => RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant() is { } arch
-                && (!path.Contains("runtimes", StringComparison.OrdinalIgnoreCase) || path.Contains(arch, StringComparison.OrdinalIgnoreCase)));
-
-        foreach (string path in candidates)
-        {
-            if (NativeLibrary.TryLoad(path, out IntPtr library)
-                && NativeLibrary.TryGetExport(library, "OGR_CodedFldDomain_Create", out IntPtr function))
-            {
-                return Marshal.GetDelegateForFunctionPointer<CodedCreate>(function);
-            }
-        }
-
-        throw new InvalidOperationException("GDAL's OGR_CodedFldDomain_Create was not found beside this reader.");
-    }
+    /// <summary>GDAL's C function, from the library <see cref="GdalNative"/> loaded.</summary>
+    private static CodedCreate Find() =>
+        NativeLibrary.TryGetExport(GdalNative.Library, "OGR_CodedFldDomain_Create", out IntPtr function)
+            ? Marshal.GetDelegateForFunctionPointer<CodedCreate>(function)
+            : throw new InvalidOperationException("GDAL's OGR_CodedFldDomain_Create is not in the libgdal this reader loaded.");
 }

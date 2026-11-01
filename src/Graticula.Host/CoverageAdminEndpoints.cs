@@ -426,7 +426,7 @@ internal static partial class CoverageAdminEndpoints
             return null;
         }
 
-        if (sent.FirstOrDefault(f => !Receivable(f.Name) && Path.GetExtension(f.Name).ToLowerInvariant() is not (".sid" or ".ecw")) is { } other)
+        if (sent.FirstOrDefault(f => !Receivable(f.Name) && Path.GetExtension(f.Name).ToLowerInvariant() is not (".sid" or ".ecw" or ".pdf")) is { } other)
         {
             await Refuse(context, 400, $"{Path.GetFileName(other.Name)}: images are {AcceptedFormats}.").ConfigureAwait(false);
             return null;
@@ -722,8 +722,8 @@ internal static partial class CoverageAdminEndpoints
             return;
         }
 
-        // ADR-157: GeoTIFFs, and the formats GDAL writes as GeoTIFFs on the way in; MrSID and ECW are refused by name there.
-        if (sent.FirstOrDefault(f => !Receivable(f.FileName) && Path.GetExtension(f.FileName).ToLowerInvariant() is not (".sid" or ".ecw")) is { } other)
+        // ADR-157: GeoTIFFs, and the formats GDAL writes as GeoTIFFs on the way in; MrSID, ECW and PDF are refused by name there.
+        if (sent.FirstOrDefault(f => !Receivable(f.FileName) && Path.GetExtension(f.FileName).ToLowerInvariant() is not (".sid" or ".ecw" or ".pdf")) is { } other)
         {
             await Refuse(context, 400,
                 $"{Path.GetFileName(other.FileName)}: an imagery layer is published from {AcceptedFormats}.")

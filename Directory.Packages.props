@@ -35,30 +35,13 @@
     <PackageVersion Include="System.DirectoryServices.Protocols" Version="9.0.9" />
   </ItemGroup>
   <ItemGroup Label="Formats â€” Tier 2, and in a separate process for the same reason as geometry">
-    <!-- GDAL through its managed bindings, referenced by Graticula.Import.Reader and by nothing
-         else. ADR-037 Â§5a, which reversed that ADR's own Python worker on the day it was written:
-         once GDAL is acceptable, .NET needs a binding rather than a parser, and a second language
-         runtime buys nothing. Measured on the owner's own geodatabases â€” 0.06s against the Python
-         worker's 0.29s for the same layer.
-
-         <b>Out of the server process, and the reason is the same argument NetTopologySuite's row
-         makes.</b> This parses a file somebody else chose. ADR-009 Â§2.2's original words are that
-         keeping GDAL out of the serving process "removes an untrusted-file parser from the process
-         that serves public requests" â€” a child process is what makes that true here, since the
-         package is now in the server image.
-
-         <b>D-06 is due, and this row is the trigger firing.</b> The header of this file names it:
-         repayment comes "before the first binary that bundles a database driver, a GDAL build or a
-         Python wheel set." This is that binary. GDAL's own LICENSE.TXT is a bill of materials â€”
-         MIT-style core beside BSD, public-domain, Apache-2.0 Esri components, ISC, Info-ZIP and
-         Qhull â€” so what must be enumerated is the *driver set this build carries*, not "GDAL".
-
-         MaxRev.Gdal.Core is MIT; the native payload it carries is GDAL's own bill. The runtime
-         package is per platform and both are listed because the development machine is Windows and
-         the deployment is Linux (ADR-016 Â§2). -->
-    <PackageVersion Include="MaxRev.Gdal.Core" Version="3.13.1.534" />
-    <PackageVersion Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.13.1.534" />
-    <PackageVersion Include="MaxRev.Gdal.LinuxRuntime.Minimal" Version="3.13.1.534" />
+    <!-- <b>No GDAL package here any more — ADR-254, owner decision 2026-11-01 on D-380.</b> GDAL reached
+         Graticula.Import.Reader through MaxRev.Gdal.Core and its Windows and Linux runtime packages
+         (3.13.1.534) from ADR-037 §5a until that day, and their payload linked Poppler, GPL-2.0-or-later,
+         into libgdal and into every SWIG wrapper. GDAL now comes from a pinned set of conda-forge packages
+         without the PDF driver — deploy/gdal/gdal-natives.lock.json, laid out by tools/gdal-natives.py —
+         and its C# binding is GDAL's own SWIG output compiled into the reader. The reader is still the only
+         project that has GDAL, and it is still a child process: ADR-009 §2.2's reason is unchanged. -->
   </ItemGroup>
   <ItemGroup Label="Data access â€” Tier 2, adapters only">
     <!-- Npgsql: PostgreSQL License (BSD-style), compatible with our Apache-2.0

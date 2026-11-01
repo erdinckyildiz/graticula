@@ -43,10 +43,16 @@ public sealed class NativeDependencyTests
     /// <remarks>
     /// <para>
     /// <b>Matched by prefix, because a native dependency arrives as a family.</b> GDAL's managed
-    /// binding is <c>MaxRev.Gdal.Core</c> and its payloads are <c>MaxRev.Gdal.LinuxRuntime.Minimal</c>
-    /// and <c>MaxRev.Gdal.WindowsRuntime.Minimal</c>; a rule naming only the first would pass while the
-    /// second was referenced from the server. That is D-74's shape — a set of values with no single
-    /// place that names them all.
+    /// binding was <c>MaxRev.Gdal.Core</c> and its payloads <c>MaxRev.Gdal.LinuxRuntime.Minimal</c>
+    /// and <c>MaxRev.Gdal.WindowsRuntime.Minimal</c>; a rule naming only the first would have passed
+    /// while the second was referenced from the server. That is D-74's shape — a set of values with no
+    /// single place that names them all.
+    /// </para>
+    /// <para>
+    /// <b>GDAL is not a package since ADR-254</b> (owner decision 2026-11-01 on D-380: MaxRev's payload
+    /// linked Poppler, which is GPL). A project has GDAL when it runs <c>tools/gdal-natives.py</c>, which
+    /// lays out the conda-forge libraries and the binding's sources, so that is what the GDAL row matches:
+    /// a "prefix" beginning <c>tools/</c> names a script a project file invokes, not a package.
     /// </para>
     /// <para>
     /// <b>NetTopologySuite is here too, and it is not native.</b> It is in this list because the
@@ -58,12 +64,12 @@ public sealed class NativeDependencyTests
     /// </remarks>
     private static readonly (string Prefix, string Project, string Why)[] Confined =
     [
-        ("MaxRev.Gdal",
+        ("tools/gdal-natives.py",
          "Graticula.Import.Reader",
          "GDAL parses a file somebody else chose. ADR-009 §2.2's own words for keeping it out of the "
          + "serving process are that it 'removes an untrusted-file parser from the process that serves "
          + "public requests' — with the package in the solution, a child process is what keeps that "
-         + "true. ADR-037 §5a, D-88."),
+         + "true. ADR-037 §5a, D-88, ADR-254."),
 
         ("NetTopologySuite",
          "Graticula.Overlay.Worker",
@@ -214,12 +220,7 @@ public sealed class NativeDependencyTests
             {
                 string owner = Path.GetFileNameWithoutExtension(file);
 
-                bool references = XDocument.Load(file)
-                    .Descendants("PackageReference")
-                    .Select(static element => element.Attribute("Include")?.Value ?? string.Empty)
-                    .Any(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-
-                if (!references)
+                if (!Carries(file, prefix))
                 {
                     continue;
                 }
@@ -290,18 +291,13 @@ public sealed class NativeDependencyTests
                 continue;
             }
 
-            foreach (string package in XDocument.Load(project)
-                .Descendants("PackageReference")
-                .Select(static element => element.Attribute("Include")?.Value ?? string.Empty))
+            foreach ((string prefix, _, string why) in Confined)
             {
-                foreach ((string prefix, _, string why) in Confined)
+                if (Carries(project, prefix))
                 {
-                    if (package.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        offenders.Add(
-                            $"{Path.GetFileNameWithoutExtension(project)} is reachable from the host "
-                            + $"and references {package}. {why}");
-                    }
+                    offenders.Add(
+                        $"{Path.GetFileNameWithoutExtension(project)} is reachable from the host "
+                        + $"and carries {prefix}. {why}");
                 }
             }
         }
@@ -357,6 +353,19 @@ public sealed class NativeDependencyTests
             Walk(Path.GetFullPath(Path.Combine(directory, relative.Replace('\\', '/'))), seen);
         }
     }
+
+    /// <summary>
+    /// Whether a project file carries a confined dependency: a package by prefix, or — for a row whose
+    /// prefix begins <c>tools/</c> — a script the project file runs to lay the dependency out (ADR-254).
+    /// </summary>
+    private static bool Carries(string projectFile, string prefix) =>
+        prefix.StartsWith("tools/", StringComparison.Ordinal)
+            ? File.ReadAllText(projectFile).Contains(
+                Path.GetFileName(prefix), StringComparison.OrdinalIgnoreCase)
+            : XDocument.Load(projectFile)
+                .Descendants("PackageReference")
+                .Select(static element => element.Attribute("Include")?.Value ?? string.Empty)
+                .Any(name => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     private static DirectoryInfo FindRepositoryRoot()
     {

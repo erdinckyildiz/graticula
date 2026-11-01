@@ -13,7 +13,7 @@ namespace Graticula.Conformance.Tests;
 
 /// <summary>
 /// ADR-157: imagery in JPEG 2000, NetCDF and an ASCII grid is written as GeoTIFF on its way in, a NetCDF of time steps
-/// as a dated image a step; MrSID is refused by name. The JPEG 2000 and the NetCDF are in the raster corpus, made by
+/// as a dated image a step; MrSID and PDF are refused by name. The JPEG 2000 and the NetCDF are in the raster corpus, made by
 /// GDAL from an 8 × 8 grid of 0.01° at 30° E, 41° N whose values are ten a step plus the column.
 /// </summary>
 [Collection("catalogue walk")]
@@ -93,6 +93,11 @@ public sealed class ImageryFormatsConformanceTests : ArcGisClient
             (HttpStatusCode sid, JsonElement saidSid) = await UploadAsync(root, token!, "zz_sid_never", "scene.sid", [1, 2, 3]);
             Assert.Equal(HttpStatusCode.BadRequest, sid);
             Assert.Contains("SDK", saidSid.ToString(), StringComparison.Ordinal);
+
+            // A GeoPDF: refused by name, naming Poppler's licence — ADR-254 built GDAL without the PDF driver.
+            (HttpStatusCode pdf, JsonElement saidPdf) = await UploadAsync(root, token!, "zz_pdf_never", "map.pdf", "%PDF-1.7\n"u8.ToArray());
+            Assert.Equal(HttpStatusCode.BadRequest, pdf);
+            Assert.Contains("Poppler", saidPdf.ToString(), StringComparison.Ordinal);
         }
         finally
         {
