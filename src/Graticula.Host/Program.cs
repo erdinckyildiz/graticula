@@ -1678,7 +1678,8 @@ public static class Program
         // store (2026-11-01).</b> A serving request takes one of the store pool's permits here, or waits for one, or is
         // refused on arrival with the 503 a data-source refusal answers; it gives the permit back when it asks for a
         // data-source permit, or when it ends. The re-runs of condition 1 found its queue here, unbounded, at the
-        // store's pool — see StoreGate.
+        // store's pool — see StoreGate. Its depth is enforced while that queue is standing, not against a burst it
+        // drains in milliseconds — several HTTP/2 map viewers panning at once are such a burst (2026-11-01).
         StoreGate storeGate = app.Services.GetRequiredService<StoreGate>();
         app.Use(async (context, next) =>
         {
