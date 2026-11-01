@@ -281,7 +281,8 @@ would be right until the next upgrade.
 | `port/cpl_minizip*` | Info-ZIP | yes, core |
 | `ogr/ogrsf_frmts/dxf/intronurbs.cpp` | BSD-style | **yes** — DXF is present |
 | `alg/thinplatespline.cpp` and `alg/libqhull` | Qhull | yes, core algorithms |
-| `frmts/pdf/pdfdataset.cpp` (PDFium) | BSD-3-Clause | **yes** — PDF is present |
+| ~~`frmts/pdf/pdfdataset.cpp` (PDFium)~~ | ~~BSD-3-Clause~~ | ~~**yes** — PDF is present~~ |
+| `frmts/pdf/pdfdataset.cpp` with **Poppler** — *corrected 2026-11-01, [D-380](docs/architecture-debt.md)* | **GPL-2.0-or-later** (Poppler) | **yes** — the PDF driver is built on Poppler, not PDFium: `gdal.dll` imports `poppler.dll`, `libgdal.so.39` needs `libpoppler.so.151`, and neither carries PDFium. **This is the one copyleft component in the payload**, and the paragraph below that says *none of them copyleft* was wrong about it; the decision is the owner's (D-380). |
 | `frmts/mrf/*` — **Copyright 2014-2015 Esri** | **Apache-2.0** | **yes** — MRF is present, and `LICENSE.TXT` says this section applies *"when MRF driver included in build"* |
 | `cmake/modules/3.*` | BSD-3-Clause | build-time only |
 | `ogr/ogrsf_frmts/flatgeobuf` | BSD-2-Clause | **yes** — FlatGeobuf is present |
@@ -303,7 +304,7 @@ them by name.
 
 **So the honest sentence is not *GDAL is MIT*.** It is: an MIT-style core, with BSD-2 and
 BSD-3 components, a public-domain one, Info-ZIP, Qhull, and **two Apache-2.0 components, one
-of them Esri's** — all of them permissive, none of them copyleft, and all compatible with
+of them Esri's** — all of them permissive, none of them copyleft, *(wrong about one, corrected 2026-11-01: the PDF driver links Poppler, GPL-2.0-or-later — the table above and [D-380](docs/architecture-debt.md))* and all compatible with
 redistribution under ~~Apache-2.0~~ **the Elastic License 2.0 — corrected 2026-09-09.** This
 paragraph was written on 2026-08-24, one day before
 [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md) made the outbound licence
