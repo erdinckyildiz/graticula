@@ -79,7 +79,9 @@ computations are Tier 1 domain (§4), not a library behind a port.
 
 - The Topo to Raster equivalent solves a sparse system directly, and chooses λ by bisection — two dozen solves per
   resolution on grids up to 40,000 cells, one solve per enforcement iteration beyond. It is fine at a few hundred cells
-  a side and unmeasured beyond ([D-333](../architecture-debt.md)).
+  a side and unmeasured beyond ([D-333](../architecture-debt.md)). *(Measured 2026-11-01, D-333: 10,000 spot heights of
+  a real 3DEP DEM on 400 × 400 take 255 s of CPU and 709 MB of peak commit, once the solve was given grapy's own
+  nested-dissection Cholesky in place of SuperLU, whose reservation for the factor had put it at 2.1-3.1 GB.)*
 - It does not derive stream and ridge lines from contour corners (Hutchinson 1988), which is how ANUDEM gets shape from
   contours; a cone is recovered within a quarter of the contour interval without them, but a valley drawn only by
   contours will be shallower than Pro's.
@@ -173,8 +175,9 @@ deviation; the additional raster on the segmented raster's grid; the seams count
 boundaries, segment an image, measure its segments and repair a tiled segmentation, and number combinations, on this
 server under arcpy's names. No new dependency.
 
-**Negative.** Pro's numbers will differ wherever an equivalent stands, and Topo to Raster's cost on real grids is
-unmeasured ([D-333](../architecture-debt.md)).
+**Negative.** Pro's numbers will differ wherever an equivalent stands, and Topo to Raster's cost on real grids was
+unmeasured ([D-333](../architecture-debt.md); measured on Windows 2026-11-01, the Linux fence's address space still
+owed).
 
 **Names.** `tools/grapy-refusals.json` before → after: `arcpy.sa` built 208 → 226 (equivalents 21 → 27), refused 170 →
 152; `arcpy.ia` built 206 → 222 (equivalents 29 → 33), refused 141 → 125; `arcpy.ddd` built 104 → 106 (equivalents
@@ -186,7 +189,7 @@ unmeasured ([D-333](../architecture-debt.md)).
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | A direct sparse solve is fast enough for the grids a user tool makes | Unverified beyond 80 × 80 (D-333) |
+| — | A direct sparse solve is fast enough for the grids a user tool makes | Measured to 400 × 400 with 10,000 heights on Windows, 255 s and 709 MB (D-333, 2026-11-01); inside the Linux fence, owed to `measure.yml` |
 | — | Hutchinson's published criterion, with the INFERRED functional, behaves like ANUDEM on ordinary data | Tested on synthetic surfaces only (condition 3) |
 
 ## 8. Dependencies
