@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>81484327</code> · 2026-11-01 12:44</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a1504aea</code> · 2026-11-01 13:48</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">252</div><div class="kpi-l">ADR</div><div class="kpi-n">82 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">632/670</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">28 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">230 yanıtlandı</div></div>
-<div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">açık borç</div><div class="kpi-n">324 ödendi · 21 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık borç</div><div class="kpi-n">324 ödendi · 22 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5703</div><div class="kpi-l">test</div><div class="kpi-n">619 kaynak dosya, 275,938 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">36 madde</span></div><p><b>28 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>4 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">35 madde</span></div><p><b>28 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>3 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -441,7 +441,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill muted">PARKED</span></td></tr>
-<tr class=""><td class="id">D-328</td><td>grapy&#x27;s SAR tools have run only on synthetic scenes.</td><td class="muted-t">ADR-237 condition 3: the first real product run through the chain, or a user tool that fails on one</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-328</td><td>grapy&#x27;s SAR tools have run only on synthetic scenes.</td><td class="muted-t">ADR-237 condition 3: the first real product run through the chain, or a user tool that fails on one</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-333</td><td>grapy&#x27;s Topo to Raster and Segment Mean Shift are unmeasured beyond small grids.</td><td class="muted-t">ADR-242 condition 3, or a user tool reaching ADR-223&#x27;s time or memory limit in either</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-338</td><td>grapy&#x27;s utility network traces and diagram layouts differ from Pro&#x27;s where five measurements do not say Pro&#x27;s rule.</td><td class="muted-t">Esri publishes the trace&#x27;s neighbour order, the PATH trace&#x27;s rule or the radial and mainline tree layouts; or a user&#x27;s…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-339</td><td>grapy&#x27;s terrain windows start at a different corner from Pro&#x27;s.</td><td class="muted-t">A rule that predicts the corner from the domain and the spacing, found by more runs of Pro, or a user tool that counts…</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -621,6 +621,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>a1504aea</code><time>2026-11-01</time><span>ADR-254 condition 1: the v1.0.492 image builds on both architectures with no Poppler, 82 MB smaller, and its reader runs GDAL 3.13.3 on the showcase</span></li>
 <li><code>81484327</code><time>2026-11-01</time><span>The aliased directory is compared with a root directory that held still across it, as parallel classes add and delete services (CI run 41292371943)</span></li>
 <li><code>f81bc384</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>0738c748</code><time>2026-11-01</time><span>The store gate queues a burst and refuses a standing queue, so several HTTP/2 map viewers panning at once are served (ADR-046 §5a)</span></li>
@@ -634,7 +635,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>81ab368a</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>6ce33e84</code><time>2026-11-01</time><span>ADR-012 condition 3 is discharged: phase 4, the rolling upgrade, is built and holds with tests against two processes</span></li>
 <li><code>26c7d4fe</code><time>2026-11-01</time><span>System &gt; Machines says when a rolling upgrade is in progress, which machine is next and when it is over (ADR-012 phase 4)</span></li>
-<li><code>9a10a509</code><time>2026-11-01</time><span>A site upgrades one node at a time: each node records the schema it reads, a contract waits for the older nodes, and migrate runs once under a lock (ADR-012 phase 4)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
