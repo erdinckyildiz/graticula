@@ -445,11 +445,16 @@ jobs:
           echo "             tools/oracle-test-seed.py."
           echo "MySql        reads a real MySQL database (ADR-208). NOT skipped —"
           echo "             run in the mysql job, against MySQL 8.4."
+          echo "PreviousBuild upgrades a site of two nodes from the previous release's"
+          echo "             build to this one (ADR-012 phase 4). CI builds only"
+          echo "             this one, so it runs nowhere here: set"
+          echo "             GRATICULA_PREVIOUS_HOST to that build's folder."
           echo
-          echo "Run the two that CI cannot, on a machine that can:"
+          echo "Run the three that CI cannot, on a machine that can:"
           echo
           echo "  dotnet test <project> --filter 'Needs=RealCorpus'"
           echo "  dotnet test <project> --filter 'Needs=QuietMachine'"
+          echo "  dotnet test tests/Graticula.Host.Tests --filter 'Needs=PreviousBuild'"
           echo
           echo
           echo "ADR-048 §5b and Q-117."
@@ -465,7 +470,7 @@ jobs:
       - name: host and geometry worker
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine'
+            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild'
 
   conformance:
     name: conformance

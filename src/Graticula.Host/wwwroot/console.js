@@ -39639,7 +39639,8 @@ async function loadMachines() {
       const runs = (m.leads || []).map(l => MACHINE_SWEEPS[l] || l);
       const status = m.status !== "up"
         ? `<span class="pill ${now.pill}">${now.label}</span>
-           <div class="rowmeta">last heard ${servicePinAgo(m.lastSeen)}</div>`
+           <div class="rowmeta">last heard ${servicePinAgo(m.lastSeen)}${machineBeingUpgraded(machinesNow).includes(m)
+             ? " · on an older build, probably being upgraded" : ""}</div>`
         : `<span class="pill ${now.pill}">${h(now.label)}</span>`;
 
       // Start, Stop and Maintenance while it is up; Remove only once it is gone — one that still runs writes itself back.
@@ -39654,7 +39655,9 @@ async function loadMachines() {
                aria-label="Start ${h(m.name)}">Start</button>`;
 
       // Each separator inside the item before it, so a line breaks only after a dot, never before one.
-      const meta = [m.self ? "this machine" : "", `<code>${h(m.address)}</code>`, `version ${h(m.version)}`]
+      // ADR-012 phase 4: the schema its build reads, which is what decides whether a migration may remove anything.
+      const reads = m.schema == null ? "older build" : `schema ${num(m.schema)}`;
+      const meta = [m.self ? "this machine" : "", `<code>${h(m.address)}</code>`, `version ${h(m.version)}`, reads]
         .filter(Boolean)
         .map((x, i, a) => `<span class="mcmeta">${x}${i < a.length - 1 ? `<span class="sep" aria-hidden="true">·</span>` : ""}</span>`)
         .join(" ");
@@ -39723,6 +39726,8 @@ async function loadMachines() {
     $("mcCount").textContent += " · directories not shared";
   }
 
+  machineUpgradeNote(machinesNow);
+
   clearTimeout(machinesTimer);
   machinesTimer = setTimeout(() => {
     // A hidden tab stops reading; it reads again when it is shown (below).
@@ -39737,6 +39742,111 @@ document.addEventListener("visibilitychange", () => {
     loadMachines().catch(() => {});
   }
 });
+
+/** Names in a sentence: "a", "a and b", "a, b and c". */
+function machineList(names) {
+  return names.length < 3 ? names.join(" and ") : names.slice(0, -1).join(", ") + " and " + names.at(-1);
+}
+
+/**
+ * The machines down whose last build is older than the newest one up — ADR-012 phase 4: most likely being restarted on
+ * the new build, so the page says so rather than offering only Remove.
+ */
+function machineBeingUpgraded(site) {
+  const all = site?.machines || [];
+  const up = all.filter(m => m.status === "up" && m.schema != null).map(m => m.schema);
+  if (!up.length) return [];
+  const newest = Math.max(...up);
+  return all.filter(m => m.status !== "up" && (m.schema ?? -1) < newest);
+}
+
+/** The note last drawn, so a timed read that changes nothing leaves it alone; and whether an upgrade was under way. */
+let machinesUpgradeDrawn = "";
+let machinesUpgrading = false;
+
+/**
+ * ADR-012 phase 4 — what the page says during a rolling upgrade: which machines run which build, whether the database
+ * is readable by all of them (from its minimum reader, not assumed), what to do next and to which machine, and that a
+ * migration dropping anything is held back until the last one. Also when the database is ahead of every machine's
+ * build: a newer build's migration has run, and the machines are next. Quiet otherwise; the end is said once.
+ */
+function machineUpgradeNote(site) {
+  const box = $("mcUpgrade");
+  if (!box) return;
+  const rolling = site?.rollingUpgrade;
+  const builds = rolling?.builds || [];
+  const store = site?.store?.schema;
+  const reader = site?.store?.minimumReader;
+  const reads = builds.map(b => b.schema).filter(x => x != null);
+  const newest = reads.length ? Math.max(...reads) : null;
+  const sameVersion = new Set(builds.map(b => b.version)).size < builds.length;
+  const how = `Upgrade one machine at a time: put it under Maintenance here, install the new build and restart its server,
+    then press Start on its row.`;
+  let html = "";
+
+  if (rolling?.inProgress) {
+    // Newest first; a build that does not report its schema predates phase 4, so it is the older one.
+    const ordered = [...builds].sort((x, y) => (y.schema ?? -1) - (x.schema ?? -1));
+    const parts = ordered.map((b, i) => {
+      const who = machineList(b.machines.map(n => `<span class="mcname">${h(n)}</span>`));
+      const runs = b.machines.length === 1 ? "runs" : "run";
+      const which = sameVersion ? (i === 0 ? `the newer build of ${h(b.version)}` : `an earlier build of ${h(b.version)}`)
+        : `version ${h(b.version)}`;
+      return i === 0
+        ? `${who} ${runs} ${which}${b.schema == null ? "" : ` (schema ${num(b.schema)})`}`
+        : `${who} still ${runs} ${which}${b.schema == null ? ", which predates schema reporting" : ` (schema ${num(b.schema)})`}`;
+    });
+    const older = ordered.slice(1).flatMap(b => b.machines);
+    // Each machine up passed its start check against this store, and only a contract raises the minimum reader -- which
+    // waits for them; still, the claim is the store's numbers, not an assumption: the oldest schema reported against it.
+    const oldest = reads.length ? Math.min(...reads) : null;
+    const can = reader != null && (oldest == null || reader <= oldest) ? "every build here can read it" : "";
+    html = `<p><b>Rolling upgrade in progress.</b> ${parts.join("; ")}. The database is at schema ${num(store)}${can ? ` and ${can}` : ""}.</p>
+      <p>${how} ${machineList(older.map(n => `<span class="mcname">${h(n)}</span>`))} ${older.length === 1 ? "is" : "are"} next. Migrations that drop something older
+        builds still read are held back until every machine runs the newest build.</p>`;
+  } else if (machineBeingUpgraded(site).length || (machinesUpgrading && (site?.machines || []).some(m => m.status !== "up"))) {
+    // A machine of the upgrade is down -- most likely being restarted on the new build, longer than the thirty seconds
+    // after which it is shown down. Read from the rows (its last build older than the newest up), so a reload sees it
+    // too; the upgrade is not over until it is back (design review, second and third passes).
+    const gone = machineBeingUpgraded(site);
+    const down = (gone.length ? gone : (site.machines || []).filter(m => m.status !== "up"))
+      .map(m => `<span class="mcname">${h(m.name)}</span>`);
+    html = `<p><b>Rolling upgrade in progress.</b> ${machineList(down)} ${down.length === 1 ? "is" : "are"} not responding,
+        probably being restarted on the new build. ${how}</p>`;
+  } else if (machinesUpgrading && (site?.machines || []).some(m => m.status === "up" && m.configuredState !== "started")) {
+    // The last step: the upgraded machine is back, on the new build, and still under maintenance until it is started.
+    const held = (site.machines || []).filter(m => m.status === "up" && m.configuredState !== "started")
+      .map(m => `<span class="mcname">${h(m.name)}</span>`);
+    html = `<p><b>Rolling upgrade in progress.</b> ${machineList(held)} ${held.length === 1 ? "runs" : "run"} the new build and
+        ${held.length === 1 ? "is" : "are"} still out of rotation. Press Start on ${held.length === 1 ? "its row" : "their rows"}
+        to finish.</p>`;
+  } else if (store != null && newest != null && store > newest && reads.length === builds.length && builds.length) {
+    html = reader != null && reader <= newest
+      ? `<p><b>The database is ahead of these machines.</b> It is at schema ${num(store)}; every machine runs a build for
+          schema ${num(newest)}, which still reads it. A newer build's migration has run. ${how}</p>`
+      : "";
+  }
+
+  if (html) {
+    html = `<svg class="mcupgradeicon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/>
+        <path d="M12 16v-4M12 8h.01"/></svg><div>${html}</div>`;
+  }
+
+  box.hidden = !html;
+  if (html !== machinesUpgradeDrawn) box.innerHTML = html;
+  machinesUpgradeDrawn = html;
+
+  // The note disappears when the last machine is upgraded; that is said once, in the page's status line.
+  // Only once every machine is back up and started on one build -- not while one is down being upgraded.
+  const allBack = (site?.machines || []).every(m => m.status === "up" && m.configuredState === "started");
+  if (rolling?.inProgress || machineBeingUpgraded(site).length) {
+    machinesUpgrading = true;
+  } else if (machinesUpgrading && allBack && builds.length === 1) {
+    machineSay(`Every machine now runs version ${builds[0].version}; the rolling upgrade is complete.`);
+    machinesUpgrading = false;
+  }
+}
 
 /** Sets a machine's state, then reads the list again and keeps the reader's place. */
 async function setMachineState(name, state) {

@@ -274,15 +274,20 @@ internal sealed partial class SiteNode : BackgroundService
 
             await using (NpgsqlCommand join = _store.CreateCommand(
                 """
-                insert into site_node (name, address, version, started_at, last_seen, settings, key_check, probe)
-                values (@name, @address, @version, @started, now(), @settings, @key, @probe)
+                insert into site_node (name, address, version, started_at, last_seen, settings, key_check, probe,
+                                       schema_version, schema_version_at)
+                values (@name, @address, @version, @started, now(), @settings, @key, @probe, @schema, @started)
                 on conflict (name) do update
                    set address = excluded.address, version = excluded.version, started_at = excluded.started_at,
                        last_seen = now(), settings = excluded.settings, key_check = excluded.key_check,
-                       probe = excluded.probe, ready = false, leads = '{}'
+                       probe = excluded.probe, ready = false, leads = '{}',
+                       schema_version = excluded.schema_version, schema_version_at = excluded.schema_version_at
                 returning configured_state
                 """))
             {
+                // ADR-012 phase 4: the schema this build reads, with the start it was written at -- a build before
+                // migration 125 rewrites the row without it, and the two then disagree, which reads as "does not say".
+                join.Parameters.AddWithValue("schema", Graticula.Platform.Schema.PlatformMigrations.ComponentSchemaVersion.Value);
                 join.Parameters.AddWithValue("name", Name);
                 join.Parameters.AddWithValue("address", Address);
                 join.Parameters.AddWithValue("version", Version);

@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Postgres;
+using Graticula.Platform.Schema;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -62,6 +64,13 @@ internal static class SiteEndpoints
             ? await node.CheckDirectoriesAsync(cancellation).ConfigureAwait(false)
             : [];
 
+        // ADR-012 phase 4: the store's two numbers, and what the machines up run -- more than one build is a rolling
+        // upgrade in progress, and the oldest schema read is as far as a contract migration may raise the minimum reader.
+        SchemaStamp? stamp = await new PostgresPlatformSchemaStore(store).ReadStampAsync(cancellation).ConfigureAwait(false);
+        IReadOnlyList<(string Version, int? Schema, IReadOnlyList<string> Machines)> builds = SiteNodes.Builds(machines);
+        List<Machine> up = [.. machines.Where(m => m.Up)];
+        int? readerCeiling = up.Count > 0 && up.All(m => m.Schema is not null) ? up.Min(m => m.Schema) : null;
+
         return Results.Ok(new
         {
             thisMachine = node.Name,
@@ -74,6 +83,15 @@ internal static class SiteEndpoints
                 unseen = checkedDirectories.Where(c => !c.Seen).Select(c => c.Node),
             },
             nodesSetting = SiteNodes.Configured(configuration),
+            store = new { schema = stamp?.Applied.Value, minimumReader = stamp?.MinimumReader.Value },
+            rollingUpgrade = new
+            {
+                inProgress = builds.Count > 1,
+                builds = builds.Select(b => new { version = b.Version, schema = b.Schema, machines = b.Machines }),
+                // The highest minimum reader a contract migration may leave the store at while these machines run; null
+                // when a machine up does not say which schema it reads, and then no contract runs (`migrate` refuses).
+                readerCeiling,
+            },
             listening = site.Listening,
             sweeps = SiteSingletons.Names,
             machines = machines.Select(m => new
@@ -87,6 +105,7 @@ internal static class SiteEndpoints
                 configuredState = m.ConfiguredState,
                 ready = m.Up && m.Ready,
                 leads = m.Leads,
+                schema = m.Schema,
                 self = m.Name == node.Name,
             }),
         });
@@ -168,9 +187,21 @@ internal static class SiteEndpoints
 }
 
 /// <summary>A machine of the site as its row says.</summary>
+/// <param name="Name">Its node name.</param>
+/// <param name="Address">Where it listens, as it says itself.</param>
+/// <param name="Version">The build it runs.</param>
+/// <param name="StartedAt">When it started.</param>
+/// <param name="LastSeen">Its last heartbeat.</param>
+/// <param name="Up">Whether that heartbeat is recent.</param>
+/// <param name="ConfiguredState">started, stopped or maintenance.</param>
+/// <param name="Ready">Whether it said it is ready at that heartbeat.</param>
+/// <param name="Leads">The site's sweeps it runs.</param>
+/// <param name="Schema">
+/// The platform schema its build reads (ADR-012 phase 4), or null where it does not say — a build before migration 125.
+/// </param>
 internal sealed record Machine(
     string Name, string Address, string Version, DateTimeOffset StartedAt, DateTimeOffset LastSeen, bool Up,
-    string ConfiguredState, bool Ready, IReadOnlyList<string> Leads);
+    string ConfiguredState, bool Ready, IReadOnlyList<string> Leads, int? Schema = null);
 
 /// <summary>Reading the site's machines — ADR-012.</summary>
 internal static class SiteNodes
@@ -185,9 +216,27 @@ internal static class SiteNodes
     /// <summary>Every machine, the ones that are up first.</summary>
     public static async Task<IReadOnlyList<Machine>> ReadAsync(NpgsqlDataSource store, CancellationToken cancellation)
     {
+        try
+        {
+            return await ReadAsync(store, schemaColumn: true, cancellation).ConfigureAwait(false);
+        }
+        catch (PostgresException missing) when (missing.SqlState == "42703")
+        {
+            // A store before migration 125 -- read by the migrate command of a newer build: no machine says its schema.
+            return await ReadAsync(store, schemaColumn: false, cancellation).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<IReadOnlyList<Machine>> ReadAsync(NpgsqlDataSource store, bool schemaColumn, CancellationToken cancellation)
+    {
+        // ADR-012 phase 4: the schema a row says is believed only where it was written at the row's own start, since a
+        // build before migration 125 rewrites the row at start and leaves the number its successor wrote.
+        string schema = schemaColumn ? "case when schema_version_at = started_at then schema_version end" : "null::int";
+
         await using NpgsqlCommand read = store.CreateCommand(
-            """
-            select name, address, version, started_at, last_seen, last_seen > now() - @silence, configured_state, ready, leads
+            $"""
+            select name, address, version, started_at, last_seen, last_seen > now() - @silence, configured_state, ready, leads,
+                   {schema}
               from site_node
              order by last_seen > now() - @silence desc, name
             """);
@@ -201,11 +250,58 @@ internal static class SiteNodes
             machines.Add(new Machine(
                 reader.GetString(0), reader.GetString(1), reader.GetString(2),
                 reader.GetFieldValue<DateTimeOffset>(3), reader.GetFieldValue<DateTimeOffset>(4), reader.GetBoolean(5),
-                reader.GetString(6), reader.GetBoolean(7), reader.GetFieldValue<string[]>(8)));
+                reader.GetString(6), reader.GetBoolean(7), reader.GetFieldValue<string[]>(8),
+                reader.IsDBNull(9) ? null : reader.GetInt32(9)));
         }
 
         return machines;
     }
+
+    /// <summary>
+    /// The machines up that a contract migration raising the minimum reader to <paramref name="minimumReader"/> would
+    /// strand — each runs a build older than it, or does not say which schema it reads — ADR-012 §5 phase 4.
+    /// </summary>
+    /// <param name="machines">The site's machines.</param>
+    /// <param name="minimumReader">The minimum reader the contract would leave the store at.</param>
+    /// <returns>The machines in the way, empty when the contract may run.</returns>
+    public static IReadOnlyList<Machine> OlderThan(IReadOnlyList<Machine> machines, int minimumReader) =>
+        [.. machines.Where(m => m.Up && (m.Schema is not { } reads || reads < minimumReader))];
+
+    /// <summary>
+    /// Why a contract migration may not run now, or null when it may: the refusal <c>migrate --apply</c> prints —
+    /// ADR-012 §5 phase 4, <i>a contract migration waits until no node older than its minimum reader runs</i>.
+    /// </summary>
+    /// <param name="machines">The site's machines.</param>
+    /// <param name="minimumReader">The minimum reader the contract would leave the store at.</param>
+    public static string? ContractRefusal(IReadOnlyList<Machine> machines, int minimumReader)
+    {
+        IReadOnlyList<Machine> older = OlderThan(machines, minimumReader);
+
+        if (older.Count == 0)
+        {
+            return null;
+        }
+
+        string listed = string.Join(", ", older.Select(m => m.Schema is { } reads
+            ? string.Create(CultureInfo.InvariantCulture, $"'{m.Name}' (version {m.Version}, reads schema {reads})")
+            : string.Create(CultureInfo.InvariantCulture, $"'{m.Name}' (version {m.Version}, which does not say the schema it reads)")));
+
+        return string.Create(CultureInfo.InvariantCulture,
+            $"It removes something older builds still use, raising the minimum reader to {minimumReader}, ")
+            + (older.Count == 1 ? "and a machine of this site still runs a build older than that: " : "and machines of this site still run builds older than that: ")
+            + listed
+            + ". Upgrade " + (older.Count == 1 ? "it" : "them") + " first (one machine at a time: put it under maintenance in "
+            + "System > Machines, start the new build on it, then start it again), and run this again. A machine that has "
+            + "stopped counts until thirty seconds after its last heartbeat (ADR-012 phase 4).";
+    }
+
+    /// <summary>What the site's machines up run, grouped by build — more than one group is a rolling upgrade in progress.</summary>
+    /// <param name="machines">The site's machines.</param>
+    public static IReadOnlyList<(string Version, int? Schema, IReadOnlyList<string> Machines)> Builds(IReadOnlyList<Machine> machines) =>
+        [.. machines.Where(m => m.Up)
+            .GroupBy(m => (m.Version, m.Schema))
+            .OrderBy(g => g.Key.Schema ?? -1).ThenBy(g => g.Key.Version, StringComparer.Ordinal)
+            .Select(g => (g.Key.Version, g.Key.Schema, (IReadOnlyList<string>)[.. g.Select(m => m.Name)]))];
 
     /// <summary>
     /// The nodes the connection budget is sized for: the larger of <c>Graticula:Nodes</c> and the nodes up now, this
