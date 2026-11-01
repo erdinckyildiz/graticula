@@ -217,8 +217,14 @@ These came from the project owner and are inputs, not open questions. See
   longer a true description of this project** and `tools/registers-check.py` fails the
   build if it comes back — the old sentence stood in four documents that reasoned
   *from* it, which is the propagation shape [D-130](docs/architecture-debt.md) records.
-  LGPL and MIT dependencies remain unproblematic and nothing linked here is copyleft
-  (measured, ADR-047 §4); obligations are still tracked in
+  LGPL and MIT dependencies remain unproblematic. ~~Nothing linked here is copyleft
+  (measured, ADR-047 §4)~~ — a measurement that missed the import reader's Poppler
+  (GPL-2.0-or-later, [D-380](docs/architecture-debt.md)). **Since 2026-11-01, by owner
+  decision ([ADR-254](docs/adr/ADR-254-gdal-without-poppler.md)), nothing of ours links a
+  GPL library**: the reader's GDAL is conda-forge's `libgdal-core` without the PDF driver,
+  and `tools/gdal-natives.py` refuses a GPL library in it. Two GPL libraries remain in
+  unmodified distribution packages beside our code — the datastore image's Poppler and
+  Ubuntu Python's readline ([D-383](docs/architecture-debt.md)). Obligations are tracked in
   [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).
 - **Scale target:** 100–1,000 services. Larger figures are stress models, not
   requirements. Do not make small deployments painful to serve hypothetical
