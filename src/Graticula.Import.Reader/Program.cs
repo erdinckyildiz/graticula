@@ -8,7 +8,6 @@ using System.Text.Json.Serialization;
 using System.Linq;
 using Graticula.Coverages;
 using Graticula.Raster.Tiff;
-using MaxRev.Gdal.Core;
 using OSGeo.OGR;
 using OSGeo.OSR;
 using Dataset = OSGeo.GDAL.Dataset;
@@ -59,10 +58,10 @@ internal static class Program
 
     private static int Main()
     {
-        // <b>Once, before anything else.</b> `ConfigureAll` is what points the bindings at the native
-        // payload NuGet unpacked; without it every driver is absent and the failure reads as *this
-        // archive is not a geodatabase* rather than *GDAL is not loaded*.
-        GdalBase.ConfigureAll();
+        // <b>Once, before anything else.</b> `Configure` is what points the binding at the native
+        // payload beside this program (ADR-254); without it every driver is absent and the failure reads
+        // as *this archive is not a geodatabase* rather than *GDAL is not loaded*.
+        GdalNative.Configure();
 
         // GDAL writes to stderr through its own handler; routing it through ours keeps the two streams
         // honest — stdout stays the contract, stderr stays the diagnosis.
@@ -123,7 +122,7 @@ internal static class Program
             // in**, and only the build can say. So it says.
             //
             // <b>Asked rather than assumed, because the payload is a package version.</b> The
-            // native set arrives with `MaxRev.Gdal.*` and changes when that package does; a
+            // native set arrives with deploy/gdal/gdal-natives.lock.json and changes when it does; a
             // list written into a document beside it would be right until the next upgrade.
             "drivers" => new
             {
@@ -150,7 +149,6 @@ internal static class Program
                 drivers = new
                 {
                     openFileGdb = Ogr.GetDriverByName("OpenFileGDB") is not null,
-                    parquet = Ogr.GetDriverByName("Parquet") is not null,
                 },
 
                 // <b>Its own place in the scheduler's order, reported so the parent's setting is
@@ -163,8 +161,10 @@ internal static class Program
 
             "layers" => Layers(Text(request, "archive"), Encoding(request)),
 
-            "convert" => Convert(
-                Text(request, "archive"), Text(request, "layer"), Text(request, "out")),
+            // <b>`convert`, the GeoParquet copy of a layer Q-74 chose, was retired on 2026-11-01 (ADR-254).</b> Nothing
+            // had sent it since ADR-038 moved features onto this pipe as NDJSON, and the Parquet driver is a GDAL plugin
+            // that brings Arrow with Azure and Google Cloud storage clients and a tracing library into the image. One fewer operation an
+            // archive can reach is ADR-037 condition 3's direction.
 
             // <b>`features` writes many lines and returns nothing, which is why it is handled here
             // rather than through `Answer`.</b> ADR-038 §5: the features cross as newline-delimited
@@ -252,7 +252,7 @@ internal static class Program
 
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'convert', 'features', 'fixture', 'export', 'tabular', 'raster', 'tiff' and 'pyramid'."),
+                + "'features', 'fixture', 'export', 'tabular', 'raster', 'tiff' and 'pyramid'."),
         };
     }
 
@@ -1128,29 +1128,6 @@ internal static class Program
     }
 
     /// <summary>
-    /// Writes one layer to GeoParquet.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>GeoParquet because [Q-74] chose it, and the choice carries two things GeoJSON does not.</b>
-    /// The column types survive — our GeoJSON path infers them by scanning every feature, and a
-    /// geodatabase already knows them — and the coordinate reference travels inside the file as
-    /// PROJJSON with its authority code. Nothing has to ask the operator for an `srid`.
-    /// </para>
-    /// <para>
-    /// <b>`VectorTranslate` rather than a feature loop.</b> It is `ogr2ogr` as a library call: the same
-    /// code path, without the process, and without us reimplementing type mapping that GDAL has
-    /// already argued about for twenty years.
-    /// </para>
-    /// <para>
-    /// <b>Z is dropped by the Parquet writer and it says so.</b> GDAL emits *"attempt to write Z
-    /// geometries to layer … Z component will be discarded"*, and most of the owner's real layers are
-    /// 3D. [ADR-024] condition 5's rule is that a loss is reported at the moment of the loss, so the
-    /// messages are captured and returned rather than left on stderr for a log nobody reads while the
-    /// operator is told the import worked.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// The geometry type a File Geodatabase layer is made with, when the staged layer has none: its family's multipart
     /// type, from its first geometry — or null, when GDAL already knows the type.
     /// </summary>
@@ -1382,89 +1359,6 @@ internal static class Program
             {
                 File.Delete(scratch);
             }
-        }
-    }
-
-    private static object Convert(string archive, string layer, string output)
-    {
-        if (File.Exists(output))
-        {
-            File.Delete(output);
-        }
-
-        List<string> said = [];
-
-        _messages = said;
-
-        try
-        {
-            Stopwatch clock = Stopwatch.StartNew();
-
-            using (Dataset input = Gdal.OpenEx(Vsi(archive), 0, null, null, null))
-            {
-                if (input is null)
-                {
-                    throw new InvalidOperationException($"GDAL could not open '{archive}'.");
-                }
-
-                using Dataset written = Gdal.wrapper_GDALVectorTranslateDestName(
-                    output,
-                    input,
-                    new GdalVectorTranslateOptions(
-                        ["-f", "Parquet", "-lco", "GEOMETRY_ENCODING=WKB", layer]),
-                    null,
-                    null);
-
-                if (written is null)
-                {
-                    throw new InvalidOperationException(
-                        $"GDAL refused to convert '{layer}'. {string.Join(" ", said)}");
-                }
-            }
-
-            clock.Stop();
-
-            // <b>Measured after the dataset is disposed, because it buffers until it closes.</b> The
-            // first version of this measurement read the file inside the `using` block and reported
-            // 0 KB for a conversion that had worked.
-            long bytes = new FileInfo(output).Length;
-
-            return new
-            {
-                ok = true,
-                layer,
-                @out = output,
-                bytes,
-                milliseconds = (long)clock.Elapsed.TotalMilliseconds,
-                warnings = said,
-            };
-        }
-        catch
-        {
-            // <b>GDAL creates the output before it fails, so a refusal leaves a file behind.</b>
-            // Measured: a layer name that does not exist is refused with GDAL's own message *and*
-            // leaves a 0-byte Parquet in the scratch directory. ADR-037 condition 6 says the scratch
-            // file goes whether the job succeeds or fails, and this is the half of that which belongs
-            // to the reader rather than to the host.
-            if (File.Exists(output))
-            {
-                try
-                {
-                    File.Delete(output);
-                }
-                catch (IOException swept)
-                {
-                    // A file we cannot remove is worth saying so about and not worth failing twice for:
-                    // the original refusal is the one the caller needs.
-                    Console.Error.WriteLine($"could not remove {output}: {swept.Message}");
-                }
-            }
-
-            throw;
-        }
-        finally
-        {
-            _messages = null;
         }
     }
 
