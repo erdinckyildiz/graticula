@@ -161,7 +161,7 @@ formats), [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) (w
 1. **CI's image build verifies what this machine could not.** The release and quickstart jobs build the image for
    amd64 and arm64; the build fails unless `/app/importer/gdal/linux-{x64,arm64}/lib/libgdal.so.39` exist, the
    licences file is there, and no file named Poppler, PDFium or librttopo is anywhere under `/app`. Discharged when a
-   green release run is recorded here with the image size beside 1.0.491's.
+   green release run is recorded here with the image size beside 1.0.491's. **DISCHARGED 2026-11-01**: release run 41296322182 (v1.0.492) green on amd64 and arm64 with every check above; the arm64 image is 747 MB against 1.0.491's 829 MB; on the showcase, `find /app -iname '*poppler*'` finds nothing, `ldd` resolves every library of `libgdal.so.39`, and the reader answers `{"op":"ping"}` with GDAL 3.13.3.
 2. **The conformance suite's imagery test passes against an image built from this**, not only against a Windows
    fixture: JPEG 2000, NetCDF, the ASCII grid, and the PDF and MrSID refusals.
 
