@@ -12,7 +12,8 @@ Steps: baseline (the imports alone), make (a 9-burst IW SLC, 13,500 x 21,000 com
 secondary (the debursted scene again on an orbit 150 m away, noise added), coherence, interferogram, goldstein,
 coregister (both as stripmap, through hard links: TOPS is refused), multilook, sigma0, dark, bright, winds, flatten
 (on a 1,500-row strip of the multilooked scene: memory is per block, time is per facet), unwrap-<rows> (a square
-interferogram of rows x rows, the solver being global), watchdog (allocates until it is stopped)."""
+interferogram of rows x rows, the solver being global), unwrapifg (the whole interferogram, at looks past
+UNWRAP_CELLS, D-357), watchdog (allocates until it is stopped)."""
 import ctypes
 import ctypes.wintypes as wt
 import os
@@ -143,6 +144,9 @@ if not os.path.exists(p("dem.tif")):
     F.dem(p("dem.tif"), west - 0.02, south - 0.02, east + 0.02, north + 0.02,
           lambda x, y: 400 + 250 * np.sin(x * 800) * np.cos(y * 600), cell=0.00027)
 arcpy.ia.ApplyRadiometricTerrainFlattening(p("b0strip.tif"), p("rtf.tif"), p("dem.tif"), "NONE")
+""",
+    "unwrapifg": """
+arcpy.ia.UnwrapPhase(p("ifg.tif"), p("unw.tif"))
 """,
     "unwrap": """
 import sar_fixture as F

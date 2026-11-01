@@ -1600,9 +1600,7 @@ def _cost(in_source_data, in_cost_raster, tool, extra):
     import heapq
     extra = dict(extra)
     field = extra.pop("__field__", None)
-    direction = str(extra.pop("source_direction", None) or "FROM_SOURCE").upper()
-    if direction not in ("FROM_SOURCE", "TO_SOURCE"):
-        _refuse(tool, "source_direction", direction, "a field of travel directions is not built")
+    source_direction = extra.pop("source_direction", None)
     cost = as_raster(in_cost_raster, tool)
     g = cost._grid
     if not math.isclose(g.width, g.height):
@@ -1618,16 +1616,19 @@ def _cost(in_source_data, in_cost_raster, tool, extra):
         sources, values = ~empty, burnt
     c = cost._array.astype(np.float64)
     barrier = cost._mask
-    traits = _pathdist.source_traits(tool, in_source_data, g, direction, *(extra.get(name) for name in (
+    direction = _pathdist.travel_directions(tool, source_direction, in_source_data, g)
+    traits = _pathdist.source_traits(tool, in_source_data, g, "FROM_SOURCE", *(extra.get(name) for name in (
         "source_cost_multiplier", "source_start_cost", "source_resistance_rate", "source_capacity")))
     if traits is not None:
         # The legacy source characteristics (D-332): the same expansion, on _pathdist's, with each step's cost as
         # this tool's own — the mean of the two cells' costs times the cell size, 1.414214 times that on a diagonal.
+        # A cost step is the same both ways, so the direction tells only how a resistance rate compounds.
         steps = []
         for dr, dk in _pathdist.NEIGHBOURS:
             there = _pathdist._shift(c, dr, dk, np.nan)
             steps.append((c + there) / 2 * g.width * (1.414214 if dr and dk else 1.0))
-        total, origin, back = _pathdist._dijkstra(sources & ~barrier, barrier, steps, traits=traits)
+        total, origin, back = _pathdist.expand(tool, in_source_data, g, sources & ~barrier, barrier,
+                                               lambda _to_source: steps, direction, extra)
         return total, origin, back, ~np.isfinite(total) | barrier, values, g
     rows, columns = c.shape
     total = np.full(c.shape, np.inf)

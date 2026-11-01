@@ -372,6 +372,16 @@ def horizons(z, cell_w, cell_h, rows, cols, base, directions):
     ``tools/pro-compare/adr243-solar-horizon.py``)."""
     rows, cols = np.asarray(rows, float), np.asarray(cols, float)
     base = np.broadcast_to(np.asarray(base, float), rows.shape)
+    if rows.size and rows.size * 4 >= z.size and np.array_equal(rows, np.rint(rows)) and \
+            np.array_equal(cols, np.rint(cols)):
+        return _horizons_on_the_grid(z, cell_w, cell_h, rows, cols, base, directions)
+    return _horizons_traced(z, cell_w, cell_h, rows, cols, base, directions)
+
+
+def _horizons_traced(z, cell_w, cell_h, rows, cols, base, directions, start=1, live_of=None, best_of=None):
+    """``horizons`` location by location, the ray's cells gathered for the locations still live. ``start``,
+    ``live_of`` and ``best_of`` take over rays ``_horizons_on_the_grid`` began: the step to go on from, and per
+    direction the locations still live and their horizon so far."""
     step = min(cell_w, cell_h)
     reach = int(math.ceil(math.hypot(z.shape[0] * cell_h, z.shape[1] * cell_w) / step)) + 1
     bad = np.isnan(z)
@@ -384,9 +394,11 @@ def horizons(z, cell_w, cell_h, rows, cols, base, directions):
     for k in range(int(directions)):
         a = math.radians(k * 360.0 / directions)
         dr, dc = -math.cos(a) * step / cell_h, math.sin(a) * step / cell_w
-        best = np.zeros(rows.size)
-        live = np.arange(rows.size)
-        for s in range(1, reach + 1):
+        best = np.zeros(rows.size) if best_of is None else best_of[k]
+        live = np.arange(rows.size) if live_of is None else live_of[k]
+        for s in range(start if live_of is None else start[k], reach + 1):
+            if not live.size:
+                break
             r, c = rows[live] + dr * s, cols[live] + dc * s
             inside = (r >= 0) & (r <= last_r) & (c >= 0) & (c <= last_c)
             if not inside.all():
@@ -407,6 +419,98 @@ def horizons(z, cell_w, cell_h, rows, cols, base, directions):
                 if not live.size:
                     break
         out[:, k] = best
+    return out
+
+
+def _horizons_on_the_grid(z, cell_w, cell_h, rows, cols, base, directions):
+    """``horizons`` for locations at cell centres covering much of the grid (Area Solar Radiation's every cell),
+    computed a whole step of every ray at once (D-334): every ray's s-th step lands the same whole number of rows
+    and columns from its cell, so the step's heights are a shifted slice of the grid and its distance one number,
+    where the traced form gathered both cell by cell. The arithmetic of each angle is the traced form's — the same
+    offsets by ``np.rint`` of the same sums, the same distance, ``arctan2`` and ``degrees`` — and a ray is dropped
+    at the same step, by the same edge and bound tests, so the answer is the same doubles (``test_performance_answers``
+    holds the two equal). Once fewer than a twentieth of the rays are live they are gathered as before; a step whose
+    offset is not one shift for every row or column (an ``np.rint`` tie) is gathered too."""
+    n_rows, n_cols = z.shape
+    step = min(cell_w, cell_h)
+    reach = int(math.ceil(math.hypot(z.shape[0] * cell_h, z.shape[1] * cell_w) / step)) + 1
+    bad = np.isnan(z)
+    top = float(np.nanmax(z)) if np.isfinite(z).any() else 0.0
+    last_r, last_c = n_rows - 1, n_cols - 1
+    ri0, ci0 = rows.astype(np.int64), cols.astype(np.int64)
+    where = np.full(z.shape, -1, np.int64)
+    where[ri0, ci0] = np.arange(rows.size)
+    located = where >= 0
+    base_grid = np.zeros(z.shape)
+    base_grid[ri0, ci0] = base
+    every_row, every_col = np.arange(n_rows, dtype=float), np.arange(n_cols, dtype=float)
+    out = np.zeros((rows.size, int(directions)))
+    starts, lives, bests = [], [], []
+    for k in range(int(directions)):
+        a = math.radians(k * 360.0 / directions)
+        dr, dc = -math.cos(a) * step / cell_h, math.sin(a) * step / cell_w
+        best = np.zeros(z.shape)
+        ratio = np.zeros(z.shape)          # the rise over the distance of each cell's best angle so far
+        alive = located.copy()
+        count = int(alive.sum())
+        s = 1
+        while s <= reach and count:
+            if count * 20 < rows.size:
+                break
+            r_at, c_at = every_row + dr * s, every_col + dc * s
+            r_in = (r_at >= 0) & (r_at <= last_r)
+            c_in = (c_at >= 0) & (c_at <= last_c)
+            if not r_in.any() or not c_in.any():
+                count = 0
+                break
+            r_target = np.rint(r_at).astype(np.int64)
+            c_target = np.rint(c_at).astype(np.int64)
+            r_range, c_range = np.flatnonzero(r_in), np.flatnonzero(c_in)
+            r0, r1, c0, c1 = r_range[0], r_range[-1] + 1, c_range[0], c_range[-1] + 1
+            shift_r = np.unique(r_target[r0:r1] - np.arange(r0, r1))
+            shift_c = np.unique(c_target[c0:c1] - np.arange(c0, c1))
+            if shift_r.size != 1 or shift_c.size != 1:
+                break      # a tie in np.rint: this step and the rest are gathered as before
+            if r0 > 0 or r1 < n_rows or c0 > 0 or c1 < n_cols:
+                inside = np.zeros(z.shape, bool)
+                inside[r0:r1, c0:c1] = True
+                alive &= inside
+            sr, sc = int(shift_r[0]), int(shift_c[0])
+            distance = float(np.hypot(sr * cell_h, sc * cell_w))
+            distance = distance if distance > 0 else s * step
+            rise = z[r0 + sr:r1 + sr, c0 + sc:c1 + sc] - base_grid[r0:r1, c0:c1]
+            here = alive[r0:r1, c0:c1]
+            region, slope = best[r0:r1, c0:c1], ratio[r0:r1, c0:c1]
+            # Only a cell whose rise over the distance comes within a billionth of its best so far can raise its
+            # horizon: arctan2 errs by an ulp, far less, so every other angle is below the best and its maximum would
+            # change nothing. A NoData cell (NaN, an angle of 0) and a fall (an angle of at most 0, the horizon
+            # starting at 0) are never candidates. The candidates' angles are the traced form's own arithmetic.
+            with np.errstate(invalid="ignore"):
+                candidate = here & (rise > 0) & (rise > slope * (distance * (1 - 1e-9)))
+            if candidate.any():
+                gained = rise[candidate]
+                angle = np.degrees(np.arctan2(gained, np.full(gained.shape, distance)))
+                held = region[candidate]
+                raised = angle > held
+                region[candidate] = np.maximum(held, angle)
+                slope[candidate] = np.where(raised, gained / distance, slope[candidate])
+            if s % 8 == 0:
+                with np.errstate(invalid="ignore"):
+                    gain = np.degrees(np.arctan2(top - base_grid, (s - 1) * step)) > best
+                alive &= gain
+            count = int(alive.sum())
+            s += 1
+        starts.append(s)
+        lives.append(where[alive] if count else np.zeros(0, np.int64))
+        bests.append(best[ri0, ci0])
+        if not count:
+            out[:, k] = bests[-1]
+    if any(live.size for live in lives):
+        traced = _horizons_traced(z, cell_w, cell_h, rows, cols, base, directions, start=starts, live_of=lives,
+                                  best_of=bests)
+        for k, live in enumerate(lives):
+            if live.size:
+                out[:, k] = traced[:, k]
     return out
 
 

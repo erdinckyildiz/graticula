@@ -108,6 +108,8 @@ class Migrations(_Workspace):
         fc = self.points(rows=[("a", "", (0, 0))])
         self.assertEqual(str(arcpy.management.MigrateObjectIDTo64Bit([fc])), fc)
         connection = sqlite3.connect(self.gpkg)
+        from grapy import _gpkg
+        _gpkg.functions(connection)  # a writer of a file with Annex F.3's index has its functions (D-340)
         connection.execute("insert into pts (fid, name) values (?, 'big')", (2 ** 40 + 7,))
         connection.commit()
         connection.close()

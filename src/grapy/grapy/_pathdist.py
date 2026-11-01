@@ -538,17 +538,120 @@ def _dijkstra(sources, barrier, steps, start=None, traits=None):
     return total, origin, back
 
 
+def _dijkstra_compounding(sources, barrier, steps, traits):
+    """The least accumulated cost travelling FROM_SOURCE with a resistance rate, as *How the source characteristics
+    affect cost distance analysis* gives it for a path of five cells, ``a5 = c1 + c2(1+r) + c3(1+r)^2 + c4(1+r)^3 +
+    c5(1+r)^4``: the i-th step from the source costs its step times the cost multiplier times ``(1+r)^(i-1)``, on top
+    of the source's start cost (D-332).
+
+    A cell's least cost no longer follows from its neighbour's least cost, since a route of more cells pays more on
+    every later step; so each cell keeps labels (cost, cells from the source), settled cheapest-first, and a label is
+    dropped when one already settled at that cell has as few cells or fewer — it then costs no less and compounds no
+    more (multi-criteria label setting, Martins 1984, *On a multicriteria shortest path problem*, EJOR 16(2)). Labels
+    are compared within one source's characteristics, since a different multiplier or rate changes what a cell count
+    costs later. The first label settled at a cell is its least cost over every route — the least the page leaves
+    unsaid, taken as the minimum (INFERRED, ADR-241 §5.10) — and its source and back link are that route's."""
+    rows, columns = sources.shape
+    total = np.full(sources.shape, np.inf)
+    origin = np.full(sources.shape, -1, np.int64)
+    back = np.zeros(sources.shape, np.int32)
+    chosen = sources & ~barrier
+    uniform = all(np.unique(traits[key][chosen]).size <= 1 for key in ("multiplier", "rate", "capacity"))
+    fewest = {}
+    heap = []
+    for r, k in zip(*np.nonzero(chosen)):
+        heapq.heappush(heap, (float(traits["start"][r, k]), r * columns + k, 0, r, k, r * columns + k, 0))
+    while heap:
+        value, _, n, r, k, o, code = heapq.heappop(heap)
+        key = (r, k) if uniform else (r, k, o)
+        if fewest.get(key, n + 1) <= n:
+            continue
+        fewest[key] = n
+        if not math.isfinite(total[r, k]):
+            total[r, k], origin[r, k], back[r, k] = value, o, code
+        sr, sk = divmod(o, columns)
+        multiplier, capacity = traits["multiplier"][sr, sk], traits["capacity"][sr, sk]
+        growth = (1.0 + traits["rate"][sr, sk]) ** n
+        for index, (dr, dk) in enumerate(NEIGHBOURS):
+            nr, nk = r + dr, k + dk
+            if not (0 <= nr < rows and 0 <= nk < columns) or barrier[nr, nk]:
+                continue
+            step = steps[index][r, k]
+            if not math.isfinite(step):
+                continue
+            reached = value + step * multiplier * growth
+            if reached > capacity:
+                continue
+            if fewest.get((nr, nk) if uniform else (nr, nk, o), n + 2) <= n + 1:
+                continue
+            heapq.heappush(heap, (reached, nr * columns + nk, n + 1, nr, nk, o, NEIGHBOURS.index((-dr, -dk)) + 1))
+    return total, origin, back
+
+
+def _combine(results):
+    """Per cell, the cheapest of several expansions (total, origin, back) over disjoint sources; of equal costs the
+    first. Sources travelling FROM_SOURCE and TO_SOURCE are expanded apart and joined so (INFERRED, ADR-241 §5.10):
+    each source's own expansion is unchanged, and a cell takes its cheapest source as it would in one expansion."""
+    total, origin, back = (np.array(a, copy=True) for a in results[0])
+    for other_total, other_origin, other_back in results[1:]:
+        better = other_total < total
+        total[better], origin[better], back[better] = other_total[better], other_origin[better], other_back[better]
+    return total, origin, back
+
+
+def travel_directions(tool, source_direction, in_source_data, grid):
+    """``FROM_SOURCE`` or ``TO_SOURCE`` for every source, or — where ``source_direction`` names a field of the source
+    features holding one of those two words for each, as the tool pages allow — a boolean array over the grid, True on
+    the cells of sources that travel TO_SOURCE. A field whose sources all say the same answers that word."""
+    sa = _sa()
+    word = str(source_direction or "FROM_SOURCE").strip().upper()
+    if word in ("FROM_SOURCE", "TO_SOURCE"):
+        return word
+    if sa._is_raster(in_source_data):
+        sa._refuse(tool, "source_direction", source_direction, "a field of travel directions is read from source "
+                                                               "features; a raster source has none")
+    from . import da
+    try:
+        with da.SearchCursor(in_source_data, ["OID@", str(source_direction)]) as rows:
+            said = {int(oid): str(value or "").strip().upper() for oid, value in rows}
+    except Exception as problem:
+        raise ValueError(f"{tool}: source_direction '{source_direction}' is neither FROM_SOURCE, TO_SOURCE nor a field "
+                         f"of the source features ({problem}).") from problem
+    wrong = sorted({v for v in said.values() if v not in ("FROM_SOURCE", "TO_SOURCE")})
+    if wrong:
+        raise ValueError(f"{tool}: the field '{source_direction}' must hold FROM_SOURCE or TO_SOURCE, not "
+                         f"{', '.join(repr(v) for v in wrong)}.")
+    if len(set(said.values())) == 1:
+        return next(iter(said.values()))
+    burnt, empty, _ = sa._rasterize_any(in_source_data, grid)
+    towards = [oid for oid, value in said.items() if value == "TO_SOURCE"]
+    return np.isin(burnt, towards) & ~empty
+
+
+def expand(tool, in_source_data, grid, sources, barrier, steps_for, direction, extra):
+    """The legacy expansion every cost and path distance tool shares: ``steps_for(to_source)`` answers the eight step
+    arrays for a travel direction; ``direction`` is ``travel_directions``'s answer; ``extra`` holds the four source
+    characteristics. A FROM_SOURCE resistance rate takes ``_dijkstra_compounding``; anything else ``_dijkstra``."""
+    def run(subset, word):
+        traits = source_traits(tool, in_source_data, grid, word, *(extra.get(name) for name in _PATH_SOURCE))
+        steps = steps_for(word == "TO_SOURCE")
+        if traits is not None and word != "TO_SOURCE" and (traits["rate"][subset & ~barrier] != 0).any():
+            return _dijkstra_compounding(subset, barrier, steps, traits)
+        return _dijkstra(subset, barrier, steps, traits=traits)
+
+    if isinstance(direction, str):
+        return run(sources, direction)
+    return _combine([run(sources & chosen, word) for word, chosen in (("FROM_SOURCE", ~direction),
+                                                                     ("TO_SOURCE", direction))
+                     if (sources & chosen).any()])
+
+
 def source_traits(tool, in_source_data, grid, direction, multiplier=None, start=None, rate=None, capacity=None):
     """The legacy source characteristics as arrays over the grid — one value for every source, or a field of the
     source features read source by source — or None when none is given. INFERRED (D-332, Q-223 (d)): a multiplier and a capacity
     must be greater than 0, a start cost and a resistance rate at least 0, as the page's examples are; a route equal to
-    its capacity is within it ("continues to grow until the capacity ... is reached").
-
-    Refused: a resistance rate travelling FROM_SOURCE. The page gives that form for one path of five cells,
-    ``a5 = c1 + c2(1+r) + c3(1+r)^2 + c4(1+r)^3 + c5(1+r)^4``: each cell's cost compounded by its count of cells from
-    the source. A cell's least cost is then not a function of its neighbour's least cost — a longer, cheaper route can
-    lose to a shorter, dearer one further on — so the expansion every cost distance tool documents cannot find it, and
-    the page does not say how the tool takes the least over routes of different lengths."""
+    its capacity is within it ("continues to grow until the capacity ... is reached"). A resistance rate travelling
+    FROM_SOURCE is ``_dijkstra_compounding``'s (D-332)."""
     sa = _sa()
     given = {name: value for name, value in (("source_cost_multiplier", multiplier), ("source_start_cost", start),
                                              ("source_resistance_rate", rate), ("source_capacity", capacity))
@@ -566,11 +669,6 @@ def source_traits(tool, in_source_data, grid, direction, multiplier=None, start=
         values = traits[key][np.isfinite(traits[key])]
         if name in given and len(values) and ((values <= low).any() if strict else (values < low).any()):
             raise ValueError(f"{tool}: {name} must be {'greater than' if strict else 'at least'} {low:g}.")
-    if direction != "TO_SOURCE" and (traits["rate"] != 0).any():
-        sa._refuse(tool, "source_resistance_rate", rate, "travelling FROM_SOURCE compounds each cell's cost by its count "
-                   "of cells from the source, so a cell's least cost does not follow from its neighbour's and the page "
-                   "does not say how the least over routes of different lengths is taken; with TO_SOURCE it is built "
-                   "(D-332)")
     return traits
 
 
@@ -582,13 +680,11 @@ def _path(tool, in_source_data, in_cost_raster, in_surface_raster, in_horizontal
     from ._raster import _refuse_environment
     sa = _sa()
     _refuse_environment(f"arcpy.sa.{tool}")
-    direction = str(source_direction or "FROM_SOURCE").upper()
-    if direction not in ("FROM_SOURCE", "TO_SOURCE"):
-        sa._refuse(tool, "source_direction", source_direction, "a field of travel directions is not built")
     cost, surface, horizontal, vertical = (_optional_raster(v, tool) for v in (
         in_cost_raster, in_surface_raster, in_horizontal_raster, in_vertical_raster))
     grid = _place([cost, surface, vertical, horizontal], in_source_data, tool, 250, False)
     sources, values = _source_cells(in_source_data, grid, tool, field)
+    direction = travel_directions(tool, source_direction, in_source_data, grid)
     barrier = np.zeros(sources.shape, bool)
     for raster in (cost, surface, horizontal, vertical):
         if raster is not None:
@@ -600,10 +696,10 @@ def _path(tool, in_source_data, in_cost_raster, in_surface_raster, in_horizontal
     def array(raster, fill=0.0):
         return None if raster is None else np.where(raster._mask, fill, raster._array.astype(np.float64))
 
-    steps = _steps(array(cost, np.nan) if cost is not None else np.ones(sources.shape), array(surface),
-                   array(vertical), vf, array(horizontal, -1.0), hf, direction == "TO_SOURCE", grid.width, meters)
-    traits = source_traits(tool, in_source_data, grid, direction, *(extra.get(name) for name in _PATH_SOURCE))
-    total, origin, back = _dijkstra(sources, barrier, steps, traits=traits)
+    def steps_for(to_source):
+        return _steps(array(cost, np.nan) if cost is not None else np.ones(sources.shape), array(surface),
+                      array(vertical), vf, array(horizontal, -1.0), hf, to_source, grid.width, meters)
+    total, origin, back = expand(tool, in_source_data, grid, sources, barrier, steps_for, direction, extra)
     unreached = ~np.isfinite(total) | barrier
     return total, origin, back, unreached, values, grid
 
@@ -710,10 +806,14 @@ def _thicken(barrier):
 class _Field:
     """The rasters the effective slope ``C · S · M · HF · VF`` is read from, and how to read it along a direction."""
 
-    def __init__(self, cost, surface, vertical, vf, horizontal, hf, multiplier, to_source, cell, meters):
+    def __init__(self, cost, surface, vertical, vf, horizontal, hf, multiplier, to_source, cell, meters,
+                 hx=None, hy=None):
         self.cost, self.surface, self.vertical, self.vf = cost, surface, vertical, vf
         self.horizontal, self.hf, self.multiplier = horizontal, hf, multiplier
         self.to_source, self.cell, self.meters = to_source, cell, meters
+        # GEODESIC: each cell's east-west and north-south ground length in metres on the ellipsoid (``_geodesic_cells``);
+        # None on a plane, where every cell is ``cell`` square.
+        self.hx, self.hy = hx, hy
 
     def rate(self, r, k, azimuth, surface_slope, vertical_slope, owner):
         """The effective slope at cell (r, k) for motion on ``azimuth`` (away from the source), given the surface's
@@ -788,9 +888,13 @@ def _reconstruct(field, sources, barrier, start, maximum):
     # raster or a factor Pro's update is neither (D-336) and the quadrant steps stay.
     uniform = field.surface is not None and field.vf is None and field.hf is None and \
         float(np.nanmax(field.cost)) == float(np.nanmin(field.cost))
+    # GEODESIC without a factor: the same eight-triangle update, on each cell's own metres east and north, which is
+    # exact where the metric and the cost are locally even; the quadrant steps were up to 9 % long on cells half as
+    # wide as they are tall (60° N), where their first-order error grows with the cells' aspect.
+    uniform = uniform or (field.hx is not None and field.vf is None and field.hf is None)
 
     def triangles(r, k, best, best_owner, best_back):
-        zc = float(field.surface[r, k])
+        zc = 0.0 if field.surface is None else float(field.surface[r, k])
         for (ar, ak), (br, bk) in _TRIANGLES:
             if not (0 <= r + ar < rows and 0 <= k + ak < columns and 0 <= r + br < rows and 0 <= k + bk < columns):
                 continue
@@ -800,8 +904,11 @@ def _reconstruct(field, sources, barrier, start, maximum):
             o = owner[r + ar, k + ak] if ta <= tb else owner[r + br, k + bk]
             rate = field.cost[r, k] * field.multiplier[o]
             # offsets east, north and up, the cost per unit of surface length folded into them
-            pa = (ak * h * rate, -ar * h * rate, (float(field.surface[r + ar, k + ak]) - zc) * rate)
-            pb = (bk * h * rate, -br * h * rate, (float(field.surface[r + br, k + bk]) - zc) * rate)
+            ex, ny = (h, h) if field.hx is None else (field.hx[r, k], field.hy[r, k])
+            za = 0.0 if field.surface is None else float(field.surface[r + ar, k + ak]) - zc
+            zb = 0.0 if field.surface is None else float(field.surface[r + br, k + bk]) - zc
+            pa = (ak * ex * rate, -ar * ny * rate, za * rate)
+            pb = (bk * ex * rate, -br * ny * rate, zb * rate)
             value, t = _over_edge(ta, tb, pa, pb)
             if value < best and value <= maximum[o]:
                 east, north = ak * (1 - t) + bk * t, -(ar * (1 - t) + br * t)
@@ -815,7 +922,8 @@ def _reconstruct(field, sources, barrier, start, maximum):
             nr, nk = r + dr, k + dk
             if not (0 <= nr < rows and 0 <= nk < columns) or not done[nr, nk]:
                 continue
-            run = h * (DIAGONAL if dr and dk else 1.0)
+            run = h * (DIAGONAL if dr and dk else 1.0) if field.hx is None else \
+                math.hypot(dk * field.hx[r, k], dr * field.hy[r, k])
             o = owner[nr, nk]
             rate = field.rate(r, k, _azimuth(-dr, -dk), rise(field.surface, r, k, dr, dk) / run,
                               rise(field.vertical, r, k, dr, dk) / run, o)
@@ -833,13 +941,25 @@ def _reconstruct(field, sources, barrier, start, maximum):
                 o = owner[ar, ak] if ta <= tb else owner[br, bk]
                 rate = field.cost[r, k] * field.multiplier[o]
                 value = None
+                ex, ny = (h, h) if field.hx is None else (field.hx[r, k], field.hy[r, k])
                 for _ in range(3):
-                    disc = 2.0 * (rate * h) ** 2 - (ta - tb) ** 2
-                    if not math.isfinite(rate) or disc < 0:
-                        value = None
-                        break
-                    value = (ta + tb + math.sqrt(disc)) / 2.0
-                    east, north = -dk * (value - ta) / h, dr * (value - tb) / h
+                    if field.hx is None:
+                        disc = 2.0 * (rate * h) ** 2 - (ta - tb) ** 2
+                        if not math.isfinite(rate) or disc < 0:
+                            value = None
+                            break
+                        value = (ta + tb + math.sqrt(disc)) / 2.0
+                    else:
+                        # The Eikonal step on a rectangle ex by ny (Sethian 1999 §8.2's update with unequal spacings):
+                        # ((T - ta) / ex)^2 + ((T - tb) / ny)^2 = rate^2.
+                        qa, qb = 1.0 / (ex * ex), 1.0 / (ny * ny)
+                        half_b = ta * qa + tb * qb
+                        disc = half_b * half_b - (qa + qb) * (ta * ta * qa + tb * tb * qb - rate * rate)
+                        if not math.isfinite(rate) or disc < 0:
+                            value = None
+                            break
+                        value = (half_b + math.sqrt(disc)) / (qa + qb)
+                    east, north = -dk * (value - ta) / ex, dr * (value - tb) / ny
                     norm = math.hypot(east, north)
                     if norm == 0:
                         break
@@ -849,7 +969,8 @@ def _reconstruct(field, sources, barrier, start, maximum):
                     def along(raster):
                         if raster is None:
                             return 0.0
-                        return (-dk * (raster[r, k] - raster[ar, ak]) * ue + dr * (raster[r, k] - raster[br, bk]) * un) / h
+                        return (-dk * (raster[r, k] - raster[ar, ak]) * ue / ex
+                                + dr * (raster[r, k] - raster[br, bk]) * un / ny)
 
                     new = field.rate(r, k, azimuth, along(field.surface), along(field.vertical), o)
                     if field.surface is None and field.vf is None and field.hf is None:
@@ -901,21 +1022,81 @@ def _straight_line(sources, maximum, cell):
     return total, owner, back
 
 
+def _geodesic_cells(grid, tool):
+    """Each cell's east-west and north-south length in metres on the ellipsoid of the grid's coordinate system: the
+    geodesic between the midpoints of its west and east edges, and of its north and south edges (pyproj's Geod, Karney
+    2013, *Algorithms for geodesics*). The ``GEODESIC`` reconstruction measures its steps by them (INFERRED, ADR-241
+    §5.10: the page says only that the distance is calculated on the ellipsoid)."""
+    sa = _sa()
+    if not grid.srid:
+        sa._refuse(tool, "distance_method", "GEODESIC", "a geodesic distance needs the data's coordinate system")
+    from pyproj import CRS, Transformer
+    crs = CRS.from_epsg(grid.srid)
+    geod = crs.get_geod()
+    to_geographic = Transformer.from_crs(crs, crs.geodetic_crs, always_xy=True)
+    r, k = np.indices((grid.rows, grid.columns), dtype=np.float64)
+    x, y = grid.left + (k + 0.5) * grid.width, grid.top - (r + 0.5) * grid.height
+
+    def length(x1, y1, x2, y2):
+        lon1, lat1 = to_geographic.transform(x1.ravel(), y1.ravel())
+        lon2, lat2 = to_geographic.transform(x2.ravel(), y2.ravel())
+        return np.asarray(geod.inv(lon1, lat1, lon2, lat2)[2], np.float64).reshape(x1.shape)
+    hx = length(x - grid.width / 2, y, x + grid.width / 2, y)
+    hy = length(x, y + grid.height / 2, x, y - grid.height / 2)
+    return hx, hy, crs, geod, to_geographic
+
+
+def _geodesic_line(sources, maximum, grid, tool):
+    """The plain case on the ellipsoid: each cell's geodesic distance in metres to its nearest source centre — the
+    nearest few by chord in earth-centred coordinates, then the exact geodesic to each (Karney 2013); the back
+    direction points at that source across the grid, as the planar case's does (INFERRED, ADR-241 §5.10)."""
+    from scipy.spatial import cKDTree
+    _, _, crs, geod, to_geographic = _geodesic_cells(grid, tool)
+    rows, columns = sources.shape
+    r, k = np.indices(sources.shape, dtype=np.float64)
+    lon, lat = to_geographic.transform((grid.left + (k + 0.5) * grid.width).ravel(),
+                                       (grid.top - (r + 0.5) * grid.height).ravel())
+    lon, lat = np.asarray(lon), np.asarray(lat)
+    a, f = geod.a, geod.f
+    e2 = f * (2 - f)
+    phi, lam = np.radians(lat), np.radians(lon)
+    n = a / np.sqrt(1 - e2 * np.sin(phi) ** 2)
+    xyz = np.column_stack([n * np.cos(phi) * np.cos(lam), n * np.cos(phi) * np.sin(lam), n * (1 - e2) * np.sin(phi)])
+    found = np.flatnonzero(sources.ravel())
+    total = np.full(rows * columns, np.inf)
+    owner = np.full(rows * columns, -1, np.int64)
+    if len(found):
+        nearest = min(len(found), 8)
+        _, which = cKDTree(xyz[found]).query(xyz, k=nearest)
+        which = which.reshape(len(xyz), nearest)
+        for column in range(nearest):
+            candidate = found[which[:, column]]
+            d = np.asarray(geod.inv(lon, lat, lon[candidate], lat[candidate])[2], np.float64)
+            better = (d < total) & (d <= maximum[candidate])
+            total[better], owner[better] = d[better], candidate[better]
+    total, owner = total.reshape(sources.shape), owner.reshape(sources.shape)
+    sr, sk = np.divmod(np.clip(owner, 0, None), columns)
+    back = np.degrees(np.arctan2(sk - k, r - sr)) % 360.0
+    back = np.where(back == 0, 360.0, back)
+    back = np.where(((sr == r) & (sk == k)) | (owner < 0), 0.0, back)
+    return total, owner, back
+
+
 def _accumulate(tool, in_source_data, in_barrier_data, in_surface_raster, in_cost_raster, in_vertical_raster,
                 vertical_factor, in_horizontal_raster, horizontal_factor, source_initial_accumulation,
                 source_maximum_accumulation, source_cost_multiplier, source_direction, distance_method, field=None):
     from ._raster import _refuse_environment
     sa = _sa()
     _refuse_environment(f"arcpy.sa.{tool}")
-    if str(distance_method or "PLANAR").upper() != "PLANAR":
-        sa._refuse(tool, "distance_method", distance_method, "the geodesic reconstruction is not built")
-    direction = str(source_direction or "FROM_SOURCE").upper()
-    if direction not in ("FROM_SOURCE", "TO_SOURCE"):
-        sa._refuse(tool, "source_direction", source_direction, "a field of travel directions is not built")
+    method = str(distance_method or "PLANAR").strip().upper()
+    if method not in ("PLANAR", "GEODESIC"):
+        raise ValueError(f"{tool}: distance_method must be PLANAR or GEODESIC, not '{distance_method}'.")
+    geodesic = method == "GEODESIC"
     cost, surface, vertical, horizontal = (_optional_raster(v, tool) for v in (
         in_cost_raster, in_surface_raster, in_vertical_raster, in_horizontal_raster))
     grid = _place([cost, surface, vertical, horizontal], in_source_data, tool, 1000, True, in_barrier_data)
     sources, values = _source_cells(in_source_data, grid, tool, field)
+    direction = travel_directions(tool, source_direction, in_source_data, grid)
     barrier = np.zeros(sources.shape, bool)
     for raster in (cost, surface, vertical, horizontal):
         if raster is not None:
@@ -943,7 +1124,7 @@ def _accumulate(tool, in_source_data, in_barrier_data, in_surface_raster, in_cos
     c = np.where(c > 0, c, 1e-6)  # "negative or zero … treated as small positive cost values" (INFERRED: 1e-6)
     hf = _factor(horizontal_factor, "horizontal", tool) if horizontal is not None else None
     vf = _factor(vertical_factor, "vertical", tool) if vertical is not None else None
-    meters = _meters_per_unit(grid) if isinstance(vf, VfHikingTime) else 1.0
+    meters = _meters_per_unit(grid) if isinstance(vf, VfHikingTime) and not geodesic else 1.0
 
     def array(raster, fill=0.0):
         return None if raster is None else np.where(raster._mask, fill, raster._array.astype(np.float64))
@@ -952,11 +1133,20 @@ def _accumulate(tool, in_source_data, in_barrier_data, in_surface_raster, in_cos
                                         in_horizontal_raster, source_initial_accumulation, source_cost_multiplier,
                                         source_direction))
     if plain:
-        total, owner, back = _straight_line(sources, maximum, grid.width)
+        total, owner, back = (_geodesic_line(sources, maximum, grid, tool) if geodesic
+                              else _straight_line(sources, maximum, grid.width))
     else:
-        field_ = _Field(c, array(surface), array(vertical), vf, array(horizontal, -1.0), hf, multiplier,
-                        direction == "TO_SOURCE", grid.width, meters)
-        total, owner, back = _reconstruct(field_, sources, barrier, start, maximum)
+        hx, hy = _geodesic_cells(grid, tool)[:2] if geodesic else (None, None)
+
+        def run(subset, word):
+            field_ = _Field(c, array(surface), array(vertical), vf, array(horizontal, -1.0), hf, multiplier,
+                            word == "TO_SOURCE", grid.width, meters, hx, hy)
+            return _reconstruct(field_, subset, barrier, start, maximum)
+        if isinstance(direction, str):
+            total, owner, back = run(sources, direction)
+        else:
+            total, owner, back = _combine([run(sources & chosen, word) for word, chosen in (
+                ("FROM_SOURCE", ~direction), ("TO_SOURCE", direction)) if (sources & chosen).any()])
     mask = ~np.isfinite(total) | barrier
     return total, owner, back, mask, values, grid
 
@@ -1292,14 +1482,63 @@ def OptimalPathAsLine(in_destination_data, in_distance_accumulation_raster, in_b
                       create_network_paths="DESTINATIONS_TO_SOURCES"):
     """The optimal paths as lines from each destination to its source, traced as OptimalPathAsRaster traces them, with
     ``DestID`` the destination's value and ``PathCost`` the accumulated cost at the destination."""
-    if create_network_paths is True or str(create_network_paths).upper() in ("NETWORK_PATHS", "TRUE"):
-        _sa()._refuse("OptimalPathAsLine", "create_network_paths", create_network_paths,
-                      "the page does not say where overlapping paths are cut into a network")
+    network = create_network_paths is True or str(create_network_paths).upper() in ("NETWORK_PATHS", "TRUE")
     traces, values, distance, grid = _optimal("OptimalPathAsLine", in_destination_data,
                                               in_distance_accumulation_raster, in_back_direction_raster,
                                               destination_field, path_type)
+
+    def xy(points):
+        return [(grid.left + (k + 0.5) * grid.width, grid.top - (r + 0.5) * grid.height) for r, k in points]
     rows = []
-    for start, points, _ in traces:
-        xy = [(grid.left + (k + 0.5) * grid.width, grid.top - (r + 0.5) * grid.height) for r, k in points]
-        rows.append((int(values[start]), float(distance._array[start]), xy))
+    if network:
+        from ._runtime import AddWarning
+        AddWarning("OptimalPathAsLine's NETWORK_PATHS is an equivalent, not ArcGIS Pro's own computation: the paths "
+                   "cut into links where they join, as Stream Link cuts a raster network between junctions (the page "
+                   "says only that network paths do not overlap). Its links may differ from Pro's.")
+        for value, cost, points in _network_links(traces, values, distance):
+            rows.append((value, cost, xy(points)))
+    else:
+        for start, points, _ in traces:
+            rows.append((int(values[start]), float(distance._array[start]), xy(points)))
     return _write_paths(out_polyline_features, grid, rows, [("DestID", "Integer"), ("PathCost", "Double")])
+
+
+def _network_links(traces, values, distance):
+    """``NETWORK_PATHS``: the traced paths as a network that does not overlap — each stretch of a path that the same
+    destinations' paths share, between the points where paths join, written once, as *Stream Link* cuts a raster
+    stream network into its sections between intersections (INFERRED, ADR-241 §5.10). A link's ``DestID`` is the least
+    value of the destinations whose paths run along it, and its ``PathCost`` the accumulation at its upstream end, the
+    cell nearest the link's first point. Answers (DestID, PathCost, points) per link, upstream to downstream."""
+    def key(point):
+        return (round(point[0], 6), round(point[1], 6))
+    users = {}
+    for index, (_, points, _) in enumerate(traces):
+        for a, b in zip(points, points[1:]):
+            users.setdefault((key(a), key(b)), set()).add(index)
+    rows, columns = distance._array.shape
+    written, links = set(), []
+    for index, (_, points, _) in enumerate(traces):
+        current, group = [], None
+        for a, b in zip(points, points[1:]):
+            edge = (key(a), key(b))
+            if edge in written:
+                if len(current) > 1:
+                    links.append((group, current))
+                current, group = [], None
+                continue
+            written.add(edge)
+            if group is not None and users[edge] != group and len(current) > 1:
+                links.append((group, current))
+                current = []
+            if not current:
+                current = [a]
+            group = users[edge]
+            current.append(b)
+        if len(current) > 1:
+            links.append((group, current))
+    out = []
+    for group, points in links:
+        r = min(max(int(math.floor(points[0][0] + 0.5)), 0), rows - 1)
+        k = min(max(int(math.floor(points[0][1] + 0.5)), 0), columns - 1)
+        out.append((min(int(values[traces[i][0]]) for i in group), float(distance._array[r, k]), points))
+    return out

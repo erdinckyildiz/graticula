@@ -636,6 +636,52 @@ class ImageSpace(_Fixture):
             self.assertLess(first._shape.symmetric_difference(second._shape).area, 1e-9)
 
 
+@unittest.skipUnless(HAVE_TORCH, "torch is not installed in this Python")
+class StoppingBeforeTheCpuLimit(unittest.TestCase):
+    """D-341: under the fence's CPU limit, which kills rather than signals, training stops before an epoch that would
+    not leave the reserve to write the model, and keeps its best epoch's weights."""
+
+    def test_training_stops_an_epoch_early_with_its_best_weights(self):
+        import torch
+        clock = [0.0]
+        model = torch.nn.Linear(1, 1, bias=False)
+        losses = iter([5.0, 1.0] + [3.0 + k for k in range(100)])     # the second epoch is the best
+        weights = {}
+
+        def step(net, batch):
+            clock[0] += 10.0                                          # every epoch costs 10 s of CPU
+            return (net.weight ** 2).sum()
+
+        def evaluate(net, _valid):
+            return {"valid_loss": next(losses)}
+
+        def on_epoch(epoch, net, _scores):
+            weights[epoch] = float(net.weight.detach()[0, 0])
+
+        limit, used = dl.cpu_limit, dl._cpu_used
+        dl.cpu_limit, dl._cpu_used = (lambda: 100.0), (lambda: clock[0])
+        try:
+            history = dl.fit(model, lambda epoch: [None], [None], step, evaluate, 50, 0.1, early_stopping=False,
+                             on_epoch=on_epoch)
+        finally:
+            dl.cpu_limit, dl._cpu_used = limit, used
+        # Before epoch e (from 0) 10e s are used; another fits while 10e + 1.25 * 10 + 20 <= 100, so e <= 6.
+        self.assertEqual(len(history), 7)
+        self.assertAlmostEqual(float(model.weight.detach()[0, 0]), weights[2], places=6)
+
+    def test_no_limit_trains_every_epoch(self):
+        import torch
+        model = torch.nn.Linear(1, 1, bias=False)
+        limit = dl.cpu_limit
+        dl.cpu_limit = lambda: None
+        try:
+            history = dl.fit(model, lambda epoch: [None], [None], lambda net, b: (net.weight ** 2).sum(),
+                             lambda net, v: {"valid_loss": 1.0}, 9, 0.1, early_stopping=False)
+        finally:
+            dl.cpu_limit = limit
+        self.assertEqual(len(history), 9)
+
+
 @unittest.skipUnless(HAVE_TORCH and sys.platform == "linux", "the fence is Linux's; torch is needed")
 class TrainingInsideTheFence(unittest.TestCase):
     """ADR-248 §11 condition 2: a fenced tool imports torch and trains under the server's default limits."""
@@ -674,6 +720,48 @@ class TrainingInsideTheFence(unittest.TestCase):
                                   "limits": {"memory": 2 << 30, "processes": 1024}}, unfenced=False)
         self.assertTrue(result["ok"], result)
         self.assertTrue(result["fence"], result)
+
+    def test_a_fenced_training_stops_before_the_cpu_limit_kills_it(self):
+        """D-341: with a CPU limit of 45 s and epochs of about a second each, a thousand epochs would be killed by
+        the kernel with nothing written; training stops early instead, and the tool finishes."""
+        from test_grapy import _run
+        directory = tempfile.mkdtemp()
+        toolbox = textwrap.dedent('''
+            import time
+            import grapy as arcpy
+
+            class Toolbox:
+                def __init__(self):
+                    self.tools = [Learn]
+
+            class Learn:
+                def getParameterInfo(self):
+                    return []
+
+                def execute(self, parameters, messages):
+                    import torch
+                    from grapy import _deeplearning as dl
+                    model = torch.nn.Linear(4, 1)
+
+                    def step(net, batch):
+                        started = time.process_time()
+                        while time.process_time() - started < 1.0:
+                            pass
+                        return (net(torch.ones(1, 4)) ** 2).sum()
+
+                    history = dl.fit(model, lambda epoch: [None], [None], step,
+                                     lambda net, valid: {"valid_loss": 1.0}, 1000, 1e-3, early_stopping=False)
+                    messages.addMessage("trained %d epochs" % len(history))
+        ''')
+        with open(os.path.join(directory, "learn.pyt"), "w") as out:
+            out.write(toolbox)
+        result = _run(directory, {"mode": "run", "toolbox": "learn.pyt", "tool": "Learn",
+                                  "limits": {"memory": 2 << 30, "cpu": 45, "processes": 1024}}, unfenced=False)
+        self.assertTrue(result["ok"], result)
+        said = " ".join(m["description"] for m in result["messages"])
+        self.assertIn("training stops before the CPU limit", said)
+        trained = [m["description"] for m in result["messages"] if m["description"].startswith("trained ")]
+        self.assertTrue(trained and 0 < int(trained[0].split()[1]) < 45, said)
 
 
 if __name__ == "__main__":

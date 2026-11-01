@@ -377,6 +377,30 @@ class Interferometry(unittest.TestCase):
         self.assertLess(np.ptp(difference), 1e-3)
         self.assertAlmostEqual(difference.mean() / (2 * math.pi), round(difference.mean() / (2 * math.pi)), delta=1e-3)
 
+    def test_a_grid_past_the_solvers_limit_is_unwrapped_at_looks(self):
+        # D-357: an interferogram larger than UNWRAP_CELLS is unwrapped as its complex multilook and each cell takes
+        # the cycle nearest that coarse answer. On a smooth ramp it answers what the direct solver answers.
+        from grapy import _sartools
+        n, m = 60, 80
+        rows, cols = np.mgrid[0:n, 0:m]
+        ramp = 0.3 * cols + 0.15 * rows + 0.001 * cols * rows
+        path = F.write(os.path.join(self.dir, "big.tif"), {"VV": np.exp(1j * ramp).astype(np.complex64)},
+                       F.meta(rows=n, cols=m))
+        direct = os.path.join(self.dir, "direct.tif")
+        arcpy.ia.UnwrapPhase(path, direct)
+        limit = _sartools.UNWRAP_CELLS
+        _sartools.UNWRAP_CELLS = 1000      # 4,800 cells: three looks
+        try:
+            coarse = os.path.join(self.dir, "coarse.tif")
+            arcpy.ia.UnwrapPhase(path, coarse)
+        finally:
+            _sartools.UNWRAP_CELLS = limit
+        a, b = _read(direct).bands["VV"].astype(float), _read(coarse).bands["VV"].astype(float)
+        difference = b - ramp
+        self.assertLess(np.ptp(difference), 1e-3)
+        cycles = (b - a) / (2 * math.pi)
+        self.assertLess(np.max(np.abs(cycles - np.round(cycles))), 1e-3)   # the same, to whole cycles
+
     def test_unwrapping_masks_incoherent_cells(self):
         rng = np.random.default_rng(2)
         n, m = 30, 30
@@ -424,6 +448,36 @@ class Interferometry(unittest.TestCase):
         a = F.write(os.path.join(self.dir, "t.tif"), {"VV": np.ones((10, 10), np.complex64)}, m)
         with self.assertRaises(NotBuiltError):
             arcpy.ia.ApplyCoregistration(a, a, os.path.join(self.dir, "tc.tif"))
+
+
+class SpeedKeepsTheAnswer(unittest.TestCase):
+    """D-357: the faster paths answer what the ones they replaced did."""
+
+    def test_the_wind_inversion_finds_the_bisections_root(self):
+        from grapy import _sartools
+        rng = np.random.default_rng(357)
+        n = 20000
+        theta, phi, v = rng.uniform(20, 46, n), rng.uniform(-180, 180, n), rng.uniform(0.5, 30, n)
+        sigma = _sartools.cmod5n(v, phi, theta) * rng.uniform(0.9, 1.1, n)
+        sigma[:50], sigma[50:100] = 1e-10, 10.0      # beyond the range's ends
+        reference = _sartools._invert_cmod5n_bisection(sigma, phi, theta)
+        fast = _sartools.invert_cmod5n(sigma, phi, theta)
+        self.assertLess(float(np.max(np.abs(fast - reference))), 1e-8)
+        model = _sartools._Cmod5n(phi, theta)
+        self.assertTrue(np.array_equal(model.sigma(v), _sartools.cmod5n(v, phi, theta)))   # the same doubles
+
+    def test_goldstein_on_the_needed_patches_alone_is_the_same_doubles(self):
+        from grapy import _sartools
+        rng = np.random.default_rng(8)
+        clean = np.cumsum(rng.normal(0, 0.2, (90, 120)), axis=1)
+        z = np.exp(1j * (clean + np.where(np.arange(120)[None, :] > 60, rng.uniform(-3, 3, (90, 120)), 0)))
+        need = _sartools.effective_coherence(np.angle(z), 32) >= 0.3
+        self.assertTrue(0 < need.mean() < 1)
+        for patch in (8, 32):
+            whole = _sartools.goldstein(z, 0.5, patch)
+            for wanted in (need, ~need):
+                part = _sartools.goldstein(z, 0.5, patch, need=wanted)
+                self.assertTrue(np.array_equal(whole[wanted], part[wanted]))
 
 
 class Terrain(unittest.TestCase):

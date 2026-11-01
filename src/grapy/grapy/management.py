@@ -182,6 +182,7 @@ def Delete(in_data, data_type=None):
     else:
         connection = _gpkg.connect(file)
         _drop_models(connection, table)
+        _gpkg.drop_index(connection, table)
         connection.execute(f'drop table if exists "{table}"')
         _gpkg.forget(connection, table)
         connection.commit()
@@ -667,10 +668,14 @@ def Rename(in_data, out_data, data_type=None):
         if not connection.in_transaction:
             connection.execute("begin")
         connection.execute("pragma defer_foreign_keys = on")
+        # The RTree index is named after its table (Annex F.3), so it is made again under the new name (D-340).
+        indexed = _gpkg.drop_index(connection, table)
         connection.execute(f'alter table "{table}" rename to "{new}"')
         for meta in ("gpkg_contents", "gpkg_geometry_columns"):
             connection.execute(f"update {meta} set table_name = ? where table_name = ?", (new, table))
         connection.execute("update gpkg_contents set identifier = ? where table_name = ?", (new, new))
+        if indexed:
+            _gpkg.add_index(connection, new)
         # A class's attachments, global IDs and subtypes keep with it under its new name (ADR-228).
         _attachments.rename(connection, table, new)
         _subtypes.rename(connection, table, new)
@@ -2686,6 +2691,37 @@ def RecalculateFeatureClassExtent(in_features, store_extent="DO_NOT_STORE_EXTENT
     try:
         connection.execute("update gpkg_contents set min_x = ?, min_y = ?, max_x = ?, max_y = ? where table_name = ?",
                            (*bounds, table))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(str(in_features))
+
+
+def AddSpatialIndex(in_features, spatial_grid_1=None, spatial_grid_2=None, spatial_grid_3=None,
+                    spatial_index_type=None):
+    """A GeoPackage feature class given the RTree spatial index of GeoPackage 1.4 Annex F.3 (``_gpkg.add_index``): the
+    ``rtree_<table>_<column>`` table, its triggers and its ``gpkg_extensions`` row. The page's spatial grid sizes and
+    index type are an enterprise geodatabase's and a file geodatabase's; a GeoPackage has neither, so they are accepted
+    and change nothing. A class already indexed is left as it is (D-340)."""
+    path = _plain("AddSpatialIndex", in_features)
+    connection, table = _gpkg.table_of(path)
+    try:
+        if not _gpkg.add_index(connection, table):
+            from ._runtime import ExecuteError
+            raise ExecuteError(f"ERROR 000732: '{in_features}' is not a feature class; a table has no spatial index.")
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(str(in_features))
+
+
+def RemoveSpatialIndex(in_features):
+    """A GeoPackage feature class's RTree spatial index removed: its triggers, its ``rtree_`` table and its
+    ``gpkg_extensions`` row (``_gpkg.drop_index``). A class without one is left as it is."""
+    path = _plain("RemoveSpatialIndex", in_features)
+    connection, table = _gpkg.table_of(path)
+    try:
+        _gpkg.drop_index(connection, table)
         connection.commit()
     finally:
         connection.close()
@@ -5293,8 +5329,6 @@ _REASONS = {
         "DetectFeatureChanges", "CreateSpatialSamplingLocations", "CreateSpatiallyBalancedPoints", "SubsetFeatures",
         "TableToEllipse", "GeodeticDensify", "ValidateJoin", "RasterCompare", "CreateRandomRaster", "AddSpatialJoin",
         "FieldStatisticsToTable", "AddGPSMetadataFields", "EncodeField", "ReclassifyField", "TransformField"),
-    "keeps a GeoPackage spatial index (the RTree extension), which grapy does not maintain and no grapy tool reads": (
-        "AddSpatialIndex", "RemoveSpatialIndex"),
     "makes a layer over a table read live (an event layer) or over a raster; grapy's layers are over feature classes "
     "and tables — XYTableToPoint makes the points": ("MakeXYEventLayer", "MakeRasterLayer"),
     "sets how ArcGIS Pro's split edit treats a relationship class's related rows; grapy has no split edit": (

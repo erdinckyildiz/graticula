@@ -94,7 +94,8 @@ class Model(Base):
             self.assertEqual(connection.execute("select geometry_type_name, z from gpkg_geometry_columns where "
                                                 "table_name = 'cube'").fetchone(), ("MULTIPOLYGON", 1))
             self.assertEqual(connection.execute("select extension_name from gpkg_extensions where table_name = 'cube' "
-                                                "and column_name = 'geom'").fetchone(), ("grapy_multipatch",))
+                                                "and column_name = 'geom' and extension_name like 'grapy%'").fetchone(),
+                             ("grapy_multipatch",))
         finally:
             connection.close()
 
