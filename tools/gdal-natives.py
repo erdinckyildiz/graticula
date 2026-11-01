@@ -546,10 +546,13 @@ def fetch(rid: str, out: Path) -> None:
     for path, (kind, payload) in members(download(src)).items():
         if kind == "file" and path.endswith("csharp-source.zip"):
             with zipfile.ZipFile(io.BytesIO(payload)) as z:
-                for n in z.namelist():
+                for stored in z.namelist():
+                    # The zip was written on Windows with backslashes; zipfile turns them into "/" only where
+                    # os.sep is "\\", so a Linux build saw no file at all (CI run 41286846464).
+                    n = stored.replace("\\", "/")
                     top = n.split("/")[0]
                     if top in ("gdal", "ogr", "osr", "const") and n.endswith(".cs") and "/obj/" not in n:
-                        csharp[n] = z.read(n)
+                        csharp[n] = z.read(stored)
     if not csharp:
         raise SystemExit("gdal-csharp's win-64 package carried no csharp-source.zip")
     exported: set[str] = set()
