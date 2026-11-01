@@ -62,3 +62,86 @@ this cluster does not have it.
    1.9 s against 0.44–0.64 s with one organisation, and its throughput half — queueing past §9's trigger, which the
    condition says is when the per-statement batch replaces them.
 4. **Not measured:** a Release build; a quiet machine; a cluster with the image's 300 connections.
+
+## Clean run, 2026-10-31/11-01 — one factor at a time, then the fix
+
+Run for the owner's *"Önce temiz ölç, sonra düzelt"*: measure cleanly first, then fix what the measurement shows.
+What the first run lacked, it has: **a Release build**, logging at **Warning**, and **its own PostgreSQL 16 cluster**
+(portable binaries, `D:/temp/cluster-d`, port 55575, `max_connections` 300, nothing else on it), stopped afterwards.
+Before every run the rig sampled the whole machine for 10 s and **waited until it was under 20 % busy** (idle above
+80 %), re-checking every 30 s; another session's ArcGIS Pro Python held it above that for several minutes at a time and
+the runs waited. "Machine busy before" in the record is that sample; no process this run did not start was stopped.
+Same data as before: ten organisations (550 + 9 × 50 services) in one database, one organisation (the same 1,000) in
+another, each organisation's services clones of its own hosted point layer of 200 features; the same generator
+(`Program.cs`), 30 s after 3 s of warm-up, 4 and 64 callers, half the load on the default organisation. Every
+variant twice, interleaved (A B C D E F, then again). `measured-2026-11-01.json` holds every run.
+
+**The variants**, each changing one thing against **B** (ten organisations as built):
+
+- **A** one organisation (the one-organisation database).
+- **C** the floor off: `alter table … disable row level security` on every table with a policy — same pools, same shares.
+- **D** each organisation's pool the full 24 rather than `max(2, 24/10)` = 2 — same floor, same shares.
+- **E** the per-organisation admission shares (condition 6) off — same floor, same pools.
+- **F** one shared pool and no tenant on the connection (the floor's policy short-circuits) — the shape the fix
+  approaches, without the tenant.
+
+C, D, E and F were switches in a measuring build only (environment variables, never committed); A and B are the build
+as it was.
+
+### Busy organisation, p95 ms, and throughput — two runs each
+
+| variant | callers | req/s | search | services | query | others' query | peak conns | failures |
+|---|---|---|---|---|---|---|---|---|
+| A one organisation | 4 | 104 · 112 | 75 · 68 | 61 · 55 | 11 · 10 | — | 18–19 | 0 |
+| **B ten, as built** | 4 | 158 · 154 | 92 · 82 | 71 · 67 | **31 · 30** | 11 · 10 | 38–39 | 0 |
+| C ten, floor off | 4 | 131 · 132 | 78 · 76 | 62 · 57 | 24 · 24 | 10 · 9 | 39–40 | 0 |
+| **D ten, full pools** | 4 | 186 · 164 | 55 · 61 | 44 · 50 | **9 · 11** | 9 · 12 | 41–43 | 0 |
+| E ten, shares off | 4 | 139 · 149 | 93 · 87 | 80 · 70 | 36 · 32 | 10 · 9 | 38–39 | 0 |
+| F ten, one pool, no tenant | 4 | 105 · 110 | 74 · 71 | 63 · 60 | 12 · 10 | 12 · 11 | 18–19 | 0 |
+| A one organisation | 64 | 175 · 202 | 704 · 566 | 490 · 424 | 308 · 239 | — | 57 | 0 |
+| **B ten, as built** | 64 | 154 · 170 | **1,418 · 1,227** | 1,044 · 922 | **550 · 455** | 36 · 25 | 57–58 | 0 |
+| C ten, floor off | 64 | 153 · 154 | 1,545 · 1,518 | 859 · 831 | 629 · 605 | 55 · 50 | 58 | 0 |
+| **D ten, full pools** | 64 | **356 · 378** | 425 · 414 | 303 · 288 | **192 · 185** | 158 · 133 | **136–137** | 0 |
+| E ten, shares off | 64 | 153 · 164 | 1,399 · 1,274 | 1,043 · 1,006 | 521 · 455 | 33 · 30 | 54–60 | 0 |
+| F ten, one pool, no tenant | 64 | 187 · 197 | 608 · 587 | 445 · 421 | 259 · 245 | 256 · 245 | 47–50 | 0 |
+
+No breaker line, no 503 and every organisation still signed in after every run; the cluster's 300 were never near.
+
+### What it says
+
+1. **The pools per organisation are the cost, and nothing else is.** Only the pool size moves the busy organisation:
+   at 4 callers its query p95 goes from 30–31 ms to 9–11 with full pools, at 64 callers from 455–550 to 185–192 and
+   throughput doubles. At 64 callers B used under half the machine (39–47 % busy) while its busy organisation queued
+   — the signature of a queue, not of work.
+2. **The floor costs nothing measurable at HTTP.** Off (C) it was no faster than on (B) at 4 callers by more than the
+   run-to-run spread, and slower at 64 — with the floor off the default organisation's search reads every
+   organisation's rows. §9's trigger (the floor at more than 20 % on the p95) **does not fire on the floor**; the 1.33–
+   2.61× of the first run was the pools.
+3. **The admission shares cost nothing measurable** (E within B's spread at both levels).
+4. **Full pools are not the fix**: they bought the speed with 136 connections at 64 callers against 57, which is
+   the budget condition 14 exists to protect. F shows that one pool gives the one-organisation numbers back at 47–50
+   connections — but F carries no tenant, so it is not a floor.
+
+### The fix, measured: one pool, the tenant set ahead of each statement
+
+`TenantDataSources` now gives each store a `TenantSource` — the one platform pool and the request's tenant — whose
+commands carry `SET graticula.tenant = '…'` in the same batch ahead of the statement, and whose connections are set
+once when opened; Npgsql's reset on return clears it. **G** is ten organisations on that build, **H** one organisation
+on it, **A2** one organisation on the measured build again beside them (two runs each, interleaved A2 G H):
+
+| variant | callers | req/s | search | services | query | others' query | peak conns | failures |
+|---|---|---|---|---|---|---|---|---|
+| A2 one organisation, build before | 4 | 124 · 103 | 67 · 74 | 55 · 62 | 11 · 12 | — | 20–21 | 0 |
+| **G ten organisations, fixed** | 4 | 157 · 144 | 73 · 89 | 64 · 74 | **11 · 13** | 11 · 15 | 19–20 | 0 |
+| H one organisation, fixed | 4 | 105 · 105 | 70 · 75 | 58 · 61 | 11 · 10 | — | 19 | 0 |
+| A2 one organisation, build before | 64 | 189 · 185 | 624 · 617 | 435 · 433 | 252 · 257 | — | 51–57 | 0 |
+| **G ten organisations, fixed** | 64 | **367 · 359** | 325 · 337 | 242 · 245 | **140 · 142** | 140 · 142 | **46–51** | 0 |
+| H one organisation, fixed | 64 | 185 · 190 | 614 · 596 | 443 · 436 | 260 · 251 | — | 57 | 0 |
+
+- **Ten organisations against one, at 4 callers**, means of the two runs each against the four one-organisation runs
+  (A2 and H, same machine, same hour): query 12 against 11 ms (**1.09×**), search 81 against 72 (1.13×), the services
+  directory 69 against 59 (1.17×) — **each under §9's 20 %**, the directory nearest it. At 64 callers ten
+  organisations are faster than one (query 141 against 255) because each organisation's search and directory read a
+  smaller catalogue, and they hold fewer connections (46–51 against 51–57).
+- **One organisation is unchanged by the fix** (H against A2: the same within the spread), as it should be — a
+  deployment of one names no tenant and runs exactly the statements it ran.

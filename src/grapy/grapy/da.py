@@ -149,6 +149,8 @@ class _Cursor:
             if shared is not None:
                 self._connection.close()
                 self._connection, self._shared = shared, True
+        if not self._shared:   # a cursor widens its class's extent itself, once, as it closes (_close)
+            _gpkg.own_extent(self._connection, self._table)
         self._described, _, self._srid, self._geometry = _gpkg.describe(self._connection, self._table)
         self._has_z, self._has_m = _gpkg.dimensions(self._connection, self._table)
         self._oid = _gpkg.oid_column(self._connection, self._table)
@@ -1100,7 +1102,7 @@ class Editor:
             raise RuntimeError(f"arcpy.da.Editor: '{self.workspacePath}' is already being edited.")
         self._connection = sqlite3.connect(self.workspacePath, isolation_level=None)
         self._connection.execute("pragma foreign_keys = on")
-        _gpkg.functions(self._connection)  # a file whose RTree triggers call ST_* functions stays writable
+        _gpkg.prepare(self._connection)  # RTree triggers' ST_* functions, and the extent widened as shapes are written
         self._connection.execute("begin")
         _EDITING[key] = self._connection
         if self.version is not None:

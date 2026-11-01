@@ -43,7 +43,7 @@ namespace Graticula.Providers.PostGis;
 /// </para>
 /// </remarks>
 public sealed class PostGisFeatureSource
-    : IFeatureSource, IFeatureVersions, IGeometryStatistics, IFeatureSummaries
+    : IFeatureSource, IFeatureVersions, IGeometryStatistics, IFeatureSummaries, IDatabaseCacheValidator
 {
     private readonly NpgsqlDataSource _dataSource;
 
@@ -353,6 +353,66 @@ public sealed class PostGisFeatureSource
             reader.GetFloat(0),
             reader.IsDBNull(1) ? null : reader.GetInt32(1),
             reader.IsDBNull(2) ? 0 : reader.GetInt64(2));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>D-266, 2026-11-01: a table's version from PostgreSQL's cumulative statistics, with no scan of the table.</b>
+    /// The table's inserted, updated and deleted row counters (<c>pg_stat_user_tables</c>), its file node, and the two
+    /// times the statistics were last reset — the database's and the background writer's. Measured on PostgreSQL 16.10,
+    /// a cluster of its own: every insert, update and delete moves it, and so does an insert that was rolled back or an
+    /// update of no rows (a needless miss, never a stale hit); <c>TRUNCATE</c> moves the file node; resetting the table's
+    /// counters or the database's moves the database's reset time; a crash, which throws the statistics away and starts
+    /// the counters again from zero, moves the background writer's; <c>ANALYZE</c>, <c>VACUUM</c> and a clean restart
+    /// move nothing, so a browser's copy survives them.
+    /// </para>
+    /// <para>
+    /// <b>It is late by up to ten seconds, and that is its whole price.</b> A backend sends its counts when it goes
+    /// idle, at most once a second; a write within a second of its last send waits for the idle timeout — measured
+    /// 10.0 s, five of five — and a writer that keeps running statements sends within about a second (0.95–0.97 s). A
+    /// revalidation in that window is told 304 and keeps its copy one lifetime more. So a read-only layer's answer can
+    /// be stale by its lifetime plus ten seconds, where without a validator it was its lifetime; a layer somebody can edit
+    /// is <c>no-store</c> and never asks (V-56).
+    /// </para>
+    /// <para>
+    /// <b>No version where the statistics cannot be trusted to move</b>: a standby, which does not count the writes it
+    /// replays; <c>track_counts</c> off; and anything that is not one plain table — a view, a materialised view, a foreign
+    /// table, a partitioned or inherited one, whose rows another relation's counters would carry. And null rather than an
+    /// error when the read fails, because a validator that cannot be had only costs the caller a full answer.
+    /// </para>
+    /// </remarks>
+    public async Task<string?> CacheValidatorAsync(CancellationToken cancellationToken)
+    {
+        const string Sql = """
+            select case when pg_catalog.pg_is_in_recovery()
+                          or pg_catalog.current_setting('track_counts') <> 'on' then null
+                        else concat_ws(':', pg_catalog.pg_relation_filenode(c.oid), s.n_tup_ins, s.n_tup_upd, s.n_tup_del,
+                                       coalesce(d.stats_reset::text, '-'), coalesce(b.stats_reset::text, '-'))
+                   end
+              from pg_catalog.pg_class c
+              join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+              join pg_catalog.pg_stat_user_tables s on s.relid = c.oid
+              join pg_catalog.pg_stat_database d on d.datname = pg_catalog.current_database()
+              cross join pg_catalog.pg_stat_bgwriter b
+             where n.nspname = @schema
+               and c.relname = @table
+               and c.relkind = 'r'
+               and not c.relhassubclass
+            """;
+
+        try
+        {
+            await using NpgsqlCommand command = Command(Sql);
+            command.Parameters.AddWithValue("schema", _layer.SchemaName);
+            command.Parameters.AddWithValue("table", _layer.TableName);
+
+            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+        }
+        catch (PostgresException)
+        {
+            return null;
+        }
     }
 
     private string BuildSql(FeatureQuery query, FeatureSchema schema)

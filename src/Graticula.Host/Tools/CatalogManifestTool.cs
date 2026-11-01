@@ -40,12 +40,12 @@ internal static class CatalogManifestTool
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(args);
 
-        NpgsqlDataSource store = services.GetRequiredService<NpgsqlDataSource>();
+        NpgsqlDataSource root = services.GetRequiredService<NpgsqlDataSource>();
         SecretProtector secrets = services.GetRequiredService<SecretProtector>();
 
         try
         {
-            store = await OrganisationStoreAsync(store, After(args, "--organization"), cancellationToken).ConfigureAwait(false);
+            TenantSource store = await OrganisationStoreAsync(root, After(args, "--organization"), cancellationToken).ConfigureAwait(false);
 
             return args switch
             {
@@ -83,7 +83,7 @@ internal static class CatalogManifestTool
     /// are an organisation's own; read across every organisation, two `hosted/Parcels` were one key and the apply
     /// updated whichever survived. With several organisations the tool needs to be told which.
     /// </summary>
-    private static async Task<NpgsqlDataSource> OrganisationStoreAsync(
+    private static async Task<TenantSource> OrganisationStoreAsync(
         NpgsqlDataSource store, string? key, CancellationToken cancellationToken)
     {
         List<(Guid Id, string Key)> organisations = [];
@@ -134,7 +134,7 @@ internal static class CatalogManifestTool
     }
 
     private static async Task<int> ExportAsync(
-        NpgsqlDataSource store, SecretProtector secrets, string[] args, CancellationToken cancellationToken)
+        TenantSource store, SecretProtector secrets, string[] args, CancellationToken cancellationToken)
     {
         string text = CatalogManifest.Write(
             await CatalogManifest.ExportAsync(store, secrets, AdminEndpoints.Summarise, cancellationToken).ConfigureAwait(false));
@@ -153,7 +153,7 @@ internal static class CatalogManifestTool
     }
 
     private static async Task<int> ApplyAsync(
-        NpgsqlDataSource store, SecretProtector secrets, string file, string[] args, CancellationToken cancellationToken)
+        TenantSource store, SecretProtector secrets, string file, string[] args, CancellationToken cancellationToken)
     {
         JsonObject manifest;
 

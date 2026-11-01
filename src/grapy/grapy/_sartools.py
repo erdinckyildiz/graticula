@@ -15,7 +15,7 @@ import numpy as np
 
 from . import _sar
 from ._result import Result
-from ._runtime import AddMessage, ExecuteError, NotBuiltError, env
+from ._runtime import AddMessage, AddWarning, ExecuteError, NotBuiltError, env
 from ._sar import C, polarizations, word
 from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
 
@@ -729,7 +729,7 @@ def GenerateInterferogram(in_reference_radar_data, in_secondary_radar_data, out_
     return Result(*outputs)
 
 
-def goldstein(z, alpha, patch):
+def goldstein(z, alpha, patch, need=None):
     """Goldstein and Werner (1998): each patch's spectrum Z is weighted by |S(Z)|^α, S a 3×3 smoothing, normalised
     to its peak; patches overlap by half and are blended with a triangular taper.
 
@@ -737,7 +737,11 @@ def goldstein(z, alpha, patch):
     agree modulo ``goldstein_period(patch)`` — so a full swath is not a Python loop over millions of 8 × 8 patches
     (D-328: about 30 minutes of CPU on a 12,300 × 21,000 interferogram, past ADR-223's 10). Each cell receives at
     most one patch of each batch class, added in the classes' order, so a window whose first row is a multiple of
-    ``goldstein_period(patch) * (patch // 2)`` answers its rows as the whole band does."""
+    ``goldstein_period(patch) * (patch // 2)`` answers its rows as the whole band does.
+
+    With ``need``, a boolean grid of the cells whose answer will be used, a patch holding none of them is not
+    filtered (D-357): every patch that reaches a needed cell is, in the same order, so a needed cell's answer is the
+    same doubles; the others are left unfiltered and are not to be read."""
     from numpy.lib.stride_tricks import sliding_window_view
     from scipy import ndimage
     n, m = z.shape
@@ -753,13 +757,27 @@ def goldstein(z, alpha, patch):
     row_starts = np.arange(0, zp.shape[0] - patch + 1, step)
     col_starts = np.arange(0, zp.shape[1] - patch + 1, step)
     span = np.arange(patch)
+    held = None
+    if need is not None:
+        # how many needed cells each patch holds, from a summed-area table of the padded grid
+        padded = np.zeros(zp.shape, np.int32)
+        padded[:n, :m] = np.asarray(need, bool)
+        table = np.zeros((zp.shape[0] + 1, zp.shape[1] + 1), np.int64)
+        table[1:, 1:] = padded.cumsum(0).cumsum(1)
+        del padded
+        rr, cc = row_starts[:, None], col_starts[None, :]
+        held = (table[rr + patch, cc + patch] - table[rr, cc + patch] - table[rr + patch, cc] + table[rr, cc]) > 0
+        del table
     for a in range(q):
         for b in range(q):
-            cols = col_starts[b::q]
-            if not len(cols):
+            batch = col_starts[b::q]
+            if not len(batch):
                 continue
-            where = (cols[:, None] + span[None, :]).ravel()   # the batch's columns, none repeated
-            for r in row_starts[a::q]:
+            for i, r in zip(range(a, len(row_starts), q), row_starts[a::q]):
+                cols = batch if held is None else batch[held[i, b::q]]
+                if not len(cols):
+                    continue
+                where = (cols[:, None] + span[None, :]).ravel()   # the batch's columns, none repeated
                 blocks = sliding_window_view(zp[r: r + patch], patch, axis=1)[:, cols, :].transpose(1, 0, 2)
                 spectrum = np.fft.fft2(blocks)
                 smooth = ndimage.uniform_filter(np.abs(spectrum), (1, 3, 3), mode="wrap")
@@ -769,7 +787,8 @@ def goldstein(z, alpha, patch):
                 result = np.fft.ifft2(spectrum * h) * taper
                 out[r: r + patch, where] += result.transpose(1, 0, 2).reshape(patch, -1)
                 weight[r: r + patch, where] += np.tile(taper, (1, len(cols)))
-    return (out / weight)[:n, :m]
+    with np.errstate(divide="ignore", invalid="ignore"):   # cells no patch reached when `need` left them out
+        return (out / weight)[:n, :m]
 
 
 def goldstein_period(patch):
@@ -814,9 +833,14 @@ def ApplyComplexDataFilter(in_radar_data, out_radar_data, polarization_bands=Non
         if a == 0:
             filtered = unit
         else:
-            small = goldstein(unit, a, inner)
-            large = goldstein(unit, a, outer)
+            # Each cell takes one of the two filters, so each is run only on the patches that reach a cell that takes
+            # it (D-357): the same answer, by half the work where a scene is all coherent or all not.
             coherent = effective_coherence(np.angle(unit), outer) >= 0.3
+            k = slice(r0 - h0, r1 - h0)
+            wanted = np.zeros(coherent.shape, bool)
+            wanted[k] = True
+            small = goldstein(unit, a, inner, need=coherent & wanted)
+            large = goldstein(unit, a, outer, need=~coherent & wanted)
             filtered = np.where(coherent, small, large)
         k = slice(r0 - h0, r1 - h0)
         result = np.abs(zz[k]) * np.exp(1j * np.angle(filtered[k]))
@@ -925,6 +949,64 @@ def unwrap(phase, weights, iterations=200, tolerance=1e-8):
 
 #: Rows each UnwrapPhase block reads beyond its own for the 5 x 5 effective coherence (2), held at 4.
 UNWRAP_HALO = 4
+#: The most cells UnwrapPhase's solver holds (D-357): it needs about 51 bytes a cell, so 30 million keep it near 1.5 GB,
+#: inside ADR-223's 2 GB. A larger interferogram is unwrapped at looks (``_unwrap_at_looks``).
+UNWRAP_CELLS = 30_000_000
+
+
+def _unwrap_at_looks(sar, pol, threshold, looks):
+    """A grid too large for the solver unwrapped coarse to fine (D-357): the interferogram's complex multilook, the
+    coherent sum of the weighted cells of each ``looks`` x ``looks`` square (Hanssen 2001, *Radar Interferometry*,
+    §4.4), is unwrapped as a grid of its own, a look weighted when most of its cells are; each full-resolution cell
+    then takes its wrapped phase plus the whole number of cycles that brings it nearest the coarse answer
+    interpolated bilinearly to it — a multilooked first solution guiding the full one, as tiled unwrapping of large
+    interferograms does (Chen and Zebker 2002, IEEE TGRS 40(8)). Answers per row block (r0, r1, unwrapped rows, good
+    rows), the effective coherence and NoData of each full-resolution cell being the direct solver's."""
+    from scipy import ndimage
+    n, m = sar.shape
+    cn, cm = -(-n // looks), -(-m // looks)
+    coarse = np.zeros((cn, cm), np.complex128)
+    count = np.zeros((cn, cm))
+    rows = max(looks, (_sar.BLOCK_CELLS // max(m, 1)) // looks * looks)
+    for r0 in range(0, n, rows):
+        r1 = min(n, r0 + rows)
+        h0, h1 = max(0, r0 - UNWRAP_HALO), min(n, r1 + UNWRAP_HALO)
+        z = sar.bands.window(pol, h0, h1).astype(np.complex128)
+        blank = np.isnan(z) | (np.abs(np.nan_to_num(z)) == 0)
+        ph = np.angle(np.nan_to_num(z))
+        k = slice(r0 - h0, r1 - h0)
+        fine = ((effective_coherence(ph, 5) >= threshold) & ~blank)[k]   # the direct solver's weights
+        z = np.where(fine, np.nan_to_num(z[k]), 0)
+        pad_r, pad_c = (-(r1 - r0)) % looks, (-m) % looks
+        z = np.pad(z, ((0, pad_r), (0, pad_c)))
+        fine = np.pad(fine, ((0, pad_r), (0, pad_c)))
+        h = z.shape[0] // looks
+        coarse[r0 // looks: r0 // looks + h] += z.reshape(h, looks, cm, looks).sum(axis=(1, 3))
+        count[r0 // looks: r0 // looks + h] += fine.reshape(h, looks, cm, looks).sum(axis=(1, 3))
+    phase = np.angle(coarse)
+    # a look is weighted when most of its cells are: the fine weights decide, not a coherence over looks, which
+    # steep fringes would lower although every cell of them is sound
+    good = count * 2 > looks * looks
+    del coarse, count
+    u = unwrap(phase, good)
+    if good.any():
+        u += np.angle(np.sum(np.exp(1j * (phase[good] - u[good]))))
+    # coarse cells without an answer take their nearest answered neighbour's, so the interpolation has values there
+    if good.any() and not good.all():
+        nearest = ndimage.distance_transform_edt(~good, return_distances=False, return_indices=True)
+        u = u[nearest[0], nearest[1]]
+    del phase
+    for r0, r1, h0, h1 in _sar.halo_blocks(sar.shape, UNWRAP_HALO):
+        z = sar.bands.window(pol, h0, h1).astype(np.complex128)
+        blank = np.isnan(z) | (np.abs(np.nan_to_num(z)) == 0)
+        ph = np.angle(np.nan_to_num(z))
+        k = slice(r0 - h0, r1 - h0)
+        fine_good = ((effective_coherence(ph, 5) >= threshold) & ~blank)[k]
+        rr, cc = np.meshgrid((np.arange(r0, r1) + 0.5) / looks - 0.5, (np.arange(m) + 0.5) / looks - 0.5,
+                             indexing="ij")
+        guide = ndimage.map_coordinates(u, [rr, cc], order=1, mode="nearest")
+        wrapped = ph[k]
+        yield r0, r1, wrapped + 2 * math.pi * np.round((guide - wrapped) / (2 * math.pi)), fine_good
 
 
 def UnwrapPhase(in_radar_data, out_radar_data, polarization_bands=None, unwrap_phase_method="LEAST_SQUARES_PCG",
@@ -945,6 +1027,22 @@ def UnwrapPhase(in_radar_data, out_radar_data, polarization_bands=None, unwrap_p
         raise ExecuteError(f"{tool}: the input must be a complex wrapped interferogram.")
     names = polarizations(sar, polarization_bands, tool)
     shape = sar.shape
+    if shape[0] * shape[1] > UNWRAP_CELLS:
+        # the coarse grid kept to half the solver's own limit: the multilook's sums are held beside it until it starts
+        looks = int(math.ceil(math.sqrt(shape[0] * shape[1] / (UNWRAP_CELLS / 2))))
+        AddWarning(f"{tool}: {shape[0]:,} x {shape[1]:,} cells are more than the solver holds within the memory "
+                   f"limit; the interferogram is unwrapped at {looks} x {looks} looks and each cell takes the cycle "
+                   "nearest that answer (D-357).")
+        meta = sar.copy_meta(values="unwrapped_phase")
+
+        def coarse_blocks():
+            streams = [_unwrap_at_looks(sar, pol, threshold, looks) for pol in names]
+            for parts in zip(*streams):
+                r0 = parts[0][0]
+                yield r0, 0, {pol: np.where(g, u, np.nan).astype(np.float32)
+                              for pol, (_, _, u, g) in zip(names, parts)}
+        return Result(_write_blocks(out_radar_data, names, "float32", shape, _keep_pols(meta, names),
+                                    coarse_blocks(), sar))
     answers = {}
     for pol in names:
         phase = np.empty(shape)
@@ -1522,8 +1620,9 @@ def cmod5n(v, phi, theta):
     return b0 * np.power(np.maximum(1.0 + b1 * np.cos(phi) + b2 * np.cos(2 * phi), 0), 1.6)
 
 
-def invert_cmod5n(sigma0, phi, theta, low=0.2, high=50.0, steps=40):
-    """The wind speed that gives σ0 at phi and theta, by bisection (σ0 grows with speed over this range)."""
+def _invert_cmod5n_bisection(sigma0, phi, theta, low=0.2, high=50.0, steps=40):
+    """The wind speed that gives σ0 at phi and theta, by bisection (σ0 grows with speed over this range). The
+    reference ``invert_cmod5n`` is held to (``test_sar``)."""
     lo = np.full(np.shape(sigma0), low)
     hi = np.full(np.shape(sigma0), high)
     for _ in range(steps):
@@ -1532,6 +1631,108 @@ def invert_cmod5n(sigma0, phi, theta, low=0.2, high=50.0, steps=40):
         hi = np.where(above, mid, hi)
         lo = np.where(above, lo, mid)
     return (lo + hi) / 2
+
+
+class _Cmod5n:
+    """CMOD5.N at fixed incidences and directions: what depends on them alone computed once, and σ0 at a speed by the
+    same operations in the same order as ``cmod_terms`` and ``cmod5n`` (so the same doubles), about 1.5 times faster
+    an evaluation."""
+
+    def __init__(self, phi, theta, c=CMOD5N):
+        self.c = c
+        x = (np.asarray(theta, float) - 40.0) / 25.0
+        xx = x * x
+        self.x, self.h, self.b1x = x, 0.5 + x, c[13] * (1.0 + x)
+        self.a0 = c[0] + c[1] * x + c[2] * xx + c[3] * x * xx
+        self.a1 = c[4] + c[5] * x
+        self.a2 = c[6] + c[7] * x
+        self.gam = c[8] + c[9] * x + c[10] * xx
+        self.s0 = c[11] + c[12] * x
+        self.v0 = c[20] + c[21] * x + c[22] * xx
+        self.d1 = c[23] + c[24] * x + c[25] * xx
+        self.d2 = c[26] + c[27] * x
+        y0, pn = c[18], c[19]
+        self.ya, self.yb = y0 - (y0 - 1.0) / pn, 1.0 / (pn * (y0 - 1.0) ** (pn - 1.0))
+        radians = np.radians(np.asarray(phi, float))
+        self.cos1, self.cos2 = np.cos(radians), np.cos(2 * radians)
+
+    def take(self, index):
+        other = object.__new__(_Cmod5n)
+        other.__dict__.update({k: (v[index] if isinstance(v, np.ndarray) and v.ndim else v)
+                               for k, v in self.__dict__.items()})
+        return other
+
+    def sigma(self, v):
+        c, x, s0 = self.c, self.x, self.s0
+        v = np.asarray(v, float)
+        s = self.a2 * v
+        a3 = 1.0 / (1.0 + np.exp(-np.maximum(s, s0)))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            low = a3 * np.power(np.maximum(s, 0) / s0, s0 * (1.0 - a3))
+        a3 = np.where(s < s0, low, a3)
+        b0 = np.power(a3, self.gam) * np.power(10.0, self.a0 + self.a1 * v)
+        b1 = c[14] * v * (self.h - np.tanh(4.0 * (x + c[15] + c[16] * v)))
+        b1 = (self.b1x - b1) / (np.exp(0.34 * (v - c[17])) + 1.0)
+        v2 = v / self.v0 + 1.0
+        v2 = np.where(v2 < c[18], self.ya + self.yb * np.power(np.maximum(v2 - 1.0, 0), c[19]), v2)
+        b2 = (-self.d1 + self.d2 * v2) * np.exp(-v2)
+        return b0 * np.power(np.maximum(1.0 + b1 * self.cos1 + b2 * self.cos2, 0), 1.6)
+
+
+def invert_cmod5n(sigma0, phi, theta, low=0.2, high=50.0, steps=40, coarse=12, tolerance=1e-10):
+    """The wind speed that gives σ0 at phi and theta: the reference's bisection for its first ``coarse`` steps, which
+    is where it chooses among the roots where σ0 does not grow with speed (bracketing to 0.012 m/s), then the
+    Illinois variant of regula falsi (Dowell and Jarratt 1971) inside that bracket to ``tolerance`` — the same root as
+    the reference's 40 steps to 1e-9 m/s, in about 17 evaluations of a prepared CMOD5.N instead of 40 of the full one
+    (D-357). A bracket that holds no change of sign (σ0 beyond the range's ends) finishes the reference's bisection."""
+    shape = np.broadcast_shapes(np.shape(sigma0), np.shape(phi), np.shape(theta))
+    target = np.broadcast_to(np.asarray(sigma0, float), shape).ravel()
+    model = _Cmod5n(np.broadcast_to(np.asarray(phi, float), shape).ravel(),
+                    np.broadcast_to(np.asarray(theta, float), shape).ravel())
+    lo, hi = np.full(target.size, low), np.full(target.size, high)
+    for _ in range(min(coarse, steps)):
+        mid = (lo + hi) / 2
+        above = model.sigma(mid) > target
+        hi = np.where(above, mid, hi)
+        lo = np.where(above, lo, mid)
+    out = (lo + hi) / 2
+    f_lo, f_hi = model.sigma(lo) - target, model.sigma(hi) - target
+    sign = (f_lo <= 0) & (f_hi > 0)
+    rest = np.flatnonzero(~sign)
+    if rest.size:
+        part, r_lo, r_hi, r_target = model.take(rest), lo[rest], hi[rest], target[rest]
+        for _ in range(steps - min(coarse, steps)):
+            mid = (r_lo + r_hi) / 2
+            above = part.sigma(mid) > r_target
+            r_hi = np.where(above, mid, r_hi)
+            r_lo = np.where(above, r_lo, mid)
+        out[rest] = (r_lo + r_hi) / 2
+    active = np.flatnonzero(sign)
+    part, a, b, fa, fb, t = model.take(active), lo[active], hi[active], f_lo[active], f_hi[active], target[active]
+    side = np.zeros(active.size, np.int8)
+    previous = a.copy()
+    for _ in range(60):
+        if not active.size:
+            break
+        x = b - fb * (b - a) / (fb - fa)
+        x = np.where((x <= a) | (x >= b) | ~np.isfinite(x), (a + b) / 2, x)
+        fx = part.sigma(x) - t
+        up = fx > 0
+        fa = np.where(up & (side == 1), fa / 2, fa)       # the same end kept twice: halve its value (Illinois)
+        fb = np.where(~up & (side == -1), fb / 2, fb)
+        b, fb = np.where(up, x, b), np.where(up, fx, fb)
+        a, fa = np.where(up, a, x), np.where(up, fa, fx)
+        side = np.where(up, 1, -1).astype(np.int8)
+        done = (np.abs(x - previous) < tolerance) | (b - a < tolerance) | (fx == 0)
+        previous = x
+        if done.any():
+            out[active[done]] = x[done]
+            keep = ~done
+            active, a, b, fa, fb, t, side, previous = (v[keep] for v in (active, a, b, fa, fb, t, side, previous))
+            part = part.take(keep)
+    if active.size:
+        out[active] = (a + b) / 2
+    return out.reshape(shape)
 
 
 def _bearings(lon, lat):

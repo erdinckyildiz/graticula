@@ -341,7 +341,9 @@ internal static partial class GeometryServerEndpoints
 
     /// <summary>The refusal, as a page for a browser in the directory and as JSON otherwise.</summary>
     private static IResult RefusalFor(HttpContext context) =>
-        RestDirectory.RefusesAsPage(context.Request)
+        // D-347: a caller with no token is challenged rather than told 404 (TokenRequired).
+        TokenRequired.Applies(context) ? TokenRequired.Result(context)
+        : RestDirectory.RefusesAsPage(context.Request)
             ? Results.Content(
                 RestDirectory.Refusal(context.Request.Path, "Not found", RefusalMessage),
                 "text/html; charset=utf-8",

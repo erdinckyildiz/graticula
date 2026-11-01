@@ -232,11 +232,68 @@ class PathDistance(_Fixture):
         # Each source's capacity bounds its own region: the middle cell is 20 from both, beyond 15.
         two = grid([[1, -9, -9, -9, 2]], nodata=-9)
         self.assertEqual(cells(sa.PathAllocation(two, source_capacity=15)), [[1, 1, ND, 2, 2]])
-        with self.assertRaises(arcpy.NotBuiltError) as said:
-            sa.PathDistance(source, source_resistance_rate=0.1)   # FROM_SOURCE, the default
-        self.assertIn("count of cells", str(said.exception))
+        # Travelling FROM_SOURCE, the default: a5 = c1 + c2(1+r) + c3(1+r)^2 + ..., each step compounded by its count
+        # of cells from the source (D-332), on top of the start cost.
+        self.assertEqual(cells(sa.PathDistance(source, source_resistance_rate=0.1), 4), [[0.0, 10.0, 21.0, 33.1]])
+        self.assertEqual(cells(sa.PathDistance(source, source_start_cost=5, source_cost_multiplier=2,
+                                               source_resistance_rate=0.1), 4), [[5.0, 25.0, 47.0, 71.2]])
+        self.assertEqual(cells(sa.CostDistance(source, grid([[1, 1, 1, 1]]), source_resistance_rate=0.5), 4),
+                         [[0.0, 10.0, 25.0, 47.5]])
         with self.assertRaises(ValueError):
             sa.PathDistance(source, source_cost_multiplier=0)
+
+    def test_from_source_compounding_is_the_least_over_every_route(self):
+        # D-332: with the cost compounded by the count of cells from the source, a cell's least cost does not follow
+        # from its neighbour's; the labels find the least over every simple route, checked by enumerating them all.
+        from grapy import _pathdist
+        rng = np.random.default_rng(332)
+        for trial in range(4):
+            rows, columns = 3, 3
+            steps = [rng.uniform(1, 9, (rows, columns)) for _ in _pathdist.NEIGHBOURS]
+            sources = np.zeros((rows, columns), bool)
+            sources[0, 0] = True
+            barrier = np.zeros((rows, columns), bool)
+            rate = (0.5, 1.0, 2.0, 0.25)[trial]
+            traits = {"multiplier": np.full((rows, columns), 1.0), "start": np.full((rows, columns), 0.0),
+                      "rate": np.full((rows, columns), rate), "capacity": np.full((rows, columns), np.inf)}
+            total, _, _ = _pathdist._dijkstra_compounding(sources, barrier, steps, traits)
+            best = np.full((rows, columns), np.inf)
+
+            def walk(r, k, cost, n, seen):
+                best[r, k] = min(best[r, k], cost)
+                for index, (dr, dk) in enumerate(_pathdist.NEIGHBOURS):
+                    nr, nk = r + dr, k + dk
+                    if 0 <= nr < rows and 0 <= nk < columns and (nr, nk) not in seen:
+                        walk(nr, nk, cost + steps[index][r, k] * (1 + rate) ** n, n + 1, seen | {(nr, nk)})
+            walk(0, 0, 0.0, 0, {(0, 0)})
+            np.testing.assert_allclose(total, best, rtol=1e-12)
+
+    def test_a_field_gives_each_source_its_travel_direction(self):
+        # D-332: the tool pages allow a field holding FROM_SOURCE or TO_SOURCE for each source. Each direction's
+        # sources are expanded on their own and each cell takes the cheaper, as one expansion would take its cheapest
+        # source; with all of one word the field is that keyword.
+        arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)
+        cost = grid([[1] * 7])
+        points = os.path.join(self.directory, "src.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "src.gpkg", "POINT", spatial_reference=3857)
+        arcpy.management.AddField(points, "way", "TEXT")
+        with arcpy.da.InsertCursor(points, ["way", "SHAPE@XY"]) as rows:
+            rows.insertRow(("FROM_SOURCE", (5.0, 5.0)))
+            rows.insertRow(("to_source", (65.0, 5.0)))
+        both = cells(sa.CostDistance(points, cost, source_start_cost=4, source_resistance_rate=0.5,
+                                     source_direction="way"), 4)
+        # From the west source each step is compounded by its count of cells (4, 14, 29, 51.5); towards the east one
+        # the running total past the first cell (4, 14, 31, 56.5); each cell takes the cheaper.
+        self.assertEqual(both, [[4.0, 14.0, 29.0, 51.5, 31.0, 14.0, 4.0]])
+        self.assertEqual(cells(sa.CostDistance(points, cost, source_start_cost=4, source_resistance_rate=0.5), 4),
+                         [[4.0, 14.0, 29.0, 51.5, 29.0, 14.0, 4.0]])
+        with arcpy.da.UpdateCursor(points, ["way"]) as rows:
+            for row in rows:
+                rows.updateRow(["sideways"])
+        with self.assertRaises(ValueError):
+            sa.CostDistance(points, cost, source_resistance_rate=0.5, source_direction="way")
+        with self.assertRaises(ValueError):
+            sa.CostDistance(points, cost, source_direction="no_such_field")
 
 
 class Accumulation(_Fixture):
@@ -297,8 +354,9 @@ class Accumulation(_Fixture):
         walled = cells(sa.DistanceAccumulation(self.centre, in_barrier_data=wall), places=4)
         self.assertEqual(walled[2][3], ND)
         self.assertEqual(walled[4][3], 24.1421)  # round the wall's end
-        with self.assertRaises(arcpy.NotBuiltError):
-            sa.DistanceAccumulation(self.centre, distance_method="GEODESIC")
+        # GEODESIC on Web Mercator at the equator, where the map's scale is 1: the same metres (D-332).
+        self.assertEqual(cells(sa.DistanceAccumulation(self.centre, distance_method="GEODESIC"), 1)[2],
+                         [20.0, 10.0, 0.0, 10.0, 20.0])
 
     def test_corner_connected_barriers_are_thickened(self):
         # NoData touching only at a corner would let a diagonal step through; one open cell between them is closed (the upper, INFERRED).
@@ -373,8 +431,91 @@ class Paths(_Fixture):
         self.assertEqual(dest, 3)
         self.assertAlmostEqual(cost, 28.28428, places=4)
         self.assertEqual([(p.X, p.Y) for p in shape.getPart(0)], [(5.0, 45.0), (15.0, 35.0), (25.0, 25.0)])
-        with self.assertRaises(arcpy.NotBuiltError):
-            sa.OptimalPathAsLine(corner, accumulation, arcpy.Raster(back), out, create_network_paths="NETWORK_PATHS")
+
+    def test_network_paths_do_not_overlap(self):
+        # D-332: NETWORK_PATHS writes each stretch the paths share once, cut where they join (an equivalent: the page
+        # says only that network paths do not overlap). Three destinations along the top row of a 5 x 5 grid, the
+        # source at the centre of the bottom row, over a D8 raster that runs every path down the middle column.
+        flow = grid([[1, 1, 4, 16, 16], [1, 1, 4, 16, 16], [1, 1, 4, 16, 16], [1, 1, 4, 16, 16], [1, 1, 0, 16, 16]])
+        accumulation = grid([[6, 5, 4, 5, 6], [5, 4, 3, 4, 5], [4, 3, 2, 3, 4], [3, 2, 1, 2, 3], [2, 1, 0, 1, 2]])
+        destinations = grid([[3, -9, 5, -9, 7], [-9] * 5, [-9] * 5, [-9] * 5, [-9] * 5], nodata=-9)
+        whole = os.path.join(self.directory, "whole.gpkg")
+        sa.OptimalPathAsLine(destinations, accumulation, flow, whole, path_type="EACH_CELL")
+        net = os.path.join(self.directory, "net.gpkg")
+        sa.OptimalPathAsLine(destinations, accumulation, flow, net, path_type="EACH_CELL",
+                             create_network_paths="NETWORK_PATHS")
+
+        def read(path):
+            with arcpy.da.SearchCursor(path, ["DestID", "PathCost", "SHAPE@"]) as rows:
+                return [(d, c, [(p.X, p.Y) for p in s.getPart(0)]) for d, c, s in rows]
+        paths, links = read(whole), read(net)
+        self.assertEqual(len(paths), 3)
+        segments = [tuple(sorted(pair)) for _, _, pts in links for pair in zip(pts, pts[1:])]
+        self.assertEqual(len(segments), len(set(segments)))   # no stretch twice
+        self.assertEqual(set(segments), {tuple(sorted(pair)) for _, _, pts in paths for pair in zip(pts, pts[1:])})
+        # The middle column below the junction carries all three, its DestID the least of them; above it, each its own.
+        trunk = [l for l in links if (25.0, 5.0) in l[2]]
+        self.assertEqual(len(trunk), 1)
+        self.assertEqual(trunk[0][0], 3)
+        self.assertEqual(sorted(d for d, _, _ in links), [3, 3, 7])   # 5's path is all trunk
+
+
+class Geodesic(_Fixture):
+    """D-332: Distance Accumulation's GEODESIC method — distances in metres on the ellipsoid, whatever the projection."""
+
+    def test_alone_the_sources_give_the_geodesic(self):
+        from pyproj import Geod
+        arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(4326)
+        values = np.full((9, 11), -9)
+        values[2, 3] = 1
+        values[7, 9] = 2
+        source = arcpy.NumPyArrayToRaster(values, arcpy.Point(20.0, 60.0), 0.5, 0.5, -9)
+        got = arcpy.RasterToNumPyArray(sa.DistanceAccumulation(source, distance_method="GEODESIC"))
+        geod = Geod(ellps="WGS84")
+        r, k = np.indices(values.shape)
+        lon, lat = 20.0 + (k + 0.5) * 0.5, 60.0 + 4.5 - (r + 0.5) * 0.5
+        d = np.minimum(*(np.asarray(geod.inv(lon.ravel(), lat.ravel(), np.full(lon.size, lon[a, b]),
+                                             np.full(lon.size, lat[a, b]))[2]).reshape(lon.shape)
+                         for a, b in ((2, 3), (7, 9))))
+        np.testing.assert_allclose(got, d, rtol=1e-6)
+        with self.assertRaises(ValueError):
+            sa.DistanceAccumulation(source, distance_method="SPHERICAL")
+
+    def test_the_reconstruction_measures_steps_on_the_ellipsoid(self):
+        # A cost of 1 everywhere: the reconstruction's answer is within 2 % of the geodesic at every cell of a grid at
+        # 60 N, where a degree of longitude is half a degree of latitude; the planar answer in degrees is no distance.
+        from pyproj import Geod
+        arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(4326)
+        values = np.full((15, 15), -9)
+        values[7, 7] = 1
+        source = arcpy.NumPyArrayToRaster(values, arcpy.Point(10.0, 58.0), 0.1, 0.1, -9)
+        cost = arcpy.NumPyArrayToRaster(np.ones((15, 15)), arcpy.Point(10.0, 58.0), 0.1, 0.1)
+        got = arcpy.RasterToNumPyArray(sa.DistanceAccumulation(source, in_cost_raster=cost,
+                                                               distance_method="GEODESIC")).astype(float)
+        r, k = np.indices(values.shape)
+        lon, lat = 10.0 + (k + 0.5) * 0.1, 58.0 + 1.5 - (r + 0.5) * 0.1
+        d = np.asarray(Geod(ellps="WGS84").inv(lon.ravel(), lat.ravel(), np.full(lon.size, lon[7, 7]),
+                                               np.full(lon.size, lat[7, 7]))[2]).reshape(lon.shape)
+        away = d > 0
+        error = np.abs(got[away] - d[away]) / d[away]
+        # A first-order reconstruction: the planar one is up to 5.1 % long on square cells (ADR-241 §5.3); on cells
+        # half as wide as tall it is up to 7.5 % long next to the source, and 0.8 % at the median.
+        self.assertLess(float(error.max()), 0.08)
+        self.assertLess(float(np.median(error)), 0.01)
+        self.assertAlmostEqual(float(got[7, 8]), float(d[7, 8]), delta=1e-3 * float(d[7, 8]))
+        # On a projection whose scale is near 1 (UTM 32N at its central meridian) the geodesic answer is the planar
+        # one to the projection's scale, 0.9996 there: the method answers on the ellipsoid, not on the map.
+        arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(32632)
+        utm = np.full((15, 15), -9)
+        utm[7, 7] = 1
+        source = arcpy.NumPyArrayToRaster(utm, arcpy.Point(492500.0, 6392500.0), 1000.0, 1000.0, -9)
+        cost = arcpy.NumPyArrayToRaster(np.ones((15, 15)), arcpy.Point(492500.0, 6392500.0), 1000.0, 1000.0)
+        planar = arcpy.RasterToNumPyArray(sa.DistanceAccumulation(source, in_cost_raster=cost)).astype(float)
+        on_ellipsoid = arcpy.RasterToNumPyArray(sa.DistanceAccumulation(source, in_cost_raster=cost,
+                                                                        distance_method="GEODESIC")).astype(float)
+        axes = (np.arange(15) != 7)
+        for line, flat in ((on_ellipsoid[7], planar[7]), (on_ellipsoid[:, 7], planar[:, 7])):   # exact on both
+            np.testing.assert_allclose(line[axes] / flat[axes], 1 / 0.9996, rtol=1e-3)
 
 
 class AgainstPro(_Fixture):

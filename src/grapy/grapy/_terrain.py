@@ -484,37 +484,46 @@ def _dedupe(points, sources):
     return points[keep], sources[keep]
 
 
-#: ArcGIS Pro 3.7's default XY domain origin for the UTM zones and SWEREF99 TM, by EPSG code (read with arcpy's
-#: ``SpatialReference(code).domain``, 2026-10-31): north zones (-5120900, -9998100), south zones (-5120900, 1900).
-#: Other coordinate systems' defaults follow their own extents and are not tabulated.
-_UTM_NORTH = (-5120900.0, -9998100.0)
-_UTM_SOUTH = (-5120900.0, 1900.0)
 #: An axis whose tile index from the domain's origin reaches this (between 23,169 and 23,170, measured) has its tiles
 #: centred on the data instead.
 _TILE_INDEX_LIMIT = 23170
+_DOMAINS = None
+
+
+def _domains():
+    """``_terrain_domains.txt``: ArcGIS Pro 3.7's default XY domain origin for each of the 5,767 EPSG coordinate
+    systems Pro knows, read with arcpy's ``SpatialReference(code).domain`` on 2026-11-01
+    (``tools/pro-compare/adr234-terrain-domains-pro.py``, D-339) — a measured table, since the rule Pro derives the
+    domain from each projection's own horizon by is not published."""
+    global _DOMAINS
+    if _DOMAINS is None:
+        table = {}
+        with open(os.path.join(os.path.dirname(__file__), "_terrain_domains.txt"), encoding="ascii") as read:
+            for line in read:
+                if line.startswith("#") or not line.strip():
+                    continue
+                code, x, y = line.split()
+                table[int(code)] = (float(x), float(y))
+        _DOMAINS = table
+    return _DOMAINS
 
 
 def default_xy_origin(srid):
-    """Pro's default XY domain origin for ``srid`` where it is known (WGS 84, WGS 72, NAD 83 and ETRS 89 UTM zones,
-    SWEREF99 TM), else None."""
+    """Pro's default XY domain origin for the EPSG code ``srid`` (``_domains``) — for a UTM zone on WGS 84 north
+    (-5120900, -9998100), south (-5120900, 1900) — or None for a code Pro does not know."""
     try:
         code = int(srid)
     except (TypeError, ValueError):
         return None
-    if 32601 <= code <= 32660 or 32201 <= code <= 32260 or 26901 <= code <= 26923 or 25828 <= code <= 25838 \
-            or code == 3006:
-        return _UTM_NORTH
-    if 32701 <= code <= 32760:
-        return _UTM_SOUTH
-    return None
+    return _domains().get(code)
 
 
 def window_anchors(points, spacing, srid, corner):
     """Where each point's windows start, per axis: ArcGIS Pro 3.7's rule, measured 2026-10-31 on 45 terrains (D-339,
     ``tools/pro-compare/adr234-terrain-corner.py``). The data is cut into square tiles of ``round(spacing * √200000)``
     from the XY domain's origin and each tile's windows start at its own corner; an axis whose tile index reaches
-    23,170 has its tiles centred on the data's extent instead. Where the domain is not known (``default_xy_origin``),
-    INFERRED: one tile from the extent's lower-left ``corner``."""
+    23,170 has its tiles centred on the data's extent instead. Where the domain is not known (``default_xy_origin``:
+    a code Pro does not know, or none), INFERRED: one tile from the extent's lower-left ``corner``."""
     n = len(points)
     origin = default_xy_origin(srid)
     if origin is None or not n:
@@ -624,7 +633,7 @@ def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
     grows to the data; ``UPDATE_EXTENT`` computes it again from the data alone, as documented.
 
     Windows start where Pro 3.7's do (``window_anchors``, measured 2026-10-31): at the corner of each tile of
-    ``round(spacing * √200000)`` from the XY domain's origin, which grapy knows for the UTM zones; elsewhere,
+    ``round(spacing * √200000)`` from the XY domain's origin, which grapy knows for every EPSG code ArcGIS Pro knows; elsewhere,
     INFERRED (ADR-234 §5.9 (d)), from the extent's lower-left corner. At a seam between two tiles Pro keeps a few
     points fewer than grapy (5 of 193 at one level, measured, D-339). INFERRED: of two points at one x,y the later
     source's is kept; z-tolerance levels each start from full resolution,

@@ -15,6 +15,25 @@
 ARG GLYPHS_CJK=0
 
 # ---------------------------------------------------------------------------
+# <b>GDAL for the import reader, without Poppler — ADR-254.</b> Owner decision 2026-11-01 on D-380,
+# *"PDF'siz GDAL'a geç"*: the MaxRev.Gdal payload this image carried until then linked Poppler
+# (GPL-2.0-or-later) into libgdal and into every SWIG wrapper. GDAL now comes from the conda-forge
+# packages `deploy/gdal/gdal-natives.lock.json` pins by SHA-256 — libgdal-core, the JPEG 2000, NetCDF
+# and HDF plugins, gdal-csharp's wrappers — and `tools/gdal-natives.py` lays out exactly the libraries
+# the wrappers need, for both architectures, from the build machine. Nothing runs under emulation: the
+# script only downloads, checks and copies. It fails the build on a GPL library, on a file named
+# Poppler, PDFium, PoDoFo or librttopo, on a wrapper missing an entry point the C# calls, and on a
+# library needing a newer libstdc++ than noble's. Python is here and not in the SDK stage, which has
+# none; `zstd` because this Python predates `compression.zstd` and a .conda file is zstd inside a zip.
+FROM --platform=$BUILDPLATFORM python@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17 AS gdal
+RUN apt-get update && apt-get install --yes --no-install-recommends zstd && rm -rf /var/lib/apt/lists/*
+WORKDIR /repo
+COPY tools/gdal-natives.py tools/gdal-natives.py
+COPY deploy/gdal/gdal-natives.lock.json deploy/gdal/gdal-natives.lock.json
+RUN python -I tools/gdal-natives.py fetch linux-x64 /gdal/linux-x64 \
+ && python -I tools/gdal-natives.py fetch linux-arm64 /gdal/linux-arm64
+
+# ---------------------------------------------------------------------------
 # <b>`$BUILDPLATFORM`, so a two-architecture build compiles once — D-262.</b> The publish
 # below is portable (`UseAppHost=false`, no runtime identifier), so its output runs on amd64
 # and arm64 alike and there is nothing to gain from running the SDK under emulation. Only the
@@ -60,6 +79,11 @@ COPY tests/ tests/
 # and belongs in no serving image.
 COPY tools/fonts/ tools/fonts/
 
+# The import reader's GDAL, laid out above; the reader's build copies it beside itself rather than
+# fetching it (`GdalFetch=false`), for both architectures (`GdalRuntimes`, from the environment because
+# MSBuild's `/p:` splits a value at a comma as well as at a semicolon) — ADR-254.
+COPY --from=gdal /gdal/ .gdal/
+
 # Only the host, and only what it references. Building the solution here would
 # pull the test projects and their packages into the image layer cache for no
 # benefit.
@@ -87,10 +111,11 @@ RUN set -eu; \
     else \
       set --; \
     fi; \
-    dotnet publish src/Graticula.Host/Graticula.Host.csproj \
+    GdalRuntimes=linux-x64,linux-arm64 dotnet publish src/Graticula.Host/Graticula.Host.csproj \
       --configuration Release \
       --output /app \
       /p:UseAppHost=false \
+      /p:GdalFetch=false \
       "$@"
 
 # <b>Both siblings have to be startable from this image, and for every release so far neither
@@ -106,6 +131,21 @@ RUN set -eu; \
 # that code looks at.
 RUN test -f /app/overlay/Graticula.Overlay.Worker.dll \
  && test -f /app/importer/Graticula.Import.Reader.dll
+
+# <b>The reader's GDAL, one architecture per image — ADR-254.</b> Moved out of /app so the runtime stage
+# copies only its own architecture's, as it does DuckDB's extensions; the directories are named the way
+# Docker names architectures so one `TARGETARCH` selects them. And no Poppler anywhere in what ships: the
+# script refused it already, and this is the check on the artefact rather than on the script.
+RUN test -f /app/importer/gdal/linux-x64/lib/libgdal.so.39 \
+ && test -f /app/importer/gdal/linux-arm64/lib/libgdal.so.39 \
+ && test -f /app/importer/gdal/linux-x64/lib/libgdal_wrap.so \
+ && test -s /app/importer/gdal/linux-x64/licenses/PACKAGES.txt \
+ && test -z "$(find /app -iname '*poppler*' -o -iname '*pdfium*' -o -iname '*rttopo*')" \
+ && test ! -e /app/importer/runtimes \
+ && mkdir -p /gdal-out/amd64 /gdal-out/arm64 \
+ && mv /app/importer/gdal/linux-x64 /gdal-out/amd64/ \
+ && mv /app/importer/gdal/linux-arm64 /gdal-out/arm64/ \
+ && rmdir /app/importer/gdal
 
 # <b>DuckDB's native library for the two architectures this image is built for, and not the
 # other three — ADR-066.</b> The package carries it for linux-x64, linux-arm64, win-x64,
@@ -227,7 +267,11 @@ RUN apt-get update  && apt-get install --yes --no-install-recommends curl liblda
 # ADR-248: PyTorch and torchvision for grapy's deep learning tools, the CPU builds from PyTorch's own index, which holds
 # both x86-64 and aarch64 wheels (PyPI's x86-64 wheel brings CUDA's libraries). No pretrained weights are baked in.
 # ADR-229 condition 5: lazrs is laspy's LAZ backend (MIT); the build fails if laspy cannot find it.
+# D-383, owner decision 2026-11-01 ("readline'ı sil, PostGIS'i kabul et"): Ubuntu Python's readline module links GNU
+# readline (GPL-3.0) and nothing of ours imports it, so it is removed, and the build fails if it comes back.
 RUN apt-get update && apt-get install --yes --no-install-recommends python3 python3-venv && rm -rf /var/lib/apt/lists/* \
+ && rm -f /usr/lib/python3*/lib-dynload/readline.cpython-*.so \
+ && ! python3 -c "import readline" 2>/dev/null \
  && python3 -m venv /opt/grapy \
  && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas rasterio scipy laspy lazrs xarray manifold3d \
  && /opt/grapy/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision \
@@ -268,6 +312,9 @@ COPY --from=glyphs /out/ ./
 # as Docker names its architectures, so the one argument selects both.
 ARG TARGETARCH
 COPY --from=build /duckdb-extensions/linux_${TARGETARCH}/ ./duckdb-extensions/linux_${TARGETARCH}/
+
+# ADR-254: this architecture's GDAL for the import reader, with the licences of every package it came from.
+COPY --from=build /gdal-out/${TARGETARCH}/ ./importer/gdal/
 
 # <b>The font is redistributed by this image, so its notice travels with it.</b>
 # DejaVu Sans is compiled into `Graticula.Render.Skia.dll` rather than sitting beside

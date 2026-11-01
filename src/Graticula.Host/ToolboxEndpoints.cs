@@ -574,7 +574,14 @@ internal static partial class ToolboxEndpoints
             return toolbox;
         }
 
-        // The same answer for a toolbox that is not there and one that is not shared with the caller.
+        // The same answer for a toolbox that is not there and one that is not shared with the caller — and for a
+        // caller with no token, the same challenge for both (D-347, TokenRequired).
+        if (TokenRequired.Applies(context))
+        {
+            await TokenRequired.WriteAsync(context).ConfigureAwait(false);
+            return null;
+        }
+
         await AnalysisEndpoints.RefuseAsync(context, 404, $"No toolbox '{name}' is visible to you.").ConfigureAwait(false);
         return null;
     }

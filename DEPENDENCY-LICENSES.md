@@ -20,6 +20,12 @@ the artefact would forbid adding one. **Measured 2026-08-25: nothing linked here
 copyleft** — every referenced package is MIT, BSD-2, BSD-3, Apache-2.0 or the
 PostgreSQL Licence, and GDAL's fourteen-component bill below is permissive throughout.
 GEOS (LGPL) and PostGIS (GPL-2.0-or-later) are a separate process and are not linked.
+*(Corrected 2026-11-01. GDAL's bill was not permissive throughout: MaxRev's payload built the PDF
+driver on Poppler, GPL-2.0-or-later — [D-380](docs/architecture-debt.md). Since
+[ADR-254](docs/adr/ADR-254-gdal-without-poppler.md) the reader's GDAL is conda-forge's
+`libgdal-core` without the PDF driver, and no GPL library is in it. GEOS **is** linked — into the
+reader's `libgdal`, a child process, as it was in MaxRev's — under LGPL-2.1, dynamically, which is
+what LGPL permits; see *GDAL* below.)*
 Every inbound dependency must be compatible with redistribution under Apache-2.0.
 **This makes one class of dependency newly disqualifying: GPL and AGPL components
 cannot be linked into anything we ship**, because we cannot sublicense them under
@@ -234,7 +240,7 @@ matters: no copyleft anywhere.**
 
 | Licence | Packages |
 |---|---|
-| MIT | `DuckDB.NET.Data.Full` · `DuckDB.NET.Bindings.Full` (2026-09-13, ADR-066) · `MaxRev.Gdal.Core` and its four runtime packages · `SkiaSharp` and its four native-asset packages · `SkiaSharp.HarfBuzz`, `HarfBuzzSharp` and its native-asset packages (2026-09-29, ADR-100) · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` · `Microsoft.AspNetCore.TestHost` (2026-09-13, ADR-068) · `Microsoft.IdentityModel.Protocols.OpenIdConnect` and `Microsoft.IdentityModel.JsonWebTokens` with what they bring — `Microsoft.IdentityModel.Protocols`, `.Tokens`, `.Logging`, `.Abstractions` and `System.IdentityModel.Tokens.Jwt`, all 8.23.0, nuspec `<license type="expression">MIT` (2026-09-24, ADR-088; they parse and validate, and open no connection of their own — `OidcClient` fetches) · `System.DirectoryServices.Protocols` 9.0.9, nuspec `<license type="expression">MIT` (2026-09-24, ADR-089; on Linux it loads OpenLDAP's `libldap` from the image — `libldap2`, OpenLDAP Public License, a permissive BSD-style licence, installed from the distribution and not linked into anything we ship) · what `ITfoxtec.Identity.Saml2` brings — `System.Security.Cryptography.Xml` and `System.Security.Cryptography.Pkcs` 9.0.21 (from 9.0.20 on 2026-10-14, for four .NET security advisories), `Microsoft.IdentityModel.Tokens.Saml` 8.22.0, `System.ServiceModel.Primitives` 8.1.2, `Microsoft.Extensions.Http` 9.0.8, nuspec `<license type="expression">MIT` (2026-09-24, ADR-090; `System.Security.Cryptography.Xml` is also referenced directly by the conformance suite, whose SAML provider signs with it) |
+| MIT | `DuckDB.NET.Data.Full` · `DuckDB.NET.Bindings.Full` (2026-09-13, ADR-066) · ~~`MaxRev.Gdal.Core` and its four runtime packages~~ (removed 2026-11-01, ADR-254: their payload linked Poppler) · `gdal-csharp` 2.1.6, GDAL's own C# binding, from conda-forge, compiled into the import reader (ADR-254) · `SkiaSharp` and its four native-asset packages · `SkiaSharp.HarfBuzz`, `HarfBuzzSharp` and its native-asset packages (2026-09-29, ADR-100) · `Newtonsoft.Json` · `Konscious.Security.Cryptography.Argon2` · `Konscious.Security.Cryptography.Blake2` · `Microsoft.Extensions.DependencyInjection.Abstractions` · `Microsoft.Extensions.Logging.Abstractions` · `System.Memory` · `System.Reflection.Metadata` · `Microsoft.CodeCoverage` · `Microsoft.Extensions.TimeProvider.Testing` · `Microsoft.NET.Test.Sdk` · `Microsoft.TestPlatform.ObjectModel` · `Microsoft.TestPlatform.TestHost` · `Microsoft.AspNetCore.TestHost` (2026-09-13, ADR-068) · `Microsoft.IdentityModel.Protocols.OpenIdConnect` and `Microsoft.IdentityModel.JsonWebTokens` with what they bring — `Microsoft.IdentityModel.Protocols`, `.Tokens`, `.Logging`, `.Abstractions` and `System.IdentityModel.Tokens.Jwt`, all 8.23.0, nuspec `<license type="expression">MIT` (2026-09-24, ADR-088; they parse and validate, and open no connection of their own — `OidcClient` fetches) · `System.DirectoryServices.Protocols` 9.0.9, nuspec `<license type="expression">MIT` (2026-09-24, ADR-089; on Linux it loads OpenLDAP's `libldap` from the image — `libldap2`, OpenLDAP Public License, a permissive BSD-style licence, installed from the distribution and not linked into anything we ship) · what `ITfoxtec.Identity.Saml2` brings — `System.Security.Cryptography.Xml` and `System.Security.Cryptography.Pkcs` 9.0.21 (from 9.0.20 on 2026-10-14, for four .NET security advisories), `Microsoft.IdentityModel.Tokens.Saml` 8.22.0, `System.ServiceModel.Primitives` 8.1.2, `Microsoft.Extensions.Http` 9.0.8, nuspec `<license type="expression">MIT` (2026-09-24, ADR-090; `System.Security.Cryptography.Xml` is also referenced directly by the conformance suite, whose SAML provider signs with it) |
 | BSD-3-Clause | `NetTopologySuite` · `ITfoxtec.Identity.Saml2` 4.21.0, nuspec `<license type="expression">BSD-3-Clause` (2026-09-24, ADR-090; it checks SAML signatures and opens no connection of its own — `SamlMetadata` fetches) |
 | PostgreSQL Licence (BSD-style) | `Npgsql` |
 | Apache-2.0 | `Apache.Arrow` · `Apache.Arrow.Scalars` (2026-09-13, with DuckDB.NET) · the `xunit` family — `xunit`, `xunit.assert`, `xunit.core`, `xunit.analyzers`, `xunit.abstractions`, `xunit.extensibility.core`, `xunit.extensibility.execution`, `xunit.runner.visualstudio` |
@@ -259,7 +265,35 @@ for what ships has to be re-answered the first time somebody asks what is in the
 
 ---
 
-## GDAL — what this build carries, enumerated 2026-08-24
+## GDAL — what this build carries, enumerated 2026-08-24, rebuilt 2026-11-01
+
+**Since 2026-11-01 the build is a different one, and the table below says so row by row.** Owner
+decision on [D-380](docs/architecture-debt.md), *"PDF'siz GDAL'a geç"*:
+[ADR-254](docs/adr/ADR-254-gdal-without-poppler.md) replaced MaxRev's payload with conda-forge's
+**`libgdal-core` 3.13.3** and the plugins **`libgdal-jp2openjpeg`, `libgdal-netcdf`, `libgdal-hdf4`
+and `libgdal-hdf5`**, with **`gdal-csharp` 2.1.6**'s wrappers. **There is no PDF driver in it, and no
+Poppler, PDFium or PoDoFo.** Every package is pinned by SHA-256 in
+[`deploy/gdal/gdal-natives.lock.json`](deploy/gdal/gdal-natives.lock.json), which is this build's
+bill of materials, and `tools/gdal-natives.py` refuses a closure containing a GPL package. What
+ships beside the reader, per platform, is in `gdal/<rid>/licenses/PACKAGES.txt` with each package's
+licence files — **the notices now travel with the libraries**, which MaxRev's payload did not do.
+
+**The closure, measured 2026-11-01 (linux-x64 and linux-arm64: 57 packages ship files, 76
+libraries; win-x64, for development only, 50).** Licences, from each package's own metadata:
+MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, ISC, Zlib, 0BSD, HPND (libtiff), IJG (libjpeg-turbo),
+curl, *blessing* (SQLite, public domain), bzip2, X11, MPL-1.1 (libspatialite, freexl — each
+tri-licensed, used under the MPL), **LGPL-2.1** (GEOS, GNU libiconv, keyutils, libnsl — dynamically
+linked, which is LGPL's own permission) and **GPL-3.0 WITH GCC-exception-3.1** (libgomp, whose
+runtime-library exception is precisely what lets non-GPL code link it). **Nothing GPL without an
+exception.** Two GPL packages conda-forge's default closure would have brought are left out by
+name, and the lock records why: **librttopo** (GPL-2.0-or-later, through the default
+`libspatialite` build; the `lgpl_` build is chosen) and **readline** (GPL-3.0, through the `sqlite`
+command-line program, which is not a library anything loads).
+
+**grapy's two GDALs are separate and were measured too.** pyogrio's wheel (GDAL 3.12.4) and
+rasterio's (3.12.2) each bundle a `libgdal` in their `*.libs` directory; neither contains a
+Poppler file or the string `poppler`, and their `PDF` driver is GDAL's write-only one, which needs
+no PDF library.
 
 **[D-88](docs/architecture-debt.md) part 2, and the reason it exists is a sentence nobody
 should write.** *"GDAL is MIT"* is true of GDAL's own code and false of the artefact: its
@@ -269,7 +303,10 @@ is decided by which drivers were built in. So the drivers were asked rather than
 with `MaxRev.Gdal.Core` and changes when that package does; a list typed into this document
 would be right until the next upgrade.
 
-**Measured: GDAL 3.13.1, 83 vector drivers and 213 raster drivers.**
+**Measured: GDAL 3.13.1, 83 vector drivers and 213 raster drivers** — MaxRev's build, until
+2026-11-01. ADR-254's build: GDAL 3.13.3, 76 vector and 204 raster drivers on Windows (the reader's
+`drivers` operation), without PDF, Parquet, PostgreSQL/PostGIS Raster, GRIB, FITS, KEA, TileDB or
+the Excel `.xls` reader, which are conda-forge plugins this build does not take.
 
 | Component in `LICENSE.TXT` | Licence | In this build? |
 |---|---|---|
@@ -277,11 +314,13 @@ would be right until the next upgrade.
 | `port/cpl_float.cpp` (Industrial Light & Magic) | BSD-3-Clause | yes, core |
 | `frmts/hdf4/hdf-eos/*` | BSD-style | **yes** — HDF4 is present |
 | `frmts/pcraster/libcsf` (Utrecht University) | BSD-style | **yes** — PCIDSK is present |
-| `frmts/grib/degrib/*` | public domain | **yes** — GRIB is present |
+| `frmts/grib/degrib/*` | public domain | ~~**yes** — GRIB is present~~ **no since ADR-254** — GRIB is a plugin this build does not take |
 | `port/cpl_minizip*` | Info-ZIP | yes, core |
 | `ogr/ogrsf_frmts/dxf/intronurbs.cpp` | BSD-style | **yes** — DXF is present |
 | `alg/thinplatespline.cpp` and `alg/libqhull` | Qhull | yes, core algorithms |
-| `frmts/pdf/pdfdataset.cpp` (PDFium) | BSD-3-Clause | **yes** — PDF is present |
+| ~~`frmts/pdf/pdfdataset.cpp` (PDFium)~~ | ~~BSD-3-Clause~~ | ~~**yes** — PDF is present~~ |
+| ~~`frmts/pdf/pdfdataset.cpp` with **Poppler** — *corrected 2026-11-01, [D-380](docs/architecture-debt.md)*~~ | ~~**GPL-2.0-or-later** (Poppler)~~ | ~~**yes** — the PDF driver is built on Poppler, not PDFium: `gdal.dll` imports `poppler.dll`, `libgdal.so.39` needs `libpoppler.so.151`, and neither carries PDFium. **This is the one copyleft component in the payload**~~ |
+| `frmts/pdf/*` — **since 2026-11-01, [ADR-254](docs/adr/ADR-254-gdal-without-poppler.md)** | — | **no** — not built: the PDF driver is conda-forge's `libgdal-pdf` plugin, the only package that depends on Poppler, and the lock never names it. The reader's `drivers` answer lists no `PDF`; a PDF uploaded as imagery is refused by name. |
 | `frmts/mrf/*` — **Copyright 2014-2015 Esri** | **Apache-2.0** | **yes** — MRF is present, and `LICENSE.TXT` says this section applies *"when MRF driver included in build"* |
 | `cmake/modules/3.*` | BSD-3-Clause | build-time only |
 | `ogr/ogrsf_frmts/flatgeobuf` | BSD-2-Clause | **yes** — FlatGeobuf is present |
@@ -303,7 +342,7 @@ them by name.
 
 **So the honest sentence is not *GDAL is MIT*.** It is: an MIT-style core, with BSD-2 and
 BSD-3 components, a public-domain one, Info-ZIP, Qhull, and **two Apache-2.0 components, one
-of them Esri's** — all of them permissive, none of them copyleft, and all compatible with
+of them Esri's** — all of them permissive, none of them copyleft, *(wrong about one, corrected 2026-11-01: the PDF driver linked Poppler, GPL-2.0-or-later — the table above and [D-380](docs/architecture-debt.md); **true again since [ADR-254](docs/adr/ADR-254-gdal-without-poppler.md)**, whose build has no PDF driver)* and all compatible with
 redistribution under ~~Apache-2.0~~ **the Elastic License 2.0 — corrected 2026-09-09.** This
 paragraph was written on 2026-08-24, one day before
 [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md) made the outbound licence

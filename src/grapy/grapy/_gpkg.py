@@ -56,28 +56,204 @@ def split(path: str) -> tuple[str, str | None]:
 def connect(file: str) -> sqlite3.Connection:
     connection = sqlite3.connect(file)
     connection.execute("pragma foreign_keys = on")
-    functions(connection)
+    prepare(connection)
     return connection
+
+
+def prepare(connection: sqlite3.Connection) -> None:
+    """What every connection grapy writes through needs: the RTree triggers' functions and the extent's triggers."""
+    functions(connection)
+    extent_triggers(connection)
 
 
 def functions(connection: sqlite3.Connection) -> None:
     """The SQL functions a GeoPackage's RTree spatial index triggers call (GeoPackage 1.4 Annex F.3, *Extension
     Functions*: ``ST_IsEmpty``, ``ST_MinX``, ``ST_MaxX``, ``ST_MinY``, ``ST_MaxY``), registered so that grapy can write
-    to a file whose writer — GDAL, ArcGIS Pro — added the index. Without them every insert or update of a shape fails
-    with *no such function: ST_IsEmpty*. grapy adds no index of its own; the extension is optional."""
+    to a file whose writer — GDAL, ArcGIS Pro, or grapy itself (``add_index``) — added the index. Without them every
+    insert or update of a shape fails with *no such function: ST_IsEmpty*.
+
+    A trigger calls them several times on one blob in a row, so the last blob's bounds are kept, and an envelope in
+    the blob's header (§2.1.3.1.1) is read without decoding the WKB."""
+    last = [None, None]
+
     def bounds(blob):
-        shape = decode(blob) if isinstance(blob, bytes) else None
-        return None if shape is None or shape.is_empty else shape.bounds
+        if not isinstance(blob, bytes):
+            return None
+        if last[0] is not None and last[0] == blob:
+            return last[1]
+        found = None
+        if len(blob) >= 8 and not blob[3] & 0b00010000:          # not flagged empty
+            envelope = (blob[3] >> 1) & 0b111
+            if envelope in (1, 2, 3, 4) and len(blob) >= 40:
+                order = "<" if blob[3] & 1 else ">"
+                minx, maxx, miny, maxy = struct.unpack(order + "4d", blob[8:40])
+                found = (minx, miny, maxx, maxy)
+            else:
+                at = 8 + (0, 32, 48, 48, 64)[envelope] if envelope < 5 else 8
+                order = "<" if len(blob) > at and blob[at] == 1 else ">"
+                kind = struct.unpack(order + "I", blob[at + 1:at + 5])[0] if len(blob) >= at + 5 else 0
+                if kind % 1000 == 1 and len(blob) >= at + 21:     # a point, read without decoding (ISO WKB)
+                    x, y = struct.unpack(order + "2d", blob[at + 5:at + 21])
+                    found = None if x != x and y != y else (x, y, x, y)
+                else:
+                    shape = decode(blob)
+                    found = None if shape is None or shape.is_empty else shape.bounds
+        last[0], last[1] = blob, found
+        return found
 
     def empty(blob):
         if not isinstance(blob, bytes):
             return None
-        shape = decode(blob)
-        return 1 if shape is None or shape.is_empty else 0
+        return 1 if bounds(blob) is None else 0
 
     connection.create_function("ST_IsEmpty", 1, empty, deterministic=True)
     for name, at in (("ST_MinX", 0), ("ST_MinY", 1), ("ST_MaxX", 2), ("ST_MaxY", 3)):
         connection.create_function(name, 1, lambda blob, at=at: (bounds(blob) or (None,) * 4)[at], deterministic=True)
+
+
+# ---- the extent and the spatial index (D-340)
+
+
+def _quote(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _literal(text: str) -> str:
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+def extent_triggers(connection: sqlite3.Connection) -> None:
+    """TEMP triggers, this connection's alone and never written to the file, that widen a feature class's
+    gpkg_contents extent as each shape is inserted or updated, whatever statement writes it: a ``da`` cursor, or a tool
+    inserting with SQL of its own (network diagrams, traces, mosaic catalogues, attribute rules). Like GDAL, the extent
+    grows and never shrinks (§1.1.3.1.1 calls it informative); RecalculateFeatureClassExtent makes it tight."""
+    try:
+        classes = connection.execute(
+            "select g.table_name, g.column_name from gpkg_geometry_columns g join sqlite_master m "
+            "on m.name = g.table_name and m.type = 'table'").fetchall()
+    except sqlite3.Error:      # not a GeoPackage yet
+        return
+    for table, column in classes:
+        new = f"new.{_quote(column)}"
+        widen = (f"update gpkg_contents set "
+                 f"min_x = min(coalesce(min_x, ST_MinX({new})), ST_MinX({new})), "
+                 f"min_y = min(coalesce(min_y, ST_MinY({new})), ST_MinY({new})), "
+                 f"max_x = max(coalesce(max_x, ST_MaxX({new})), ST_MaxX({new})), "
+                 f"max_y = max(coalesce(max_y, ST_MaxY({new})), ST_MaxY({new})) "
+                 f"where table_name = {_literal(table)}")
+        when = f"when {new} is not null and not ST_IsEmpty({new})"
+        for event, name in (("insert", "insert"), (f"update of {_quote(column)}", "update")):
+            try:
+                connection.execute(
+                    f"create temp trigger if not exists {_quote(f'grapy_extent_{name}_{table}')} after {event} "
+                    f"on main.{_quote(table)} {when} begin {widen}; end")
+            except sqlite3.Error:  # a table this connection cannot attach a trigger to stays as it was
+                pass
+
+
+def own_extent(connection: sqlite3.Connection, table: str) -> None:
+    """The extent's triggers on ``table`` dropped from this connection, for a writer that widens the extent itself
+    (a ``da`` cursor, which does it once as it closes rather than once a row)."""
+    for name in ("insert", "update"):
+        connection.execute(f"drop trigger if exists temp.{_quote(f'grapy_extent_{name}_{table}')}")
+
+
+RTREE = "gpkg_rtree_index"
+RTREE_DEFINITION = "http://www.geopackage.org/spec120/#extension_rtree"
+_EXTENSIONS = """create table if not exists gpkg_extensions (table_name TEXT, column_name TEXT,
+    extension_name TEXT NOT NULL, definition TEXT NOT NULL, scope TEXT NOT NULL,
+    CONSTRAINT ge_tce UNIQUE (table_name, column_name, extension_name))"""
+_RTREE_TRIGGERS = ("insert", "update1", "update2", "update3", "update4", "update5", "update6", "update7", "delete")
+
+
+def _rtree_of(connection: sqlite3.Connection, table: str) -> tuple[str, str] | None:
+    """(geometry column, its key column) of a feature table, or None when the table is not one."""
+    try:
+        row = connection.execute(
+            "select column_name from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None or not connection.execute(
+            "select 1 from sqlite_master where name = ? and type = 'table'", (table,)).fetchone():
+        return None
+    return row[0], oid_column(connection, table)
+
+
+def has_index(connection: sqlite3.Connection, table: str) -> bool:
+    """Whether a feature table has the RTree spatial index (Annex F.3)."""
+    found = _rtree_of(connection, table)
+    return found is not None and bool(connection.execute(
+        "select 1 from sqlite_master where name = ? and type = 'table'", (f"rtree_{table}_{found[0]}",)).fetchone())
+
+
+def add_index(connection: sqlite3.Connection, table: str) -> bool:
+    """The RTree spatial index of GeoPackage 1.4 Annex F.3 on a feature table: the virtual table
+    ``rtree_<t>_<c>``, filled from the table's shapes, its ``gpkg_extensions`` row, and the seven triggers the annex
+    gives (insert, update2, update4, update5, update6, update7, delete) so that every writer keeps it. False when the
+    table is not a feature table; an index already there is kept."""
+    found = _rtree_of(connection, table)
+    if found is None:
+        return False
+    column, key = found
+    if has_index(connection, table):
+        return True
+    t, c, i = _quote(table), _quote(column), _quote(key)
+    r = _quote(f"rtree_{table}_{column}")
+
+    def trigger(suffix):
+        return _quote(f"rtree_{table}_{column}_{suffix}")
+
+    values = f"NEW.{i}, ST_MinX(NEW.{c}), ST_MaxX(NEW.{c}), ST_MinY(NEW.{c}), ST_MaxY(NEW.{c})"
+    filled = f"NEW.{c} NOTNULL AND NOT ST_IsEmpty(NEW.{c})"
+    emptied = f"NEW.{c} ISNULL OR ST_IsEmpty(NEW.{c})"
+    statements = (
+        f"create virtual table {r} using rtree(id, minx, maxx, miny, maxy)",
+        f"insert or replace into {r} select {i}, ST_MinX({c}), ST_MaxX({c}), ST_MinY({c}), ST_MaxY({c}) from {t} "
+        f"where {c} notnull and not ST_IsEmpty({c})",
+        f"create trigger {trigger('insert')} after insert on {t} when ({filled}) "
+        f"begin insert or replace into {r} values ({values}); end",
+        f"create trigger {trigger('update6')} after update of {c} on {t} when OLD.{i} = NEW.{i} and ({filled}) "
+        f"and (OLD.{c} NOTNULL AND NOT ST_IsEmpty(OLD.{c})) begin update {r} set minx = ST_MinX(NEW.{c}), "
+        f"maxx = ST_MaxX(NEW.{c}), miny = ST_MinY(NEW.{c}), maxy = ST_MaxY(NEW.{c}) where id = NEW.{i}; end",
+        f"create trigger {trigger('update7')} after update of {c} on {t} when OLD.{i} = NEW.{i} and ({filled}) "
+        f"and (OLD.{c} ISNULL OR ST_IsEmpty(OLD.{c})) begin insert into {r} values ({values}); end",
+        f"create trigger {trigger('update2')} after update of {c} on {t} when OLD.{i} = NEW.{i} and ({emptied}) "
+        f"begin delete from {r} where id = OLD.{i}; end",
+        f"create trigger {trigger('update5')} after update on {t} when OLD.{i} != NEW.{i} and ({filled}) "
+        f"begin delete from {r} where id = OLD.{i}; insert or replace into {r} values ({values}); end",
+        f"create trigger {trigger('update4')} after update on {t} when OLD.{i} != NEW.{i} and ({emptied}) "
+        f"begin delete from {r} where id in (OLD.{i}, NEW.{i}); end",
+        f"create trigger {trigger('delete')} after delete on {t} when OLD.{c} NOT NULL "
+        f"begin delete from {r} where id = OLD.{i}; end",
+        _EXTENSIONS,
+    )
+    for statement in statements:
+        connection.execute(statement)
+    connection.execute("insert or ignore into gpkg_extensions values (?, ?, ?, ?, 'write-only')",
+                       (table, column, RTREE, RTREE_DEFINITION))
+    return True
+
+
+def drop_index(connection: sqlite3.Connection, table: str, column: str | None = None) -> bool:
+    """A feature table's RTree index removed — its triggers, its virtual table and its ``gpkg_extensions`` row —
+    answering whether there was one. ``column`` names the geometry column when the table's registration is already
+    gone or about to change."""
+    if column is None:
+        try:
+            row = connection.execute(
+                "select column_name from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
+        except sqlite3.Error:
+            row = None
+        column = row[0] if row else GEOMETRY
+    name = f"rtree_{table}_{column}"
+    there = bool(connection.execute("select 1 from sqlite_master where name = ? and type = 'table'",
+                                    (name,)).fetchone())
+    for suffix in _RTREE_TRIGGERS:
+        connection.execute(f"drop trigger if exists {_quote(f'{name}_{suffix}')}")
+    connection.execute(f"drop table if exists {_quote(name)}")
+    if connection.execute("select 1 from sqlite_master where name = 'gpkg_extensions'").fetchone():
+        connection.execute("delete from gpkg_extensions where table_name = ? and extension_name = ?", (table, RTREE))
+    return there
 
 
 def table_of(path: str) -> tuple[sqlite3.Connection, str]:
@@ -145,6 +321,7 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
     connection = connect(file)
     try:
         _ensure_metadata(connection, srid)
+        drop_index(connection, table)
         connection.execute(f'drop table if exists "{table}"')
         forget(connection, table)
         stored = _STORED.get(shape, "GEOMETRY")
@@ -169,6 +346,9 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
         connection.execute(
             "insert into gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m) values (?, ?, ?, ?, ?, ?)",
             (table, GEOMETRY, stored, srid, 1 if has_z else 0, 1 if has_m else 0))
+        # The RTree index of Annex F.3, as GDAL makes by default: ArcGIS Pro and QGIS use it to draw and select by
+        # extent, and without it a large class is scanned whole (D-340).
+        add_index(connection, table)
         connection.commit()
     finally:
         connection.close()

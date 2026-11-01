@@ -295,7 +295,7 @@ public static class Program
                     MaxPoolSize = PlatformStorePool,
                 }.ConnectionString)
                 .Build()
-                .RoutedByTenant(settings.PlatformStore, PlatformStorePool));
+                .RoutedByTenant());
 
         builder.Services.AddSingleton(services => new PostgresLayerCatalog(
             services.GetRequiredService<NpgsqlDataSource>(),
@@ -490,6 +490,9 @@ public static class Program
         // <b>ADR-007 §4.8's connection cap, which the ADR has required since 2026-08-12.</b>
         // Registered before `LayerConnections` because that is what consumes it: every read path
         // gets its source from there, so one wrapper bounds them all. Q-04 has the numbers.
+        // ADR-046 at the platform store: as many permits as its pool has connections (D-196), the same queue per permit.
+        builder.Services.AddSingleton(new StoreGate(PlatformStorePool, settings.QueueWaitersPerPermit));
+
         builder.Services.AddSingleton(new ConnectionBudget(
             settings.ConnectionBudget,
             settings.PerSourceConcurrency,
@@ -1671,6 +1674,44 @@ public static class Program
         // service needs a timeout — see RequestDeadline for why it is two stages.
         app.UseRequestDeadline(settings.RequestDeadline);
 
+        // <b>ADR-046's queue bound where the wait is — before authentication, which is the first read of the platform
+        // store (2026-11-01).</b> A serving request takes one of the store pool's permits here, or waits for one, or is
+        // refused on arrival with the 503 a data-source refusal answers; it gives the permit back when it asks for a
+        // data-source permit, or when it ends. The re-runs of condition 1 found its queue here, unbounded, at the
+        // store's pool — see StoreGate. Its depth is enforced while that queue is standing, not against a burst it
+        // drains in milliseconds — several HTTP/2 map viewers panning at once are such a burst (2026-11-01).
+        StoreGate storeGate = app.Services.GetRequiredService<StoreGate>();
+        app.Use(async (context, next) =>
+        {
+            if (storeGate.Permits == 0
+                || !context.Request.Path.StartsWithSegments("/rest/services", StringComparison.OrdinalIgnoreCase))
+            {
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            IDisposable lease;
+
+            try
+            {
+                lease = await storeGate.EnterAsync(context.RequestAborted).ConfigureAwait(false);
+            }
+            catch (ConnectionBudgetFullException refused)
+            {
+                // Written here rather than thrown to the handler: a flood's refusals are most of what it is answered,
+                // and unwinding the pipeline for each costs what the refusal exists to save. The request log above
+                // records it as the 503 it is (ADR-046 condition 3).
+                await ErrorResponse.WriteAsync(context, refused, logger, log: false).ConfigureAwait(false);
+                return;
+            }
+
+            using (lease)
+            {
+                StoreGate.Bind(lease);
+                await next(context).ConfigureAwait(false);
+            }
+        });
+
         app.Use(async (context, next) =>
         {
             // <b>The liveness probe does not ask who is calling, because asking costs a
@@ -2117,12 +2158,40 @@ public static class Program
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
         SchemaMigrator migrator = new(new PostgresPlatformSchemaStore(dataSource), PlatformMigrations.All);
 
+        // ADR-012 §5 phase 4: run once, by one process, however many nodes' upgrades run it at once. The lock is held on a
+        // connection of its own for as long as this runs; a second `migrate --apply` waits for it, then finds the store
+        // current and changes nothing. Taken before the plan is read, so the plan it prints is the one it carries out.
+        await using NpgsqlConnection? held = apply ? await HoldMigrationLockAsync(dataSource).ConfigureAwait(false) : null;
+
         MigrationReport plan = await migrator.PlanAsync(CancellationToken.None).ConfigureAwait(false);
         Console.WriteLine(plan.Describe());
 
         if (plan.IsUpToDate)
         {
             return 0;
+        }
+
+        // ADR-012 §5 phase 4: a contract migration waits until no node older than its minimum reader runs. Asked of the
+        // site's machines as their rows say, before anything is backed up or changed.
+        if (plan.ClosesRollbackWindow)
+        {
+            IReadOnlyList<Machine> machines;
+
+            try
+            {
+                machines = await SiteNodes.ReadAsync(dataSource, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (PostgresException missing) when (missing.SqlState is "42P01" or "3F000")
+            {
+                machines = [];
+            }
+
+            if (SiteNodes.ContractRefusal(machines, plan.To.MinimumReader.Value) is { } refused)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine((apply ? "No migration was run. " : "With --apply this would be refused. ") + refused);
+                return apply ? 1 : 0;
+            }
         }
 
         if (!apply)
@@ -2175,6 +2244,41 @@ public static class Program
                 + "rather than an error.");
 
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// Takes the store's migration lock on a connection of its own and returns that connection, whose closing releases it
+    /// — ADR-012 §5 phase 4: the migration step is run once, by one process, under an advisory lock.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by the store's schema as well as the step, as the site's sweeps are (<see cref="SiteSingletons"/>), because an
+    /// advisory lock is the database's and two stores may share one database. A store whose schema does not exist yet keys
+    /// on the empty name, and the migration then says what to create.
+    /// </remarks>
+    private static async Task<NpgsqlConnection> HoldMigrationLockAsync(NpgsqlDataSource dataSource)
+    {
+        NpgsqlConnection connection = await dataSource.OpenConnectionAsync().ConfigureAwait(false);
+
+        try
+        {
+            const string Key = "hashtext(coalesce(current_schema(), '')), hashtext('graticula.migrate')";
+
+            await using NpgsqlCommand tried = new($"select pg_try_advisory_lock({Key})", connection);
+
+            if (await tried.ExecuteScalarAsync().ConfigureAwait(false) is not true)
+            {
+                Console.WriteLine("Another migration is running on this platform store; waiting for it to finish (ADR-012).");
+                await using NpgsqlCommand wait = new($"select pg_advisory_lock({Key})", connection) { CommandTimeout = 0 };
+                await wait.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
         }
     }
 
@@ -2319,7 +2423,8 @@ public static class Program
         //
         // <b>Here, because the connection already exists and has just been used.</b> The
         // handshake is the one place that has read from the store before anything is serving.
-        // ADR-204 condition 14: with several tenants, their pools share another request pool's worth — at least two each.
+        // ADR-204 condition 14: several tenants share the one platform pool since 2026-10-31 (the tenant is sent ahead of
+        // each statement), so they add nothing to the ceiling; the count is read for the refusal below.
         int tenants = 1;
 
         try
@@ -2342,7 +2447,7 @@ public static class Program
 
         await ConnectionCeilings.CompareAsync(
             dataSource,
-            nodes * (Ceiling(services) + pinnedSources + (tenants > 1 ? Math.Max(PlatformStorePool, 2 * tenants) : 0)),
+            nodes * (Ceiling(services) + pinnedSources),
             logger, CancellationToken.None, nodes).ConfigureAwait(false);
 
         // ADR-204 condition 9: whether the role this server reads as is one row-level security binds. Said here

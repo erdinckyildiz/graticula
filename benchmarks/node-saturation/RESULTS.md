@@ -91,3 +91,42 @@ pinning (PostgreSQL 0–5, the node 6–11, the generator 12–15), logging at `
 **So, plainly: for feature queries and uncached vector tiles the node is not the limit** — PostgreSQL fills first, by
 about 1.7 to 2.8 times the node's CPU per request, and a second node adds nothing to them until the store grows. For
 map images the node's CPU and the per-node admission bound are the limit, and a second node is the answer.
+
+## Two nodes against one — ADR-012 condition 2, measured 2026-11-01
+
+The throughput half of condition 2's prototype, after the 2026-10-31 attempt was set aside (the machine at 90 %).
+Own PostgreSQL 16 cluster (port 55575, `max_connections` 300, nothing else on it), the current Release build, logging at
+`Warning`, the same 840,596 buildings published as `hosted/bench_store`. **Pinned with psutil**: PostgreSQL logical 0–5
+(three physical cores), node A 6–9, node B 10–13 (two physical cores each), the generator 14–15 — so "two nodes" is
+twice the node cores against the same store. Both nodes share one server directory (phase 1). Each workload started only
+once the whole machine was under 20 % busy over 10 s; **during the runs other sessions' processes still used 21–45 % of
+the machine on average** (Windows Defender, a Disk Cleanup, another session's fixture), measured by the rig's watcher as
+everything that is not this cluster, these nodes or the generator. One node, two nodes, one, two; 20 s per level.
+Full tables: `two-nodes-2026-11-01.txt`.
+
+| Workload | Callers | 1 node req/s (rep 1 · 2) | 2 nodes req/s (rep 1 · 2) | 1 node: node / PG cores | 2 nodes: node / PG cores | refusals at 128 (1 · 2 nodes) |
+|---|---|---|---|---|---|---|
+| mix | 32 | 238 · 216 | 212 · 236 | 3.5–3.7 / 4.5–4.7 | 3.5–3.8 / 4.6–5.0 | |
+| mix | 64 | 249 · 239 | 241 · 248 | 3.7–3.8 / 4.6–4.7 | 3.5–3.9 / 4.6–4.9 | |
+| mix | 128 | 261 · 238 | 324\* · 232 | 3.8 / 4.6–4.7 | 3.6–3.8 / 4.6–5.0 | 207, 168 · 1,670\*, 115 |
+| map image | 32 | 44 · 46 | 50 · 62 | 3.8–3.9 / 3.9–4.0 | 4.1–4.9 / 4.6–5.4 | |
+| map image | 64 | 42 · 45 | 55 · 58 | 3.6–3.9 / 3.6–4.0 | 4.5–4.7 / 4.9–5.0 | |
+| map image | 128 | 42 · 46 | 55 · 57 | 3.3–3.9 / 3.4–4.0 | 4.7 / 5.0–5.1 | 130, 32 · 0, 0 |
+
+\* The first two-node mix run at 128 callers counted 1,670 refusals answered fast, which is what lifts its request rate;
+the second refused 115. Read the 64-caller row for the mix.
+
+No request errored; the authenticated `whoami` answered 200 on every node throughout; connections peaked at 58–61 with
+one node and 77–78 (mix) and 116 (map images) with two, against 297 usable; no breaker.
+
+**So, plainly:**
+
+1. **A second node does not raise the mix on this machine** — 239–249 requests a second at 64 callers with one node,
+   241–248 with two. With one node the node used 3.7–3.8 of its 4 logical cores and PostgreSQL 4.6–4.7 of its 6; with
+   two the nodes together used no more (3.5–3.9 of 8) and PostgreSQL 4.6–4.9: **the store is what fills**, at the
+   1.2× node-to-store ratio condition 1 measured, and doubling the nodes adds nothing until the store grows.
+2. **A second node raises map images by about a quarter to a third** — 42–46 to 55–62 requests a second — and removes
+   the refusals at 128 callers (130 and 32 with one node, none with two): one node is held by its own cores (3.6–3.9 of
+   4) and its per-source admission bound; with two, PostgreSQL rises to 4.9–5.4 of 6 and becomes the limit in turn.
+3. What condition 1 predicted holds through two real processes: nodes pay for rendering, not for queries and tiles,
+   and the sizing rule is nodes and store together.

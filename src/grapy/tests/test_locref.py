@@ -751,6 +751,8 @@ class Intersections(Base):
                 cursor.updateRow(row)
         import sqlite3
         connection = sqlite3.connect(self.gpkg)  # another user's edit, written past grapy's stamping
+        from grapy import _gpkg
+        _gpkg.functions(connection)  # a writer of a file with Annex F.3's index has its functions (D-340)
         connection.execute('update "LRS/Highways" set Editor = ? where RouteId = ?', ("SOMEONE ELSE", "R1"))
         connection.commit()
         connection.close()

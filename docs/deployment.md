@@ -294,7 +294,8 @@ Before relying on any of it, run two and check at least: a sharing change on one
 node taking effect on the other, a session revoked on one being refused by the
 other, and the tile cache fan-out actually costing what §1.2 says it does.
 
-**The plan for doing it properly is [ADR-012](adr/ADR-012-clustering.md)** (2026-10-22, nothing of it built): an
+**The plan for doing it properly is [ADR-012](adr/ADR-012-clustering.md)** (2026-10-22; ~~nothing of it built~~ its
+phases 0–4 built and tested by 2026-11-01 — §1.4 and §1.5): an
 inventory of every piece of state a second node would get wrong today — uploaded imagery, exports and the recycle
 bin's files on the node's disk, Pro's publishing staging in memory, sweeps that would run once per node — and the
 phases that fix it, one PostgreSQL remaining the only coordinator. Its purpose is the owner's: a second node
@@ -319,11 +320,10 @@ Graticula__NodeName=node-a                             # optional; the host name
 
 ```text
 gis.example.com {
-    reverse_proxy {
-        # With compose, the service's name: a node added is found and one that stops answering is skipped.
-        dynamic a graticula 8443
+    # Every node by name: with compose, each node is a service of its own (graticula-a, graticula-b).
+    reverse_proxy graticula-a:8443 graticula-b:8443 {
         lb_policy round_robin
-        lb_try_duration 5s
+        lb_try_duration 5s                 # a request that finds a node gone is tried on the other
         health_uri /healthz/ready          # or /rest/info/healthcheck, ArcGIS's
         health_interval 5s
         transport http {
@@ -333,17 +333,61 @@ gis.example.com {
 }
 ```
 
+**The nodes are listed, not discovered.** `dynamic a graticula 8443` — one compose service scaled to two, found by its
+name — finds both nodes and alternates between them, but **Caddy does not run the health check on upstreams found
+that way** (Caddy 2.9.1 and 2.10.2, measured 2026-11-01): a node put in *Maintenance* keeps being sent requests, so
+nothing drains. Adding a node therefore means adding it to this line and reloading Caddy (`caddy reload`, which drops
+no connection).
+
+**Or end TLS at Caddy alone.** With `Graticula__RequireHttps=false` on every node and no `transport` block, the hop from
+Caddy to a node is plain HTTP inside the network, and the node's own certificate is never used. The nodes then learn
+that the client used `https` only from `X-Forwarded-Proto`, which is why `TrustedProxies` must name Caddy's address:
+a node that does not writes `http://` addresses. Each node warns at start that it serves plain HTTP — true, and
+expected here, since its port must be reachable from Caddy only.
+
 Caddy keeps `Host` and sends `X-Forwarded-Proto` and `X-Forwarded-Host`, which the nodes honour from
 `Graticula:TrustedProxies` only, so every address they write is `https://gis.example.com`. **System › Machines**
 lists the nodes; *Stop* or *Maintenance* makes a node answer 503 on both health paths so Caddy sends it nothing new
 before it is restarted or upgraded. One node needs none of this: unset, `ServerDirectories` leaves every directory
 under the state path.
 
-**What has run and what has not.** Two nodes over one store, sharing their server directories, have run on one
-machine against tests that start real processes (`Needs=TwoNodes`, 22 tests). **Caddy in front of them has not**:
-it was not installed where this was built, and the Caddyfile above is written from Caddy's documentation, not
-from a run — the forwarded headers and the health paths it relies on are tested; Caddy's own `dynamic a`
-discovery and failover are not.
+**What has run.** Two nodes over one store, sharing their server directories, against tests that start real processes
+(`Needs=TwoNodes`, 22 tests); and the Caddyfile above, both forms, in front of two such nodes —
+[`tools/caddy-site-probe.py`](../tools/caddy-site-probe.py), run 2026-11-01 against the official `caddy:2.9-alpine`
+image: requests alternate; a node in *Maintenance*, and a node killed outright, is taken out within one health interval
+and put back once it answers ready, with no request failing in between; a token issued through one node is honoured by
+the other; Pro's staging and an ArcGIS append upload complete with each step on a different node; `Host` reaches the
+nodes unchanged, forwarded headers a client sends are replaced by Caddy's, and the same headers sent to a node from
+anywhere but Caddy are ignored. Not run: Caddy reloading a changed node list under load, and a real compose network
+(the probe joined Caddy to the nodes through SSH tunnels).
+
+### 1.5 Upgrading a site without stopping it (ADR-012 phase 4)
+
+A site of two or more nodes is upgraded one node at a time, and serves throughout. It works because migrations are
+expand and contract ([ADR-016](adr/ADR-016-packaging-deployment-upgrade.md) §4a–§5): an **expand** adds and leaves the
+store's *minimum reader* alone, so the old build keeps running against the new schema; a **contract** removes, raises
+the minimum reader, and is refused while any machine older than it is up.
+
+1. In **System › Machines**, put one machine under **Maintenance**. It answers 503 on `/healthz/ready`, so Caddy stops
+   sending it requests within one health interval; the requests it already has are answered.
+2. Stop its server, and run the **new** build's migration against the store:
+
+   ```text
+   graticula migrate            # what it will do; says if a contract would be refused, and why
+   graticula migrate --apply    # takes a backup first, then migrates, under a lock: run twice at once, it runs once
+   ```
+
+   The other machines, on the old build, keep serving: an expand does not refuse them. If the plan contains a
+   **contract** and an older machine is up, `--apply` changes nothing, exits 1, and names each machine it waits for.
+3. Start the new build on that machine. It comes back **still under maintenance** — the state is the site's, kept in
+   the store — and warms up. Press **Start** on its row; Caddy sends it requests once it answers ready.
+4. Repeat for the next machine. While builds differ, Machines says a rolling upgrade is in progress, which machines run
+   which build, and which is next; `/admin/site/machines` has the same as `rollingUpgrade`.
+
+A node never migrates on its own start (ADR-016 §4b), and a node older than the store's minimum reader refuses to start
+and says both numbers. **What has run:** two nodes on the previous release's build upgraded to the next behind a
+health-checking balancer under steady load, with no failed request, and the same with one build (`ARollingUpgradeTests`,
+2026-11-01). Not run: an upgrade behind a real Caddy, and a contract migration in a live site.
 
 ---
 

@@ -4001,7 +4001,8 @@ async function wmStart() {
     // <b>A service that is not there is said as the map's own not-found is</b> — UX sweep round 2, N2. This said the
     // last face tried ("No image service…") with the server's rationale, cut off in the one-line header, and offered
     // nothing. Every face answering 404 is one answer; any other failure is the first face's, the one the link named.
-    const missing = failures.length > 0 && failures.every(e => e.status === 404);
+    // 499 is the same answer said to a reader with no credential (D-347): absent and unshared answer it alike.
+    const missing = failures.length > 0 && failures.every(e => e.status === 404 || e.status === 499);
     const first = failures[0];
     wmState.meta.title = service;
     const tablesOnly = failures.find(e => e.tablesOnly);

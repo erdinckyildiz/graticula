@@ -102,13 +102,15 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
    the formula of §4, settled cheapest-first. NoData on any input is a barrier. `source_direction` TO_SOURCE reverses
    the moving direction and the VRMA's sign. ~~The other source characteristics are refused by name, as CostDistance
    refuses them (D-332).~~ *Since 2026-10-31 (D-332, partly repaid)* the start cost, cost multiplier, resistance rate
-   and capacity are built here and in CostDistance to the source characteristics page's formulas; a resistance rate
-   travelling FROM_SOURCE and a field of travel directions stay refused.
+   and capacity are built here and in CostDistance to the source characteristics page's formulas; ~~a resistance rate
+   travelling FROM_SOURCE and a field of travel directions stay refused.~~ *Since 2026-11-01 (D-332)* both are built
+   (§5.10).
 3. **DistanceAccumulation, DistanceAllocation** are built as **equivalents**: fast marching (Sethian 1999) with the
    page's eight network and four Eikonal estimates, the effective slope taken at the cell entered and, where it
    depends on direction, solved again along each Eikonal step's own gradient three times. Barriers (raster, feature
    and NoData) are thickened as documented. Initial accumulation, maximum accumulation and cost multiplier are taken
-   as numbers or as fields of the source features; `source_direction` as a keyword. GEODESIC is refused by name.
+   as numbers or as fields of the source features; `source_direction` as a keyword ~~. GEODESIC is refused by
+   name.~~ or, since 2026-11-01, a field; GEODESIC is built (§5.10, D-332).
    Back direction, source direction and the two-band source location are written as documented. **Sources alone**
    (no cost, surface, factor or barrier, and no source characteristic but the maximum accumulation) **are answered as
    the straight-line distance**, the back direction pointing straight at the nearest source — Pro 3.7 does this
@@ -117,8 +119,8 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
 4. **CostPath, CostPathAsPolyline** are built: paths traced over a back-link, D8 flow direction or back-direction
    raster as the range rule on Cost Path's page tells them apart, numbered as that page numbers them.
    **OptimalPathAsRaster, OptimalPathAsLine** are built as **equivalents**: slopeline tracing (Douglas 1994) across
-   the lattice as *Distance accumulation algorithm* draws it, or cell by cell over a D8 raster. NETWORK_PATHS is
-   refused by name. Three rules of the tracing are Pro 3.7's as measured on 2026-10-31 (condition 1), where the page
+   the lattice as *Distance accumulation algorithm* draws it, or cell by cell over a D8 raster. ~~NETWORK_PATHS is
+   refused by name.~~ NETWORK_PATHS is built since 2026-11-01 (§5.10, D-332). Three rules of the tracing are Pro 3.7's as measured on 2026-10-31 (condition 1), where the page
    left them open: on a lattice line the azimuth is the two centres' interpolated linearly; the next line a step stops
    at is the one beyond the nearest line, not the nearest ahead; a step that ends nearest a source ends at its centre.
    The raster marks the cells that hold a vertex of the line, and CostPath traces a back-direction raster the same
@@ -157,6 +159,31 @@ Pages read 2026-10-31 under `doc.esri.com/en/arcgis-pro/latest/` (the pro.arcgis
      in every cell ~~its line passes through~~ **that holds a vertex of its line (Pro 3.7 measured 2026-10-31:
      changed)**;
    - (l) of two equally cheap sources, the one settled first wins, as CostDistance already infers.
+10. **Added 2026-11-01 (D-332): what the pages specify of the four names that were still refused.** INFERRED where
+    marked — **confirmed 2026-11-01 by owner decision** (*"Hepsini onayla"*), with D-341's 20 s reserve before the CPU limit:
+    - (a) *A resistance rate travelling FROM_SOURCE*: the page's `a5 = c1 + c2(1+r) + … + c5(1+r)^4` — the i-th step
+      from the source times the cost multiplier times `(1+r)^(i−1)`, on top of the start cost. INFERRED: the start
+      cost is not compounded (the page's form has none; travelling TO_SOURCE it is, as its `a1` feeds every later
+      term), and of the routes of different lengths the least is taken — found exactly by label setting over (cost,
+      cells from the source) (Martins 1984), which `test_from_source_compounding_is_the_least_over_every_route`
+      checks against every simple route of 3 × 3 grids. The back link is that least route's.
+    - (b) *A field of travel directions*: the tool pages allow a field holding FROM_SOURCE or TO_SOURCE (any case);
+      another value is an error. INFERRED: each direction's sources are expanded on their own and each cell takes the
+      cheaper — one expansion's own rule for its cheapest source — in PathDistance, the cost tools and the
+      reconstruction alike.
+    - (c) *GEODESIC* (Distance Accumulation and Allocation): the page says only that the distance is calculated on
+      the ellipsoid and does not change with the projection. Built as: with sources alone, each cell's geodesic to its
+      nearest source centre (Karney 2013, pyproj's Geod; the nearest eight by chord, then exact); otherwise the same
+      reconstruction on each cell's own east-west and north-south length in metres, the Eikonal step solved on that
+      rectangle and, with no factor, the eight-triangle update of §5.3 on it. INFERRED: answers in metres; the back
+      direction points across the grid as the planar one does. Measured: within 7.5 % of the geodesic next to the
+      source and 0.8 % at the median on cells half as wide as tall (60° N), where the planar reconstruction is up to
+      5.1 % long on square ones; on UTM at its central meridian, exactly the planar answer over the scale 0.9996.
+    - (d) *NETWORK_PATHS* (Optimal Path As Line): the page says only that network paths do not overlap. Built as an
+      equivalent, warned: the paths cut into links where they join, each stretch the same destinations share written
+      once, as Stream Link cuts a raster network between junctions. INFERRED: a link's `DestID` is the least of its
+      destinations' values and its `PathCost` the accumulation at its upstream end; the accumulation raster is read as
+      given (the page's *must be an output flow accumulation raster* is not enforced, since it names no way to tell).
 
 ## 6. Consequences
 

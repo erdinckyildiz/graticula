@@ -129,9 +129,10 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
             Assert.Equal(400, (int)refused.StatusCode);
             Assert.Contains("metres is required", await refused.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
-            // ---- a private toolbox is not there for anybody signed out
+            // ---- a private toolbox is not there for anybody signed out: they are asked for a token (ADR-015 §4b, 499),
+            // as for a name that does not exist
             using HttpResponseMessage anonymous = await http.GetAsync(new Uri($"{gp}?f=json"));
-            Assert.Equal(404, (int)anonymous.StatusCode);
+            Assert.Equal(401, (int)anonymous.StatusCode);
         }
         finally
         {

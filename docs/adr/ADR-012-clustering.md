@@ -279,9 +279,11 @@ what landed.
 **Phase 3 — two nodes behind Caddy**
 
 9. Two containers of the same image, Caddy's `reverse_proxy` with `health_uri /healthz/ready`, and TLS at Caddy, so
-   the nodes' own certificates no longer face clients. Caddy is the **Web Adaptor** (§1c): with containers its upstreams
+   the nodes' own certificates no longer face clients. Caddy is the **Web Adaptor** (§1c): ~~with containers its upstreams
    are `dynamic a` — the compose service's name — so a node added is found and one that stops answering is skipped
-   without editing the Caddyfile; nodes never forward to each other, ArcGIS's single cluster mode. **The proxy says what
+   without editing the Caddyfile~~ **its upstreams are the nodes, listed** — *corrected 2026-11-01 by the run below:
+   `dynamic a` finds the nodes but Caddy does not health-check what it finds, so a drained node is never taken out*;
+   nodes never forward to each other, ArcGIS's single cluster mode. **The proxy says what
    it ended**: the nodes honour `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxies the deployment names, and
    the proxy keeps `Host`, so absolute addresses stay `https://` and each organisation's host still reaches it — read
    nowhere in `src/` today. *Stickiness by client address for the multi-step paths of phase 2 (Pro's staging, append
@@ -289,17 +291,62 @@ what landed.
    **Partly built 2026-10-31.** *Built:* the nodes honour `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxies
    `Graticula:TrustedProxies` names and from nobody else (`CallerAddress.ApplyForwarded`); both health paths drop a
    stopped or maintained node; the Caddyfile and settings are written in deployment.md §1.4. Tested against two
-   processes (`ASiteBehindAProxyTests`, and the control that a node naming no proxy ignores the headers). **Unproven:
+   processes (`ASiteBehindAProxyTests`, and the control that a node naming no proxy ignores the headers). ~~**Unproven:
    Caddy itself.** It is not installed on this machine and downloading it was refused by this session's permissions,
    so Caddy's `dynamic a` discovery, its health checks taking a node out and back, its retry across a node killed
    mid-request, and `Host` reaching the nodes unchanged have not been run. The nodes' own TLS still faces Caddy (with
-   `tls_insecure_skip_verify`), so *the nodes' certificates no longer face clients* holds only once that is set up.
+   `tls_insecure_skip_verify`), so *the nodes' certificates no longer face clients* holds only once that is set up.~~
+   **Run against a real Caddy 2026-11-01** (owner: *"VPS'teki Caddy'yle sına"*) — `tools/caddy-site-probe.py`: a
+   throwaway `caddy:2.9-alpine` container on the VPS, bound to 127.0.0.1, its two upstreams two local nodes reached
+   through SSH reverse tunnels, itself reached through a forward tunnel; removed afterwards. **18 of 18 checks hold,
+   in both arrangements** — TLS ended at Caddy with the nodes on plain HTTP, and deployment.md's nodes-keep-HTTPS form
+   with `tls_insecure_skip_verify`: requests alternate A B A B; the address the client used reaches both nodes, and a
+   site that does not name Caddy in `TrustedProxies` writes `http://` behind it (so the trust is what makes it
+   `https://`), forwarded headers a client sends through Caddy are replaced by Caddy's, and the same headers sent to a
+   node directly from the LAN are ignored; `Host` arrives unchanged; a token from `/rest/auth/login` and one from
+   `/rest/generateToken`, each issued through one node, are honoured by both; Pro's staging (`addItem`, two `addPart`,
+   `commit`, `status`) completes with every step on the other node and `commit` joins both nodes' parts into one
+   1,500-byte file, and an append upload sent to one node is appended by the other; a node put in maintenance is out
+   of rotation within 1.7–6.2 s and back within 3.7–5.9 s of being started; a node killed outright is skipped with **no
+   failed request** among those sent across the kill (`lb_try_duration`) and is back within 6.3 s of restarting; a node
+   naming another proxy than its site is refused at start. **One finding, which changed the plan's text:** with
+   `dynamic a`, Caddy 2.9.1 and 2.10.2 both find and alternate the nodes but do not health-check them — a node in
+   maintenance kept being sent requests — so deployment.md §1.4 now lists the nodes. *Not run:* a real compose network
+   (the tunnels stood in for it) and reloading a changed node list under load.
 
 **Phase 4 — rolling upgrade**
 
 10. Migrations are already expand/contract with a minimum reader (ADR-016 §4a). An upgrade drains one node, starts the
    new build on it — which migrates under its advisory lock — returns it, then does the other. A contract migration
    waits until no node older than its minimum reader runs; the store records each node's version when it starts.
+   **Built 2026-11-01, with one reading of *which migrates* made explicit.** ADR-016 §4b forbids a server that migrates
+   on start — an old container started by accident would rewrite a newer schema — and that stands: the new build's
+   migration is its `migrate --apply` command, run on the drained machine before it is started (by hand, or by each
+   machine's start script), not something `serve` does on its own. What phase 4 adds is what makes that safe on a site:
+   - **Once, under an advisory lock.** `migrate --apply` takes `pg_advisory_lock(hashtext(schema), hashtext
+     ('graticula.migrate'))` on a connection of its own before it reads the plan; a second run waits, says so, then
+     finds the store current and changes nothing (no second backup either). Without it, two runs started together on
+     one store both apply the same migrations and one fails half way — observed, below.
+   - **Each node records the schema its build reads** (migration 125: `site_node.schema_version`, written at join with
+     the start it belongs to, `schema_version_at`). A build before 125 rewrites the row at start without them, so the
+     number is believed only where `schema_version_at = started_at`; otherwise the machine *does not say*.
+   - **A contract waits.** Where the plan raises the minimum reader, `migrate --apply` reads the machines up (heartbeat
+     within 30 s) and refuses — exit 1, nothing backed up, nothing applied — while any reads a schema below the new
+     minimum reader or does not say, naming each with its version and schema; the plan without `--apply` says it would
+     be refused. *Refuses* rather than *waits* in the sense of blocking: an upgrade that sits in a terminal until a
+     machine somebody forgot is upgraded is worse than one that says which machine and exits.
+   - **A node refuses to start on a store whose minimum reader is above its build** — ADR-016 §4a's handshake, already
+     there; phase 4 tests it inside a running site.
+   - **System › Machines and `/admin/site/machines` say what each machine runs**: per machine `schema` (null for a build
+     that does not say), the store's `schema` and `minimumReader`, and `rollingUpgrade` — the machines up grouped by
+     build, `inProgress` when there is more than one group, and `readerCeiling`, the highest minimum reader a contract
+     may raise the store to now (null while a machine does not say). The screen shows a note while an upgrade is in
+     progress — which machines run which build, that the database is readable by every build there (from its minimum
+     reader, not assumed), which machine is next and how — and when the database is ahead of every machine's build;
+     each row's meta line ends with its schema, or *older build*. Reviewed by the ux-designer agent (two passes).
+   - **Draining one at a time is phase 0's** (*Maintenance* answers 503 on both health paths, so the proxy sends the
+     machine nothing new). A machine restarted keeps the state its row has, so an upgraded machine comes back under
+     maintenance and is returned on purpose, by *Start*. The procedure is deployment.md §1.5.
 
 ## Conditions
 
@@ -347,7 +394,7 @@ what landed.
      absolute path; on two machines it is a missing file — *reasoned, and the one row this prototype cannot show*;
    - **a Pro publish split across nodes**: `addItem` on A 200, `addPart` on B **400** *Item does not exist*;
    - **a tenant changed on A**: renamed on A, `whoami` on B still said *Default* — until it restarts.
-   **What remains: the mix measured through both nodes against one, on a quiet machine.** Tried twice on 2026-10-31.
+   ~~**What remains: the mix measured through both nodes against one, on a quiet machine.**~~ Tried twice on 2026-10-31.
    The first run was abandoned with all sixteen logical cores at 100 % from other sessions. The second ran to the end
    ([two-nodes-2026-10-31.txt](../../benchmarks/node-saturation/two-nodes-2026-10-31.txt); each node two physical
    cores, the store three): mix 334 req/s on one node and 309 on two, map images 80 and 96, queries 1,152 and 881 —
@@ -355,9 +402,24 @@ what landed.
    own ceiling, so the numbers describe the machine's contention and not the server. They are not used. What they do
    show, at that contention: no request failed, the authenticated whoami answered on both nodes throughout, and the
    site held 112 connections at its peak against 297 usable.
+   **DISCHARGED 2026-11-01 — the mix measured through two nodes against one.**
+   [node-saturation](../../benchmarks/node-saturation/RESULTS.md), *Two nodes against one*
+   ([two-nodes-2026-11-01.txt](../../benchmarks/node-saturation/two-nodes-2026-11-01.txt)): its own PostgreSQL cluster
+   pinned to three physical cores, each node to two, the generator apart, a Release build at `Warning`, one node and two
+   interleaved twice, each workload started only once the machine was under 20 % busy. **The mix: 239–249 requests a
+   second at 64 callers on one node, 241–248 on two** — the store fills (PostgreSQL 4.6–4.9 of its 6 logical cores
+   either way, the nodes together no busier with two), so a second node adds nothing to it until the store grows, which
+   is condition 1's finding seen through two real processes. **Map images: 42–46 on one node, 55–62 on two**, and the
+   refusals at 128 callers (130 and 32) are gone — the node was the limit there, and with two the store becomes it.
+   No error, the authenticated whoami answered 200 on both nodes throughout, 116 connections at the peak against 297
+   usable. **What the machine still was:** quiet at the start of every run, but other sessions' processes (Windows
+   Defender, a Disk Cleanup, another fixture) averaged 21–45 % of it during the runs; both repetitions agree within
+   about a tenth, and the ratios, not the absolute rates, are the finding — as for condition 1.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
-   **PARTLY DISCHARGED 2026-10-31** — phases 0, 1 and 2 each landed with such tests; phase 3's tests cover the nodes'
-   half and not Caddy, which was not run; phase 4 is not built. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
+   **DISCHARGED 2026-11-01** — phase 4 is built and tested (below), so every phase holds with tests against two
+   processes. *Until then:* ~~**PARTLY DISCHARGED 2026-10-31**~~ — phases 0, 1 and 2 each landed with such tests; ~~phase 3's tests cover the nodes'
+   half and not Caddy, which was not run~~ phase 3 too, Caddy included, since 2026-11-01; ~~**phase 4 is not built**, and
+   is what keeps this condition open~~. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
    a fresh schema (`TwoNodeSite`). The first ten (items 1–6, 11, 12) pass on this branch and **all ten fail on the build
    before it** (the same test assembly run against the previous `Graticula.Host.dll`, 2026-10-31); item 13's
    (`One_nodes_log_screen_shows_the_other_nodes_warnings_with_their_machine`) reads a route and a field that build does
@@ -367,10 +429,40 @@ what landed.
    download and the tile both observed failing on the build before (condition 2's prototype). **Phase 2: DISCHARGED 2026-10-31** — the three
    phase-2 tests in `ASiteSharesItsServerDirectoriesTests`, each a second step sent to the other node; the Pro split was
    observed failing (400) on the build before, the other two are memory-only there by construction. Nineteen two-node
-   tests in all, passing on this branch, 2026-10-31. **Phase 3: PARTLY DISCHARGED 2026-10-31** — the
-   nodes' half is tested against two processes (`ASiteBehindAProxyTests`: the client's address written behind a named
-   proxy, a balancer's health check taking a maintained node out and back; and the control that an unnamed one is
-   ignored, 22 two-node tests in all); Caddy in front was not run (above).
+   tests in all, passing on this branch, 2026-10-31. ~~**Phase 3: PARTLY DISCHARGED 2026-10-31**~~ **Phase 3: DISCHARGED
+   2026-11-01** — the nodes' half is tested against two processes (`ASiteBehindAProxyTests`: the client's address
+   written behind a named proxy, a balancer's health check taking a maintained node out and back; and the control that
+   an unnamed one is ignored, 22 two-node tests in all); ~~Caddy in front was not run (above)~~ and Caddy in front is
+   run by `tools/caddy-site-probe.py` against two processes behind a real Caddy (§5 item 9): 18 of 18 checks, exit 0,
+   in both TLS arrangements, 2026-11-01. It fails without the change it proves: the same site not naming Caddy as its
+   proxy writes `http://` behind it — the probe's own control — and phase 2's steps on the other node were observed
+   failing on the build before it (above). Not CI: it needs a Caddy and a host to run it on.
+   **Phase 4: DISCHARGED 2026-11-01** — `ARollingUpgradeTests`, real processes over one store (§5 item 10):
+   - **two builds**: `A_rolling_upgrade_from_the_previous_build_to_this_one_fails_no_request` starts a site of two nodes
+     on the previous build (commit 9267932c, schema 121), behind a balancer standing in for Caddy (round robin over the
+     nodes whose `/healthz/ready` answered 200, checked every 500 ms, **no retry**), under four callers sending without
+     pause; drains the first node, stops it, runs this build's `migrate --apply` (121 → 125, expand, the rollback window
+     left open) while the older node serves, starts this build on the same port, checks the Machines answer (in
+     progress, the older machine not saying its schema, `readerCeiling` null, a contract refused naming it), returns it,
+     then does the other — **zero failed requests** (4,826 sent, 2,333 and 2,493 answered by the two nodes). `Needs=PreviousBuild`:
+     it needs the previous build's folder in `GRATICULA_PREVIOUS_HOST`, so it is run by hand and not by CI, which says so;
+   - **the same in CI** with one build, the next build's expand played by the test:
+     `A_node_at_a_time_is_drained_restarted_and_returned_with_no_failed_request`, 0 of 4,715 failed; and its control,
+     `A_node_stopped_without_draining_fails_requests_behind_the_same_balancer` — the same balancer and load, a node
+     killed without the drain, and requests fail (22 of 1,140): the drain is what makes the upgrade lossless;
+   - `Two_migrations_started_at_once_run_it_once` — **observed failing without the lock** (the second run exited with
+     an error half way through the history), passing with it;
+   - `A_contract_migration_waits_until_no_node_older_than_its_minimum_reader_runs` — a running node reading below the
+     contract's minimum reader, and one whose row an older build rewrote: refused, nothing applied, both named;
+     **observed failing without the guard** (the migration went ahead);
+   - `A_node_refuses_to_start_on_a_store_whose_minimum_reader_is_above_it` — passes on the build before too: the
+     handshake is ADR-016's and older than phase 4, so this is phase 4's check that it holds inside a running site,
+     not a test of new code;
+   - the Machines fields (`schema`, `store`, `rollingUpgrade`) do not exist on the build before, which the two upgrade
+     tests read. *Not run:* a real Caddy in front of an upgrade (phase 3's probe ran Caddy against one build), and a
+     real contract migration run against a site — none is pending for a store at this build's schema, so the contract
+     test reaches one by setting the stamp back to 42 (the history's contracts from 43 on); the refusal comes before
+     anything is applied.
 4. **The owner confirms** the order of the phases and that PostgreSQL's own availability and capacity are decided
    separately. **DISCHARGED 2026-10-31** — confirmed by owner decision (*"Onayla, ölç ve kur"*): phases 0 → 1 → 2 → 3 in this order, condition 1's measurement first, PostgreSQL's availability a decision of its own, and the plan is to be built rather than held. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
 

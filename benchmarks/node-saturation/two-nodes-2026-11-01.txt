@@ -1,0 +1,105 @@
+# ADR-012 condition 2, the mix and map images through two nodes against one - 2026-11-01. Own PostgreSQL 16 cluster (55575,
+# max_connections 300) pinned to logical 0-5, node A 6-9, node B 10-13, generator 14-15 (psutil affinity), Release build,
+# Warning logging, both nodes sharing one server directory (phase 1), 840,596 buildings as hosted/bench_store. Each workload
+# started only once the machine was under 20 % busy over 10 s; the watch line gives other sessions' share during the run.
+node-a up after 3s
+postgres: 21 pinned to 0-5
+node 18572: 75832 pinned to 6-9
+=== n1 mix rep1
+    postgres processes idle: 21 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |    183 |     9.5 |   262.8 |      0 |       0 | 12.6 |       2.96 |           3.23 |                38
+    32 |    238 |    40.3 |   728.2 |      0 |       0 | 17.1 |       3.68 |           4.73 |                71
+    64 |    249 |   147.7 |   917.7 |      0 |       0 | 17.1 |       3.82 |           4.63 |                71
+   128 |    261 |   421.8 |  1322.3 |      0 |     207 | 16.9 |       3.76 |           4.55 |                71
+whoami https://127.0.0.1:18572: {"200": {"n": 16, "max_ms": 520}}
+pg_stat_activity gdnodes peak: 61 connections, 24 active at once
+machine CPU, other sessions' processes: avg 25.9 %, max 80.4 %; this rig's: avg 52.2 %
+=== n1 export rep1
+    postgres processes idle: 63 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |     20 |   334.7 |   906.3 |      0 |       0 |  4.9 |       1.74 |           1.95 |                70
+    32 |     44 |   648.7 |  1502.4 |      0 |       0 | 10.6 |       3.80 |           3.89 |                70
+    64 |     42 |  1422.2 |  2769.3 |      0 |       0 |  9.9 |       3.63 |           3.64 |                71
+   128 |     42 |  3184.8 |  4875.8 |      0 |     130 |  8.8 |       3.34 |           3.40 |                71
+whoami https://127.0.0.1:18572: {"200": {"n": 11, "max_ms": 1226}}
+pg_stat_activity gdnodes peak: 61 connections, 22 active at once
+machine CPU, other sessions' processes: avg 44.7 %, max 208.3 %; this rig's: avg 51.0 %
+node-a up after 3s
+node-b up after 3s
+postgres: 34 pinned to 0-5
+node 18572: 73880 pinned to 6-9
+node 18573: 30252 pinned to 10-13
+=== n2 mix rep1
+    postgres processes idle: 34 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |    152 |    12.4 |   302.3 |      0 |       0 | 10.5 |       2.66 |           3.23 |                54
+    32 |    212 |    38.9 |   828.0 |      0 |       0 | 15.2 |       3.46 |           5.02 |                87
+    64 |    241 |   175.7 |   953.1 |      0 |       0 | 15.9 |       3.49 |           4.91 |                87
+   128 |    324 |    81.8 |  1250.4 |      0 |    1670 | 15.1 |       3.60 |           5.01 |                88
+whoami https://127.0.0.1:18572: {"200": {"n": 15, "max_ms": 553}}
+whoami https://127.0.0.1:18573: {"200": {"n": 15, "max_ms": 61}}
+pg_stat_activity gdnodes peak: 77 connections, 27 active at once
+machine CPU, other sessions' processes: avg 29.3 %, max 81.2 %; this rig's: avg 50.4 %
+=== n2 export rep1
+    postgres processes idle: 80 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |     31 |   219.8 |   596.3 |      0 |       0 |  7.8 |       2.61 |           3.22 |                89
+    32 |     50 |   347.7 |  2173.9 |      0 |       0 | 11.8 |       4.10 |           4.56 |               116
+    64 |     55 |   830.4 |  3050.0 |      0 |       0 | 13.1 |       4.53 |           4.96 |               127
+   128 |     55 |  1916.7 |  4552.6 |      0 |       0 | 13.3 |       4.71 |           4.96 |               128
+whoami https://127.0.0.1:18572: {"200": {"n": 12, "max_ms": 94}}
+whoami https://127.0.0.1:18573: {"200": {"n": 12, "max_ms": 92}}
+pg_stat_activity gdnodes peak: 116 connections, 48 active at once
+machine CPU, other sessions' processes: avg 38.9 %, max 134.6 %; this rig's: avg 58.0 %
+node-a up after 3s
+postgres: 21 pinned to 0-5
+node 18572: 71916 pinned to 6-9
+=== n1 mix rep2
+    postgres processes idle: 21 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |    154 |    12.2 |   298.0 |      0 |       0 | 10.9 |       2.93 |           3.25 |                39
+    32 |    216 |    42.9 |   794.0 |      0 |       0 | 14.8 |       3.47 |           4.52 |                72
+    64 |    239 |   161.1 |   975.0 |      0 |       0 | 16.1 |       3.67 |           4.67 |                70
+   128 |    238 |   501.2 |  1431.3 |      0 |     168 | 16.2 |       3.78 |           4.66 |                71
+whoami https://127.0.0.1:18572: {"200": {"n": 15, "max_ms": 1178}}
+pg_stat_activity gdnodes peak: 58 connections, 23 active at once
+machine CPU, other sessions' processes: avg 30.8 %, max 95.7 %; this rig's: avg 53.4 %
+=== n1 export rep2
+    postgres processes idle: 63 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |     37 |   203.2 |   466.9 |      0 |       0 |  9.0 |       3.02 |           3.18 |                69
+    32 |     46 |   611.1 |  1452.8 |      0 |       0 | 11.0 |       3.89 |           4.04 |                71
+    64 |     45 |  1316.4 |  2527.2 |      0 |       0 | 10.9 |       3.91 |           4.01 |                70
+   128 |     46 |  2662.1 |  3774.8 |      0 |      32 | 10.8 |       3.91 |           3.95 |                70
+whoami https://127.0.0.1:18572: {"200": {"n": 15, "max_ms": 625}}
+pg_stat_activity gdnodes peak: 59 connections, 21 active at once
+machine CPU, other sessions' processes: avg 26.5 %, max 92.7 %; this rig's: avg 53.9 %
+node-a up after 3s
+node-b up after 3s
+postgres: 34 pinned to 0-5
+node 18572: 57584 pinned to 6-9
+node 18573: 59428 pinned to 10-13
+=== n2 mix rep2
+    postgres processes idle: 34 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |    169 |    10.0 |   285.4 |      0 |       0 | 11.3 |       3.12 |           3.28 |                52
+    32 |    236 |    44.3 |   696.1 |      0 |       0 | 16.3 |       3.80 |           4.59 |                86
+    64 |    248 |   135.7 |   955.7 |      0 |       0 | 17.2 |       3.86 |           4.55 |                86
+   128 |    232 |   477.0 |  1358.1 |      0 |     115 | 16.2 |       3.83 |           4.56 |                86
+whoami https://127.0.0.1:18572: {"200": {"n": 15, "max_ms": 491}}
+whoami https://127.0.0.1:18573: {"200": {"n": 15, "max_ms": 83}}
+pg_stat_activity gdnodes peak: 78 connections, 25 active at once
+machine CPU, other sessions' processes: avg 26.3 %, max 68.2 %; this rig's: avg 51.6 %
+=== n2 export rep2
+    postgres processes idle: 79 (postmaster 71488 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |     40 |   183.9 |   460.3 |      0 |       0 |  9.8 |       3.00 |           3.43 |                89
+    32 |     62 |   299.1 |  1656.2 |      0 |       0 | 14.7 |       4.88 |           5.35 |               116
+    64 |     58 |   801.3 |  2884.1 |      0 |       0 | 14.0 |       4.67 |           4.92 |               127
+   128 |     57 |  1973.0 |  4397.1 |      0 |       0 | 13.7 |       4.71 |           5.06 |               127
+whoami https://127.0.0.1:18572: {"200": {"n": 14, "max_ms": 175}}
+whoami https://127.0.0.1:18573: {"200": {"n": 14, "max_ms": 74}}
+pg_stat_activity gdnodes peak: 116 connections, 48 active at once
+machine CPU, other sessions' processes: avg 21.3 %, max 60.4 %; this rig's: avg 64.6 %
+series done

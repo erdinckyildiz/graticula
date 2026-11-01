@@ -2203,6 +2203,13 @@ internal static partial class ImageServerEndpoints
 
         if (!reason.IsAllowed())
         {
+            // D-347: a caller with no token is challenged, the same for absent and unshared (TokenRequired).
+            if (TokenRequired.Applies(context))
+            {
+                await TokenRequired.WriteAsync(context).ConfigureAwait(false);
+                return null;
+            }
+
             await RefuseAsync(
                 context,
                 404,

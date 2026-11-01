@@ -243,6 +243,39 @@ is. A refusal is the 503 and `Retry-After` this server already answers, and it h
 any part of a response is written, so no document is ever truncated. `ConnectionBudget` counts
 its own waiters; a semaphore does not expose them.
 
+### 5a. The same bound at the platform store, where the wait was measured — added 2026-11-01
+
+**A request under `/rest/services` now takes a permit at the platform store before it authenticates, and the queue for
+those permits is bounded by the same rule.** Condition 1's re-runs put the unbounded queue upstream of the data-source
+gate, and on 2026-11-01 named it: the store's pool of 24 connections, full at the median of a 480-caller flood while the
+data source's pool held 7 of 24 ([benchmarks/admission-control/2026-11-01](../../benchmarks/admission-control/2026-11-01/RESULTS.md)).
+`StoreGate` holds as many permits as that pool has connections, refuses an arrival when four per permit are already
+waiting, answers the same 503 and `Retry-After`, and is entered before authentication so that a refusal costs nothing the
+store has to serve. **The permit is given back when the request asks for a data-source permit**, not when it is granted
+one: a request queued behind a slow database holds nothing every other service needs to resolve its callers, which is
+ADR-007's N4 kept rather than traded. The price of that choice is that an admitted request can stand in two bounded
+queues, one after the other — see condition 1 and [D-374](../architecture-debt.md). A refusal here is written without
+the error line a failure gets, because a flood's refusals are most of what it is answered; the request log records each
+as its 503 (condition 3).
+
+**Amended the same day: the depth is a standing queue's, not a burst's.** Measured against bursts
+([benchmarks/admission-control/2026-11-01-bursts](../../benchmarks/admission-control/2026-11-01-bursts/RESULTS.md)):
+one HTTP/2 viewer is never refused (Kestrel's 100 streams per connection is below 24 + 96), but three viewers firing 64
+requests at once lost **27.5–37.5 %** to 503 and five lost **about 60 %**, while every such burst was otherwise served in
+43–139 ms. Four per permit is the data-source rule, where a permit lasts a whole query; here it lasts four store
+statements, and 96 waiting is a queue the store clears in tens of milliseconds. So `StoreGate` now enforces the depth
+**only while its queue is standing** — CoDel's test: requests have been granted only after waiting more than 50 ms for at
+least 100 ms without the queue emptying, the last such grant under 100 ms ago — and otherwise queues up to a **ceiling of
+16 per permit (384)** that nothing passes. After: every 64-request burst from up to five viewers and every 128 from three
+is served whole; three viewers at 256 or five at 128 are still partly refused. **The flood is still refused on arrival**
+— 85–90 % at 240 callers, interleaved with the old build's 91–92 % — **and pays for the burst tolerance at 480 callers**:
+the admitted p95 roughly doubles (537–625 ms against 314–352) and the median moves from 200–216 to 202–266 ms, because
+in the moments the queue is not standing (15–18 % of samples) it can fill to the ceiling. Eight per permit was measured
+too and halves that cost, but still refused about 30 % of five viewers' 64-request pans and of three viewers' 128;
+sixteen is chosen because its price is paid under overload and eight's under ordinary use. Cached tiles cannot simply be
+exempted: each runs four store statements (session, grants, layers, group layers — the catalogue read is per request by
+[D-17](../architecture-debt.md)'s decision).
+
 ## 6. Consequences
 
 **Positive.** The queue is bounded and observable, which it was not: the count is on
@@ -451,6 +484,34 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    its bound in 0.5% of samples. So the wait is still outside the part of the server this decision governs. **The shipped
    default still barely fires**: 81 of 70,632 refused at 240 callers and 526 of 62,938 at 480. This condition stays as it
    was: first clause met, second BREACHED on a cause outside the gate.
+
+   **PARTLY DISCHARGED 2026-11-01 — the cause outside the gate is found and gated (§5a), the first clause is met at the
+   shipped bound, and the second is no longer breached in kind but is not yet met.**
+   [benchmarks/admission-control/2026-11-01](../../benchmarks/admission-control/2026-11-01/RESULTS.md), the same probe
+   before and after on one fixture in one hour. The wait was the platform store's pool (24 of 24 connections in use at a
+   480-caller flood's peak, 22 at its median; the data source's pool 7 of 24). With `StoreGate`:
+   - **first clause** — at the shipped bound, **93.2 % refused at 240 callers** (0.1 % before), the store's queue at
+     96 of 96 in 74 % of samples, refusals answered in 16–52 ms where they had taken 252–332 ms;
+   - **second clause** — the admitted median is **18.5, 51.1, 93.7, 163.2, 185.1 and 213.4 ms** at 24 to 960 callers,
+     against **19.2, 44.7, 88.1, 187.1, 383.8** before: it has stopped doubling, and past 240 callers it grows by about
+     15 % per doubling towards a ceiling — two bounded queues, 96 at the store and 96 at the source, about 240 admitted
+     requests or 270–300 ms at the measured 800–900 admitted a second. Open loop, offered 2,000 a second: **4,809 ms
+     before, 135.5 ms after**, 44 % refused. With the source narrowed to two permits it is 34.6 to 249.2 ms (29.8 to
+     369.7 before).
+
+   **What remains is a choice rather than a finding.** Flat would need one queue for the whole request, and the direct
+   way — keep the store permit until a source permit is granted — puts a slow database's waiters back in front of every
+   other service. [D-374](../architecture-debt.md) holds it. `StoreGateTests` (five) pin the bound: an arrival past the
+   queue is refused at once, a request gives its permit back when it asks for a source (fails without
+   `ConnectionBudget.EnterAsync` calling `StoreGate.Leave`), and the count never passes the depth under a burst.
+   *(Amended later on 2026-11-01, §5a: the depth now applies while the store's queue is standing, with a ceiling of 384
+   otherwise, so a burst is served. Re-run interleaved with the old build, the first clause still holds — 84.8 % and
+   90.1 % refused at 240 callers against 92.2 % and 90.7 % — and the second moves at 480 callers: admitted median
+   202–266 ms against 200–216, p95 537–625 against 314–352. `StoreGateTests` are nine; four fail on the gate that
+   compared the count alone.)*
+   *The `/rest/info` control's 4–12 ms of 2026-10-31* is the closed loop's contention on a shared machine, not the
+   pipeline: in the open loop it answers in 0.0–0.5 ms at 500 and 1,000 requests a second on both builds.
+   **DISCHARGED 2026-11-01** — the saturated source refuses on arrival (first clause, measured), and the admitted median's remaining growth — bounded, about 15 % per doubling, from two bounded queues in a row — is kept by owner decision (*"Yalıtımı koru"*): flattening it would let one slow source hold every store permit, which is what ADR-007's N4 and this gate exist to prevent. The choice is [D-374](../architecture-debt.md), parked on its trigger.
 
 2. **The depth is chosen against the measurement rather than asserted.** Four per permit is a
    judgement; the condition is to run the probe at several depths and write the table down, so

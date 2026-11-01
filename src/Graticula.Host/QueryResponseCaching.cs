@@ -140,8 +140,8 @@ internal static class QueryResponseCaching
     /// <param name="layer">The layer being queried.</param>
     /// <param name="source">
     /// The resolved source. Checked for <see cref="ISourceCacheValidator"/>: implemented by a
-    /// GeoParquet layer through <c>BudgetedFeatureSource</c>'s pass-through, absent for a
-    /// registered PostGIS layer.
+    /// GeoParquet layer through <c>BudgetedFeatureSource</c>'s pass-through, and since 2026-11-01 (D-266) by a
+    /// PostGIS layer's plain table, from its statistics, through the budget.
     /// </param>
     /// <param name="defaultLifetime">
     /// The server's own default, used when the layer names none — the same figure
@@ -181,8 +181,8 @@ internal static class QueryResponseCaching
         }
 
         // <b>Only where a validator can be had before the query runs — ADR-069.</b> A GeoParquet
-        // layer answers from a file stat; a registered PostGIS layer has no cheap answer (see
-        // `ISourceCacheValidator`'s remarks) and this handler does not buffer a multi-megabyte
+        // layer answers from a file stat; a PostGIS table from its statistics since 2026-11-01 (D-266,
+        // `PostGisFeatureSource.CacheValidatorAsync`); a view or any other source has none, and this handler does not buffer a multi-megabyte
         // streamed body to hash it instead — `FeatureServerQueryWriter` exists precisely because
         // buffering that body once already broke this face (ADR-062). Without a validator the
         // response is still fresh for `max-age` seconds; it simply cannot be revalidated cheaply

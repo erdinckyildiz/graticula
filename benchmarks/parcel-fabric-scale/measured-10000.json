@@ -1,0 +1,46 @@
+{
+ "columns": 100,
+ "rows": 100,
+ "parcels": 10000,
+ "lines": 20200,
+ "points": 10201,
+ "steps": [
+  {
+   "step": "create and insert",
+   "wall_s": 2.17,
+   "cpu_s": 1.3,
+   "peak_mb": 75.1
+  },
+  {
+   "step": "BuildParcelFabric",
+   "wall_s": 12.34,
+   "cpu_s": 12.14,
+   "peak_mb": 213.2
+  },
+  {
+   "step": "dimensions and four controls",
+   "wall_s": 3.91,
+   "cpu_s": 3.89,
+   "peak_mb": 213.2
+  },
+  {
+   "step": "AnalyzeParcelsByLeastSquaresAdjustment",
+   "wall_s": 205.87,
+   "cpu_s": 194.2,
+   "peak_mb": 795.1
+  },
+  {
+   "step": "ApplyParcelLeastSquaresAdjustment",
+   "wall_s": 10.13,
+   "cpu_s": 10.05,
+   "peak_mb": 795.1
+  }
+ ],
+ "messages": [
+  "SOLUTION Converged",
+  "Number of unknown parameters: 20394",
+  "Number of measurements: 40400",
+  "Degrees of freedom: 20006",
+  "Standard Error (Sigma): 0.014"
+ ]
+}

@@ -433,9 +433,16 @@ def _chain_cells(level, line):
     return out
 
 
+#: How the fit's sparse system is factored (D-333): its matrix is symmetric and positive definite, so SuperLU is given
+#: a symmetric ordering (minimum degree on A + Aᵀ) and no pivoting, which on a 400 x 400 grid halves the factor's
+#: fill (66 to 33 million entries) and its time (5.9 to 2.6 s a solve). The answer agrees with the general solve's to
+#: rounding, about 1e-13 of the surface's range; a test sets this False to compare with spsolve's default.
+SYMMETRIC_FACTOR = True
+
+
 def _solve(ops, profile_op, plan, n, data_index, data_value, data_weight, pins, lam):
     from scipy.sparse import diags
-    from scipy.sparse.linalg import spsolve
+    from scipy.sparse.linalg import spsolve, splu
     thin = ops["dxx"].T @ ops["dxx"] + 2 * (ops["dxy"].T @ ops["dxy"]) + ops["dyy"].T @ ops["dyy"]
     penalty = (1 - plan.profile) * thin if profile_op is not None else thin
     if profile_op is not None and plan.profile > 0:
@@ -453,6 +460,9 @@ def _solve(ops, profile_op, plan, n, data_index, data_value, data_weight, pins, 
         weight[keys] = big
         right[keys] = big * values
     system = (diags(weight) + lam * penalty + diags(np.full(n, 1e-10))).tocsc()
+    if SYMMETRIC_FACTOR:
+        return splu(system, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.0,
+                    options={"SymmetricMode": True}).solve(right)
     return spsolve(system, right)
 
 

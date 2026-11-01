@@ -738,7 +738,8 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
     /// <para>
     /// <b>404 rather than 401</b>, matching every other unshared resource here:
     /// a 403 would confirm the service exists, and a private service that
-    /// confirms its own existence is only half private.
+    /// confirms its own existence is only half private. <b>401 with 499 since 2026-11-01</b> (D-347), for a
+    /// caller with no token only: the ArcGIS challenge, answered the same for an absent service.
     /// </para>
     /// </remarks>
     [Fact]
@@ -753,6 +754,10 @@ public sealed class GeometryServerConformanceTests : ArcGisClient
         using HttpResponseMessage response =
             await http.PostAsync(new Uri(root + Root + "/project"), content);
 
-        Assert.Equal(404, (int)response.StatusCode);
+        // <b>Since 2026-11-01 (D-347) the ArcGIS challenge, 499 in the body and 401 on the line</b>, which is what
+        // every unshared resource on /rest/services answers a caller with no token — and a name that does not
+        // exist answers the same, so it still confirms nothing.
+        Assert.Equal(401, (int)response.StatusCode);
+        Assert.Contains("\"code\":499", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 }

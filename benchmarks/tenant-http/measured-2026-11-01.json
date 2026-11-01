@@ -1,0 +1,2270 @@
+{
+ "A-4-1": {
+  "organisations": 1,
+  "callers": 4,
+  "seconds": 30,
+  "requests": 3120,
+  "perSecond": 103.9,
+  "failures": {},
+  "all.search": {
+   "n": 1040,
+   "p50": 56.92,
+   "p95": 75.27,
+   "p99": 89.11
+  },
+  "all.services": {
+   "n": 1040,
+   "p50": 47.24,
+   "p95": 61.32,
+   "p99": 67.06
+  },
+  "all.query": {
+   "n": 1040,
+   "p50": 7.9,
+   "p95": 11.14,
+   "p99": 15.7
+  },
+  "busy.search": {
+   "n": 1040,
+   "p50": 56.92,
+   "p95": 75.27,
+   "p99": 89.11
+  },
+  "busy.services": {
+   "n": 1040,
+   "p50": 47.24,
+   "p95": 61.32,
+   "p99": 67.06
+  },
+  "busy.query": {
+   "n": 1040,
+   "p50": 7.9,
+   "p95": 11.14,
+   "p99": 15.7
+  },
+  "label": "A-4-1",
+  "machineBusyBefore": 13.3,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 56.5,
+  "peakConnections": 19,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A-4-2": {
+  "organisations": 1,
+  "callers": 4,
+  "seconds": 30,
+  "requests": 3366,
+  "perSecond": 112,
+  "failures": {},
+  "all.search": {
+   "n": 1122,
+   "p50": 53.76,
+   "p95": 67.66,
+   "p99": 76.73
+  },
+  "all.services": {
+   "n": 1122,
+   "p50": 44.12,
+   "p95": 55.03,
+   "p99": 64.94
+  },
+  "all.query": {
+   "n": 1122,
+   "p50": 7.56,
+   "p95": 10.12,
+   "p99": 13.35
+  },
+  "busy.search": {
+   "n": 1122,
+   "p50": 53.76,
+   "p95": 67.66,
+   "p99": 76.73
+  },
+  "busy.services": {
+   "n": 1122,
+   "p50": 44.12,
+   "p95": 55.03,
+   "p99": 64.94
+  },
+  "busy.query": {
+   "n": 1122,
+   "p50": 7.56,
+   "p95": 10.12,
+   "p99": 13.35
+  },
+  "label": "A-4-2",
+  "machineBusyBefore": 17.3,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 46.3,
+  "peakConnections": 18,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A-64-1": {
+  "organisations": 1,
+  "callers": 64,
+  "seconds": 30.5,
+  "requests": 5343,
+  "perSecond": 175,
+  "failures": {},
+  "all.search": {
+   "n": 1781,
+   "p50": 531.75,
+   "p95": 704.01,
+   "p99": 757.7
+  },
+  "all.services": {
+   "n": 1781,
+   "p50": 371.07,
+   "p95": 490.16,
+   "p99": 571.74
+  },
+  "all.query": {
+   "n": 1781,
+   "p50": 169.88,
+   "p95": 307.82,
+   "p99": 359.11
+  },
+  "busy.search": {
+   "n": 1781,
+   "p50": 531.75,
+   "p95": 704.01,
+   "p99": 757.7
+  },
+  "busy.services": {
+   "n": 1781,
+   "p50": 371.07,
+   "p95": 490.16,
+   "p99": 571.74
+  },
+  "busy.query": {
+   "n": 1781,
+   "p50": 169.88,
+   "p95": 307.82,
+   "p99": 359.11
+  },
+  "label": "A-64-1",
+  "machineBusyBefore": 15.9,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 94.1,
+  "peakConnections": 57,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A-64-2": {
+  "organisations": 1,
+  "callers": 64,
+  "seconds": 30.4,
+  "requests": 6135,
+  "perSecond": 201.9,
+  "failures": {},
+  "all.search": {
+   "n": 2045,
+   "p50": 457.06,
+   "p95": 566.21,
+   "p99": 640.12
+  },
+  "all.services": {
+   "n": 2045,
+   "p50": 320.96,
+   "p95": 423.87,
+   "p99": 458.83
+  },
+  "all.query": {
+   "n": 2045,
+   "p50": 161.22,
+   "p95": 238.58,
+   "p99": 271.77
+  },
+  "busy.search": {
+   "n": 2045,
+   "p50": 457.06,
+   "p95": 566.21,
+   "p99": 640.12
+  },
+  "busy.services": {
+   "n": 2045,
+   "p50": 320.96,
+   "p95": 423.87,
+   "p99": 458.83
+  },
+  "busy.query": {
+   "n": 2045,
+   "p50": 161.22,
+   "p95": 238.58,
+   "p99": 271.77
+  },
+  "label": "A-64-2",
+  "machineBusyBefore": 11.2,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 93.1,
+  "peakConnections": 57,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A2-4-1": {
+  "organisations": 1,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3729,
+  "perSecond": 123.9,
+  "failures": {},
+  "all.search": {
+   "n": 1243,
+   "p50": 47.97,
+   "p95": 67.05,
+   "p99": 81.33
+  },
+  "all.services": {
+   "n": 1243,
+   "p50": 39.08,
+   "p95": 55.08,
+   "p99": 66.98
+  },
+  "all.query": {
+   "n": 1243,
+   "p50": 6.69,
+   "p95": 10.73,
+   "p99": 17.62
+  },
+  "busy.search": {
+   "n": 1243,
+   "p50": 47.97,
+   "p95": 67.05,
+   "p99": 81.33
+  },
+  "busy.services": {
+   "n": 1243,
+   "p50": 39.08,
+   "p95": 55.08,
+   "p99": 66.98
+  },
+  "busy.query": {
+   "n": 1243,
+   "p50": 6.69,
+   "p95": 10.73,
+   "p99": 17.62
+  },
+  "label": "A2-4-1",
+  "machineBusyBefore": 12.2,
+  "waitedForQuiet": 60,
+  "machineBusyDuringAvg": 51.5,
+  "peakConnections": 21,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A2-4-2": {
+  "organisations": 1,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3093,
+  "perSecond": 102.8,
+  "failures": {},
+  "all.search": {
+   "n": 1031,
+   "p50": 57.32,
+   "p95": 74.08,
+   "p99": 88.76
+  },
+  "all.services": {
+   "n": 1031,
+   "p50": 47.44,
+   "p95": 61.99,
+   "p99": 71.98
+  },
+  "all.query": {
+   "n": 1031,
+   "p50": 8.11,
+   "p95": 11.69,
+   "p99": 18.63
+  },
+  "busy.search": {
+   "n": 1031,
+   "p50": 57.32,
+   "p95": 74.08,
+   "p99": 88.76
+  },
+  "busy.services": {
+   "n": 1031,
+   "p50": 47.44,
+   "p95": 61.99,
+   "p99": 71.98
+  },
+  "busy.query": {
+   "n": 1031,
+   "p50": 8.11,
+   "p95": 11.69,
+   "p99": 18.63
+  },
+  "label": "A2-4-2",
+  "machineBusyBefore": 19.6,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 56.6,
+  "peakConnections": 20,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A2-64-1": {
+  "organisations": 1,
+  "callers": 64,
+  "seconds": 30.5,
+  "requests": 5778,
+  "perSecond": 189.4,
+  "failures": {},
+  "all.search": {
+   "n": 1926,
+   "p50": 490.38,
+   "p95": 623.9,
+   "p99": 649.83
+  },
+  "all.services": {
+   "n": 1926,
+   "p50": 343.62,
+   "p95": 434.57,
+   "p99": 478.16
+  },
+  "all.query": {
+   "n": 1926,
+   "p50": 169.27,
+   "p95": 251.81,
+   "p99": 298.86
+  },
+  "busy.search": {
+   "n": 1926,
+   "p50": 490.38,
+   "p95": 623.9,
+   "p99": 649.83
+  },
+  "busy.services": {
+   "n": 1926,
+   "p50": 343.62,
+   "p95": 434.57,
+   "p99": 478.16
+  },
+  "busy.query": {
+   "n": 1926,
+   "p50": 169.27,
+   "p95": 251.81,
+   "p99": 298.86
+  },
+  "label": "A2-64-1",
+  "machineBusyBefore": 15.5,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 95.1,
+  "peakConnections": 51,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "A2-64-2": {
+  "organisations": 1,
+  "callers": 64,
+  "seconds": 30.6,
+  "requests": 5661,
+  "perSecond": 184.8,
+  "failures": {},
+  "all.search": {
+   "n": 1887,
+   "p50": 504.65,
+   "p95": 616.97,
+   "p99": 711.72
+  },
+  "all.services": {
+   "n": 1887,
+   "p50": 348.5,
+   "p95": 432.89,
+   "p99": 484.82
+  },
+  "all.query": {
+   "n": 1887,
+   "p50": 173.05,
+   "p95": 257,
+   "p99": 315.69
+  },
+  "busy.search": {
+   "n": 1887,
+   "p50": 504.65,
+   "p95": 616.97,
+   "p99": 711.72
+  },
+  "busy.services": {
+   "n": 1887,
+   "p50": 348.5,
+   "p95": 432.89,
+   "p99": 484.82
+  },
+  "busy.query": {
+   "n": 1887,
+   "p50": 173.05,
+   "p95": 257,
+   "p99": 315.69
+  },
+  "label": "A2-64-2",
+  "machineBusyBefore": 14.5,
+  "waitedForQuiet": 60,
+  "machineBusyDuringAvg": 94.3,
+  "peakConnections": 57,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "B-4-1": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30,
+  "requests": 4743,
+  "perSecond": 157.9,
+  "failures": {},
+  "all.search": {
+   "n": 1581,
+   "p50": 30.47,
+   "p95": 81.38,
+   "p99": 104.31
+  },
+  "all.services": {
+   "n": 1581,
+   "p50": 24.31,
+   "p95": 62.68,
+   "p99": 84.55
+  },
+  "all.query": {
+   "n": 1581,
+   "p50": 7.41,
+   "p95": 24.76,
+   "p99": 36.5
+  },
+  "busy.search": {
+   "n": 788,
+   "p50": 49.88,
+   "p95": 91.87,
+   "p99": 110.93
+  },
+  "busy.services": {
+   "n": 788,
+   "p50": 37.89,
+   "p95": 70.7,
+   "p99": 91.65
+  },
+  "busy.query": {
+   "n": 788,
+   "p50": 8.55,
+   "p95": 31.25,
+   "p99": 43.99
+  },
+  "others.search": {
+   "n": 793,
+   "p50": 18.05,
+   "p95": 61.02,
+   "p99": 82.11
+  },
+  "others.services": {
+   "n": 793,
+   "p50": 13.68,
+   "p95": 24.78,
+   "p99": 32.11
+  },
+  "others.query": {
+   "n": 793,
+   "p50": 6.55,
+   "p95": 10.65,
+   "p99": 17.24
+  },
+  "label": "B-4-1",
+  "machineBusyBefore": 14.3,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 43.2,
+  "peakConnections": 39,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "B-4-2": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 4632,
+  "perSecond": 154,
+  "failures": {},
+  "all.search": {
+   "n": 1544,
+   "p50": 36.67,
+   "p95": 76.92,
+   "p99": 89.27
+  },
+  "all.services": {
+   "n": 1544,
+   "p50": 27.54,
+   "p95": 60.89,
+   "p99": 72.15
+  },
+  "all.query": {
+   "n": 1544,
+   "p50": 7.51,
+   "p95": 25.94,
+   "p99": 35
+  },
+  "busy.search": {
+   "n": 770,
+   "p50": 51.99,
+   "p95": 82.16,
+   "p99": 92.88
+  },
+  "busy.services": {
+   "n": 770,
+   "p50": 38.03,
+   "p95": 66.55,
+   "p99": 79.88
+  },
+  "busy.query": {
+   "n": 770,
+   "p50": 8.9,
+   "p95": 30.38,
+   "p99": 37.5
+  },
+  "others.search": {
+   "n": 774,
+   "p50": 19.79,
+   "p95": 59.07,
+   "p99": 73.88
+  },
+  "others.services": {
+   "n": 774,
+   "p50": 15.6,
+   "p95": 22.31,
+   "p99": 31.06
+  },
+  "others.query": {
+   "n": 774,
+   "p50": 6.99,
+   "p95": 9.5,
+   "p99": 16.23
+  },
+  "label": "B-4-2",
+  "machineBusyBefore": 11.9,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 34.3,
+  "peakConnections": 38,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "B-64-1": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 31.8,
+  "requests": 4893,
+  "perSecond": 154,
+  "failures": {},
+  "all.search": {
+   "n": 1631,
+   "p50": 1104.83,
+   "p95": 1340.52,
+   "p99": 1443.9
+  },
+  "all.services": {
+   "n": 1631,
+   "p50": 492.76,
+   "p95": 1012.49,
+   "p99": 1050.6
+  },
+  "all.query": {
+   "n": 1631,
+   "p50": 87.62,
+   "p95": 409.13,
+   "p99": 628.06
+  },
+  "busy.search": {
+   "n": 827,
+   "p50": 1234.91,
+   "p95": 1417.93,
+   "p99": 1497.2
+  },
+  "busy.services": {
+   "n": 827,
+   "p50": 900.49,
+   "p95": 1043.65,
+   "p99": 1058.21
+  },
+  "busy.query": {
+   "n": 827,
+   "p50": 206.77,
+   "p95": 549.8,
+   "p99": 693.54
+  },
+  "others.search": {
+   "n": 804,
+   "p50": 28.51,
+   "p95": 134.89,
+   "p99": 200.2
+  },
+  "others.services": {
+   "n": 804,
+   "p50": 22.34,
+   "p95": 69.57,
+   "p99": 126.13
+  },
+  "others.query": {
+   "n": 804,
+   "p50": 9.71,
+   "p95": 36.44,
+   "p99": 58.75
+  },
+  "label": "B-64-1",
+  "machineBusyBefore": 13.3,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 47.1,
+  "peakConnections": 57,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "B-64-2": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 31.1,
+  "requests": 5292,
+  "perSecond": 170,
+  "failures": {},
+  "all.search": {
+   "n": 1764,
+   "p50": 975.53,
+   "p95": 1204.46,
+   "p99": 1259.94
+  },
+  "all.services": {
+   "n": 1764,
+   "p50": 369.86,
+   "p95": 911.9,
+   "p99": 925.24
+  },
+  "all.query": {
+   "n": 1764,
+   "p50": 97.89,
+   "p95": 369.22,
+   "p99": 673.41
+  },
+  "busy.search": {
+   "n": 893,
+   "p50": 1125.6,
+   "p95": 1226.57,
+   "p99": 1273.31
+  },
+  "busy.services": {
+   "n": 893,
+   "p50": 825.58,
+   "p95": 921.5,
+   "p99": 941.74
+  },
+  "busy.query": {
+   "n": 893,
+   "p50": 190.47,
+   "p95": 455.33,
+   "p99": 758.74
+  },
+  "others.search": {
+   "n": 871,
+   "p50": 28.83,
+   "p95": 100.8,
+   "p99": 149.65
+  },
+  "others.services": {
+   "n": 871,
+   "p50": 21.94,
+   "p95": 51.26,
+   "p99": 63.78
+  },
+  "others.query": {
+   "n": 871,
+   "p50": 9.43,
+   "p95": 25.26,
+   "p99": 40.17
+  },
+  "label": "B-64-2",
+  "machineBusyBefore": 10.5,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 39.0,
+  "peakConnections": 58,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "C-4-1": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30,
+  "requests": 3936,
+  "perSecond": 131,
+  "failures": {},
+  "all.search": {
+   "n": 1312,
+   "p50": 42.72,
+   "p95": 80.59,
+   "p99": 99.52
+  },
+  "all.services": {
+   "n": 1312,
+   "p50": 32.92,
+   "p95": 56.45,
+   "p99": 72.41
+  },
+  "all.query": {
+   "n": 1312,
+   "p50": 5.74,
+   "p95": 21.75,
+   "p99": 30.49
+  },
+  "busy.search": {
+   "n": 643,
+   "p50": 45.47,
+   "p95": 77.75,
+   "p99": 90.31
+  },
+  "busy.services": {
+   "n": 643,
+   "p50": 33.76,
+   "p95": 62.07,
+   "p99": 75.93
+  },
+  "busy.query": {
+   "n": 643,
+   "p50": 6.08,
+   "p95": 24.44,
+   "p99": 31.56
+  },
+  "others.search": {
+   "n": 669,
+   "p50": 40.76,
+   "p95": 86.1,
+   "p99": 117.44
+  },
+  "others.services": {
+   "n": 669,
+   "p50": 31.82,
+   "p95": 51.47,
+   "p99": 65.9
+  },
+  "others.query": {
+   "n": 669,
+   "p50": 5.47,
+   "p95": 9.69,
+   "p99": 26.07
+  },
+  "label": "C-4-1",
+  "machineBusyBefore": 14.8,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 45.1,
+  "peakConnections": 39,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "C-4-2": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3966,
+  "perSecond": 132,
+  "failures": {},
+  "all.search": {
+   "n": 1322,
+   "p50": 42.62,
+   "p95": 76.43,
+   "p99": 99.59
+  },
+  "all.services": {
+   "n": 1322,
+   "p50": 33.33,
+   "p95": 54.07,
+   "p99": 69.36
+  },
+  "all.query": {
+   "n": 1322,
+   "p50": 5.8,
+   "p95": 21.14,
+   "p99": 28.09
+  },
+  "busy.search": {
+   "n": 646,
+   "p50": 45.18,
+   "p95": 75.78,
+   "p99": 90.56
+  },
+  "busy.services": {
+   "n": 646,
+   "p50": 34.55,
+   "p95": 57.29,
+   "p99": 74.89
+  },
+  "busy.query": {
+   "n": 646,
+   "p50": 6.2,
+   "p95": 24.4,
+   "p99": 30.65
+  },
+  "others.search": {
+   "n": 676,
+   "p50": 40.95,
+   "p95": 81.38,
+   "p99": 106.21
+  },
+  "others.services": {
+   "n": 676,
+   "p50": 31.91,
+   "p95": 49.06,
+   "p99": 65.58
+  },
+  "others.query": {
+   "n": 676,
+   "p50": 5.55,
+   "p95": 8.95,
+   "p99": 21.96
+  },
+  "label": "C-4-2",
+  "machineBusyBefore": 11.7,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 43.0,
+  "peakConnections": 40,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "C-64-1": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.6,
+  "requests": 4686,
+  "perSecond": 153.1,
+  "failures": {},
+  "all.search": {
+   "n": 1562,
+   "p50": 437.41,
+   "p95": 1472.35,
+   "p99": 1617.85
+  },
+  "all.services": {
+   "n": 1562,
+   "p50": 200.12,
+   "p95": 783.83,
+   "p99": 888.65
+  },
+  "all.query": {
+   "n": 1562,
+   "p50": 84.15,
+   "p95": 562.98,
+   "p99": 662.12
+  },
+  "busy.search": {
+   "n": 784,
+   "p50": 1299.52,
+   "p95": 1544.83,
+   "p99": 1650.83
+  },
+  "busy.services": {
+   "n": 784,
+   "p50": 667.55,
+   "p95": 859.4,
+   "p99": 969.2
+  },
+  "busy.query": {
+   "n": 784,
+   "p50": 371.06,
+   "p95": 629.04,
+   "p99": 697.62
+  },
+  "others.search": {
+   "n": 778,
+   "p50": 74.91,
+   "p95": 227.54,
+   "p99": 339.58
+  },
+  "others.services": {
+   "n": 778,
+   "p50": 52.13,
+   "p95": 120.37,
+   "p99": 222.44
+  },
+  "others.query": {
+   "n": 778,
+   "p50": 7.32,
+   "p95": 55.46,
+   "p99": 120.63
+  },
+  "label": "C-64-1",
+  "machineBusyBefore": 14.4,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 58.1,
+  "peakConnections": 58,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "C-64-2": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.7,
+  "requests": 4734,
+  "perSecond": 154.1,
+  "failures": {},
+  "all.search": {
+   "n": 1578,
+   "p50": 567.68,
+   "p95": 1501.76,
+   "p99": 1581.17
+  },
+  "all.services": {
+   "n": 1578,
+   "p50": 206.94,
+   "p95": 800.35,
+   "p99": 835.19
+  },
+  "all.query": {
+   "n": 1578,
+   "p50": 76.62,
+   "p95": 540.34,
+   "p99": 663.96
+  },
+  "busy.search": {
+   "n": 793,
+   "p50": 1250.92,
+   "p95": 1517.9,
+   "p99": 1611.1
+  },
+  "busy.services": {
+   "n": 793,
+   "p50": 672.06,
+   "p95": 831.48,
+   "p99": 881.55
+  },
+  "busy.query": {
+   "n": 793,
+   "p50": 380.97,
+   "p95": 605.17,
+   "p99": 733
+  },
+  "others.search": {
+   "n": 785,
+   "p50": 75.68,
+   "p95": 206.56,
+   "p99": 276.16
+  },
+  "others.services": {
+   "n": 785,
+   "p50": 53.51,
+   "p95": 130.98,
+   "p99": 195.68
+  },
+  "others.query": {
+   "n": 785,
+   "p50": 6.86,
+   "p95": 50.26,
+   "p99": 86.86
+  },
+  "label": "C-64-2",
+  "machineBusyBefore": 15.2,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 58.7,
+  "peakConnections": 58,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "D-4-1": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30,
+  "requests": 5574,
+  "perSecond": 185.5,
+  "failures": {},
+  "all.search": {
+   "n": 1858,
+   "p50": 32.48,
+   "p95": 54.84,
+   "p99": 71.43
+  },
+  "all.services": {
+   "n": 1858,
+   "p50": 25.25,
+   "p95": 41.63,
+   "p99": 46.49
+  },
+  "all.query": {
+   "n": 1858,
+   "p50": 6.96,
+   "p95": 9.32,
+   "p99": 16.58
+  },
+  "busy.search": {
+   "n": 918,
+   "p50": 41.22,
+   "p95": 55.47,
+   "p99": 65.54
+  },
+  "busy.services": {
+   "n": 918,
+   "p50": 34.73,
+   "p95": 43.55,
+   "p99": 51.74
+  },
+  "busy.query": {
+   "n": 918,
+   "p50": 7.06,
+   "p95": 9.31,
+   "p99": 14.27
+  },
+  "others.search": {
+   "n": 940,
+   "p50": 19.67,
+   "p95": 34.7,
+   "p99": 72.9
+  },
+  "others.services": {
+   "n": 940,
+   "p50": 15.2,
+   "p95": 21.29,
+   "p99": 28.96
+  },
+  "others.query": {
+   "n": 940,
+   "p50": 6.85,
+   "p95": 9.32,
+   "p99": 18.49
+  },
+  "label": "D-4-1",
+  "machineBusyBefore": 12.1,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 40.1,
+  "peakConnections": 41,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "D-4-2": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 4929,
+  "perSecond": 164,
+  "failures": {},
+  "all.search": {
+   "n": 1643,
+   "p50": 36.32,
+   "p95": 59.42,
+   "p99": 85.45
+  },
+  "all.services": {
+   "n": 1643,
+   "p50": 27.72,
+   "p95": 46.58,
+   "p99": 56.63
+  },
+  "all.query": {
+   "n": 1643,
+   "p50": 7.81,
+   "p95": 11.48,
+   "p99": 18.23
+  },
+  "busy.search": {
+   "n": 815,
+   "p50": 46.09,
+   "p95": 60.58,
+   "p99": 75.88
+  },
+  "busy.services": {
+   "n": 815,
+   "p50": 39.38,
+   "p95": 50.01,
+   "p99": 63.03
+  },
+  "busy.query": {
+   "n": 815,
+   "p50": 7.87,
+   "p95": 11.35,
+   "p99": 16.93
+  },
+  "others.search": {
+   "n": 828,
+   "p50": 22.17,
+   "p95": 46.66,
+   "p99": 88.41
+  },
+  "others.services": {
+   "n": 828,
+   "p50": 17.54,
+   "p95": 25.58,
+   "p99": 34.02
+  },
+  "others.query": {
+   "n": 828,
+   "p50": 7.76,
+   "p95": 11.85,
+   "p99": 24.97
+  },
+  "label": "D-4-2",
+  "machineBusyBefore": 11.9,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 55.1,
+  "peakConnections": 43,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "D-64-1": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.2,
+  "requests": 10770,
+  "perSecond": 356.1,
+  "failures": {},
+  "all.search": {
+   "n": 3590,
+   "p50": 225.21,
+   "p95": 413.91,
+   "p99": 603.5
+  },
+  "all.services": {
+   "n": 3590,
+   "p50": 166,
+   "p95": 294.59,
+   "p99": 387.61
+  },
+  "all.query": {
+   "n": 3590,
+   "p50": 111.23,
+   "p95": 184.26,
+   "p99": 242.77
+  },
+  "busy.search": {
+   "n": 1815,
+   "p50": 330.57,
+   "p95": 425.33,
+   "p99": 466.91
+  },
+  "busy.services": {
+   "n": 1815,
+   "p50": 232.93,
+   "p95": 302.97,
+   "p99": 342.76
+  },
+  "busy.query": {
+   "n": 1815,
+   "p50": 131.5,
+   "p95": 192.22,
+   "p99": 221.65
+  },
+  "others.search": {
+   "n": 1775,
+   "p50": 148.3,
+   "p95": 263.66,
+   "p99": 718.37
+  },
+  "others.services": {
+   "n": 1775,
+   "p50": 108.11,
+   "p95": 186.69,
+   "p99": 554.69
+  },
+  "others.query": {
+   "n": 1775,
+   "p50": 84.71,
+   "p95": 157.8,
+   "p99": 376.6
+  },
+  "label": "D-64-1",
+  "machineBusyBefore": 13.4,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 95.1,
+  "peakConnections": 136,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "D-64-2": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.3,
+  "requests": 11457,
+  "perSecond": 378.1,
+  "failures": {},
+  "all.search": {
+   "n": 3819,
+   "p50": 221.14,
+   "p95": 404.05,
+   "p99": 474.19
+  },
+  "all.services": {
+   "n": 3819,
+   "p50": 156.71,
+   "p95": 277.68,
+   "p99": 343.12
+  },
+  "all.query": {
+   "n": 3819,
+   "p50": 101.72,
+   "p95": 177.82,
+   "p99": 210.32
+  },
+  "busy.search": {
+   "n": 1939,
+   "p50": 334.07,
+   "p95": 413.62,
+   "p99": 459.41
+  },
+  "busy.services": {
+   "n": 1939,
+   "p50": 227.95,
+   "p95": 288.17,
+   "p99": 333.12
+  },
+  "busy.query": {
+   "n": 1939,
+   "p50": 128.51,
+   "p95": 184.93,
+   "p99": 202.75
+  },
+  "others.search": {
+   "n": 1880,
+   "p50": 126.38,
+   "p95": 222.93,
+   "p99": 558.65
+  },
+  "others.services": {
+   "n": 1880,
+   "p50": 93.87,
+   "p95": 161.97,
+   "p99": 373.24
+  },
+  "others.query": {
+   "n": 1880,
+   "p50": 70.75,
+   "p95": 133.1,
+   "p99": 350.97
+  },
+  "label": "D-64-2",
+  "machineBusyBefore": 17.5,
+  "waitedForQuiet": 60,
+  "machineBusyDuringAvg": 93.7,
+  "peakConnections": 137,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "E-4-1": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 4170,
+  "perSecond": 138.7,
+  "failures": {},
+  "all.search": {
+   "n": 1390,
+   "p50": 39.48,
+   "p95": 86.06,
+   "p99": 104.01
+  },
+  "all.services": {
+   "n": 1390,
+   "p50": 28.79,
+   "p95": 70.84,
+   "p99": 87.05
+  },
+  "all.query": {
+   "n": 1390,
+   "p50": 8.15,
+   "p95": 30.19,
+   "p99": 40.37
+  },
+  "busy.search": {
+   "n": 687,
+   "p50": 56.63,
+   "p95": 92.59,
+   "p99": 108.47
+  },
+  "busy.services": {
+   "n": 687,
+   "p50": 43.35,
+   "p95": 79.55,
+   "p99": 97.01
+  },
+  "busy.query": {
+   "n": 687,
+   "p50": 10.02,
+   "p95": 35.98,
+   "p99": 43.86
+  },
+  "others.search": {
+   "n": 703,
+   "p50": 21.89,
+   "p95": 55.71,
+   "p99": 80.64
+  },
+  "others.services": {
+   "n": 703,
+   "p50": 16.93,
+   "p95": 23.82,
+   "p99": 31.43
+  },
+  "others.query": {
+   "n": 703,
+   "p50": 7.56,
+   "p95": 9.9,
+   "p99": 16.72
+  },
+  "label": "E-4-1",
+  "machineBusyBefore": 16.5,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 46.4,
+  "peakConnections": 38,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "E-4-2": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 4485,
+  "perSecond": 149,
+  "failures": {},
+  "all.search": {
+   "n": 1495,
+   "p50": 37.87,
+   "p95": 81.02,
+   "p99": 99.86
+  },
+  "all.services": {
+   "n": 1495,
+   "p50": 27.41,
+   "p95": 62.43,
+   "p99": 77.35
+  },
+  "all.query": {
+   "n": 1495,
+   "p50": 7.64,
+   "p95": 26.17,
+   "p99": 37.35
+  },
+  "busy.search": {
+   "n": 743,
+   "p50": 54.34,
+   "p95": 86.78,
+   "p99": 108.8
+  },
+  "busy.services": {
+   "n": 743,
+   "p50": 39.75,
+   "p95": 70.26,
+   "p99": 80.6
+  },
+  "busy.query": {
+   "n": 743,
+   "p50": 9.06,
+   "p95": 32.39,
+   "p99": 41.91
+  },
+  "others.search": {
+   "n": 752,
+   "p50": 20.5,
+   "p95": 56.68,
+   "p99": 77.53
+  },
+  "others.services": {
+   "n": 752,
+   "p50": 15.83,
+   "p95": 21.13,
+   "p99": 29.84
+  },
+  "others.query": {
+   "n": 752,
+   "p50": 7.1,
+   "p95": 9.45,
+   "p99": 20.12
+  },
+  "label": "E-4-2",
+  "machineBusyBefore": 11.9,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 41.7,
+  "peakConnections": 39,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "E-64-1": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.6,
+  "requests": 4683,
+  "perSecond": 153.3,
+  "failures": {},
+  "all.search": {
+   "n": 1561,
+   "p50": 192.48,
+   "p95": 1359.31,
+   "p99": 1448.53
+  },
+  "all.services": {
+   "n": 1561,
+   "p50": 111.68,
+   "p95": 1014.11,
+   "p99": 1058.24
+  },
+  "all.query": {
+   "n": 1561,
+   "p50": 42.51,
+   "p95": 444.01,
+   "p99": 668.79
+  },
+  "busy.search": {
+   "n": 780,
+   "p50": 1261.98,
+   "p95": 1398.65,
+   "p99": 1487.25
+  },
+  "busy.services": {
+   "n": 780,
+   "p50": 911.39,
+   "p95": 1042.8,
+   "p99": 1088.45
+  },
+  "busy.query": {
+   "n": 780,
+   "p50": 228.27,
+   "p95": 520.55,
+   "p99": 743.93
+  },
+  "others.search": {
+   "n": 781,
+   "p50": 30.87,
+   "p95": 103.93,
+   "p99": 163.23
+  },
+  "others.services": {
+   "n": 781,
+   "p50": 23.3,
+   "p95": 63.49,
+   "p99": 90.54
+  },
+  "others.query": {
+   "n": 781,
+   "p50": 9.95,
+   "p95": 32.82,
+   "p99": 48.53
+  },
+  "label": "E-64-1",
+  "machineBusyBefore": 15.5,
+  "waitedForQuiet": 300,
+  "machineBusyDuringAvg": 50.4,
+  "peakConnections": 54,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "E-64-2": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.6,
+  "requests": 5013,
+  "perSecond": 163.9,
+  "failures": {},
+  "all.search": {
+   "n": 1671,
+   "p50": 434.77,
+   "p95": 1253.41,
+   "p99": 1311
+  },
+  "all.services": {
+   "n": 1671,
+   "p50": 205.34,
+   "p95": 983.91,
+   "p99": 1019.73
+  },
+  "all.query": {
+   "n": 1671,
+   "p50": 60.67,
+   "p95": 363.04,
+   "p99": 601.26
+  },
+  "busy.search": {
+   "n": 847,
+   "p50": 1172.43,
+   "p95": 1274.24,
+   "p99": 1326.75
+  },
+  "busy.services": {
+   "n": 847,
+   "p50": 843.6,
+   "p95": 1006.49,
+   "p99": 1021.33
+  },
+  "busy.query": {
+   "n": 847,
+   "p50": 192.95,
+   "p95": 455.47,
+   "p99": 715.17
+  },
+  "others.search": {
+   "n": 824,
+   "p50": 27.69,
+   "p95": 111.77,
+   "p99": 165.64
+  },
+  "others.services": {
+   "n": 824,
+   "p50": 21.06,
+   "p95": 53.5,
+   "p99": 85.47
+  },
+  "others.query": {
+   "n": 824,
+   "p50": 9.09,
+   "p95": 30.21,
+   "p99": 48.7
+  },
+  "label": "E-64-2",
+  "machineBusyBefore": 11.5,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 45.5,
+  "peakConnections": 60,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "F-4-1": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3144,
+  "perSecond": 104.5,
+  "failures": {},
+  "all.search": {
+   "n": 1048,
+   "p50": 56.46,
+   "p95": 74.24,
+   "p99": 81.95
+  },
+  "all.services": {
+   "n": 1048,
+   "p50": 46.6,
+   "p95": 63.31,
+   "p99": 69.95
+  },
+  "all.query": {
+   "n": 1048,
+   "p50": 7.84,
+   "p95": 11.61,
+   "p99": 22.46
+  },
+  "busy.search": {
+   "n": 510,
+   "p50": 56.8,
+   "p95": 74.26,
+   "p99": 82.51
+  },
+  "busy.services": {
+   "n": 510,
+   "p50": 46.59,
+   "p95": 62.92,
+   "p99": 69.03
+  },
+  "busy.query": {
+   "n": 510,
+   "p50": 7.78,
+   "p95": 11.99,
+   "p99": 22.46
+  },
+  "others.search": {
+   "n": 538,
+   "p50": 56.18,
+   "p95": 74.24,
+   "p99": 81.71
+  },
+  "others.services": {
+   "n": 538,
+   "p50": 46.61,
+   "p95": 63.82,
+   "p99": 73.49
+  },
+  "others.query": {
+   "n": 538,
+   "p50": 7.91,
+   "p95": 11.5,
+   "p99": 19.68
+  },
+  "label": "F-4-1",
+  "machineBusyBefore": 15.2,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 52.0,
+  "peakConnections": 18,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "F-4-2": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3294,
+  "perSecond": 109.5,
+  "failures": {},
+  "all.search": {
+   "n": 1098,
+   "p50": 53.64,
+   "p95": 70.87,
+   "p99": 78.66
+  },
+  "all.services": {
+   "n": 1098,
+   "p50": 44.37,
+   "p95": 60.22,
+   "p99": 72.43
+  },
+  "all.query": {
+   "n": 1098,
+   "p50": 7.41,
+   "p95": 10.33,
+   "p99": 22.94
+  },
+  "busy.search": {
+   "n": 532,
+   "p50": 53.6,
+   "p95": 70.52,
+   "p99": 77.21
+  },
+  "busy.services": {
+   "n": 532,
+   "p50": 44.44,
+   "p95": 59.55,
+   "p99": 66.61
+  },
+  "busy.query": {
+   "n": 532,
+   "p50": 7.4,
+   "p95": 9.71,
+   "p99": 22.36
+  },
+  "others.search": {
+   "n": 566,
+   "p50": 53.81,
+   "p95": 71.73,
+   "p99": 81.79
+  },
+  "others.services": {
+   "n": 566,
+   "p50": 44.35,
+   "p95": 61.4,
+   "p99": 74.49
+  },
+  "others.query": {
+   "n": 566,
+   "p50": 7.42,
+   "p95": 11.37,
+   "p99": 24.6
+  },
+  "label": "F-4-2",
+  "machineBusyBefore": 11.5,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 49.8,
+  "peakConnections": 19,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "F-64-1": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.4,
+  "requests": 5676,
+  "perSecond": 186.7,
+  "failures": {},
+  "all.search": {
+   "n": 1892,
+   "p50": 496.26,
+   "p95": 612.72,
+   "p99": 686.98
+  },
+  "all.services": {
+   "n": 1892,
+   "p50": 347.2,
+   "p95": 448.16,
+   "p99": 509.77
+  },
+  "all.query": {
+   "n": 1892,
+   "p50": 170.59,
+   "p95": 257.5,
+   "p99": 298.6
+  },
+  "busy.search": {
+   "n": 949,
+   "p50": 494.05,
+   "p95": 608.41,
+   "p99": 674.09
+  },
+  "busy.services": {
+   "n": 949,
+   "p50": 345.58,
+   "p95": 445.27,
+   "p99": 510.22
+  },
+  "busy.query": {
+   "n": 949,
+   "p50": 171.26,
+   "p95": 259.28,
+   "p99": 298.21
+  },
+  "others.search": {
+   "n": 943,
+   "p50": 498.28,
+   "p95": 613.82,
+   "p99": 691.77
+  },
+  "others.services": {
+   "n": 943,
+   "p50": 348.56,
+   "p95": 449.63,
+   "p99": 506.9
+  },
+  "others.query": {
+   "n": 943,
+   "p50": 169.82,
+   "p95": 255.89,
+   "p99": 299.69
+  },
+  "label": "F-64-1",
+  "machineBusyBefore": 17.7,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 91.2,
+  "peakConnections": 50,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "F-64-2": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.4,
+  "requests": 5985,
+  "perSecond": 196.6,
+  "failures": {},
+  "all.search": {
+   "n": 1995,
+   "p50": 472.83,
+   "p95": 584.52,
+   "p99": 641.16
+  },
+  "all.services": {
+   "n": 1995,
+   "p50": 330.54,
+   "p95": 422.07,
+   "p99": 460.35
+  },
+  "all.query": {
+   "n": 1995,
+   "p50": 165.24,
+   "p95": 244.7,
+   "p99": 277.95
+  },
+  "busy.search": {
+   "n": 1001,
+   "p50": 473.15,
+   "p95": 586.85,
+   "p99": 635.35
+  },
+  "busy.services": {
+   "n": 1001,
+   "p50": 330.17,
+   "p95": 421.01,
+   "p99": 461.6
+  },
+  "busy.query": {
+   "n": 1001,
+   "p50": 165.76,
+   "p95": 244.6,
+   "p99": 269.53
+  },
+  "others.search": {
+   "n": 994,
+   "p50": 471.93,
+   "p95": 584.03,
+   "p99": 649.72
+  },
+  "others.services": {
+   "n": 994,
+   "p50": 331.05,
+   "p95": 425.09,
+   "p99": 457.68
+  },
+  "others.query": {
+   "n": 994,
+   "p50": 164.52,
+   "p95": 244.82,
+   "p99": 295.66
+  },
+  "label": "F-64-2",
+  "machineBusyBefore": 19.6,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 94.1,
+  "peakConnections": 47,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "G-4-1": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 4710,
+  "perSecond": 156.6,
+  "failures": {},
+  "all.search": {
+   "n": 1570,
+   "p50": 36.39,
+   "p95": 61.96,
+   "p99": 83.39
+  },
+  "all.services": {
+   "n": 1570,
+   "p50": 30.45,
+   "p95": 51.23,
+   "p99": 72.06
+  },
+  "all.query": {
+   "n": 1570,
+   "p50": 7.91,
+   "p95": 11.03,
+   "p99": 21.87
+  },
+  "busy.search": {
+   "n": 782,
+   "p50": 48.51,
+   "p95": 73.18,
+   "p99": 88.86
+  },
+  "busy.services": {
+   "n": 782,
+   "p50": 41.19,
+   "p95": 63.74,
+   "p99": 76.31
+  },
+  "busy.query": {
+   "n": 782,
+   "p50": 7.91,
+   "p95": 10.81,
+   "p99": 22.6
+  },
+  "others.search": {
+   "n": 788,
+   "p50": 23.65,
+   "p95": 29.52,
+   "p99": 35.18
+  },
+  "others.services": {
+   "n": 788,
+   "p50": 18.48,
+   "p95": 23.78,
+   "p99": 31.25
+  },
+  "others.query": {
+   "n": 788,
+   "p50": 7.9,
+   "p95": 11.27,
+   "p99": 19.88
+  },
+  "label": "G-4-1",
+  "machineBusyBefore": 16.4,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 51.5,
+  "peakConnections": 20,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "G-4-2": {
+  "organisations": 10,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 4332,
+  "perSecond": 144.1,
+  "failures": {},
+  "all.search": {
+   "n": 1444,
+   "p50": 40.06,
+   "p95": 75.07,
+   "p99": 100.13
+  },
+  "all.services": {
+   "n": 1444,
+   "p50": 33.36,
+   "p95": 63.6,
+   "p99": 84.42
+  },
+  "all.query": {
+   "n": 1444,
+   "p50": 8.28,
+   "p95": 14.37,
+   "p99": 29.44
+  },
+  "busy.search": {
+   "n": 716,
+   "p50": 50.06,
+   "p95": 89.09,
+   "p99": 105.37
+  },
+  "busy.services": {
+   "n": 716,
+   "p50": 42.68,
+   "p95": 74,
+   "p99": 91.04
+  },
+  "busy.query": {
+   "n": 716,
+   "p50": 8.31,
+   "p95": 13.3,
+   "p99": 29.45
+  },
+  "others.search": {
+   "n": 728,
+   "p50": 24.52,
+   "p95": 35.11,
+   "p99": 47.36
+  },
+  "others.services": {
+   "n": 728,
+   "p50": 19.46,
+   "p95": 30.15,
+   "p99": 42.56
+  },
+  "others.query": {
+   "n": 728,
+   "p50": 8.21,
+   "p95": 14.65,
+   "p99": 26.28
+  },
+  "label": "G-4-2",
+  "machineBusyBefore": 14.9,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 64.5,
+  "peakConnections": 19,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "G-64-1": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.3,
+  "requests": 11121,
+  "perSecond": 366.6,
+  "failures": {},
+  "all.search": {
+   "n": 3707,
+   "p50": 248.68,
+   "p95": 313.53,
+   "p99": 343.26
+  },
+  "all.services": {
+   "n": 3707,
+   "p50": 171.33,
+   "p95": 228.18,
+   "p99": 257.65
+  },
+  "all.query": {
+   "n": 3707,
+   "p50": 97.21,
+   "p95": 140.09,
+   "p99": 163.65
+  },
+  "busy.search": {
+   "n": 1873,
+   "p50": 266.66,
+   "p95": 325.07,
+   "p99": 359.48
+  },
+  "busy.services": {
+   "n": 1873,
+   "p50": 190.18,
+   "p95": 242.03,
+   "p99": 265.87
+  },
+  "busy.query": {
+   "n": 1873,
+   "p50": 96.31,
+   "p95": 140.09,
+   "p99": 164.18
+  },
+  "others.search": {
+   "n": 1834,
+   "p50": 229.98,
+   "p95": 277.94,
+   "p99": 310.03
+  },
+  "others.services": {
+   "n": 1834,
+   "p50": 150.36,
+   "p95": 196.17,
+   "p99": 217.53
+  },
+  "others.query": {
+   "n": 1834,
+   "p50": 98.15,
+   "p95": 140.14,
+   "p99": 162.03
+  },
+  "label": "G-64-1",
+  "machineBusyBefore": 12.4,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 95.5,
+  "peakConnections": 51,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "G-64-2": {
+  "organisations": 10,
+  "callers": 64,
+  "seconds": 30.3,
+  "requests": 10878,
+  "perSecond": 358.8,
+  "failures": {},
+  "all.search": {
+   "n": 3626,
+   "p50": 253.03,
+   "p95": 323.25,
+   "p99": 358.33
+  },
+  "all.services": {
+   "n": 3626,
+   "p50": 174.95,
+   "p95": 233.7,
+   "p99": 266.69
+  },
+  "all.query": {
+   "n": 3626,
+   "p50": 98.9,
+   "p95": 142.38,
+   "p99": 163.33
+  },
+  "busy.search": {
+   "n": 1830,
+   "p50": 272.49,
+   "p95": 337.14,
+   "p99": 368.59
+  },
+  "busy.services": {
+   "n": 1830,
+   "p50": 193.86,
+   "p95": 245.38,
+   "p99": 278.92
+  },
+  "busy.query": {
+   "n": 1830,
+   "p50": 98.91,
+   "p95": 142.38,
+   "p99": 163.33
+  },
+  "others.search": {
+   "n": 1796,
+   "p50": 232.97,
+   "p95": 289.1,
+   "p99": 318.1
+  },
+  "others.services": {
+   "n": 1796,
+   "p50": 154.38,
+   "p95": 200.2,
+   "p99": 223.28
+  },
+  "others.query": {
+   "n": 1796,
+   "p50": 98.73,
+   "p95": 142.43,
+   "p99": 163.4
+  },
+  "label": "G-64-2",
+  "machineBusyBefore": 14.4,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 94.9,
+  "peakConnections": 46,
+  "breakerLines": 0,
+  "stillSignedIn": "10/10"
+ },
+ "H-4-1": {
+  "organisations": 1,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3171,
+  "perSecond": 105.3,
+  "failures": {},
+  "all.search": {
+   "n": 1057,
+   "p50": 56.62,
+   "p95": 70.44,
+   "p99": 78.92
+  },
+  "all.services": {
+   "n": 1057,
+   "p50": 46.89,
+   "p95": 57.78,
+   "p99": 66.81
+  },
+  "all.query": {
+   "n": 1057,
+   "p50": 7.94,
+   "p95": 10.69,
+   "p99": 16.35
+  },
+  "busy.search": {
+   "n": 1057,
+   "p50": 56.62,
+   "p95": 70.44,
+   "p99": 78.92
+  },
+  "busy.services": {
+   "n": 1057,
+   "p50": 46.89,
+   "p95": 57.78,
+   "p99": 66.81
+  },
+  "busy.query": {
+   "n": 1057,
+   "p50": 7.94,
+   "p95": 10.69,
+   "p99": 16.35
+  },
+  "label": "H-4-1",
+  "machineBusyBefore": 18.8,
+  "waitedForQuiet": 60,
+  "machineBusyDuringAvg": 57.8,
+  "peakConnections": 19,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "H-4-2": {
+  "organisations": 1,
+  "callers": 4,
+  "seconds": 30.1,
+  "requests": 3165,
+  "perSecond": 105.1,
+  "failures": {},
+  "all.search": {
+   "n": 1055,
+   "p50": 56.54,
+   "p95": 75.16,
+   "p99": 88.24
+  },
+  "all.services": {
+   "n": 1055,
+   "p50": 46.58,
+   "p95": 60.77,
+   "p99": 73.82
+  },
+  "all.query": {
+   "n": 1055,
+   "p50": 7.8,
+   "p95": 10.34,
+   "p99": 14.36
+  },
+  "busy.search": {
+   "n": 1055,
+   "p50": 56.54,
+   "p95": 75.16,
+   "p99": 88.24
+  },
+  "busy.services": {
+   "n": 1055,
+   "p50": 46.58,
+   "p95": 60.77,
+   "p99": 73.82
+  },
+  "busy.query": {
+   "n": 1055,
+   "p50": 7.8,
+   "p95": 10.34,
+   "p99": 14.36
+  },
+  "label": "H-4-2",
+  "machineBusyBefore": 19.4,
+  "waitedForQuiet": 0,
+  "machineBusyDuringAvg": 49.0,
+  "peakConnections": 19,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "H-64-1": {
+  "organisations": 1,
+  "callers": 64,
+  "seconds": 30.6,
+  "requests": 5667,
+  "perSecond": 185.3,
+  "failures": {},
+  "all.search": {
+   "n": 1889,
+   "p50": 495.48,
+   "p95": 613.7,
+   "p99": 695.49
+  },
+  "all.services": {
+   "n": 1889,
+   "p50": 352.75,
+   "p95": 442.95,
+   "p99": 487.18
+  },
+  "all.query": {
+   "n": 1889,
+   "p50": 180.28,
+   "p95": 259.74,
+   "p99": 301.49
+  },
+  "busy.search": {
+   "n": 1889,
+   "p50": 495.48,
+   "p95": 613.7,
+   "p99": 695.49
+  },
+  "busy.services": {
+   "n": 1889,
+   "p50": 352.75,
+   "p95": 442.95,
+   "p99": 487.18
+  },
+  "busy.query": {
+   "n": 1889,
+   "p50": 180.28,
+   "p95": 259.74,
+   "p99": 301.49
+  },
+  "label": "H-64-1",
+  "machineBusyBefore": 17.6,
+  "waitedForQuiet": 60,
+  "machineBusyDuringAvg": 96.1,
+  "peakConnections": 57,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ },
+ "H-64-2": {
+  "organisations": 1,
+  "callers": 64,
+  "seconds": 30.4,
+  "requests": 5784,
+  "perSecond": 190.3,
+  "failures": {},
+  "all.search": {
+   "n": 1928,
+   "p50": 488.45,
+   "p95": 596.25,
+   "p99": 661.49
+  },
+  "all.services": {
+   "n": 1928,
+   "p50": 343.95,
+   "p95": 436.25,
+   "p99": 486.8
+  },
+  "all.query": {
+   "n": 1928,
+   "p50": 166.51,
+   "p95": 250.95,
+   "p99": 278.44
+  },
+  "busy.search": {
+   "n": 1928,
+   "p50": 488.45,
+   "p95": 596.25,
+   "p99": 661.49
+  },
+  "busy.services": {
+   "n": 1928,
+   "p50": 343.95,
+   "p95": 436.25,
+   "p99": 486.8
+  },
+  "busy.query": {
+   "n": 1928,
+   "p50": 166.51,
+   "p95": 250.95,
+   "p99": 278.44
+  },
+  "label": "H-64-2",
+  "machineBusyBefore": 18.4,
+  "waitedForQuiet": 30,
+  "machineBusyDuringAvg": 95.1,
+  "peakConnections": 57,
+  "breakerLines": 0,
+  "stillSignedIn": "1/1"
+ }
+}

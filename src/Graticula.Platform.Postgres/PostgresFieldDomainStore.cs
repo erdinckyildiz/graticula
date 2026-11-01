@@ -29,7 +29,7 @@ public sealed class PostgresFieldDomainStore : IFieldDomainStore
     private readonly NpgsqlDataSource _root;
 
     /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
-    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
+    private TenantSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Reads and writes shared domains in a platform store.</summary>
     /// <param name="dataSource">The store.</param>

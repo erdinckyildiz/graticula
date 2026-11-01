@@ -33,6 +33,8 @@ class _Base(unittest.TestCase):
 
     def sql(self, statement, *args):
         connection = sqlite3.connect(self.gpkg)
+        from grapy import _gpkg
+        _gpkg.functions(connection)  # a writer of a file with Annex F.3's index has its functions (D-340)
         try:
             rows = connection.execute(statement, args).fetchall()
             connection.commit()

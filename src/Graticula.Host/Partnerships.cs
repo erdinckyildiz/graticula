@@ -72,7 +72,7 @@ internal static class PartnershipEndpoints
         return (feature.Tenant, null);
     }
 
-    private static NpgsqlDataSource Pool(NpgsqlDataSource root) => TenantDataSources.Route(root);
+    private static TenantSource Pool(NpgsqlDataSource root) => TenantDataSources.Route(root);
 
     private static async Task<List<Row>> ReadAsync(NpgsqlDataSource root, Guid? id, CancellationToken cancellation)
     {

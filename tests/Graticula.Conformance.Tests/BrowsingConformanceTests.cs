@@ -243,7 +243,8 @@ public sealed class BrowsingConformanceTests : ArcGisClient
     /// So the credential simply does not work for the methods that matter. A
     /// forged request can read, and reading is what the directory is for. The
     /// geometry service is organisation-shared, so an anonymous POST gets the
-    /// 404 that every unshared resource gets.
+    /// answer every unshared resource gets a caller with no token — 404 until
+    /// 2026-11-01, the ArcGIS challenge (401, 499 in the body) since (D-347).
     /// </para>
     /// </remarks>
     [Fact]
@@ -276,7 +277,7 @@ public sealed class BrowsingConformanceTests : ArcGisClient
         using HttpResponseMessage write =
             await http.PostAsync(new Uri(root + Geometry + "/project"), form);
 
-        Assert.Equal(HttpStatusCode.NotFound, write.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, write.StatusCode);
     }
 
     /// <summary>

@@ -44,7 +44,11 @@ namespace Graticula.Conformance.Tests;
 /// querying the same layer in parallel can be answered **403** and report it as its own
 /// defect — which is exactly what a CI run did on 2026-09-02, blaming
 /// `supportsQueryWithDistance`. Serialising is the fix the collection already exists for.
-[Collection("catalogue walk")]
+/// <b>And alone since 2026-11-01</b>: ADR-046 §5a's store gate is shared by every `/rest/services` request, so this
+/// flood fills its queue and refuses whatever else is running — CI run 41282203570 had `ServiceItemIdTests` answered
+/// 503 three seconds in. That is the gate working; a test that overloads the server on purpose runs with nothing
+/// beside it, and running alone serialises it against the catalogue walk too.
+[Collection("a flood runs alone")]
 public sealed class AdmissionControlConformanceTests : ArcGisClient
 {
     /// <summary>
@@ -225,3 +229,7 @@ public sealed class AdmissionControlConformanceTests : ArcGisClient
             $"{served} served, {refused} refused, of {Callers}.");
     }
 }
+
+/// <summary>A flood refuses whatever runs beside it, by design (ADR-046 §5a), so it runs with nothing beside it.</summary>
+[CollectionDefinition("a flood runs alone", DisableParallelization = true)]
+public sealed class AFloodRunsAlone;

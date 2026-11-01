@@ -135,6 +135,14 @@ internal static class ToolSandbox
 
         start.Environment["HOME"] = directory;
         start.Environment["OPENBLAS_NUM_THREADS"] = "1";
+
+        // <b>One thread for each numeric runtime, and two malloc arenas</b> — measured 2026-11-01 on CI's Linux
+        // runner (measure.yml run 41247467722): one epoch of RandLA-Net or Point Transformer V3 reached the fence's 2 GiB
+        // address-space limit at 1.2–1.4 GB resident, because torch's OpenMP and MKL pools start a thread per core and
+        // glibc reserves a 64 MiB arena for each. A tool's numbers are the same with one thread; its address space is not.
+        start.Environment["OMP_NUM_THREADS"] = "1";
+        start.Environment["MKL_NUM_THREADS"] = "1";
+        start.Environment["MALLOC_ARENA_MAX"] = "2";
         start.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
 
         if (settings.Unfenced)

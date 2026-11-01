@@ -109,6 +109,13 @@ internal static class KmlEndpoints
         if (coverage is null || !LayerAccess.Evaluate(
                 coverage.Sharing, coverage.Owner, principal.Principal, principal.Authorization, coverage.SharedWith).IsAllowed())
         {
+            // D-347: a caller with no token is challenged rather than told 404 (TokenRequired).
+            if (TokenRequired.Applies(context))
+            {
+                await TokenRequired.WriteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
             await RefuseAsync(context, 404, $"No image service '{serviceName}' is visible to you.").ConfigureAwait(false);
             return;
         }

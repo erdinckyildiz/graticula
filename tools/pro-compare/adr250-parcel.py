@@ -66,14 +66,17 @@ def gdb_of(path):
 
 
 OFFSET = [float(v) for v in os.environ.get("ADR250_OFFSET", "0,0").split(",")]
+# ADR250_SCALE: x,y units of the coordinate system per case unit, for a geographic one (degrees per metre there).
+SCALE = [float(v) for v in os.environ.get("ADR250_SCALE", "1,1").split(",")]
 
 
 def shape(wkt):
-    """The case's local coordinates, moved by ADR250_OFFSET (x,y) when it is set."""
-    if OFFSET != [0.0, 0.0]:
+    """The case's local coordinates, scaled by ADR250_SCALE and moved by ADR250_OFFSET (x,y) when they are set."""
+    if OFFSET != [0.0, 0.0] or SCALE != [1.0, 1.0]:
         import re
         numbers = re.compile(r"(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)")
-        wkt = numbers.sub(lambda m: f"{float(m.group(1)) + OFFSET[0]} {float(m.group(2)) + OFFSET[1]}", wkt)
+        wkt = numbers.sub(lambda m: f"{float(m.group(1)) * SCALE[0] + OFFSET[0]!r} "
+                                    f"{float(m.group(2)) * SCALE[1] + OFFSET[1]!r}", wkt)
     return arcpy.FromWKT(wkt, SR)
 
 
@@ -91,7 +94,8 @@ def fabric(case):
 
 def plain(value):
     if value is None or isinstance(value, (int, float, str)):
-        return round(value, 6) if isinstance(value, float) else value
+        # 11 places: a geographic system's degrees need them (1e-6 degree is about 0.1 m)
+        return round(value, 11) if isinstance(value, float) else value
     if hasattr(value, "WKT"):
         return value.WKT
     return str(value)
@@ -256,7 +260,8 @@ def lsa_run(case, places, lines, kind, **options):
     gdb, fds, fab = network(case, places, lines, **options)
     out = {}
     try:
-        res = arcpy.parcel.AnalyzeParcelsByLeastSquaresAdjustment(fab, kind)
+        # ADR250_CONVERGENCE: the convergence tolerance, when the default 0.05 m is not wanted
+        res = arcpy.parcel.AnalyzeParcelsByLeastSquaresAdjustment(fab, kind, os.environ.get("ADR250_CONVERGENCE"))
         out["messages"] = res.getMessages() if hasattr(res, "getMessages") else None
     except Exception as e:
         out["error"] = str(e)[:500]

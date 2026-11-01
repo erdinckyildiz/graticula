@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trains RandLA-Net and Point Transformer V3 for one epoch each inside grapy's fence, and prints peak memory and time.
+"""Trains each point cloud classifier for one epoch inside grapy's fence, and prints peak memory and time.
 
 Why this exists
 ---------------
@@ -32,7 +32,8 @@ not a fault of the script.
 Linux only: the fence is. Usage:
 
     python tools/measure_point_cloud_fence.py [--points 1440000] [--epoch-iterations 10] [--memory-gib 2]
-                                              [--cpu-seconds 600] [--architectures RANDLANET POINT_TRANSFORMER_V3]
+                                              [--cpu-seconds 600]
+                                              [--architectures RANDLANET SQN POINTCNN POINT_TRANSFORMER_V3]
 
 ``--epoch-iterations`` is the tool's own parameter, the percentage of training blocks one epoch visits; 10 is what
 D-341 timed. Nothing is downloaded and nothing is written outside a temporary folder.
@@ -234,6 +235,9 @@ def fenced_epoch(run, arch, iterations, rate, memory, cpu, unfenced=False):
     # The environment grapy's own fence test gives a run (test_grapy._run), and no more.
     environment = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT")}
     environment["PYTHONPATH"] = GRAPY
+    # And what ToolSandbox.cs gives every user tool, or the measurement is of a process the server never starts.
+    environment.update({"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+                        "MALLOC_ARENA_MAX": "2", "PYTHONDONTWRITEBYTECODE": "1"})
     if unfenced:
         environment["GRAPY_UNFENCED"] = "1"
     before = _children_rusage()
@@ -295,7 +299,7 @@ def main(argv=None):
                         help="given, so that the learning-rate range test is not part of what is timed")
     parser.add_argument("--memory-gib", type=float, default=2.0)
     parser.add_argument("--cpu-seconds", type=int, default=600)
-    parser.add_argument("--architectures", nargs="+", default=["RANDLANET", "POINT_TRANSFORMER_V3"])
+    parser.add_argument("--architectures", nargs="+", default=["RANDLANET", "SQN", "POINTCNN", "POINT_TRANSFORMER_V3"])
     parser.add_argument("--unfenced", action="store_true",
                         help="check the script itself without the fence (any system); what it prints is not a "
                              "measurement of the fence")

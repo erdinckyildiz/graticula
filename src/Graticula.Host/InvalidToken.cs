@@ -21,9 +21,12 @@ namespace Graticula.Host;
 /// <para>
 /// <b>Why this is not a disclosure.</b> 498 says something about the token the caller holds and
 /// nothing about any resource: the same answer comes back for a public layer, a private one and a
-/// path that does not exist. The deliberate 404 for a private resource asked for with no token at
+/// path that does not exist. ~~The deliberate 404 for a private resource asked for with no token at
 /// all — which does not reveal that the resource exists — is unchanged, and that is why this server
-/// still does not answer 499 there.
+/// still does not answer 499 there.~~ <b>Since 2026-11-01 it does, on <c>/rest/services</c></b>
+/// (<see cref="TokenRequired"/>, D-347): the ArcGIS Maps SDK attaches a token it holds only when it is
+/// challenged, and the disclosure is avoided the other way — an anonymous caller is challenged for a
+/// service that does not exist as well, so the challenge says nothing about which names exist.
 /// </para>
 /// </remarks>
 internal static class InvalidToken

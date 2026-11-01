@@ -212,7 +212,7 @@ except on the routes a client uses to recover: `generateToken`, `/rest/auth`, `/
 `/rest/whoami` and `/sharing/rest/info`. Every other surface serves the caller as anonymous, as it
 did.
 
-**What it does not change.** A private resource asked for with *no* token is still 404, not 499, so
+**What it does not change.** *(Changed on `/rest/services` by §4b, 2026-11-01.)* A private resource asked for with *no* token is still 404, not 499, so
 that the answer does not say the resource exists. 498 says something about the caller's token and
 nothing about any resource — the same answer for a public layer, a private one and a path that does
 not exist — which is why it could be added without reopening that choice. The cost that remains is
@@ -220,6 +220,32 @@ the one 499 would have fixed: a person opening a private layer's URL with no ses
 it is not there rather than asked to sign in.
 
 **State.** None new: the flag lives on the request's principal and is gone when the request is.
+
+## 4b. Amended 2026-11-01 — a caller with no token is challenged on `/rest/services` ([D-347](../architecture-debt.md))
+
+**The cost §4a left was larger than it said.** It named a person opening a private layer's URL with no session. The
+ArcGIS Maps SDK is that person on every organisation-shared layer: given a portal item, it asks for the item's service
+**without** a token first and attaches the token it already holds only when the answer challenges it. Measured with
+`tools/sdk-probe/organisation.html` (SDK 4.30, headless Chrome) against a local fixture: the SDK signed in to the
+portal, found the organisation-shared hosted layer's item, asked for its FeatureServer anonymously, was answered 404,
+and stopped — the layer looked deleted. With nothing changed but that one response rewritten in the browser to
+`{"error":{"code":499,"message":"Token Required"}}`, it asked again with its token, loaded the layer and counted its
+eight features.
+
+**The decision.** On `/rest/services` (every ArcGIS service face: FeatureServer, MapServer, VectorTileServer,
+ImageServer, GPServer, GeometryServer, generateKml), a read refused to a caller who sent **no** credential is answered
+`401` with `{"error":{"code":499,"message":"Token Required",…}}` and `Cache-Control: no-store` — `TokenRequired` in
+the host. **The disclosure §4a avoided is avoided the other way:** the challenge is the answer for every service such a
+caller may not see, *including one that does not exist*, so it still says nothing about which names exist; only a
+caller who has signed in is told 404. 401 rather than 499 on the status line, because the access log already uses 499
+for a client that hung up (D-132). Not changed: a caller the store could not identify keeps 404 (D-192); a rejected
+token keeps 498; OGC API, WMS, WFS, WMTS and the native API keep 404; a browser reading the directory keeps its page;
+the console's viewers (`map.js`, `view.js`, `webmap.js`) read 499 as the refusal they already say, and `map.js` tells
+the SDK not to open its own sign-in dialog over it.
+
+~~**INFERRED — for the owner's confirmation.**~~ **Confirmed 2026-11-01 by owner decision** (*"Onayla"*: anonymous refusals on `/rest/services` answer 499 for an absent name as for a hidden service; a signed-in caller and the OGC and native faces keep 404). The instruction was to fix the server side of D-347; that the fix is a
+challenge for every anonymous refusal on the services surface, rather than for organisation-shared services only
+(which would say which names exist), is this session's reading of the trade.
 
 ---
 

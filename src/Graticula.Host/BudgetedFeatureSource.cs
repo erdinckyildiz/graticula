@@ -260,9 +260,22 @@ internal sealed class BudgetedFeatureSource(
     /// has to handle — a query response over such a layer falls back to hashing the body.
     /// </remarks>
     public Task<string?> CacheValidatorAsync(CancellationToken cancellationToken) =>
-        inner is ISourceCacheValidator validator
-            ? validator.CacheValidatorAsync(cancellationToken)
-            : Task.FromResult<string?>(null);
+        inner switch
+        {
+            // <b>Through the budget when it is a round trip — D-266, 2026-11-01.</b> The PostGIS source's validator reads
+            // the table's statistics: a cheap query, and still a connection, so it is counted like every other read.
+            IDatabaseCacheValidator asksTheDatabase => GuardedAsync(
+                async token =>
+                {
+                    using ConnectionBudget.Lease lease =
+                        await budget.EnterAsync(source, token).ConfigureAwait(false);
+
+                    return await asksTheDatabase.CacheValidatorAsync(token).ConfigureAwait(false);
+                },
+                cancellationToken).AsTask(),
+            ISourceCacheValidator validator => validator.CacheValidatorAsync(cancellationToken),
+            _ => Task.FromResult<string?>(null),
+        };
 
     /// <inheritdoc/>
     /// <remarks>
