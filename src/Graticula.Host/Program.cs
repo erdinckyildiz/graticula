@@ -2157,12 +2157,40 @@ public static class Program
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
         SchemaMigrator migrator = new(new PostgresPlatformSchemaStore(dataSource), PlatformMigrations.All);
 
+        // ADR-012 §5 phase 4: run once, by one process, however many nodes' upgrades run it at once. The lock is held on a
+        // connection of its own for as long as this runs; a second `migrate --apply` waits for it, then finds the store
+        // current and changes nothing. Taken before the plan is read, so the plan it prints is the one it carries out.
+        await using NpgsqlConnection? held = apply ? await HoldMigrationLockAsync(dataSource).ConfigureAwait(false) : null;
+
         MigrationReport plan = await migrator.PlanAsync(CancellationToken.None).ConfigureAwait(false);
         Console.WriteLine(plan.Describe());
 
         if (plan.IsUpToDate)
         {
             return 0;
+        }
+
+        // ADR-012 §5 phase 4: a contract migration waits until no node older than its minimum reader runs. Asked of the
+        // site's machines as their rows say, before anything is backed up or changed.
+        if (plan.ClosesRollbackWindow)
+        {
+            IReadOnlyList<Machine> machines;
+
+            try
+            {
+                machines = await SiteNodes.ReadAsync(dataSource, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (PostgresException missing) when (missing.SqlState is "42P01" or "3F000")
+            {
+                machines = [];
+            }
+
+            if (SiteNodes.ContractRefusal(machines, plan.To.MinimumReader.Value) is { } refused)
+            {
+                Console.Error.WriteLine();
+                Console.Error.WriteLine((apply ? "No migration was run. " : "With --apply this would be refused. ") + refused);
+                return apply ? 1 : 0;
+            }
         }
 
         if (!apply)
@@ -2215,6 +2243,41 @@ public static class Program
                 + "rather than an error.");
 
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// Takes the store's migration lock on a connection of its own and returns that connection, whose closing releases it
+    /// — ADR-012 §5 phase 4: the migration step is run once, by one process, under an advisory lock.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by the store's schema as well as the step, as the site's sweeps are (<see cref="SiteSingletons"/>), because an
+    /// advisory lock is the database's and two stores may share one database. A store whose schema does not exist yet keys
+    /// on the empty name, and the migration then says what to create.
+    /// </remarks>
+    private static async Task<NpgsqlConnection> HoldMigrationLockAsync(NpgsqlDataSource dataSource)
+    {
+        NpgsqlConnection connection = await dataSource.OpenConnectionAsync().ConfigureAwait(false);
+
+        try
+        {
+            const string Key = "hashtext(coalesce(current_schema(), '')), hashtext('graticula.migrate')";
+
+            await using NpgsqlCommand tried = new($"select pg_try_advisory_lock({Key})", connection);
+
+            if (await tried.ExecuteScalarAsync().ConfigureAwait(false) is not true)
+            {
+                Console.WriteLine("Another migration is running on this platform store; waiting for it to finish (ADR-012).");
+                await using NpgsqlCommand wait = new($"select pg_advisory_lock({Key})", connection) { CommandTimeout = 0 };
+                await wait.ExecuteNonQueryAsync().ConfigureAwait(false);
+            }
+
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
         }
     }
 

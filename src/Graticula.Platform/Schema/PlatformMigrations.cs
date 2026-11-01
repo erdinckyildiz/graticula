@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(121);
+    public static SchemaVersion ComponentSchemaVersion => new(125);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -153,7 +153,33 @@ public static class PlatformMigrations
         ASiteKnowsItsNodesV119,
         TheServerLogIsTheSitesV120,
         ADocumentKeepsAPictureV121,
+        ANodeSaysWhichSchemaItReadsV125,
     ]);
+
+    /// <summary>
+    /// A node says which schema its build reads, so a contract migration can wait until no node older than its minimum
+    /// reader runs — ADR-012 §5 phase 4, the rolling upgrade.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>With the start it was written at</b>, because a build before this one updates its row at start without
+    /// touching either column: a node rolled back to such a build would otherwise keep showing the newer schema it no
+    /// longer reads. The number is believed only where <c>schema_version_at</c> equals the row's <c>started_at</c>, so a
+    /// row an older build rewrote reads as <i>does not say</i>, which no contract migration runs past.
+    /// </para>
+    /// <para>
+    /// <b>Numbered 125</b>: 122 to 124 were handed to branches built beside this one on 2026-11-01, and the set orders by
+    /// number rather than requiring every number.
+    /// </para>
+    /// <para><b>Expand.</b> Two nullable columns; a build before this one never reads them, and its upsert leaves them alone.</para>
+    /// </remarks>
+    private static Migration ANodeSaysWhichSchemaItReadsV125 => Migration.Expand(
+        new SchemaVersion(125),
+        "A node says which schema its build reads, so a contract waits for the nodes older than it (ADR-012 phase 4).",
+
+        "alter table site_node add column if not exists schema_version int",
+
+        "alter table site_node add column if not exists schema_version_at timestamptz");
 
     /// <summary>
     /// The server's own warnings and errors are kept in the store with the node that logged them, so the log screen shows

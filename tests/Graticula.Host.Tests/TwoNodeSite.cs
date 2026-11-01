@@ -42,6 +42,31 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
 
     private readonly List<Node> _nodes = [];
 
+    private readonly string? _build;
+
+    private readonly bool _migrate;
+
+    /// <summary>A site over a fresh schema, migrated by this suite's own build.</summary>
+    public TwoNodeSite()
+        : this(build: null)
+    {
+    }
+
+    /// <summary>A site over a fresh schema — ADR-012 phase 4's rolling upgrade starts one on an older build.</summary>
+    /// <param name="build">
+    /// The folder of the <c>Graticula.Host.dll</c> that migrates the store and starts a node unless one names another;
+    /// null for this suite's own.
+    /// </param>
+    /// <param name="migrate">False to leave the schema empty, for a test that migrates it itself.</param>
+    public TwoNodeSite(string? build, bool migrate = true)
+    {
+        _build = build;
+        _migrate = migrate;
+    }
+
+    /// <summary>This suite's own build: the one a test is checking.</summary>
+    public static string ThisBuild => AppContext.BaseDirectory;
+
     /// <summary>The schema the store is in.</summary>
     public string Schema { get; } = "zz_site_" + Guid.NewGuid().ToString("N")[..10];
 
@@ -69,8 +94,11 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
             await create.ExecuteNonQueryAsync();
         }
 
-        (int exit, string said) = await RunAsync(["migrate", "--apply", "--no-backup"], new Dictionary<string, string>());
-        Assert.True(exit == 0, "The store could not be migrated:\n" + said);
+        if (_migrate)
+        {
+            (int exit, string said) = await RunAsync(["migrate", "--apply", "--no-backup"], new Dictionary<string, string>());
+            Assert.True(exit == 0, "The store could not be migrated:\n" + said);
+        }
     }
 
     /// <inheritdoc/>
@@ -91,9 +119,12 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
     /// <param name="name">Its node name.</param>
     /// <param name="extra">Settings beyond the ones every node is given, or ones that replace them.</param>
     /// <returns>The node.</returns>
-    public async Task<Node> StartAsync(string name, IReadOnlyDictionary<string, string>? extra = null)
+    /// <param name="build">The folder of the build to run, when it is not the site's (phase 4).</param>
+    /// <param name="port">The port, when it must be one a node had before — a node restarted behind a proxy.</param>
+    public async Task<Node> StartAsync(
+        string name, IReadOnlyDictionary<string, string>? extra = null, string? build = null, int? port = null)
     {
-        Node node = Launch(name, extra);
+        Node node = Launch(name, extra, build, port);
         _nodes.Add(node);
 
         await node.WaitLiveAsync(TimeSpan.FromSeconds(90));
@@ -122,9 +153,9 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
         return (exited ? node.ExitCode : null, node.Log);
     }
 
-    private Node Launch(string name, IReadOnlyDictionary<string, string>? extra)
+    private Node Launch(string name, IReadOnlyDictionary<string, string>? extra, string? build = null, int? fixedPort = null)
     {
-        int port = FreePort();
+        int port = fixedPort ?? FreePort();
         string state = Path.Combine(Path.GetTempPath(), Schema, name);
         Directory.CreateDirectory(state);
 
@@ -147,18 +178,19 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
             settings[key] = value;
         }
 
-        return new Node(name, port, Start([], settings));
+        return new Node(name, port, Start([], settings, build ?? _build));
     }
 
-    private static Process Start(IReadOnlyList<string> arguments, IReadOnlyDictionary<string, string> settings)
+    private static Process Start(IReadOnlyList<string> arguments, IReadOnlyDictionary<string, string> settings, string? build = null)
     {
-        string host = Path.Combine(AppContext.BaseDirectory, "Graticula.Host.dll");
+        string folder = build ?? AppContext.BaseDirectory;
+        string host = Path.Combine(folder, "Graticula.Host.dll");
         ProcessStartInfo start = new(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } dotnet ? dotnet : "dotnet")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            WorkingDirectory = AppContext.BaseDirectory,
+            WorkingDirectory = folder,
         };
 
         start.ArgumentList.Add(host);
@@ -176,12 +208,19 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
         return Process.Start(start) ?? throw new InvalidOperationException("dotnet did not start.");
     }
 
-    private async Task<(int Exit, string Said)> RunAsync(IReadOnlyList<string> arguments, Dictionary<string, string> settings)
+    /// <summary>Runs a command of a build against the store — <c>migrate</c>, say — and returns its exit code and output.</summary>
+    /// <param name="arguments">The command.</param>
+    /// <param name="build">The build's folder; null for the site's.</param>
+    public Task<(int Exit, string Said)> RunAsync(IReadOnlyList<string> arguments, string? build = null) =>
+        RunAsync(arguments, new Dictionary<string, string>(), build);
+
+    private async Task<(int Exit, string Said)> RunAsync(
+        IReadOnlyList<string> arguments, Dictionary<string, string> settings, string? build = null)
     {
         settings["Graticula__PlatformStore"] = Store;
         settings["Graticula__SecretKey"] = Key;
 
-        using Process process = Start(arguments, settings);
+        using Process process = Start(arguments, settings, build ?? _build);
         Task<string> output = process.StandardOutput.ReadToEndAsync();
         Task<string> error = process.StandardError.ReadToEndAsync();
 
