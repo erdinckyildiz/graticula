@@ -157,6 +157,13 @@ internal static class Authorize
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // <b>A caller with no token is challenged instead, on the ArcGIS services surface (D-347).</b> The same
+        // challenge for a service that is absent and one that is not shared, so the sameness below holds for it too.
+        if (TokenRequired.Applies(context))
+        {
+            return TokenRequired.WriteAsync(context);
+        }
+
         // <b>"No service", since 2026-10-19 (UX sweep round 2)</b>: every caller passes a service's
         // name, and the sentence said *layer* — on the page a reader sees after mistyping one, and
         // in the JSON alike. The deliberate sameness for absent and unshared is unchanged.

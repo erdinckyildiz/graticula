@@ -84,7 +84,11 @@ public sealed class HostedDeleteTests : ArcGisClient
         Assert.False(
             await DatastoreHasAsync(root, token!, table),
             $"'{table}' is still in the datasource listing after the service was deleted. {body}");
-        Assert.Equal(HttpStatusCode.NotFound, await StatusAsync(root, $"/rest/services/hosted/{name}/FeatureServer?f=json"));
+        // Asked with the token: since 2026-11-01 an anonymous caller is challenged for a service that is not there (D-347),
+        // and the claim is that it is not there, which only a signed-in caller is told.
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            await StatusAsync(root, $"/rest/services/hosted/{name}/FeatureServer?f=json&token={Uri.EscapeDataString(token!)}"));
 
         // ---------------------------------------------------------------- restored, with its id and its table
         (int restored, string restoredBody) = await AdminAsync(HttpMethod.Post, $"/admin/recycle-bin/{entry}/restore");

@@ -1162,7 +1162,8 @@ async function load(layerId, name) {
         { headers: { Accept: "application/json" } }).then(r => r.json()),
     ]);
 
-    if (described.error && described.error.code === 404) {
+    // 499 is the same refusal said to a reader with no credential (D-347).
+    if (described.error && (described.error.code === 404 || described.error.code === 499)) {
       await refused(404, described.error);
       return;
     }
@@ -1337,7 +1338,8 @@ async function refused(status, error) {
   $("back").setAttribute("aria-label", "Back to the services directory");
   const directory = `<a href="/rest/services">Services directory</a>`;
 
-  if (status !== 404 && error.code !== 404) {
+  // 499 is the same refusal said to a reader with no credential (D-347): absent and unshared answer it alike.
+  if (status !== 404 && error.code !== 404 && error.code !== 499) {
     problem("The service could not be opened.", escape(error.message || String(status)), directory);
     return;
   }

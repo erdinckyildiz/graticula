@@ -284,13 +284,18 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
             // ---------------------------------------------------------------- tiles off
             await SetTileFaceAsync(root, bare, folder, serves: false);
 
-            (HttpStatusCode off, _) = await AnonymousAsync(document);
+            (HttpStatusCode off, string offBody) = await AnonymousAsync(document);
+
+            // <b>Absent, as an anonymous caller is told it</b>: since 2026-11-01 (D-347) that is the ArcGIS challenge,
+            // 401 with 499 in the body, the same for a service that does not exist — compared, not assumed.
+            (HttpStatusCode none, string noneBody) =
+                await AnonymousAsync($"{prefix}/zz_none_{Guid.NewGuid():N}/VectorTileServer?f=json");
 
             Assert.True(
-                off == HttpStatusCode.NotFound,
-                $"With servesTiles false the VectorTileServer document answered {(int)off}. "
-                + "The switch that is about tiles must turn tiles off, and ADR-031 "
-                + "condition 2 makes a face that is off indistinguishable from absent.");
+                off == HttpStatusCode.Unauthorized && (off, offBody) == (none, noneBody),
+                $"With servesTiles false the VectorTileServer document answered {(int)off}: {offBody}, and a name "
+                + $"that does not exist {(int)none}: {noneBody}. The switch that is about tiles must turn tiles "
+                + "off, and ADR-031 condition 2 makes a face that is off indistinguishable from absent.");
         }
         finally
         {

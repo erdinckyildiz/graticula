@@ -385,9 +385,13 @@ public sealed class StandardTileFacesConformanceTests : ArcGisClient
                 Assert.Contains("locator=\"LAYER\"", body, StringComparison.Ordinal);
             }
 
-            // And the same absent answer the ArcGIS face gives it.
-            (HttpStatusCode arcGis, _) = await AnonymousAsync($"/rest/services/{Private}/VectorTileServer");
-            Assert.Equal(HttpStatusCode.NotFound, arcGis);
+            // And the ArcGIS face answers it as it answers a name that does not exist: since 2026-11-01 (D-347) that
+            // is the challenge an ArcGIS client signs in on, 499 in the body and 401 on the line, for both alike.
+            (HttpStatusCode arcGis, string challenge) = await AnonymousAsync($"/rest/services/{Private}/VectorTileServer");
+            (HttpStatusCode absent, string absentBody) = await AnonymousAsync($"/rest/services/zz_none_{Guid.NewGuid():N}/VectorTileServer");
+            Assert.Equal(HttpStatusCode.Unauthorized, arcGis);
+            Assert.Contains("\"code\":499", challenge, StringComparison.Ordinal);
+            Assert.Equal((absent, absentBody), (arcGis, challenge));
 
             // While the account that may read it is served through every face.
             (HttpStatusCode mine, _, _, _, _) = await FetchAsync($"{Ogc}/collections/{Private}/tiles/WebMercatorQuad/0/0/0");

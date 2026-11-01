@@ -111,7 +111,8 @@
     // Its own page is the same 404, so the way back is the directory.
     document.getElementById("back").href = "/rest/services";
     document.getElementById("back").setAttribute("aria-label", "Back to the services directory");
-    if (!error || error.code !== 404) {
+    // 499 is the same refusal said to a reader with no credential (D-347): absent and unshared answer it alike.
+    if (!error || (error.code !== 404 && error.code !== 499)) {
       problem("The service could not be opened.",
         String((error && error.message) || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])),
         directory);
@@ -181,9 +182,14 @@
       "esri/layers/GeoJSONLayer", "esri/layers/VectorTileLayer",
       "esri/layers/WebTileLayer", "esri/layers/MapImageLayer",
       "esri/layers/ImageryLayer", "esri/Basemap",
-      "esri/views/SceneView", "esri/layers/ElevationLayer", "esri/geometry/Multipoint",
+      "esri/views/SceneView", "esri/layers/ElevationLayer", "esri/geometry/Multipoint", "esri/config",
     ], (Map, MapView, FeatureLayer, GeoJSONLayer, VectorTileLayer, WebTileLayer,
-        MapImageLayer, ImageryLayer, Basemap, SceneView, ElevationLayer, Multipoint) => {
+        MapImageLayer, ImageryLayer, Basemap, SceneView, ElevationLayer, Multipoint, esriConfig) => {
+
+      // <b>No SDK sign-in dialog — D-347, 2026-11-01.</b> The server now challenges a caller with no credential
+      // (499) where it said 404, so the ArcGIS SDK would open its own sign-in dialog over this page. This page
+      // reads with the browser's session cookie and says a refusal itself, with Sign in on it (refusedService).
+      esriConfig.request.useIdentity = false;
 
       /*
         The ground, and there are two of them.
@@ -609,7 +615,8 @@
               problem("The view could not move to the layer.", String(error.message || error));
             }
           },
-          error => (error?.details?.httpStatus === 404 || /is visible to you/.test(String(error?.message || ""))) && service
+          error => ([401, 404].includes(error?.details?.httpStatus)
+              || /is visible to you|Token Required/.test(String(error?.message || ""))) && service
             ? refusedService(service, { code: 404 })
             : problem(
             "The SDK could not load a layer.",
