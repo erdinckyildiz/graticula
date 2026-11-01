@@ -294,7 +294,8 @@ Before relying on any of it, run two and check at least: a sharing change on one
 node taking effect on the other, a session revoked on one being refused by the
 other, and the tile cache fan-out actually costing what §1.2 says it does.
 
-**The plan for doing it properly is [ADR-012](adr/ADR-012-clustering.md)** (2026-10-22, nothing of it built): an
+**The plan for doing it properly is [ADR-012](adr/ADR-012-clustering.md)** (2026-10-22; ~~nothing of it built~~ its
+phases 0–4 built and tested by 2026-11-01 — §1.4 and §1.5): an
 inventory of every piece of state a second node would get wrong today — uploaded imagery, exports and the recycle
 bin's files on the node's disk, Pro's publishing staging in memory, sweeps that would run once per node — and the
 phases that fix it, one PostgreSQL remaining the only coordinator. Its purpose is the owner's: a second node
@@ -359,6 +360,34 @@ the other; Pro's staging and an ArcGIS append upload complete with each step on 
 nodes unchanged, forwarded headers a client sends are replaced by Caddy's, and the same headers sent to a node from
 anywhere but Caddy are ignored. Not run: Caddy reloading a changed node list under load, and a real compose network
 (the probe joined Caddy to the nodes through SSH tunnels).
+
+### 1.5 Upgrading a site without stopping it (ADR-012 phase 4)
+
+A site of two or more nodes is upgraded one node at a time, and serves throughout. It works because migrations are
+expand and contract ([ADR-016](adr/ADR-016-packaging-deployment-upgrade.md) §4a–§5): an **expand** adds and leaves the
+store's *minimum reader* alone, so the old build keeps running against the new schema; a **contract** removes, raises
+the minimum reader, and is refused while any machine older than it is up.
+
+1. In **System › Machines**, put one machine under **Maintenance**. It answers 503 on `/healthz/ready`, so Caddy stops
+   sending it requests within one health interval; the requests it already has are answered.
+2. Stop its server, and run the **new** build's migration against the store:
+
+   ```text
+   graticula migrate            # what it will do; says if a contract would be refused, and why
+   graticula migrate --apply    # takes a backup first, then migrates, under a lock: run twice at once, it runs once
+   ```
+
+   The other machines, on the old build, keep serving: an expand does not refuse them. If the plan contains a
+   **contract** and an older machine is up, `--apply` changes nothing, exits 1, and names each machine it waits for.
+3. Start the new build on that machine. It comes back **still under maintenance** — the state is the site's, kept in
+   the store — and warms up. Press **Start** on its row; Caddy sends it requests once it answers ready.
+4. Repeat for the next machine. While builds differ, Machines says a rolling upgrade is in progress, which machines run
+   which build, and which is next; `/admin/site/machines` has the same as `rollingUpgrade`.
+
+A node never migrates on its own start (ADR-016 §4b), and a node older than the store's minimum reader refuses to start
+and says both numbers. **What has run:** two nodes on the previous release's build upgraded to the next behind a
+health-checking balancer under steady load, with no failed request, and the same with one build (`ARollingUpgradeTests`,
+2026-11-01). Not run: an upgrade behind a real Caddy, and a contract migration in a live site.
 
 ---
 
