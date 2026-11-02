@@ -129,7 +129,8 @@ internal static class LayerExportEndpoints
         }
 
         // The ceiling as served folds the owner's choice in, and an owner who has not chosen offers no Extract;
-        // Program.OffersExtract is the same question the capability string asks (ADR-106 §5.5).
+        // Program.OffersExtract and the content listing's exportsData ask the same question (ADR-106 §5.5); no ArcGIS
+        // capability string names Extract since 2026-11-03.
         bool chosen = layer.CapabilityCeiling?.Contains("Extract") == true;
 
         if (!chosen && !await AdminEndpoints.ManagesAsync(

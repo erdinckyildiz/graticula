@@ -36,4 +36,20 @@ public sealed class OneEnterpriseReleaseTests : ArcGisClient
             portal.GetProperty("enterpriseVersion").GetString(),
             StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The hosting server's admin root and its <c>info</c> said 11.2 while every other document said 12.1 — the ArcGIS
+    /// veteran's review of 2026-11-03. Written on 2026-10-17, two days before the owner made the pair one release.
+    /// </summary>
+    [Theory]
+    [InlineData("/arcgis/admin", "currentVersion")]
+    [InlineData("/arcgis/admin/info", "currentversion")]
+    public async Task The_hosting_servers_admin_names_the_release_its_REST_documents_name(string path, string key)
+    {
+        JsonElement server = await GetJsonAsync("/rest/info");
+        JsonElement admin = await GetJsonAsync(path);
+
+        Assert.Equal(server.GetProperty("currentVersion").GetRawText(), admin.GetProperty(key).GetRawText());
+        Assert.Equal(server.GetProperty("fullVersion").GetString(), admin.GetProperty("fullVersion").GetString());
+    }
 }

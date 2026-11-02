@@ -1112,6 +1112,11 @@ public static class Program
                 (await services.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
                     .FirstOrDefault(service => service.Id == id)?.TileScheme;
 
+            // Migration 127: an edit records when the layer's rows last changed, for its editingInfo.
+            IAdminCatalog changes = app.Services.GetRequiredService<IAdminCatalog>();
+            app.Services.GetRequiredService<LayerConnections>().DataChanged = (ids, cancellation) =>
+                changes.MarkLayersChangedAsync(ids, data: true, schema: false, cancellation);
+
             // ADR-207: where the attachments registered layers keep in the datastore are.
             app.Services.GetRequiredService<LayerConnections>().DatastoreConnection = DatastoreConnection(settings.PlatformStore);
         }
@@ -4413,7 +4418,7 @@ public static class Program
         {
             (object one, LayerDescription described) = await LayerDocumentAsync(
                 context, layer, contexts, relationships, catalog, settings, projector,
-                cancellation).ConfigureAwait(false);
+                cancellation, owning).ConfigureAwait(false);
 
             shapes.Add(described);
             layers.Add(one);
@@ -4426,7 +4431,7 @@ public static class Program
         {
             (object one, LayerDescription described) = await LayerDocumentAsync(
                 context, table, contexts, relationships, catalog, settings, projector,
-                cancellation).ConfigureAwait(false);
+                cancellation, owning).ConfigureAwait(false);
 
             shapes.Add(described);
             tables.Add(one);
@@ -4512,6 +4517,7 @@ public static class Program
     /// <param name="settings">The server's record ceiling.</param>
     /// <param name="projector">What moves the extent into the served reference.</param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="owning">Its service, for the item it names; null names none.</param>
     /// <returns>
     /// The layer document, and the shape it was built from.
     /// <para>
@@ -4529,7 +4535,8 @@ public static class Program
         CatalogFallback catalog,
         HostSettings settings,
         IProjector projector,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        PublishedService? owning = null)
     {
         (IFeatureSource source, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
@@ -4618,6 +4625,12 @@ public static class Program
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
+
+        // The service's item and when the layer last changed, as ArcGIS's layer document says them (2026-11-03).
+        if (owning is not null)
+        {
+            document = ServiceItem.ApplyToLayer(context, document, PortalEndpoints.ItemIdOf(owning, "FeatureServer"), layer);
+        }
 
         return (document, description);
     }
@@ -4714,7 +4727,7 @@ public static class Program
         }
 
         (object document, LayerDescription description) = await LayerDocumentAsync(
-            context, layer, contexts, relationships, catalog, settings, projector, cancellation)
+            context, layer, contexts, relationships, catalog, settings, projector, cancellation, owning)
             .ConfigureAwait(false);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -6060,7 +6073,7 @@ public static class Program
     {
         if (!layer.Definition.HasIntegerIdentity)
         {
-            return Join(WithExtract(context, layer, limits, limits.Restrict(["Query"])));
+            return Join(limits.Restrict(["Query"]));
         }
 
         /*
@@ -6089,40 +6102,34 @@ public static class Program
         */
         if (writable is false)
         {
-            return Join(WithExtract(context, layer, limits, limits.Restrict(["Query"])));
+            return Join(limits.Restrict(["Query"]));
         }
 
         // ADR-075: whose layer it is, asked exactly as the write path asks it. `Create` came off a layer with
         // Z or M in v1.0.113 and back on when `applyEdits` learnt to store them — ADR-077 §10.
         List<string> offered = PrivilegedCapabilities(context, layer);
 
-        return Join(WithExtract(context, layer, limits, limits.Restrict(offered)));
+        return Join(limits.Restrict(offered));
     }
 
-    /// <summary>The capabilities, with <c>Extract</c> added where the service offers export to this signed-in caller.</summary>
+    /// <summary>Whether the service offers export to this caller as a reader — ADR-106 §5.5.</summary>
     /// <remarks>
     /// <para>
-    /// <b>Owner decision 2026-09-30, ADR-106 §5.5.</b> Until then `Extract` was a word the ceiling stored and nothing
-    /// read: no caller was ever offered it, so the console's gate for readers never opened. It is now named for a
-    /// signed-in caller where the service offers it — the owner has chosen it and the administrator's ceiling allows it
-    /// (the catalogue folds both into <c>limits</c>, and an owner who has not chosen offers none) — and for nobody
-    /// anonymous: the rule <see cref="LayerExportEndpoints"/> applies to readers, asked of <see cref="OffersExtract"/>.
+    /// <b><c>Extract</c> is not in any capability string this server writes — the ArcGIS veteran's review of
+    /// 2026-11-03, ADR-106 §5.5 as amended that day.</b> From 2026-09-30 it was named to a signed-in caller where the owner had chosen it, as ArcGIS Online names it where
+    /// others may export. What an ArcGIS client does on reading it is call <c>createReplica</c>: the ArcGIS API for
+    /// Python's <c>replicas.create</c> returns nothing without <c>Extract</c> or <c>syncEnabled</c> and posts
+    /// <c>createReplica</c> with it (<c>arcgis/features/layer.py</c>, read 2026-11-03), and that operation is not served
+    /// here (ADR-082) — so the word invited a 404 and answered nothing an ArcGIS client could reach. Online's own
+    /// <i>Export Data</i> is a portal operation (<c>content/users/{u}/export</c>), not served here either (ADR-106).
     /// </para>
     /// <para>
-    /// <b>Not added for the owner or an administrator on a service that does not offer it</b>, though they may always
-    /// export. ArcGIS Online states Extract as the service's setting, not the caller's; the owner is the ArcGIS Pro
-    /// connection most often made, and naming a capability ArcGIS reads as <c>createReplica</c>'s on every layer they
-    /// open would promise an operation this server does not have (ADR-082). The console needs no word to show them
-    /// Export data: it asks whether they manage the item.
+    /// <b>The owner's choice is kept, enforced and still read</b>: Studio's <i>Export data</i> asks the content listing's
+    /// <c>exportsData</c>, which is this or managing the item, and the export route asks the same
+    /// ceiling at the start and at every download. <c>updateDefinition</c> and the administration document still carry
+    /// <c>Extract</c> as the owner's setting, which is what they describe.
     /// </para>
     /// </remarks>
-    private static IReadOnlyList<string> WithExtract(
-        HttpContext context, PublishedLayer layer, ServiceCapabilityLimits limits, IReadOnlyList<string> set) =>
-        OffersExtract(context, layer, limits.Ceiling) && !set.Contains("Extract")
-            ? [.. set, "Extract"]
-            : set;
-
-    /// <summary>Whether the service offers export to this caller as a reader — ADR-106 §5.5.</summary>
     /// <param name="context">The request.</param>
     /// <param name="layer">The layer.</param>
     /// <param name="ceiling">The service's ceiling as served: the administrator's, narrowed to what the owner chose.</param>

@@ -689,13 +689,19 @@ public sealed class FeatureExportConformanceTests : ArcGisClient
 
             Assert.True(offered == 200, $"Offering Extract answered {offered}: {offeredSaid}");
 
-            // Offered: every signed-in caller who may read it is told, and nothing else in the document moves.
+            // Offered: the reader is told by the content listing, which is what Studio's Export data reads. The ArcGIS
+            // capabilities still do not name Extract — ArcGIS clients read it as createReplica's, which this server does
+            // not have (ADR-106 §5.5 as amended 2026-11-03) — and nothing else in the document moves.
             (string readerOffered, bool editingOffered, bool staticOffered) = await CapabilitiesAsync(document, reader);
             (string adminOffered, _, _) = await CapabilitiesAsync(document, admin);
-            Assert.Contains("Extract", readerOffered, StringComparison.Ordinal);
-            Assert.Contains("Extract", adminOffered, StringComparison.Ordinal);
+            Assert.DoesNotContain("Extract", readerOffered, StringComparison.Ordinal);
+            Assert.DoesNotContain("Extract", adminOffered, StringComparison.Ordinal);
             Assert.Equal(readerEditing, editingOffered);
             Assert.Equal(readerStatic, staticOffered);
+            (int listed, string listing, _) = await SendAsync(HttpMethod.Get, "/content/items", reader);
+            Assert.True(listed == 200, $"The reader's content listing answered {listed}: {listing}");
+            Assert.Contains(JsonDocument.Parse(listing).RootElement.GetProperty("items").EnumerateArray(),
+                i => i.GetProperty("name").GetString() == $"{folder}/{bare}" && i.GetProperty("exportsData").GetBoolean());
 
             // The administrator has an export of their own, which is not the reader's to see.
             (int adminStatus, JsonElement adminStarted) = await StartAsync(admin, new { format = "csv", layers = new[] { layers[0].Id } });

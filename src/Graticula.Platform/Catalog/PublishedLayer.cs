@@ -382,6 +382,15 @@ public sealed class PublishedLayer
     /// </summary>
     public string? ServiceCopyrightText { get; init; }
 
+    /// <summary>
+    /// When its rows last changed through this server — an edit, an append, an overwrite, a truncate, a restore — or null
+    /// where nothing has recorded it (migration 127). Not an edit made in the database directly.
+    /// </summary>
+    public DateTimeOffset? DataChangedAt { get; init; }
+
+    /// <summary>When its fields last changed through this server, or null where nothing has recorded it (migration 127).</summary>
+    public DateTimeOffset? SchemaChangedAt { get; init; }
+
     /// <summary>The catalogue identity.</summary>
     public Guid Id { get; }
 

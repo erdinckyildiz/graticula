@@ -1349,6 +1349,28 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task MarkLayersChangedAsync(
+        IReadOnlyCollection<Guid> layerIds, bool data, bool schema, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(layerIds);
+
+        if (layerIds.Count == 0 || !(data || schema))
+        {
+            return;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set data_changed_at = case when @data then now() else data_changed_at end, "
+            + "schema_changed_at = case when @schema then now() else schema_changed_at end where id = any(@ids)");
+
+        command.Parameters.AddWithValue("ids", layerIds.ToArray());
+        command.Parameters.AddWithValue("data", data);
+        command.Parameters.AddWithValue("schema", schema);
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task<ServiceAtAddress?> FindServiceAtAsync(
         string? folder, string name, CancellationToken cancellationToken)
     {

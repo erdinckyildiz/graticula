@@ -1222,6 +1222,17 @@ public interface IAdminCatalog
     /// </remarks>
     Task<bool> TouchServiceAsync(Guid serviceId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Records that these layers' data, schema or both changed now, through this server — what a layer document states as
+    /// ArcGIS's <c>editingInfo</c> (the ArcGIS veteran's review of 2026-11-03).
+    /// </summary>
+    /// <param name="layerIds">The layers, a view's included.</param>
+    /// <param name="data">Whether their rows changed.</param>
+    /// <param name="schema">Whether their fields changed.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The work.</returns>
+    Task MarkLayersChangedAsync(IReadOnlyCollection<Guid> layerIds, bool data, bool schema, CancellationToken cancellationToken);
+
     /// <summary>What already occupies a folder and a name, or null when nothing does.</summary>
     /// <param name="folder">The folder, or null for the root.</param>
     /// <param name="name">The name being asked about.</param>

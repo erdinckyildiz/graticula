@@ -83,7 +83,7 @@ internal static partial class PortalEndpoints
     /// data: <i>"The dataset version is later than is supported by your server. Minimum version: 11.2"</i> (dev,
     /// 2026-10-17, ADR-191 condition 2). The same release as the server's own <c>/rest/info</c> <c>fullVersion</c>.
     /// </remarks>
-    public const string EnterpriseVersion = "12.1.0";
+    public static string EnterpriseVersion => Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion;
 
     /// <summary>The build an Enterprise 12.1 portal names beside <see cref="EnterpriseVersion"/> (measured 2026-10-19).</summary>
     public const string EnterpriseBuild = "786";
@@ -770,8 +770,10 @@ internal static partial class PortalEndpoints
             homePageFeaturedContentCount = 0,
             rotatorPanels = Array.Empty<object>(),
             livingAtlasGroupQuery = string.Empty,
-            basemapGalleryGroupQuery = gallery.Query,
-            vectorBasemapGalleryGroupQuery = gallery.Query,
+            // Named to a signed-in caller only: the group is not found by a signed-out one (Q-174), so naming it would
+            // send them to a query that answers nothing (the ArcGIS veteran's review of 2026-11-03).
+            basemapGalleryGroupQuery = signedIn ? gallery.Query : string.Empty,
+            vectorBasemapGalleryGroupQuery = signedIn ? gallery.Query : string.Empty,
             useVectorBasemaps = gallery.Group is not null,
             stylesGroupQuery = string.Empty,
             symbolSetsGroupQuery = string.Empty,
@@ -1919,6 +1921,7 @@ internal static partial class PortalEndpoints
         CatalogFallback catalog,
         IWebMapStore maps,
         ICoverageCatalog coverages,
+        IGroupDirectory directory,
         string groupId,
         CancellationToken cancellation)
     {
@@ -1933,6 +1936,17 @@ internal static partial class PortalEndpoints
         }
 
         if (!Guid.TryParse(groupId, out Guid group))
+        {
+            return Unknown("Group");
+        }
+
+        // <b>A signed-out caller searches only a group it may find</b> — the ArcGIS veteran's review of 2026-11-03. This
+        // answered the basemap gallery's items to a signed-out caller while community/groups said the group does not
+        // exist, which Q-174 decided it does not for them (ADR-184 §5.4). A signed-in caller is unchanged: every item is
+        // still under its own sharing, and their favourites answer as a group no directory lists.
+        if (context.Features.Get<RequestPrincipal>()?.Principal.IsAnonymous != false
+            && !(await MineAsync(context, directory, cancellation).ConfigureAwait(false))
+                .Any(found => PortalQuery.Matches(found, $"id:{group:N}")))
         {
             return Unknown("Group");
         }

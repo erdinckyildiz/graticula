@@ -114,8 +114,11 @@ internal static partial class PortalEndpoints
             return Results.Ok(new
             {
                 resources = AdminResources,
-                currentVersion = 11.2,
-                fullVersion = "11.2.0",
+
+                // The release the REST documents and the portal's enterpriseVersion say (ADR-181 §5). It said 11.2 from
+                // 2026-10-17, written before the owner made server and portal one 12.1 pair two days later.
+                currentVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
+                fullVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion,
             });
         }
 
@@ -123,8 +126,8 @@ internal static partial class PortalEndpoints
         {
             return Results.Ok(new
             {
-                currentversion = 11.2,
-                fullVersion = "11.2.0",
+                currentversion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
+                fullVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion,
                 timezone = new { windowsZoneID = "UTC", olsonZoneID = "Etc/UTC" },
                 loggedInUser = context.Features.Get<RequestPrincipal>()?.Principal.Name,
                 owningSystemUrl = origin,

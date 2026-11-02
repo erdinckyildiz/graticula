@@ -35,7 +35,8 @@ internal sealed class TilePurgingWriter(
     IFeatureWriter inner,
     ITileCache tiles,
     Guid[] layerIds,
-    Func<CancellationToken, Task<Graticula.Tiles.VectorTileScheme?>>? schemeOf = null) : IFeatureWriter
+    Func<CancellationToken, Task<Graticula.Tiles.VectorTileScheme?>>? schemeOf = null,
+    Func<Guid[], CancellationToken, Task>? changed = null) : IFeatureWriter
 {
     /// <inheritdoc/>
     public async Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken)
@@ -46,7 +47,7 @@ internal sealed class TilePurgingWriter(
 
         EditOutcome outcome = await inner.ApplyAsync(batch, cancellationToken).ConfigureAwait(false);
 
-        await PurgeAfterAsync(tiles, store, scheme, layerIds, before, outcome, cancellationToken).ConfigureAwait(false);
+        await PurgeAfterAsync(tiles, store, scheme, layerIds, before, outcome, cancellationToken, changed).ConfigureAwait(false);
         return outcome;
     }
 
@@ -73,12 +74,19 @@ internal sealed class TilePurgingWriter(
         Guid[] layerIds,
         Graticula.Geometries.Envelope? before,
         EditOutcome outcome,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Guid[], CancellationToken, Task>? changed = null)
     {
         if (outcome.RolledBack
             || !outcome.Adds.Concat(outcome.Updates).Concat(outcome.Deletes).Any(result => result.Succeeded))
         {
             return;
+        }
+
+        // When the rows last changed, for the layer's editingInfo (migration 127) — the layer and its views.
+        if (changed is not null)
+        {
+            await changed(layerIds, cancellationToken).ConfigureAwait(false);
         }
 
         Graticula.Geometries.Envelope? after = before is null || store is null || scheme is null
