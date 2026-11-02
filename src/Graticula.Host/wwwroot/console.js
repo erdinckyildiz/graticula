@@ -38112,7 +38112,9 @@ function drawDocumentTitle() {
       const id = view ? view.id : "";
       section = id === "view-general" ? "Organization"
         : id === "view-settings" ? "System"
-        : id === "view-services" && surfaceOfPath() === "server" ? "Server" : "";
+        : id === "view-services" && surfaceOfPath() === "server" ? "Server"
+        // Logs is drawn for Server and for System alike, and both titles read "Logs · Graticula" (second verification).
+        : id === "view-logs" ? (surfaceOfPath() === "system" ? "System" : "Server") : "";
       break;
     }
   }

@@ -97,7 +97,8 @@
   #scaleNote { position: absolute; z-index: 45; left: 12px; bottom: 56px; margin: 0; width: fit-content; max-width: calc(100% - 330px);
                padding: 6px 12px; border-radius: var(--round); border: 1px solid var(--rule-strong); background: var(--veil);
                color: var(--ink); font-size: 13px; }
-  @media (max-width: 760px) { #scaleNote { max-width: calc(100% - 24px); bottom: 96px; } }
+  /* 106, not 96: at 390 the strip grows to 93 px with its wrapped coordinates, and the note sat 10 px over it. */
+  @media (max-width: 760px) { #scaleNote { max-width: calc(100% - 24px); bottom: 106px; } }
   #scaleNote[hidden] { display: none; }
 
   /* <b>The facts wrap rather than clip.</b> Clipped, they cut "service document" to "service dc" at 1,280 (UX sweep
