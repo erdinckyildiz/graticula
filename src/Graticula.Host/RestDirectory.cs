@@ -61,7 +61,7 @@ internal static class RestDirectory
 
     /// <summary>Segments that name a service type rather than a resource.</summary>
     private static readonly HashSet<string> ServiceTypes = new(StringComparer.Ordinal)
-        { "FeatureServer", "VectorTileServer", "GeometryServer", "MapServer" };
+        { "FeatureServer", "VectorTileServer", "GeometryServer", "MapServer", "ImageServer", "GeocodeServer" };
 
 
     /// <summary>Whether this request wants HTML rather than JSON.</summary>

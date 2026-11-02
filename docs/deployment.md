@@ -741,3 +741,28 @@ Each organisation holds a share of the managed datastore — two thirds of its p
 with more — so one organisation's heavy work queues behind its own. Each registers GeoParquet folders and DuckDB
 files from its own folder, `<GeoParquetRoot>/organizations/<key>/`, which the system administrator makes. Every
 organisation is a single-tenant portal to its ArcGIS clients (ADR-204 §5e item 12).
+
+## 5. A geocoder, if you want one
+
+**Optional, and off unless you turn it on** ([ADR-258](adr/ADR-258-an-optional-photon-adapter-behind-geocodeserver.md)).
+With it, the server offers `/rest/services/Utilities/Geocode/GeocodeServer` — the locator ArcGIS Pro, the Maps SDK's
+Search widget and Field Maps can be given by URL — answering `findAddressCandidates`, `suggest` and `reverseGeocode`
+from OpenStreetMap data. Without it there is no such service and nothing else changes.
+
+The engine is [Photon](https://github.com/komoot/photon), which you run beside the server: a Java 21 service with an
+index built from an OpenStreetMap extract. GraphHopper publishes Photon dumps by country; importing Türkiye's took nine
+minutes and 464 MB of disk, and serving it 356 MB of memory, on the showcase's VPS
+([the measurement](research/photon-turkiye-2026-11-02.md)). The planet needs a machine of its own — about 95 GB of disk
+and 64 GB of memory by Photon's README. Keep it on a private address; the server is its only client.
+
+| Setting | Default | |
+|---|---|---|
+| `Graticula__Geocoding__PhotonUrl` | unset: no service | Photon's address, such as `http://127.0.0.1:2322/` |
+| `Graticula__Geocoding__TimeoutSeconds` | 5 | How long one search may wait for Photon |
+| `Graticula__Geocoding__Sharing` | `public` | `public`, `allorganizations`, `organization` or `private` |
+| `Graticula__Geocoding__Languages` | none | The languages the index was imported with, such as `tr,en`; a request's `langCode` is passed on only when it is one of them |
+
+A value the server cannot use stops it at startup with the key named. When Photon is down or slow, the three
+operations answer 503 with the reason and the service document keeps answering. The service names its data's source
+in `copyrightText` — *© OpenStreetMap contributors*, which OpenStreetMap's licence asks for wherever its data is shown.
+House numbers are only as complete as OpenStreetMap's; places, streets and districts are good.
