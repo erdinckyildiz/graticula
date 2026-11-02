@@ -94,3 +94,7 @@ values stay. Refused while own-only is on.
 2. **Tracking stops and keeps its columns, and is refused while own-only relies on it** — **DISCHARGED 2026-10-01**,
    `EditorTrackingConformanceTests`.
 3. **Studio offers both** — **DISCHARGED 2026-10-01**, `OwnershipAccessScreenTests`.
+
+> **Note, 2026-11-03.** ArcGIS's `updateDefinition` `editorTrackingInfo.enableOwnershipAccessControl` now sets this
+> rule for every layer of a service, and `allowOthersToUpdate`/`allowOthersToDelete` must agree with it (both false
+> where it is on) — [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md) §12.

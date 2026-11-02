@@ -95,4 +95,123 @@ public sealed class UpdateDefinitionTests : ArcGisClient
         Assert.Equal(HttpStatusCode.BadRequest, sync);
         Assert.Contains("Sync", syncBody, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The typical script — capabilities with <c>hasStaticData</c> beside them — was refused whole until the ArcGIS
+    /// veteran's review of 2026-11-03. A derived key that agrees is accepted; one that contradicts, a documented key this
+    /// server does not keep, and an unknown key are each refused by name.
+    /// </summary>
+    [Fact]
+    public async Task The_typical_script_is_accepted_and_each_key_this_server_cannot_hold_is_refused_by_name()
+    {
+        string service = Editable();
+        string admin = $"/rest/admin/services/{service}/FeatureServer";
+        string capabilities = (await GetJsonAsync(admin)).GetProperty("capabilities").GetString()!;
+
+        Assert.Contains("Update", capabilities, StringComparison.Ordinal);
+
+        (HttpStatusCode typical, string typicalBody) = await PostAsync($"{admin}/updateDefinition", new()
+        {
+            ["updateDefinition"] = JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["capabilities"] = capabilities,
+                ["hasStaticData"] = false,
+                ["allowGeometryUpdates"] = "true",
+                ["syncEnabled"] = false,
+            }),
+            ["f"] = "json",
+        });
+
+        Assert.True(typical == HttpStatusCode.OK, typicalBody);
+        Assert.Equal(capabilities, (await GetJsonAsync(admin)).GetProperty("capabilities").GetString());
+
+        foreach ((string key, object value) in ((string, object)[])
+        [
+            ("allowGeometryUpdates", false),
+            ("syncEnabled", true),
+            ("xssPreventionInfo", new { xssPreventionEnabled = true }),
+            ("zz_not_a_key", 1),
+        ])
+        {
+            (HttpStatusCode status, string body) = await PostAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = JsonSerializer.Serialize(new Dictionary<string, object> { [key] = value }),
+                ["f"] = "json",
+            });
+
+            Assert.True(status == HttpStatusCode.BadRequest, $"{key}: {(int)status} {body}");
+            Assert.Contains(key, body, StringComparison.Ordinal);
+        }
+    }
+
+    private static bool Absent(JsonElement document, string key) =>
+        !document.TryGetProperty(key, out JsonElement value) || value.ValueKind == JsonValueKind.Null;
+
+    /// <summary>
+    /// <c>editorTrackingInfo</c> turns editor tracking and the own-features rule on and off, through the work Studio's
+    /// own buttons do — on a layer defined here, because tracking adds four columns to its table.
+    /// </summary>
+    [Fact]
+    public async Task Editor_tracking_is_turned_on_and_off_through_update_definition()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string name = "zz_updef_" + Guid.NewGuid().ToString("N")[..8];
+
+        (HttpStatusCode defined, string design) = await RequestAsync(
+            HttpMethod.Post, $"{root}/admin/hosted/define", token,
+            JsonSerializer.Serialize(new
+            {
+                name,
+                geometryType = "Point",
+                fields = new[] { new { name = "label", type = "text", nullable = true } },
+                sharing = "private",
+            }));
+
+        Assert.True(defined == HttpStatusCode.Created, $"Defining a layer answered {(int)defined}: {design}");
+
+        string feature = JsonDocument.Parse(design).RootElement.GetProperty("services").GetProperty("feature").GetString()!;
+        string[] parts = feature.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string admin = $"/rest/admin/services/{parts[2]}/{parts[3]}/FeatureServer";
+
+        try
+        {
+            // Others may not update while editors are held to their own: a split this server does not keep.
+            (HttpStatusCode split, string splitBody) = await PostAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"editorTrackingInfo":{"enableEditorTracking":true,"enableOwnershipAccessControl":true,"allowOthersToUpdate":true,"allowOthersToDelete":false}}""",
+                ["f"] = "json",
+            });
+
+            Assert.True(split == HttpStatusCode.BadRequest, splitBody);
+            Assert.Contains("allowOthersToUpdate", splitBody, StringComparison.Ordinal);
+            Assert.True(Absent(await GetJsonAsync(feature), "editFieldsInfo"), "The refused definition turned tracking on.");
+
+            (HttpStatusCode on, string onBody) = await PostAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"editorTrackingInfo":{"enableEditorTracking":true,"enableOwnershipAccessControl":true,"allowOthersToUpdate":false,"allowOthersToDelete":false}}""",
+                ["f"] = "json",
+            });
+
+            Assert.True(on == HttpStatusCode.OK, onBody);
+            JsonElement tracked = await GetJsonAsync(feature);
+            Assert.Equal("created_user", tracked.GetProperty("editFieldsInfo").GetProperty("creatorField").GetString());
+            Assert.False(tracked.GetProperty("ownershipBasedAccessControlForFeatures").GetProperty("allowOthersToUpdate").GetBoolean());
+
+            (HttpStatusCode off, string offBody) = await PostAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"editorTrackingInfo":{"enableEditorTracking":false,"enableOwnershipAccessControl":false}}""",
+                ["f"] = "json",
+            });
+
+            Assert.True(off == HttpStatusCode.OK, offBody);
+            JsonElement untracked = await GetJsonAsync(feature);
+            Assert.True(Absent(untracked, "editFieldsInfo"), "Tracking was not turned off.");
+            Assert.True(Absent(untracked, "ownershipBasedAccessControlForFeatures"), "The own-features rule was not turned off.");
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token, json: null);
+        }
+    }
 }

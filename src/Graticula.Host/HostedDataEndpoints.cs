@@ -3345,34 +3345,78 @@ internal static class HostedDataEndpoints
             return;
         }
 
+        TrackingOutcome done = await TrackEditsOfAsync(found, importer, contexts, tiles, catalog, connections, cancellation)
+            .ConfigureAwait(false);
+
+        if (done.Code != 0)
+        {
+            await Fail(context, done.Code, done.Message!).ConfigureAwait(false);
+            return;
+        }
+
+        List<string> added = done.Added;
+        (string Name, FieldType Type, Graticula.Catalog.EditRole Role)[] portal = PortalTrackingColumns;
+
+        await RecordAsync(
+            context, audit, "layer.editorTracking", found.Definition.Name,
+            new { added }, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            layer = found.Definition.Name,
+            added,
+            tracks = portal.Select(p => new { column = p.Name, role = p.Role.ToString().ToLowerInvariant() }),
+            note = "Features added or changed from now on record who did it and when. Features that were already "
+                 + "there have no creator, so they belong to no one: where editors are limited to their own features, "
+                 + "changing those needs the layer's owner or an administrator. ArcGIS Pro and Field Maps keep a "
+                 + "layer's fields from when they opened it: remove and add the layer again there to see the new ones.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Portal's four editor-tracking columns and the role each is given — ADR-064.</summary>
+    internal static readonly (string Name, FieldType Type, Graticula.Catalog.EditRole Role)[] PortalTrackingColumns =
+    [
+        ("created_user", FieldType.Text, Graticula.Catalog.EditRole.Creator),
+        ("created_date", FieldType.Date, Graticula.Catalog.EditRole.Created),
+        ("last_edited_user", FieldType.Text, Graticula.Catalog.EditRole.Editor),
+        ("last_edited_date", FieldType.Date, Graticula.Catalog.EditRole.Edited),
+    ];
+
+    /// <summary>What turning tracking on did: <c>Code</c> 0 and the columns added, or a refusal's status and sentence.</summary>
+    internal sealed record TrackingOutcome(int Code, string? Message, List<string> Added);
+
+    /// <summary>
+    /// Turns editor tracking on for one layer — the work of <c>POST …/editor-tracking</c>, shared with ArcGIS's
+    /// <c>updateDefinition</c> <c>editorTrackingInfo</c> (the ArcGIS veteran's review of 2026-11-03). Writes no answer.
+    /// </summary>
+    internal static async Task<TrackingOutcome> TrackEditsOfAsync(
+        PublishedLayer found,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        ITileCache tiles,
+        IAdminCatalog catalog,
+        LayerConnections connections,
+        CancellationToken cancellation)
+    {
         (_, LayerDescription table) = await contexts.TableAsync(found, cancellation)
             .ConfigureAwait(false);
 
-        (string Name, FieldType Type, Graticula.Catalog.EditRole Role)[] portal =
-        [
-            ("created_user", FieldType.Text, Graticula.Catalog.EditRole.Creator),
-            ("created_date", FieldType.Date, Graticula.Catalog.EditRole.Created),
-            ("last_edited_user", FieldType.Text, Graticula.Catalog.EditRole.Editor),
-            ("last_edited_date", FieldType.Date, Graticula.Catalog.EditRole.Edited),
-        ];
+        List<string> added = [];
+        (string Name, FieldType Type, Graticula.Catalog.EditRole Role)[] portal = PortalTrackingColumns;
 
         foreach ((string name, FieldType type, _) in portal)
         {
             if (table.Find(name) is { } existing && existing.Type != type)
             {
-                await Fail(
-                    context, 409,
+                return new(
+                    409,
                     $"'{found.Definition.Name}' already has a column called '{name}', and it is not "
                     + $"a {(type == FieldType.Text ? "text" : "date")} column, so it cannot record "
                     + "what that name means. Rename it, or give the roles to other columns on the "
-                    + "Fields page.")
-                    .ConfigureAwait(false);
-
-                return;
+                    + "Fields page.",
+                    added);
             }
         }
-
-        List<string> added = [];
 
         // ADR-212: a registered table is given its columns through its own engine, in its own database.
         if (!found.Definition.IsHosted)
@@ -3384,18 +3428,16 @@ internal static class HostedDataEndpoints
             }
             catch (SourceQuiescedException held)
             {
-                await Fail(context, 503, held.Message).ConfigureAwait(false);
-                return;
+                return new(503, held.Message, added);
             }
             catch (System.Data.Common.DbException refused)
             {
-                await Fail(
-                    context, 409,
+                return new(
+                    409,
                     $"The database refused to add the editor-tracking columns to '{found.Definition.SchemaName}."
                     + $"{found.Definition.TableName}': {refused.Message.Split('\n')[0].Trim()} Adding them needs the right to "
-                    + "alter that table; a DBA can add them instead and give them their roles on the Fields page (ADR-212).")
-                    .ConfigureAwait(false);
-                return;
+                    + "alter that table; a DBA can add them instead and give them their roles on the Fields page (ADR-212).",
+                    added);
             }
         }
 
@@ -3421,14 +3463,12 @@ internal static class HostedDataEndpoints
                 // ADR-058 §5g, as for adding one field: refused quickly rather than queueing
                 // every request behind a waiting ALTER. What was added so far stays, and a
                 // second press adds the rest.
-                await Fail(
-                    context, 409,
+                return new(
+                    409,
                     $"'{found.Definition.Name}' is being read right now, so its table could not be "
                     + $"altered{(added.Count == 0 ? string.Empty : $" after adding {string.Join(", ", added)}")}. "
-                    + "Try again: what is already there is kept.")
-                    .ConfigureAwait(false);
-
-                return;
+                    + "Try again: what is already there is kept.",
+                    added);
             }
         }
 
@@ -3457,21 +3497,9 @@ internal static class HostedDataEndpoints
         await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
             .ConfigureAwait(false);
 
-        await RecordAsync(
-            context, audit, "layer.editorTracking", found.Definition.Name,
-            new { added }, cancellation).ConfigureAwait(false);
-
-        await Results.Json(new
-        {
-            layer = found.Definition.Name,
-            added,
-            tracks = portal.Select(p => new { column = p.Name, role = p.Role.ToString().ToLowerInvariant() }),
-            note = "Features added or changed from now on record who did it and when. Features that were already "
-                 + "there have no creator, so they belong to no one: where editors are limited to their own features, "
-                 + "changing those needs the layer's owner or an administrator. ArcGIS Pro and Field Maps keep a "
-                 + "layer's fields from when they opened it: remove and add the layer again there to see the new ones.",
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        return new(0, null, added);
     }
+
     /// <summary>
     /// Stops recording who edited what — ADR-115, Portal's *Disable editor tracking*. The four columns and what they
     /// hold are kept, as Portal keeps them; only their roles go, so nothing is written to them from now on.
@@ -3492,20 +3520,11 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (found.EditOwnOnly)
+        if (await StopTrackingOfAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false) is { } refused)
         {
-            await Fail(context, 409,
-                $"'{found.Definition.Name}' lets editors change only the features they added, which needs to know who "
-                + "added each one. Turn that off first.").ConfigureAwait(false);
+            await Fail(context, 409, refused).ConfigureAwait(false);
             return;
         }
-
-        List<Graticula.Catalog.FieldOverride> overrides = [.. found.FieldOverrides
-            .Select(o => o with { Tracks = Graticula.Catalog.EditRole.None })
-            .Where(o => o.SaysSomething)];
-
-        await catalog.SetFieldOverridesAsync(found.Id, overrides, cancellation).ConfigureAwait(false);
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
 
         await RecordAsync(context, audit, "layer.editorTracking.stop", found.Definition.Name, new { }, cancellation)
             .ConfigureAwait(false);
@@ -3516,6 +3535,30 @@ internal static class HostedDataEndpoints
             tracking = false,
             note = "Edits are no longer recorded. The columns and what they already hold are kept.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stops tracking one layer's edits — the work of <c>DELETE …/editor-tracking</c>, shared with ArcGIS's
+    /// <c>updateDefinition</c>. Null when done; otherwise why not, with nothing changed. <paramref name="ownershipCleared"/>
+    /// says the caller has just turned the layer's own-features rule off, which <paramref name="found"/> was read before.
+    /// </summary>
+    internal static async Task<string?> StopTrackingOfAsync(
+        PublishedLayer found, ServiceContexts contexts, ITileCache tiles, IAdminCatalog catalog, CancellationToken cancellation,
+        bool ownershipCleared = false)
+    {
+        if (found.EditOwnOnly && !ownershipCleared)
+        {
+            return $"'{found.Definition.Name}' lets editors change only the features they added, which needs to know who "
+                + "added each one. Turn that off first.";
+        }
+
+        List<Graticula.Catalog.FieldOverride> overrides = [.. found.FieldOverrides
+            .Select(o => o with { Tracks = Graticula.Catalog.EditRole.None })
+            .Where(o => o.SaysSomething)];
+
+        await catalog.SetFieldOverridesAsync(found.Id, overrides, cancellation).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+        return null;
     }
 
     /// <summary>What <c>PUT …/ownership-access</c> reads.</summary>

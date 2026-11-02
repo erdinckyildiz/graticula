@@ -4,10 +4,13 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
+using Graticula.Providers.PostGis;
+using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
@@ -26,6 +29,7 @@ namespace Graticula.Host;
 /// <c>maxRecordCount</c> is the page size, which only an administrator sets here, as on the Limits page (ADR-084).
 /// </para>
 /// <para>
+/// <b>Since 2026-11-03 also the derived keys and editor tracking</b> — see <see cref="UpdateDefinitionAsync"/>.
 /// <b>Every other key is refused by name, and nothing is written</b>: a caller told <c>success</c> about a definition
 /// that was half applied builds on the half that is not there (ADR-008 §2). The document is checked whole before any
 /// write.
@@ -36,6 +40,8 @@ internal static partial class ArcGisAdminEndpoints
     private static readonly HashSet<string> DefinitionKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "capabilities", "serviceDescription", "description", "copyrightText", "maxRecordCount",
+        "hasStaticData", "allowGeometryUpdates", "syncEnabled", "name", "editorTrackingInfo",
+        "ownershipBasedAccessControlForFeatures",
     };
 
     /// <summary>Maps the service document and updateDefinition, at the root and under a folder.</summary>
@@ -141,10 +147,31 @@ internal static partial class ArcGisAdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    /// <summary>ArcGIS's <c>updateDefinition</c>, for the keys this server keeps.</summary>
+    /// <summary>
+    /// ArcGIS's <c>updateDefinition</c>, for the keys this server keeps, the keys it derives, and every other documented
+    /// key refused by name — ADR-257 §12.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Four keys until 2026-11-03</b>, and any fifth refused the whole request: the typical script
+    /// <c>{"capabilities":"Create,Update,Delete,Query,Editing","hasStaticData":false}</c> was refused for
+    /// <c>hasStaticData</c> (the ArcGIS veteran's review). ArcGIS's <i>Update Definition (Feature Service)</i> documents
+    /// that and <c>allowGeometryUpdates</c>, <c>editorTrackingInfo</c>, <c>syncEnabled</c>, <c>name</c>, <c>units</c>,
+    /// <c>xssPreventionInfo</c>, <c>initialExtent</c>, <c>preferredTimeReference</c>,
+    /// <c>ownershipBasedAccessControlForFeatures</c> and <c>layerOverridesEnabled</c> beside the four.
+    /// </para>
+    /// <para>
+    /// <b>A derived key is accepted when it says what the rest of the definition implies, and refused with the reason
+    /// when it contradicts it</b> — <c>hasStaticData</c> (no edit offered), <c>allowGeometryUpdates</c> (Update offered;
+    /// this server has no attribute-only update), <c>syncEnabled</c> false, <c>name</c> as it is. Agreeing with the server
+    /// changes nothing and is not an error; contradicting it would be a setting this server cannot hold, and saying
+    /// <c>success</c> to it is the silent half-application ADR-008 §2 forbids.
+    /// </para>
+    /// </remarks>
     private static async Task UpdateDefinitionAsync(
         HttpContext context, string serviceName, PostgresLayerCatalog layers, IAdminCatalog catalog, IAuditLog audit,
-        ServiceContexts contexts, CancellationToken cancellation)
+        ServiceContexts contexts, PostGisImporter importer, LayerConnections connections, ITileCache tiles,
+        CancellationToken cancellation)
     {
         if (await ManagedServiceAsync(context, layers, serviceName, "update the definition of", cancellation)
             .ConfigureAwait(false) is not { } found)
@@ -172,16 +199,25 @@ internal static partial class ArcGisAdminEndpoints
             return;
         }
 
+        // Documented keys this server does not keep, each with its reason; then anything else, by name.
+        string[] notKept = [.. definition.EnumerateObject().Select(p => p.Name).Where(NotKept.ContainsKey)];
+        if (notKept.Length > 0)
+        {
+            await RefuseAsync(context, 400,
+                string.Join(" ", notKept.Select(n => $"'{n}': {NotKept[n]}")) + " " + Accepted).ConfigureAwait(false);
+            return;
+        }
+
         string[] unknown = [.. definition.EnumerateObject().Select(p => p.Name).Where(n => !DefinitionKeys.Contains(n))];
         if (unknown.Length > 0)
         {
             await RefuseAsync(context, 400,
-                $"{string.Join(", ", unknown)}: not changed by updateDefinition here, so nothing was. This server changes "
-                + "capabilities, serviceDescription, copyrightText and maxRecordCount.").ConfigureAwait(false);
+                $"{string.Join(", ", unknown)}: not a key this server's updateDefinition knows. " + Accepted).ConfigureAwait(false);
             return;
         }
 
         // ---- everything is checked before anything is written ----
+        ServiceStewardship? now = await catalog.FindStewardshipAsync(service.Name, folder, cancellation).ConfigureAwait(false);
         string[]? offered = null;
         if (definition.TryGetProperty("capabilities", out JsonElement capabilities))
         {
@@ -207,7 +243,6 @@ internal static partial class ArcGisAdminEndpoints
                 return;
             }
 
-            ServiceStewardship? now = await catalog.FindStewardshipAsync(service.Name, folder, cancellation).ConfigureAwait(false);
             offered = [.. AdminEndpoints.OwnerOperations.Where(op => asked.Contains(op))];
             string[] over = now?.Ceiling is { } ceiling ? [.. offered.Where(op => !ceiling.Contains(op))] : [];
             if (over.Length > 0)
@@ -217,6 +252,44 @@ internal static partial class ArcGisAdminEndpoints
                     + "Nothing was changed.").ConfigureAwait(false);
                 return;
             }
+        }
+
+        // The edits offered once this definition is applied — what hasStaticData and allowGeometryUpdates are derived from.
+        IReadOnlyList<string> editsAfter = offered ?? now?.EditingOffered ?? now?.Ceiling ?? AdminEndpoints.OwnerOperations;
+        bool edited = editsAfter.Any(op => op is "Create" or "Update" or "Delete");
+
+        if (Derived(definition, "hasStaticData", !edited) is { } staticWrong)
+        {
+            await RefuseAsync(context, 400, staticWrong + (edited
+                ? " It is true only where no edit is offered: send capabilities \"Query\" to make the service read-only, and "
+                  + "hasStaticData follows."
+                : " It is false only where an edit is offered: send the edits in capabilities, and hasStaticData follows.")
+                + " Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (Derived(definition, "allowGeometryUpdates", editsAfter.Contains("Update")) is { } geometryWrong)
+        {
+            await RefuseAsync(context, 400, geometryWrong
+                + " An update here may change a feature's shape and its attributes alike, so geometry updates are allowed "
+                + "exactly where Update is offered; change capabilities instead. Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (Derived(definition, "syncEnabled", false) is { } syncWrong)
+        {
+            await RefuseAsync(context, 400, syncWrong
+                + " Offline sync (createReplica) is not served here (ADR-082). Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (definition.TryGetProperty("name", out JsonElement named)
+            && !string.Equals(named.ValueKind == JsonValueKind.String ? named.GetString() : null, service.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            await RefuseAsync(context, 400,
+                $"'name' is '{service.Name}' and is not changed by updateDefinition here: a service is renamed from its item "
+                + "in Studio, which moves its address with it. Nothing was changed.").ConfigureAwait(false);
+            return;
         }
 
         int? pageSize = null;
@@ -237,6 +310,60 @@ internal static partial class ArcGisAdminEndpoints
             }
 
             pageSize = count;
+        }
+
+        // editorTrackingInfo, and its layer-level twin: the same two facts per layer, read before either is decided.
+        List<(PublishedLayer Layer, LayerDescription Described)> described = [];
+        foreach (PublishedLayer layer in service.LayersAndTables)
+        {
+            (_, LayerDescription about) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+            described.Add((layer, about));
+        }
+
+        bool trackedNow = described.Count > 0 && described.All(d => d.Described.Tracking.Any);
+        bool ownNow = described.Count > 0 && described.All(d => d.Layer.EditOwnOnly);
+        bool? track = null;
+        bool? own = null;
+
+        foreach (string key in (string[])["editorTrackingInfo", "ownershipBasedAccessControlForFeatures"])
+        {
+            if (!definition.TryGetProperty(key, out JsonElement info))
+            {
+                continue;
+            }
+
+            if (Tracking(key, info, ref track, ref own, ownNow) is { } trackingWrong)
+            {
+                await RefuseAsync(context, 400, trackingWrong + " Nothing was changed.").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        bool trackAfter = track ?? trackedNow;
+        bool ownAfter = own ?? ownNow;
+
+        if (ownAfter && !trackAfter)
+        {
+            await RefuseAsync(context, 400,
+                "Holding editors to their own features needs to know who added each one: enableOwnershipAccessControl true "
+                + "needs enableEditorTracking true. Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (track is { } turned && turned != trackedNow && service.ViewOf is not null)
+        {
+            await RefuseAsync(context, 400,
+                "A view records edits in its source's columns: turn editor tracking on or off on the source service. "
+                + "Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (ownAfter && described.FirstOrDefault(d => d.Described.Tracking.Any && d.Described.Tracking.Creator is null) is { Layer: { } noCreator })
+        {
+            await RefuseAsync(context, 409,
+                $"'{noCreator.Definition.Name}' records edits without a creator column, so no feature is anybody's own. Give a "
+                + "column the creator's role on its Fields page first. Nothing was changed.").ConfigureAwait(false);
+            return;
         }
 
         string? Text(string name) => definition.TryGetProperty(name, out JsonElement value) ? value.GetString() : null;
@@ -274,6 +401,46 @@ internal static partial class ArcGisAdminEndpoints
                 requestDeadline: cost.RequestDeadline)), cancellation).ConfigureAwait(false);
         }
 
+        // <b>Editor tracking, layer by layer, through the work Studio's own buttons do</b> (ADR-064, ADR-115, ADR-212).
+        // The order keeps every step valid: ownership off before tracking stops, tracking on before ownership starts.
+        // Each layer's columns are their own ALTER, so a refusal after the first layer leaves the layers before it
+        // changed — said in the refusal, as Studio's button says it, rather than reported as success.
+        List<string> done = [];
+        foreach ((PublishedLayer layer, LayerDescription about) in described)
+        {
+            if (own is false && layer.EditOwnOnly)
+            {
+                await catalog.SetEditOwnOnlyAsync(layer.Id, false, cancellation).ConfigureAwait(false);
+            }
+
+            if (track is false && about.Tracking.Any
+                && await HostedDataEndpoints.StopTrackingOfAsync(layer, contexts, tiles, catalog, cancellation, ownershipCleared: own is false)
+                    .ConfigureAwait(false) is { } stopRefused)
+            {
+                await RefuseAsync(context, 409, Partly(done, stopRefused)).ConfigureAwait(false);
+                return;
+            }
+
+            if (track is true && !about.Tracking.Any)
+            {
+                HostedDataEndpoints.TrackingOutcome outcome = await HostedDataEndpoints
+                    .TrackEditsOfAsync(layer, importer, contexts, tiles, catalog, connections, cancellation).ConfigureAwait(false);
+
+                if (outcome.Code != 0)
+                {
+                    await RefuseAsync(context, outcome.Code, Partly(done, outcome.Message!)).ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            if (own is true && !layer.EditOwnOnly)
+            {
+                await catalog.SetEditOwnOnlyAsync(layer.Id, true, cancellation).ConfigureAwait(false);
+            }
+
+            done.Add(layer.Definition.Name);
+        }
+
         foreach (PublishedLayer layer in service.LayersAndTables)
         {
             contexts.Forget(layer);
@@ -285,6 +452,154 @@ internal static partial class ArcGisAdminEndpoints
 
         await Results.Ok(new { success = true }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>What the refusals name as accepted.</summary>
+    private const string Accepted =
+        "This server's updateDefinition changes capabilities, serviceDescription, copyrightText, maxRecordCount and "
+        + "editorTrackingInfo, and accepts hasStaticData, allowGeometryUpdates, syncEnabled, name and "
+        + "ownershipBasedAccessControlForFeatures where they agree with the rest. Nothing was changed.";
+
+    /// <summary>The documented keys this server does not keep, each with why.</summary>
+    private static readonly Dictionary<string, string> NotKept = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["syncCapabilities"] = "offline sync is not served here (ADR-082).",
+        ["xssPreventionInfo"] = "not a setting here — attribute values are stored as sent and every face writes them escaped "
+            + "for its format.",
+        ["initialExtent"] = "not a setting here — a service's extent is computed from its data.",
+        ["fullExtent"] = "not a setting here — a service's extent is computed from its data.",
+        ["units"] = "not a setting here — the units follow the service's spatial reference.",
+        ["spatialReference"] = "not changed by updateDefinition here — a service's reference is set on its Settings page.",
+        ["preferredTimeReference"] = "not kept here — dates are stored and answered in UTC.",
+        ["layerOverridesEnabled"] = "not kept here — capabilities and editing are the service's, never a layer's.",
+    };
+
+    /// <summary>
+    /// A derived key's value checked against what the server derives: null when it agrees or is absent, otherwise the
+    /// sentence that says so. ArcGIS's own example sends <c>allowGeometryUpdates</c> as the string <c>"true"</c>.
+    /// </summary>
+    private static string? Derived(JsonElement definition, string key, bool derived)
+    {
+        if (!definition.TryGetProperty(key, out JsonElement value))
+        {
+            return null;
+        }
+
+        bool? said = Flag(value);
+        return said is null
+            ? $"'{key}' is true or false."
+            : said == derived ? null : $"'{key}' {(said.Value ? "true" : "false")} contradicts this service, where it is {(derived ? "true" : "false")}.";
+    }
+
+    /// <summary>A JSON boolean, or the strings "true" and "false", or null.</summary>
+    private static bool? Flag(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.String when bool.TryParse(value.GetString(), out bool parsed) => parsed,
+        _ => null,
+    };
+
+    /// <summary>
+    /// <c>editorTrackingInfo</c> or <c>ownershipBasedAccessControlForFeatures</c> read into the two facts this server
+    /// keeps — whether edits are recorded and whether editors are held to their own features — or the sentence that
+    /// says why it cannot be held. ADR-115: when held, editors may neither update nor delete others' features, and
+    /// everybody who may read the layer may query it; a signed-out caller never edits (ADR-075).
+    /// </summary>
+    private static string? Tracking(string key, JsonElement info, ref bool? track, ref bool? own, bool ownNow)
+    {
+        if (info.ValueKind != JsonValueKind.Object)
+        {
+            return $"'{key}' is an object.";
+        }
+
+        bool layerForm = key == "ownershipBasedAccessControlForFeatures";
+        HashSet<string> known = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "allowOthersToQuery", "allowOthersToUpdate", "allowOthersToDelete",
+            "allowAnonymousToQuery", "allowAnonymousToUpdate", "allowAnonymousToDelete",
+        };
+
+        if (!layerForm)
+        {
+            known.UnionWith(["enableEditorTracking", "enableOwnershipAccessControl"]);
+        }
+
+        string[] strange = [.. info.EnumerateObject().Select(p => p.Name).Where(n => !known.Contains(n))];
+        if (strange.Length > 0)
+        {
+            return $"'{key}' has {string.Join(", ", strange)}, which this server does not keep; it reads "
+                + $"{string.Join(", ", known.Order(StringComparer.Ordinal))}.";
+        }
+
+        Dictionary<string, bool> said = [];
+        foreach (JsonProperty property in info.EnumerateObject())
+        {
+            if (Flag(property.Value) is not { } flag)
+            {
+                return $"'{key}.{property.Name}' is true or false.";
+            }
+
+            said[property.Name.ToLowerInvariant()] = flag;
+        }
+
+        if (said.TryGetValue("enableeditortracking", out bool tracking))
+        {
+            track = tracking;
+        }
+
+        if (said.TryGetValue("enableownershipaccesscontrol", out bool owning))
+        {
+            own = owning;
+        }
+
+        // The layer form says ownership by the others-may flags alone: both false is held, both true is not.
+        if (layerForm && said.TryGetValue("allowotherstoupdate", out bool othersUpdate)
+            && said.TryGetValue("allowotherstodelete", out bool othersDelete) && othersUpdate == othersDelete)
+        {
+            own = !othersUpdate;
+        }
+
+        bool owned = own ?? ownNow;
+
+        foreach (string what in (string[])["Update", "Delete"])
+        {
+            if (said.TryGetValue("allowothersto" + what.ToLowerInvariant(), out bool others) && others == owned)
+            {
+                return owned
+                    ? $"'{key}.allowOthersTo{what}' true while editors are held to their own features: this server holds "
+                      + "them for update and delete together. Send enableOwnershipAccessControl false to let others edit."
+                    : $"'{key}.allowOthersTo{what}' false while editors are not held to their own features: send "
+                      + "enableOwnershipAccessControl true, which holds them for update and delete together.";
+            }
+        }
+
+        if (said.TryGetValue("allowotherstoquery", out bool othersQuery) && !othersQuery)
+        {
+            return $"'{key}.allowOthersToQuery' false is not kept here: whoever may read the layer queries all of it.";
+        }
+
+        if (said.TryGetValue("allowanonymoustoquery", out bool anonymousQuery) && !anonymousQuery)
+        {
+            return $"'{key}.allowAnonymousToQuery' false is not kept here: who may query is the service's sharing.";
+        }
+
+        foreach (string what in (string[])["Update", "Delete"])
+        {
+            if (said.TryGetValue("allowanonymousto" + what.ToLowerInvariant(), out bool anonymous) && anonymous)
+            {
+                return $"'{key}.allowAnonymousTo{what}' true is not kept here: a signed-out caller never edits (ADR-075).";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>A refusal after some layers were changed, which says which.</summary>
+    private static string Partly(List<string> done, string why) =>
+        done.Count == 0
+            ? why
+            : $"{why} The definition's other keys were applied, and editor tracking was changed on {string.Join(", ", done)} "
+              + "before this one; send it again once the cause is repaired.";
 
     /// <summary>The service in the route's folder, when the caller owns or administers it; otherwise the refusal is written.</summary>
     private static async Task<(PublishedService Service, string? Folder)?> ManagedServiceAsync(
