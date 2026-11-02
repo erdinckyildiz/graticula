@@ -406,7 +406,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Turns a document's delete protection on or off.</summary>
-    private static async Task SetDocumentProtectionAsync(
+    internal static async Task SetDocumentProtectionAsync(
         HttpContext context, string id, ProtectionRequest request, IDocumentStore documents, IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -475,7 +475,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Gives one document to another member — an administrator's act, as a map's is.</summary>
-    private static async Task ChangeDocumentOwnerAsync(
+    internal static async Task ChangeDocumentOwnerAsync(
         HttpContext context, string id, OwnerRequest request, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);

@@ -5024,7 +5024,7 @@ internal static partial class AdminEndpoints
     /// Protects a service from deletion, or stops protecting it — its owner's act or an administrator's; the delete
     /// routes refuse a protected service (ADR-102 condition 2, owner decision 2026-10-01).
     /// </summary>
-    private static async Task SetDeleteProtectedAsync(
+    internal static async Task SetDeleteProtectedAsync(
         HttpContext context, string name, string? folder, ProtectionRequest request, IAdminCatalog catalog,
         IAuditLog audit, PostgresLayerCatalog owners, CancellationToken cancellation)
     {
@@ -5122,7 +5122,7 @@ internal static partial class AdminEndpoints
     /// <b>An administrator's act</b>, as in Portal: <c>admin:manageAllContent</c>. Nothing is unpublished, the sharing
     /// and its groups stay, and every URL a client holds still works — the member transfer's rule for one item.
     /// </remarks>
-    private static async Task ChangeServiceOwnerAsync(
+    internal static async Task ChangeServiceOwnerAsync(
         HttpContext context, string name, string? folder, OwnerRequest request, IAdminCatalog catalog,
         IAuditLog audit, CancellationToken cancellation)
     {
@@ -5165,7 +5165,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Gives one web map to another member — an administrator's act; its scope is untouched.</summary>
-    private static async Task ChangeWebMapOwnerAsync(
+    internal static async Task ChangeWebMapOwnerAsync(
         HttpContext context, string id, OwnerRequest request, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);

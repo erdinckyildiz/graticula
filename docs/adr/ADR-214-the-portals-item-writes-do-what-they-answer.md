@@ -92,6 +92,36 @@ hold through this door too. **INFERRED, for the owner to confirm:** *(Confirmed 
 5. **Description and summary are one text for a service** (as its item has always said): a changed `description` is
    written; a changed `snippet` only when the description was not changed.
 
+### 5a. Four more doors, 2026-11-02
+
+Added overnight under the owner's *"her işi tamamla"*, from the ArcGIS veteran's review of 2026-11-02: four things
+Studio already does that the ArcGIS API for Python could not ask for, each a 404 until now
+(`PortalEndpoints.ItemControls`). Each door finds the item as the writes above find it — a service by any of its faces'
+ids, a web map, a document — refuses who may not, and then **runs Studio's own handler inside the request**, so the
+privilege check, the store call and the audit line are Studio's; only the refusal is reworded into the portal's
+envelope. Nothing is written a second way.
+
+1. **`items/{id}/protect` and `unprotect`** (`item.protect(True/False)`), with or without a folder in the path: the
+   delete protection Studio's Settings › General sets (ADR-102 condition 2), by the item's owner or whoever may manage
+   all content. Answers `{"success":true}`; the item's `protected` then reads accordingly.
+2. **`items/{id}/reassign`** (`item.reassign_to`), with `targetUsername` and an optional `targetFoldername`: Studio's
+   Change owner, which is an administrator's act (`admin:manageAllContent`) there and so here. The receiver is named
+   bare and found inside the request's organisation (`graticula_principal_named`, ADR-204 §5e item 16); a name with
+   `\` is refused before anything is looked up, as the owner's path refuses one. A folder the receiver does not have
+   refuses the whole request before the owner changes. Answers `{"success":true,"itemId":…}`.
+3. **`{folderId}/updateFolder`** (`Folder.rename`), with `title`: Studio's folder rename, under `createFolder`'s rules —
+   1 to 128 characters, and a title the owner already has is `409 Folder '…' already exists.`
+4. **`content/items/{id}/groups`** (`item.shared_with`): the groups the item is shared with that the caller may see,
+   as `{"admin":[],"member":[],"other":[]}` — groups the caller owns or manages, those they are a member of, and the
+   rest — each published as every portal group is (`PortalGroup`). Its owner's question or an administrator's;
+   anybody else is told *Item does not exist or is inaccessible.*
+
+**INFERRED, for the owner to confirm:** the four answers' shapes and how each maps onto ours — in particular that
+reassignment stays inside the organisation, that a missing target folder refuses rather than filing the item at the
+receiver's root, that `groups` sorts by the caller's standing in each group, and that an image service (which the
+item writes above do not reach either) is not among the items these doors know. Measured: unit tests
+`ThePortalsItemControlsAreStudiosTests`, and `PortalItemControlsTests` in the conformance suite, which CI runs.
+
 ## Conditions
 
 1. **The recycle bin has a screen** (the veteran's N7), after which `permanentDelete` can mean what it says.

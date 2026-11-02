@@ -273,6 +273,7 @@ internal static partial class PortalEndpoints
         MapProShare(app);
         MapProPublishCapture(app);
         MapItemWrites(app);
+        MapItemControls(app);
     }
 
     /// <summary>
