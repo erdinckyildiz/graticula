@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -152,6 +153,36 @@ public sealed class PortalItemWritesTests : ArcGisClient
         string bin = (await SendAsync(HttpMethod.Get, "/admin/recycle-bin")).GetRawText();
         Assert.DoesNotContain(single, bin, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(several, bin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// ADR-214 §5b: <c>created</c> and <c>modified</c> ranges are answered, and a range on a field with none is refused —
+    /// both answered <c>total: 0</c> on the showcase while <c>q=*</c> found twenty-four items.
+    /// </summary>
+    [Fact]
+    public async Task A_date_range_search_finds_what_q_star_finds_and_a_range_without_a_field_is_refused()
+    {
+        string id = await AddMapAsync($"zz_range_{Guid.NewGuid():N}"[..24]);
+
+        try
+        {
+            JsonElement all = await SendAsync(HttpMethod.Get, "/sharing/rest/search?f=json&num=100&q="
+                + Uri.EscapeDataString($"id:{id} AND created:[0 TO 9999999999999]"));
+            Assert.Contains(all.GetProperty("results").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            JsonElement recent = await SendAsync(HttpMethod.Get, "/sharing/rest/search?f=json&num=100&q="
+                + Uri.EscapeDataString($"id:{id} AND modified:[{now - 3_600_000:D19} TO {now + 3_600_000:D19}]"));
+            Assert.Contains(recent.GetProperty("results").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
+
+            JsonElement refused = await SendAsync(HttpMethod.Get,
+                "/sharing/rest/search?f=json&q=" + Uri.EscapeDataString("title:[a TO z]"));
+            Assert.True(refused.TryGetProperty("error", out _), refused.GetRawText());
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
     }
 
     [Fact]

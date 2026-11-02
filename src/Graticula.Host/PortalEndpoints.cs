@@ -1143,6 +1143,11 @@ internal static partial class PortalEndpoints
             mine = [.. mine, gallery];
         }
 
+        if (PortalQuery.Refusal(query) is { } rangeWhy)
+        {
+            return PortalError(400, rangeWhy);
+        }
+
         List<object> results = [.. mine.Where(group => PortalQuery.Matches(group, query))];
 
         // start, num and sortField as ArcGIS reads them — PortalPage (V-83); until 2026-10-17 every group, -1.
@@ -1842,6 +1847,12 @@ internal static partial class PortalEndpoints
             return PortalError(400, refusedWhy);
         }
 
+        // ADR-214 §5b: a range this cannot evaluate is refused by name, not answered with nothing.
+        if (PortalQuery.Refusal(query) is { } rangeWhy)
+        {
+            return PortalError(400, rangeWhy);
+        }
+
         if (await ListAsync(context, catalog, maps, coverages, query, cancellation).ConfigureAwait(false)
             is not { } listed)
         {
@@ -1898,6 +1909,12 @@ internal static partial class PortalEndpoints
         if (narrowing.Refused is { } refusedWhy)
         {
             return PortalError(400, refusedWhy);
+        }
+
+        // ADR-214 §5b: a range this cannot evaluate is refused by name, not answered with nothing.
+        if (PortalQuery.Refusal(asked) is { } rangeWhy)
+        {
+            return PortalError(400, rangeWhy);
         }
 
         string query = string.IsNullOrWhiteSpace(asked) ? $"group:{group:N}" : $"group:{group:N} AND ({asked})";
