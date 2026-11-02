@@ -382,7 +382,10 @@ A service's layer list is now a tree:
   its groups and its layers together, so no caller ever holds a half-built one. Nothing
   creates an empty service any more — *katmansız servis yaratılamaz*, owner decision —
   and the empty ones that still turn up are what unpublishing the last layer leaves,
-  which is the state `POST /admin/featureservices/sweep` exists for.
+  which is the state `POST /admin/featureservices/sweep` exists for. **Amended 2026-11-02 by
+  owner decision — [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md) §11:** the
+  portal's `createService` makes an empty hosted service again, for the ArcGIS API for Python's
+  `create_service` and `create_view`, which fill it with `addToDefinition`.
 
 **A group is not a way to share differently.** Sharing stays on the service
 (§4g), so grouping is presentation and nothing else. A group that could be

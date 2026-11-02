@@ -84,9 +84,10 @@ internal sealed record GeocoderSettings(
                 $"{Section}:TimeoutSeconds is '{timeout}'; it must be a number of seconds above 0 and at most 120.");
         }
 
-        // <b>Public by default — INFERRED, ADR-258 §5.</b> The data is OpenStreetMap's and public already, and the
-        // clients this exists for — a web map's search box — ask anonymously.
-        SharingScope sharing = SharingScope.Public;
+        // <b>The organisation by default — owner decision 2026-11-02, ADR-258 §5.7 (2).</b> Public was the first
+        // reading, and it made every configured server an open proxy onto the operator's Photon; an operator who wants
+        // a web map's anonymous search box sets public.
+        SharingScope sharing = SharingScope.Organization;
 
         if (configuration[$"{Section}:Sharing"] is { Length: > 0 } scope)
         {

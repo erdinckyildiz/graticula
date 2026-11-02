@@ -2924,6 +2924,13 @@ internal static partial class AdminEndpoints
     /// <c>POST /admin/featureservices/sweep</c> and D-54 are still here. <i>Created</i> is the act
     /// this refuses; <i>exists</i> is a state that arrives by removal and is answered by removal.
     /// </para>
+    /// <para>
+    /// <b>Amended 2026-11-02, owner decision (<i>"Boş servise izin ver"</i>), ADR-257 §11.</b> The portal's
+    /// <c>createService</c> now makes an empty hosted service, because the ArcGIS API for Python's
+    /// <c>create_service</c> and <c>create_view</c> fill one afterwards with <c>addToDefinition</c> and cannot be
+    /// sent any other way. This address stays retired: Studio and Server compose a service with its layers, and the
+    /// empty one is the ArcGIS client protocol's, reached through that protocol's door.
+    /// </para>
     /// </remarks>
     /// <param name="context">The request.</param>
     /// <returns>The task.</returns>
@@ -2940,7 +2947,8 @@ internal static partial class AdminEndpoints
             "A service is not created without layers. This address made an empty container to "
             + "fill in afterwards and no longer does — send the whole composition to "
             + "POST /admin/publish instead: its name, its folder, and the layers and groups it "
-            + "is made of, in one request.").ConfigureAwait(false);
+            + "is made of, in one request. An ArcGIS client that makes a service empty and adds its layers "
+            + "after uses the portal's createService and the service's addToDefinition.").ConfigureAwait(false);
     }
 
     /// <summary>

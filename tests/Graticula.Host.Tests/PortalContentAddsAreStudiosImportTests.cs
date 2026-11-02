@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -159,5 +160,52 @@ public sealed class PortalContentAddsAreStudiosImportTests
 
         using JsonDocument none = JsonDocument.Parse("{\"id\":1}");
         Assert.Null(PortalEndpoints.ServiceOfImport(none.RootElement));
+    }
+
+    private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement.Clone();
+
+    [Fact]
+    public void A_layer_definition_the_Python_API_sends_is_designed_in_its_own_reference()
+    {
+        Assert.True(PortalEndpoints.TryReadLayerDesign(
+            Json("""
+                {"name":"points","type":"Feature Layer","geometryType":"esriGeometryPoint","objectIdField":"OBJECTID",
+                 "hasAttachments":false,"hasZ":true,"extent":{"xmin":0,"ymin":0,"xmax":1,"ymax":1,"spatialReference":{"wkid":4326}},
+                 "fields":[{"name":"OBJECTID","type":"esriFieldTypeOID"},{"name":"label","type":"esriFieldTypeString","length":64,"domain":null}]}
+                """),
+            string.Empty, "svc", null, out HostedDataEndpoints.LayerDesign? design, out string? error), error);
+
+        Assert.Equal("points", design!.Name);
+        Assert.Equal("PointZ", design.GeometryType);
+        Assert.Equal("svc", design.ServiceName);
+        Assert.Equal(4326, design.Srid);
+        Assert.Equal(["label"], design.Fields!.Select(f => f.Name));
+    }
+
+    [Fact]
+    public void Web_Mercator_is_read_by_its_EPSG_code_and_a_table_takes_none()
+    {
+        Assert.True(PortalEndpoints.TryReadLayerDesign(
+            Json("""{"name":"lines","geometryType":"esriGeometryPolyline","spatialReference":{"wkid":102100}}"""),
+            string.Empty, "svc", null, out HostedDataEndpoints.LayerDesign? lines, out _));
+        Assert.Equal(3857, lines!.Srid);
+        Assert.Equal("MultiLineString", lines.GeometryType);
+
+        Assert.True(PortalEndpoints.TryReadLayerDesign(
+            Json("""{"name":"visits","type":"Table"}"""), string.Empty, "svc", 5254, out HostedDataEndpoints.LayerDesign? table, out _));
+        Assert.Equal("Table", table!.GeometryType);
+        Assert.Null(table.Srid);
+    }
+
+    [Theory]
+    [InlineData("""{"name":"a","geometryType":"esriGeometryPoint","drawingInfo":{"renderer":{}}}""", "drawingInfo")]
+    [InlineData("""{"name":"a","geometryType":"esriGeometryPoint","hasAttachments":true}""", "attachments")]
+    [InlineData("""{"name":"a","geometryType":"esriGeometryPoint","templates":[]}""", "templates")]
+    [InlineData("""{"name":"a","geometryType":"esriGeometryEnvelope"}""", "esriGeometryEnvelope")]
+    [InlineData("""{"geometryType":"esriGeometryPoint"}""", "name")]
+    public void What_a_layer_is_not_made_from_is_refused_by_name(string definition, string named)
+    {
+        Assert.False(PortalEndpoints.TryReadLayerDesign(Json(definition), string.Empty, "svc", null, out _, out string? error));
+        Assert.Contains(named, error, System.StringComparison.Ordinal);
     }
 }

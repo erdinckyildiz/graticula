@@ -159,11 +159,180 @@ internal static partial class AdminEndpoints
             plan.Add((layer, string.IsNullOrWhiteSpace(written) ? null : written.Trim(), parsed.Value));
         }
 
+        (PublishedService view, List<(Guid LayerId, int LayerIndex, string? Definition)> placed) = await PlaceViewLayersAsync(
+            context, source, viewName, plan, sharing, firstLayersOfView: true, catalog, published, importer, cancellation)
+            .ConfigureAwait(false);
+
+        try
+        {
+            // <b>The ceiling is what was asked, so an add-only view offers no Query</b> — Survey123's shape — and the
+            // edits offered are the same list without it (ADR-113 §5.3).
+            await catalog.SetServiceCapabilitiesAsync(
+                viewName, view.Folder, new ServiceCapabilityLimits(null, null, capabilities, null), cancellation).ConfigureAwait(false);
+            await catalog.SetEditingOfferedAsync(
+                viewName, view.Folder, [.. capabilities.Where(c => c != "Query")], cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            await RemoveViewLayersAsync(catalog, importer, placed, published).ConfigureAwait(false);
+            throw;
+        }
+
+        await AuditAsync(context, audit, "service.view", viewName,
+            Detail(new { source = name, folder = source.Folder, layers = plan.Select(p => p.Layer.LayerIndex), capabilities }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        context.Response.StatusCode = StatusCodes.Status201Created;
+        await Results.Json(new
+        {
+            name = viewName,
+            folder = source.Folder,
+            source = name,
+            layers = placed.Select(p => p.LayerIndex),
+            capabilities,
+            url = $"/rest/services/{(source.Folder is null ? "" : source.Folder + "/")}{viewName}/FeatureServer",
+        }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Adds view layers to a service that holds no layers or is already a view of the same source — ADR-257 §11: the
+    /// second half of the ArcGIS API for Python's <c>create_view</c>, which makes the view service empty and then sends
+    /// <c>addToDefinition</c> naming each source layer. Studio's own view checks, in the same order.
+    /// </summary>
+    /// <param name="context">The request; the refusal is written to it.</param>
+    /// <param name="view">The service the layers go into.</param>
+    /// <param name="sourceName">The source service's name, in the view's folder.</param>
+    /// <param name="layers">The source layer indices.</param>
+    /// <param name="definitions">A filter per source layer index, or none.</param>
+    /// <param name="catalog">The admin catalogue.</param>
+    /// <param name="published">The layer catalogue.</param>
+    /// <param name="importer">The importer, which makes the PostgreSQL views.</param>
+    /// <param name="contexts">Layer contexts, for the filters' columns.</param>
+    /// <param name="audit">The audit log.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>Each placed layer's index and name, or null when refused.</returns>
+    internal static async Task<IReadOnlyList<(int Id, string Name)>?> AddViewLayersAsync(
+        HttpContext context,
+        PublishedService view,
+        string sourceName,
+        int[] layers,
+        Dictionary<string, string?> definitions,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog published,
+        PostGisImporter importer,
+        ServiceContexts contexts,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(layers);
+
+        if (!await ManagesServiceAsync(context, published, view.Folder, sourceName, "make a view of", cancellation).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        PublishedService source = (await published.FindServiceAsync(view.Folder, sourceName, cancellation).ConfigureAwait(false))!;
+
+        if (source.ViewOf is not null)
+        {
+            await Refuse(context, 400, $"'{sourceName}' is itself a view. Name its source instead.").ConfigureAwait(false);
+            return null;
+        }
+
+        if (source.Id == view.Id)
+        {
+            await Refuse(context, 400, "A service is not a view of itself.").ConfigureAwait(false);
+            return null;
+        }
+
+        if (view.ViewOf is { } of ? of != source.Id : view.LayersAndTables.Count > 0)
+        {
+            await Refuse(context, 400, view.ViewOf is null
+                ? $"'{view.Name}' already holds layers of its own, so it cannot become a view. A view starts empty."
+                : $"'{view.Name}' is a view of another service. A view here shows one source.").ConfigureAwait(false);
+            return null;
+        }
+
+        PublishedLayer[] hosted = [.. source.LayersAndTables.Where(l => l.Definition.IsHosted && l.Definition.IntegerIdentityColumn is not null)];
+        PublishedLayer[] chosen = [.. hosted.Where(l => layers.Contains(l.LayerIndex))];
+
+        if (layers.Length == 0 || chosen.Length != layers.Distinct().Count())
+        {
+            await Refuse(context, 400,
+                $"The layers name a source layer '{sourceName}' does not have as a hosted feature layer. It has "
+                + string.Join(", ", hosted.Select(l => l.LayerIndex)) + ".").ConfigureAwait(false);
+            return null;
+        }
+
+        if (chosen.FirstOrDefault(l => view.LayersAndTables.Any(v => v.LayerIndex == l.LayerIndex)) is { } twice)
+        {
+            await Refuse(context, 409, $"'{view.Name}' already shows layer {twice.LayerIndex} of '{sourceName}'.").ConfigureAwait(false);
+            return null;
+        }
+
+        List<(PublishedLayer Layer, string? Written, ParsedWhere Parsed)> plan = [];
+
+        foreach (PublishedLayer layer in chosen)
+        {
+            string? written = null;
+            definitions?.TryGetValue(layer.LayerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture), out written);
+
+            (ParsedWhere? parsed, string? why) = await ParseViewFilterAsync(contexts, layer, written, cancellation).ConfigureAwait(false);
+
+            if (parsed is null)
+            {
+                await Refuse(context, 400, $"The filter for layer {layer.LayerIndex} could not be read. {why}").ConfigureAwait(false);
+                return null;
+            }
+
+            plan.Add((layer, string.IsNullOrWhiteSpace(written) ? null : written.Trim(), parsed.Value));
+        }
+
+        bool first = view.LayersAndTables.Count == 0 && plan.Count == 1;
+
+        foreach ((PublishedLayer layer, _, _) in plan)
+        {
+            string layerName = first ? view.Name : $"{view.Name}_{layer.Definition.Name}";
+
+            if (await HostedDataEndpoints.NameTakenAsync(catalog, layerName, cancellation).ConfigureAwait(false))
+            {
+                await Refuse(context, 409, $"A layer named '{layerName}' already exists. Nothing was added.").ConfigureAwait(false);
+                return null;
+            }
+        }
+
+        (PublishedService placedIn, List<(Guid LayerId, int LayerIndex, string? Definition)> placed) = await PlaceViewLayersAsync(
+            context, source, view.Name, plan, view.Sharing, first, catalog, published, importer, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(context, audit, "service.view", view.Name,
+            Detail(new { source = sourceName, folder = source.Folder, layers = plan.Select(p => p.Layer.LayerIndex), added = true }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        return [.. placed.Select(p => (p.LayerIndex,
+            placedIn.LayersAndTables.FirstOrDefault(l => l.Id == p.LayerId)?.Definition.Name ?? view.Name))];
+    }
+
+    /// <summary>
+    /// Makes the PostgreSQL view and the catalogue layer for each planned source layer, in the view's service, and
+    /// records the service as a view of the source. On any failure nothing it made is left.
+    /// </summary>
+    private static async Task<(PublishedService View, List<(Guid LayerId, int LayerIndex, string? Definition)> Placed)> PlaceViewLayersAsync(
+        HttpContext context,
+        PublishedService source,
+        string viewName,
+        List<(PublishedLayer Layer, string? Written, ParsedWhere Parsed)> plan,
+        SharingScope sharing,
+        bool firstLayersOfView,
+        IAdminCatalog catalog,
+        PostgresLayerCatalog published,
+        PostGisImporter importer,
+        CancellationToken cancellation)
+    {
         Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(catalog, cancellation).ConfigureAwait(false);
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         List<string> made = [];
         List<(Guid LayerId, int LayerIndex, string? Definition)> placed = [];
-        Guid? viewService = null;
 
         try
         {
@@ -178,7 +347,7 @@ internal static partial class AdminEndpoints
 
                 // <b>Named for the view, not the source</b>, because the admin surface finds a layer by its name and a
                 // second layer called what the source's is would make every one of the source's pages ambiguous.
-                string layerName = plan.Count == 1 ? viewName : $"{viewName}_{layer.Definition.Name}";
+                string layerName = firstLayersOfView && plan.Count == 1 ? viewName : $"{viewName}_{layer.Definition.Name}";
 
                 PublishedLayerAddress address = await catalog.PublishLayerAsync(
                     new LayerPublication(
@@ -207,26 +376,17 @@ internal static partial class AdminEndpoints
             }
 
             PublishedService view = (await published.FindServiceAsync(source.Folder, viewName, cancellation).ConfigureAwait(false))!;
-            viewService = view.Id;
 
             await catalog.MakeViewAsync(view.Id, source.Id, placed, cancellation).ConfigureAwait(false);
 
-            // <b>The ceiling is what was asked, so an add-only view offers no Query</b> — Survey123's shape — and the
-            // edits offered are the same list without it (ADR-113 §5.3).
-            await catalog.SetServiceCapabilitiesAsync(
-                viewName, view.Folder, new ServiceCapabilityLimits(null, null, capabilities, null), cancellation).ConfigureAwait(false);
-            await catalog.SetEditingOfferedAsync(
-                viewName, view.Folder, [.. capabilities.Where(c => c != "Query")], cancellation).ConfigureAwait(false);
+            return ((await published.FindServiceAsync(source.Folder, viewName, cancellation).ConfigureAwait(false))!, placed);
         }
         catch
         {
             // Nothing half-made is left: the catalogue rows first, because they read the PostgreSQL views.
-            if (viewService is not null || placed.Count > 0)
+            foreach ((Guid id, _, _) in placed)
             {
-                foreach ((Guid id, _, _) in placed)
-                {
-                    await catalog.UnpublishLayerAsync(id, CancellationToken.None).ConfigureAwait(false);
-                }
+                await catalog.UnpublishLayerAsync(id, CancellationToken.None).ConfigureAwait(false);
             }
 
             foreach (string table in made)
@@ -236,21 +396,27 @@ internal static partial class AdminEndpoints
 
             throw;
         }
+    }
 
-        await AuditAsync(context, audit, "service.view", viewName,
-            Detail(new { source = name, folder = source.Folder, layers = plan.Select(p => p.Layer.LayerIndex), capabilities }),
-            succeeded: true, cancellation).ConfigureAwait(false);
+    /// <summary>Takes back view layers <see cref="PlaceViewLayersAsync"/> placed, when a later step of a create failed.</summary>
+    private static async Task RemoveViewLayersAsync(
+        IAdminCatalog catalog,
+        PostGisImporter importer,
+        List<(Guid LayerId, int LayerIndex, string? Definition)> placed,
+        PostgresLayerCatalog published)
+    {
+        IReadOnlyList<PublishedLayer> all = await published.ListAsync(CancellationToken.None).ConfigureAwait(false);
 
-        context.Response.StatusCode = StatusCodes.Status201Created;
-        await Results.Json(new
+        foreach ((Guid id, _, _) in placed)
         {
-            name = viewName,
-            folder = source.Folder,
-            source = name,
-            layers = placed.Select(p => p.LayerIndex),
-            capabilities,
-            url = $"/rest/services/{(source.Folder is null ? "" : source.Folder + "/")}{viewName}/FeatureServer",
-        }, statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
+            string? table = all.FirstOrDefault(l => l.Id == id)?.Definition.TableName;
+            await catalog.UnpublishLayerAsync(id, CancellationToken.None).ConfigureAwait(false);
+
+            if (table is not null)
+            {
+                await importer.DropViewAsync(table, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>A source's views, or a view's source — what the service page links (ADR-113 §5.5).</summary>

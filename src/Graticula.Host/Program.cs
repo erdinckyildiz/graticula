@@ -1316,6 +1316,15 @@ public static class Program
         bool publishing = PortalEndpoints.PublishingFromPro(app.Configuration);
         app.Use(async (context, next) =>
         {
+            // <b>Repeated slashes are one</b> (ADR-257 §11): the ArcGIS API for Python's create_view posts to
+            // `resturl + "/content/users/…"` with a resturl that already ends in '/', so every portal it works against
+            // answers `/sharing/rest//content/…`. Collapsed before anything reads the path, so routing and every
+            // rewrite below see the address the client meant.
+            if (context.Request.Path.Value is { } asked && asked.Contains("//", StringComparison.Ordinal))
+            {
+                context.Request.Path = new PathString(System.Text.RegularExpressions.Regex.Replace(asked, "/{2,}", "/"));
+            }
+
             // ArcGIS's item page, at any of the portal's three addresses, is Studio's item page (ItemPageAddress).
             if (ItemPageAddress.Location(context.Request.Path, context.Request.Query) is { } itemPage)
             {
