@@ -1404,6 +1404,10 @@ public static class Program
             context => string.Equals(context.Request.Query["f"], "pjson", StringComparison.OrdinalIgnoreCase),
             branch => branch.Use(PrettyJson.IndentAsync));
 
+        // A portal answer travels with its length, as the ArcGIS API for Python needs to read an error as one —
+        // PortalContentLength's remarks. Inside JSONP and pjson, which both set the length of what they rewrite.
+        app.UseWhen(context => PortalContentLength.Applies(context.Request), branch => branch.Use(PortalContentLength.SendAsync));
+
         /*
           <b>Who is calling, resolved once, [D-12](../../docs/architecture-debt.md).</b> The
           per-address rate limit used the socket address and never `X-Forwarded-For`, so behind a
