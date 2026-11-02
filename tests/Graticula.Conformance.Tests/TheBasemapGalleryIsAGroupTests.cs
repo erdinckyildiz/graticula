@@ -80,10 +80,16 @@ public sealed class TheBasemapGalleryIsAGroupTests : ArcGisClient
             Assert.Contains(Closed, titles);
 
             // ---- the SDK's path, signed in ----
-            (HttpStatusCode selfStatus, string self) = await AnonymousAsync("/sharing/rest/portals/self");
-            Assert.Equal(HttpStatusCode.OK, selfStatus);
+            (int selfStatus, string self) = await AdminAsync(HttpMethod.Get, "/sharing/rest/portals/self?f=json");
+            Assert.Equal(200, selfStatus);
             string query = Root(self).GetProperty("basemapGalleryGroupQuery").GetString()!;
             Assert.False(string.IsNullOrEmpty(query), "portals/self names no basemap gallery.");
+
+            // A signed-out caller is not told of a group it cannot find (Q-174; the ArcGIS veteran's review of 2026-11-03).
+            (HttpStatusCode theirSelfStatus, string theirSelf) = await AnonymousAsync("/sharing/rest/portals/self");
+            Assert.Equal(HttpStatusCode.OK, theirSelfStatus);
+            Assert.Equal(string.Empty, Root(theirSelf).GetProperty("basemapGalleryGroupQuery").GetString());
+            Assert.Equal(string.Empty, Root(theirSelf).GetProperty("vectorBasemapGalleryGroupQuery").GetString());
 
             (_, string groups) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/community/groups?q={Uri.EscapeDataString(query)}&num=1&f=json");
             JsonElement found = Root(groups).GetProperty("results");
@@ -101,6 +107,15 @@ public sealed class TheBasemapGalleryIsAGroupTests : ArcGisClient
             (_, string items) = await AdminAsync(HttpMethod.Get,
                 $"/sharing/rest/content/groups/{groupId}/search?q={Uri.EscapeDataString("type:\"Web Map\" -type:\"Web Application\"")}&num=100&sortField=name&sortOrder=desc&f=json");
             JsonElement[] entries = [.. Root(items).GetProperty("results").EnumerateArray()];
+
+            // And the group's search and the portal's agree with community/groups for a signed-out caller: no such group,
+            // and no gallery entry found by naming it. They answered the gallery's maps until 2026-11-03.
+            (_, string theirItems) = await AnonymousAsync(
+                $"/sharing/rest/content/groups/{groupId}/search?q={Uri.EscapeDataString("type:\"Web Map\"")}&num=100");
+            Assert.True(Root(theirItems).TryGetProperty("error", out _), $"A signed-out caller searched the gallery group: {theirItems}");
+            (_, string theirSearch) = await AnonymousAsync($"/sharing/rest/search?q={Uri.EscapeDataString($"group:{groupId}")}&num=100");
+            Assert.DoesNotContain(Root(theirSearch).GetProperty("results").EnumerateArray(),
+                e => e.GetProperty("title").GetString() == Open && e.GetProperty("type").GetString() == "Web Map");
 
             // Each service as a Web Map.
             JsonElement entry = Assert.Single(entries, e => e.GetProperty("title").GetString() == Open);

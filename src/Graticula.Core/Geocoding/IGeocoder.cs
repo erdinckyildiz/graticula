@@ -54,12 +54,21 @@ public interface IGeocoder
 /// <param name="Near">A position to prefer places near — longitude, latitude — or null.</param>
 /// <param name="Within">A box places must fall in, or null.</param>
 /// <param name="Language">The language names should be in, or null for the engine's default.</param>
+/// <param name="Kinds">
+/// The kinds of place wanted, or null for any. An implementation answers only places of these kinds — narrowing
+/// at the engine where it can and filtering what it answered where it cannot.
+/// </param>
+/// <param name="Countries">
+/// The countries places must be in, as upper-case ISO 3166-1 alpha-2 codes, or null for anywhere.
+/// </param>
 public sealed record GeocodeSearch(
     string Text,
     int Limit,
     (double Longitude, double Latitude)? Near = null,
     GeocodeBox? Within = null,
-    string? Language = null);
+    string? Language = null,
+    IReadOnlySet<GeocodePlaceKind>? Kinds = null,
+    IReadOnlySet<string>? Countries = null);
 
 /// <summary>A box in longitude and latitude.</summary>
 /// <param name="West">Smallest longitude.</param>

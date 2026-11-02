@@ -7749,3 +7749,12 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
   :root #members td.tick { display: flex; align-items: center; }
   #members td[data-l="User type"] { margin-left: 52px; }
 }
+/* Studio › Groups: the head's one control, which groups are listed (ADR-256 §5.7); and Join group on a group's page.
+   On a phone the title and the control share the head's row and every segment is a 44-pixel target. */
+#view-groups .pagehead > #groupScope { align-self: center; margin-left: var(--gap-4); }
+@media (max-width: 720px) {
+  :root #view-groups .pagehead > #groupScope { margin-left: 0; flex: 0 1 auto; }
+  :root #groupScope button { min-height: 44px; padding: 0 12px; }
+  :root #view-group #groupActions:not([hidden]) { display: flex; gap: var(--gap-2); margin: var(--gap-3) 0 0; }
+  :root #view-group #groupActions > button { min-height: 44px; flex: 1 1 0; justify-content: center; }
+}

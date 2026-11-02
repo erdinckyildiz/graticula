@@ -122,6 +122,70 @@ receiver's root, that `groups` sorts by the caller's standing in each group, and
 item writes above do not reach either) is not among the items these doors know. Measured: unit tests
 `ThePortalsItemControlsAreStudiosTests`, and `PortalItemControlsTests` in the conformance suite, which CI runs.
 
+### 5b. Range searches, 2026-11-03
+
+From the ArcGIS veteran's review of v1.0.499: `q=modified:[1700000000000 TO 1900000000000]` and
+`q=created:[0 TO 9999999999999]` answered `total: 0` on the showcase while `q=*` found twenty-four items. The parser
+(`PortalQuery`) did not know a range, read `[1700000000000` and `1900000000000]` as words, and answered nothing — the
+rule that keeps Pro from mistaking a layer for Esri's geocoder, applied to a question it had no reason to refuse.
+
+**What ArcGIS documents** (developers.arcgis.com/rest/users-groups-and-items/search-reference): a range is
+`field:[low TO high]`, square brackets inclusive and braces `{low TO high}` exclusive; `created` and `modified` take
+epoch milliseconds, and the reference's own examples write them zero-padded to nineteen digits.
+
+**What is built.** A range is one token after `field:`, read in either bracket on either side, with `*` for an open
+side; the values are epoch milliseconds, zero-padded or not. It is answered on the item's own `created`, `modified`,
+`numViews` and `size` — the numbers an item this portal writes carries, read from the same object the search returns
+— and an item without the field is outside every range. **A range on any other field, or one that does not parse, is
+refused with a sentence** (`PortalQuery.Refusal`), at `search`, a group's `search` and `community/groups`, rather than
+answered with nothing: a script asking what changed this week cannot tell *nothing* from *not understood*. An unknown
+field that is not a range still answers nothing, as before. Measured: `PortalQueryTests` (ranges, bounds, refusals)
+and `PortalItemWritesTests.A_date_range_search_finds_what_q_star_finds_and_a_range_without_a_field_is_refused`, both
+failing against v1.0.499; and the ArcGIS API for Python's `gis.content.search("modified:[0 TO 9999999999999]")` found
+what its search for `*` found (`tools/sdk-probe/python-portal-doors.py`).
+
+**INFERRED, for the owner to confirm:** that `numViews` and `size` take ranges (the reference lists ranges for dates;
+this portal holds both numbers on every item, a service's `size` as `-1`), and that refusing an unreadable range is
+better than ArcGIS's own behaviour, which is not documented for that case. **Left out:** ranges on text fields
+(`title:[a TO m]`), which the reference does not describe for items and nothing here would answer truthfully.
+
+### 5c. The recycle bin through the portal, 2026-11-03
+
+Same review. Condition 1 made `permanentDelete=true` purge, but `portals/self` never said there was a bin, so the
+ArcGIS API for Python (`gis/__init__.py`, `Item.delete` and `ContentManager.delete_items`) **dropped the parameter,
+warned *Recycle bin not enabled on this organization*, and deleted into the bin** — the script believed the item gone
+for good. Its `user.recyclebin` had nothing to list, and `RecycleItem.restore()` met a 404.
+
+**What ArcGIS documents:** the organisation's `recycleBinSupported` and `recycleBinEnabled` on `portals/self`;
+`permanentDelete` on `delete` and `deleteItems`; `content/users/{u}/items/{id}/restore` with an optional `folder`; and a
+member's bin listed by `content/users/{u}` with `inRecycleBin=true` (which the Python API's `RecycleBin.content` sends,
+with `foldersContent`, `start`, `num`, `sortField` and `sortOrder`).
+
+**What is built** (`PortalEndpoints.RecycleBin`), each a door onto ADR-203's bin and Studio's handlers:
+
+1. `portals/self` says `recycleBinSupported: true` and `recycleBinEnabled: true` — the bin is always on.
+2. `content/users/{u}?inRecycleBin=true` lists the caller's own entries — those they own, or deleted when nobody owned
+   them — as items with `id`, `owner`, `title`, `type`, `modified` (when deleted), `deleted` and `expires`, paged and
+   sorted as every listing is.
+3. `items/{id}/restore` (with or without a folder in the path) runs Studio's Restore (`RestoreFromRecycleBinAsync`),
+   so its privilege, its refusal and its `recyclebin.restore` audit line are Studio's; it answers
+   `{"success":true,"itemId":…}`. A service is found by its own id or any of its faces' item ids.
+4. A `delete` with `permanentDelete=true` of an id **already in the bin** — the Python API's `RecycleItem.delete()` —
+   runs Studio's Delete for good (`PurgeFromRecycleBinAsync`, audited `recyclebin.purge`). An id in neither the catalogue
+   nor the bin is still *Item does not exist or is inaccessible.*
+
+**INFERRED, for the owner to confirm:** an entry's portal `type` is read from its kind, because the bin keeps what was
+deleted and not the item document — a service is a `Feature Service`, a web map a `Web Map`, an image service an
+`Image Service`, a document `Document` and a toolbox `Toolbox` (the last two are not ArcGIS type names); and a
+`restore` that names a `folder` is refused rather than honoured, because Studio's restore puts an item back in the
+folder it was deleted from. **Left out:** the organisation's bin as one listing for administrators (the Python API offers it
+as `gis.admin.org_recyclebin` on its ArcGIS Online administrator only, `gis/admin/agoladmin.py`); Studio's own screen
+remains the administrator's view of every entry. Measured: `PortalItemWritesTests.The_recycle_bin_is_listed_restored_from_and_emptied_through_the_portal`,
+and the ArcGIS API for Python 2.4.3 against the local fixture
+(`tools/sdk-probe/python-portal-doors.py`): `item.delete()` put a web map in `user.recyclebin.content`, its
+`RecycleItem.restore()` brought back the same id, and `item.delete(permanent=True)` sent `permanentDelete`, without the
+warning, and left nothing in the bin.
+
 ## Conditions
 
 1. **The recycle bin has a screen** (the veteran's N7), after which `permanentDelete` can mean what it says.

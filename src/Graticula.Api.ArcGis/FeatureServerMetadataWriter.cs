@@ -48,6 +48,13 @@ public static class FeatureServerMetadataWriter
     /// </remarks>
     public const double CurrentVersion = 12.1;
 
+    /// <summary>
+    /// The release <see cref="CurrentVersion"/> is, written out — what <c>/rest/info</c>, the hosting server's
+    /// <c>/arcgis/admin</c> and the portal's <c>enterpriseVersion</c> all say, from this one place (ADR-181 §5).
+    /// </summary>
+    public static string FullVersion { get; } =
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{CurrentVersion}.0");
+
     /// <summary>The maximum features one query will return.</summary>
     /// <remarks>Mirrors <see cref="FeatureQuery.MaximumLimit"/>, so a client that
     /// respects this never triggers our own clamp.</remarks>
@@ -100,7 +107,7 @@ public static class FeatureServerMetadataWriter
     public static object ServerInfo(string tokenServicesUrl, string? owningSystemUrl = null) => new
     {
         currentVersion = CurrentVersion,
-        fullVersion = $"{CurrentVersion}.0",
+        fullVersion = FullVersion,
         owningSystemUrl,
 
         // Declared so a client knows to authenticate rather than to guess from a

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -60,9 +61,15 @@ internal sealed class PhotonGeocoder : IGeocoder, IDisposable
     {
         ArgumentNullException.ThrowIfNull(search);
 
+        // <b>A filter Photon is given is also applied to what it answers</b>, because the port promises only places of
+        // the kinds and countries asked for, and Photon's layers are coarser than our kinds in one place (a point of
+        // interest and an address are both its `house`) and absent in another (it has no postcode layer).
+        bool filtered = search.Kinds is { Count: > 0 } || search.Countries is { Count: > 0 };
+        int limit = filtered ? Math.Min(MaximumFilteredLimit, Math.Max(search.Limit * 2, 10)) : search.Limit;
+
         StringBuilder query = new("api?q=");
         query.Append(Uri.EscapeDataString(search.Text));
-        query.Append("&limit=").Append(search.Limit.ToString(CultureInfo.InvariantCulture));
+        query.Append("&limit=").Append(limit.ToString(CultureInfo.InvariantCulture));
 
         if (search.Near is { } near)
         {
@@ -81,9 +88,76 @@ internal sealed class PhotonGeocoder : IGeocoder, IDisposable
 
         AppendLanguage(query, search.Language);
 
+        if (Layers(search.Kinds) is { } layers)
+        {
+            foreach (string layer in layers)
+            {
+                query.Append("&layer=").Append(layer);
+            }
+        }
+
+        if (search.Countries is { Count: > 0 } countries)
+        {
+            foreach (string country in countries.Order(StringComparer.Ordinal))
+            {
+                query.Append("&countrycode=").Append(Uri.EscapeDataString(country.ToLowerInvariant()));
+            }
+        }
+
         using JsonDocument answer = await GetAsync(query.ToString(), cancellationToken).ConfigureAwait(false);
 
-        return Places(answer.RootElement);
+        IReadOnlyList<GeocodePlace> places = Places(answer.RootElement);
+
+        if (!filtered)
+        {
+            return places;
+        }
+
+        return
+        [
+            .. places
+                .Where(place => search.Kinds is not { Count: > 0 } kinds || kinds.Contains(place.Kind))
+                .Where(place => search.Countries is not { Count: > 0 } codes
+                    || (place.CountryCode is { } code && codes.Contains(code)))
+                .Take(search.Limit),
+        ];
+    }
+
+    /// <summary>The most places asked of Photon when its answer will be filtered here as well.</summary>
+    public const int MaximumFilteredLimit = 50;
+
+    /// <summary>
+    /// Photon's <c>layer</c> values covering <paramref name="kinds"/>, or null when they cannot be narrowed there.
+    /// </summary>
+    /// <remarks>
+    /// Photon 1.x documents the layers <c>house</c>, <c>street</c>, <c>locality</c>, <c>district</c>, <c>city</c>,
+    /// <c>county</c>, <c>state</c>, <c>country</c> and <c>other</c>. A point of interest is a <c>house</c> when it has a
+    /// number and <c>other</c> when it is a natural or unaddressed feature; a postcode has no layer of its own, so a
+    /// search that wants postcodes is not narrowed at Photon at all and is filtered here.
+    /// </remarks>
+    internal static IReadOnlyList<string>? Layers(IReadOnlySet<GeocodePlaceKind>? kinds)
+    {
+        if (kinds is not { Count: > 0 } || kinds.Contains(GeocodePlaceKind.Postcode))
+        {
+            return null;
+        }
+
+        SortedSet<string> layers = new(StringComparer.Ordinal);
+
+        foreach (GeocodePlaceKind kind in kinds)
+        {
+            string[] these = kind switch
+            {
+                GeocodePlaceKind.House => ["house"],
+                GeocodePlaceKind.PointOfInterest => ["house", "other"],
+                GeocodePlaceKind.Street => ["street"],
+                _ => ["locality", "district", "city", "county", "state", "country"],
+            };
+
+            layers.UnionWith(these);
+        }
+
+        return [.. layers];
     }
 
     /// <inheritdoc/>

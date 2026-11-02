@@ -192,7 +192,9 @@ member list, no item list, and no count of either. An organisation-visible group
 non-member with `memberType: "none"` — discoverability without membership, which is what a portal
 means by it. The owner's name **is** published, and that is the line the reference draws too:
 `hiddenMembers` hides the members, and a group's owner shows in its details whatever it says. It is
-also the line `/admin/groups` already drew, so this face discloses nothing the admin face does not.
+also the line `/admin/groups` already drew, so this face discloses nothing the admin face does not. *(Since 2026-11-03 a
+group's members are read on their own at `community/groups/{id}/users` and `userList`, to whom Studio shows them —
+[ADR-256](ADR-256-portal-group-writes-go-through-studios-privilege.md) §5a; the group read itself still carries none.)*
 
 **An anonymous caller gets an empty list, and that answer is now true** rather than a shape. No
 group is visible to an anonymous caller since Q-119, so the directory is not even asked.

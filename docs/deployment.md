@@ -745,9 +745,11 @@ organisation is a single-tenant portal to its ArcGIS clients (ADR-204 §5e item 
 ## 5. A geocoder, if you want one
 
 **Optional, and off unless you turn it on** ([ADR-258](adr/ADR-258-an-optional-photon-adapter-behind-geocodeserver.md)).
-With it, the server offers `/rest/services/Utilities/Geocode/GeocodeServer` — the locator ArcGIS Pro, the Maps SDK's
-Search widget and Field Maps can be given by URL — answering `findAddressCandidates`, `suggest` and `reverseGeocode`
-from OpenStreetMap data. Without it there is no such service and nothing else changes.
+With it, the server offers `/rest/services/Utilities/Geocode/GeocodeServer` answering `findAddressCandidates`,
+`suggest`, `reverseGeocode` and `geocodeAddresses` (a table of addresses at once) from OpenStreetMap data, and the
+portal names it as the organisation's locator — so Map Viewer, the Maps SDK's Search widget, ArcGIS Pro and the ArcGIS
+API for Python find it without being given a URL, wherever the caller may use it. Without it there is no such service
+and nothing else changes.
 
 The engine is [Photon](https://github.com/komoot/photon), which you run beside the server: a Java 21 service with an
 index built from an OpenStreetMap extract. GraphHopper publishes Photon dumps by country; importing Türkiye's took nine
@@ -761,8 +763,10 @@ and 64 GB of memory by Photon's README. Keep it on a private address; the server
 | `Graticula__Geocoding__TimeoutSeconds` | 5 | How long one search may wait for Photon |
 | `Graticula__Geocoding__Sharing` | `organization` | `public`, `allorganizations`, `organization` or `private` |
 | `Graticula__Geocoding__Languages` | none | The languages the index was imported with, such as `tr,en`; a request's `langCode` is passed on only when it is one of them |
+| `Graticula__Geocoding__MaxBatchSize` | 200 | The most addresses one `geocodeAddresses` request geocodes, 1 to 2000; the service advertises it, and clients split their tables by it. Four addresses are asked of Photon at a time |
 
-A value the server cannot use stops it at startup with the key named. When Photon is down or slow, the three
-operations answer 503 with the reason and the service document keeps answering. The service names its data's source
+A value the server cannot use stops it at startup with the key named. When Photon is down or slow, the operations
+answer 503 with the reason and the service document keeps answering; in a batch, one address Photon fails on is that
+address's unmatched row, and only a Photon that answers none of the first ones fails the batch. The service names its data's source
 in `copyrightText` — *© OpenStreetMap contributors*, which OpenStreetMap's licence asks for wherever its data is shown.
 House numbers are only as complete as OpenStreetMap's; places, streets and districts are good.

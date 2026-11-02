@@ -15,6 +15,8 @@ namespace Graticula.Host.Geocoding;
 /// <param name="Sharing">Who may use the GeocodeServer: public, every organisation's members, this one's, or administrators.</param>
 /// <param name="Languages">The languages its index was built with, lower-case two-letter codes; a request's
 /// <c>langCode</c> is passed on only when it is one of these, because Photon refuses any other.</param>
+/// <param name="MaxBatchSize">The most records one <c>geocodeAddresses</c> request geocodes — the service resource's
+/// <c>MaxBatchSize</c>; records past it are not geocoded, as the reference documents.</param>
 /// <remarks>
 /// <para>
 /// <b>Absent unless <c>Graticula:Geocoding:PhotonUrl</c> is set</b> — §6: everything beyond PostgreSQL is
@@ -31,8 +33,24 @@ internal sealed record GeocoderSettings(
     Uri PhotonUrl,
     TimeSpan Timeout,
     SharingScope Sharing,
-    IReadOnlySet<string> Languages)
+    IReadOnlySet<string> Languages,
+    int MaxBatchSize = GeocoderSettings.DefaultMaxBatchSize)
 {
+    /// <summary>The batch size when <c>Graticula:Geocoding:MaxBatchSize</c> is not set.</summary>
+    public const int DefaultMaxBatchSize = 200;
+
+    /// <summary>The largest batch size that may be configured.</summary>
+    public const int LargestMaxBatchSize = 2000;
+
+    /// <summary>
+    /// How many of a batch's records are asked of the engine at once — ADR-258 §5.8, INFERRED. A batch is one
+    /// client's request, and it must not take every connection Photon has from the search boxes in front of it.
+    /// </summary>
+    public const int BatchConcurrency = 4;
+
+    /// <summary>The batch size a client is advised to send — the service resource's <c>SuggestedBatchSize</c>.</summary>
+    public int SuggestedBatchSize => Math.Min(MaxBatchSize, 100);
+
     /// <summary>The configuration section.</summary>
     public const string Section = "Graticula:Geocoding";
 
@@ -125,6 +143,17 @@ internal sealed record GeocoderSettings(
             }
         }
 
-        return new GeocoderSettings(address, TimeSpan.FromSeconds(seconds), sharing, languages);
+        int maxBatch = DefaultMaxBatchSize;
+
+        if (configuration[$"{Section}:MaxBatchSize"] is { Length: > 0 } batch
+            && (!int.TryParse(batch, NumberStyles.Integer, CultureInfo.InvariantCulture, out maxBatch)
+                || maxBatch < 1 || maxBatch > LargestMaxBatchSize))
+        {
+            throw new InvalidOperationException(
+                $"{Section}:MaxBatchSize is '{batch}'; it must be a whole number from 1 to {LargestMaxBatchSize} — "
+                + "the most addresses one geocodeAddresses request geocodes.");
+        }
+
+        return new GeocoderSettings(address, TimeSpan.FromSeconds(seconds), sharing, languages, maxBatch);
     }
 }

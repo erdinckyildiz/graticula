@@ -22,8 +22,8 @@ namespace Graticula.Host.Geocoding;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Four resources, and only when a geocoder is configured</b>: the service, <c>findAddressCandidates</c>,
-/// <c>suggest</c> and <c>reverseGeocode</c>, under <see cref="GeocoderSettings.Path"/>. A deployment that never
+/// <b>Five resources, and only when a geocoder is configured</b>: the service, <c>findAddressCandidates</c>,
+/// <c>suggest</c>, <c>reverseGeocode</c> and <c>geocodeAddresses</c>, under <see cref="GeocoderSettings.Path"/>. A deployment that never
 /// set <c>Graticula:Geocoding:PhotonUrl</c> has no route here and no entry in the directory — absent, not a
 /// service that answers 503 for ever (Q-226, owner decision 2026-11-02).
 /// </para>
@@ -64,7 +64,46 @@ internal static partial class GeocodeServerEndpoints
         group.MapMethods("/findAddressCandidates", GetOrPost, FindAddressCandidatesAsync);
         group.MapMethods("/suggest", GetOrPost, SuggestAsync);
         group.MapMethods("/reverseGeocode", GetOrPost, ReverseGeocodeAsync);
+        group.MapMethods("/geocodeAddresses", GetOrPost, GeocodeAddressesAsync);
     }
+
+    /// <summary>
+    /// The entry <c>portals/self</c> names in <c>helperServices.geocode</c> — the organisation's locator — or null when
+    /// there is none or this caller may not use it (ADR-258 §5.8).
+    /// </summary>
+    /// <param name="settings">The geocoder's settings, or null.</param>
+    /// <param name="current">Who is asking.</param>
+    /// <param name="origin">The address this server is reached at, with its path base.</param>
+    /// <returns>The entry, or null.</returns>
+    /// <remarks>
+    /// <b>The shape a portal gives its locators</b> — read from ArcGIS Online's own <c>portals/self</c>, which is a
+    /// public document: the service's <c>url</c>, the four candidate attributes that hold a match's extent
+    /// (<c>northLat</c> <c>Ymax</c> and so on, which this service writes), a <c>name</c>, and what it does —
+    /// <c>placefinding</c>, <c>suggest</c>, <c>batch</c>. <b><c>singleLineFieldName</c> is not in that document and is
+    /// not optional</b>: the Maps SDK's Search widget (4.30) makes a source of each entry, and for any locator but Esri's
+    /// World one it made none until the entry named its single-line field — measured 2026-11-03 against a portal
+    /// document varied one field at a time (ADR-258 §6). <c>zoomScale</c> is the scale a client zooms to on a match
+    /// without an extent; every match here has one, and 10000 is the value Enterprise's documentation shows (INFERRED).
+    /// <b>Named only to a caller it would answer</b>, by the rule the service applies to itself, as the geometry
+    /// service is: a link that leads to a 404 is worse than no link.
+    /// </remarks>
+    internal static Dictionary<string, object?>? PortalLocator(GeocoderSettings? settings, RequestPrincipal current, string origin) =>
+        settings is null || !Allowed(settings, current)
+            ? null
+            : new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["url"] = origin + GeocoderSettings.Path,
+                ["northLat"] = "Ymax",
+                ["southLat"] = "Ymin",
+                ["eastLon"] = "Xmax",
+                ["westLon"] = "Xmin",
+                ["name"] = "Photon geocoder (OpenStreetMap)",
+                ["singleLineFieldName"] = GeocodeServerWriter.SingleLineField,
+                ["suggest"] = true,
+                ["zoomScale"] = 10000,
+                ["placefinding"] = true,
+                ["batch"] = true,
+            };
 
     /// <summary>Whether the services directory lists the geocode service in <paramref name="folder"/> to this caller.</summary>
     /// <param name="settings">The geocoder's settings, or null.</param>
@@ -109,10 +148,10 @@ internal static partial class GeocodeServerEndpoints
 
     // ---------- the service ----------
 
-    private static IResult Describe(HttpContext context)
+    private static IResult Describe(HttpContext context, GeocoderSettings settings)
     {
-        Dictionary<string, object?> document =
-            GeocodeServerWriter.ServiceDocument(FeatureServerMetadataWriter.CurrentVersion, "Photon");
+        Dictionary<string, object?> document = GeocodeServerWriter.ServiceDocument(
+            FeatureServerMetadataWriter.CurrentVersion, "Photon", settings.MaxBatchSize, settings.SuggestedBatchSize);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -127,6 +166,7 @@ internal static partial class GeocodeServerEndpoints
                         ("findAddressCandidates", $"{root}/findAddressCandidates"),
                         ("suggest", $"{root}/suggest"),
                         ("reverseGeocode", $"{root}/reverseGeocode"),
+                        ("geocodeAddresses", $"{root}/geocodeAddresses"),
                     ],
                     "Supported operations"),
                 "text/html; charset=utf-8");
@@ -183,17 +223,28 @@ internal static partial class GeocodeServerEndpoints
             return refusal!;
         }
 
+        if (!TryFilters(p, out IReadOnlySet<GeocodePlaceKind>? kinds, out IReadOnlySet<string>? countries, out refusal)
+            || !TryDistance(p("distance"), near is not null, out double? radius, out refusal))
+        {
+            return refusal!;
+        }
+
         string? magicKey = p("magicKey") is { Length: > 0 } key ? key.Trim() : null;
+
+        // <b>A suggestion's key is found again by searching its text</b>: Photon has no lookup by OpenStreetMap id,
+        // and the Maps SDK sends the suggestion's text with its key. Asked for a few more than one so the suggested
+        // place is among them even when the text is shared by several — and more when `distance` will reorder them,
+        // so the near ones Photon ranked lower are there to be lifted.
+        int asked = magicKey is not null ? Math.Max(max, 10)
+            : radius is not null ? Math.Min(GeocodeServerWriter.MaximumLocations, Math.Max(max * 2, 20))
+            : max;
 
         IReadOnlyList<GeocodePlace> places;
 
         try
         {
-            // <b>A suggestion's key is found again by searching its text</b>: Photon has no lookup by
-            // OpenStreetMap id, and the Maps SDK sends the suggestion's text with its key. Asked for a few more
-            // than one so the suggested place is among them even when the text is shared by several.
             places = await geocoder.SearchAsync(
-                    new GeocodeSearch(line.Trim(), magicKey is null ? max : Math.Max(max, 10), near, within, p("langCode")),
+                    new GeocodeSearch(line.Trim(), asked, near, within, p("langCode"), kinds, countries),
                     cancellation)
                 .ConfigureAwait(false);
         }
@@ -213,11 +264,18 @@ internal static partial class GeocodeServerEndpoints
         else
         {
             // Stable, so Photon's own ranking — which knows importance — orders places that score alike.
+            // <b>`distance` boosts, it does not filter</b> — the reference: the radius around `location` within which
+            // candidates are boosted so the closest are returned first. So the places inside it come first, each
+            // group in score order, and the places outside it are still answered (ADR-258 §5.8, INFERRED).
             scored =
             [
                 .. places
                     .Select(place => (Place: place, Score: GeocodeServerWriter.Score(line, place)))
-                    .OrderByDescending(c => c.Score)
+                    .OrderBy(c => radius is { } r && near is { } at
+                        && GeocodeServerWriter.DistanceMeters(at.Item1, at.Item2, c.Place.Longitude, c.Place.Latitude) > r
+                            ? 1
+                            : 0)
+                    .ThenByDescending(c => c.Score)
                     .Take(max),
             ];
         }
@@ -309,12 +367,17 @@ internal static partial class GeocodeServerEndpoints
             return refusal!;
         }
 
+        if (!TryFilters(p, out IReadOnlySet<GeocodePlaceKind>? kinds, out IReadOnlySet<string>? countries, out refusal))
+        {
+            return refusal!;
+        }
+
         IReadOnlyList<GeocodePlace> places;
 
         try
         {
             places = await geocoder.SearchAsync(
-                    new GeocodeSearch(text.Trim(), max, near, within, p("langCode")), cancellation)
+                    new GeocodeSearch(text.Trim(), max, near, within, p("langCode"), kinds, countries), cancellation)
                 .ConfigureAwait(false);
         }
         catch (GeocoderUnavailableException e)
@@ -416,6 +479,339 @@ internal static partial class GeocodeServerEndpoints
                 ["spatialReference"] = GeocodeServerWriter.SpatialReference(outWkid),
             },
         });
+    }
+
+    // ---------- geocodeAddresses ----------
+
+    /// <summary>
+    /// <c>geocodeAddresses</c>: a table of addresses, each answered with its best candidate or as unmatched —
+    /// ADR-258 §5.8.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written from the reference's description of the operation</b>: <c>addresses</c> is a record set whose
+    /// records' <c>attributes</c> carry an <c>OBJECTID</c> and either <c>SingleLine</c> or the address fields; each
+    /// answer carries the <c>OBJECTID</c> back as <c>ResultID</c>; an unmatched record has no <c>location</c>, an empty
+    /// <c>address</c>, score 0 and <c>Status</c> <c>U</c>; and records past <c>MaxBatchSize</c> are not geocoded.
+    /// </para>
+    /// <para>
+    /// <b>Bounded against the engine</b>: at most <see cref="GeocoderSettings.BatchConcurrency"/> records are asked at
+    /// once, each with the configured deadline. <b>One record's failure is that record's</b> — unmatched — while the
+    /// rest are answered; <b>an engine that is down is the batch's</b>: when the first records asked have all failed
+    /// and none has succeeded, the remaining ones are not sent and the request is a 503 like any other operation's,
+    /// rather than a table of a thousand unmatched rows after a thousand timeouts.
+    /// </para>
+    /// <para>
+    /// The answer is in the order the records came in, as well as keyed by <c>ResultID</c>: the ArcGIS API for
+    /// Python pairs answers with its input by position.
+    /// </para>
+    /// </remarks>
+    private static async Task<IResult> GeocodeAddressesAsync(
+        HttpContext context, IGeocoder geocoder, IProjector projector, GeocoderSettings settings, CancellationToken cancellation)
+    {
+        Func<string, string?> p = await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
+
+        if (!TryRecords(p("addresses"), out List<(object Id, string Line)> records, out IResult? refusal)
+            || !TryReference(p("outSR"), Wgs84, "outSR", out int outWkid, out refusal)
+            || !TryFilters(p, out IReadOnlySet<GeocodePlaceKind>? kinds, out IReadOnlySet<string>? countries, out refusal))
+        {
+            return refusal!;
+        }
+
+        (bool extentOk, GeocodeBox? within, refusal) =
+            await SearchExtentAsync(p("searchExtent"), projector, cancellation).ConfigureAwait(false);
+
+        if (!extentOk)
+        {
+            return refusal!;
+        }
+
+        // The reference: records past MaxBatchSize are not geocoded. They are not answered either, so a client that
+        // split its table by the advertised size never meets this, and one that did not sees which rows came back.
+        if (records.Count > settings.MaxBatchSize)
+        {
+            records.RemoveRange(settings.MaxBatchSize, records.Count - settings.MaxBatchSize);
+        }
+
+        string? language = p("langCode");
+        (GeocodePlace Place, double Score)?[] best = new (GeocodePlace, double)?[records.Count];
+        int succeeded = 0;
+        int failed = 0;
+        string? down = null;
+
+        using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+
+        try
+        {
+            await Parallel.ForEachAsync(
+                    Enumerable.Range(0, records.Count),
+                    new ParallelOptions { MaxDegreeOfParallelism = GeocoderSettings.BatchConcurrency, CancellationToken = stop.Token },
+                    async (i, token) =>
+                    {
+                        string line = records[i].Line;
+
+                        if (line.Length == 0)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            IReadOnlyList<GeocodePlace> places = await geocoder.SearchAsync(
+                                    new GeocodeSearch(line, BatchCandidates, null, within, language, kinds, countries), token)
+                                .ConfigureAwait(false);
+
+                            Interlocked.Increment(ref succeeded);
+
+                            // The first of the best, so Photon's ranking settles a tie, as findAddressCandidates does.
+                            (GeocodePlace Place, double Score)? top = null;
+
+                            foreach (GeocodePlace place in places)
+                            {
+                                double score = GeocodeServerWriter.Score(line, place);
+
+                                if (score > 0 && (top is null || score > top.Value.Score))
+                                {
+                                    top = (place, score);
+                                }
+                            }
+
+                            best[i] = top;
+                        }
+                        catch (GeocoderUnavailableException e)
+                        {
+                            int failures = Interlocked.Increment(ref failed);
+
+                            if (Volatile.Read(ref succeeded) == 0 && failures >= GeocoderSettings.BatchConcurrency)
+                            {
+                                Interlocked.CompareExchange(ref down, e.Message, null);
+                                await stop.CancelAsync().ConfigureAwait(false);
+                            }
+                            else if (Volatile.Read(ref succeeded) == 0)
+                            {
+                                Interlocked.CompareExchange(ref down, e.Message, null);
+                            }
+                        }
+                    })
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested && down is not null)
+        {
+            // The engine is down; answered below.
+        }
+
+        // Nothing the engine was asked was answered: that is the engine, not the records.
+        if (succeeded == 0 && failed > 0)
+        {
+            return Unavailable(context, new GeocoderUnavailableException(down ?? "The geocoder did not answer."));
+        }
+
+        List<double> lonLat = [];
+
+        foreach ((GeocodePlace Place, double Score)? match in best)
+        {
+            if (match is { Place: var place })
+            {
+                GeocodeBox box = GeocodeServerWriter.ExtentOf(place);
+                lonLat.AddRange([place.Longitude, place.Latitude, box.West, box.South, box.East, box.North]);
+            }
+        }
+
+        (bool projectedOk, double[] xy, refusal) =
+            await FromWgs84Async(lonLat, outWkid, projector, cancellation).ConfigureAwait(false);
+
+        if (!projectedOk)
+        {
+            return refusal!;
+        }
+
+        string? outFields = p("outFields");
+        List<object> locations = new(records.Count);
+        int at = 0;
+
+        for (int i = 0; i < records.Count; i++)
+        {
+            if (best[i] is not { } match)
+            {
+                locations.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["address"] = string.Empty,
+                    ["score"] = 0.0,
+                    ["attributes"] = GeocodeServerWriter.BatchAttributes(
+                        records[i].Id, GeocodeServerWriter.UnmatchedAttributes(), outFields),
+                });
+
+                continue;
+            }
+
+            GeocodeBox extent = new(
+                Math.Min(xy[at + 2], xy[at + 4]), Math.Min(xy[at + 3], xy[at + 5]),
+                Math.Max(xy[at + 2], xy[at + 4]), Math.Max(xy[at + 3], xy[at + 5]));
+
+            Dictionary<string, object?> attributes =
+                GeocodeServerWriter.Attributes(match.Place, match.Score, xy[at], xy[at + 1], extent, null);
+
+            locations.Add(new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["address"] = attributes["Match_addr"],
+                ["location"] = new { x = xy[at], y = xy[at + 1] },
+                ["score"] = match.Score,
+                ["attributes"] = GeocodeServerWriter.BatchAttributes(records[i].Id, attributes, outFields),
+            });
+
+            at += 6;
+        }
+
+        return Answer(context, "geocodeAddresses", new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["spatialReference"] = GeocodeServerWriter.SpatialReference(outWkid),
+            ["locations"] = locations,
+        });
+    }
+
+    /// <summary>How many places the engine is asked for per batch record; the best of them is the answer.</summary>
+    private const int BatchCandidates = 5;
+
+    /// <summary>The records of an <c>addresses</c> record set: each one's <c>OBJECTID</c> and its address as one line.</summary>
+    private static bool TryRecords(string? raw, out List<(object Id, string Line)> records, out IResult? refusal)
+    {
+        records = [];
+        refusal = null;
+
+        const string Shape = "'addresses' must be a record set, as {\"records\":[{\"attributes\":{\"OBJECTID\":1,"
+            + "\"SingleLine\":\"…\"}}]}, each record with an OBJECTID and SingleLine or the address fields.";
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            refusal = BadRequest("'addresses' is required.", Shape);
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument json = JsonDocument.Parse(raw);
+
+            if (json.RootElement.ValueKind != JsonValueKind.Object
+                || !json.RootElement.TryGetProperty("records", out JsonElement list)
+                || list.ValueKind != JsonValueKind.Array)
+            {
+                refusal = BadRequest(Shape);
+                return false;
+            }
+
+            int index = 0;
+
+            foreach (JsonElement record in list.EnumerateArray())
+            {
+                if (record.ValueKind != JsonValueKind.Object
+                    || !record.TryGetProperty("attributes", out JsonElement attributes)
+                    || attributes.ValueKind != JsonValueKind.Object)
+                {
+                    refusal = BadRequest($"Record {index} has no 'attributes' object.", Shape);
+                    return false;
+                }
+
+                // Names are matched without regard to case, as the other operations' parameters are.
+                Dictionary<string, JsonElement> named = new(StringComparer.OrdinalIgnoreCase);
+
+                foreach (JsonProperty property in attributes.EnumerateObject())
+                {
+                    named[property.Name] = property.Value;
+                }
+
+                object? id = named.TryGetValue("OBJECTID", out JsonElement oid)
+                    ? oid.ValueKind switch
+                    {
+                        JsonValueKind.Number when oid.TryGetInt64(out long whole) => whole,
+                        JsonValueKind.String when oid.GetString() is { Length: > 0 } text => text,
+                        _ => null,
+                    }
+                    : null;
+
+                if (id is null)
+                {
+                    refusal = BadRequest(
+                        $"Record {index} has no OBJECTID; each record carries one, and its answer carries it back as ResultID.",
+                        Shape);
+                    return false;
+                }
+
+                string? Text(string name) =>
+                    named.TryGetValue(name, out JsonElement value)
+                        ? value.ValueKind switch
+                        {
+                            JsonValueKind.String => value.GetString(),
+                            JsonValueKind.Number => value.GetRawText(),
+                            _ => null,
+                        }
+                        : null;
+
+                string line = Text(GeocodeServerWriter.SingleLineField) is { } single && !string.IsNullOrWhiteSpace(single)
+                    ? single.Trim()
+                    : string.Join(", ", GeocodeServerWriter.AddressFields
+                        .Select(Text)
+                        .Where(v => !string.IsNullOrWhiteSpace(v))
+                        .Select(v => v!.Trim()));
+
+                records.Add((id, line));
+                index++;
+            }
+        }
+        catch (JsonException)
+        {
+            refusal = BadRequest("'addresses' is not JSON.", Shape);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary><c>category</c> and <c>sourceCountry</c>, as the kinds and countries the engine is asked for.</summary>
+    private static bool TryFilters(
+        Func<string, string?> p,
+        out IReadOnlySet<GeocodePlaceKind>? kinds,
+        out IReadOnlySet<string>? countries,
+        out IResult? refusal)
+    {
+        refusal = null;
+        countries = null;
+
+        if (!GeocodeServerWriter.TryCategories(p("category"), out kinds, out string? sentence)
+            || !GeocodeServerWriter.TryCountries(p("sourceCountry"), out countries, out sentence))
+        {
+            refusal = BadRequest(sentence!);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary><c>distance</c>: metres around <c>location</c> within which candidates are boosted.</summary>
+    private static bool TryDistance(string? raw, bool hasLocation, out double? radius, out IResult? refusal)
+    {
+        radius = null;
+        refusal = null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return true;
+        }
+
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) || d <= 0 || !double.IsFinite(d))
+        {
+            refusal = BadRequest("'distance' must be a positive number of metres.");
+            return false;
+        }
+
+        // The reference: distance is a radius around location, so it means nothing alone.
+        if (!hasLocation)
+        {
+            refusal = BadRequest("'distance' needs 'location': it is the radius around that point within which candidates are preferred.");
+            return false;
+        }
+
+        radius = d;
+        return true;
     }
 
     // ---------- parameters ----------

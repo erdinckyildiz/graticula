@@ -14,6 +14,16 @@
 > layers or makes it a view. This reopens [ADR-057](ADR-057-composing-and-publishing-a-service.md) §5h and condition 4
 > for the portal only. §3's first point, §5.5's last sentence and §9's first trigger are answered there.
 
+> **Amended 2026-11-03 — §12.** The ArcGIS veteran's review of v1.0.499 found `manager.overwrite(csv)` failing at its
+> first step. A service the portal's publish makes is now related to its data item as ArcGIS's `Service2Data`
+> (migration 126), `relatedItems` answers it both ways, and `publish` with `overwrite=true` is Studio's Overwrite of
+> that service's layer. That the finding is to be fixed is the owner's instruction for the review; **how it is fixed is
+> INFERRED** and listed in §12.5. §5.3's refusal of `overwrite=true` is struck there.
+
+> **Amended 2026-11-03 — §13** (the ArcGIS veteran's review, no owner decision): the hosted service's
+> `updateDefinition` accepts the derived keys where they agree, wires `editorTrackingInfo` to Studio's editor-tracking
+> work, and refuses every other key by name. Three choices in it are `INFERRED`.
+
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
@@ -138,8 +148,9 @@ Python posts it, as well as from the query.
 ### 5.3 What `publish` refuses
 
 `locationType` other than `coordinates` (an address, a lookup, or `none` for a table without coordinates: the
-import's reader needs coordinates or WKT and geocodes nothing); `overwrite=true` (Update data, or `append` with
-`truncateExisting`, replaces a layer's rows); a file type the item is not. Each is refused by name and writes nothing.
+import's reader needs coordinates or WKT and geocodes nothing); ~~`overwrite=true` (Update data, or `append` with
+`truncateExisting`, replaces a layer's rows)~~ *(answered since 2026-11-03 — §12: an overwrite of the service the item
+was published to)*; a file type the item is not. Each is refused by name and writes nothing.
 
 ### 5.4 `content/features/analyze`
 
@@ -338,3 +349,131 @@ visible in Server's list).
 - `async=true` and its status URL.
 - A view's `createParameters` other than `capabilities` (`isUpdatableView`, `sourceSchemaChangesAllowed`) — passed over;
   the capabilities decide what a view offers here.
+
+## 12. Amendment, 2026-11-03 — `Service2Data`, and overwrite from the data item
+
+### 12.1 What failed
+
+The ArcGIS veteran's review of v1.0.499: the ArcGIS API for Python's `FeatureLayerCollection.manager.overwrite(csv)`
+(`arcgis/features/managers.py`, 2.4.3) reads the service's `serviceItemId`, asks that item for
+`related_items("Service2Data", "forward")`, and stops with *Cannot find related data item used to publish this Feature
+Layer* when there is none. `relatedItems` was a stub answering `{"total":0}` for every item, and the portal's publish
+refused `overwrite=true` (§5.3). Past that first step the client checks the file's name against the data item's
+`name`, reads `info/publishParameters.json` of the service item, replaces the data item's file with
+`items/{id}/update`, and calls the data item's `publish(overwrite=True)` — which, for a CSV, Shapefile, File
+Geodatabase or Excel item, asks the data item for `related_items("Service2Data", "reverse")`, analyses it again and
+posts `publish` with `overwrite=true`.
+
+### 12.2 What ArcGIS documents
+
+*Related Items*: `relationshipType` (one or several, comma-separated) and `direction` (`forward` from the origin,
+`reverse` from the destination), answering `total` and `relatedItems`; `Service2Data` relates a service (origin) to
+the data item it was published from (destination). *Publish Item*: `overwrite=true` replaces the service the item was
+published to, keeping the service's item id and URL.
+
+### 12.3 What is built
+
+1. **Migration 126, `item_relationship`** — origin item, destination item, type (`Service2Data` only, by a check), the
+   time, and the organisation, floored as every organisation table is (ADR-204). Both ends reference `item` and go with
+   it; the recycle bin, which follows the store's foreign keys, keeps the relationship with whichever end it holds and
+   puts it back on restore (measured: a service deleted into the bin and restored is related to its CSV again).
+   `ComponentSchemaVersion` is 126.
+2. **The portal's publish relates what it made** (§5.2): the new service to the data item, `Service2Data`.
+3. **`content/items/{id}/relatedItems`** answers from the table, in either direction, each related item as the portal
+   writes it and only those the caller may see. A service is found by its own item id or any of its faces'. Types this
+   portal does not keep answer none; a `direction` other than `forward` or `reverse` is refused.
+4. **`content/items/{id}/info/publishParameters.json`** for a service: its `name`, and for one with a `Service2Data`
+   item, `type` (the file type) and `locationType: coordinates`.
+5. **`publish` with `overwrite=true`** finds the one service the item was published to and runs Studio's own Overwrite
+   (`HostedDataEndpoints.OverwriteLayerAsync`, the handler of `/admin/hosted/{layer}/overwrite`, now able to name the
+   service so a layer name two services share is not ambiguous) on that service's layer, with the item's file as it now
+   is and `x`, `y`, `srid` from `publishParameters` where named. Studio's privilege, its protection rule (no overwrite of
+   a protected item), its reader and its `layer.overwrite` audit line hold. The answer is §5.2's `services[]`, with the
+   existing service's item id.
+
+### 12.4 Evidence
+
+The ArcGIS API for Python 2.4.3 against the local fixture (`tools/sdk-probe/python-portal-doors.py`): a three-row CSV
+added with `Folder.add` and published; `related_items` forward from the service gives the CSV and reverse from the CSV
+gives the Feature Service; the CSV rewritten with five rows under the same name; `manager.overwrite(path)` →
+`{'success': True}`; the layer then counts 5 under the same item id. Conformance:
+`PortalContentAddsTests.A_data_items_service_is_related_to_it_and_overwritten_from_its_changed_file` and
+`An_overwrite_of_an_item_never_published_is_refused`.
+
+### 12.5 INFERRED, for the owner to confirm
+
+1. **One service, one layer.** An item related to no service or to several, and a service of more than one layer, are
+   refused by name: one file replaces one layer, as Studio's Overwrite does. ArcGIS overwrites a multi-layer service
+   from a geodatabase; this does not.
+2. **`publishParameters.json` is reconstructed, not kept**: this portal does not store the parameters a service was
+   published with.
+3. **Only the portal's own publish records the relationship.** A service made in Studio from an uploaded file, or
+   published before migration 126, has no `Service2Data` item, and the Python API's overwrite of it stops at its first
+   step, as before; Studio's Overwrite remains the way.
+4. **The three flags the Python API puts on the data item's `update` before it publishes again** — `overwrite`,
+   `overwriteService` and `useDescription` (`_gen_overwrite_publishParameters`, on Enterprise) — are passed over as
+   echoes (ADR-214 §5 item 1's list). They were refused by name, and the client went on regardless, ignoring the
+   refusal; they are instructions to the publish that follows rather than fields of the item.
+
+### 12.6 Left out
+
+- `Map2Service`, `WMA2Code` and ArcGIS's other relationship types, and `addRelationship` / `deleteRelationship`: nothing
+  here makes them, and a portal client asking for them is answered none.
+- Overwrite of a service published from a file geodatabase or a shapefile of several layers.
+- Keeping `publishParameters` as sent.
+
+## 13. Amendment, 2026-11-03 — `updateDefinition`'s keys
+
+**Found by the ArcGIS veteran's review of v1.0.499.** `POST /rest/admin/services[/{folder}]/{name}/FeatureServer/updateDefinition`
+changed four keys — `capabilities`, `serviceDescription` (or `description`), `copyrightText`, `maxRecordCount` — and
+refused the whole request for any fifth, so the script every ArcGIS administrator has, `{"capabilities":"Create,Update,
+Delete,Query,Editing","hasStaticData":false}`, was refused for `hasStaticData`.
+
+**What ArcGIS documents.** *Update Definition (Feature Service)* (developers.arcgis.com, read 2026-11-03) shows, besides
+the four: `hasStaticData`, `allowGeometryUpdates` (sent as the string `"true"` in one of its own examples),
+`editorTrackingInfo` (`enableEditorTracking`, `enableOwnershipAccessControl`, `allowOthersToUpdate`,
+`allowOthersToDelete`), `syncEnabled`, `name`, `units`, `xssPreventionInfo`, `initialExtent`, `preferredTimeReference`,
+`ownershipBasedAccessControlForFeatures` and `layerOverridesEnabled`. The ArcGIS API for Python's
+`manager.update_definition` posts whatever dictionary it is given.
+
+**What is built** (`ArcGisAdminEndpoints.Service.cs`). The whole definition is still checked before anything is written.
+
+- **Kept, as before:** the four keys, through the writers Studio's own screens use.
+- **Derived keys, accepted when they agree and refused with the reason when they contradict:** `hasStaticData` (true
+  exactly where no edit is offered once the definition is applied), `allowGeometryUpdates` (true exactly where Update is
+  offered — an update here may move a feature and change its attributes alike, so there is no attribute-only update to
+  map `false` to), `syncEnabled` (false; ADR-082), `name` (as it is; a service is renamed from its item). Agreeing is not
+  an error; contradicting would be a setting this server cannot hold.
+- **`editorTrackingInfo`, wired to Studio's handlers** (ADR-064, ADR-115, ADR-212): `enableEditorTracking` turns
+  Portal's four columns on or off on every layer of the service, through the same work `POST`/`DELETE
+  /admin/hosted/{layer}/editor-tracking` does (now `HostedDataEndpoints.TrackEditsOfAsync` and `StopTrackingOfAsync`);
+  `enableOwnershipAccessControl` is ADR-115's own-features rule. `allowOthersToUpdate`/`allowOthersToDelete` must say
+  what the rule implies — false where it is on, true where it is off — because ADR-115 holds editors for update and
+  delete together; ArcGIS's own example (`allowOthersToUpdate: true` with ownership on) is a split this server does not
+  keep and is refused by name. `allowOthersToQuery` and `allowAnonymousToQuery` false, and `allowAnonymousToUpdate`/
+  `allowAnonymousToDelete` true, are refused (whoever may read queries; a signed-out caller never edits, ADR-075).
+  `ownershipBasedAccessControlForFeatures`, the layer-level form, is read the same way. A view's tracking is its
+  source's: turning it on or off on a view is refused.
+- **Documented keys not kept, each refused by name with why:** `syncCapabilities`, `xssPreventionInfo`, `initialExtent`,
+  `fullExtent`, `units`, `spatialReference`, `preferredTimeReference`, `layerOverridesEnabled`.
+- **Any other key** is refused by name, with the sentence listing what is accepted. Nothing is silently ignored.
+
+**What is not all-or-nothing.** Turning tracking on alters each layer's table in its own statement (ADR-058 §5g's
+bounded ALTER), so a refusal on the second layer leaves the first changed; the refusal says which layers were changed
+and that the definition's other keys were applied, as Studio's button says it for one layer.
+
+**INFERRED, for the owner to confirm:**
+
+1. A derived key that agrees is accepted rather than refused as *not changed here* — the owner's instruction named
+   `hasStaticData`; `allowGeometryUpdates`, `syncEnabled` and `name` were given the same treatment.
+2. `editorTrackingInfo` applies to every layer and table of the service, as ArcGIS's service-level key does; a layer
+   with tracking already given to other columns on its Fields page is left as it is rather than given Portal's four.
+3. The split *others may update but not delete* is refused rather than approximated by the stricter rule.
+
+**Evidence.** The ArcGIS API for Python 2.4.3 against the local fixture, 2026-11-03: the typical script and
+`allowGeometryUpdates: "true"` answered `success`; `hasStaticData: true`, `allowGeometryUpdates: false`,
+`syncEnabled: true`, `xssPreventionInfo` and an unknown key each refused naming the key; `editorTrackingInfo` turned
+tracking and the own-features rule on (`editFieldsInfo.creatorField` `created_user`,
+`ownershipBasedAccessControlForFeatures` present) and off again. Conformance: `UpdateDefinitionTests`'
+`The_typical_script_is_accepted_and_each_key_this_server_cannot_hold_is_refused_by_name` and
+`Editor_tracking_is_turned_on_and_off_through_update_definition`.

@@ -435,8 +435,13 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // A restore changes what the layer draws, like any edit does (ADR-069).
+        // A restore changes what the layer draws, like any edit does (ADR-069), and when its rows last changed (migration 127).
         tiles.Purge(layer.Id);
+
+        if (connections.DataChanged is { } changed)
+        {
+            await changed([layer.Id, .. layer.ViewLayers], cancellation).ConfigureAwait(false);
+        }
 
         // <b>Restored as it was, and told where today's rules disagree — ADR-078 condition 5, owner decision
         // 2026-10-07.</b> A version from before a list was narrowed comes back with its old value; the edit that

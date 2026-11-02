@@ -168,7 +168,9 @@ internal static partial class PortalEndpoints
     private static async Task<IEnumerable<PortalListed>> BasemapsListedAsync(
         HttpContext context, IReadOnlyList<PublishedService> visible, string? query, CancellationToken cancellation)
     {
-        if ((await GalleryAsync(context, cancellation).ConfigureAwait(false)).Group is not { } gallery
+        // Not to a signed-out caller, who is not given the gallery (Q-174) — as the group and its own search are not.
+        if (context.Features.Get<RequestPrincipal>()?.Principal.IsAnonymous != false
+            || (await GalleryAsync(context, cancellation).ConfigureAwait(false)).Group is not { } gallery
             || !AsksForGallery(query, gallery))
         {
             return [];

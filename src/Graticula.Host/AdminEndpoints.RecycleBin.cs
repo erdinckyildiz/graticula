@@ -24,7 +24,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Whether the caller may see and act on an entry: its owner, who deleted it, or whoever manages all content.</summary>
-    private static bool MayHandle(RequestPrincipal current, RecycleEntry entry) =>
+    internal static bool MayHandle(RequestPrincipal current, RecycleEntry entry) =>
         current.Authorization.Allows(Privilege.AdminManageAllContent)
         || entry.Owner == current.Principal.Id
         || entry.DeletedBy == current.Principal.Id;
@@ -57,7 +57,7 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async Task RestoreFromRecycleBinAsync(
+    internal static async Task RestoreFromRecycleBinAsync(
         HttpContext context, Guid id, RecycleBinService recycle, ItemAnnotations annotations, IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -86,7 +86,7 @@ internal static partial class AdminEndpoints
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async Task PurgeFromRecycleBinAsync(
+    internal static async Task PurgeFromRecycleBinAsync(
         HttpContext context, Guid id, RecycleBinService recycle, IAuditLog audit, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;

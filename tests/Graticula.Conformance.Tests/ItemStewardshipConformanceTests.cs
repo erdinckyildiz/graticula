@@ -63,7 +63,7 @@ public sealed class ItemStewardshipConformanceTests : ArcGisClient
     private static readonly string[] UpdateAndExtract = ["Update", "Extract"];
 
     [Fact]
-    public async Task Extract_is_named_where_the_owner_chose_it_and_to_nobody_anonymous()
+    public async Task Extract_is_the_owners_setting_and_no_capability_string_names_it()
     {
         string service = Service();
         string bare = service[(service.LastIndexOf('/') + 1)..];
@@ -77,8 +77,13 @@ public sealed class ItemStewardshipConformanceTests : ArcGisClient
 
             Assert.True(status == 200, $"Offering Update and Extract answered {status}: {body}");
 
+            // The owner's Extract is kept as their setting and not named in the layer's capabilities, which ArcGIS
+            // clients read as createReplica's (ADR-106 §5.5 as amended 2026-11-03, the ArcGIS veteran's review).
             JsonElement layer = await GetJsonAsync($"/rest/services/{service}/FeatureServer/0?f=json");
-            Assert.Equal("Query,Update,Extract", layer.GetProperty("capabilities").GetString());
+            Assert.Equal("Query,Update", layer.GetProperty("capabilities").GetString());
+            (int read, string kept) = await AdminAsync(HttpMethod.Get, $"/rest/admin/services/{service}/FeatureServer?f=json");
+            Assert.True(read == 200, $"Reading the service's administration answered {read}: {kept}");
+            Assert.Equal("Query,Update,Extract,Editing", JsonDocument.Parse(kept).RootElement.GetProperty("capabilities").GetString());
 
             // An anonymous caller is never offered it. Where the service is not public the document itself is refused,
             // which says the same.

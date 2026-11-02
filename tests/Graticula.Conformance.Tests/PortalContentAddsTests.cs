@@ -173,6 +173,109 @@ public sealed class PortalContentAddsTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-257 §12: the service a data item was published to is related to it as ArcGIS's <c>Service2Data</c>, both ways,
+    /// and a publish with <c>overwrite=true</c> after the item's file changed is Studio's Overwrite of that service's
+    /// layer — the ArcGIS API for Python's <c>manager.overwrite(csv)</c>, which failed at its first step until v1.0.499's
+    /// review.
+    /// </summary>
+    [Fact]
+    public async Task A_data_items_service_is_related_to_it_and_overwritten_from_its_changed_file()
+    {
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string name = $"zz_over_{tag}";
+        string? item = null;
+        bool published = false;
+
+        try
+        {
+            item = await AddCsvAsync($"zz over {tag}", Places, $"{name}.csv");
+            JsonElement answer = await PublishAsync(item, "csv", name);
+            Assert.True(answer.GetProperty("services")[0].GetProperty("success").GetBoolean(), answer.GetRawText());
+            published = true;
+            string service = answer.GetProperty("services")[0].GetProperty("serviceItemId").GetString()!;
+
+            JsonElement forward = await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/items/{service}/relatedItems?relationshipType=Service2Data&direction=forward&f=json");
+            Assert.Equal(item, Assert.Single(forward.GetProperty("relatedItems").EnumerateArray()).GetProperty("id").GetString());
+
+            JsonElement reverse = await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/items/{item}/relatedItems?relationshipType=Service2Data&direction=reverse&f=json");
+            Assert.Equal(service, Assert.Single(reverse.GetProperty("relatedItems").EnumerateArray()).GetProperty("id").GetString());
+
+            // The other direction from each end is empty, as is a type this portal does not keep.
+            Assert.Equal(0, (await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/items/{item}/relatedItems?relationshipType=Service2Data&direction=forward&f=json")).GetProperty("total").GetInt32());
+            Assert.Equal(0, (await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/items/{service}/relatedItems?relationshipType=Map2Service&f=json")).GetProperty("total").GetInt32());
+
+            JsonElement parameters = await SendAsync(HttpMethod.Post,
+                $"/sharing/rest/content/items/{service}/info/publishParameters.json", Form(new() { ["f"] = "json" }));
+            Assert.Equal(name, parameters.GetProperty("name").GetString());
+            Assert.Equal("csv", parameters.GetProperty("type").GetString());
+
+            // The flags the Python API puts on the item's update before it publishes again are passed over, not refused.
+            JsonElement flagged = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{item}/update", Form(new()
+            {
+                ["overwrite"] = "true", ["overwriteService"] = "on", ["useDescription"] = "on", ["f"] = "json",
+            }));
+            Assert.True(flagged.TryGetProperty("success", out JsonElement flaggedOk) && flaggedOk.GetBoolean(), flagged.GetRawText());
+
+            // The item's file replaced through the portal's update, then published again with overwrite.
+            using (MultipartFormDataContent update = new()
+                   {
+                       { new StringContent("json"), "f" },
+                       { new ByteArrayContent(Encoding.UTF8.GetBytes(Places + MorePlaces[(MorePlaces.IndexOf('\n') + 1)..])), "file", $"{name}.csv" },
+                   })
+            {
+                JsonElement updated = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{item}/update", update);
+                Assert.True(updated.TryGetProperty("success", out JsonElement ok) && ok.GetBoolean(), updated.GetRawText());
+            }
+
+            JsonElement overwritten = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/publish", Form(new()
+            {
+                ["itemid"] = item,
+                ["filetype"] = "csv",
+                ["overwrite"] = "true",
+                ["publishParameters"] = JsonSerializer.Serialize(new { name, locationType = "coordinates" }),
+                ["f"] = "json",
+            }));
+            JsonElement result = overwritten.GetProperty("services")[0];
+            Assert.True(result.GetProperty("success").GetBoolean(), overwritten.GetRawText());
+            Assert.Equal(service, result.GetProperty("serviceItemId").GetString());
+            Assert.Equal(5, await CountAsync(name));
+        }
+        finally
+        {
+            await RemoveAsync(published ? name : null, item);
+        }
+    }
+
+    /// <summary>An overwrite of an item that was never published is refused by name and makes nothing (ADR-257 §12).</summary>
+    [Fact]
+    public async Task An_overwrite_of_an_item_never_published_is_refused()
+    {
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string? item = null;
+
+        try
+        {
+            item = await AddCsvAsync($"zz never {tag}", Places);
+            JsonElement answer = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/publish", Form(new()
+            {
+                ["itemid"] = item,
+                ["filetype"] = "csv",
+                ["overwrite"] = "true",
+                ["f"] = "json",
+            }));
+            Assert.Contains("nothing to overwrite", ErrorOf(answer), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await RemoveAsync(null, item);
+        }
+    }
+
     [Fact]
     public async Task A_geojson_item_is_published_through_the_same_import()
     {

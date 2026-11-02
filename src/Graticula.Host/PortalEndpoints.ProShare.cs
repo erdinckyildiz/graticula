@@ -56,8 +56,10 @@ internal static partial class PortalEndpoints
             .Governed(SharingGovernedExtensions.ByFiltering);
         app.MapGet($"{Path}/content/users/{{username}}/{{folderId:length(32)}}/items/{{id}}", UserItemAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
-        app.MapGet($"{Path}/content/items/{{id}}/relatedItems", (string id) =>
-                Results.Ok(new { total = 0, relatedItems = Array.Empty<object>() }))
+        // ADR-257 §12: answered from the relationships kept since migration 126 (PortalEndpoints.Overwrite).
+        Discoverable(app, $"{Path}/content/items/{{id}}/relatedItems", RelatedItemsAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+        Discoverable(app, $"{Path}/content/items/{{id}}/info/publishParameters.json", PublishParametersJsonAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
     }
 

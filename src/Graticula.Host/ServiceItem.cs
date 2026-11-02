@@ -40,4 +40,53 @@ internal static class ServiceItem
         written["serviceItemId"] = itemId;
         return written;
     }
+
+    /// <summary>
+    /// A layer document with its service's <c>serviceItemId</c> and, for a hosted layer whose last change this server
+    /// recorded, ArcGIS's <c>editingInfo</c> — the ArcGIS veteran's review of 2026-11-03.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>ArcGIS's <i>Layer (Feature Service)</i> names both on the layer</b>: <c>serviceItemId</c> as the service does,
+    /// and <c>editingInfo</c> with <c>lastEditDate</c>, <c>schemaLastEditDate</c> and <c>dataLastEditDate</c> in
+    /// milliseconds since the epoch. The Maps SDK's <c>FeatureLayer.refresh()</c> reads <c>lastEditDate</c> to tell
+    /// whether the data changed.
+    /// </para>
+    /// <para>
+    /// <b>Hosted layers only, and only from what this server recorded</b> (migration 127): every edit face, append,
+    /// overwrite, truncate, restore, analysis replacement and field change stamps it. A registered layer's table is also
+    /// written in its own database by whoever owns it, which this server never sees — a date there would tell
+    /// <c>refresh()</c> nothing changed when something had, so none is said. A hosted layer from before migration 127
+    /// that has not changed since has no date either, rather than an invented one.
+    /// </para>
+    /// </remarks>
+    public static object ApplyToLayer(HttpContext context, object document, string itemId, Graticula.Platform.Catalog.PublishedLayer layer)
+    {
+        if (Apply(context, document, itemId) is not JsonObject written)
+        {
+            return document;
+        }
+
+        if (layer.Definition.IsHosted && (layer.DataChangedAt ?? layer.SchemaChangedAt) is not null)
+        {
+            long? data = layer.DataChangedAt?.ToUnixTimeMilliseconds();
+            long? schema = layer.SchemaChangedAt?.ToUnixTimeMilliseconds();
+
+            JsonObject info = new() { ["lastEditDate"] = System.Math.Max(data ?? 0, schema ?? 0) };
+
+            if (schema is { } fields)
+            {
+                info["schemaLastEditDate"] = fields;
+            }
+
+            if (data is { } rows)
+            {
+                info["dataLastEditDate"] = rows;
+            }
+
+            written["editingInfo"] = info;
+        }
+
+        return written;
+    }
 }
