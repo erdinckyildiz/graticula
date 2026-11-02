@@ -55,4 +55,16 @@ public interface IItemAnnotationStore
     /// <summary>A principal's favourites, newest first, with each item's kind.</summary>
     Task<IReadOnlyList<(Guid Item, string Kind, DateTimeOffset Added)>> FavoritesAsync(
         Guid principal, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Relates one item to another, as ArcGIS's <c>Service2Data</c> relates a service to the data item it was published
+    /// from — migration 126, ADR-257 §12. False when either item does not exist; relating twice is relating once.
+    /// </summary>
+    Task<bool> RelateAsync(Guid origin, Guid destination, string relationshipType, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The items related to one: its destinations of that type going <c>forward</c>, its origins going <c>reverse</c>,
+    /// oldest relationship first.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> RelatedAsync(Guid item, string relationshipType, bool forward, CancellationToken cancellationToken);
 }

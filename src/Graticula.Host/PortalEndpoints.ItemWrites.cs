@@ -58,6 +58,10 @@ internal static partial class PortalEndpoints
         "contentStatus", "groupDesignations", "apiToken1ExpirationDate", "apiToken2ExpirationDate", "industries",
         "languages", "proxyFilter", "documentation", "appCategories", "ownerFolder", "isOrgItem", "itemControl",
         "scoreCompleteness", "guid", "lastViewed", "classification",
+
+        // The flags the ArcGIS API for Python sends on a data item's update before it publishes it again with overwrite
+        // (ADR-257 §12.5): instructions to the publish that follows, not fields of the item.
+        "overwrite", "overwriteService", "useDescription",
     };
 
     /// <summary>How long after Pro published a service its delete of that service is read as Pro's rollback.</summary>

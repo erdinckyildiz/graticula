@@ -14,6 +14,12 @@
 > layers or makes it a view. This reopens [ADR-057](ADR-057-composing-and-publishing-a-service.md) §5h and condition 4
 > for the portal only. §3's first point, §5.5's last sentence and §9's first trigger are answered there.
 
+> **Amended 2026-11-03 — §12.** The ArcGIS veteran's review of v1.0.499 found `manager.overwrite(csv)` failing at its
+> first step. A service the portal's publish makes is now related to its data item as ArcGIS's `Service2Data`
+> (migration 126), `relatedItems` answers it both ways, and `publish` with `overwrite=true` is Studio's Overwrite of
+> that service's layer. That the finding is to be fixed is the owner's instruction for the review; **how it is fixed is
+> INFERRED** and listed in §12.5. §5.3's refusal of `overwrite=true` is struck there.
+
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
@@ -138,8 +144,9 @@ Python posts it, as well as from the query.
 ### 5.3 What `publish` refuses
 
 `locationType` other than `coordinates` (an address, a lookup, or `none` for a table without coordinates: the
-import's reader needs coordinates or WKT and geocodes nothing); `overwrite=true` (Update data, or `append` with
-`truncateExisting`, replaces a layer's rows); a file type the item is not. Each is refused by name and writes nothing.
+import's reader needs coordinates or WKT and geocodes nothing); ~~`overwrite=true` (Update data, or `append` with
+`truncateExisting`, replaces a layer's rows)~~ *(answered since 2026-11-03 — §12: an overwrite of the service the item
+was published to)*; a file type the item is not. Each is refused by name and writes nothing.
 
 ### 5.4 `content/features/analyze`
 
@@ -338,3 +345,75 @@ visible in Server's list).
 - `async=true` and its status URL.
 - A view's `createParameters` other than `capabilities` (`isUpdatableView`, `sourceSchemaChangesAllowed`) — passed over;
   the capabilities decide what a view offers here.
+
+## 12. Amendment, 2026-11-03 — `Service2Data`, and overwrite from the data item
+
+### 12.1 What failed
+
+The ArcGIS veteran's review of v1.0.499: the ArcGIS API for Python's `FeatureLayerCollection.manager.overwrite(csv)`
+(`arcgis/features/managers.py`, 2.4.3) reads the service's `serviceItemId`, asks that item for
+`related_items("Service2Data", "forward")`, and stops with *Cannot find related data item used to publish this Feature
+Layer* when there is none. `relatedItems` was a stub answering `{"total":0}` for every item, and the portal's publish
+refused `overwrite=true` (§5.3). Past that first step the client checks the file's name against the data item's
+`name`, reads `info/publishParameters.json` of the service item, replaces the data item's file with
+`items/{id}/update`, and calls the data item's `publish(overwrite=True)` — which, for a CSV, Shapefile, File
+Geodatabase or Excel item, asks the data item for `related_items("Service2Data", "reverse")`, analyses it again and
+posts `publish` with `overwrite=true`.
+
+### 12.2 What ArcGIS documents
+
+*Related Items*: `relationshipType` (one or several, comma-separated) and `direction` (`forward` from the origin,
+`reverse` from the destination), answering `total` and `relatedItems`; `Service2Data` relates a service (origin) to
+the data item it was published from (destination). *Publish Item*: `overwrite=true` replaces the service the item was
+published to, keeping the service's item id and URL.
+
+### 12.3 What is built
+
+1. **Migration 126, `item_relationship`** — origin item, destination item, type (`Service2Data` only, by a check), the
+   time, and the organisation, floored as every organisation table is (ADR-204). Both ends reference `item` and go with
+   it; the recycle bin, which follows the store's foreign keys, keeps the relationship with whichever end it holds and
+   puts it back on restore (measured: a service deleted into the bin and restored is related to its CSV again).
+   `ComponentSchemaVersion` is 126.
+2. **The portal's publish relates what it made** (§5.2): the new service to the data item, `Service2Data`.
+3. **`content/items/{id}/relatedItems`** answers from the table, in either direction, each related item as the portal
+   writes it and only those the caller may see. A service is found by its own item id or any of its faces'. Types this
+   portal does not keep answer none; a `direction` other than `forward` or `reverse` is refused.
+4. **`content/items/{id}/info/publishParameters.json`** for a service: its `name`, and for one with a `Service2Data`
+   item, `type` (the file type) and `locationType: coordinates`.
+5. **`publish` with `overwrite=true`** finds the one service the item was published to and runs Studio's own Overwrite
+   (`HostedDataEndpoints.OverwriteLayerAsync`, the handler of `/admin/hosted/{layer}/overwrite`, now able to name the
+   service so a layer name two services share is not ambiguous) on that service's layer, with the item's file as it now
+   is and `x`, `y`, `srid` from `publishParameters` where named. Studio's privilege, its protection rule (no overwrite of
+   a protected item), its reader and its `layer.overwrite` audit line hold. The answer is §5.2's `services[]`, with the
+   existing service's item id.
+
+### 12.4 Evidence
+
+The ArcGIS API for Python 2.4.3 against the local fixture (`tools/sdk-probe/python-portal-doors.py`): a three-row CSV
+added with `Folder.add` and published; `related_items` forward from the service gives the CSV and reverse from the CSV
+gives the Feature Service; the CSV rewritten with five rows under the same name; `manager.overwrite(path)` →
+`{'success': True}`; the layer then counts 5 under the same item id. Conformance:
+`PortalContentAddsTests.A_data_items_service_is_related_to_it_and_overwritten_from_its_changed_file` and
+`An_overwrite_of_an_item_never_published_is_refused`.
+
+### 12.5 INFERRED, for the owner to confirm
+
+1. **One service, one layer.** An item related to no service or to several, and a service of more than one layer, are
+   refused by name: one file replaces one layer, as Studio's Overwrite does. ArcGIS overwrites a multi-layer service
+   from a geodatabase; this does not.
+2. **`publishParameters.json` is reconstructed, not kept**: this portal does not store the parameters a service was
+   published with.
+3. **Only the portal's own publish records the relationship.** A service made in Studio from an uploaded file, or
+   published before migration 126, has no `Service2Data` item, and the Python API's overwrite of it stops at its first
+   step, as before; Studio's Overwrite remains the way.
+4. **The three flags the Python API puts on the data item's `update` before it publishes again** — `overwrite`,
+   `overwriteService` and `useDescription` (`_gen_overwrite_publishParameters`, on Enterprise) — are passed over as
+   echoes (ADR-214 §5 item 1's list). They were refused by name, and the client went on regardless, ignoring the
+   refusal; they are instructions to the publish that follows rather than fields of the item.
+
+### 12.6 Left out
+
+- `Map2Service`, `WMA2Code` and ArcGIS's other relationship types, and `addRelationship` / `deleteRelationship`: nothing
+  here makes them, and a portal client asking for them is answered none.
+- Overwrite of a service published from a file geodatabase or a shapefile of several layers.
+- Keeping `publishParameters` as sent.

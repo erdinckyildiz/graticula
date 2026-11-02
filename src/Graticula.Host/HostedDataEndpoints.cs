@@ -21,6 +21,7 @@ using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -2381,9 +2382,10 @@ internal static class HostedDataEndpoints
         GeodatabaseReader reader,
         ImportScratch scratch,
         ThumbnailWarmer warmer,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? service = null)
     {
-        if (await HostedLayerAsync(context, layers, layer, replace ? "overwrite" : "append to", cancellation)
+        if (await HostedLayerAsync(context, layers, layer, replace ? "overwrite" : "append to", cancellation, service)
             .ConfigureAwait(false) is not { } found)
         {
             return;
@@ -2717,6 +2719,28 @@ internal static class HostedDataEndpoints
         ITileCache tiles, IAdminCatalog catalog, IAuditLog audit, IJobStore jobs, JobSignal signal, GeodatabaseReader reader,
         ImportScratch scratch, ThumbnailWarmer warmer, CancellationToken cancellation) =>
         UpdateDataAsync(context, layer, true, layers, importer, contexts, tiles, catalog, audit, jobs, signal, reader, scratch, warmer, cancellation);
+
+    /// <summary>
+    /// Studio's Overwrite of one layer of a named service — the portal's <c>publish</c> with <c>overwrite=true</c> runs it
+    /// (ADR-257 §12), naming the service so a layer name two services share is not ambiguous.
+    /// </summary>
+    internal static Task OverwriteLayerAsync(
+        HttpContext context, string layer, string service, IServiceProvider services, CancellationToken cancellation) =>
+        UpdateDataAsync(
+            context, layer, true,
+            services.GetRequiredService<PostgresLayerCatalog>(),
+            services.GetRequiredService<PostGisImporter>(),
+            services.GetRequiredService<ServiceContexts>(),
+            services.GetRequiredService<ITileCache>(),
+            services.GetRequiredService<IAdminCatalog>(),
+            services.GetRequiredService<IAuditLog>(),
+            services.GetRequiredService<IJobStore>(),
+            services.GetRequiredService<JobSignal>(),
+            services.GetRequiredService<GeodatabaseReader>(),
+            services.GetRequiredService<ImportScratch>(),
+            services.GetRequiredService<ThumbnailWarmer>(),
+            cancellation,
+            service);
 
     /// <summary>
     /// Deletes every feature of a hosted layer, or only its attachments — ArcGIS's

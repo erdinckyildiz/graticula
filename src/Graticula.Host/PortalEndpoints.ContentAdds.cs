@@ -404,11 +404,10 @@ internal static partial class PortalEndpoints
             return PortalError(400, $"'{document.Title}' is a {document.Kind.ArcGisType} item, not a {expected} one.");
         }
 
+        // ADR-257 §12: an overwrite is Studio's Overwrite of the layer this item was published to (PortalEndpoints.Overwrite).
         if (string.Equals(First(form, context, "overwrite"), "true", StringComparison.OrdinalIgnoreCase))
         {
-            return PortalError(400,
-                "Overwriting a layer from a data item is not offered here (ADR-257); Studio's Update data, or the layer's "
-                + "append with truncateExisting, replaces its rows. Nothing was written.");
+            return await OverwriteFromItemAsync(context, form, document, cancellation).ConfigureAwait(false);
         }
 
         if (PublishParametersOf(First(form, context, "publishParameters"), out string? unreadable) is not { } asked)
@@ -537,6 +536,10 @@ internal static partial class PortalEndpoints
             await ApplyDetailsAsync(
                 new ItemDetails(null, document.Description ?? document.Snippet, document.Tags is { Count: > 0 } t ? string.Join(",", t) : null),
                 done.Name, catalog, cancellation).ConfigureAwait(false);
+
+            // ADR-257 §12: the service remembers the item it was published from, as ArcGIS's Service2Data.
+            await services.GetRequiredService<IItemAnnotationStore>()
+                .RelateAsync(done.Id, Guid.Parse(document.Id), Service2Data, cancellation).ConfigureAwait(false);
         }
 
         string url = $"{context.Request.Scheme}://{context.Request.Host}/rest/services/{FeatureServerMetadataWriter.HostedFolder}/"
