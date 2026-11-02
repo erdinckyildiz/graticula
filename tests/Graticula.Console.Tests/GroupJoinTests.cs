@@ -180,6 +180,10 @@ public sealed class GroupJoinTests : ConsoleTest
             Assert.Contains("not a member", Flat(await Browser.EvaluateAsync<string>("document.getElementById('groupFacts').textContent")),
                 StringComparison.Ordinal);
 
+            // Its members are not shown to a reader outside the group, so the tab gives no count rather than a 0.
+            Assert.Equal("Members", Flat(await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#groupTabs a')].find(a => a.href.endsWith('/members'))?.textContent || ''")).Trim());
+
             if (phone)
             {
                 double join = await HeightAsync("#groupJoin");

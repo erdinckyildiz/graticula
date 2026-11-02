@@ -750,7 +750,10 @@ async function showGroup(name, tab) {
 
   const items = one.items || [];
   const members = one.members || [];
-  const counts = { overview: null, content: items.length, members: members.length, settings: null };
+  // A reader outside the group is not shown its members, so the tab gives no count rather than a 0 that reads as empty.
+  const counts = {
+    overview: null, content: items.length, members: one.standing === "outside" ? null : members.length, settings: null,
+  };
 
   $("groupTabs").innerHTML = GROUP_TABS
     .filter(([, , onStrip]) => onStrip !== false)
@@ -31263,29 +31266,6 @@ async function handleClick(event) {
   // What was here: a `<select size="8">` filled from `/content/layers`, and a `Share` button. What
   // replaced it is `drawGroupAdd` — thumbnails, a folder rail, multi-select, and a row that says
   // whether the share will actually reach anybody. ADR-034 §5z.
-
-  // <b>Leave group, which we had no way to do at all.</b> Taken from the reference's group page,
-  // where *"You are a member"* sits above it. A member could be removed by a manager and could not
-  // walk out, which makes joining a group something done *to* somebody.
-  //
-  // <b>The owner cannot leave their own group</b> — the store refuses it, because they would keep
-  // owning a group that a membership-filtered list omits. The button is absent for them rather than
-  // present and refusing.
-  if (t.id === "groupLeave" && groupOpen) {
-    if (!confirm(
-      `Leave '${groupOpen}'? You will stop seeing the services shared with it.`)) return;
-
-    try {
-      await api(
-        `/admin/groups/${encodeURIComponent(groupOpen)}/members/${encodeURIComponent(signedInAs)}`,
-        { method: "DELETE" });
-      toast(`You left ${groupOpen}`, true);
-      groupOpen = null;
-    } catch (e) { toast(e.message); }
-
-    await refreshGroup();
-    return;
-  }
 
   const grade = t.closest?.("[data-group-grade]");
 
