@@ -96,6 +96,16 @@ Q-119's rule stood whole *(until 2026-10-18, when ADR-199 brought public groups 
 default's own sharing, not on the group) and nothing to choose from. The item search answers `group:<gallery>` with
 the entries §5.2 gives *that* caller. A group's own content search, `content/groups/{id}/search`, answers the same listing narrowed to the group,
 because that is where the SDK asks.
+*(Amended 2026-11-03 — the ArcGIS veteran's review of v1.0.499: the three disagreed for a signed-out caller.
+`portals/self` named `basemapGalleryGroupQuery` (`id:…`) to everybody, `community/groups` and `community/groups/{id}`
+said no such group, and `content/groups/{id}/search` and `search?q=group:<gallery>` answered the gallery's maps all the
+same — the group search asked no question about the group. Now a signed-out caller is not told the query
+(`basemapGalleryGroupQuery` and `vectorBasemapGalleryGroupQuery` empty, as for a portal with no gallery), a group's own
+search answers *does not exist* to a signed-out caller for any group they cannot find (the public ones still answer,
+ADR-199), and the gallery's entries are not listed to a signed-out search. Signed-in callers are unchanged. This is
+Q-174 applied to the two places it had not reached, not a new decision. Not changed: a signed-out `search?q=group:<id>`
+still lists the public items shared with that group, which is item sharing's answer and not the gallery's —
+`TheBasemapGalleryIsAGroupTests` asserts the rest.)*
 
 5.5 **The pages offer the gallery.** Map Viewer's basemap list holds the gallery's entries, OpenStreetMap and
 *None*; a new map starts on `portals/self`'s default. The console's Settings screen chooses the gallery group and
