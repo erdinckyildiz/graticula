@@ -1112,6 +1112,11 @@ public static class Program
                 (await services.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
                     .FirstOrDefault(service => service.Id == id)?.TileScheme;
 
+            // Migration 133: an edit records when the layer's rows last changed, for its editingInfo.
+            IAdminCatalog changes = app.Services.GetRequiredService<IAdminCatalog>();
+            app.Services.GetRequiredService<LayerConnections>().DataChanged = (ids, cancellation) =>
+                changes.MarkLayersChangedAsync(ids, data: true, schema: false, cancellation);
+
             // ADR-207: where the attachments registered layers keep in the datastore are.
             app.Services.GetRequiredService<LayerConnections>().DatastoreConnection = DatastoreConnection(settings.PlatformStore);
         }
@@ -4413,7 +4418,7 @@ public static class Program
         {
             (object one, LayerDescription described) = await LayerDocumentAsync(
                 context, layer, contexts, relationships, catalog, settings, projector,
-                cancellation).ConfigureAwait(false);
+                cancellation, owning).ConfigureAwait(false);
 
             shapes.Add(described);
             layers.Add(one);
@@ -4426,7 +4431,7 @@ public static class Program
         {
             (object one, LayerDescription described) = await LayerDocumentAsync(
                 context, table, contexts, relationships, catalog, settings, projector,
-                cancellation).ConfigureAwait(false);
+                cancellation, owning).ConfigureAwait(false);
 
             shapes.Add(described);
             tables.Add(one);
@@ -4512,6 +4517,7 @@ public static class Program
     /// <param name="settings">The server's record ceiling.</param>
     /// <param name="projector">What moves the extent into the served reference.</param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="owning">Its service, for the item it names; null names none.</param>
     /// <returns>
     /// The layer document, and the shape it was built from.
     /// <para>
@@ -4529,7 +4535,8 @@ public static class Program
         CatalogFallback catalog,
         HostSettings settings,
         IProjector projector,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        PublishedService? owning = null)
     {
         (IFeatureSource source, LayerDescription description) = await contexts.GetAsync(layer, cancellation)
             .ConfigureAwait(false);
@@ -4618,6 +4625,12 @@ public static class Program
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
+
+        // The service's item and when the layer last changed, as ArcGIS's layer document says them (2026-11-03).
+        if (owning is not null)
+        {
+            document = ServiceItem.ApplyToLayer(context, document, PortalEndpoints.ItemIdOf(owning, "FeatureServer"), layer);
+        }
 
         return (document, description);
     }
@@ -4714,7 +4727,7 @@ public static class Program
         }
 
         (object document, LayerDescription description) = await LayerDocumentAsync(
-            context, layer, contexts, relationships, catalog, settings, projector, cancellation)
+            context, layer, contexts, relationships, catalog, settings, projector, cancellation, owning)
             .ConfigureAwait(false);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))

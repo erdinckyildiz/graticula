@@ -168,7 +168,10 @@ public sealed class PostgresLayerCatalog
         s.ogc_inspire as service_ogc_inspire,
 
         -- Migration 85: its credits.
-        s.copyright_text as service_copyright_text
+        s.copyright_text as service_copyright_text,
+
+        -- Migration 133: when its data and its fields last changed through this server. On the end, read by name.
+        l.data_changed_at, l.schema_changed_at
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -611,6 +614,14 @@ public sealed class PostgresLayerCatalog
 
             // Migration 85: its service's credits, which a layer's own document states as an ArcGIS layer's does.
             ServiceCopyrightText = Nullable(reader, "service_copyright_text"),
+
+            // Migration 133.
+            DataChangedAt = reader.IsDBNull(reader.GetOrdinal("data_changed_at"))
+                ? null
+                : reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("data_changed_at")),
+            SchemaChangedAt = reader.IsDBNull(reader.GetOrdinal("schema_changed_at"))
+                ? null
+                : reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("schema_changed_at")),
         };
     }
 

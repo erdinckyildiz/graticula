@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(125);
+    public static SchemaVersion ComponentSchemaVersion => new(133);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -154,7 +154,36 @@ public static class PlatformMigrations
         TheServerLogIsTheSitesV120,
         ADocumentKeepsAPictureV121,
         ANodeSaysWhichSchemaItReadsV125,
+        ALayerKnowsWhenItLastChangedV133,
     ]);
+
+    /// <summary>
+    /// A layer knows when its data and its schema last changed through this server, which its document states as ArcGIS's
+    /// <c>editingInfo</c> — the ArcGIS veteran's review of 2026-11-03.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Numbered 133</b>: 126 to 132 are left to branches built beside this one on 2026-11-03, and the set orders by
+    /// number rather than requiring every number.
+    /// </para>
+    /// <para>
+    /// <b>Null on every row that existed before it</b>, because nothing recorded when those last changed and a date
+    /// written now would be invented; the default is set after the columns are added, so it reaches only rows inserted
+    /// later, whose data was written when they were.
+    /// </para>
+    /// <para><b>Expand.</b> Two nullable columns; a build before this one never reads them.</para>
+    /// </remarks>
+    private static Migration ALayerKnowsWhenItLastChangedV133 => Migration.Expand(
+        new SchemaVersion(133),
+        "A layer knows when its data and its schema last changed through this server (editingInfo).",
+
+        "alter table layer add column if not exists data_changed_at timestamptz",
+
+        "alter table layer add column if not exists schema_changed_at timestamptz",
+
+        "alter table layer alter column data_changed_at set default now()",
+
+        "alter table layer alter column schema_changed_at set default now()");
 
     /// <summary>
     /// A node says which schema its build reads, so a contract migration can wait until no node older than its minimum

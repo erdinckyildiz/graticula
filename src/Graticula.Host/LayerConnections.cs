@@ -115,6 +115,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// </summary>
     public Func<Guid, CancellationToken, Task<Graticula.Tiles.VectorTileScheme?>>? SchemeOfService { get; set; }
 
+    /// <summary>
+    /// Records that these layers' rows changed now, for their documents' <c>editingInfo</c> (migration 133) — set at
+    /// start, as <see cref="SchemeOfService"/> is; null records nothing.
+    /// </summary>
+    public Func<Guid[], CancellationToken, Task>? DataChanged { get; set; }
+
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
 
@@ -539,7 +545,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             ? writer
             : new TilePurgingWriter(
                 writer, _tiles, [layer.Id, .. layer.ViewLayers],
-                SchemeOfService is null ? null : cancellation => SchemeOfService(layer.ServiceId, cancellation));
+                SchemeOfService is null ? null : cancellation => SchemeOfService(layer.ServiceId, cancellation),
+                DataChanged);
     }
 
     /// <summary>
@@ -776,7 +783,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 // By address for the layer, whole for the same rows under a view or its source (ADR-113).
                 await TilePurgingWriter.PurgeAfterAsync(
                         _tiles, extents[i].Store, extents[i].Scheme, [edits[i].Layer.Id, .. edits[i].Layer.ViewLayers],
-                        extents[i].Before, outcomes[i], cancellation)
+                        extents[i].Before, outcomes[i], cancellation, DataChanged)
                     .ConfigureAwait(false);
             }
         }

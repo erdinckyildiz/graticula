@@ -450,6 +450,37 @@ Recorded as A-028.
 > detection was built (§5.2's mechanism 2); a cheap PostGIS data version stays a revisit trigger
 > ([D-266](../architecture-debt.md)).
 
+### 5.4 A client is told when a layer last changed — added 2026-11-03
+
+**ArcGIS's *Layer (Feature Service)* names `editingInfo` — `lastEditDate`, `schemaLastEditDate`, `dataLastEditDate`,
+milliseconds since the epoch — on a layer's document**, and the Maps SDK's `FeatureLayer.refresh()` reads
+`lastEditDate` to tell whether the data changed (its public documentation). The ArcGIS veteran's review of v1.0.499 found
+neither it nor the layer's `serviceItemId` anywhere in the server; the service document already had the latter.
+
+**The time is recorded, not derived.** Nothing in the server knew when a layer last changed: the query face's validator
+(`PostGisFeatureSource.CacheValidatorAsync`, D-266) is a fingerprint of `pg_stat_user_tables` counters, which says
+*whether* a table changed and never *when*, and ADR-240's last edit time is grapy's. So migration 133 adds
+`layer.data_changed_at` and `layer.schema_changed_at`, and they are written where this server changes a layer:
+
+- **rows** — every edit through the one writer both editing faces get (`LayerConnections.WriterFor`'s
+  `TilePurgingWriter`, and the service-level `applyEdits` transaction beside it — the same place tiles are emptied,
+  §5.2), `calculate`, a history restore, an append, an overwrite, a truncate, an analysis that replaces a layer's table;
+- **fields** — adding or dropping one, editor tracking on or off, GlobalIDs added (which also writes every row), an
+  overwrite and an analysis replacement;
+- each for the layer **and its views** (ADR-113), whose rows are the same rows.
+
+The columns default to `now()` for rows inserted after the migration, so a layer published since has the moment its data
+was written; **every layer from before has neither**, rather than an invented date, until it next changes.
+
+**Said for hosted layers only.** A registered layer's table is written in its own database by whoever owns it, which
+this server never sees; a `lastEditDate` there would tell `refresh()` nothing changed when something had — worse than
+saying nothing, which makes it fetch. Also not covered: attachment edits (INFERRED: ArcGIS's `dataLastEditDate` is about
+features), a field's alias or role changed on the Fields page (the table's schema did not move), and an edit made to a
+hosted table directly in the datastore, which ADR-058 §5b says nobody does.
+
+Conformance: `ALayerSaysWhenItLastChangedTests`. The ArcGIS API for Python against the local fixture: a hosted layer's
+`editingInfo.dataLastEditDate` moved with an `edit_features` add, and its `serviceItemId` equals its service's.
+
 ## 6. Seeding
 
 With vector-first, tile seeding is now the whole of the seeding problem rather

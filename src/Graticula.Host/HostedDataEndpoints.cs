@@ -2693,7 +2693,7 @@ internal static class HostedDataEndpoints
             return null;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, schema: replace).ConfigureAwait(false);
 
         // The kept picture is of the rows that were there; it is drawn again from the rows that are.
         warmer.Redraw(found.Id);
@@ -2781,7 +2781,7 @@ internal static class HostedDataEndpoints
             return false;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, schema: false)
             .ConfigureAwait(false);
 
         await RecordAsync(
@@ -3128,6 +3128,8 @@ internal static class HostedDataEndpoints
     /// <param name="tiles">The tile cache.</param>
     /// <param name="catalog">The catalogue.</param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="data">Whether the layer's rows changed too — an append, an overwrite, a truncate.</param>
+    /// <param name="schema">Whether its fields changed; false for a change of rows alone.</param>
     /// <returns>The work.</returns>
     /// <remarks>
     /// <para>
@@ -3149,9 +3151,15 @@ internal static class HostedDataEndpoints
         ServiceContexts contexts,
         ITileCache tiles,
         IAdminCatalog catalog,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool data = false,
+        bool schema = true)
     {
         contexts.Forget(layer);
+
+        // What the layer's editingInfo says (migration 133): its rows, its fields or both changed now, here and under
+        // its views.
+        await catalog.MarkLayersChangedAsync([layer.Id, .. layer.ViewLayers], data, schema, cancellation).ConfigureAwait(false);
         tiles.Purge(layer.Id);
 
         // The same rows under its views (ADR-113): a view's describe is its own, and so are its tiles.
@@ -3281,7 +3289,7 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true).ConfigureAwait(false);
 
         await RecordAsync(
             context, audit, "layer.globalIds", found.Definition.Name, new { added }, cancellation)
