@@ -238,8 +238,17 @@ port is the seam Q-84's own locator would plug into.
 - House numbers are only as good as OSM's.
 - An operator runs and updates a Java service and an index; the planet needs about 95 GB of disk and 64 GB of RAM
   (Photon's README), Europe a machine of its own.
-- Not yet driven against a live Photon: the ArcGIS API for Python has read it over a stub (§4), and the live check on the
-  VPS and a Pro or Maps SDK locator check are owed (§9).
+- ~~Not yet driven against a live Photon: the ArcGIS API for Python has read it over a stub (§4), and the live check on the
+  VPS and a Pro or Maps SDK locator check are owed (§9).~~ **Driven against a live Photon 2026-11-02**, the same day:
+  Photon 1.3.0 on the VPS with the Türkiye index (`/opt/photon-probe`, capped at 1.2 GB, loopback only, reached through
+  an SSH tunnel), behind a local fixture on this branch. Over HTTP, *Anıtkabir* answered the mausoleum at
+  32.837, 39.925 (score 100, POI); *İstiklal Caddesi 100 Beyoğlu* the address and the museum at it (100, PointAddress and
+  POI); *Ankara* two Localities; *Atatürk Bulvarı Ankara* two POIs on the boulevard at 75 (the street itself is not among
+  Photon's first answers); `reverseGeocode` at Kızılay *Yüksel Caddesi, Kültür, Çankaya, Ankara, 06420*; `suggest` for
+  *Kızıla* Kızılay first; one request about 0.25 s through the tunnel. The ArcGIS API for Python's `Geocoder` read the
+  same service: capabilities, `geocode` in 3857, `suggest`, `geocode` by `magicKey`, `reverse_geocode` in Kadıköy —
+  each a correct answer. Nothing the stub did not cover was found, so §9's first trigger did not fire. **Still owed:** a
+  Pro or Maps SDK Search widget pointed at it.
 - The portal's `helperServices.geocode` — where Pro and the Maps SDK look for an organisation's default locator — is not
   set by this change; a client adds the locator by URL until it is.
 
