@@ -506,6 +506,14 @@ public sealed class BrowsingConformanceTests : ArcGisClient
         string html = await HtmlAsync(stranger, root + "/rest/services/Utilities");
 
         Assert.DoesNotContain("GeometryServer", html, StringComparison.Ordinal);
+
+        // A geocoder an operator shared with everyone (ADR-258, Graticula:Geocoding:Sharing=public) is in this folder,
+        // and then the folder is not empty to anybody — which is what this test is not about.
+        if (html.Contains("GeocodeServer", StringComparison.Ordinal))
+        {
+            return;
+        }
+
         Assert.Contains("not signed in", html, StringComparison.Ordinal);
         Assert.Contains("/rest/login", html, StringComparison.Ordinal);
 

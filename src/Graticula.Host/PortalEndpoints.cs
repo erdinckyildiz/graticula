@@ -792,19 +792,41 @@ internal static partial class PortalEndpoints
             defaultVectorBasemap = defaultBasemap,
 
             // ADR-222: the analysis tools, at the address every client that runs analysis reads from here.
-            helperServices = elsewhere is { Length: > 0 }
-                ? (object)new { geometry = new { url = elsewhere }, analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" } }
-                : geometryOffered
-                ? new
-                {
-                    geometry = new
-                    {
-                        url = $"{Origin(context)}/rest/services/Utilities/Geometry/GeometryServer",
-                    },
-                    analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" },
-                }
-                : new { analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" } },
+            helperServices = HelperServices(context, current, elsewhere, geometryOffered),
         });
+    }
+
+    /// <summary>
+    /// <c>helperServices</c>: the geometry service, the analysis tools and — ADR-258 §5.8 — the organisation's locator.
+    /// </summary>
+    /// <remarks>
+    /// <b>The locator is an array, as every portal writes it</b>, and named only when one is configured and this caller
+    /// may use it: Map Viewer, the Maps SDK's Search widget and Pro read their default locators from here, and the
+    /// ArcGIS API for Python's <c>get_geocoders</c> builds a <c>Geocoder</c> for each entry.
+    /// </remarks>
+    private static Dictionary<string, object> HelperServices(
+        HttpContext context, RequestPrincipal current, string? elsewhere, bool geometryOffered)
+    {
+        Dictionary<string, object> helpers = new(StringComparer.Ordinal);
+
+        if (elsewhere is { Length: > 0 })
+        {
+            helpers["geometry"] = new { url = elsewhere };
+        }
+        else if (geometryOffered)
+        {
+            helpers["geometry"] = new { url = $"{Origin(context)}/rest/services/Utilities/Geometry/GeometryServer" };
+        }
+
+        helpers["analysis"] = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" };
+
+        if (Geocoding.GeocodeServerEndpoints.PortalLocator(
+                context.RequestServices.GetService<Geocoding.GeocoderSettings>(), current, Origin(context)) is { } locator)
+        {
+            helpers["geocode"] = new object[] { locator };
+        }
+
+        return helpers;
     }
 
     /// <summary>The organisation named by id, which is the one this server is.</summary>

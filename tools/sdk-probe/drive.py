@@ -1,7 +1,7 @@
 """Drives a headless Chromium browser over CDP: opens a page, waits for window.__result, saves a screenshot.
 
 Used for the ArcGIS Maps SDK checks of ADR-086 condition 2, ADR-104 condition 3 and ADR-110 condition 2 (2026-10-14),
-and ADR-184 condition 1 (basemap-gallery.html, 2026-10-15):
+ADR-184 condition 1 (basemap-gallery.html, 2026-10-15), and ADR-258 §6 (geocode.html, 2026-11-03):
 the pages beside this file load the SDK from js.arcgis.com, point it at a server, and write what they found to
 window.__result. Serve this folder over HTTP on another origin than the server (python -m http.server 8763), then
 

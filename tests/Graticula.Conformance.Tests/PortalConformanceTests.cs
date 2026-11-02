@@ -106,6 +106,53 @@ public sealed class PortalConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task The_portal_names_a_locator_exactly_when_the_directory_lists_one_to_the_same_caller()
+    {
+        // ADR-258 §5.8: helperServices.geocode is where Map Viewer, the Maps SDK's Search widget, Pro and the Python
+        // API's get_geocoders find an organisation's locator. Asserted as agreement rather than as presence, so it runs
+        // on a server with no geocoder configured (CI's) and on one with — and for an anonymous caller and a signed-in
+        // one, because the link follows the service's own sharing.
+        await RequireServerAsync();
+
+        JsonElement signedIn = await GetJsonAsync("/sharing/rest/portals/self");
+        JsonElement listed = await GetJsonAsync("/rest/services/Utilities");
+        Check(signedIn, listed, "an administrator");
+
+        (_, string anonymousSelf) = await AnonymousAsync("/sharing/rest/portals/self");
+        (HttpStatusCode folderStatus, string anonymousFolder) = await AnonymousAsync("/rest/services/Utilities");
+
+        if (folderStatus == HttpStatusCode.OK)
+        {
+            Check(JsonDocument.Parse(anonymousSelf).RootElement, JsonDocument.Parse(anonymousFolder).RootElement, "an anonymous caller");
+        }
+
+        static void Check(JsonElement self, JsonElement folder, string who)
+        {
+            bool inDirectory = folder.TryGetProperty("services", out JsonElement services)
+                && services.EnumerateArray().Any(s => s.GetProperty("type").GetString() == "GeocodeServer");
+
+            bool named = self.GetProperty("helperServices").TryGetProperty("geocode", out JsonElement geocode)
+                && geocode.ValueKind == JsonValueKind.Array && geocode.GetArrayLength() > 0;
+
+            Assert.True(
+                inDirectory == named,
+                $"For {who} the services directory {(inDirectory ? "lists" : "does not list")} a GeocodeServer and "
+                + $"portals/self {(named ? "names" : "does not name")} one in helperServices.geocode.");
+
+            if (named)
+            {
+                JsonElement locator = geocode[0];
+                Assert.EndsWith("/GeocodeServer", locator.GetProperty("url").GetString(), StringComparison.Ordinal);
+                Assert.Equal("Ymax", locator.GetProperty("northLat").GetString());
+                Assert.True(locator.GetProperty("placefinding").GetBoolean());
+
+                // The Maps SDK's Search widget makes no source of a non-World locator without it (ADR-258 §6).
+                Assert.Equal("SingleLine", locator.GetProperty("singleLineFieldName").GetString());
+            }
+        }
+    }
+
+    [Fact]
     public async Task The_items_are_the_catalogue_filtered_by_who_is_asking()
     {
         // <b>ADR-040 condition 2.</b> Asserted by comparing two callers rather than

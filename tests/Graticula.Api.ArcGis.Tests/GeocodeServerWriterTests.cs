@@ -98,4 +98,61 @@ public sealed class GeocodeServerWriterTests
         double metres = GeocodeServerWriter.DistanceMeters(32.8541, 39.9208, 29.0244, 40.9903);
         Assert.InRange(metres, 340_000, 360_000);
     }
+
+    [Fact]
+    public void Categories_map_onto_kinds_a_parent_meaning_its_children_and_an_unmapped_one_is_refused_by_name()
+    {
+        Assert.True(GeocodeServerWriter.TryCategories(null, out IReadOnlySet<GeocodePlaceKind>? none, out _));
+        Assert.Null(none);
+
+        Assert.True(GeocodeServerWriter.TryCategories("Address,postal", out IReadOnlySet<GeocodePlaceKind>? kinds, out _));
+        Assert.True(kinds!.SetEquals([GeocodePlaceKind.House, GeocodePlaceKind.Street, GeocodePlaceKind.Postcode]));
+
+        Assert.True(GeocodeServerWriter.TryCategories("Street Name", out kinds, out _));
+        Assert.True(kinds!.SetEquals([GeocodePlaceKind.Street]));
+
+        Assert.False(GeocodeServerWriter.TryCategories("POI,Coffee Shop,MGRS", out _, out string? refusal));
+        Assert.Contains("'Coffee Shop', 'MGRS'", refusal, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Source_country_takes_two_letter_codes_and_says_why_it_will_not_take_three()
+    {
+        Assert.True(GeocodeServerWriter.TryCountries("tr, de", out IReadOnlySet<string>? codes, out _));
+        Assert.True(codes!.SetEquals(["TR", "DE"]));
+
+        Assert.False(GeocodeServerWriter.TryCountries("TUR", out _, out string? refusal));
+        Assert.Contains("alpha-2", refusal, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_batch_record_carries_its_objectid_as_result_id_and_an_unmatched_one_is_empty_and_u()
+    {
+        Dictionary<string, object?> unmatched = GeocodeServerWriter.BatchAttributes(4L, GeocodeServerWriter.UnmatchedAttributes(), null);
+
+        Assert.Equal(4L, unmatched["ResultID"]);
+        Assert.Equal("U", unmatched["Status"]);
+        Assert.Equal(0.0, unmatched["Score"]);
+        Assert.Equal(string.Empty, unmatched["Match_addr"]);
+        Assert.Equal(0.0, unmatched["Xmax"]);
+        Assert.Equal(GeocodeServerWriter.CandidateFields.Count + 1, unmatched.Count);
+
+        Dictionary<string, object?> chosen =
+            GeocodeServerWriter.BatchAttributes("a", GeocodeServerWriter.UnmatchedAttributes(), "City,Score");
+        Assert.Equal(["ResultID", "Score", "City"], [.. chosen.Keys]);
+    }
+
+    [Fact]
+    public void The_service_document_advertises_the_batch_size_and_the_categories_it_filters_by()
+    {
+        Dictionary<string, object?> document = GeocodeServerWriter.ServiceDocument(11.2, "Photon", 200, 100);
+        Dictionary<string, object?> properties = (Dictionary<string, object?>)document["locatorProperties"]!;
+
+        Assert.Equal(200, properties["MaxBatchSize"]);
+        Assert.Equal(100, properties["SuggestedBatchSize"]);
+
+        // As Esri's World locator, which takes batches, answers: no Batch among the capabilities.
+        Assert.Equal("Geocode,ReverseGeocode,Suggest", document["capabilities"]);
+        Assert.Equal(4, ((object[])document["categories"]!).Length);
+    }
 }
