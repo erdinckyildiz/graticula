@@ -149,6 +149,43 @@ this portal holds both numbers on every item, a service's `size` as `-1`), and t
 better than ArcGIS's own behaviour, which is not documented for that case. **Left out:** ranges on text fields
 (`title:[a TO m]`), which the reference does not describe for items and nothing here would answer truthfully.
 
+### 5c. The recycle bin through the portal, 2026-11-03
+
+Same review. Condition 1 made `permanentDelete=true` purge, but `portals/self` never said there was a bin, so the
+ArcGIS API for Python (`gis/__init__.py`, `Item.delete` and `ContentManager.delete_items`) **dropped the parameter,
+warned *Recycle bin not enabled on this organization*, and deleted into the bin** — the script believed the item gone
+for good. Its `user.recyclebin` had nothing to list, and `RecycleItem.restore()` met a 404.
+
+**What ArcGIS documents:** the organisation's `recycleBinSupported` and `recycleBinEnabled` on `portals/self`;
+`permanentDelete` on `delete` and `deleteItems`; `content/users/{u}/items/{id}/restore` with an optional `folder`; and a
+member's bin listed by `content/users/{u}` with `inRecycleBin=true` (which the Python API's `RecycleBin.content` sends,
+with `foldersContent`, `start`, `num`, `sortField` and `sortOrder`).
+
+**What is built** (`PortalEndpoints.RecycleBin`), each a door onto ADR-203's bin and Studio's handlers:
+
+1. `portals/self` says `recycleBinSupported: true` and `recycleBinEnabled: true` — the bin is always on.
+2. `content/users/{u}?inRecycleBin=true` lists the caller's own entries — those they own, or deleted when nobody owned
+   them — as items with `id`, `owner`, `title`, `type`, `modified` (when deleted), `deleted` and `expires`, paged and
+   sorted as every listing is.
+3. `items/{id}/restore` (with or without a folder in the path) runs Studio's Restore (`RestoreFromRecycleBinAsync`),
+   so its privilege, its refusal and its `recyclebin.restore` audit line are Studio's; it answers
+   `{"success":true,"itemId":…}`. A service is found by its own id or any of its faces' item ids.
+4. A `delete` with `permanentDelete=true` of an id **already in the bin** — the Python API's `RecycleItem.delete()` —
+   runs Studio's Delete for good (`PurgeFromRecycleBinAsync`, audited `recyclebin.purge`). An id in neither the catalogue
+   nor the bin is still *Item does not exist or is inaccessible.*
+
+**INFERRED, for the owner to confirm:** an entry's portal `type` is read from its kind, because the bin keeps what was
+deleted and not the item document — a service is a `Feature Service`, a web map a `Web Map`, an image service an
+`Image Service`, a document `Document` and a toolbox `Toolbox` (the last two are not ArcGIS type names); and a
+`restore` that names a `folder` is refused rather than honoured, because Studio's restore puts an item back in the
+folder it was deleted from. **Left out:** the organisation's bin as one listing for administrators (the Python API offers it
+as `gis.admin.org_recyclebin` on its ArcGIS Online administrator only, `gis/admin/agoladmin.py`); Studio's own screen
+remains the administrator's view of every entry. Measured: `PortalItemWritesTests.The_recycle_bin_is_listed_restored_from_and_emptied_through_the_portal`,
+and the ArcGIS API for Python 2.4.3 against the local fixture
+(`tools/sdk-probe/python-portal-doors.py`): `item.delete()` put a web map in `user.recyclebin.content`, its
+`RecycleItem.restore()` brought back the same id, and `item.delete(permanent=True)` sent `permanentDelete`, without the
+warning, and left nothing in the bin.
+
 ## Conditions
 
 1. **The recycle bin has a screen** (the veteran's N7), after which `permanentDelete` can mean what it says.

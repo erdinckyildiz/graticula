@@ -274,6 +274,7 @@ internal static partial class PortalEndpoints
         MapProPublishCapture(app);
         MapItemWrites(app);
         MapItemControls(app);
+        MapRecycleBinDoors(app);   // ADR-214 §5c — PortalEndpoints.RecycleBin.cs
         MapGroupWrites(app);
         MapContentAdds(app); // ADR-257: analyze and createService, beside addItem and publish
     }
@@ -756,6 +757,10 @@ internal static partial class PortalEndpoints
             isReadOnly = false,
             disableSignup = true,
             commentsEnabled = false,
+            // ADR-214 §5c: the recycle bin (ADR-203) is always on, and a client that is not told so sends no
+            // permanentDelete and deletes into it believing the item gone (the Python API warns and drops the flag).
+            recycleBinSupported = true,
+            recycleBinEnabled = true,
             supportsSceneServices = false,
             supports3DTilesServices = false,
             supportsHostedNotebooks = false,
@@ -1303,6 +1308,12 @@ internal static partial class PortalEndpoints
             || !string.Equals(current.Principal.Name, username, StringComparison.OrdinalIgnoreCase))
         {
             return Unknown("User");
+        }
+
+        // ADR-214 §5c: `inRecycleBin=true` lists the member's recycle bin instead (PortalEndpoints.RecycleBin).
+        if (folderId is null && AsksForRecycleBin(context))
+        {
+            return await RecycleBinListingAsync(context, current, username, cancellation).ConfigureAwait(false);
         }
 
         IReadOnlyList<PublishedService>? visible =

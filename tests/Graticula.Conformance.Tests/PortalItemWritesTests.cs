@@ -156,6 +156,63 @@ public sealed class PortalItemWritesTests : ArcGisClient
     }
 
     /// <summary>
+    /// ADR-214 §5c: the bin through the portal, as the ArcGIS API for Python reaches it — <c>portals/self</c> says it is
+    /// on, <c>content/users/{u}?inRecycleBin=true</c> lists it, <c>restore</c> brings an item back and a permanent delete
+    /// of what is already in it empties its entry.
+    /// </summary>
+    [Fact]
+    public async Task The_recycle_bin_is_listed_restored_from_and_emptied_through_the_portal()
+    {
+        JsonElement self = await SendAsync(HttpMethod.Get, "/sharing/rest/portals/self?f=json");
+        Assert.True(self.GetProperty("recycleBinSupported").GetBoolean());
+        Assert.True(self.GetProperty("recycleBinEnabled").GetBoolean());
+
+        string kept = await AddMapAsync($"zz_bin_{Guid.NewGuid():N}"[..24]);
+        string gone = await AddMapAsync($"zz_bin_{Guid.NewGuid():N}"[..24]);
+
+        try
+        {
+            foreach (string id in new[] { kept, gone })
+            {
+                JsonElement deleted = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{id}/delete?f=json",
+                    new Dictionary<string, string>());
+                Assert.True(deleted.GetProperty("success").GetBoolean(), deleted.GetRawText());
+            }
+
+            JsonElement bin = await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/users/{User}?f=json&inRecycleBin=true&foldersContent=true&start=1&num=100&sortField=modified&sortOrder=desc");
+            List<JsonElement> listed = [.. bin.GetProperty("items").EnumerateArray()];
+            JsonElement entry = listed.Single(i => i.GetProperty("id").GetString() == kept);
+            Assert.Equal("Web Map", entry.GetProperty("type").GetString());
+            Assert.Equal(User, entry.GetProperty("owner").GetString(), StringComparer.OrdinalIgnoreCase);
+            Assert.Contains(listed, i => i.GetProperty("id").GetString() == gone);
+
+            JsonElement restored = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{kept}/restore?f=json",
+                new Dictionary<string, string>());
+            Assert.True(restored.GetProperty("success").GetBoolean(), restored.GetRawText());
+            Assert.Equal(kept, restored.GetProperty("itemId").GetString());
+            Assert.Equal(kept, (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{kept}?f=json")).GetProperty("id").GetString());
+
+            JsonElement purged = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{gone}/delete?f=json",
+                new Dictionary<string, string> { ["permanentDelete"] = "true" });
+            Assert.True(purged.GetProperty("success").GetBoolean(), purged.GetRawText());
+
+            string after = (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/users/{User}?f=json&inRecycleBin=true&num=100")).GetRawText();
+            Assert.DoesNotContain(gone, after, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(kept, after, StringComparison.OrdinalIgnoreCase);
+
+            // Restoring what is not in the bin is refused, not answered success.
+            JsonElement again = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{gone}/restore?f=json",
+                new Dictionary<string, string>());
+            Assert.True(again.TryGetProperty("error", out _), again.GetRawText());
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, $"/content/webmaps/{kept}");
+        }
+    }
+
+    /// <summary>
     /// ADR-214 §5b: <c>created</c> and <c>modified</c> ranges are answered, and a range on a field with none is refused —
     /// both answered <c>total: 0</c> on the showcase while <c>q=*</c> found twenty-four items.
     /// </summary>

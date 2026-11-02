@@ -732,7 +732,11 @@ internal static partial class PortalEndpoints
 
         if (await WritableItemAsync(context, id, cancellation).ConfigureAwait(false) is not { } item)
         {
-            return (false, "Item does not exist or is inaccessible.", 400);
+            // ADR-214 §5c: a permanent delete of what is already in the recycle bin empties its entry — the Python API's
+            // RecycleItem.delete(), through Studio's Delete for good.
+            return permanent && await PurgeRecycledAsync(context, current, id, cancellation).ConfigureAwait(false) is { } purged
+                ? purged
+                : (false, "Item does not exist or is inaccessible.", 400);
         }
 
         if (!Manages(current, item))
