@@ -6,6 +6,8 @@ browses and adds a layer (§6 condition 1)
 **Date:** 2026-08-20
 
 
+> **Amended 2026-11-02 by [ADR-256](ADR-256-portal-group-writes-go-through-studios-privilege.md).** §4a's *read-only* boundary for groups is lifted by owner decision ([Q-224](../open-questions.md)): portal group writes — `createGroup`, `update`, `delete`, `addUsers`, `removeUsers`, `join`, `leave` — are doors onto Studio's own acts, so there is still one authorization story. §4a's mapping and what a group discloses stand.
+
 > **Amended 2026-10-02 by [ADR-135](ADR-135-a-service-counts-its-use.md).** An item's `numViews` is the requests its service has answered. The write half of the portal API stays out — asked and answered *not now*, [Q-159](../open-questions.md).
 
 ---
@@ -121,7 +123,7 @@ second copy.
 **The SOAP catalogue is not built.** If Pro's portal connection does not arrive, that is a new
 decision with this ADR's evidence in front of it, not a fallback to be taken quietly.
 
-### 4a. Amended 2026-09-09 — our groups are portal groups, published read-only
+### 4a. Amended 2026-09-09 — our groups are portal groups, ~~published read-only~~ *(writes opened 2026-11-02 by [ADR-256](ADR-256-portal-group-writes-go-through-studios-privilege.md))*
 
 *Owner decision, asked what a portal group should mean here: **"gruplarımızı göster."***
 
@@ -138,11 +140,17 @@ its own item sharing, and whether ours **are** that or merely resemble it had ne
 is asked here and the answer is that they are the same thing: one group model, published through a
 second face, with the fields this server holds and none invented to fill a shape.
 
-**Read-only, and that is the boundary rather than an omission.** A portal creates, joins and shares
+~~**Read-only, and that is the boundary rather than an omission.** A portal creates, joins and shares
 through this surface. Here a group is made on the admin API, where ADR-036's privilege model lives.
 Accepting a create here would be a second write path to one table with a different authorization
 story, which is how two surfaces come to disagree — and §4's *nothing is stored for the portal
-surface* is the property that would be lost first.
+surface* is the property that would be lost first.~~
+
+> **Superseded 2026-11-02 by [ADR-256](ADR-256-portal-group-writes-go-through-studios-privilege.md), owner decision
+> ([Q-224](../open-questions.md)).** The reason above is kept and answered rather than overridden: the portal's group
+> writes are doors onto the acts `/admin/groups` itself calls — one privilege check, one store call, one audit row — so
+> there is no second authorization story. Neither join flag set (the reference's *ask and be approved*) is written as
+> *invitation*, since Studio does not build a request queue (ADR-256 §5.3, INFERRED); the read mapping below is unchanged.
 
 #### The mapping, and the four places it is imperfect
 
