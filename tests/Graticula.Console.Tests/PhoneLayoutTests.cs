@@ -390,4 +390,97 @@ public sealed class PhoneLayoutTests : ConsoleTest
             await AdminAsync(HttpMethod.Delete, $"/admin/groups/{Probe}");
         }
     }
+
+    /// <summary>
+    /// Verification fix 1 and 2 (2026-11-02): a tap inside an open row menu reaches the menu, not another row's ⋯ painted over it,
+    /// and no row's title runs under its picture.
+    /// </summary>
+    [Fact]
+    public async Task An_open_row_menu_takes_the_tap_and_a_title_stays_off_the_picture()
+    {
+        (string token, _) = await SignInAsync();
+        await PhoneAsync();
+
+        try
+        {
+            await OpenAsync("/studio/#/content", token);
+            await WaitForAsync("document.querySelectorAll('#contentRows tr.mediarow td.acts summary').length > 1", "Content listed fewer than two rows.");
+
+            await ClickAsync("#contentRows tr.mediarow td.acts summary");
+            await WaitForAsync("!!document.querySelector('#contentRows tr.mediarow td.acts .menu[open] .sheet')", "The row's ⋯ opened nothing.");
+
+            Assert.True(
+                await Browser.EvaluateAsync<bool>(
+                    """
+                    (() => {
+                      const sheet = document.querySelector('#contentRows td.acts .menu[open] .sheet');
+                      const items = [...sheet.querySelectorAll('a, button')].filter(n => n.getClientRects().length);
+                      return items.length > 0 && items.every(n => {
+                        const r = n.getBoundingClientRect();
+                        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                        return !!hit && sheet.contains(hit);
+                      });
+                    })()
+                    """),
+                "Hit-testing the middle of an open row menu's items returned something else: later rows paint over it.");
+
+            Assert.True(
+                await Browser.EvaluateAsync<bool>(
+                    """
+                    (() => [...document.querySelectorAll('#contentRows tr.mediarow')].every(row => {
+                      const a = row.querySelector('.svctitle > a, td.name a');
+                      const pic = row.querySelector('td.thumbcell');
+                      if (!a || !pic) return true;
+                      return a.getBoundingClientRect().right <= pic.getBoundingClientRect().left + 1;
+                    }))()
+                    """),
+                "A row's title runs under its picture.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await WidenAsync();
+        }
+    }
+
+    /// <summary>
+    /// Verification fix 3 (2026-11-02): a group's row has a letter tile, and its meta line is written once — no data-l label
+    /// in front of the count, and the right singular after a count of one.
+    /// </summary>
+    [Fact]
+    public async Task A_groups_row_has_a_tile_and_a_meta_line_written_once()
+    {
+        (string token, _) = await SignInAsync();
+        (int made, string why) = await AdminAsync(
+            HttpMethod.Post, "/admin/groups", JsonSerializer.Serialize(new { name = Probe + "_g", title = "Probe group" }));
+        Assert.True(made is 200 or 201, $"{made} {why}");
+        await PhoneAsync();
+
+        try
+        {
+            await OpenAsync("/studio/#/groups", token);
+            await WaitForAsync($"!!document.querySelector('#groupRows tr[data-group={Probe}_g]')", "The probe group is not listed.");
+
+            string said = await Browser.EvaluateAsync<string>(
+                $$"""
+                (() => {
+                  const row = document.querySelector('#groupRows tr[data-group={{Probe}}_g]');
+                  const tile = row.querySelector('.gtile');
+                  const m = row.querySelector('td[data-l="Members"]');
+                  const before = getComputedStyle(m, '::before').content;
+                  const after = getComputedStyle(m, '::after').content;
+                  return [!!tile && tile.getClientRects().length > 0, before, after, m.hasAttribute('data-one')].join('|');
+                })()
+                """) ?? string.Empty;
+
+            Assert.Equal("true|none|\" member\"|true", said);
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await WidenAsync();
+            await AdminAsync(HttpMethod.Delete, $"/admin/groups/{Probe}_g");
+        }
+    }
 }

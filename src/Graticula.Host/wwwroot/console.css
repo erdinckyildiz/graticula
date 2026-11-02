@@ -6980,7 +6980,7 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
 
 /* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    <b>The desktop layout, 2026-11-02 — owner decision after the mockups ("Ben çok beğendim. Buna geç."), the redesign
-   after ArcGIS Enterprise's structure (ADR-228).</b> Above 720 pixels (the phone has its own block above). One bar of
+   after ArcGIS Enterprise's structure (ADR-255).</b> Above 720 pixels (the phone has its own block above). One bar of
    56 pixels: the mark and the name, the surface's sections with an underline under the current one, the search, the
    account. The utility line that stood over the bar is gone: the switch between surfaces, the server's health, the
    theme and Sign out are in the account menu (console.js moves `#surfaces` and `#healthDot` into its sheet). A
@@ -7055,6 +7055,9 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
   /* ── A page's head is its title and one control; the paragraph under it is where the mockup left it: nowhere ── */
   #view-content .pagehead p, #view-groups .pagehead p, #view-members .pagehead p, #view-roles .pagehead p,
   #view-orgsettings .pagehead p { display: none; }
+  /* Server and System: the same, on the screens whose mockups draw a title and its controls only. */
+  :is(#view-services, #view-operations, #view-machines, #view-utilities, #view-backups, #view-general, #view-logs,
+      #view-organizations, #view-sources, #view-publish) > .pagehead > div > p { display: none; }
   .pagehead { margin-bottom: var(--gap-4); align-items: center; }
   .pagehead h1 { font-size: 24px; line-height: 1.25; margin: 0; }
 }

@@ -205,3 +205,4 @@ this** for the section bar. Which pages exist, their addresses and the gate on e
 **Not decided here.** Groups has no scope and no filter to put behind the bar's icons, so it gets a toolbar of `+` and
 search and no filter button; that is INFERRED from there being nothing to filter, and is listed for the owner to confirm.
 
+**Amended 2026-11-02 for wide windows — [ADR-255](ADR-255-the-interface-follows-arcgis-enterprises-structure.md).** The utility line over the bar is gone: the switch between surfaces, the server's health, the theme and Sign out are in the account menu, and the bar is one row of 56 pixels. The sections as a bar across the top stand.
