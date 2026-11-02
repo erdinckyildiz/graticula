@@ -842,6 +842,28 @@ public interface IAdminCatalog
         IReadOnlyList<Graticula.Catalog.FieldOverride> fieldOverrides,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Creates a feature service with no layers, and its item — ADR-257 §11: the portal's <c>createService</c>, which
+    /// ArcGIS clients fill afterwards with <c>addToDefinition</c>.
+    /// </summary>
+    /// <param name="name">Its name within the folder.</param>
+    /// <param name="folder">Its folder; <c>hosted</c> for every service this is called for.</param>
+    /// <param name="owner">Who owns it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Its id, or null when a service of that name is already there.</returns>
+    /// <remarks>
+    /// <b>Back, with one caller, by owner decision of 2026-11-02</b> (<i>"Boş servise izin ver"</i>). It went on
+    /// 2026-09-06 with ADR-057 condition 4 because a method that makes an empty service and has no caller is that
+    /// rule with a longer fuse; it returns because the ArcGIS API for Python's <c>create_service</c> and
+    /// <c>create_view</c> make the service first and its layers second, and refusing the first refused both.
+    /// It is private, as everything new is, and the item is written in the same statement (ADR-056 §6).
+    /// </remarks>
+    Task<Guid?> CreateEmptyServiceAsync(
+        string name,
+        string folder,
+        Guid owner,
+        CancellationToken cancellationToken);
+
     /// <summary>Creates a group layer inside a service.</summary>
     /// <param name="folder">The service's folder, or null for the root.</param>
     /// <param name="serviceName">The service's name.</param>
@@ -1028,7 +1050,11 @@ public interface IAdminCatalog
     /// 2026-09-06</b> — ADR-057 condition 4 retired <c>POST /admin/featureservices</c> — so
     /// every empty service is now residue by construction. That does not make automatic
     /// removal right: an estate migrated from before that day still holds containers
-    /// somebody meant, and a sweep that asks is correct either way.
+    /// somebody meant, and a sweep that asks is correct either way. <b>Since 2026-11-02 the
+    /// portal's <c>createService</c> makes one deliberately again</b> (ADR-257 §11), and
+    /// an ArcGIS client fills it with <c>addToDefinition</c> a moment later — so an empty
+    /// service is residue or a service waiting for its layers, and the sweep's
+    /// asking-first is what keeps the second from being taken for the first.
     /// </para>
     /// <para>
     /// <b>An operator-initiated sweep guesses about neither.</b> It says what it will

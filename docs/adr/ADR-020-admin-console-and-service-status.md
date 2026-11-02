@@ -556,7 +556,10 @@ order this paragraph describes — container, then groups, then layers naming a 
 numeric index — is the sequence a design review called *the API rendered as a form*. A
 composition is written in one request now, and **the order the structure needs is the
 server's problem rather than the operator's**, which is the part of this paragraph that
-was wrong rather than merely out of date.
+was wrong rather than merely out of date. *(2026-11-02: the portal's `createService` makes an
+empty service for ArcGIS clients that fill one with `addToDefinition` —
+[ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md) §11. The console's drawer is
+not put back.)*
 
 **Empty services have not stopped existing**, and nothing below about finding and
 removing them changes: unpublishing the last layer still leaves the container, which is

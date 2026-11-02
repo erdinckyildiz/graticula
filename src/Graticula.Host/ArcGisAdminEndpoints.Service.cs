@@ -49,6 +49,10 @@ internal static partial class ArcGisAdminEndpoints
                     .Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
                 app.MapPost($"/rest/admin/services{folder}/{service}/updateDefinition", UpdateDefinitionAsync)
                     .Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
+                app.MapPost($"/rest/admin/services{folder}/{service}/addToDefinition", AddLayersToDefinitionAsync)
+                    .Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
+                app.MapMethods($"/rest/admin/services{folder}/{service}/{{layerId:int}}", ["GET", "POST"], LayerDocumentAsync)
+                    .Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
             }
         }
     }
@@ -75,6 +79,10 @@ internal static partial class ArcGisAdminEndpoints
             copyrightText = service.CopyrightText ?? string.Empty,
             capabilities = Capabilities(stewardship),
             maxRecordCount = limits?.Cost.MaximumRecordCount,
+
+            // The portal item this service is, as the REST document names it — the ArcGIS API for Python's create_view
+            // reads it from the manager's properties and stops without it (ADR-257 §11).
+            serviceItemId = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
             layers = service.Layers.OrderBy(l => l.LayerIndex).Select(l => new { id = l.LayerIndex, name = l.Definition.Name }),
             tables = service.Tables.Select(l => new { id = l.LayerIndex, name = l.Definition.Name }),
             adminServiceInfo = new
@@ -83,6 +91,52 @@ internal static partial class ArcGisAdminEndpoints
                 type = "FeatureServer",
                 status = new { configuredState = service.Status.ToString().ToUpperInvariant(), realTimeState = service.Status.ToString().ToUpperInvariant() },
                 database = new { datasource = new { name = service.LayersAndTables.Count > 0 ? service.LayersAndTables[0].DataSourceName : null } },
+            },
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A layer as its service's owner manages it — ADR-257 §11: the ArcGIS API for Python's <c>create_view</c> names each
+    /// view layer from <c>layer.manager.properties</c>' <c>id</c> and <c>name</c>, which this address answered 404 for.
+    /// The layer's own document is its REST one; this says what the administration adds: what it is a view of.
+    /// </summary>
+    private static async Task LayerDocumentAsync(
+        HttpContext context, string serviceName, int layerId, PostgresLayerCatalog layers, CancellationToken cancellation)
+    {
+        if (await ManagedServiceAsync(context, layers, serviceName, "read the administration of", cancellation)
+            .ConfigureAwait(false) is not { } found)
+        {
+            return;
+        }
+
+        (PublishedService service, _) = found;
+
+        if (service.LayersAndTables.FirstOrDefault(l => l.LayerIndex == layerId) is not { } layer)
+        {
+            await RefuseAsync(context, 404, $"There is no layer {layerId} in '{serviceName}'.").ConfigureAwait(false);
+            return;
+        }
+
+        PublishedService? source = service.ViewOf is { } of
+            ? (await layers.ListServicesAsync(cancellation).ConfigureAwait(false)).FirstOrDefault(s => s.Id == of)
+            : null;
+
+        await Results.Ok(new
+        {
+            currentVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
+            id = layer.LayerIndex,
+            name = layer.Definition.Name,
+            type = layer.GeometryType is null ? "Table" : "Feature Layer",
+            geometryType = layer.GeometryType is { } shape ? Graticula.Api.ArcGis.MapServerMetadataWriter.GeometryName(shape) : null,
+            viewDefinitionQuery = layer.ViewDefinition,
+            adminLayerInfo = new
+            {
+                viewLayerDefinition = source is null ? null : new
+                {
+                    sourceServiceName = source.Name,
+                    sourceLayerId = layer.LayerIndex,
+                    sourceLayerFields = "*",
+                },
             },
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
