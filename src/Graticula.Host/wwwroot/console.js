@@ -4056,6 +4056,7 @@ function drawSurfaces(surface) {
   // one; a header bar has the width for its labels and nothing to collapse to, so the glyphs and the
   // counts went with the rail. The surface's name is the badge beside the mark.
   $("surfaceBadge").textContent = config.title;
+  $("drawerSurface").textContent = config.title;
   // Organization opens on General for a member who administers nothing in it (ADR-221 §5.5): Members is not theirs.
   const tabHref = name => name === "members" && !orgAdminReader() ? "general" : name;
   $("tabs").innerHTML = config.tabs.filter(tabAllowed).map(([name, label]) =>
@@ -4123,6 +4124,8 @@ function showView(id, tab) {
   // leaving that class on while another view is shown would give every other screen a
   // full-bleed layout it was not designed for. `showEditPage` puts it back on.
   if (id !== "view-layer" && id !== "view-service") $("app").classList.remove("symfull");
+
+  phoneAfterView();
 }
 
 /**
@@ -5388,6 +5391,9 @@ let contentSort = "modified";
 /** The types ticked in My content's left column; empty means every type (owner's reference, 2026-10-16). */
 const contentKinds = new Set();
 
+/** How many items the list shows after its filters, for the phone's filter sheet to name on its Show button. */
+let contentShownNow = 0;
+
 /** A saved web map as a row of the content list — the same fields a service row reads. */
 function mapAsItem(m) {
   return {
@@ -5466,8 +5472,20 @@ async function loadMyContent() {
   drawMyContent();
 }
 
-/** The content list, from what `loadMyContent` last read. */
+/**
+ * The content list, from what `loadMyContent` last read.
+ *
+ * <b>Drawn by `drawMyContentList`, and this is what the phone's filter sheet needs around it</b> (the phone layout of
+ * 2026-11-02): the sheet is open while the scopes, folders and types under it are written again, so where focus was is
+ * remembered before and put back after, and the button that closes it says how many items it will show.
+ */
 function drawMyContent() {
+  const kept = phoneReady ? phoneSheetFocusKey() : null;
+  drawMyContentList();
+  if (phoneReady) phoneSheetRedrawn(kept);
+}
+
+function drawMyContentList() {
   if (!contentAnswer) return;
 
   const { answer, maps, docs } = contentAnswer;
@@ -5574,6 +5592,8 @@ function drawMyContent() {
       i.scope === "mine" ? myFolders.find(f => f.id === i.contentFolder)?.title : "", ...(i.tags || [])]
       .some(v => (v || "").toLowerCase().includes(needle)))
     .sort(order);
+
+  contentShownNow = visible.length;
 
   $("contentCount").textContent = contentFolderPick
     ? `${num(visible.length)} of your item${visible.length === 1 ? "" : "s"} ${contentFolderPick === "root"
@@ -6242,6 +6262,8 @@ async function showWebMapItem(id) {
       <div class="sheet">${more}</div>
     </details>` : ""}`;
 
+  phoneFoldActions($("mapActions"));
+
   drawMapAbout();
   loadMapExtras(map);
 
@@ -6382,7 +6404,7 @@ function drawMapAbout(editing = false) {
     ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${map.description ? `<div class="mapdescription">${h(map.description).replace(/\n/g, "<br>")}</div>`
-      : `<p class="hint">No description yet. What the map is for, where its data comes from and how current it is.</p>`}
+      : `<p class="hint">No description yet.<span class="widewords"> What the map is for, where its data comes from and how current it is.</span></p>`}
     ${map.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(map.licenseInfo)}</p></details>` : ""}
     ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     ${itemCategoriesLine(itemOf("map") || map, "map")}
@@ -8202,6 +8224,7 @@ async function drawServiceDetails(qualified, knownKind) {
         </details>`;
       })()}`;
   actions.hidden = false;
+  phoneFoldActions(actions);
   // The favourite is drawn with the actions, which are drawn again as the service is read (D-305).
   if (serviceItem && serviceItem.name === qualified) drawFavorite(serviceItem);
 
@@ -9428,8 +9451,8 @@ function describedAs(item) {
     ? `<p class="lede">${h(item.description)}</p>${credits}${terms}${tags}${edit}${categories}`
     : item.manages === false
       ? `<p class="hint">No description.</p>${terms}${tags}${categories}`
-      : `<p class="hint">No description yet. A few words on what this is and where it came from make it
-         easier to find and to trust.</p>${credits}${terms}${tags}${edit}${categories}`;
+      : `<p class="hint">No description yet.<span class="widewords"> A few words on what this is and where it came from make it
+         easier to find and to trust.</span></p>${credits}${terms}${tags}${edit}${categories}`;
 }
 
 /**
@@ -16364,6 +16387,8 @@ async function drawFactorNotice() {
       + "you to set it up."
     : "Your administrator account signs in with a password alone. Add two-step sign-in so a stolen password is not "
       + "enough to get in.";
+  // The phone draws this one short sentence and not the long one above (the phone layout of 2026-11-02).
+  $("factorNoticeShort").textContent = state.required ? "Two-step sign-in is required" : "Two-step sign-in is off";
   $("factorNoticeGo").href = `/studio/user/${encodeURIComponent(signedInAs)}?security`;
   notice.hidden = false;
 }
@@ -21185,6 +21210,8 @@ function drawUserMenu(name) {
   const menu = $("userMenu");
   if (!menu) return;
   $("userInitial").textContent = name ? name.trim().charAt(0).toUpperCase() : "?";
+  // The phone's bar draws the same initial as its account button (the phone layout of 2026-11-02).
+  $("barInitial").textContent = $("userInitial").textContent;
   $("userName").textContent = name || "anonymous";
 }
 
@@ -34457,6 +34484,7 @@ async function showDocumentItem(id) {
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
       <div class="sheet">${more}</div>
     </details>` : ""}`;
+  phoneFoldActions($("docActions"));
   if (had && $(had) && $("docActions").contains($(had))) $(had).focus();
 
   $("docReplaceFile").accept = docRules.accepted.join(",");
@@ -34586,7 +34614,7 @@ function drawDocAbout(editing = false) {
     ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
-      : `<p class="hint">No description yet. What the file is, where it came from and how current it is.</p>`}
+      : `<p class="hint">No description yet.<span class="widewords"> What the file is, where it came from and how current it is.</span></p>`}
     ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
     ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
@@ -40019,3 +40047,402 @@ $("skipToContent")?.addEventListener("click", event => {
   const target = $("app")?.style.display !== "none" ? $("app") : document.querySelector("#signin input, #mustchange input");
   target?.focus({ preventScroll: false });
 });
+
+/* ======================================================================================================================
+   <b>The phone layout of 2026-11-02 — owner decision, from the ArcGIS Enterprise phone layout.</b>
+
+   At 720 pixels and below Studio and Server are laid out as ArcGIS Enterprise lays out its own on a phone: one 56-pixel
+   bar with a menu, the name, search and the account; the sections, the switch between surfaces, the server's health and
+   the account's items in a drawer on the left; a page's sub-pages and an item's tabs as one menu button; My content's
+   scopes, folders and types in a full-screen sheet. It amends ADR-187 (sections across the top) and ADR-135 (a row's
+   menu hidden on a phone) for narrow widths only.
+
+   <b>None of it is new behaviour.</b> Every control below is one that already exists, drawn by the code that has always
+   drawn it and answering the handler that has always answered it; this file moves some of them to where a thumb is
+   (`phonePark`), opens the drawer, the sheets and the menus that hold them, and keeps focus where a reader left it. A
+   wide window runs none of it: the markup it moves stays where it was written, and the stylesheet draws the new
+   controls only at 720 pixels and below.
+   ====================================================================================================================== */
+
+const PHONE = window.matchMedia("(max-width: 720px)");
+
+/**
+ * Set at the foot of this section. A `var`, because it is read by functions the rest of the file calls (`drawMyContent`,
+ * `showView`, the drawing of an item's actions) and a `let` or `const` below would throw if one of them ran first.
+ */
+var phoneReady = false;
+
+/**
+ * Nodes drawn in one place on a wide window and in another on a phone. A comment marks the wide place, and the node is
+ * put back after it when the window grows — which is also why a node is moved and never copied: its id, its handlers
+ * and what the router writes into it stay what they were.
+ */
+const phoneParked = [];
+
+function phonePark(node, home) {
+  if (!node || !home) return;
+  const marker = document.createComment("where this is drawn on a wide window");
+  node.before(marker);
+  phoneParked.push({ node, marker, home });
+}
+
+/** The one overlay open at a time on a phone: the drawer, a filter sheet, or the search row. */
+let phoneOverlay = null;
+
+/** What `phoneInertAround` made inert, so closing gives exactly that back. */
+const phoneInerted = [];
+
+/**
+ * <b>The page behind a modal overlay is inert</b>, and not merely covered: a covered button still takes Tab. Every
+ * sibling of the overlay and of each ancestor of it, except a live region (which must still be heard) and the scrim
+ * (which is how a press outside closes it).
+ */
+function phoneInertAround(el) {
+  for (let node = el; node && node !== document.body; node = node.parentElement) {
+    for (const sibling of node.parentElement.children) {
+      if (sibling === node || sibling.inert || sibling.id === "navScrim"
+        || ["SCRIPT", "STYLE", "LINK"].includes(sibling.tagName)
+        || sibling.matches("[aria-live], [role=status], [role=alert]")) continue;
+      sibling.inert = true;
+      phoneInerted.push(sibling);
+    }
+  }
+}
+
+/**
+ * Opens an overlay: focus moves in, the page behind goes inert (a modal one), and the opener says it is expanded.
+ * `focusTarget` is where focus lands; Escape or the overlay's own Close gives focus back to the opener.
+ */
+function phoneOpen(el, opener, focusTarget, modal = true) {
+  phoneClose(false);
+  el.classList.add("open");
+  document.documentElement.classList.add("phoneoverlay");
+  for (const control of document.querySelectorAll(`[aria-controls="${el.id}"]`)) control.setAttribute("aria-expanded", "true");
+  if (modal) phoneInertAround(el);
+  phoneOverlay = { el, opener, modal };
+  (focusTarget || el.querySelector("button, a[href], input, select"))?.focus();
+}
+
+/** Closes the open overlay; focus goes back to what opened it unless the reader is leaving by a link. */
+function phoneClose(restoreFocus = true) {
+  if (!phoneOverlay) return;
+  const { el, opener } = phoneOverlay;
+  phoneOverlay = null;
+  el.classList.remove("open");
+  for (const inert of phoneInerted.splice(0)) inert.inert = false;
+  document.documentElement.classList.remove("phoneoverlay");
+  $("navScrim").hidden = true;
+  for (const control of document.querySelectorAll(`[aria-controls="${el.id}"]`)) control.setAttribute("aria-expanded", "false");
+  if (restoreFocus && opener && opener.isConnected) opener.focus();
+}
+
+// ---------------------------------------------------------------------------------------------------- the drawer
+
+function phoneOpenDrawer(opener, toAccount) {
+  $("navScrim").hidden = false;
+  const account = $("myProfile").hidden ? $("themeToggle") : $("myProfile");
+  const first = toAccount ? account
+    : document.querySelector("#tabs a[aria-current]") || document.querySelector("#tabs a") || $("menuClose");
+  phoneOpen($("navDrawer"), opener, first);
+}
+
+$("menuOpen").addEventListener("click", () => phoneOpenDrawer($("menuOpen"), false));
+$("barAvatar").addEventListener("click", () => phoneOpenDrawer($("barAvatar"), true));
+$("menuClose").addEventListener("click", () => phoneClose());
+$("navScrim").addEventListener("click", () => phoneClose());
+
+// A section or a surface is a link: the page is changing, so focus is the page's to place and not the menu button's.
+$("navDrawer").addEventListener("click", event => {
+  if (event.target instanceof Element && event.target.closest("a[href]")) phoneClose(false);
+});
+
+// ------------------------------------------------------------------------------------------- search, back, account
+
+$("barSearch").addEventListener("click", () => phoneOpen($("globalSearch"), $("barSearch"), $("gq"), false));
+$("gqClose").addEventListener("click", () => phoneClose());
+// A search that was run has its results on the page; there is nothing left for the row to do.
+$("globalSearch").addEventListener("submit", () => { if (phoneOverlay?.el === $("globalSearch")) phoneClose(false); });
+
+/**
+ * <b>On an item's or a group's page the bar's first control is Back</b>, to the crumb the page already draws, and the
+ * drawer stays one press away behind the account button. Without it the bar would offer a menu where the reader
+ * wants to leave the page they are on.
+ */
+function phoneSyncBack() {
+  const crumb = document.querySelector(".view.on .crumbs a[href]");
+  const back = $("barBack");
+  back.hidden = !crumb;
+  if (!crumb) return;
+  back.setAttribute("href", crumb.getAttribute("href"));
+  back.setAttribute("aria-label", `Back to ${crumb.textContent.trim()}`);
+}
+
+for (const crumbs of document.querySelectorAll(".crumbs")) {
+  new MutationObserver(phoneSyncBack).observe(crumbs, { childList: true, subtree: true });
+}
+
+// The two-step notice is one line on a phone; what it says to the account button is a dot and its name.
+new MutationObserver(() => {
+  $("barAvatar").setAttribute("aria-label", $("factorNotice").hidden ? "Account" : "Account, two-step sign-in is off");
+}).observe($("factorNotice"), { attributes: true, attributeFilter: ["hidden"] });
+
+// ---------------------------------------------------------------------------------------------- a sub-page menu
+
+const PHONE_NAV_MENUS = "#groupTabs, #serviceTabs, #mapTabs, #docTabs, nav.orgstrip, nav.subpages";
+let phoneNavSeq = 0;
+
+/**
+ * <b>A page's sub-pages and an item's tabs are one menu button on a phone</b> — the strip stays what it is (links, so
+ * Back, middle-click and copy-link keep working) and a button before it names where the reader is and opens it as a
+ * list. Drawn for every strip at every width and shown only on a phone, so the strips the router draws late (a
+ * group's, Organization's) are found when they appear.
+ */
+function phoneNavMenus() {
+  for (const nav of document.querySelectorAll(PHONE_NAV_MENUS)) {
+    if (nav.dataset.navmenu) continue;
+    nav.dataset.navmenu = "1";
+    if (!nav.id) nav.id = `phonenav${++phoneNavSeq}`;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "phonebtn navmenubtn";
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", nav.id);
+    button.innerHTML = `<span class="navmenulabel"></span><svg class="caret" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+      focusable="false"><path d="M6 9l6 6 6-6"/></svg>`;
+
+    // In the page head where there is one (the title and this, side by side); in front of the strip where the strip
+    // is already in a head.
+    const head = nav.parentElement?.classList.contains("pagehead") ? null : nav.closest(".view")?.querySelector(".pagehead");
+    if (head) head.append(button); else nav.before(button);
+
+    const label = () => {
+      const here = nav.querySelector("[aria-current]") || nav.querySelector("a");
+      const text = (here?.textContent || "").replace(/\s+/g, " ").trim();
+      button.querySelector(".navmenulabel").textContent = text;
+      button.setAttribute("aria-label", `${nav.getAttribute("aria-label") || "Pages"}: ${text}`);
+      button.hidden = nav.hidden || !nav.querySelector("a");
+    };
+    label();
+    new MutationObserver(label).observe(nav, {
+      childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-current", "hidden"],
+    });
+  }
+}
+
+/** Opens or closes a strip's list; opening puts it under its button and focus on the page the reader is on. */
+function phoneNavToggle(button, open) {
+  const nav = $(button.getAttribute("aria-controls"));
+  if (!nav) return;
+  nav.classList.toggle("menuopen", open);
+  button.setAttribute("aria-expanded", String(open));
+  if (!open) { nav.style.top = ""; nav.style.left = ""; return; }
+  const at = button.getBoundingClientRect();
+  nav.style.top = `${Math.round(at.bottom + 4)}px`;
+  nav.style.left = `${Math.max(8, Math.min(Math.round(at.left), window.innerWidth - 248))}px`;
+  (nav.querySelector("[aria-current]") || nav.querySelector("a"))?.focus();
+}
+
+function phoneNavCloseAll(restoreFocus) {
+  for (const button of document.querySelectorAll(".navmenubtn[aria-expanded=true]")) {
+    phoneNavToggle(button, false);
+    if (restoreFocus) button.focus();
+  }
+}
+
+document.addEventListener("click", event => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest(".navmenubtn");
+  if (button) { phoneNavToggle(button, button.getAttribute("aria-expanded") !== "true"); return; }
+  // A choice in the list is a link and the page changes; nothing to hand focus back to.
+  if (target?.closest("nav.menuopen a")) phoneNavCloseAll(false);
+});
+
+document.addEventListener("pointerdown", event => {
+  if (!(event.target instanceof Element) || event.target.closest(".navmenubtn, nav.menuopen")) return;
+  phoneNavCloseAll(false);
+}, true);
+
+// ---------------------------------------------------------------------------------------------------- the sheets
+
+/** What had focus inside My content's sheet, as a selector, so a redraw of the list under it can put it back. */
+function phoneSheetFocusKey() {
+  const at = document.activeElement;
+  if (phoneOverlay?.el !== $("contentSide") || !at || !$("contentSide").contains(at)) return null;
+  for (const attribute of ["data-content-scope", "data-folder-pick", "data-kind-facet"]) {
+    if (at.hasAttribute(attribute)) return `[${attribute}="${CSS.escape(at.getAttribute(attribute))}"]`;
+  }
+  return at.id ? `#${CSS.escape(at.id)}` : null;
+}
+
+/**
+ * After the list is drawn: the head's button names the scope, the filter icon says how many filters are on, and the
+ * sheet's Show says how many items it will show — in words a screen reader hears, because the count it replaces is
+ * behind the sheet and inert.
+ */
+function phoneSheetRedrawn(key) {
+  $("contentSortName").textContent = { modified: "Newest", title: "Name", type: "Type", leastUsed: "Least used" }[contentSort] || "";
+  $("contentScopeName").textContent = CONTENT_SCOPES.find(([scope]) => scope === contentScope)?.[1] || "Everything";
+
+  const filters = contentKinds.size + (contentIdle ? 1 : 0) + (contentFolderPick ? 1 : 0);
+  $("contentFilterBtn").classList.toggle("on", filters > 0);
+  $("contentFilterBtn").setAttribute("aria-label", filters > 0 ? `Filters, ${filters} on` : "Filters");
+
+  const items = `${num(contentShownNow)} item${contentShownNow === 1 ? "" : "s"}`;
+  $("contentSheetShow").textContent = `Show ${items}`;
+  if (phoneOverlay?.el === $("contentSide")) $("contentSheetSays").textContent = items;
+
+  const at = document.activeElement;
+  if (key && (!at || at === document.body || !at.isConnected)) $("contentSide").querySelector(key)?.focus();
+}
+
+for (const opener of [$("contentScopeBtn"), $("contentFilterBtn")]) {
+  opener.addEventListener("click", () => phoneOpen($("contentSide"), opener, $("contentSheetClose")));
+}
+for (const closer of [$("contentSheetClose"), $("contentSheetShow")]) {
+  closer.addEventListener("click", () => phoneClose());
+}
+
+// <b>Clear puts the list back to everything</b>: no type, no folder, not only the idle, and the Everything scope.
+$("contentSheetClear").addEventListener("click", () => {
+  contentKinds.clear();
+  contentIdle = false;
+  $("contentIdle").checked = false;
+  contentFolderPick = "";
+  resetPage("contentRows");
+  const everything = $("contentScopes").querySelector('[data-content-scope="all"]');
+  if (contentScope !== "all" && everything) everything.click();
+  else { drawMyContent(); paintPreviews(); }
+});
+
+$("memberFilterBtn").addEventListener("click", () => {
+  // The column is a `details` that a phone keeps closed until asked; the sheet is that asking.
+  $("mfWrap").open = true;
+  phoneOpen($("memberSide"), $("memberFilterBtn"), $("memberSheetClose"));
+});
+for (const closer of [$("memberSheetClose"), $("memberSheetShow")]) {
+  closer.addEventListener("click", () => phoneClose());
+}
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  if (phoneOverlay) { phoneClose(); return; }
+  phoneNavCloseAll(true);
+});
+
+// ------------------------------------------------------------------------------------- an item's one action row
+
+/** Action rows whose extra buttons are parked in their ⋯, with where each one lives on a wide window. */
+const phoneFolds = new Map();
+const PHONE_ACTION_ROWS = ["itemActions", "mapActions", "docActions"];
+
+/**
+ * <b>One row of actions on a phone: the main action, Share and ⋯</b> — favorite, categorize, download and the rest are
+ * in the ⋯ menu the row already has, or in one made for the purpose. Called after each time an item's actions are
+ * drawn, since each drawing replaces the row's markup; a wide window gets every button back where it was.
+ */
+function phoneFoldActions(row) {
+  if (!row || !phoneReady) return;
+  phoneFolds.delete(row);
+  if (!PHONE.matches) return;
+
+  const own = selector => row.querySelector(`:scope > ${selector}`);
+  const primary = own("a.btn.primary, button.primary");
+  const share = own("[data-share], #mapShareOpen, #docShareOpen");
+  let more = own("details.itemmore");
+  const extra = [...row.children].filter(child => child !== primary && child !== share && child !== more);
+  if (extra.length === 0) return;
+
+  let made = false;
+  if (!more) {
+    more = document.createElement("details");
+    more.className = "menu itemmore";
+    more.innerHTML = `<summary aria-label="More actions for this item" title="More actions">More <span
+      aria-hidden="true">▾</span></summary><div class="sheet"></div>`;
+    row.append(more);
+    made = true;
+  }
+
+  const sheet = more.querySelector(".sheet");
+  const first = sheet.firstElementChild;
+  const parked = [];
+  for (const node of extra) {
+    const marker = document.createComment("where this is drawn on a wide window");
+    node.before(marker);
+    sheet.insertBefore(node, first);
+    parked.push({ node, marker });
+  }
+  phoneFolds.set(row, { parked, more, made });
+}
+
+function phoneUnfoldActions() {
+  for (const [row, { parked, more, made }] of phoneFolds) {
+    for (const { node, marker } of parked) if (row.contains(marker)) marker.after(node);
+    if (made) more.remove();
+  }
+  phoneFolds.clear();
+}
+
+// -------------------------------------------------------------------------------------------- put it all in place
+
+phonePark($("userMenu").querySelector(".sheet"), $("drawerAccount"));
+phonePark($("contentIdle").closest("label"), $("contentSheetIdle"));
+phonePark($("pageActionContent"), $("contentToolbar"));
+phonePark($("newMap"), $("contentToolbar"));
+phonePark($("memberCount"), $("memberNarrowBar"));
+
+/**
+ * Puts everything where the window's width says it goes. The drawer and the two sheets are dialogs only on a phone: on
+ * a wide window the first is a plain wrapper and the other two are the left columns they have always been, and a role
+ * of dialog there would be a claim the page does not keep.
+ */
+function phonePlace() {
+  const phone = PHONE.matches;
+
+  for (const { node, marker, home } of phoneParked) {
+    if (phone) home.append(node); else marker.after(node);
+  }
+
+  if (!phone) {
+    phoneClose(false);
+    phoneUnfoldActions();
+  }
+
+  const dialogs = [["navDrawer", "aria-label", "Menu"], ["contentSide", "aria-labelledby", "contentSheetTitle"],
+    ["memberSide", "aria-labelledby", "memberSheetTitle"]];
+  for (const [id, naming, name] of dialogs) {
+    const el = $(id);
+    if (phone) {
+      el.setAttribute("role", "dialog");
+      el.setAttribute("aria-modal", "true");
+      el.setAttribute(naming, name);
+    } else {
+      el.removeAttribute("role");
+      el.removeAttribute("aria-modal");
+      if (id === "navDrawer") el.removeAttribute(naming);
+    }
+  }
+
+  if (phone) for (const id of PHONE_ACTION_ROWS) phoneFoldActions($(id));
+}
+
+phoneReady = true;
+PHONE.addEventListener("change", phonePlace);
+phonePlace();
+phoneNavMenus();
+phoneSyncBack();
+
+// The router draws a page's strip after the page is shown, and the crumbs after it is read; look again as the page changes.
+function phoneAfterView() {
+  if (!phoneReady) return;
+  phoneNavMenus();
+  phoneSyncBack();
+}
+
+let phoneLooking = false;
+new MutationObserver(() => {
+  if (phoneLooking) return;
+  phoneLooking = true;
+  requestAnimationFrame(() => { phoneLooking = false; phoneNavMenus(); });
+}).observe($("app"), { childList: true, subtree: true });

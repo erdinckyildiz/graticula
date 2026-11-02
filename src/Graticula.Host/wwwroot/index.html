@@ -116,6 +116,19 @@
         across the top, and a page with folders or filters had two left columns while the rail stood.
         The mark is nine squares, a graticule in miniature, drawn inline so it needs no asset.
       -->
+      <!--
+        <b>The phone's bar — 2026-11-02, owner decision, from the ArcGIS Enterprise phone layout.</b> At 720 pixels and
+        below the header is one 56-pixel bar: menu, the name, search, the account. The four things beside this comment
+        are drawn only there (console.css, "The phone layout"), and every one of them opens something that already
+        exists — the drawer below, the search form, a page's parent. Nothing here is a second copy of a control.
+      -->
+      <button type="button" class="barbtn" id="menuOpen" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="navDrawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <!-- On an item's or a group's page the bar's first control goes back to where it came from; href and label are the crumb's. -->
+      <a class="barbtn" id="barBack" href="#/content" aria-label="Back" hidden><svg viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+        focusable="false"><path d="M15 5l-7 7 7 7"/></svg></a>
       <a id="brand" href="" aria-label="Graticula home">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
         <span class="name">Graticula</span>
@@ -126,7 +139,6 @@
         Back, middle-click and copy-link work without this console implementing them. Rendered from
         JavaScript, because the list belongs to whichever surface is open.
       -->
-      <nav id="tabs" aria-label="Sections"></nav>
       <!--
         <b>One search for all of Studio, in the bar — ADR-196, owner 2026-10-18:</b> *"Arcgis'te de olduğu gibi bir genel
         sorgu. Itemid ile de sorgulama imkanı. Her bir sayfadaki değil, genel bir sorgu."* Content, groups and members by
@@ -137,7 +149,25 @@
         <input type="search" id="gq" placeholder="Search Studio" aria-label="Search Studio"
           title="Search content, groups and members, or paste an item id to open it"
           autocomplete="off" spellcheck="false">
+        <!-- The phone's search is a row laid over the bar; this closes it (console.js, "The phone layout"). -->
+        <button type="button" class="barbtn" id="gqClose" aria-label="Close search"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </form>
+      <!--
+        <b>The drawer — 2026-11-02, the phone layout, after ArcGIS Enterprise.</b> One element holding what the wide
+        header spreads over two lines: the sections (`#tabs`) and, in `#utilbar`, the switch between surfaces, the
+        server's health and the account. A wide window draws it as `display: contents`, so the header's grid places
+        its children as it always did; at 720 pixels and below it is a panel on the left, a dialog while it is open.
+        It sits after the search form, and not between brand and form as the sections once did, because it has to
+        contain the sections and `utilbar` and the form is between them in the bar.
+      -->
+      <div id="navDrawer">
+      <div class="drawerhead">
+        <span class="drawername"><b>Graticula</b> <span id="drawerSurface"></span></span>
+        <button type="button" class="barbtn" id="menuClose" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <nav id="tabs" aria-label="Sections"></nav>
       <!--
         <b>The reader's own controls are a thin line above the bar, as Server Manager keeps them</b> (owner,
         2026-10-16: the bar was *"sıkış tıkış"*, and Server Manager's *"çok daha basit"*): the switch to the other
@@ -180,6 +210,15 @@
         </details>
       </span>
       </div>
+      <!-- Where the account menu's own sheet is put on a phone, so the drawer ends with who is signed in. -->
+      <div id="drawerAccount"></div>
+      </div>
+      <button type="button" class="barbtn" id="barSearch" aria-label="Search Studio" aria-haspopup="true"
+        aria-expanded="false" aria-controls="globalSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
+      <button type="button" class="barbtn" id="barAvatar" aria-label="Account" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="navDrawer"><span class="initial" id="barInitial" aria-hidden="true"></span></button>
+      <div id="navScrim" hidden></div>
     </header>
 
 <div id="signin" class="wrap">
@@ -383,8 +422,11 @@
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
       stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3z"/><path d="M12 8v5M12 16.5v.01"/></svg>
     <p id="factorNoticeText"></p>
+    <!-- The phone's line: one short sentence in the place of the long one (the phone layout of 2026-11-02). -->
+    <span id="factorNoticeShort"></span>
     <a id="factorNoticeGo" href="/studio/">Set it up</a>
-    <button type="button" class="tiny ghost" id="factorNoticeHide">Not now</button>
+    <button type="button" class="tiny ghost" id="factorNoticeHide" aria-label="Not now"><span class="x"
+      aria-hidden="true">&times;</span><span class="lbl">Not now</span></button>
   </div>
 
   <!-- ------------------------------------------------------------ services -->
@@ -549,6 +591,13 @@
         <p>What you own, and what other people have shared with you.</p>
       </div>
       <!--
+        <b>The phone's one scope button — 2026-11-02, the phone layout, after ArcGIS Enterprise.</b> Drawn only at 720
+        pixels and below, where the head is the title and this: it says which scope is shown and opens the filter sheet,
+        which is the left column below made a full-screen dialog. `drawMyContent` writes the scope's name into it.
+      -->
+      <button type="button" class="phonebtn" id="contentScopeBtn" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="contentSide"><span id="contentScopeName">Everything</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+      <!--
         <b>New map beside New item, 2026-09-30.</b> It was at the foot of a second table under every
         service, so the way to start a map moved further away with each thing published — the design
         review measured it as a scroll that grows with the content. Maps are rows of the one list now.
@@ -589,13 +638,29 @@
       reached you, your folders, and the types present as ticks with their counts. Below 1,100 pixels it
       lies above the list.
     -->
-    <aside id="contentSide">
+    <aside id="contentSide" aria-labelledby="contentSheetTitle">
+      <!-- At 720 pixels and below this aside is a full-screen sheet (the phone layout of 2026-11-02): a head with a Close, the
+           scopes, folders and types as they are, and a foot whose Show closes the sheet on the list it has already filtered. -->
+      <div class="sheethead">
+        <h2 id="contentSheetTitle">Filter</h2>
+        <button type="button" class="barbtn" id="contentSheetClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
       <nav class="sidelist scopes" id="contentScopes" aria-label="Content"></nav>
 
       <!-- ADR-114: the caller's own folders. They are in no URL; a service folder is the other kind. -->
       <div class="folderbar" id="contentFolders" role="group" aria-label="Your folders" hidden></div>
 
       <div class="facets" id="contentFacets" role="group" aria-label="Item type" hidden></div>
+
+      <!-- Where `contentIdle`'s checkbox is put on a phone, which draws it here and not in the toolbar. -->
+      <div class="sheetidle" id="contentSheetIdle"></div>
+
+      <p class="sr-only" id="contentSheetSays" role="status" aria-live="polite"></p>
+      <div class="sheetfoot">
+        <button type="button" class="ghost" id="contentSheetClear">Clear</button>
+        <button type="button" class="primary" id="contentSheetShow">Show items</button>
+      </div>
     </aside>
 
     <!--
@@ -630,13 +695,24 @@
     <div class="toolbar" id="contentToolbar">
       <input type="search" id="contentFilter" placeholder="Search by name, tag, owner or folder&hellip;"
              autocomplete="off" aria-label="Search your content">
+      <!-- The phone's filter icon, which opens the sheet above; it says how many filters are on (the phone layout of 2026-11-02). -->
+      <button type="button" class="phonebtn iconbtn" id="contentFilterBtn" aria-label="Filters" aria-haspopup="dialog"
+        aria-expanded="false" aria-controls="contentSide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg><span
+        class="dot" aria-hidden="true"></span></button>
       <!-- The type is chosen by the ticks in the left column; a Type select here filtered too, and the two combined. -->
+      <span class="sortwrap">
       <select id="contentSort" aria-label="Order">
         <option value="modified">Newest first</option>
         <option value="title">Name A&ndash;Z</option>
         <option value="type">Type</option>
         <option value="leastUsed">Least used (30 days)</option>
       </select>
+      <!-- The phone draws the select above as this icon and the choice beside it, laid under the select (console.css). -->
+      <span class="sorticon" aria-hidden="true"><span id="contentSortName"></span><svg viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path
+        d="M7 4v16M7 20l-3-3M7 20l3-3M14 6h7M14 12h5M14 18h3"/></svg></span>
+      </span>
       <!-- ADR-135: idle is not a type, so it is its own choice and goes with any type. -->
       <label class="check"><input type="checkbox" id="contentIdle"> Only items not used in 30 days</label>
       <span class="val" id="contentCount" role="status"></span>
@@ -2453,7 +2529,13 @@
       UX sweep of 2026-10-19 the role and the user type too, which were selects that saved on one arrow key.
     -->
     <div class="memberslayout">
-      <aside class="memberfilters" aria-label="Filters">
+      <aside class="memberfilters" id="memberSide" aria-label="Filters">
+        <!-- At 720 pixels and below this is a full-screen sheet, as My content's is (the phone layout of 2026-11-02). -->
+        <div class="sheethead">
+          <h2 id="memberSheetTitle">Filter</h2>
+          <button type="button" class="barbtn" id="memberSheetClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
         <!-- Open beside the list on a wide screen; below 1024 pixels a button above it, with how many are on
              (UX sweep 2026-10-19: at 390 the eight sections put the first member 1,250 pixels down). -->
         <details class="mfwrap" id="mfWrap" open>
@@ -2482,12 +2564,20 @@
           <select id="mfGroup" aria-label="Group"><option value="">Any group</option></select></details>
         <button type="button" class="tiny ghost" id="mfClear" hidden>Clear filters</button>
         </details>
+        <div class="sheetfoot">
+          <button type="button" class="primary" id="memberSheetShow">Show members</button>
+        </div>
       </aside>
 
       <div class="membersmain">
         <div class="toolbar">
           <input type="search" id="memberQ" placeholder="Search members by name" aria-label="Search members"
             autocomplete="off">
+          <!-- The phone's filter icon: it opens the sheet beside this toolbar's list (the phone layout of 2026-11-02). -->
+          <button type="button" class="phonebtn iconbtn" id="memberFilterBtn" aria-label="Filters" aria-haspopup="dialog"
+            aria-expanded="false" aria-controls="memberSide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg><span
+            class="dot" aria-hidden="true"></span></button>
           <span class="val" id="memberCount" aria-live="polite"></span>
           <span style="flex:1"></span>
           <button type="button" class="ghost" id="memberCategorize" hidden>Categorize</button>

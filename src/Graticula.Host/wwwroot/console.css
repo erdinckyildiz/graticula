@@ -4758,7 +4758,9 @@ h4.spaced { margin-top: 24px; }
 }
 
 /* ADR-135: at phone width a My content row gives its width to the name and its count — the picture and the row's
-   menu go (the item page and the selection bar keep every action), so the name and its usage can be read. */
+   menu go (the item page and the selection bar keep every action), so the name and its usage can be read.
+   <b>Amended 2026-11-02 for 720 px and below</b> (owner decision, from the ArcGIS Enterprise phone layout, ADR-135 §10):
+   the row is a card and its ⋯ is back at 44 pixels — "The phone layout" at the end of this file overrides this. */
 @media (max-width: 480px) {
   #view-content .widetable th:last-child, #contentRows td:last-child { display: none; }
   #contentRows td.name { min-width: 0; width: auto; }
@@ -6509,3 +6511,469 @@ ol.sfsteps > li > b { margin-left: -30px; }
    link-in-text-block on the service page's list (`tr > .name > a`): a name link above a "table · id 3" line was told
    from its text by colour alone. Only name cells that carry such a line, and not the clickable rows (`tr.pick`). */
 tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ═══════════════════════════════════════════ The phone layout (2026-11-02, owner decision, after ArcGIS Enterprise) */
+
+/*
+  <b>At 720 pixels and below Studio and Server are laid out as ArcGIS Enterprise lays out its own on a phone</b> — the
+  owner approved six mockups of it (My content, the menu drawer, the filter sheet, an item, Groups, Members) and the
+  plan behind them: one 56-pixel bar (menu, name, search, account); the sections, the switch between surfaces, the
+  server's health and the account's items in a drawer; two-step notice as one line and a dot on the account; a page's
+  title with one menu button for its sub-pages; one toolbar row (New, search, filter) and a count row with a sort icon;
+  My content's scopes, folders and types in a full-screen sheet; a row's ⋯ back, each row a card with its picture at the
+  right; an item with no breadcrumb, one action row and its tabs as a menu; Groups and Members as compact rows.
+
+  It amends ADR-187 (the sections across the top) and ADR-135 (a row's menu hidden on a phone) for narrow widths only.
+  <b>Nothing here is a second copy of a control</b>: console.js moves the existing nodes to where they sit on a phone
+  and puts them back when the window grows (`phonePark`), and the controls this section draws — the bar's four, the
+  sheets' heads and feet, the scope and filter buttons — open things that already exist. The wide layout is not
+  touched: everything below is inside the media query, apart from hiding what only a phone draws.
+*/
+
+/* What only a phone draws is not drawn at all on a wide window. */
+.sortwrap { display: contents; }
+.barbtn, .phonebtn, #navScrim, .sheethead, .sheetfoot, .sheetidle, #factorNoticeShort, #drawerAccount, .drawerhead,
+#factorNoticeHide .x, .sorticon { display: none; }
+.barbtn[hidden], .phonebtn[hidden] { display: none; }
+/* The drawer's wrapper is not a box on a wide window: the header's grid places `#tabs` and `#utilbar` as it always did. */
+#navDrawer { display: contents; }
+
+@media (max-width: 720px) {
+  :root { --header-h: 56px; }
+  html.phoneoverlay, html.phoneoverlay body { overflow: hidden; }
+
+  /* ── The bar: menu, name, search, account ── */
+  :root header, :root header:has(#utilbar) {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; height: 56px; min-height: 0; padding: 0 6px;
+    row-gap: 0; box-sizing: border-box;
+    /* A bar of 56 pixels is cheap enough to stay; the three rows that scrolled away at 760 are gone. */
+    position: sticky; top: 0;
+  }
+  .barbtn {
+    display: inline-flex; align-items: center; justify-content: center; flex: none; position: relative;
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--round); background: none;
+    color: var(--ink); cursor: pointer; text-decoration: none; box-shadow: none; min-height: 0;
+  }
+  .barbtn:hover { background: var(--surface-2); }
+  .barbtn svg { width: 22px; height: 22px; display: block; }
+  .barbtn[hidden] { display: none; }
+  header:has(#barBack:not([hidden])) #menuOpen { display: none; }
+
+  :root #brand { flex: 1 1 auto; min-width: 0; padding: 0 6px; gap: 6px; min-height: 44px; }
+  :root #brand .mark { display: none; }
+  :root #brand .name { display: inline; font-size: 15px; }
+  :root #brand .badge {
+    padding: 0; border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 500;
+    text-transform: none; letter-spacing: 0;
+  }
+
+  /* The search is a button until it is pressed, then a row laid over the bar. */
+  :root header #globalSearch { display: none; }
+  :root header #globalSearch.open:not([hidden]) {
+    display: flex; position: absolute; inset: 0; z-index: 3; align-items: center; gap: 4px; padding: 0 6px 0 12px;
+    background: var(--surface); grid-area: auto;
+  }
+  :root header #globalSearch input { flex: 1 1 auto; width: auto; max-width: none; min-height: 44px; }
+  header:has(#globalSearch[hidden]) #barSearch { display: none; }
+
+  #barAvatar .initial {
+    width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 14px; font-weight: 600;
+  }
+  /* Two-step is off: a dot on the account, and the notice says it in one line (and the button's label says it too). */
+  body:has(#factorNotice:not([hidden])) #barAvatar::after {
+    content: ""; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--warn); border: 2px solid var(--surface); box-sizing: content-box;
+  }
+
+  /* ── The drawer: a panel on the left, a dialog while it is open ── */
+  #navScrim { position: fixed; inset: 0; z-index: 999; background: rgba(16, 24, 38, .5); }
+  #navScrim:not([hidden]) { display: block; }
+  :root #navDrawer {
+    display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 1000;
+    width: min(300px, 86vw); box-sizing: border-box; overflow-y: auto; background: var(--surface);
+    box-shadow: 2px 0 12px rgba(16, 24, 38, .18);
+    visibility: hidden; transform: translateX(-100%); transition: transform .18s ease, visibility 0s .18s;
+  }
+  :root #navDrawer.open { visibility: visible; transform: none; transition: transform .18s ease; }
+  .drawerhead {
+    display: flex; align-items: center; justify-content: space-between; flex: none; height: 56px;
+    padding: 0 6px 0 16px; border-bottom: 1px solid var(--rule);
+  }
+  .drawername b { letter-spacing: .06em; text-transform: uppercase; }
+  #drawerSurface { color: var(--muted); }
+
+  :root #navDrawer #tabs {
+    display: flex; flex-direction: column; flex: none; order: 0; gap: 0; margin: 0; padding: 8px 0; min-height: 0;
+    align-self: auto; overflow: visible; -webkit-mask-image: none; mask-image: none; border: 0;
+  }
+  :root #navDrawer #tabs a[data-tab], :root #navDrawer #tabs a[data-link] {
+    display: flex; align-items: center; min-height: 48px; padding: 0 16px; margin: 0; border: 0;
+    border-left: 3px solid transparent; color: var(--ink); font-size: 15px;
+  }
+  :root #navDrawer #tabs a[data-tab][aria-current="page"] {
+    background: var(--accent-soft); color: var(--accent-ink); border-left-color: var(--accent); font-weight: 600;
+  }
+  :root #navDrawer #tabs a[data-tab]:hover, :root #navDrawer #tabs a[data-link]:hover { background: var(--surface-2); }
+
+  :root #navDrawer #utilbar {
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; flex: none;
+    min-height: 0; margin: 0; padding: 8px 0; background: none; border: 0; border-top: 1px solid var(--rule);
+    font-size: 14px; color: var(--ink);
+  }
+  #navDrawer #utilbar .right { display: none; }
+  #navDrawer #utilbar > #tenantName { order: -2; max-width: none; padding: 8px 16px; }
+  :root #navDrawer #surfaces { display: flex; flex-direction: column; gap: 0; padding: 0; border: 0; background: none; }
+  #navDrawer #surfaces[hidden] { display: none; }
+  #navDrawer #surfaces::before {
+    content: "Switch to"; padding: 8px 16px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted);
+  }
+  :root #navDrawer #utilbar #surfaces a {
+    display: flex; align-items: center; justify-content: flex-start; min-height: 44px; padding: 0 16px; border: 0;
+    font-size: 15px; color: var(--ink); background: none;
+  }
+  :root #navDrawer #utilbar #surfaces a[hidden] { display: none; }
+  :root #navDrawer #utilbar #surfaces a[aria-current] { color: var(--accent-ink); font-weight: 600; }
+  #navDrawer #healthDot { order: 5; align-self: flex-start; margin: 8px 16px; min-height: 32px; }
+  #navDrawer .healthpill .healthtext {
+    position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto;
+  }
+
+  #drawerAccount { display: block; margin-top: auto; flex: none; padding: 8px 0 16px; border-top: 1px solid var(--rule); }
+  #drawerAccount .sheet { display: flex; flex-direction: column; }
+  #drawerAccount #who { padding: 8px 16px; color: var(--muted); font-size: 12px; text-align: left; border: 0; margin: 0; }
+  #drawerAccount #who b { display: block; color: var(--ink); font-size: 14px; }
+  #drawerAccount #myProfile, #drawerAccount #themeToggle, #drawerAccount #signout {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 0;
+    background: none; box-shadow: none; color: var(--ink); font-size: 15px; font-weight: 400; text-align: left;
+    text-decoration: none; cursor: pointer;
+  }
+  #drawerAccount #myProfile[hidden] { display: none; }
+  #drawerAccount #signout[style*="display: none"], #drawerAccount #signout[style*="display:none"] { display: none; }
+  #drawerAccount #myProfile:hover, #drawerAccount #themeToggle:hover, #drawerAccount #signout:hover { background: var(--surface-2); }
+  #utilbar #userMenu { display: none; }
+
+  /* ── The page: tighter, and its explanatory paragraphs go ── */
+  main#app.wrap { padding: 12px 12px 24px; }
+  #view-content .pagehead, #view-groups .pagehead, #view-members .pagehead, #view-group .pagehead {
+    flex-direction: row; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  #view-content .pagehead > div:first-child, #view-groups .pagehead > div:first-child,
+  #view-members .pagehead > div:first-child, #view-group .pagehead > div:first-child { flex: 1 1 auto; min-width: 0; }
+  #view-content .pagehead p, #view-groups .pagehead p, #view-members .pagehead p { display: none; }
+  #view-content .pagehead h1, #view-groups .pagehead h1, #view-members .pagehead h1, #view-group .pagehead h1 {
+    font-size: 22px; margin: 0; overflow-wrap: anywhere;
+  }
+  #view-content .pagehead .right { display: none; }
+  /* Any page with a sub-page menu button: its title and the button or buttons share the row, wrapping when they cannot. */
+  .pagehead:has(> .navmenubtn) { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .pagehead:has(> .navmenubtn) > div:first-child { flex: 1 1 12rem; }
+  #view-content .pagehead .phonebtn, #view-members .pagehead > .phonebtn, #view-group .pagehead > .phonebtn,
+  #view-groups .pagehead > .phonebtn { flex: none; }
+
+  .phonebtn {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; position: relative;
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); color: var(--ink);
+    font: 500 14px var(--sans); cursor: pointer; box-shadow: none;
+  }
+  .phonebtn[hidden] { display: none; }
+  .phonebtn .caret { width: 12px; height: 12px; flex: none; }
+  .phonebtn.iconbtn { width: 44px; padding: 0; justify-content: center; }
+  .phonebtn.iconbtn svg { width: 18px; height: 18px; }
+  .phonebtn .dot {
+    display: none; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--surface); box-sizing: content-box;
+  }
+  .phonebtn.on .dot { display: block; }
+
+  /* The two-step notice: one line, the dot on the account says the rest. */
+  main#app > .factornotice#factorNotice {
+    flex-wrap: nowrap; min-height: 44px; margin: -12px -12px 10px; padding: 0 0 0 16px; gap: 8px;
+    border-width: 0 0 1px; border-radius: 0; font-size: 13px;
+  }
+  #factorNotice > .ico, #factorNotice > p { display: none; }
+  #factorNotice > #factorNoticeShort { display: block; flex: 1 1 auto; min-width: 0; }
+  #factorNotice > a { min-height: 44px; }
+  #factorNoticeHide { min-height: 44px; width: 44px; padding: 0; }
+  #factorNoticeHide .x { display: inline; font-size: 22px; line-height: 1; }
+  #factorNoticeHide .lbl { display: none; }
+
+  /* ── A page's sub-pages, and an item's tabs, as one menu button each ── */
+  #groupTabs[data-navmenu]:not(.menuopen), #serviceTabs[data-navmenu]:not(.menuopen), #mapTabs[data-navmenu]:not(.menuopen),
+  #docTabs[data-navmenu]:not(.menuopen), nav.orgstrip[data-navmenu]:not(.menuopen), nav.subpages[data-navmenu]:not(.menuopen) {
+    display: none;
+  }
+  #groupTabs[data-navmenu].menuopen, #serviceTabs[data-navmenu].menuopen, #mapTabs[data-navmenu].menuopen,
+  #docTabs[data-navmenu].menuopen, nav.orgstrip[data-navmenu].menuopen, nav.subpages[data-navmenu].menuopen {
+    display: flex; flex-direction: column; position: fixed; z-index: 950; width: 240px; max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 80px); overflow-y: auto; gap: 0; margin: 0; padding: 4px; box-sizing: border-box;
+    background: var(--surface); border: 1px solid var(--rule-strong); border-radius: var(--round); box-shadow: var(--lift-2);
+    grid-row: auto; grid-column: auto;
+  }
+  nav[data-navmenu].menuopen a {
+    display: flex; align-items: center; justify-content: flex-start; text-align: left; gap: 8px; min-height: 44px; margin: 0 !important;
+    padding: 0 12px; border: 0; border-radius: var(--round); color: var(--ink); background: none; box-shadow: none;
+    font-size: 15px; font-weight: 400; white-space: normal;
+  }
+  nav[data-navmenu].menuopen a[aria-current] {
+    background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  }
+  nav[data-navmenu].menuopen a:hover { background: var(--surface-2); }
+  nav[data-navmenu].menuopen a .count { margin-left: auto; }
+  .navmenubtn { max-width: 60vw; }
+  .navmenubtn .navmenulabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #servicePagehead > .navmenubtn, #mapPagehead > .navmenubtn, #docPagehead > .navmenubtn { grid-area: tabs; justify-self: start; }
+  #servicePagehead > .navmenubtn { order: 2; }
+  .view.withside.on { display: block; }
+
+  /* ── My content: one toolbar row, a count row, the list as cards ── */
+  #view-content > #contentToolbar {
+    display: flex; flex-wrap: wrap; gap: 0 8px; align-items: center;
+    padding: 0; margin: 0 0 4px; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  #view-content > #contentToolbar[hidden] { display: none; }
+  /* Row one is New, the search and the filter; a break; row two is the count, New map and the order. */
+  #contentToolbar::before { content: ""; order: 3; flex: 1 1 100%; height: 0; }
+  #contentToolbar > #pageActionContent { order: 0; flex: none; margin-bottom: 8px; }
+  #contentToolbar > #pageActionContent:empty { display: none; }
+  #contentToolbar > #pageActionContent > button { min-height: 44px; padding: 0 14px; }
+  #contentToolbar > #contentFilter { order: 1; flex: 1 1 0; min-width: 0; width: auto; min-height: 44px; margin-bottom: 8px; box-sizing: border-box; }
+  #contentToolbar > #contentFilterBtn { order: 2; flex: none; margin-bottom: 8px; }
+  #contentToolbar > #contentCount { order: 4; flex: 1 1 0; min-width: 0; font-size: 13px; color: var(--muted); }
+  #contentToolbar > #newMap { order: 5; flex: none; min-height: 44px; padding: 0 8px; }
+  #contentToolbar > #newMap[hidden] { display: none; }
+  /* The order select is the native one, drawn as an icon with the choice beside it: the control is still a select
+     (a phone's own picker, a name, a value) laid over a picture of it. */
+  #contentToolbar > .sortwrap { order: 6; flex: none; display: grid; }
+  .sortwrap > #contentSort { grid-area: 1 / 1; opacity: 0; width: 100%; height: 44px; margin: 0; cursor: pointer; }
+  .sortwrap > .sorticon {
+    grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px;
+    min-height: 44px; padding: 0 4px 0 8px; font-size: 13px; color: var(--ink); pointer-events: none;
+  }
+  .sortwrap > .sorticon svg { width: 16px; height: 16px; flex: none; }
+  .sortwrap > #contentSort:focus-visible + .sorticon { outline: 2px solid var(--accent); outline-offset: 0; border-radius: var(--round); }
+  .sortwrap:has(> #contentSort[hidden]) { display: none; }
+  #contentToolbar > label.check[hidden] { display: none; }
+  #contentNote { margin: 0 0 6px; }
+
+  #view-content #contentTable { background: none; border: 0; box-shadow: none; padding: 0; overflow: visible; }
+  #contentTable table, #contentTable tbody { display: block; min-width: 0; width: 100%; }
+  #contentTable thead { display: block; }
+  #contentTable thead tr { display: flex; align-items: center; min-height: 44px; }
+  #contentTable thead th { display: none; padding: 0; border: 0; }
+  #contentTable thead th.tick { display: flex; align-items: center; width: auto; }
+  #contentTable thead th.tick::after { content: "Select all"; margin-left: 4px; font-size: 13px; font-weight: 400; color: var(--muted); }
+  #contentPickAll { margin: 12px; }
+
+  #contentRows tr.mediarow {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto 44px; column-gap: 8px; align-items: start;
+    margin: 0 0 8px; padding: 8px 4px 8px 12px; background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--round-lg); box-shadow: none;
+  }
+  #contentRows tr.mediarow td { display: block; padding: 0; border: 0; width: auto; max-width: none; min-width: 0; }
+  #contentRows tr.mediarow td.tick { grid-column: 1; grid-row: 1; padding: 0; width: auto; }
+  #contentRows tr.mediarow td.tick:empty { display: none; }
+  #contentRows tr.mediarow td.name { grid-column: 2; grid-row: 1; padding-top: 2px; width: auto; max-width: none; }
+  #contentRows tr.mediarow td.thumbcell { grid-column: 3; grid-row: 1; padding-top: 2px; width: auto; }
+  #contentRows tr.mediarow td.acts { grid-column: 4; grid-row: 1; text-align: center; width: auto; }
+  #contentRows tr.mediarow .thumb { width: 72px; height: 48px; border-radius: var(--round); }
+  #contentRows tr.mediarow .svctitle { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+  #contentRows tr.mediarow .svctitle > a { font-size: 15px; overflow-wrap: anywhere; }
+  #contentRows tr.mediarow .svcdesc { display: none; }
+  #contentRows tr.mediarow .svcmeta { font-size: 12px; gap: 0 8px; margin-top: 2px; }
+  #contentRows tr.mediarow td.acts .menu > summary {
+    display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0;
+    font-size: 20px; box-sizing: border-box;
+  }
+  #contentRows td.empty { display: block; }
+
+  /* ── The filter sheet: My content's left column, full screen ── */
+  :root #view-content.on > #contentSide:not(.open), :root #memberSide:not(.open) { display: none; }
+  :root #view-content.on > #contentSide.open, :root #memberSide.open {
+    display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 1000; box-sizing: border-box;
+    margin: 0; padding: 0 16px; gap: 0; border: 0; border-radius: 0; overflow-y: auto; background: var(--surface);
+    max-height: none; top: 0;
+  }
+  .sheethead {
+    display: flex; align-items: center; justify-content: space-between; flex: none; position: sticky; top: 0; z-index: 1;
+    height: 56px; margin: 0 -16px; padding: 0 6px 0 16px; background: var(--surface); border-bottom: 1px solid var(--rule);
+  }
+  .sheethead h2 { margin: 0; font-size: 18px; font-weight: 600; }
+  .sheetfoot {
+    display: flex; gap: 8px; flex: none; position: sticky; bottom: 0; margin: auto -16px 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--rule);
+  }
+  .sheetfoot button { flex: 1 1 0; min-height: 48px; font-size: 15px; }
+  .sheetfoot .ghost { border: 1px solid var(--control-edge); color: var(--ink); }
+  .sheetfoot .primary { flex: 2 1 0; }
+  #contentSide > .sidelist.scopes, #contentSide > .facets, #contentSide > #contentFolders, #contentSide > .sheetidle {
+    margin: 0; padding: 8px 0 4px; border: 0;
+  }
+  #contentSide > .sidelist.scopes::before, #contentSide > .sheetidle::before {
+    display: block; padding: 8px 0; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  }
+  #contentSide > .sidelist.scopes::before { content: "Show"; }
+  :root #contentSide > .sidelist.scopes { flex-direction: row; flex-wrap: wrap; gap: 8px; overflow: visible; }
+  :root #contentSide > .sidelist.scopes a {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--control-edge);
+    border-radius: 22px; background: var(--surface); color: var(--ink); font-size: 14px; white-space: nowrap;
+  }
+  :root #contentSide > .sidelist.scopes a[aria-current="page"] {
+    background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  #contentSide > #contentFolders { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #contentSide > #contentFolders[hidden], #contentSide > .facets[hidden] { display: none; }
+  #contentSide > #contentFolders .folderlabel, #contentSide > .facets .folderlabel {
+    flex: none; margin: 0; padding: 8px 0; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  }
+  #contentSide > #contentFolders .folderlabel { flex: 1 1 100%; }
+  #contentSide > #contentFolders .chip { min-height: 44px; padding: 0 14px; font-size: 14px; }
+  #contentSide > #contentFolders .hint, #contentSide > #contentFolders #folderNew, #contentSide > #contentFolders .foldermenu { margin-left: 0; }
+  #contentSide > #contentFolders #folderNew, #contentSide > #contentFolders .foldermenu summary { min-height: 44px; display: inline-flex; align-items: center; }
+  #contentSide > .facets { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  #contentSide .facets label.check, #contentSide .sheetidle label.check {
+    display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0; border: 0; border-radius: 0;
+    font-size: 15px; cursor: pointer;
+  }
+  #contentSide .facets label.check input, #contentSide .sheetidle label.check input { width: 20px; height: 20px; margin: 0; }
+  #contentSide .facets .linkbtn { align-self: flex-start; min-height: 44px; }
+  #contentSide > .sheetidle { display: block; padding: 4px 0; }
+  #contentSide > .sheetidle:empty { display: none; }
+  #contentSide > .sheetidle::before { content: none; }
+
+  /* ── The members' filter sheet ── */
+  #memberSide.open .mfwrap > summary { display: none; }
+  #memberSide.open details { border-top: 0; padding: 4px 0; }
+  #memberSide.open details > summary { min-height: 44px; display: flex; align-items: center; }
+  #memberSide.open .mflist { max-height: none; overflow: visible; }
+  #memberSide.open .mflist label { min-height: 44px; }
+  #memberSide.open .mflist input { width: 20px; height: 20px; }
+  #memberSide.open select, #memberSide.open input[type=search] { min-height: 44px; }
+  #memberSide.open .mfwrap { margin: 0; }
+  .memberslayout { display: block; }
+
+  /* ── Groups: +, search, count, and rows that are two lines ── */
+  #view-groups > .toolbar {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center;
+    padding: 0; margin: 0 0 4px; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  #view-groups > .toolbar > #groupNew {
+    grid-column: 1; grid-row: 1; width: 44px; height: 44px; padding: 0; font-size: 0; display: inline-flex;
+    align-items: center; justify-content: center;
+  }
+  #view-groups > .toolbar > #groupNew::before { content: "+"; font-size: 24px; line-height: 1; font-weight: 400; }
+  #view-groups > .toolbar > #groupFilter { grid-column: 2; grid-row: 1; width: 100%; flex: none; min-height: 44px; box-sizing: border-box; }
+  #view-groups > .toolbar > #groupCount { grid-column: 1 / -1; grid-row: 2; font-size: 13px; color: var(--muted); }
+  #view-groups > .toolbar > span[style] { display: none; }
+  #view-groups > .panel:has(#groupRows) { background: none; border: 0; box-shadow: none; padding: 0; }
+  #view-groups #groupRows tr.pick, #members tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; margin: 0 0 8px; padding: 8px 6px 8px 12px;
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); box-sizing: border-box;
+  }
+  #view-groups #groupRows td { padding: 0; border: 0; }
+  #view-groups #groupRows tr.pick td.name { flex: 1 1 100%; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+  #view-groups #groupRows tr.pick td.name .val { display: inline; margin-left: 6px; font-size: 12px; }
+  #view-groups #groupRows tr.pick td[data-l] {
+    display: block; flex: 0 0 auto; grid-column: auto; font-size: 12px; color: var(--muted);
+  }
+  #view-groups #groupRows tr.pick td[data-l] > * { display: inline; }
+  #view-groups #groupRows tr.pick td[data-l]:not([data-l="Owner"]) { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--rule-strong); }
+  #view-groups #groupRows td[data-l="Owner"] { order: 1; }
+  #view-groups #groupRows td[data-l="Members"] { order: 2; }
+  #view-groups #groupRows td[data-l="Items"] { order: 3; }
+  #view-groups #groupRows td[data-l="You are"] { order: 4; }
+  #view-groups #groupRows td[data-l="Members may"] { order: 5; }
+  #view-groups #groupRows td[data-l="Owner"]::before { content: "owner "; }
+  #view-groups #groupRows td[data-l="Members"]::after { content: " members"; }
+  #view-groups #groupRows td[data-l="Items"]::after { content: " items"; }
+  #view-groups #groupRows td[data-l="You are"]::before { content: "you are "; }
+  #view-groups #groupRows td[data-l="Members may"]::before { content: "members "; }
+  #view-groups #groupRows td[data-l]::before, #view-groups #groupRows td[data-l]::after { display: inline; }
+  #view-groups #groupRows td.empty { flex: 1 1 100%; }
+
+  /* ── Members: New member, search, filter; a count row; two-line rows ── */
+  #view-members .toolbar {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
+    padding: 0; margin: 0 0 4px; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  #view-members .toolbar > #memberNew { grid-column: 1; grid-row: 1; min-height: 44px; padding: 0 12px; }
+  #view-members .toolbar > #memberQ { grid-column: 2; grid-row: 1; width: 100%; flex: none; min-height: 44px; box-sizing: border-box; }
+  #view-members .toolbar > #memberFilterBtn { grid-column: 3; grid-row: 1; }
+  #view-members .toolbar > #memberCategorize { grid-column: 1 / -1; grid-row: 2; min-height: 44px; }
+  #view-members .toolbar > #memberCategorize[hidden] { display: none; }
+  #view-members .toolbar > span[style] { display: none; }
+  #memberNarrowBar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 0 0 4px; min-height: 44px; }
+  #memberNarrowBar label.check { margin-right: 0; }
+  #memberNarrowBar > #memberCount { margin-right: auto; font-size: 13px; color: var(--muted); }
+  #memberNarrowBar label.q {
+    position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  #memberNarrowBar select { min-height: 44px; max-width: 55%; border: 0; background: none; font-size: 13px; color: var(--ink); }
+  #view-members .panel.widetable:has(#members) { background: none; border: 0; box-shadow: none; padding: 0; overflow: visible; }
+  #members tr { position: relative; gap: 2px 8px; flex-wrap: wrap; }
+  #members td { padding: 0; border: 0; }
+  #members td.tick { flex: none; order: 0; width: auto; }
+  #members td.tick input { width: 24px; height: 24px; margin: 0 8px 0 0; }
+  #members td.name { flex: 1 1 calc(100% - 44px); min-width: 0; order: 0; padding-right: 40px; }
+  #members td.act { flex: none; order: 1; align-self: flex-start; position: absolute; top: 4px; right: 4px; box-shadow: none; background: transparent; }
+  #members td.act::before, #members td.act::after { content: none; }
+  #members td[data-l] {
+    display: block; flex: 0 0 auto; order: 2; grid-column: auto; font-size: 12px; color: var(--muted);
+  }
+  #members td[data-l]::before { content: none; }
+  #members td[data-l] > * { display: inline; }
+  #members td[data-l="User type"] { order: 2; margin-left: 82px; }
+  #members td[data-l="Role"] { order: 3; padding-left: 8px; margin-left: 8px; border-left: 1px solid var(--rule-strong); }
+  #members td[data-l="Last login"] { order: 4; padding-left: 8px; margin-left: 8px; border-left: 1px solid var(--rule-strong); }
+  /* The login's own line is inline style (`display:block`), so it takes `!important` to sit beside the name. */
+  #members td.name .whorow > span > .val { display: inline !important; margin-left: 6px; font-size: 12px; }
+  #members td.name .whorow > span > .hint { display: none; }
+  #members td.act details.rowmenu > summary {
+    display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; box-sizing: border-box; font-size: 20px;
+  }
+  #members td.empty { flex: 1 1 100%; }
+
+  /* ── An item: no breadcrumb, a thumbnail with a pencil, one row of actions, tabs as a menu ── */
+  #view-service .crumbs, #view-map .crumbs, #view-document .crumbs, #view-group .crumbs { display: none; }
+  #itemThumb .thumb, #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 88px; height: 64px; }
+  #itemThumb .thumbcol { position: relative; }
+  #itemThumb .thumbcol [data-redraw-thumb] {
+    position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; padding: 0; border: 0; background: none;
+    font-size: 0; color: var(--ink); box-shadow: none; min-height: 0;
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::before {
+    content: ""; position: absolute; left: 6px; top: 6px; width: 30px; height: 30px; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: 50%; background: var(--surface);
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::after {
+    content: ""; position: absolute; left: 14px; top: 14px; width: 14px; height: 14px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  #servicePagehead > .herotext h1, #mapPagehead > .herotext h1, #docPagehead > .herotext h1 { font-size: 22px; }
+  #mapPagehead, #docPagehead { padding-bottom: var(--gap-3); }
+  #itemActions:not([hidden]), #mapActions, #docActions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
+  #itemActions > a.btn.primary, #mapActions > a.btn.primary, #docActions > button.primary {
+    flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; padding: 0 12px;
+  }
+  #itemActions > button, #mapActions > button, #docActions > button { min-height: 44px; padding: 0 14px; flex: none; }
+  .itemactions > details.itemmore { flex: none; }
+  :root #itemActions .itemmore > summary, :root #mapActions .itemmore > summary, :root #docActions .itemmore > summary {
+    display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); font-size: 0;
+  }
+  :root #itemActions .itemmore > summary::before, :root #mapActions .itemmore > summary::before,
+  :root #docActions .itemmore > summary::before { content: "\22EF"; font-size: 20px; line-height: 1; color: var(--ink); }
+  :root #itemActions .itemmore .sheet [hidden], :root #mapActions .itemmore .sheet [hidden],
+  :root #docActions .itemmore .sheet [hidden] { display: none; }
+  .menu .sheet [hidden] { display: none; }
+  .menu .sheet button { min-height: 44px; }
+  .mapitem > .mapmain { order: 1; }
+  .mapitem > aside { order: 2; }
+  .widewords { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root #navDrawer, :root #navDrawer.open { transition: none; }
+  }
+}
