@@ -83,7 +83,7 @@ internal static partial class PortalEndpoints
     /// data: <i>"The dataset version is later than is supported by your server. Minimum version: 11.2"</i> (dev,
     /// 2026-10-17, ADR-191 condition 2). The same release as the server's own <c>/rest/info</c> <c>fullVersion</c>.
     /// </remarks>
-    public const string EnterpriseVersion = "12.1.0";
+    public static string EnterpriseVersion => Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion;
 
     /// <summary>The build an Enterprise 12.1 portal names beside <see cref="EnterpriseVersion"/> (measured 2026-10-19).</summary>
     public const string EnterpriseBuild = "786";

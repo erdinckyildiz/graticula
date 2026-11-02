@@ -91,6 +91,14 @@ portal, which no Enterprise ships. The owner also asked for 12.2, for Survey123 
 found that 12.2 is not released: a version number is a promise of that release's behaviour, and the Survey123
 Mobile registration is a registered app, not a version. `OneEnterpriseReleaseTests` holds the two together.
 
+*(2026-11-03, the ArcGIS veteran's review of v1.0.499: the hosting server's admin API Pro reads before it shares,
+`/arcgis/admin` and `/arcgis/admin/info`, still said `currentVersion 11.2` / `fullVersion "11.2.0"` — written on
+2026-10-17, two days before the owner's *"hem server hem studio 12.1 olsun"*, and missed by that amendment. They now read
+`CurrentVersion` and a new `FeatureServerMetadataWriter.FullVersion` (formatted invariantly), and the portal's
+`enterpriseVersion` is the same property, so the server's REST, its admin API and the portal's release are one value.
+ADR-191 chose one pair for portal and server, not two; nothing in it asked for 11.2 at the admin root.
+`OneEnterpriseReleaseTests.The_hosting_servers_admin_names_the_release_its_REST_documents_name`.)*
+
 ## 6. Consequences
 
 **Positive.** The server reads as current to whoever looks. ImageServer can no longer drift from the
