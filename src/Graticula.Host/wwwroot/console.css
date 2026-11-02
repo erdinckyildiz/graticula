@@ -7236,3 +7236,305 @@ html[data-session="none"]:root #main > header { display: none; }
   #drawerAccount #accountTwoStep[hidden] { display: none; }
   #drawerAccount #accountTwoStep:hover { background: var(--surface-2); }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The screens' bodies, the redesign of 2026-11-02 (ADR-255 §6)</b> — each rebuilt to its approved mockup: Server's service
+   page, Publish, Data sources and Logs; System's Status, General, Organizations, Utility services, Machines and
+   Backups; Studio's search, a group and its page, Members, a profile, Member roles and Security. Layout and presentation
+   only: a rule here moves, sizes or shows a node that is already there; none adds a control, and each control a mockup
+   draws that this console has no behaviour for is left out (ADR-255 §4).
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shared by the list screens: the column heads are quiet, on the card's own white ── */
+:root :is(#view-services, #view-sources, #view-organizations, #view-utilities, #view-machines, #view-backups, #view-logs,
+          #view-groups, #view-members, #view-roles, #view-signin) .panel thead th {
+  background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600; text-transform: none; letter-spacing: 0;
+}
+
+@media (min-width: 721px) {
+  /* A screen that is a card of settings is not wider than a page of settings reads: the mockup centres 760 pixels. */
+  :root #view-settings.on { max-width: 760px; margin-left: auto; margin-right: auto; }
+  :root #view-settings .pagehead p, :root #view-operations .pagehead p, :root #view-logs .pagehead p,
+  :root #view-sources .pagehead p, :root #view-organizations .pagehead p, :root #view-utilities .pagehead p,
+  :root #view-machines .pagehead p, :root #view-backups .pagehead p, :root #view-signin > .pagehead p,
+  :root #view-publish .pagehead p, :root #view-search .pagehead p { display: none; }
+
+  /* ── Server › a service: a flat head, the tabs under it, and the pages in cards ── */
+  :root #serverHero.pagehead {
+    background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-4); gap: var(--gap-4); align-items: flex-start;
+  }
+  :root #serverHero .herothumb img.thumb { width: 134px; height: 90px; border-radius: var(--round-lg); }
+  :root #serverHero .herotext h1 { font-size: 24px; margin: 0 0 4px; }
+  :root #serviceEdit.panel { background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #serviceNav {
+    background: none; border: 0; border-bottom: 1px solid var(--rule); padding: 0; margin: 0 0 var(--gap-4); gap: 4px;
+  }
+  :root #serviceNav a { padding: 12px 16px; border-bottom: 3px solid transparent; border-radius: 0; background: none; }
+  :root #serviceNav a[aria-current] { border-bottom-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  :root #servicePagesBody {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4) var(--gap-5);
+  }
+
+  /* ── Server › Publish: the three panes' heads in sentence case on white, the verbs at the head's right ── */
+  :root #view-publish > .pagehead { align-items: center; margin-bottom: var(--gap-3); }
+  :root #view-publish > .pagehead > .pageacts { margin-left: auto; }
+  :root #view-publish .composerpane > header, :root #view-publish .composerpane > .panehead, :root #view-publish .composerpane > h2,
+  :root #view-publish .composerpane > h3 {
+    background: var(--surface); text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--ink);
+  }
+
+  /* ── Server › Data sources: a quiet table; its explanation is a footnote, not a card ── */
+  :root #view-sources .panel:not(.widetable):not(:has(table)) { background: none; border: 0; box-shadow: none; padding: var(--gap-3) 0 0; }
+
+  /* ── Server › Logs: the log being read is the segmented control in the head, one row of filters, then the table ── */
+  :root #view-logs.on { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-4); row-gap: 0; align-items: center; }
+  :root #view-logs.on > * { grid-column: 1 / -1; min-width: 0; }
+  :root #view-logs.on > .pagehead { grid-column: 1; grid-row: 1; margin-bottom: var(--gap-3); }
+  :root #view-logs.on > #logSources {
+    grid-column: 2; grid-row: 1; position: static; display: inline-flex; flex-direction: row; gap: 2px; padding: 3px; margin: 0 0 var(--gap-3);
+    border: 1px solid var(--rule-strong); border-radius: 6px; background: var(--surface); width: auto;
+  }
+  :root #view-logs > #logSources button {
+    border: 0; border-radius: 4px; background: none; color: var(--ink); padding: 6px 14px; font-size: var(--t-small); text-align: center;
+    min-height: 0; box-shadow: none; white-space: nowrap;
+  }
+  :root #view-logs > #logSources button[aria-selected="true"] { background: var(--accent); color: #fff; font-weight: 600; border: 0; }
+  :root #view-logs.on > #logLede { display: none; }
+  :root #view-logs.on > #logFilters {
+    grid-column: 1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-3);
+  }
+  :root #view-logs.on > #logSources + .toolbar {
+    grid-column: 2; grid-row: 2; margin: 0 0 var(--gap-3); justify-content: flex-end; background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  :root #view-logs.on > #logSources + .toolbar > span[style] { display: none; }
+  :root #view-logs #logFiltersToggle { display: none; }
+  :root #view-logs #logFilters > label { color: var(--muted); font-size: var(--t-small); }
+  :root #view-logs #logFilters input[type=search], :root #view-logs #logFilters input[type=text] { flex: 1 1 9rem; max-width: 18rem; }
+  :root #view-logs > .panel.widetable { grid-column: 1 / -1; }
+
+  /* ── System › Status: a verdict card of two columns, then one grid of cards ── */
+  :root #view-operations.on { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-4); align-items: start; }
+  :root #view-operations.on > * { grid-column: 1 / -1; min-width: 0; }
+  :root #view-operations.on > .pagehead { grid-column: 1 / 3; grid-row: 1; margin-bottom: 0; }
+  :root #view-operations.on > .toolbar {
+    grid-column: 3; grid-row: 1; justify-self: end; display: flex; flex-direction: row-reverse; align-items: center; gap: var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0; margin: 0;
+  }
+  :root #view-operations #statusVerdict {
+    display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); column-gap: var(--gap-6); align-items: start;
+  }
+  :root #view-operations #statusVerdict > h3 { grid-column: 1; margin: 0 0 var(--gap-3); }
+  :root #view-operations #statusVerdict > dl.verdictcounts {
+    grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3) var(--gap-4); margin: 0;
+  }
+  :root #view-operations #statusVerdict > dl.verdictcounts > * { background: none; border: 0; padding: 0; min-height: 0; box-shadow: none; }
+  :root #view-operations #statusVerdict > ul.verdictissues { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  :root #view-operations .widgetrow, :root #view-operations .opscards, :root #view-operations .opsone,
+  :root #view-operations .opsone > div { display: contents; }
+  :root #view-operations #resourceWidget, :root #view-operations .opscard, :root #view-operations .opsone > div > .panel {
+    grid-column: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); box-shadow: none;
+  }
+  :root #view-operations #resourceWidget { padding: var(--gap-4); }
+  :root #view-operations .opsone > div > .label { grid-column: 1 / -1; }
+  :root #view-operations .opsone > div > p.lede { display: none; }
+  :root #view-operations #routeList { grid-column: 1 / -1; }
+  :root #view-operations .opscard .hint { display: none; }
+  :root #view-operations .opscard .hint#datastoreOwnersHead, :root #view-operations .opscard .hint#datastoreNote { display: block; }
+
+  /* ── System › General: one column of cards and one save bar that stays at the foot of the window ── */
+  :root #view-settings .settingcard { max-width: none; }
+  :root #view-settings .settingcard .hint { max-width: none; font-size: 12.5px; }
+  :root #view-settings .settingcard > .row:has(#setSave) { justify-content: flex-start; }
+  :root #view-settings #setSave, :root #view-settings #styleOriginsSave, :root #view-settings #groundSave,
+  :root #view-settings #groundDiscard, :root #view-settings #groundSaveBar { display: none; }
+  :root #view-settings > #generalSaveBar {
+    position: sticky; bottom: 0; z-index: 3; margin: var(--gap-5) calc(-1 * var(--gap-5)) 0; padding: var(--gap-3) var(--gap-5);
+    border-top: 1px solid var(--rule); border-radius: 0; background: var(--surface);
+  }
+
+  /* ── System › Utility services and Machines: the card under the table is as wide as the table ── */
+  :root #view-utilities .settingcard, :root #view-machines .settingcard { max-width: none; }
+  :root #view-utilities .settingcard .hint, :root #view-machines .settingcard .hint { max-width: none; }
+
+  /* ── System › Backups: the list on the left, the schedule and its notes on the right ── */
+  :root #view-backups.on { display: grid; grid-template-columns: minmax(0, 1fr) 340px; column-gap: var(--gap-4); align-items: start; }
+  :root #view-backups.on > * { grid-column: 1; min-width: 0; }
+  :root #view-backups.on > .pagehead { grid-column: 1; grid-row: 1; margin-bottom: var(--gap-3); }
+  :root #view-backups.on > .toolbar {
+    grid-column: 2; grid-row: 1; justify-self: end; background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-3);
+  }
+  :root #view-backups.on > p.hint:empty { display: none; }
+  :root #view-backups.on > #bkScheduleCard { grid-column: 2; grid-row: 2 / span 3; max-width: none; margin: 0; }
+  :root #view-backups.on > #bkNoteCard { grid-column: 2; grid-row: 5; max-width: none; margin: 0; }
+
+  /* ── Studio › Search: a title with the count, the tabs with their counts as pills ── */
+  :root #view-search .toolbar { background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #view-search #searchQ { max-width: 520px; }
+  :root #searchTabs a .count, :root #groupTabs a .count {
+    display: inline-block; min-width: 1.6em; padding: 0 6px; border-radius: 10px; background: var(--surface-3); color: var(--ink);
+    font-size: 12px; font-weight: 600; text-align: center;
+  }
+
+  /* ── Studio › Groups: the verbs are in the head, at its right ── */
+  :root #view-groups.on { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-4); align-items: center; }
+  :root #view-groups.on > * { grid-column: 1 / -1; min-width: 0; }
+  :root #view-groups.on > .pagehead { grid-column: 1; grid-row: 1; margin-bottom: var(--gap-3); }
+  :root #view-groups.on > .toolbar {
+    grid-column: 2; grid-row: 1; display: flex; flex-direction: row-reverse; align-items: center; gap: var(--gap-3); margin: 0 0 var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  :root #view-groups.on > .toolbar > span[style] { display: none; }
+  :root #view-groups.on > .toolbar #groupFilter { width: 340px; }
+  :root #view-groups.on > .toolbar #groupCount, :root #view-groups.on > .toolbar #groupNew { white-space: nowrap; }
+
+  /* ── Studio › a group: a tile and a title, Add items and Add member at the right, the tabs under them ── */
+  :root #view-group #groupPagehead { align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-3); }
+  :root #view-group .gheadtile {
+    flex: none; display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: var(--round-lg);
+    background: var(--accent-soft); color: var(--accent-ink); font-size: 24px; font-weight: 600;
+  }
+  :root #view-group .grouptitles { flex: 1 1 auto; min-width: 0; }
+  :root #view-group .headverbs { display: flex; align-items: center; gap: var(--gap-2); margin-left: auto; }
+  :root #view-group .headverbs[hidden] { display: none; }
+  :root #view-group .headverbs > * { white-space: nowrap; }
+  :root #view-group #tab-overview .grouppair { grid-template-columns: minmax(0, 1fr) 340px; }
+  :root #view-group #tab-overview .grouppair > div {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4) var(--gap-5);
+  }
+  :root #view-group #tab-overview .grouppair > div:first-child { align-self: start; }
+
+  /* ── Studio › a file: Summary and Description on the left, Item information on the right, as a map's page and a service's are ── */
+  :root #docOverview.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--gap-4); align-items: start; }
+  :root #docOverview > .mapmain { grid-column: 1; grid-row: 1; min-width: 0; }
+  :root #docOverview > #docSide { grid-column: 2; grid-row: 1; min-width: 0; width: auto; }
+
+  /* ── Studio › Members: the verb, the search and the count in one row over the table ── */
+  :root #view-members .membersmain > .toolbar { background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-3); }
+  :root #view-members .membersmain > .toolbar #memberNew { order: -1; }
+
+  /* ── Studio › a profile: who, on the left, in a card; the form and the second factor, on the right ── */
+  :root #view-user .profilecard {
+    display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: var(--gap-4); align-items: start; max-width: none;
+    background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  :root #view-user #profileBody { display: contents; }
+  :root #view-user .profilehead, :root #view-user .profilefacts, :root #view-user .profileform, :root #view-user #profileSecurity,
+  :root #view-user #profileBody > .profilebio, :root #view-user #profileBody > p {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4) var(--gap-5); margin: 0;
+  }
+  :root #view-user .profilehead { grid-column: 1; grid-row: 1; text-align: center; padding: var(--gap-5); border-bottom: 1px solid var(--rule); }
+  :root #view-user .profilefacts { grid-column: 1; grid-row: 2; }
+  :root #view-user .profileform { grid-column: 2; grid-row: 1 / span 2; }
+  :root #view-user #profileSecurity { grid-column: 2; grid-row: 3; }
+  :root #view-user #profileBody > .profilebio, :root #view-user #profileBody > p { grid-column: 2; grid-row: 1; }
+
+  /* ── Studio › Member roles: the privileges in two columns, in words, and a save bar that stays in view ── */
+  :root #view-roles #rolePrivileges .rolesection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--gap-5); }
+  :root #view-roles #rolePrivileges .rolesection > h4 { grid-column: 1 / -1; }
+  :root #view-roles #rolePrivileges .rolegroup { padding-left: 0; padding-right: 0; min-width: 0; }
+  :root #view-roles #rolePrivileges .rolegrouphead { text-transform: uppercase; letter-spacing: .04em; font-size: 11.5px; color: var(--muted); }
+  :root #view-roles #roleSaveBar { position: sticky; bottom: 0; z-index: 3; }
+
+  /* ── Studio › Security: the four sections are sub-pages under one segmented control ── */
+  :root #view-signin > .pagehead { align-items: center; }
+  :root #view-signin > .pagehead > .secswitch { margin-left: 0; }
+  :root #view-signin > .pagehead > .secswitch button { padding: 6px 14px; font-size: var(--t-small); }
+  :root #view-signin > .pagehead > .secswitch button[hidden] { display: none; }
+}
+
+/* The sub-pages of Security, at every width: only the chosen section is drawn. */
+#view-signin[data-secpage="sf"] .secpage:not([data-secpage="sf"]),
+#view-signin[data-secpage="sa"] .secpage:not([data-secpage="sa"]),
+#view-signin[data-secpage="idp"] .secpage:not([data-secpage="idp"]),
+#view-signin[data-secpage="apps"] .secpage:not([data-secpage="apps"]) { display: none; }
+.secpage[hidden] { display: none; }
+#view-signin > .pagehead > .secswitch { flex-wrap: wrap; }
+#view-signin .secswitch button[hidden] { display: none; }
+/* The group's head verbs and tile, and the Logs filter toggle, are drawn only where their screen's mockup draws them. */
+.headverbs[hidden] { display: none; }
+#generalSaveBar { display: flex; }
+
+/* ── A phone (390 × 844): the bodies of the screens the phone mockups draw ── */
+@media (max-width: 720px) {
+  /* Logs: the filters are folded away behind a button; each entry is a block of When, What, Who · From and Resource. */
+  :root #view-logs #logFilters:not(.open) { display: none; }
+  :root #view-logs #logFiltersToggle { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--gap-4); }
+  :root #view-logs #logRefresh { min-height: 44px; min-width: 44px; }
+  :root #view-logs #logLede, :root #view-logs #logHeadLede { display: none; }
+  :root #view-logs .panel.widetable { border: 0; background: none; box-shadow: none; overflow: visible; }
+  :root #view-logs .panel.widetable table { min-width: 0; width: 100%; }
+  :root #view-logs table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  :root #view-logs table tbody { display: block; }
+  :root #view-logs tr.logrow {
+    display: grid; grid-template-columns: 96px max-content minmax(0, 1fr); align-items: baseline; row-gap: 4px; padding: var(--gap-3) var(--gap-4);
+    margin-bottom: var(--gap-2); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
+  }
+  :root #view-logs tr.logrow > td { display: block; padding: 0; border: 0; min-width: 0; }
+  :root #view-logs tr.logrow > td[data-l] { grid-column: 1 / -1; display: flex; gap: var(--gap-2); align-items: baseline; }
+  :root #view-logs tr.logrow > td[data-l]::before { content: attr(data-l); flex: 0 0 88px; color: var(--muted); font-size: 12.5px; }
+  :root #view-logs tr.logrow > td[data-l="Who · From"] { grid-column: 1 / 3; }
+  :root #view-logs tr.logrow > td[data-from] { grid-column: 3; }
+  :root #view-logs tr.logrow > td[data-from]::before { content: "\00b7"; margin: 0 6px 0 2px; color: var(--muted); }
+  :root #view-logs tr.logrow > td:empty { display: none; }
+  :root #view-logs tr.logrow code { overflow-wrap: anywhere; white-space: normal; }
+  :root #view-logs tr.logdetail:not([hidden]) { display: block; margin: calc(-1 * var(--gap-2)) 0 var(--gap-2); }
+  :root #view-logs tr.logdetail[hidden] { display: none; }
+  :root #view-logs tr.logdetail > td { display: block; }
+
+  /* Status: the verdict first, its counts two by two, and its failing and stopped services under them. */
+  :root #view-operations #statusVerdict > dl.verdictcounts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3); }
+  :root #view-operations #statusVerdict > dl.verdictcounts > * { background: none; border: 0; padding: 0; min-height: 0; box-shadow: none; }
+  :root #view-operations .opscard .hint { display: none; }
+  :root #view-operations .opscard .hint#datastoreOwnersHead, :root #view-operations .opscard .hint#datastoreNote { display: block; }
+  :root #view-operations #opsRefresh { min-height: 44px; }
+  :root #view-operations > .toolbar { background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #view-operations .pagehead p { display: none; }
+
+  /* System › General: one bar at the foot; it stays in view. */
+  :root #view-settings > #generalSaveBar { position: sticky; bottom: 0; z-index: 3; margin: var(--gap-4) calc(-1 * var(--gap-3)) 0; }
+  :root #view-settings #setSave, :root #view-settings #styleOriginsSave, :root #view-settings #groundSave,
+  :root #view-settings #groundDiscard, :root #view-settings #groundSaveBar { display: none; }
+  :root #generalSaveBar button { min-height: 44px; }
+
+  /* Search: the title, then the tabs with their counts. */
+  :root #view-search .pagehead p, :root #view-publish .pagehead p, :root #view-sources .pagehead p, :root #view-backups .pagehead p,
+  :root #view-machines .pagehead p, :root #view-utilities .pagehead p, :root #view-organizations .pagehead p,
+  :root #view-roles .pagehead p, :root #view-orgsettings .pagehead p { display: none; }
+  :root #searchTabs a .count, :root #groupTabs a .count {
+    display: inline-block; min-width: 1.6em; padding: 0 6px; border-radius: 10px; background: var(--surface-3); color: var(--ink);
+    font-size: 12px; font-weight: 600; text-align: center;
+  }
+
+  /* A group: its tile and title, then Add items and Add member side by side. */
+  :root #view-group #groupPagehead { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--gap-3); align-items: center; }
+  :root #view-group .gheadtile {
+    display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: var(--round-lg);
+    background: var(--accent-soft); color: var(--accent-ink); font-size: 20px; font-weight: 600;
+  }
+  :root #view-group .headverbs { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-2); margin-top: var(--gap-3); }
+  :root #view-group .headverbs[hidden] { display: none; }
+  :root #view-group .headverbs > * { min-height: 44px; display: flex; align-items: center; justify-content: center; text-align: center; }
+  :root #view-group #groupActions { grid-column: 1 / -1; }
+  :root #view-group #tab-overview .grouppair > div {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-3) var(--gap-4); margin-bottom: var(--gap-3);
+  }
+
+  /* A profile: who, then what is known of them, then the form. */
+  :root #view-user .profilecard { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-3); background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #view-user #profileBody { display: contents; }
+  :root #view-user .profilehead { grid-row: 1; }
+  :root #view-user .profilefacts { grid-row: 2; }
+  :root #view-user .profileform { grid-row: 3; }
+  :root #view-user #profileSecurity { grid-row: 4; }
+  :root #view-user .profilehead, :root #view-user .profilefacts, :root #view-user .profileform, :root #view-user #profileSecurity {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4); margin: 0;
+  }
+
+  /* Security: its four sections are sub-pages, as on a wide window. */
+  :root #view-signin > .pagehead { display: block; }
+  :root #view-signin > .pagehead p, :root #view-settings .pagehead p { display: none; }
+  :root #view-signin > .pagehead > .secswitch { margin-top: var(--gap-3); display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
+  :root #view-signin > .pagehead > .secswitch button { min-height: 44px; padding: 0 14px; white-space: nowrap; }
+  :root #view-roles #roleSaveBar { position: sticky; bottom: 0; z-index: 3; }
+}

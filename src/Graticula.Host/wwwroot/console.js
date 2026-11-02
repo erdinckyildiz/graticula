@@ -745,6 +745,12 @@ async function showGroup(name, tab) {
   // so each is drawn by its own tab and only when that tab is the one showing.
   if ($("groupAdd")) $("groupAdd").hidden = !one.mayManage;
 
+  // <b>The head holds both verbs again, the redesign of 2026-11-02</b> (DesktopGroup, PhoneGroup) — the same two controls,
+  // reachable from every tab, for whoever may manage the group; and a tile with the group's first letter beside the title.
+  $("groupHeadVerbs").hidden = !one.mayManage;
+  $("groupHeadShare").setAttribute("href", `#/group/${encodeURIComponent(name)}/add`);
+  $("groupHeadTile").textContent = String(one.title || one.name || name).trim().charAt(0).toUpperCase();
+
   if ($("groupShare")) {
     $("groupShare").hidden = !one.mayManage;
     $("groupShare").setAttribute(
@@ -763,6 +769,12 @@ async function showGroup(name, tab) {
   if (groupTab === "add") await drawGroupAdd(one);
 
   paintPreviews();
+}
+
+/** Puts focus back on Add member — the Members tab's button where that tab is showing, the head's otherwise. */
+function focusGroupAdd() {
+  const tab = $("groupAdd");
+  (tab && tab.getClientRects().length ? tab : $("groupHeadAdd"))?.focus();
 }
 
 /** Re-reads the open group and redraws whichever tab is showing. */
@@ -4193,6 +4205,40 @@ function drawOrgNav(view, screen) {
   }
 }
 
+/** Which of Security's four sections is showing (the redesign of 2026-11-02): "sf", "sa", "idp" or "apps". */
+let securityPage = null;
+let securityChosen = false;
+
+/**
+ * Security's sections as sub-pages, under one segmented control.
+ *
+ * <b>Which sections exist depends on the reader</b> — Two-step sign-in and Service accounts are drawn only for whoever
+ * holds admin:manageSecurity, and they hide themselves until their own load has answered — so the control lists exactly
+ * the sections that are not hidden, and a page that has gone is replaced by the first that remains. `want` chooses one.
+ * Only `data-secpage` on the view changes; nothing is moved, so no section's ids or handlers are touched.
+ */
+function drawSecurityPages(want) {
+  const view = $("view-signin");
+  if (!view) return;
+
+  const present = ["sf", "sa", "idp", "apps"].filter(k => {
+    const el = view.querySelector(`.secpage[data-secpage="${k}"]`);
+    return el && !el.hidden;
+  });
+
+  // Until a reader chooses, the page is the first that exists: the sections that depend on a privilege answer after the
+  // others, and the page should not be Sign-in because Two-step sign-in had not been drawn yet.
+  if (want && present.includes(want)) { securityPage = want; securityChosen = true; }
+  if (!securityChosen || !present.includes(securityPage)) securityPage = present[0] || "idp";
+  view.dataset.secpage = securityPage;
+
+  for (const b of view.querySelectorAll("[data-secpage-go]")) {
+    const k = b.dataset.secpageGo;
+    b.hidden = !present.includes(k);
+    b.setAttribute("aria-pressed", String(k === securityPage));
+  }
+}
+
 /**
  * Opens a screen, and re-reads what it shows.
  *
@@ -4238,10 +4284,15 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "signin") {
-    section("two-step sign-in", loadSecondFactorRequirement);
-    section("service accounts", loadServiceAccounts, "saRows");
-    section("sign-in providers", loadSignin, "idpRows");
-    section("apps", loadApps, "appRows").then(() => { if (appsAsked) $("appsTitle")?.scrollIntoView(); });
+    // <b>Security's sections are sub-pages (the redesign of 2026-11-02)</b>: Apps' old address opens that one, and each
+    // load that can show or hide a section draws the control again, since which of the four exist depends on the reader.
+    securityChosen = appsAsked;
+    if (appsAsked) securityPage = "apps";
+    drawSecurityPages();
+    section("two-step sign-in", loadSecondFactorRequirement).then(() => drawSecurityPages());
+    section("service accounts", loadServiceAccounts, "saRows").then(() => drawSecurityPages());
+    section("sign-in providers", loadSignin, "idpRows").then(() => drawSecurityPages());
+    section("apps", loadApps, "appRows").then(() => { drawSecurityPages(); if (appsAsked) $("appsTitle")?.scrollIntoView(); });
   }
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") {
@@ -27230,6 +27281,7 @@ function drawSettings(settings) {
   const box = $("setPageSize");
 
   box.value = p.source === "stored" ? (p.stored ?? "") : "";
+  box.dataset.was = box.value;
   box.max = p.ceiling ?? "";
   // No placeholder: an inherited figure in the box reads as a value set here (UX sweep 2026-10-19, finding 6).
   // The line under it says which applies, with a tag a reader can scan for.
@@ -27251,6 +27303,50 @@ function drawSettings(settings) {
   $("setReset").textContent = p.configured != null
     ? `Use the default (${num(p.configured)})`
     : "Use the default";
+  drawGeneralBar();
+}
+
+/**
+ * <b>System › General's one save bar — the redesign of 2026-11-02 (SystemSettings).</b> The page size, the style sources
+ * and the map ground each have a Save and a sentence of their own; the bar is the one place that presses them. It counts
+ * what is waiting — a page size that is not the one stored, origins that are not the list stored, a ground that is not
+ * the one saved — and Save presses each of the three cards' own buttons that has something to say, so a refusal is said
+ * under the card it is about exactly as before.
+ */
+function generalWaiting() {
+  const size = $("setPageSize");
+  const origins = $("styleOrigins");
+  const lines = text => text.split(/\r?\n/).map(x => x.trim()).filter(Boolean).join("\n");
+
+  return {
+    size: !!size && size.value.trim() !== (size.dataset.was ?? ""),
+    origins: !!origins && !origins.disabled && lines(origins.value) !== (origins.dataset.was ?? ""),
+    ground: !!$("groundSave") && !$("groundSave").disabled,
+  };
+}
+
+/** Set by the bar's Save, so that the count reads Saved rather than No unsaved changes once the three cards have answered. */
+let generalJustSaved = false;
+
+/** The bar's count and its two buttons; called wherever one of the three things it counts may have changed. */
+function drawGeneralBar() {
+  const bar = $("generalSaveBar");
+  if (!bar) return;
+
+  const waiting = generalWaiting();
+  const n = Object.values(waiting).filter(Boolean).length;
+
+  $("generalSave").disabled = n === 0;
+  $("generalDiscard").disabled = n === 0;
+  bar.classList.toggle("dirty", n > 0);
+
+  // What was just kept is said until something is typed or chosen again (the listeners below clear it); a card still
+  // answering leaves the count at what is waiting, and the sentence is "Saved" once the last has.
+  if (n > 0) {
+    $("generalDirty").textContent = `${n} unsaved ${n === 1 ? "change" : "changes"}`;
+  } else {
+    $("generalDirty").textContent = generalJustSaved ? "Saved" : "No unsaved changes";
+  }
 }
 
 /**
@@ -27390,6 +27486,7 @@ function drawGroundDirty() {
   $("groundDiscard").disabled = !dirty;
   $("groundDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
   $("groundSaveBar")?.classList.toggle("dirty", dirty);
+  drawGeneralBar();
 }
 
 /** Moves a chosen service one place up or down the drawing order, keeping focus on the same button. */
@@ -27479,8 +27576,10 @@ async function loadStyleOrigins() {
 function drawStyleOrigins(r) {
   const origins = r.origins || [];
   $("styleOrigins").value = origins.join("\n");
+  $("styleOrigins").dataset.was = origins.join("\n");
   $("styleOrigins").disabled = false;
   $("styleOriginsSave").disabled = false;
+  drawGeneralBar();
   $("styleOriginsSource").textContent = (origins.length
     ? `${origins.length} allowed${r.changedAt ? `, set on ${day(r.changedAt)}` : ""}. `
     : "None allowed. ")
@@ -29608,6 +29707,15 @@ document.addEventListener("keydown", event => {
   row.setAttribute("aria-expanded", String(shown));
 });
 
+// The bar of System › General counts what its three cards hold, so it reads them again whenever one is typed into.
+document.addEventListener("input", event => {
+  if (event.target.closest?.("#view-settings")) { generalJustSaved = false; drawGeneralBar(); }
+});
+
+document.addEventListener("change", event => {
+  if (event.target.closest?.("#view-settings")) { generalJustSaved = false; drawGeneralBar(); }
+});
+
 document.addEventListener("input", event => {
   if (event.target.id !== "logText" && event.target.id !== "logWho") {
     return;
@@ -29628,6 +29736,18 @@ document.addEventListener("click", async event => {
 async function handleClick(event) {
   const t = event.target;
   const d = t.dataset || {};
+
+  // <b>Security's sub-pages, and the Logs filters' toggle on a phone — the redesign of 2026-11-02.</b> Neither changes data.
+  if (d.secpageGo) {
+    drawSecurityPages(d.secpageGo);
+    return;
+  }
+
+  if (t.id === "logFiltersToggle") {
+    const open = $("logFilters").classList.toggle("open");
+    t.setAttribute("aria-expanded", String(open));
+    return;
+  }
 
   /*
     <b>The Logs screen, delegated like everything else on this page.</b> Its rows are drawn
@@ -30652,6 +30772,12 @@ async function handleClick(event) {
   // privilege to fill a dropdown would have been the wrong repair, so
   // `GET /admin/groups/{name}/candidates` returns names only, to somebody who already manages the
   // group.
+  // The head's Add member presses the Members tab's own button, so there is one picker and one set of rules for it.
+  if (t.id === "groupHeadAdd") {
+    $("groupAdd")?.click();
+    return;
+  }
+
   if (t.id === "groupAdd") {
     if (!groupOpen) return;
 
@@ -30879,6 +31005,7 @@ async function handleClick(event) {
     // Whichever is open: the create form has its own slot outside the editor, and the member and
     // service pickers are inside it, because those two *are* operations on the open group.
     $("groupPicker").hidden = true;
+    focusGroupAdd();
     return;
   }
 
@@ -30933,7 +31060,7 @@ async function handleClick(event) {
       : `${who} joined ${groupOpen}`, true);
     $("groupPicker").hidden = true;
     await refreshGroup();
-    $("groupAdd")?.focus();
+    focusGroupAdd();
     return;
   }
 
@@ -31240,6 +31367,31 @@ async function handleClick(event) {
     basemapSay("Back to what is saved. Nothing was changed on the server.");
     $("mapDirty").setAttribute("tabindex", "-1");
     $("mapDirty").focus();
+    return;
+  }
+
+  // <b>The bar's Save and Discard, System › General — the redesign of 2026-11-02.</b> They press the three cards' own buttons,
+  // so nothing about how a card saves or refuses has changed; focus goes to the bar's sentence, because the buttons
+  // pressed may be out of sight and the one pressed here is disabled once it has done its work.
+  if (t.id === "generalSave") {
+    const waiting = generalWaiting();
+    generalJustSaved = true;
+    $("generalDirty").textContent = "Saving…";
+    if (waiting.size) $("setSave").click();
+    if (waiting.origins) $("styleOriginsSave").click();
+    if (waiting.ground) $("groundSave").click();
+    $("generalDirty").focus();
+    return;
+  }
+
+  if (t.id === "generalDiscard") {
+    generalJustSaved = false;
+    const waiting = generalWaiting();
+    if (waiting.size) { $("setPageSize").value = $("setPageSize").dataset.was ?? ""; settingsSay(""); }
+    if (waiting.origins) { $("styleOrigins").value = $("styleOrigins").dataset.was ?? ""; styleOriginsSay(""); }
+    if (waiting.ground) $("groundDiscard").click();
+    drawGeneralBar();
+    $("generalDirty").focus();
     return;
   }
 
@@ -34080,13 +34232,13 @@ function logRow(row) {
 
     return `<tr class="logrow" tabindex="0" role="button" aria-expanded="false"
         aria-label="Show the detail of this entry">
-      <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
+      <td class="nowrap" data-l="When"><span class="val" title="${h(when.toISOString())}"
         >${h(when.toLocaleString())}</span></td>
-      <td class="logmessage"><span class="pill ${pill}">${h(row.what)}</span>
+      <td class="logmessage" data-l="What"><span class="pill ${pill}">${h(row.what)}</span>
         <span title="${h(message)}">${h(message.split("\n")[0])}</span></td>
       <td></td>
       <td></td>
-      <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
+      <td data-l="Resource">${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
     </tr>
     <tr class="logdetail" hidden><td colspan="5"><pre>${h(logPretty(row.detail))}</pre></td></tr>`;
   }
@@ -34097,15 +34249,15 @@ function logRow(row) {
   // be opened by a keyboard at all.
   return `<tr class="logrow" tabindex="0" role="button" aria-expanded="false"
       aria-label="Show the detail of this entry">
-    <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
+    <td class="nowrap" data-l="When"><span class="val" title="${h(when.toISOString())}"
       >${h(when.toLocaleString())}</span></td>
-    <td>${row.ok ? "" : `<span class="pill p-unusable">failed</span> `}<code>${h(row.what)}</code></td>
-    <td>${row.who
+    <td data-l="What">${row.ok ? "" : `<span class="pill p-unusable">failed</span> `}<code>${h(row.what)}</code></td>
+    <td data-l="Who · From">${row.who
       ? h(row.who)
       // A server entry has no caller; *anonymous* would say somebody unsigned did it.
       : `<span class="faint">${logSource === "server" ? "—" : "anonymous"}</span>`}</td>
-    <td class="nowrap"><span class="faint">${row.from ? h(row.from) : "—"}</span></td>
-    <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
+    <td class="nowrap" data-from><span class="faint">${row.from ? h(row.from) : "—"}</span></td>
+    <td data-l="Resource">${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
   </tr>
   <!--
     <b>The detail is a row, not a drawer.</b> Every column of every log is already on screen;

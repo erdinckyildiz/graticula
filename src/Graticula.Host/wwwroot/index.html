@@ -1389,6 +1389,18 @@
       other Server administrator has the page head's sentence, which says where it is without a link to a page that
       has nothing for them. Last on the page, because the settings above are what the page is for.
     -->
+    <!--
+      <b>One save bar, the redesign of 2026-11-02 (SystemSettings).</b> The page size, the style sources and the map ground
+      each had a Save of their own, so three buttons on one page said which of three things had been kept. Their buttons
+      are still here — the bar presses whichever of them has something to save, so every handler, refusal and sentence
+      under a card is the one it was — and the bar says how many are waiting.
+    -->
+    <div class="savebar generalbar" id="generalSaveBar">
+      <span class="val" id="generalDirty" role="status" aria-live="polite" tabindex="-1">No unsaved changes</span>
+      <button type="button" class="ghost" id="generalDiscard" disabled>Discard</button>
+      <button type="button" class="primary" id="generalSave" disabled>Save</button>
+    </div>
+
     <div class="panel pad settingcard" id="securityPointer" hidden>
       <h4>Sign-in and security</h4>
       <p class="hint">How people sign in, and whether they also need a code from an authenticator app, is set once
@@ -1531,6 +1543,8 @@
     <div class="toolbar">
       <span style="flex:1"></span>
       <span class="val" id="logCount"></span>
+      <!-- Drawn only on a phone, where the filters are folded away until asked for (the redesign of 2026-11-02). -->
+      <button type="button" class="ghost" id="logFiltersToggle" aria-expanded="false" aria-controls="logFilters">Filters</button>
       <button class="tiny ghost" id="logRefresh" title="Read the log again">&#8635;</button>
     </div>
 
@@ -1911,8 +1925,9 @@
   <section class="view" id="view-group">
     <div class="crumbs" id="groupCrumb"></div>
 
-    <div class="pagehead">
-      <div>
+    <div class="pagehead" id="groupPagehead">
+      <span class="gheadtile" id="groupHeadTile" aria-hidden="true"></span>
+      <div class="grouptitles">
         <h1 id="groupTitle"></h1>
         <!--
           <b>The summary is the page's subtitle, not a block on Overview.</b> The reference puts it on
@@ -1931,6 +1946,16 @@
       -->
       <div class="right" id="groupActions" hidden>
         <button class="tiny ghost" id="groupLeave" hidden>Leave group</button>
+      </div>
+      <!--
+        <b>The head holds the two verbs again, by the approved mockup of 2026-11-02</b> (DesktopGroup, PhoneGroup), which
+        overrides the owner's correction of 2026-08-18 quoted below. They are the tabs' own controls, reachable from
+        every tab: Add items is the same address as the Content tab's link, and Add member presses the Members tab's
+        button, so the picker, its focus and its refusals are the ones they always were. Shown to whoever may manage.
+      -->
+      <div class="headverbs" id="groupHeadVerbs" hidden>
+        <a class="btn primary" id="groupHeadShare">Add items</a>
+        <button type="button" id="groupHeadAdd">Add member</button>
       </div>
     </div>
 
@@ -2237,6 +2262,18 @@
         <h1>Security</h1>
         <p>How people sign in to this organization, and which apps may sign them in.</p>
       </div>
+      <!--
+        <b>The four sections are sub-pages, the redesign of 2026-11-02 (DesktopApps).</b> One at a time under a segmented
+        control, where they were four sections stacked on one page. Two-step sign-in and Service accounts are drawn only for
+        a reader with admin:manageSecurity, so their buttons are drawn with them (`drawSecurityPages`). Every section keeps
+        its own markup, ids and handlers; the control only chooses which is shown.
+      -->
+      <div class="segmented secswitch" id="secSwitch" role="group" aria-label="Security sections">
+        <button type="button" data-secpage-go="sf" aria-pressed="false" hidden>Two-step sign-in</button>
+        <button type="button" data-secpage-go="sa" aria-pressed="false" hidden>Service accounts</button>
+        <button type="button" data-secpage-go="idp" aria-pressed="false">Sign-in</button>
+        <button type="button" data-secpage-go="apps" aria-pressed="false">Apps</button>
+      </div>
     </div>
     <!--
       <b>ADR-201 condition 2: whom the organisation requires a second factor of.</b> Off by the owner's decision of
@@ -2244,7 +2281,7 @@
       covers — scripts included — and that is the part an administrator does not see from a sign-in page. Drawn only
       for a reader with admin:manageSecurity (`loadSecondFactorRequirement`); the server refuses anybody else.
     -->
-    <div id="sfRequireCard" hidden>
+    <div id="sfRequireCard" class="secpage" data-secpage="sf" hidden>
       <div class="pagehead sub">
         <div>
           <h3 id="sfRequireTitle" tabindex="-1">Two-step sign-in</h3>
@@ -2282,7 +2319,7 @@
       sign-in, because that card tells scripts to move to an API key, and this is where they get one. Drawn only for a
       reader with admin:manageSecurity (`loadServiceAccounts`), as the server refuses anybody else.
     -->
-    <div id="saCard" hidden>
+    <div id="saCard" class="secpage" data-secpage="sa" hidden>
       <div class="pagehead sub">
         <div>
           <h3 id="saTitle" tabindex="-1">Service accounts</h3>
@@ -2386,6 +2423,7 @@
         <button type="button" class="primary" id="saSecretDone">I have copied it</button>
       </footer>
     </dialog>
+    <div class="secpage" id="secpage-idp" data-secpage="idp">
     <div class="pagehead sub">
       <div>
         <h3 id="idpTitle" tabindex="-1">Sign-in</h3>
@@ -2417,6 +2455,7 @@
         <tbody id="idpRows"></tbody>
       </table>
     </div></div>
+    </div>
 
     <!-- Apps — beside Sign-in since 2026-10-17, as Organization › Settings › Security. -->
     <!--
@@ -2427,6 +2466,7 @@
       the server does not do: there is no edit, because an app's redirects are its identity and
       changing them in place would quietly redirect codes somewhere else.
     -->
+    <div class="secpage" id="secpage-apps" data-secpage="apps">
     <div class="pagehead sub">
       <div>
         <h3 id="appsTitle" tabindex="-1">Apps</h3>
@@ -2477,6 +2517,7 @@
         </tr></thead>
         <tbody id="appRows"></tbody>
       </table>
+    </div>
     </div>
   </section>
 
