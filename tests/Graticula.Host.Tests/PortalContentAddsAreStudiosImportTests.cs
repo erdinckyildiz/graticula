@@ -140,6 +140,16 @@ public sealed class PortalContentAddsAreStudiosImportTests
     }
 
     [Fact]
+    public void A_publish_that_finished_answers_a_job_no_node_looks_up()
+    {
+        string job = PortalEndpoints.FinishedJob();
+
+        Assert.Equal(32, job.Length);
+        Assert.False(System.Guid.TryParse(job, out _));
+        Assert.NotEqual(job, PortalEndpoints.FinishedJob());
+    }
+
+    [Fact]
     public void The_service_an_import_made_is_read_from_its_own_answer()
     {
         using JsonDocument answer = JsonDocument.Parse(

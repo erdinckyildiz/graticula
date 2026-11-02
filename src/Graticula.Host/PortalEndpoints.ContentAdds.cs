@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
@@ -69,32 +68,11 @@ internal static partial class PortalEndpoints
         DataFileTypes.FirstOrDefault(p => string.Equals(p.Value, itemType?.Trim(), StringComparison.OrdinalIgnoreCase)).Key;
 
     /// <summary>
-    /// The job ids a publish answered with when the import had finished before the answer — the portal's clients poll
-    /// a job they are given, and this one is done (ADR-257). Held an hour, at most <see cref="MaximumStaged"/>.
+    /// A job id for a publish whose import finished before the answer (ADR-257): the portal's clients poll the job they
+    /// are given. It is not a GUID, so the item's <c>status</c> on any node of a site finds no job to look up and
+    /// answers <c>completed</c>, which it is; nothing has to remember it.
     /// </summary>
-    private static readonly ConcurrentDictionary<string, (Guid Owner, DateTimeOffset At)> Finished = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>A job id for a publish that is already done, for <paramref name="owner"/>.</summary>
-    private static string FinishedJob(Guid owner)
-    {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-
-        foreach (KeyValuePair<string, (Guid Owner, DateTimeOffset At)> held in Finished)
-        {
-            if (held.Value.At < now.AddHours(-1) || Finished.Count > MaximumStaged)
-            {
-                Finished.TryRemove(held.Key, out _);
-            }
-        }
-
-        string job = Guid.NewGuid().ToString("N");
-        Finished[job] = (owner, now);
-        return job;
-    }
-
-    /// <summary>Whether <paramref name="job"/> is a publish this door answered as done, for that owner.</summary>
-    private static bool PublishedWhileAsked(string job, Guid owner) =>
-        Finished.TryGetValue(job, out (Guid Owner, DateTimeOffset At) held) && held.Owner == owner;
+    internal static string FinishedJob() => "done" + Guid.NewGuid().ToString("N")[4..];
 
     /// <summary>The routes beside addItem and publish: analyze and createService. Mapped where those are.</summary>
     private static void MapContentAdds(WebApplication app)
@@ -540,7 +518,7 @@ internal static partial class PortalEndpoints
         }
         else
         {
-            job = FinishedJob(current.Principal.Id);
+            job = FinishedJob();
             service = ServiceOfImport(answer) ?? name;
         }
 

@@ -174,6 +174,47 @@ public sealed class PortalContentAddsTests : ArcGisClient
     }
 
     [Fact]
+    public async Task A_geojson_item_is_published_through_the_same_import()
+    {
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string name = $"zz_gjpub_{tag}";
+        string? item = null;
+        bool published = false;
+
+        try
+        {
+            const string geojson =
+                "{\"type\":\"FeatureCollection\",\"features\":["
+                + "{\"type\":\"Feature\",\"properties\":{\"name\":\"Ankara\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[32.85,39.93]}},"
+                + "{\"type\":\"Feature\",\"properties\":{\"name\":\"Izmir\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[27.14,38.42]}}]}";
+
+            using MultipartFormDataContent form = new()
+            {
+                { new StringContent("GeoJson"), "type" },
+                { new StringContent($"zz geojson {tag}"), "title" },
+                { new StringContent("json"), "f" },
+                { new ByteArrayContent(Encoding.UTF8.GetBytes(geojson)), "file", "places.geojson" },
+            };
+
+            JsonElement added = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/addItem", form);
+            item = added.GetProperty("id").GetString();
+            Assert.Equal("GeoJson", (await SendAsync(HttpMethod.Get, $"/content/documents/{item}")).GetProperty("type").GetString());
+
+            JsonElement answer = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/publish", Form(new()
+            {
+                ["itemid"] = item!, ["filetype"] = "geojson", ["publishParameters"] = JsonSerializer.Serialize(new { name }), ["f"] = "json",
+            }));
+            Assert.True(answer.GetProperty("services")[0].GetProperty("success").GetBoolean(), answer.GetRawText());
+            published = true;
+            Assert.Equal(2, await CountAsync(name));
+        }
+        finally
+        {
+            await RemoveAsync(published ? name : null, item);
+        }
+    }
+
+    [Fact]
     public async Task A_document_is_added_as_Studio_keeps_one_and_is_not_published_as_data()
     {
         string tag = Guid.NewGuid().ToString("N")[..8];

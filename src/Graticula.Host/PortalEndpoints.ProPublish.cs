@@ -363,9 +363,8 @@ internal static partial class PortalEndpoints
             askedJob = (posted["jobId"].ToString() is { Length: > 0 } named ? named : posted["jobid"].ToString()).Trim();
         }
 
-        if (askedJob.Length > 0 && (AllStaged().Any(s => s.Owner == current.Principal.Id
-                && string.Equals(s.WrittenJob, askedJob, StringComparison.OrdinalIgnoreCase))
-            || PublishedWhileAsked(askedJob, current.Principal.Id)))
+        if (askedJob.Length > 0 && AllStaged().Any(s => s.Owner == current.Principal.Id
+                && string.Equals(s.WrittenJob, askedJob, StringComparison.OrdinalIgnoreCase)))
         {
             return Results.Ok(new { status = "completed", itemId = id, jobId = askedJob });
         }
