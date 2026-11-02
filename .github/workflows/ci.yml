@@ -473,9 +473,21 @@ jobs:
             --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild'
 
   conformance:
-    name: conformance
+    name: conformance (${{ matrix.part }})
     runs-on: ubuntu-latest
     needs: build
+
+    # <b>Four jobs, each with its own server — owner, 2026-11-02: the run took twenty-five to
+    # thirty minutes, sixteen of them the console suite in one browser after another.</b>
+    # `suites` runs what this job always ran but the console; `console-1..3` each run a third
+    # of the console's test classes, chosen by `tools/console-shard.py`, against a server of
+    # their own. The console's tests share their server's state and stay serial inside a part,
+    # which is why the split is across servers and not across threads. Not fail-fast: a red
+    # part says which classes broke, and the others still say theirs.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [suites, console-1, console-2, console-3]
 
     services:
       postgis:
@@ -707,6 +719,7 @@ jobs:
             -f tools/ci-free-tables.sql
 
       - name: conformance
+        if: matrix.part == 'suites'
         run: dotnet test tests/Graticula.Conformance.Tests -c Release --no-build
 
       # <b>The tests the datastore job could not run, in the job that can — ADR-048
@@ -717,7 +730,7 @@ jobs:
       # <b>It runs even when a step before it failed, and that is the same argument.</b>
       # See the `console` step below for what not doing this cost.
       - name: the tests that need a running host
-        if: '!cancelled()'
+        if: "!cancelled() && matrix.part == 'suites'"
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
             --filter 'Needs=RunningHost'
@@ -737,9 +750,18 @@ jobs:
       # The run it finally ran in found a real console defect on its first attempt: a Store
       # landing while the page was still reading had its answer overwritten by the read.
       # The console has no dependency on the conformance result and never had one.
+      #
+      # <b>A third of its classes in each `console-n` part</b> — the matrix above. The parts are
+      # checked to add up to the whole before any of them runs, so a class no part runs fails
+      # the build rather than going quietly unrun (D-63).
       - name: console
-        if: '!cancelled()'
-        run: dotnet test tests/Graticula.Console.Tests -c Release --no-build
+        if: "!cancelled() && matrix.part != 'suites'"
+        run: |
+          set -eu
+          python tools/console-shard.py --check 3
+          dotnet test tests/Graticula.Console.Tests -c Release --no-build             --filter "$(python tools/console-shard.py "${PART#console-}" 3)"
+        env:
+          PART: ${{ matrix.part }}
 
       # <b>ADR-026 condition 4: the outage test becomes something CI runs.</b> *A behaviour
       # that only exists during a failure is a behaviour that rots* -- and until this step,
@@ -757,6 +779,7 @@ jobs:
       # <b>The container is found by image, not by name.</b> Actions names a service
       # container something like `<workflow-id>_postgis_<random>`, which nothing can hard-code.
       - name: serving through a platform-store outage
+        if: matrix.part == 'suites'
         run: |
           BOX=$(docker ps --filter ancestor=postgis/postgis:16-3.4 --format '{{.Names}}' | head -1)
 
@@ -777,7 +800,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: server-log
+          name: server-log-${{ matrix.part }}
           path: server.log
           if-no-files-found: warn
 
@@ -806,7 +829,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-net-logs
+          name: browser-net-logs-${{ matrix.part }}
           path: net-logs.tar.gz
           if-no-files-found: warn
 
