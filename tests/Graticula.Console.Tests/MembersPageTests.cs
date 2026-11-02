@@ -76,6 +76,12 @@ public sealed class MembersPageTests : ConsoleTest
         (string token, _) = await SignInAsync();
 
         await OpenAsync($"/studio/#/{screen}", token);
+        // Security's Apps is a sub-page since the redesign of 2026-11-02 (ADR-255): chosen before its button is looked for.
+        if (screen == "signin")
+        {
+            await SecuritySectionAsync("apps");
+        }
+
         await WaitForAsync(Shown($"#{opener}"), $"#{opener} is not on screen.");
         await ClickAsync($"#{opener}");
 

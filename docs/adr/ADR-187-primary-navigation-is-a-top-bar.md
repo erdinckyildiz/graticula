@@ -175,3 +175,34 @@ counts, a Usage tab, SOAP — was left out.)*
 ## 10. Dissent
 
 None recorded.
+
+## 11. Amendment of 2026-11-02 — at 720 px and below the sections are a drawer, and sub-pages are one menu button
+
+**Owner decision 2026-11-02, from the ArcGIS Enterprise phone layout** (six mockups the owner approved, and the plan
+measured beside the existing screens: `scratchpad/agol-mobile/compare.html`). It amends §5 **for narrow widths only**:
+the bar of sections across the header stands above 720 px exactly as written, and the desktop layout is not touched.
+
+**At 720 px and below** the header is one 56-pixel bar — a menu button, the name, search, the account — and:
+
+- **The sections (Content, Map, Groups, Organization; Server's three), the switch between surfaces, the server's health
+  and the account's items (profile, theme, Sign out) are in a drawer on the left**, opened by the menu button and by the
+  account button. It is a dialog while open: focus moves in, the page behind it is inert, Escape closes it and returns
+  focus to the button that opened it. It is the same `#tabs` and `#utilbar` the wide header draws, not a copy; the
+  account menu's own sheet is moved into it while the window is narrow.
+- **A page's sub-pages and an item's or group's tabs are one menu button** naming where the reader is (`Members ▾`,
+  `Overview ▾`), opening the same strip of links as a list. The strips stay links, so Back, middle-click and copy-link
+  keep working.
+- **An item's or group's page has no breadcrumb**; the bar's first control is Back to the page the crumb named, and the
+  drawer stays one press away behind the account button.
+- The two-step notice is one line and a dot on the account button; My content's scopes, folders and types are a
+  full-screen filter sheet; an item's actions are the main action, Share and a ⋯ that now holds favorite and the rest.
+
+**§5's "Under 760 px the bar scrolls horizontally and the left panel becomes a drawer behind a button" is replaced by
+this** for the section bar. Which pages exist, their addresses and the gate on each surface are unchanged. Built in
+`index.html`, `console.css` ("The phone layout") and `console.js` ("The phone layout of 2026-11-02"), held by
+`PhoneLayoutTests`.
+
+**Not decided here.** Groups has no scope and no filter to put behind the bar's icons, so it gets a toolbar of `+` and
+search and no filter button; that is INFERRED from there being nothing to filter, and is listed for the owner to confirm.
+
+**Amended 2026-11-02 for wide windows — [ADR-255](ADR-255-the-interface-follows-arcgis-enterprises-structure.md).** The utility line over the bar is gone: the switch between surfaces, the server's health, the theme and Sign out are in the account menu, and the bar is one row of 56 pixels. The sections as a bar across the top stand.

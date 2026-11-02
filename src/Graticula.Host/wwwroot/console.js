@@ -293,7 +293,7 @@ const pill = value => {
  * A sharing scope, said the one way the Share dialog says it — Portal's words (ADR-079 condition 2's review, 2026-10-14).
  * The same scope was *Only you (private)* in the map viewer, *Owner* in Share and *private* in this pill.
  */
-const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization",
+const SCOPE_WORDS = { private: "Owner only", group: "Groups", organization: "Organization",
   allorganizations: "All organizations", public: "Everyone (public)", failing: "Started, failing" };
 
 /**
@@ -528,7 +528,7 @@ async function loadGroups() {
       // tinted first row with a bar read as *the group you are in*. Hover is the whole of the affordance.
       : pageOf("groupRows", shown).map(g => `
       <tr class="pick" data-group="${h(g.name)}">
-        <td class="name"><a href="#/group/${encodeURIComponent(g.name)}"
+        <td class="name"><span class="gtile" aria-hidden="true">${h(Array.from(g.title || g.name)[0] || "?").toUpperCase()}</span><a href="#/group/${encodeURIComponent(g.name)}"
             >${h(g.title || g.name)}</a>${g.title && g.title !== g.name
           ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
         <td class="val" data-l="Members may"><span>${g.itemUpdate === "allItems"
@@ -538,8 +538,8 @@ async function loadGroups() {
           ? `<span class="val">member</span>`
           : `<b>${h(g.standing)}</b>`}</td>
         <td class="val" data-l="Owner"><span>${h(g.owner || "—")}</span></td>
-        <td class="num" data-l="Members"><span>${num(g.members)}</span></td>
-        <td class="num" data-l="Items"><span>${num(g.items)}</span></td>
+        <td class="num" data-l="Members"${g.members === 1 ? " data-one" : ""}><span>${num(g.members)}</span></td>
+        <td class="num" data-l="Items"${g.items === 1 ? " data-one" : ""}><span>${num(g.items)}</span></td>
       </tr>`).join("");
 
   $("groupsPager").innerHTML = pagerFor("groupRows", shown.length);
@@ -745,6 +745,12 @@ async function showGroup(name, tab) {
   // so each is drawn by its own tab and only when that tab is the one showing.
   if ($("groupAdd")) $("groupAdd").hidden = !one.mayManage;
 
+  // <b>The head holds both verbs again, the redesign of 2026-11-02</b> (DesktopGroup, PhoneGroup) — the same two controls,
+  // reachable from every tab, for whoever may manage the group; and a tile with the group's first letter beside the title.
+  $("groupHeadVerbs").hidden = !one.mayManage;
+  $("groupHeadShare").setAttribute("href", `#/group/${encodeURIComponent(name)}/add`);
+  $("groupHeadTile").textContent = String(one.title || one.name || name).trim().charAt(0).toUpperCase();
+
   if ($("groupShare")) {
     $("groupShare").hidden = !one.mayManage;
     $("groupShare").setAttribute(
@@ -763,6 +769,12 @@ async function showGroup(name, tab) {
   if (groupTab === "add") await drawGroupAdd(one);
 
   paintPreviews();
+}
+
+/** Puts focus back on Add member — the Members tab's button where that tab is showing, the head's otherwise. */
+function focusGroupAdd() {
+  const tab = $("groupAdd");
+  (tab && tab.getClientRects().length ? tab : $("groupHeadAdd"))?.focus();
 }
 
 /** Re-reads the open group and redraws whichever tab is showing. */
@@ -1676,12 +1688,12 @@ function drawServiceAccounts(focus) {
         own here instead.</td></tr>`
     : saAccounts.map(a => {
       const open = a.name === saOpen;
-      const role = (a.roles || []).join(", ") || "no role";
+      const role = (a.roles || []).map(roleDisplay).join(", ") || "no role";
       return `
       <tr${open ? ' class="on"' : ""}>
         <td class="name"><b>${h(a.name)}</b>
           <div class="rowmeta">${a.description ? `${h(a.description)} · ` : ""}made ${day(a.created)}</div></td>
-        <td class="val" data-l="User type and role"><span>${h(a.userType)} · ${h(role)}</span></td>
+        <td class="val" data-l="User type and role"><span>${h(userTypeDisplay(a.userType))} · ${h(role)}</span></td>
         <td class="val" data-l="Live keys and secrets"><span>${h(saLive(a))}</span></td>
         <td class="val" data-l="State"><span>${a.disabled ? "Turned off: its keys and secrets are refused" : "On"}</span></td>
         <td class="act" style="text-align:right">
@@ -1816,11 +1828,11 @@ async function openServiceAccountForm() {
 
   // The server refuses the administrator role by name, so it is not offered.
   $("saRole").innerHTML = `<option value="">no role</option>` + roles.filter(r => r !== "administrator")
-    .map(r => `<option value="${h(r)}"${r === "viewer" ? " selected" : ""}>${h(r)}</option>`).join("");
+    .map(r => `<option value="${h(r)}"${r === "viewer" ? " selected" : ""}>${h(roleDisplay(r))}</option>`).join("");
 
   // The ladder the members screen describes, in the server's order; viewer by default, beside the viewer role.
   $("saType").innerHTML = Object.keys(USER_TYPE_SAYS)
-    .map(t => `<option value="${h(t)}"${t === "viewer" ? " selected" : ""}>${h(t)}</option>`).join("");
+    .map(t => `<option value="${h(t)}"${t === "viewer" ? " selected" : ""}>${h(userTypeDisplay(t))}</option>`).join("");
   saTypeSays();
 
   $("saDialog").showModal();
@@ -2895,7 +2907,7 @@ async function loadRoles() {
       <tr class="pick${r.name === roleOpen ? " on" : ""}" data-role="${h(r.name)}"
           data-privileges="${r.privileges.length}">
         <td class="name"><button type="button" class="rowname"
-            data-role="${h(r.name)}"${r.name === roleOpen ? ' aria-current="true"' : ""}>${h(r.name)}</button>
+            data-role="${h(r.name)}" title="${h(r.name)}"${r.name === roleOpen ? ' aria-current="true"' : ""}>${h(roleDisplay(r.name))}</button>
           <span class="rowmeta"><span class="nowrap">${num(r.privileges.length)} privilege${r.privileges.length === 1 ? "" : "s"}</span> ·
             <span class="nowrap">${r.members ? `held by ${num(r.members)}` : "held by nobody"}</span>${r.builtIn
               ? ' · <span class="nowrap">built in</span>' : ""}</span></td>
@@ -2937,9 +2949,9 @@ async function loadRoles() {
   // here — eighteen privilege rows earlier on a full page. A grant here is not a setting on a role, it
   // is a capability handed to N live accounts, and the number belongs beside the button that hands it
   // over. Design review 2026-08-19.
-  $("roleEditorName").innerHTML = h(chosen.name);
+  $("roleEditorName").innerHTML = h(roleDisplay(chosen.name));
   $("roleEditorSays").textContent = [
-    chosen.description || "",
+    usSpelling(chosen.description),
     !chosen.editable
       ? (chosen.members ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"} here.` : "Held by nobody here.")
       : chosen.members
@@ -2963,7 +2975,7 @@ async function loadRoles() {
     ? `<label>Copy privileges from
          <select id="roleFromPick"><option value="">a role…</option>${
            roles.filter(r => r.name !== chosen.name)
-             .map(r => `<option value="${h(r.name)}">${h(r.name)} (${r.privileges.length})</option>`)
+             .map(r => `<option value="${h(r.name)}">${h(roleDisplay(r.name))} (${r.privileges.length})</option>`)
              .join("")}</select></label>`
     : chosen.builtIn && chosen.name !== "administrator"
       ? `<button type="button" id="roleCopy" data-role-copy="${h(chosen.name)}"
@@ -3040,8 +3052,7 @@ async function loadRoles() {
                 ${held.has(c.name) ? "checked" : ""}
                 ${chosen.editable ? "" : "disabled"}>
               <span class="privilegetext">
-                <b class="privilegename">${h(named(c.name))}</b>
-                <code class="mono">${h(c.name)}</code>
+                <b class="privilegename" title="${h(c.name)}">${h(named(c.name))}</b>
                 ${least === undefined
                   ? ""
                   : least === null
@@ -3050,7 +3061,7 @@ async function loadRoles() {
                         ? "unrestricted only"
                         : `${h(least)} or above`}</span>`}
                 ${c.description || c.requires.length || c.includes.length
-                  ? `<span class="privilegewhat">${h(c.description || "")}${c.requires.length
+                  ? `<span class="privilegewhat">${h(usSpelling(c.description))}${c.requires.length
                       ? ` Needs ${c.requires.map(n => h(named(n))).join(", ")}.` : ""}${c.includes.length
                       ? ` Includes ${c.includes.map(n => h(named(n))).join(", ")}.` : ""}</span>` : ""}
               </span>
@@ -3115,10 +3126,40 @@ function drawRoleDirty() {
  * What each privilege is called in words. The server names them by identifier and describes them in a sentence;
  * the screen needs a name between the two. A privilege missing here is shown by its identifier, which is still true.
  */
+/**
+ * A built-in role as the product names it, not as the API does — the UI sweep of 2026-11-02. `data_editor` is an
+ * identifier; a reader chose between "data_editor" and "publisher" in the New member dialog. A custom role is its own
+ * name, which somebody typed. The value sent to the API is always the identifier, never this.
+ */
+/**
+ * The server's own descriptions of a role and a privilege, in the console's spelling — the UI sweep of 2026-11-02.
+ * They are written in the platform and arrive in the API's answer; the console is American English throughout, and
+ * "organisation" in the middle of a screen that says "organization" everywhere else read as two products. Only the text
+ * shown is changed; the field and its value are the API's.
+ */
+function usSpelling(text) {
+  return String(text ?? "").replace(/organisation/g, "organization").replace(/Organisation/g, "Organization");
+}
+
+const ROLE_NAMES = { viewer: "Viewer", data_editor: "Data editor", user: "User", publisher: "Publisher", administrator: "Administrator" };
+function roleDisplay(name) {
+  return ROLE_NAMES[name] || name;
+}
+
+/**
+ * A user type in words — the UI sweep of 2026-11-02, verification round. The values sent to the API stay the codes;
+ * only what is read is capitalised.
+ */
+const USER_TYPE_NAMES = { viewer: "Viewer", editor: "Editor", creator: "Creator", unrestricted: "Unrestricted" };
+function userTypeDisplay(type) {
+  return USER_TYPE_NAMES[type] || type;
+}
+
 const PRIVILEGE_LABELS = {
   "content:create": "Create content",
   "content:publishFeatures": "Publish hosted feature layers",
   "content:publishTiles": "Publish hosted tile layers",
+  "content:publishTools": "Publish geoprocessing tools",
   "content:registerDataStore": "Register data stores",
   "features:edit": "Edit features",
   "features:fullEdit": "Edit any feature",
@@ -4027,6 +4068,7 @@ function drawSurfaces(surface) {
   // one; a header bar has the width for its labels and nothing to collapse to, so the glyphs and the
   // counts went with the rail. The surface's name is the badge beside the mark.
   $("surfaceBadge").textContent = config.title;
+  $("drawerSurface").textContent = config.title;
   // Organization opens on General for a member who administers nothing in it (ADR-221 §5.5): Members is not theirs.
   const tabHref = name => name === "members" && !orgAdminReader() ? "general" : name;
   $("tabs").innerHTML = config.tabs.filter(tabAllowed).map(([name, label]) =>
@@ -4094,6 +4136,8 @@ function showView(id, tab) {
   // leaving that class on while another view is shown would give every other screen a
   // full-bleed layout it was not designed for. `showEditPage` puts it back on.
   if (id !== "view-layer" && id !== "view-service") $("app").classList.remove("symfull");
+
+  phoneAfterView();
 }
 
 /**
@@ -4161,6 +4205,40 @@ function drawOrgNav(view, screen) {
   }
 }
 
+/** Which of Security's four sections is showing (the redesign of 2026-11-02): "sf", "sa", "idp" or "apps". */
+let securityPage = null;
+let securityChosen = false;
+
+/**
+ * Security's sections as sub-pages, under one segmented control.
+ *
+ * <b>Which sections exist depends on the reader</b> — Two-step sign-in and Service accounts are drawn only for whoever
+ * holds admin:manageSecurity, and they hide themselves until their own load has answered — so the control lists exactly
+ * the sections that are not hidden, and a page that has gone is replaced by the first that remains. `want` chooses one.
+ * Only `data-secpage` on the view changes; nothing is moved, so no section's ids or handlers are touched.
+ */
+function drawSecurityPages(want) {
+  const view = $("view-signin");
+  if (!view) return;
+
+  const present = ["sf", "sa", "idp", "apps"].filter(k => {
+    const el = view.querySelector(`.secpage[data-secpage="${k}"]`);
+    return el && !el.hidden;
+  });
+
+  // Until a reader chooses, the page is the first that exists: the sections that depend on a privilege answer after the
+  // others, and the page should not be Sign-in because Two-step sign-in had not been drawn yet.
+  if (want && present.includes(want)) { securityPage = want; securityChosen = true; }
+  if (!securityChosen || !present.includes(securityPage)) securityPage = present[0] || "idp";
+  view.dataset.secpage = securityPage;
+
+  for (const b of view.querySelectorAll("[data-secpage-go]")) {
+    const k = b.dataset.secpageGo;
+    b.hidden = !present.includes(k);
+    b.setAttribute("aria-pressed", String(k === securityPage));
+  }
+}
+
 /**
  * Opens a screen, and re-reads what it shows.
  *
@@ -4206,10 +4284,15 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "signin") {
-    section("two-step sign-in", loadSecondFactorRequirement);
-    section("service accounts", loadServiceAccounts, "saRows");
-    section("sign-in providers", loadSignin, "idpRows");
-    section("apps", loadApps, "appRows").then(() => { if (appsAsked) $("appsTitle")?.scrollIntoView(); });
+    // <b>Security's sections are sub-pages (the redesign of 2026-11-02)</b>: Apps' old address opens that one, and each
+    // load that can show or hide a section draws the control again, since which of the four exist depends on the reader.
+    securityChosen = appsAsked;
+    if (appsAsked) securityPage = "apps";
+    drawSecurityPages();
+    section("two-step sign-in", loadSecondFactorRequirement).then(() => drawSecurityPages());
+    section("service accounts", loadServiceAccounts, "saRows").then(() => drawSecurityPages());
+    section("sign-in providers", loadSignin, "idpRows").then(() => drawSecurityPages());
+    section("apps", loadApps, "appRows").then(() => { drawSecurityPages(); if (appsAsked) $("appsTitle")?.scrollIntoView(); });
   }
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "operations") {
@@ -5359,6 +5442,9 @@ let contentSort = "modified";
 /** The types ticked in My content's left column; empty means every type (owner's reference, 2026-10-16). */
 const contentKinds = new Set();
 
+/** How many items the list shows after its filters, for the phone's filter sheet to name on its Show button. */
+let contentShownNow = 0;
+
 /** A saved web map as a row of the content list — the same fields a service row reads. */
 function mapAsItem(m) {
   return {
@@ -5437,8 +5523,20 @@ async function loadMyContent() {
   drawMyContent();
 }
 
-/** The content list, from what `loadMyContent` last read. */
+/**
+ * The content list, from what `loadMyContent` last read.
+ *
+ * <b>Drawn by `drawMyContentList`, and this is what the phone's filter sheet needs around it</b> (the phone layout of
+ * 2026-11-02): the sheet is open while the scopes, folders and types under it are written again, so where focus was is
+ * remembered before and put back after, and the button that closes it says how many items it will show.
+ */
 function drawMyContent() {
+  const kept = phoneReady ? phoneSheetFocusKey() : null;
+  drawMyContentList();
+  if (phoneReady) phoneSheetRedrawn(kept);
+}
+
+function drawMyContentList() {
   if (!contentAnswer) return;
 
   const { answer, maps, docs } = contentAnswer;
@@ -5546,6 +5644,8 @@ function drawMyContent() {
       .some(v => (v || "").toLowerCase().includes(needle)))
     .sort(order);
 
+  contentShownNow = visible.length;
+
   $("contentCount").textContent = contentFolderPick
     ? `${num(visible.length)} of your item${visible.length === 1 ? "" : "s"} ${contentFolderPick === "root"
         ? "not in a folder" : `in ${myFolders.find(f => f.id === contentFolderPick)?.title || "this folder"}`}`
@@ -5606,21 +5706,21 @@ function drawMyContent() {
   // <b>A first run names both ways in, as buttons</b> (ADR-079 condition 2's review, 2026-10-14): it named only
   // *New item*, as text, and the server's note above it said everything here belonged to somebody else.
   $("contentRows").innerHTML = total === 0 && isOutsider()
-    ? `<tr><td colspan="4" class="empty">Nothing is shared with you here yet. What ${
+    ? `<tr><td colspan="6" class="empty">Nothing is shared with you here yet. What ${
         h(whoNow?.organisation?.name || "this organization")}'s groups share with you, and what it shares with everyone,
         appears here.</td></tr>`
     : total === 0
-    ? `<tr><td colspan="4" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
+    ? `<tr><td colspan="6" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
          <button type="button" class="linkbtn" data-empty-new="newLayer">New item</button> publishes a layer from a
          file or a database; <button type="button" class="linkbtn" data-empty-new="newMap">New map</button> starts a
          map from the layers you can read.</td></tr>`
     : inScope.length === 0 && contentFolderPick
-      ? `<tr><td colspan="4" class="empty">${contentFolderPick === "root"
+      ? `<tr><td colspan="6" class="empty">${contentFolderPick === "root"
           ? "Everything of yours is in a folder."
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="4" class="empty">${contentScope === "favorites"
+      ? `<tr><td colspan="6" class="empty">${contentScope === "favorites"
              // D-305: a list the member makes, so it says how (a design review: it said "Nothing arrived this way").
              ? "Nothing is marked as a favorite. <b>Add favorite</b> on an item's page puts it here."
              : contentScope === "administrative"
@@ -5631,13 +5731,13 @@ function drawMyContent() {
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0 && contentIdle && !contentFilter
-        ? `<tr><td colspan="4" class="empty">${usageCountsAMonth()
+        ? `<tr><td colspan="6" class="empty">${usageCountsAMonth()
              ? `No idle services${among}. Everything published over
                30 days ago has had a request since ${h(day(new Date(Date.now() - 30 * 86400000).toISOString()))}.`
              : `Nothing can be called idle yet: counting began ${usageSince ? h(day(usageSince)) : "with the first request"}, and
                thirty days of it are needed.`}</td></tr>`
       : visible.length === 0
-        ? `<tr><td colspan="4" class="empty">Nothing matches${contentFilter
+        ? `<tr><td colspan="6" class="empty">Nothing matches${contentFilter
              ? ` <b>${h(contentFilter)}</b>` : ""}${among}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
@@ -5686,13 +5786,13 @@ function drawMyContent() {
           <tr class="mediarow">
             ${pickCell(i, `service:${i.name}`)}
             <td class="thumbcell">${i.kind === "ImageServer"
-              ? `<a class="thumblink" href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
+              ? `<a class="thumblink" tabindex="-1" aria-hidden="true" href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
                    title="Open ${h(i.name)}"><img class="thumb" alt="" loading="lazy"
                    data-thumb="${h(thumbnailFor(`/rest/services/${i.name}/ImageServer`))}"></a>`
               : i.cover
               ? `<a class="thumblink" href="${h(visHref(i.cover.layer || "", "features")
                    || `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`)}"
-                   title="Draw ${h(i.cover.layer || i.name)} on the map"
+                   title="Draw ${h(i.cover.layer || i.name)} on the map" aria-label="Draw ${h(i.cover.layer || i.name)} on the map"
                    ><img class="thumb" alt="" loading="lazy"
                    data-thumb="${h(thumbnailFor(i.cover.url))}"></a>`
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
@@ -5716,8 +5816,34 @@ function drawMyContent() {
           </tr>`;
         }).join("");
 
+  drawContentColumns();
   $("contentRowsPager").innerHTML = pagerFor("contentRows", visible.length);
   drawContentBulk();
+}
+
+/**
+ * <b>Type and Shared with are columns on a wide window</b> (the redesign of 2026-11-02, after DesktopContent): the four row
+ * templates — a service, a web map, a file, a layer — each wrote the kind beside the name and the sharing first among the facts,
+ * so the columns are read from what they drew rather than written four times. What a column repeats is marked `dup`, and the
+ * stylesheet draws one or the other: the columns above 720 pixels, the line under the name below it.
+ */
+function drawContentColumns() {
+  for (const row of $("contentRows").querySelectorAll("tr.mediarow")) {
+    const acts = row.querySelector(":scope > td.acts");
+    const name = row.querySelector(":scope > td.name");
+    if (!acts || !name || row.querySelector(":scope > td.col")) continue;
+    const kind = name.querySelector(".svctype");
+    const shared = name.querySelector(".svcmeta > .pill, .svcmeta > .pillbtn");
+    kind?.classList.add("dup");
+    shared?.classList.add("dup");
+    const type = document.createElement("td");
+    type.className = "col type";
+    type.textContent = kind ? kind.textContent.trim() : "";
+    const share = document.createElement("td");
+    share.className = "col shared";
+    if (shared) share.append(shared.cloneNode(true));
+    acts.before(type, share);
+  }
 }
 
 // ---------------------------------------------------------------- several items at once (ADR-129)
@@ -6027,7 +6153,7 @@ async function bulkGo(go) {
 let mapOpen = null;
 
 const MAP_SCOPES = [
-  ["private", "Owner", "Only you, and administrators."],
+  ["private", "Owner only", "Only you, and administrators."],
   ["group", "Groups", "The members of the groups ticked below."],
   ["organization", "Organization", "The members of your organization, signed in."],
   ["allorganizations", "All organizations on this server",
@@ -6213,6 +6339,8 @@ async function showWebMapItem(id) {
       <div class="sheet">${more}</div>
     </details>` : ""}`;
 
+  phoneFoldActions($("mapActions"));
+
   drawMapAbout();
   loadMapExtras(map);
 
@@ -6353,7 +6481,7 @@ function drawMapAbout(editing = false) {
     ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${map.description ? `<div class="mapdescription">${h(map.description).replace(/\n/g, "<br>")}</div>`
-      : `<p class="hint">No description yet. What the map is for, where its data comes from and how current it is.</p>`}
+      : `<p class="hint">No description yet.<span class="widewords"> What the map is for, where its data comes from and how current it is.</span></p>`}
     ${map.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(map.licenseInfo)}</p></details>` : ""}
     ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     ${itemCategoriesLine(itemOf("map") || map, "map")}
@@ -6656,7 +6784,7 @@ function mapRow(i) {
 
   return `<tr class="mediarow">
     ${pickCell(i, `webmap:${m.id}`)}
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
+    <td class="thumbcell"><a class="thumblink" tabindex="-1" aria-hidden="true" href="${open}" title="Open ${h(i.name)}"
       >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
         : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
     <td class="name">
@@ -7163,7 +7291,7 @@ async function drawServiceUnread(qualified) {
       ? `<b>Stopped.</b> Clients get HTTP 503 until it is started. Its item, sharing and settings are kept; the Data
          and Visualization tabs come back when it starts.${may("admin:manageServer")
            ? ` <a href="${h(server)}">Start it in Server › Services</a>` : ""}`
-      : `<b>The service did not answer.</b> What is shown here comes from the catalogue; the Data and Visualization
+      : `<b>The service did not answer.</b> What is shown here comes from the catalog; the Data and Visualization
          tabs need the service itself.`;
     notice.hidden = false;
   }
@@ -7176,7 +7304,7 @@ async function drawServiceUnread(qualified) {
     box.innerHTML = serviceCatalogue === null
       ? `<tr><td colspan="3" class="empty">Its layers could not be read while the service does not answer.</td></tr>`
       : serviceCatalogue.length === 0
-        ? `<tr><td colspan="3" class="empty">The catalogue lists no layers for this service.</td></tr>`
+        ? `<tr><td colspan="3" class="empty">The catalog lists no layers for this service.</td></tr>`
         : serviceCatalogue.map(layer => {
           const geometry = GEOMETRY_NAMES[layer.geometry] || (layer.geometry || "").replace(/^esriGeometry/, "") || null;
           return `<tr>
@@ -8173,6 +8301,7 @@ async function drawServiceDetails(qualified, knownKind) {
         </details>`;
       })()}`;
   actions.hidden = false;
+  phoneFoldActions(actions);
   // The favourite is drawn with the actions, which are drawn again as the service is read (D-305).
   if (serviceItem && serviceItem.name === qualified) drawFavorite(serviceItem);
 
@@ -8859,7 +8988,7 @@ async function exportServiceData(format, button, chosen = null) {
  * offered by {@link shareScopes} only where {@link allOrganizationsOffer} says.
  */
 const SHARE_SCOPES = [
-  ["private", "Owner", "Only you and an administrator can reach it."],
+  ["private", "Owner only", "Only you and an administrator can reach it."],
   ["organization", "Organization",
    "Members of this organization can read it once signed in. A stranger with the address still gets nothing."],
   ["allorganizations", "All organizations on this server",
@@ -9180,7 +9309,7 @@ async function saveShare() {
 
   $("share").close();
 
-  const said = { private: "Owner", group: "Owner", organization: "Organization",
+  const said = { private: "Owner only", group: "Owner only", organization: "Organization",
     allorganizations: "every organization on this server", public: "Everyone" };
   const groups = sharing.wanted.size;
   const bareShared = sharing.qualified.split("/").pop();
@@ -9399,8 +9528,8 @@ function describedAs(item) {
     ? `<p class="lede">${h(item.description)}</p>${credits}${terms}${tags}${edit}${categories}`
     : item.manages === false
       ? `<p class="hint">No description.</p>${terms}${tags}${categories}`
-      : `<p class="hint">No description yet. A few words on what this is and where it came from make it
-         easier to find and to trust.</p>${credits}${terms}${tags}${edit}${categories}`;
+      : `<p class="hint">No description yet.<span class="widewords"> A few words on what this is and where it came from make it
+         easier to find and to trust.</span></p>${credits}${terms}${tags}${edit}${categories}`;
 }
 
 /**
@@ -10105,7 +10234,7 @@ function drawServiceDelete() {
     : hostedHere
       ? `Deleting this service unpublishes <b>${what}</b> and
          <b>takes their data out of the datastore</b>. Hosted data belongs to the service that holds it,
-         so it waits with the service in the recycle bin for 14 days, and is restored with it (ADR-203).`
+         so it waits with the service in the recycle bin for 14 days, and is restored with it.`
       : `Deleting this service unpublishes <b>${what}</b>. These
          are registered: they point at a database that is not ours, so <b>no table is
          dropped</b> — the registration goes and the data stays exactly as it is.`;
@@ -10496,9 +10625,13 @@ function drawServiceSettings(name, folder) {
     && (p !== "classes" || (imagery && (serviceDoc?.bandCount || 1) === 1 && /^[US](8|16|32)$/.test(serviceDoc?.pixelType || ""))));
   const open = shownPages.includes(page) ? page : shownPages[0];
 
+  // <b>Focus follows the tab, the UI sweep of 2026-11-02.</b> Activating a tab redraws the strip, and the link that had
+  // focus was replaced by a new one: focus fell to BODY and a keyboard reader started again from the top of the page.
+  const navHadFocus = $("serviceNav").contains(document.activeElement);
   $("serviceNav").innerHTML = shownPages.map(p =>
     `<a href="#" data-service-page="${p}"${p === open ? ' aria-current="page"' : ""}>${
       SERVICE_PAGE_LABELS[p] || p[0].toUpperCase() + p.slice(1)}</a>`).join("");
+  if (navHadFocus) $("serviceNav").querySelector('a[aria-current="page"]')?.focus({ preventScroll: true });
 
   // <b>No Save on the Sharing page, because that page has nothing to save.</b> The scope applies the
   // moment it is chosen — ADR-031 §2b, so that an owner narrowing who may read a service can trust it
@@ -11577,30 +11710,30 @@ function serviceSettingsMarkup(name, folder) {
       <p class="hint">Leave a box empty to follow the server. A value typed here applies to every layer in this
         service, and is held down to the server's own limit rather than refused.</p>
       <h4>Response</h4>
-      <div class="setting"><label class="q" for="capMaxRows">Features per page:</label>
+      <div class="setting"><label class="q" for="capMaxRows">Features per page</label>
         <input type="number" id="capMaxRows" min="1" step="1" inputmode="numeric"
           aria-describedby="capPageSays"><span class="u">features</span></div>
       <p class="hint inherit" id="capPageSays"><span class="inheritstate" data-state-of="capMaxRows"></span>
         What a query returns when it does not ask for a number, and the most it returns when it does. Empty follows
         the server's page size<span id="capServerPage"></span><span id="capServerWhere"></span>.</p>
-      <div class="setting"><label class="q" for="capOutBytes">Largest response:</label>
+      <div class="setting"><label class="q" for="capOutBytes">Largest response</label>
         <input type="number" id="capOutBytes" min="1" aria-describedby="capOutBytesSays"><span class="u">bytes</span></div>
       <p class="hint inherit" id="capOutBytesSays"><span class="inheritstate" data-state-of="capOutBytes"></span></p>
 
       <h4>Request</h4>
-      <div class="setting"><label class="q" for="capInBytes">Largest request body:</label>
+      <div class="setting"><label class="q" for="capInBytes">Largest request body</label>
         <input type="number" id="capInBytes" min="1" aria-describedby="capInBytesSays"><span class="u">bytes</span></div>
       <p class="hint inherit" id="capInBytesSays"><span class="inheritstate" data-state-of="capInBytes"></span></p>
-      <div class="setting"><label class="q" for="capEdits">Edits per call:</label>
+      <div class="setting"><label class="q" for="capEdits">Edits per call</label>
         <input type="number" id="capEdits" min="1" aria-describedby="capEditsSays"><span class="u">edits</span></div>
       <p class="hint inherit" id="capEditsSays"><span class="inheritstate" data-state-of="capEdits"></span></p>
 
       <h4>Time</h4>
-      <div class="setting"><label class="q" for="capDeadline">The whole request:</label>
+      <div class="setting"><label class="q" for="capDeadline">The whole request</label>
         <input type="number" id="capDeadline" min="1" aria-describedby="capDeadlineSays"><span class="u">seconds</span></div>
       <p class="hint inherit" id="capDeadlineSays"><span class="inheritstate" data-state-of="capDeadline"></span>
         Reading it, querying, projecting, encoding and writing the answer, together.</p>
-      <div class="setting"><label class="q" for="capTimeout">One database statement:</label>
+      <div class="setting"><label class="q" for="capTimeout">One database statement</label>
         <input type="number" id="capTimeout" min="1000" step="1000" aria-describedby="capTimeoutSays"><span class="u">ms</span></div>
       <p class="hint inherit" id="capTimeoutSays"><span class="inheritstate" data-state-of="capTimeout"></span>
         Stops counting the moment the query returns, so a slow download never trips it.</p>
@@ -15298,9 +15431,9 @@ function lastSignInText(at) {
 /** The filter column's lists, drawn from what the server said exists, ticked from `memberFilter`. */
 function drawMemberFilters(roles, types) {
   const box = (kind, value, on) =>
-    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(value)}</label>`;
+    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(kind === "role" ? roleDisplay(value) : userTypeDisplay(value))}</label>`;
   const roleQ = ($("mfRoleQ")?.value || "").trim().toLowerCase();
-  $("mfRoles").innerHTML = roles.filter(r => !roleQ || r.toLowerCase().includes(roleQ) || memberFilter.roles.has(r))
+  $("mfRoles").innerHTML = roles.filter(r => !roleQ || r.toLowerCase().includes(roleQ) || roleDisplay(r).toLowerCase().includes(roleQ) || memberFilter.roles.has(r))
     .map(r => box("role", r, memberFilter.roles.has(r))).join("") || `<span class="hint">No role matches.</span>`;
   $("mfTypes").innerHTML = types.map(t => box("type", t, memberFilter.types.has(t))).join("");
   $("mfStatus").value = memberFilter.status;
@@ -15383,12 +15516,12 @@ async function loadMembers() {
   }
   $("mfGroup").value = memberFilter.group;
 
-  const fill = (id, values, chosen) => {
+  const fill = (id, values, chosen, label = v => v) => {
     $(id).innerHTML = values.map(v =>
-      `<option value="${h(v)}"${v === chosen ? " selected" : ""}>${h(v)}</option>`).join("");
+      `<option value="${h(v)}"${v === chosen ? " selected" : ""}>${h(label(v))}</option>`).join("");
   };
 
-  fill("mRole", answer.roles || [], "publisher");
+  fill("mRole", answer.roles || [], "publisher", roleDisplay);
   memberRoleNames = answer.roles || [];
   // <b>The ladder, in the server's order.</b> `UserTypes.All` is viewer, editor, creator,
   // unrestricted — each ceiling contains the one below — and the console needs the order to know
@@ -15396,7 +15529,7 @@ async function loadMembers() {
   // fact the platform already states, and the two would part company the day a type is added.
   memberUserTypes = answer.userTypes || [];
 
-  fill("mType", answer.userTypes || [], "creator");
+  fill("mType", answer.userTypes || [], "creator", userTypeDisplay);
   describeRole();
   drawMemberFilters(answer.roles || [], answer.userTypes || []);
   drawMemberSort();
@@ -15429,9 +15562,9 @@ async function loadMembers() {
         could demote an administrator with a keystroke, saved at once (UX sweep 2026-10-19, critical). Change
         role… and Change user type… open a dialog that says what the change does and waits for a button.
       -->
-      <td data-l="User type"><span>${h(m.userType || "")}</span></td>
+      <td data-l="User type"><span>${h(userTypeDisplay(m.userType || ""))}</span></td>
       <td data-l="Role"><span>${(m.roles || []).length
-        ? m.roles.map(r => `<span class="pill rolepill" data-role-is="${h(r)}">${h(r)}</span>`).join(" ")
+        ? m.roles.map(r => `<span class="pill rolepill" data-role-is="${h(r)}">${h(roleDisplay(r))}</span>`).join(" ")
         : `<span class="val">none</span>`}${m.roleManaged
         // ADR-089, by owner decision: the mapping decides, and the row says where to change it.
         ? `<span class="hint" id="roleFrom-${h(roleFromId(m.name))}" style="display:block">Set by ${h(m.signsInWith)}'s groups —
@@ -15511,7 +15644,7 @@ async function openMemberChange(name, kind) {
     if (kind === "role") {
       if (!value) return "No role: they read what is shared with them and hold no privilege.";
       const r = role(value);
-      return r ? `${h(r.description || "")} <span class="val">${num(r.privileges.length)} privilege${
+      return r ? `${h(usSpelling(r.description))} <span class="val">${num(r.privileges.length)} privilege${
         r.privileges.length === 1 ? "" : "s"}</span>` : "";
     }
     const n = catalogue.length ? withheld(value) : 0;
@@ -15521,14 +15654,14 @@ async function openMemberChange(name, kind) {
   };
 
   $("memberChangeBody").innerHTML = `
-    <p class="hint" style="margin-top:0">Now: role <b>${h(((m.roles || [])[0]) || "none")}</b>, user type
-      <b>${h(m.userType || "none")}</b>. The user type is a ceiling: a role cannot grant more than it allows.</p>
+    <p class="hint" style="margin-top:0">Now: role <b>${h(roleDisplay((m.roles || [])[0]) || "none")}</b>, user type
+      <b>${h(userTypeDisplay(m.userType) || "none")}</b>. The user type is a ceiling: a role cannot grant more than it allows.</p>
     <fieldset class="pickset">
       <legend>${kind === "role" ? "Role" : "User type"}</legend>
       ${options.map(v => `
         <label class="pickrow">
           <input type="radio" name="memberChangePick" value="${h(v)}"${v === current ? " checked" : ""}>
-          <span><b>${h(v || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
+          <span><b>${h((kind === "role" ? roleDisplay(v) : userTypeDisplay(v)) || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
             <span class="lede">${lede(v)}</span></span>
         </label>`).join("")}
     </fieldset>`;
@@ -15612,7 +15745,7 @@ function describeMemberChange() {
       at once.</b>` : "",
     gained.length ? (lost.length ? gain : `<b>${gain}</b>`) : "",
     !lost.length && !gained.length ? "<b>The two roles grant the same privileges.</b>" : "",
-    capped ? `${c.self ? "Your" : "Their"} user type, ${h(c.userType)}, keeps ${num(capped)} of the new role's privileges from working.` : "",
+    capped ? `${c.self ? "Your" : "Their"} user type, ${h(userTypeDisplay(c.userType))}, keeps ${num(capped)} of the new role's privileges from working.` : "",
     losesPage ? closesHere : `It takes effect on ${their} next request. What ${they} own stays ${c.self ? "yours" : "theirs"}.`,
   ].filter(Boolean).join(" ");
 }
@@ -16314,7 +16447,9 @@ async function drawFactorNotice() {
   const administrator = !!signedInAs && (whoNow?.roles || []).includes("administrator");
   let hidden = true;
   try { hidden = sessionStorage.getItem(FACTOR_NOTICE_KEY) === "hidden"; } catch { /* private mode: show it */ }
-  if (!administrator || hidden) { notice.hidden = true; return; }
+  const entry = $("accountTwoStep");
+  if (entry) entry.hidden = true;
+  if (!administrator) { notice.hidden = true; return; }
 
   let state;
   try {
@@ -16326,11 +16461,20 @@ async function drawFactorNotice() {
 
   if (!state.available || state.enabled) { notice.hidden = true; return; }
 
+  // The account menu keeps the way in after the line is dismissed, as the phone mockup's drawer does.
+  if (entry) {
+    entry.href = `/studio/user/${encodeURIComponent(signedInAs)}?security`;
+    entry.hidden = false;
+  }
+  if (hidden) { notice.hidden = true; return; }
+
   $("factorNoticeText").textContent = state.required
     ? "Your organization requires two-step sign-in and your account does not have it yet. Your next sign-in will ask "
       + "you to set it up."
     : "Your administrator account signs in with a password alone. Add two-step sign-in so a stolen password is not "
       + "enough to get in.";
+  // The phone draws this one short sentence and not the long one above (the phone layout of 2026-11-02).
+  $("factorNoticeShort").textContent = state.required ? "Two-step sign-in is required" : "Two-step sign-in is off";
   $("factorNoticeGo").href = `/studio/user/${encodeURIComponent(signedInAs)}?security`;
   notice.hidden = false;
 }
@@ -16359,8 +16503,8 @@ function drawProfile() {
 
   const facts = p.mayEdit ? `
     <dl class="profilefacts">
-      ${p.roles ? `<dt>Role</dt><dd>${h((p.roles || []).join(", ") || "none")}</dd>` : ""}
-      ${p.userType ? `<dt>User type</dt><dd>${h(p.userType)}</dd>` : ""}
+      ${p.roles ? `<dt>Role</dt><dd>${h((p.roles || []).map(roleDisplay).join(", ") || "none")}</dd>` : ""}
+      ${p.userType ? `<dt>User type</dt><dd>${h(userTypeDisplay(p.userType))}</dd>` : ""}
       <dt>Last login</dt><dd>${h(lastSignInText(p.lastSignIn))}</dd>
       <dt>Member since</dt><dd>${h(new Date(p.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }))}</dd>
       ${p.mayCategorize ? `<dt>Categories</dt><dd>${cats.length ? cats.map(h).join(", ") : "none"}
@@ -16577,6 +16721,20 @@ document.addEventListener("change", event => {
  * menu still open after Escape and after a click elsewhere, and still open over the New group dialog. Its own listeners,
  * so no early return in a shared one can silence it; Escape hands focus back to the menu's summary.
  */
+// A modal overlay keeps Tab inside it: the page behind is inert, so without this the last control hands focus to the body.
+document.addEventListener("keydown", event => {
+  if (event.key !== "Tab" || !phoneOverlay || !phoneOverlay.modal) return;
+  const fields = [...phoneOverlay.el.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex='-1'])")]
+    .filter(node => !node.disabled && node.getClientRects().length > 0 && node.tabIndex >= 0);
+  if (fields.length === 0) return;
+  const first = fields[0], last = fields[fields.length - 1];
+  if (event.shiftKey && (document.activeElement === first || !phoneOverlay.el.contains(document.activeElement))) {
+    event.preventDefault(); last.focus();
+  } else if (!event.shiftKey && (document.activeElement === last || !phoneOverlay.el.contains(document.activeElement))) {
+    event.preventDefault(); first.focus();
+  }
+});
+
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape") return;
   const open = [...document.querySelectorAll("details.menu[open], details.rowmenu[open]")];
@@ -16704,10 +16862,13 @@ function describeRole() {
   const role = $("mRole")?.value;
   const carries = memberGrants[role] || [];
 
+  // <b>In words, the identifier in the tooltip — the UI sweep of 2026-11-02.</b> The dialog listed
+  // `content:publishFeatures`, which is what the server calls the privilege and not what it lets somebody do.
   $("mGrants").innerHTML = carries.length
-    ? `<b>${h(role)}</b> carries ${carries.map(p => `<code>${h(p)}</code>`).join(" ")}`
-    : `<b>${h(role)}</b> carries nothing. Reading is governed by each layer's sharing rather than `
-      + `by a privilege, so a viewer reads plenty and can change nothing (ADR-018 §2).`;
+    ? `<b>${h(roleDisplay(role))}</b> carries ${carries.map(p =>
+      `<span class="pill" title="${h(p)}">${h(PRIVILEGE_LABELS[p] || p)}</span>`).join(" ")}`
+    : `<b>${h(roleDisplay(role))}</b> carries nothing. Reading is governed by each layer's sharing rather than `
+      + `by a privilege, so a viewer reads plenty and can change nothing.`;
 }
 
 /**
@@ -17373,10 +17534,12 @@ async function loadServices() {
   $("servicesPager").innerHTML = pagerFor("services", shown_.length);
 
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
+  // The phone's scope button names the folder being listed (the redesign of 2026-11-02).
+  if ($("servicesScopeName")) $("servicesScopeName").textContent = selectedFolder || "Site (root)";
   const statusWords = { started: "started", failing: "failing", stopped: "stopped" };
 
   $("services").innerHTML = shown_.length === 0
-    ? `<tr><td colspan="4" class="empty">${rows.length === 0
+    ? `<tr><td colspan="7" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : needle
           ? `No service in any folder matches <b>${h(serviceFilter)}</b>.`
@@ -17406,9 +17569,12 @@ async function loadServices() {
         : `<a href="${surfaceHref("studio",
                "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
              title="Set on this service's Sharing page in Studio">${pill(r.sharing)}</a>`;
+      // <b>Type, Folder and Status are columns on a wide window</b> (the redesign of 2026-11-02, after the mockup), so
+      // the facts line below the name does not say them again there (`.dup`); a phone has no columns and keeps them in it.
+      const statusPill = `${pill(failing ? "failing" : r.status)}${refusingSays(r.refusing)}`;
       const facts = [
-        `${pill(failing ? "failing" : r.status)}${refusingSays(r.refusing)}`,
-        `<span>${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
+        `<span class="dup">${statusPill}</span>`,
+        `<span class="dup">${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
         sharingFact,
         r.owner ? `<span><span class="sr-only">Owner </span>${h(r.owner)}</span>` : "",
         r.system ? "" : `<span>${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
@@ -17450,7 +17616,7 @@ async function loadServices() {
 
         <td class="svcbody">
           <div class="svctitle"><a class="name" href="${page}">${h(r.name)}</a>
-            <span class="svctype">${h(typeOf(r))}</span></div>
+            <span class="svctype dup">${h(typeOf(r))}</span></div>
           ${r.description ? `<p class="svcdesc">${h(r.description)}</p>` : ""}
           <div class="svcmeta">${facts}</div>
           ${deleteWhy}
@@ -17463,6 +17629,9 @@ async function loadServices() {
             <a href="${failingLogHref(r.qualified)}">Read its warnings</a></p>` : ""}
         </td>
 
+        <td class="col type">${h(typeOf(r))}</td>
+        <td class="col folder">${h(r.folder || "Site (root)")}</td>
+        <td class="col status">${statusPill}</td>
         <td class="acts">${stopControl}${deleteControl}</td>
       </tr>`;
     }).join("");
@@ -17698,6 +17867,13 @@ function closeDrawer() {
 
   if (back?.isConnected && back.offsetParent !== null) {
     back.focus();
+    return;
+  }
+
+  // An item in a ⋯ menu closed when it was pressed (Group layers, in Services'): the menu's own button is where the reader was.
+  const menu = back?.isConnected ? back.closest("details.rowmenu") : null;
+  if (menu?.querySelector("summary")?.offsetParent) {
+    menu.querySelector("summary").focus();
     return;
   }
 
@@ -20652,6 +20828,7 @@ async function loadServiceCapabilities(name, folderGiven) {
       scope.className = "pill p-" + c.sharing;
       scope.textContent = SCOPE_WORDS[c.sharing] || c.sharing;
     }
+    mirrorServiceScope();
   }
 
   const raster = $("coverageSettings");
@@ -21149,6 +21326,8 @@ function drawUserMenu(name) {
   const menu = $("userMenu");
   if (!menu) return;
   $("userInitial").textContent = name ? name.trim().charAt(0).toUpperCase() : "?";
+  // The phone's bar draws the same initial as its account button (the phone layout of 2026-11-02).
+  $("barInitial").textContent = $("userInitial").textContent;
   $("userName").textContent = name || "anonymous";
 }
 
@@ -21238,14 +21417,16 @@ function drawServerHero() {
   hero.innerHTML = `
     ${picture}
     <div class="herotext">
-      <h2>${wrapName(system ? system.name : row.name)}</h2>
+      <h1>${wrapName(system ? system.name : row.name)}</h1>
       <p>${words[kind] || kind}${(row?.folder || system?.folder) ? ` in ${h(row?.folder || system?.folder)}` : ""}
         ${pill(failing ? "failing" : status)}${row ? refusingSays(row.refusing) : ""}${system ? ` <span class="rowmeta">no layers</span>` : ""}<span
-          id="heroPin">${row ? servicePinPill(qualified) : ""}</span></p>
+          id="heroPin">${row ? servicePinPill(qualified) : ""}</span><span id="heroScope"></span></p>
       ${failing ? `<p class="herofail">${h(failingSays(failing))} <a href="${failingLogHref(qualified)}">Read its warnings</a></p>` : ""}
+      <!-- <b>One line with an ellipsis, and the whole address in its title</b> — the redesign of 2026-11-02. It was broken after each slash
+           (the UI sweep) and ran to four lines on a phone; a break opportunity would also defeat the ellipsis. -->
       <div class="urlrow">
         <span class="key" id="heroUrlKey">Service URL</span>
-        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url)}</code>
+        <code id="heroUrl" aria-labelledby="heroUrlKey" title="${h(url)}">${h(url)}</code>
         <button type="button" class="tiny" data-copy="${h(url)}">Copy URL</button>
       </div>
     </div>
@@ -21256,8 +21437,21 @@ function drawServerHero() {
       ${system && !inSystem && mayEnterSystem() ? `<a class="btn" href="${h(surfaceHref("system",
         `service/${qualified.split("/").map(encodeURIComponent).join("/")}`))}">Open in System</a>` : ""}
     </div>`;
+  mirrorServiceScope();
   drawStoppedNote();
   paintPreviews();
+}
+
+/**
+ * <b>Who may read the service is in the head's meta line, with its kind, its folder and its state</b> (the redesign of
+ * 2026-11-02, the ux-designer's verification): a pill above the card, at the far right, was a fifth place for a fact
+ * the line already carries. The pill is still written into `#serviceScope`, which the head card's drawing and this copy read.
+ */
+function mirrorServiceScope() {
+  const scope = $("serviceScope");
+  const slot = $("heroScope");
+  if (!slot) return;
+  slot.innerHTML = scope && !scope.hidden && scope.textContent ? `<span class="${h(scope.className)}">${h(scope.textContent)}</span>` : "";
 }
 
 /**
@@ -21404,7 +21598,9 @@ function drawServicePin(failed = null) {
   }
 
   const others = p.pinnedOnServer - (p.pinned ? 1 : 0);
-  count.textContent = `${num(p.pinnedOnServer)} of ${num(p.limit)} services on this server are kept warm`
+  // <b>The limit is the places there are, not the services there are</b> — the UI sweep of 2026-11-02. "0 of 50 services
+  // are kept warm" beside a Status page that counts 30 services read as a wrong total; 50 is how many this server will keep.
+  count.textContent = `${num(p.pinnedOnServer)} service${p.pinnedOnServer === 1 ? " is" : "s are"} kept warm on this server, which keeps at most ${num(p.limit)}`
     + (p.pinned && others > 0 ? `, this one and ${num(others)} other${others === 1 ? "" : "s"}.`
       : p.pinned ? ", this one alone." : ".");
 
@@ -21679,7 +21875,7 @@ function showAskedLayer() {
 function endpointsMarkup(name, layer, place) {
   if (!place) {
     return `<dt>None</dt><dd>Not in the services directory. A stopped layer is
-      absent from it, which is expected; otherwise the catalogue and the directory
+      absent from it, which is expected; otherwise the catalog and the directory
       disagree and that is worth looking into.</dd>`;
   }
 
@@ -24804,14 +25000,8 @@ async function loadSources() {
         <td class="num">${num(d.layerCount)}<span class="cardonly"> layer${d.layerCount === 1 ? "" : "s"}</span></td>
         <td class="acts"><button class="tiny" data-probe="${h(d.id)}"
             data-probe-name="${h(d.name)}">Test connection</button>
-          ${d.name === "datastore" ? "" : d.quiesced
-            ? ` <button class="tiny primary" data-source-resume="${h(d.id)}"
-                  data-source-name="${h(d.name)}">Resume</button>`
-            : ` <button class="tiny" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
-                  data-source-layers="${num(d.layerCount)}"
-                  data-source-shares="${h((d.sharesWith || []).join(","))}"
-                  data-source-shared-layers="${num(sharedLayers(dataSources, d))}"
-                  >Pause…</button>`}${
+          ${d.name === "datastore" || !d.quiesced ? "" : ` <button class="tiny primary" data-source-resume="${h(d.id)}"
+                  data-source-name="${h(d.name)}">Resume</button>`}${
             d.name === "datastore"
               // ADR-204 §5d.1: the managed datastore stays the system's, and pausing it pauses every organization's
               // hosted layers, so it is paused from System › Status since ADR-221 §5.3 — for every reader of this list,
@@ -24822,15 +25012,26 @@ async function loadSources() {
                   ? ` <span class="managed">Set by Graticula:PlatformStore. <a href="${surfaceHref("system", "operations")}#datastoreCard"
                       >Pause it in System</a></span>`
                   : ` <span class="managed">set by Graticula:PlatformStore</span>`
-              : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
-                    data-source-kind="${h(d.kind)}"
-                    data-source-platform="${h(d.platform || "")}"
-                    data-source-authentication="${h(d.authentication || "")}"
-                    data-source-summary="${h(d.summary || "")}"
-                    data-source-layers="${num(d.layerCount)}">Edit…</button>
-                  <button class="tiny danger" data-source-remove="${h(d.id)}"
-                    data-source-name="${h(d.name)}"
-                    data-source-layers="${num(d.layerCount)}">Remove…</button>`}</td>
+              // ADR-255 section 4, owner decision of 2026-11-02: Test connection and Resume stay in the row; Pause, Edit
+              // and Remove are behind its ⋯, the same disclosure a member's row uses. Their handlers are unchanged.
+              : ` <details class="rowmenu">
+                    <summary aria-label="More actions for ${h(d.name)}" title="More actions">&#8943;</summary>
+                    <div class="rowmenubody">${d.quiesced ? "" : `
+                      <button type="button" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
+                        data-source-layers="${num(d.layerCount)}"
+                        data-source-shares="${h((d.sharesWith || []).join(","))}"
+                        data-source-shared-layers="${num(sharedLayers(dataSources, d))}">Pause…</button>`}
+                      <button type="button" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
+                        data-source-kind="${h(d.kind)}"
+                        data-source-platform="${h(d.platform || "")}"
+                        data-source-authentication="${h(d.authentication || "")}"
+                        data-source-summary="${h(d.summary || "")}"
+                        data-source-layers="${num(d.layerCount)}">Edit…</button>
+                      <button type="button" class="danger" data-source-remove="${h(d.id)}"
+                        data-source-name="${h(d.name)}"
+                        data-source-layers="${num(d.layerCount)}">Remove…</button>
+                    </div>
+                  </details>`}</td>
       </tr>`).join("");
 }
 
@@ -25087,6 +25288,9 @@ function focusSourceRow(id) {
 
   if (back && back.offsetParent !== null) {
     back.focus({ preventScroll: true });
+  } else if (back?.closest("details.rowmenu")) {
+    // Pause now lives behind the row's ⋯ (ADR-255): the cursor goes to that, which is on screen.
+    back.closest("details.rowmenu").querySelector("summary").focus({ preventScroll: true });
   } else {
     focusSources();
   }
@@ -27141,6 +27345,7 @@ function drawSettings(settings) {
   const box = $("setPageSize");
 
   box.value = p.source === "stored" ? (p.stored ?? "") : "";
+  box.dataset.was = box.value;
   box.max = p.ceiling ?? "";
   // No placeholder: an inherited figure in the box reads as a value set here (UX sweep 2026-10-19, finding 6).
   // The line under it says which applies, with a tag a reader can scan for.
@@ -27162,6 +27367,50 @@ function drawSettings(settings) {
   $("setReset").textContent = p.configured != null
     ? `Use the default (${num(p.configured)})`
     : "Use the default";
+  drawGeneralBar();
+}
+
+/**
+ * <b>System › General's one save bar — the redesign of 2026-11-02 (SystemSettings).</b> The page size, the style sources
+ * and the map ground each have a Save and a sentence of their own; the bar is the one place that presses them. It counts
+ * what is waiting — a page size that is not the one stored, origins that are not the list stored, a ground that is not
+ * the one saved — and Save presses each of the three cards' own buttons that has something to say, so a refusal is said
+ * under the card it is about exactly as before.
+ */
+function generalWaiting() {
+  const size = $("setPageSize");
+  const origins = $("styleOrigins");
+  const lines = text => text.split(/\r?\n/).map(x => x.trim()).filter(Boolean).join("\n");
+
+  return {
+    size: !!size && size.value.trim() !== (size.dataset.was ?? ""),
+    origins: !!origins && !origins.disabled && lines(origins.value) !== (origins.dataset.was ?? ""),
+    ground: !!$("groundSave") && !$("groundSave").disabled,
+  };
+}
+
+/** Set by the bar's Save, so that the count reads Saved rather than No unsaved changes once the three cards have answered. */
+let generalJustSaved = false;
+
+/** The bar's count and its two buttons; called wherever one of the three things it counts may have changed. */
+function drawGeneralBar() {
+  const bar = $("generalSaveBar");
+  if (!bar) return;
+
+  const waiting = generalWaiting();
+  const n = Object.values(waiting).filter(Boolean).length;
+
+  $("generalSave").disabled = n === 0;
+  $("generalDiscard").disabled = n === 0;
+  bar.classList.toggle("dirty", n > 0);
+
+  // What was just kept is said until something is typed or chosen again (the listeners below clear it); a card still
+  // answering leaves the count at what is waiting, and the sentence is "Saved" once the last has.
+  if (n > 0) {
+    $("generalDirty").textContent = `${n} unsaved ${n === 1 ? "change" : "changes"}`;
+  } else {
+    $("generalDirty").textContent = generalJustSaved ? "Saved" : "No unsaved changes";
+  }
 }
 
 /**
@@ -27275,9 +27524,11 @@ function drawGroundLists(focusAfter = null) {
     + (changed ? " Not saved yet." : "");
 
   // The limit before the list rather than after it, as a count (UX sweep 2026-10-19).
+  // <b>What each number counts, said — the UI sweep of 2026-11-02.</b> "0 of 8 chosen" stood above thirteen boxes: eight is
+  // the most a ground may use, not how many are listed, and the sentence read as if the list were eight long.
   $("groundCap").textContent = full
-    ? `${groundChosen.length} of ${groundMost} chosen, the most a ground can be: each one is a request for every tile on screen. Untick one to choose another.`
-    : `${groundChosen.length} of ${groundMost} chosen`;
+    ? `${groundChosen.length} of the ${num(names.length)} listed chosen, the most a ground can use (${groundMost}): each one is a request for every tile on screen. Untick one to choose another.`
+    : `${groundChosen.length} chosen of the ${num(names.length)} listed; a ground can use up to ${groundMost}`;
 
   const kinds = names.map(n => groundRows.get(n)).filter(r => groundCaution(r));
   $("groundLegend").hidden = kinds.length === 0;
@@ -27299,6 +27550,7 @@ function drawGroundDirty() {
   $("groundDiscard").disabled = !dirty;
   $("groundDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
   $("groundSaveBar")?.classList.toggle("dirty", dirty);
+  drawGeneralBar();
 }
 
 /** Moves a chosen service one place up or down the drawing order, keeping focus on the same button. */
@@ -27388,8 +27640,10 @@ async function loadStyleOrigins() {
 function drawStyleOrigins(r) {
   const origins = r.origins || [];
   $("styleOrigins").value = origins.join("\n");
+  $("styleOrigins").dataset.was = origins.join("\n");
   $("styleOrigins").disabled = false;
   $("styleOriginsSave").disabled = false;
+  drawGeneralBar();
   $("styleOriginsSource").textContent = (origins.length
     ? `${origins.length} allowed${r.changedAt ? `, set on ${day(r.changedAt)}` : ""}. `
     : "None allowed. ")
@@ -27487,7 +27741,7 @@ async function loadOperations() {
   $("storeMetrics").innerHTML =
     metric("Status", h(health.status === "ok" ? "Healthy" : "Degraded")) +
     metric("Reachable", store.reachable ? "Yes" : "No", store.error || "") +
-    metric("Layers in the catalogue", num(store.layers)) +
+    metric("Layers in the catalog", num(store.layers)) +
     metric("Version", h(health.version || "—"));
 
   const r = health.runtime || {};
@@ -27661,11 +27915,15 @@ async function refreshHealth() {
     pill.className = `healthpill ${state}`;
     pill.href = surfaceHref("system", "operations");
     $("healthWord").innerHTML = (state === "failing" || state === "unusable" ? icon("failing") : `<span class="dot ${state}" aria-hidden="true"></span>`)
-      + h(word);
+      + `<span class="healthtext">${h(word)}</span>`;
     $("healthLine").textContent = line;
     $("healthLine").title = line;
     pill.title = line;
     pill.setAttribute("aria-label", `Server health: ${line}. Open System status.`);
+    // Anything but healthy is a dot on the account's avatar, named in its label (ADR-255 section 4).
+    document.body.dataset.health = state;
+    document.body.dataset.healthWord = word;
+    drawAccountLabels();
   };
 
   try {
@@ -27750,10 +28008,31 @@ let handedFile = null;
 /** The GeoTIFFs handed to the imagery form together — more than one is a mosaic (ADR-140). */
 let handedImages = null;
 
+/**
+ * What opened the New item dialog, so Escape or Cancel can give focus back to it — the UI sweep of 2026-11-02.
+ *
+ * <b>`<dialog>` restores focus to the element that had it, and that element is gone.</b> Content redraws its head while
+ * the dialog is open, so the button was replaced and Escape landed on MAIN. The opener is remembered by id as well as
+ * by element: the button that is there now is the one that opened it.
+ */
+let addItemOpener = null;
+$("addItem")?.addEventListener("close", () => {
+  const was = addItemOpener;
+  addItemOpener = null;
+  // After the dialog's own restoration, which would otherwise be the last word.
+  setTimeout(() => {
+    const back = was && was.isConnected && was.offsetParent !== null ? was
+      : was?.id && $(was.id)?.offsetParent !== null ? $(was.id) : $("newLayer");
+    if (back && back.offsetParent !== null && (document.activeElement === document.body || document.activeElement === $("app"))) back.focus();
+  }, 0);
+});
+
 /** Opens the New item dialog on its first screen. */
 function openAddItem() {
   itemStep = "item";
   handedFile = null;
+  addItemOpener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+    ? document.activeElement : $("newLayer");
 
   // <b>The drawer is emptied, and this is not tidiness.</b> Both surfaces build a `#newResult` box
   // for the server's answer, and two elements with one id means `getElementById` returns whichever
@@ -29298,7 +29577,7 @@ function drawPublish() {
       ? `<p class="hint"><b>What was refused is not retried by this screen.</b> The service exists with
           the layers that landed; upload the archive again and tick only the ones that were refused, or
           fix them at the source. Nothing is half-written — a layer either has its table and its
-          catalogue row, or neither.</p>`
+          catalog row, or neither.</p>`
       : ""}`;
 
   const open = $("gdbOpen");
@@ -29496,6 +29775,15 @@ document.addEventListener("keydown", event => {
   row.setAttribute("aria-expanded", String(shown));
 });
 
+// The bar of System › General counts what its three cards hold, so it reads them again whenever one is typed into.
+document.addEventListener("input", event => {
+  if (event.target.closest?.("#view-settings")) { generalJustSaved = false; drawGeneralBar(); }
+});
+
+document.addEventListener("change", event => {
+  if (event.target.closest?.("#view-settings")) { generalJustSaved = false; drawGeneralBar(); }
+});
+
 document.addEventListener("input", event => {
   if (event.target.id !== "logText" && event.target.id !== "logWho") {
     return;
@@ -29516,6 +29804,18 @@ document.addEventListener("click", async event => {
 async function handleClick(event) {
   const t = event.target;
   const d = t.dataset || {};
+
+  // <b>Security's sub-pages, and the Logs filters' toggle on a phone — the redesign of 2026-11-02.</b> Neither changes data.
+  if (d.secpageGo) {
+    drawSecurityPages(d.secpageGo);
+    return;
+  }
+
+  if (t.id === "logFiltersToggle") {
+    const open = $("logFilters").classList.toggle("open");
+    t.setAttribute("aria-expanded", String(open));
+    return;
+  }
 
   /*
     <b>The Logs screen, delegated like everything else on this page.</b> Its rows are drawn
@@ -30032,6 +30332,22 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>Empty services is in the list's ⋯</b> (the redesign of 2026-11-02): the section is drawn when it is chosen, and
+  // choosing it again puts it away. Focus goes to its heading, which is where the reader's attention should be.
+  if (t.id === "emptyOpen") {
+    const section_ = $("emptyServices");
+    section_.hidden = !section_.hidden;
+    t.setAttribute("aria-expanded", String(!section_.hidden));
+    if (!section_.hidden) {
+      $("emptyHead").tabIndex = -1;
+      $("emptyHead").focus();
+      section_.scrollIntoView({ block: "nearest" });
+    } else {
+      $("serviceMore").querySelector("summary").focus();
+    }
+    return;
+  }
+
   if (t.id === "emptyRead") {
     t.disabled = true;
     $("emptyWhen").textContent = "Reading…";
@@ -30540,6 +30856,12 @@ async function handleClick(event) {
   // privilege to fill a dropdown would have been the wrong repair, so
   // `GET /admin/groups/{name}/candidates` returns names only, to somebody who already manages the
   // group.
+  // The head's Add member presses the Members tab's own button, so there is one picker and one set of rules for it.
+  if (t.id === "groupHeadAdd") {
+    $("groupAdd")?.click();
+    return;
+  }
+
   if (t.id === "groupAdd") {
     if (!groupOpen) return;
 
@@ -30767,6 +31089,7 @@ async function handleClick(event) {
     // Whichever is open: the create form has its own slot outside the editor, and the member and
     // service pickers are inside it, because those two *are* operations on the open group.
     $("groupPicker").hidden = true;
+    focusGroupAdd();
     return;
   }
 
@@ -30821,7 +31144,7 @@ async function handleClick(event) {
       : `${who} joined ${groupOpen}`, true);
     $("groupPicker").hidden = true;
     await refreshGroup();
-    $("groupAdd")?.focus();
+    focusGroupAdd();
     return;
   }
 
@@ -31128,6 +31451,31 @@ async function handleClick(event) {
     basemapSay("Back to what is saved. Nothing was changed on the server.");
     $("mapDirty").setAttribute("tabindex", "-1");
     $("mapDirty").focus();
+    return;
+  }
+
+  // <b>The bar's Save and Discard, System › General — the redesign of 2026-11-02.</b> They press the three cards' own buttons,
+  // so nothing about how a card saves or refuses has changed; focus goes to the bar's sentence, because the buttons
+  // pressed may be out of sight and the one pressed here is disabled once it has done its work.
+  if (t.id === "generalSave") {
+    const waiting = generalWaiting();
+    generalJustSaved = true;
+    $("generalDirty").textContent = "Saving…";
+    if (waiting.size) $("setSave").click();
+    if (waiting.origins) $("styleOriginsSave").click();
+    if (waiting.ground) $("groundSave").click();
+    $("generalDirty").focus();
+    return;
+  }
+
+  if (t.id === "generalDiscard") {
+    generalJustSaved = false;
+    const waiting = generalWaiting();
+    if (waiting.size) { $("setPageSize").value = $("setPageSize").dataset.was ?? ""; settingsSay(""); }
+    if (waiting.origins) { $("styleOrigins").value = $("styleOrigins").dataset.was ?? ""; styleOriginsSay(""); }
+    if (waiting.ground) $("groundDiscard").click();
+    drawGeneralBar();
+    $("generalDirty").focus();
     return;
   }
 
@@ -32871,7 +33219,7 @@ async function whoami() {
   // the second line was left dangling under the name. The name is the identity and the rest is what
   // it can do, which is the hierarchy this pair should read as anyway.
   $("who").innerHTML = me.authenticated
-    ? `<b>${h(me.name)}</b>${h(me.roles.join(", ") || "no roles")} · ${h(me.userType)}`
+    ? `<b>${h(me.name)}</b>${h(me.roles.map(roleDisplay).join(", ") || "no roles")} · ${h(userTypeDisplay(me.userType))}`
     : "anonymous";
   drawUserMenu(me.authenticated ? me.name : "");
   return me;
@@ -33588,6 +33936,7 @@ async function start() {
 
     // Which server this is — the head's second line, as the portal's names its own.
     $("signinWhere").textContent = location.host;
+    if (!$("signinOrg").textContent) $("signinOrg").textContent = location.host;
 
     // ADR-088: a way in through each provider, back to where this page was.
     drawSigninProviders();
@@ -33629,6 +33978,7 @@ async function start() {
     $("surfaces").hidden = true;
     $("healthDot").hidden = true;
     $("healthLine").hidden = true;
+    clearHealthOnAvatar();
     $("mustchange").style.display = "";
     $("mustchangeWho").innerHTML =
       `Signed in as <b>${h(me.name)}</b>. This has to be done before anything else works.`;
@@ -33673,6 +34023,7 @@ async function start() {
   if (!healthIsMine) {
     $("healthDot").hidden = true;
     $("healthLine").hidden = true;
+    clearHealthOnAvatar();
   }
 
   await Promise.all([
@@ -33879,6 +34230,13 @@ function drawLogControlsNow() {
                 + " are its system administrator's, because they are about every organization on it."
               : "");
     }
+    if ($("logAboutBody")) $("logAboutBody").innerHTML = $("logLede")?.innerHTML || "";
+    const pick = $("logSourcePick");
+    if (pick) {
+      pick.hidden = inSystem;
+      pick.innerHTML = visibleLogSources().map(([key, label]) =>
+        `<option value="${h(key)}"${key === logSource ? " selected" : ""}>${h(label)}</option>`).join("");
+    }
     sources.innerHTML = visibleLogSources().map(([key, label]) =>
       `<button role="tab" aria-selected="${key === logSource}" aria-controls="logRows"
         tabindex="${key === logSource ? "0" : "-1"}"
@@ -33967,13 +34325,13 @@ function logRow(row) {
 
     return `<tr class="logrow" tabindex="0" role="button" aria-expanded="false"
         aria-label="Show the detail of this entry">
-      <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
+      <td class="nowrap" data-l="When"><span class="val" title="${h(when.toISOString())}"
         >${h(when.toLocaleString())}</span></td>
-      <td class="logmessage"><span class="pill ${pill}">${h(row.what)}</span>
+      <td class="logmessage" data-l="What"><span class="pill ${pill}">${h(row.what)}</span>
         <span title="${h(message)}">${h(message.split("\n")[0])}</span></td>
       <td></td>
       <td></td>
-      <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
+      <td data-l="Resource">${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
     </tr>
     <tr class="logdetail" hidden><td colspan="5"><pre>${h(logPretty(row.detail))}</pre></td></tr>`;
   }
@@ -33984,15 +34342,15 @@ function logRow(row) {
   // be opened by a keyboard at all.
   return `<tr class="logrow" tabindex="0" role="button" aria-expanded="false"
       aria-label="Show the detail of this entry">
-    <td class="nowrap"><span class="val" title="${h(when.toISOString())}"
+    <td class="nowrap" data-l="When"><span class="val" title="${h(when.toISOString())}"
       >${h(when.toLocaleString())}</span></td>
-    <td>${row.ok ? "" : `<span class="pill p-unusable">failed</span> `}<code>${h(row.what)}</code></td>
-    <td>${row.who
+    <td data-l="What">${row.ok ? "" : `<span class="pill p-unusable">failed</span> `}<code>${h(row.what)}</code></td>
+    <td data-l="Who · From">${row.who
       ? h(row.who)
       // A server entry has no caller; *anonymous* would say somebody unsigned did it.
       : `<span class="faint">${logSource === "server" ? "—" : "anonymous"}</span>`}</td>
-    <td class="nowrap"><span class="faint">${row.from ? h(row.from) : "—"}</span></td>
-    <td>${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
+    <td class="nowrap" data-from><span class="faint">${row.from ? h(row.from) : "—"}</span></td>
+    <td data-l="Resource">${row.resource ? `<code>${h(row.resource)}</code>` : "—"}</td>
   </tr>
   <!--
     <b>The detail is a row, not a drawer.</b> Every column of every log is already on screen;
@@ -34302,7 +34660,7 @@ function docRow(i) {
 
   return `<tr class="mediarow">
     ${pickCell(i, `document:${d.id}`)}
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${d.thumbnail
+    <td class="thumbcell"><a class="thumblink" tabindex="-1" aria-hidden="true" href="${open}" title="Open ${h(i.name)}">${d.thumbnail
       ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(docThumbAddress(d))}">`
       // The page's rule, so a picture is the same picture in its row and on its page (design review 2026-10-31).
       : DOC_KINDS[d.kind] === "Picture" && d.size <= DOC_PICTURE_THUMB_BYTES
@@ -34395,6 +34753,7 @@ async function showDocumentItem(id) {
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
       <div class="sheet">${more}</div>
     </details>` : ""}`;
+  phoneFoldActions($("docActions"));
   if (had && $(had) && $("docActions").contains($(had))) $(had).focus();
 
   $("docReplaceFile").accept = docRules.accepted.join(",");
@@ -34524,7 +34883,7 @@ function drawDocAbout(editing = false) {
     ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
-      : `<p class="hint">No description yet. What the file is, where it came from and how current it is.</p>`}
+      : `<p class="hint">No description yet.<span class="widewords"> What the file is, where it came from and how current it is.</span></p>`}
     ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
     ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
@@ -36679,8 +37038,8 @@ async function drawOgcSetting(name, folder) {
       <p class="inspire-state" id="ogcInspireState"></p>
       <label class="field">Metadata record <input type="url" id="inspireUrl" maxlength="2000" value="${h(inspire?.metadataUrl || "")}"
         placeholder="Not an INSPIRE service" aria-describedby="inspireUrlHint"${manages ? "" : " readonly"}>
-        <span class="hint" id="inspireUrlHint">The service's metadata record in your CSW catalogue, for example
-          ${breakable("https://catalogue.example/csw?service=CSW&request=GetRecordById&id=…").replace(/\?/g, "?<wbr>").replace(/&amp;/g, "&amp;<wbr>")}</span></label>
+        <span class="hint" id="inspireUrlHint">The service's metadata record in your CSW catalog, for example
+          ${breakable("https://catalog.example/csw?service=CSW&request=GetRecordById&id=…").replace(/\?/g, "?<wbr>").replace(/&amp;/g, "&amp;<wbr>")}</span></label>
       <label class="field">Language <select id="inspireLanguage" aria-describedby="inspireLanguageHint"${manages ? "" : " disabled"}>
         ${inspireLanguages(inspire?.language || "eng")}</select>
         <span class="hint" id="inspireLanguageHint">The language of this service's capabilities documents (ISO 639-2/B).</span></label>
@@ -38027,6 +38386,64 @@ let tenantRemoving = null;
 const groupAdmits = new Map();
 
 /**
+ * The window's title, which names the screen — the UI sweep of 2026-11-02.
+ *
+ * <b>Every screen of both surfaces was "Default · Graticula".</b> A tab strip of eight tabs read the same eight times, a
+ * screen reader announced the same title on every navigation, and history showed one entry. The screen is named by its
+ * own heading, which is also the page's `h1`, so the title is read from it rather than kept in a second table that
+ * would drift from it; the headings that are filled in after a load (an item's name, a member's) are picked up by the
+ * observer below. `Screen · organization · Graticula`, the organization only where the server holds several.
+ */
+let tenancyName = "";
+function drawDocumentTitle() {
+  let screen = "";
+  let section = "";
+  for (const heading of document.querySelectorAll("h1")) {
+    if (!heading.getClientRects().length) continue;
+    const text = (heading.textContent || "").replace(/[\u200b\u00ad]/g, "").replace(/\s+/g, " ").trim();
+    if (text && text !== "\u2014") {
+      screen = text;
+      // <b>Where one heading serves two surfaces, the title says which \u2014 the UI sweep of 2026-11-02, verification round.</b>
+      // Organization's General and System's General were both "General \u00b7 Graticula", and so were the two Services.
+      const view = heading.closest(".view");
+      const id = view ? view.id : "";
+      section = id === "view-general" ? "Organization"
+        : id === "view-settings" ? "System"
+        // One Services screen, Server's (SCREEN_SURFACE); Studio's and System's addresses redirect to it.
+        : id === "view-services" ? "Server"
+        // Logs is drawn for Server and for System alike, and both titles read "Logs · Graticula" (second verification).
+        : id === "view-logs" ? (surfaceOfPath() === "system" ? "System" : "Server") : "";
+      break;
+    }
+  }
+  // <b>One format everywhere — the last round of the redesign of 2026-11-02:</b> `Screen · Surface or section · Graticula`. A screen
+  // with no section of its own is named for its surface (Status and Data sources were "Status · Graticula"), and Security's four
+  // sub-pages are four titles — "Two-step sign-in · Security · Graticula" — because the heading says Security on every one.
+  if (screen) {
+    const pressed = document.querySelector("#view-signin.on #secSwitch [aria-pressed=true]");
+    if (pressed && pressed.getClientRects().length) {
+      screen = pressed.textContent.trim();
+      section = "Security";
+    } else if (!section) {
+      const surface = surfaceOfPath();
+      section = surface ? surface.charAt(0).toUpperCase() + surface.slice(1) : "";
+    }
+    if (section === screen) section = "";
+  }
+  const parts = [screen, section];
+  if (tenancyName && !screen.includes(tenancyName)) parts.push(tenancyName);
+  parts.push("Graticula");
+  const title = screen || tenancyName ? parts.filter(Boolean).join(" · ") : "Graticula console";
+  if (document.title !== title) document.title = title;
+}
+
+let titleTimer = 0;
+new MutationObserver(() => {
+  if (titleTimer) return;
+  titleTimer = setTimeout(() => { titleTimer = 0; drawDocumentTitle(); }, 60);
+}).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "hidden", "style", "aria-pressed"] });
+
+/**
  * Which organization this console is, where the server holds more than one — in the bar and in the window's title, so
  * two tabs on two organizations cannot be taken for each other — and, to a member of another organization, what they
  * are looking at.
@@ -38040,14 +38457,19 @@ function drawTenancy(me) {
   if (badge) {
     badge.hidden = !several;
     $("tenantNameText").textContent = several ? called : "";
+    // The name is cut with an ellipsis on a phone ("Def…"); the whole of it is in the tooltip (UI sweep 2026-11-02).
+    $("tenantNameText").title = several ? called : "";
     badge.title = several ? `This console is ${called}'s` : "";
   }
 
-  document.title = several && called ? `${called} · Graticula` : "Graticula console";
+  tenancyName = several && called ? called : "";
+  drawDocumentTitle();
 
   // The sign-in card names the organization too: it is the one page where the reader has not yet said who they are,
   // and the host name alone does not tell somebody which organization's password to type.
   if ($("signinTitle")) $("signinTitle").textContent = several && called ? `Sign in to ${called}` : "Sign in to Graticula";
+  // The brand panel's last line (the redesign of 2026-11-02): the organization's name, or the host where the server is one's own.
+  if ($("signinOrg")) $("signinOrg").textContent = several && called ? called : location.host;
 
   // ADR-204 §5e item 16: how a member of another organization signs in here, under the name field, and nowhere on a
   // server of one. The description is attached here rather than in the markup: a hidden element's text is still read.
@@ -39221,7 +39643,7 @@ function toolboxRow(i) {
 
   return `<tr class="mediarow">
     <td class="pick"></td>
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">
+    <td class="thumbcell"><a class="thumblink" tabindex="-1" aria-hidden="true" href="${open}" title="Open ${h(i.name)}">
       <div class="thumb doctile" aria-hidden="true">${icon("analysis")}<span>PYT</span></div></a></td>
     <td class="name">
       <div class="svctitle"><a href="${open}">${h(i.name)}</a>
@@ -39902,3 +40324,466 @@ document.addEventListener("click", async event => {
   if (t.dataset.mcRemove) { await removeMachine(t.dataset.mcRemove); return; }
   await setMachineState(t.dataset.mcName, t.dataset.mcState);
 });
+
+// <b>The skip link goes to the main landmark by focus, not by address</b> — the UI sweep of 2026-11-02. A `#app` link
+// would be read by the router as a screen. Before sign-in there is no main to go to, so it goes to the card.
+$("skipToContent")?.addEventListener("click", event => {
+  event.preventDefault();
+  const target = $("app")?.style.display !== "none" ? $("app") : document.querySelector("#signin input, #mustchange input");
+  target?.focus({ preventScroll: false });
+});
+
+/* ======================================================================================================================
+   <b>The phone layout of 2026-11-02 — owner decision, from the ArcGIS Enterprise phone layout.</b>
+
+   At 720 pixels and below Studio and Server are laid out as ArcGIS Enterprise lays out its own on a phone: one 56-pixel
+   bar with a menu, the name, search and the account; the sections, the switch between surfaces, the server's health and
+   the account's items in a drawer on the left; a page's sub-pages and an item's tabs as one menu button; My content's
+   scopes, folders and types in a full-screen sheet. It amends ADR-187 (sections across the top) and ADR-135 (a row's
+   menu hidden on a phone) for narrow widths only.
+
+   <b>None of it is new behaviour.</b> Every control below is one that already exists, drawn by the code that has always
+   drawn it and answering the handler that has always answered it; this file moves some of them to where a thumb is
+   (`phonePark`), opens the drawer, the sheets and the menus that hold them, and keeps focus where a reader left it. A
+   wide window runs none of it: the markup it moves stays where it was written, and the stylesheet draws the new
+   controls only at 720 pixels and below.
+   ====================================================================================================================== */
+
+const PHONE = window.matchMedia("(max-width: 720px)");
+
+/**
+ * Set at the foot of this section. A `var`, because it is read by functions the rest of the file calls (`drawMyContent`,
+ * `showView`, the drawing of an item's actions) and a `let` or `const` below would throw if one of them ran first.
+ */
+var phoneReady = false;
+
+/**
+ * Nodes drawn in one place on a wide window and in another on a phone. A comment marks the wide place, and the node is
+ * put back after it when the window grows — which is also why a node is moved and never copied: its id, its handlers
+ * and what the router writes into it stay what they were.
+ */
+const phoneParked = [];
+
+function phonePark(node, home) {
+  if (!node || !home) return;
+  const marker = document.createComment("where this is drawn on a wide window");
+  node.before(marker);
+  phoneParked.push({ node, marker, home });
+}
+
+/** The one overlay open at a time on a phone: the drawer, a filter sheet, or the search row. */
+let phoneOverlay = null;
+
+/** What `phoneInertAround` made inert, so closing gives exactly that back. */
+const phoneInerted = [];
+
+/**
+ * <b>The page behind a modal overlay is inert</b>, and not merely covered: a covered button still takes Tab. Every
+ * sibling of the overlay and of each ancestor of it, except a live region (which must still be heard) and the scrim
+ * (which is how a press outside closes it).
+ */
+function phoneInertAround(el) {
+  for (let node = el; node && node !== document.body; node = node.parentElement) {
+    for (const sibling of node.parentElement.children) {
+      if (sibling === node || sibling.inert || sibling.id === "navScrim"
+        || ["SCRIPT", "STYLE", "LINK"].includes(sibling.tagName)
+        || sibling.matches("[aria-live], [role=status], [role=alert]")) continue;
+      sibling.inert = true;
+      phoneInerted.push(sibling);
+    }
+  }
+}
+
+/**
+ * Opens an overlay: focus moves in, the page behind goes inert (a modal one), and the opener says it is expanded.
+ * `focusTarget` is where focus lands; Escape or the overlay's own Close gives focus back to the opener.
+ */
+function phoneOpen(el, opener, focusTarget, modal = true) {
+  phoneClose(false);
+  el.classList.add("open");
+  document.documentElement.classList.add("phoneoverlay");
+  for (const control of document.querySelectorAll(`[aria-controls="${el.id}"]`)) control.setAttribute("aria-expanded", "true");
+  if (modal) phoneInertAround(el);
+  phoneOverlay = { el, opener, modal };
+  (focusTarget || el.querySelector("button, a[href], input, select"))?.focus();
+}
+
+/** Closes the open overlay; focus goes back to what opened it unless the reader is leaving by a link. */
+function phoneClose(restoreFocus = true) {
+  if (!phoneOverlay) return;
+  const { el, opener } = phoneOverlay;
+  phoneOverlay = null;
+  el.classList.remove("open");
+  for (const inert of phoneInerted.splice(0)) inert.inert = false;
+  document.documentElement.classList.remove("phoneoverlay");
+  $("navScrim").hidden = true;
+  for (const control of document.querySelectorAll(`[aria-controls="${el.id}"]`)) control.setAttribute("aria-expanded", "false");
+  if (restoreFocus && opener && opener.isConnected) opener.focus();
+}
+
+// ---------------------------------------------------------------------------------------------------- the drawer
+
+function phoneOpenDrawer(opener, toAccount) {
+  $("navScrim").hidden = false;
+  const account = $("myProfile").hidden ? $("themeToggle") : $("myProfile");
+  const first = toAccount ? account
+    : document.querySelector("#tabs a[aria-current]") || document.querySelector("#tabs a") || $("menuClose");
+  phoneOpen($("navDrawer"), opener, first);
+}
+
+$("menuOpen").addEventListener("click", () => phoneOpenDrawer($("menuOpen"), false));
+$("barAvatar").addEventListener("click", () => phoneOpenDrawer($("barAvatar"), true));
+$("menuClose").addEventListener("click", () => phoneClose());
+$("navScrim").addEventListener("click", () => phoneClose());
+
+// A section or a surface is a link: the page is changing, so focus is the page's to place and not the menu button's.
+$("navDrawer").addEventListener("click", event => {
+  if (event.target instanceof Element && event.target.closest("a[href]")) phoneClose(false);
+});
+
+// ------------------------------------------------------------------------------------------- search, back, account
+
+$("barSearch").addEventListener("click", () => phoneOpen($("globalSearch"), $("barSearch"), $("gq"), false));
+$("gqClose").addEventListener("click", () => phoneClose());
+// A search that was run has its results on the page; there is nothing left for the row to do.
+$("globalSearch").addEventListener("submit", () => { if (phoneOverlay?.el === $("globalSearch")) phoneClose(false); });
+
+/**
+ * <b>On an item's or a group's page the bar's first control is Back</b>, to the crumb the page already draws, and the
+ * drawer stays one press away behind the account button. Without it the bar would offer a menu where the reader
+ * wants to leave the page they are on.
+ */
+function phoneSyncBack() {
+  // A phone goes back to the first step; a wide window, which hides the breadcrumb (the redesign of 2026-11-02), to the nearest.
+  const links = document.querySelectorAll(".view.on .crumbs a[href]");
+  const crumb = PHONE.matches ? links[0] : links[links.length - 1];
+  const back = $("barBack");
+  back.hidden = !crumb;
+  if (!crumb) return;
+  back.setAttribute("href", crumb.getAttribute("href"));
+  back.setAttribute("aria-label", `Back to ${crumb.textContent.trim()}`);
+}
+
+for (const crumbs of document.querySelectorAll(".crumbs")) {
+  new MutationObserver(phoneSyncBack).observe(crumbs, { childList: true, subtree: true });
+}
+
+// The two-step notice is one line on a phone; what it says to the account button is a dot and its name.
+new MutationObserver(drawAccountLabels).observe($("factorNotice"), { attributes: true, attributeFilter: ["hidden"] });
+
+/**
+ * What the account's button says besides who it is: a server that is not healthy, and the two-step notice. The state is in
+ * the name as well as in the dot's colour (ADR-255 section 4). The dot is `body[data-health]`'s, drawn in the stylesheet on
+ * the bar's avatar (a phone) and the account menu's initial (a wide window); nothing is drawn while the server is healthy.
+ */
+function drawAccountLabels() {
+  const state = document.body.dataset.health;
+  const bad = state && state !== "ok" ? document.body.dataset.healthWord : "";
+  const notes = [];
+  if (bad) notes.push(`server health: ${bad}`);
+  if (!$("factorNotice").hidden) notes.push("two-step sign-in is off");
+  const tail = notes.length ? `, ${notes.join(", ")}` : "";
+  $("barAvatar").setAttribute("aria-label", `Account${tail}`);
+  $("userMenu").querySelector("summary").setAttribute("aria-label", `Your account${tail}`);
+}
+
+/** A reader who may not read the server's health has no dot for it. */
+function clearHealthOnAvatar() {
+  delete document.body.dataset.health;
+  delete document.body.dataset.healthWord;
+  drawAccountLabels();
+}
+
+// ---------------------------------------------------------------------------------------------- a sub-page menu
+
+const PHONE_NAV_MENUS = "#groupTabs, #serviceTabs, #mapTabs, #docTabs, nav.orgstrip, nav.subpages";
+let phoneNavSeq = 0;
+
+/**
+ * <b>A page's sub-pages and an item's tabs are one menu button on a phone</b> — the strip stays what it is (links, so
+ * Back, middle-click and copy-link keep working) and a button before it names where the reader is and opens it as a
+ * list. Drawn for every strip at every width and shown only on a phone, so the strips the router draws late (a
+ * group's, Organization's) are found when they appear.
+ */
+function phoneNavMenus() {
+  for (const nav of document.querySelectorAll(PHONE_NAV_MENUS)) {
+    if (nav.dataset.navmenu) continue;
+    nav.dataset.navmenu = "1";
+    if (!nav.id) nav.id = `phonenav${++phoneNavSeq}`;
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "phonebtn navmenubtn";
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", nav.id);
+    button.innerHTML = `<span class="navmenulabel"></span><svg class="caret" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+      focusable="false"><path d="M6 9l6 6 6-6"/></svg>`;
+
+    // In the page head where there is one (the title and this, side by side); in front of the strip where the strip
+    // is already in a head.
+    const head = nav.parentElement?.classList.contains("pagehead") ? null : nav.closest(".view")?.querySelector(".pagehead");
+    if (head) head.append(button); else nav.before(button);
+
+    const label = () => {
+      const here = nav.querySelector("[aria-current]") || nav.querySelector("a");
+      const text = (here?.textContent || "").replace(/\s+/g, " ").trim();
+      button.querySelector(".navmenulabel").textContent = text;
+      button.setAttribute("aria-label", `${nav.getAttribute("aria-label") || "Pages"}: ${text}`);
+      button.hidden = nav.hidden || !nav.querySelector("a");
+    };
+    label();
+    new MutationObserver(label).observe(nav, {
+      childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["aria-current", "hidden"],
+    });
+  }
+}
+
+/** Opens or closes a strip's list; opening puts it under its button and focus on the page the reader is on. */
+function phoneNavToggle(button, open) {
+  const nav = $(button.getAttribute("aria-controls"));
+  if (!nav) return;
+  nav.classList.toggle("menuopen", open);
+  button.setAttribute("aria-expanded", String(open));
+  if (!open) { nav.style.top = ""; nav.style.left = ""; return; }
+  const at = button.getBoundingClientRect();
+  nav.style.top = `${Math.round(at.bottom + 4)}px`;
+  nav.style.left = `${Math.max(8, Math.min(Math.round(at.left), window.innerWidth - 248))}px`;
+  (nav.querySelector("[aria-current]") || nav.querySelector("a"))?.focus();
+}
+
+function phoneNavCloseAll(restoreFocus) {
+  for (const button of document.querySelectorAll(".navmenubtn[aria-expanded=true]")) {
+    phoneNavToggle(button, false);
+    if (restoreFocus) button.focus();
+  }
+}
+
+document.addEventListener("click", event => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest(".navmenubtn");
+  if (button) { phoneNavToggle(button, button.getAttribute("aria-expanded") !== "true"); return; }
+  // A choice in the list is a link and the page changes; nothing to hand focus back to.
+  if (target?.closest("nav.menuopen a")) phoneNavCloseAll(false);
+});
+
+document.addEventListener("pointerdown", event => {
+  if (!(event.target instanceof Element) || event.target.closest(".navmenubtn, nav.menuopen")) return;
+  phoneNavCloseAll(false);
+}, true);
+
+// ---------------------------------------------------------------------------------------------------- the sheets
+
+/** What had focus inside My content's sheet, as a selector, so a redraw of the list under it can put it back. */
+function phoneSheetFocusKey() {
+  const at = document.activeElement;
+  if (phoneOverlay?.el !== $("contentSide") || !at || !$("contentSide").contains(at)) return null;
+  for (const attribute of ["data-content-scope", "data-folder-pick", "data-kind-facet"]) {
+    if (at.hasAttribute(attribute)) return `[${attribute}="${CSS.escape(at.getAttribute(attribute))}"]`;
+  }
+  return at.id ? `#${CSS.escape(at.id)}` : null;
+}
+
+/**
+ * After the list is drawn: the head's button names the scope, the filter icon says how many filters are on, and the
+ * sheet's Show says how many items it will show — in words a screen reader hears, because the count it replaces is
+ * behind the sheet and inert.
+ */
+function phoneSheetRedrawn(key) {
+  $("contentSortName").textContent = { modified: "Newest", title: "Name", type: "Type", leastUsed: "Least used" }[contentSort] || "";
+  $("contentScopeName").textContent = CONTENT_SCOPES.find(([scope]) => scope === contentScope)?.[1] || "Everything";
+
+  const filters = contentKinds.size + (contentIdle ? 1 : 0) + (contentFolderPick ? 1 : 0);
+  $("contentFilterBtn").classList.toggle("on", filters > 0);
+  $("contentFilterBtn").setAttribute("aria-label", filters > 0 ? `Filters, ${filters} on` : "Filters");
+
+  const items = `${num(contentShownNow)} item${contentShownNow === 1 ? "" : "s"}`;
+  $("contentSheetShow").textContent = `Show ${items}`;
+  if (phoneOverlay?.el === $("contentSide")) $("contentSheetSays").textContent = items;
+
+  const at = document.activeElement;
+  if (key && (!at || at === document.body || !at.isConnected)) $("contentSide").querySelector(key)?.focus();
+}
+
+for (const opener of [$("contentScopeBtn"), $("contentFilterBtn")]) {
+  opener.addEventListener("click", () => phoneOpen($("contentSide"), opener, $("contentSheetClose")));
+}
+for (const closer of [$("contentSheetClose"), $("contentSheetShow")]) {
+  closer.addEventListener("click", () => phoneClose());
+}
+
+// <b>Clear puts the list back to everything</b>: no type, no folder, not only the idle, and the Everything scope.
+$("contentSheetClear").addEventListener("click", () => {
+  contentKinds.clear();
+  contentIdle = false;
+  $("contentIdle").checked = false;
+  contentFolderPick = "";
+  resetPage("contentRows");
+  const everything = $("contentScopes").querySelector('[data-content-scope="all"]');
+  if (contentScope !== "all" && everything) everything.click();
+  else { drawMyContent(); paintPreviews(); }
+});
+
+// <b>The phone's select for the log being read</b> presses the tab it names, so the one handler that changes the log stays the only one.
+$("logSourcePick").addEventListener("change", event => {
+  document.querySelector(`#logSources [data-log-source="${CSS.escape(event.target.value)}"]`)?.click();
+});
+
+// <b>Server › Services' folders sheet</b> (the redesign of 2026-11-02): the left column, a full-screen dialog on a phone.
+$("servicesScopeBtn").addEventListener("click", () => phoneOpen($("servicesSide"), $("servicesScopeBtn"), $("servicesSheetClose")));
+for (const closer of [$("servicesSheetClose"), $("servicesSheetShow")]) {
+  closer.addEventListener("click", () => phoneClose());
+}
+// A folder is a link and the list changes under the sheet: the sheet's work is done, and focus is the page's to place.
+$("servicesSide").addEventListener("click", event => {
+  if (phoneOverlay?.el === $("servicesSide") && event.target instanceof Element && event.target.closest("#folders a[href]")) phoneClose(false);
+});
+
+$("memberFilterBtn").addEventListener("click", () => {
+  // The column is a `details` that a phone keeps closed until asked; the sheet is that asking.
+  $("mfWrap").open = true;
+  phoneOpen($("memberSide"), $("memberFilterBtn"), $("memberSheetClose"));
+});
+for (const closer of [$("memberSheetClose"), $("memberSheetShow")]) {
+  closer.addEventListener("click", () => phoneClose());
+}
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  if (phoneOverlay) { phoneClose(); return; }
+  phoneNavCloseAll(true);
+});
+
+// ------------------------------------------------------------------------------------- an item's one action row
+
+/** Action rows whose extra buttons are parked in their ⋯, with where each one lives on a wide window. */
+const phoneFolds = new Map();
+const PHONE_ACTION_ROWS = ["itemActions", "mapActions", "docActions"];
+
+/**
+ * <b>One row of actions on a phone: the main action, Share and ⋯</b> — favorite, categorize, download and the rest are
+ * in the ⋯ menu the row already has, or in one made for the purpose. Called after each time an item's actions are
+ * drawn, since each drawing replaces the row's markup; a wide window gets every button back where it was.
+ */
+function phoneFoldActions(row) {
+  if (!row || !phoneReady) return;
+  phoneFolds.delete(row);
+  // The redesign of 2026-11-02 folds the row on a wide window too: Open in Map Viewer, Share and ⋯, as the mockups draw it.
+
+  const own = selector => row.querySelector(`:scope > ${selector}`);
+  const primary = own("a.btn.primary, button.primary");
+  const share = own("[data-share], #mapShareOpen, #docShareOpen");
+  let more = own("details.itemmore");
+  const extra = [...row.children].filter(child => child !== primary && child !== share && child !== more);
+  if (extra.length === 0) return;
+
+  let made = false;
+  if (!more) {
+    more = document.createElement("details");
+    more.className = "menu itemmore";
+    more.innerHTML = `<summary aria-label="More actions for this item" title="More actions">More <span
+      aria-hidden="true">▾</span></summary><div class="sheet"></div>`;
+    row.append(more);
+    made = true;
+  }
+
+  const sheet = more.querySelector(".sheet");
+  const first = sheet.firstElementChild;
+  const parked = [];
+  for (const node of extra) {
+    const marker = document.createComment("where this is drawn on a wide window");
+    node.before(marker);
+    sheet.insertBefore(node, first);
+    parked.push({ node, marker });
+  }
+  phoneFolds.set(row, { parked, more, made });
+}
+
+function phoneUnfoldActions() {
+  for (const [row, { parked, more, made }] of phoneFolds) {
+    for (const { node, marker } of parked) if (row.contains(marker)) marker.after(node);
+    if (made) more.remove();
+  }
+  phoneFolds.clear();
+}
+
+// -------------------------------------------------------------------------------------------- put it all in place
+
+/**
+ * <b>The account menu holds the way to the other surfaces and the server's health — the redesign of 2026-11-02, after
+ * ArcGIS Enterprise, on a wide window.</b> The utility line above the bar is gone, so `#surfaces` and `#healthDot` are
+ * moved into the menu's sheet and back to `#utilbar` when the window narrows (the phone's drawer lists them itself).
+ * Moved and never copied, so the ids, `refreshHealth` and the router's `aria-current` stay what they were.
+ */
+const deskParked = [];
+for (const id of ["surfaces", "healthDot"]) {
+  const node = $(id);
+  if (!node) continue;
+  const marker = document.createComment("where this is drawn on a phone");
+  node.before(marker);
+  deskParked.push({ node, marker });
+}
+
+phonePark($("userMenu").querySelector(".sheet"), $("drawerAccount"));
+phonePark($("contentIdle").closest("label"), $("contentSheetIdle"));
+phonePark($("pageActionContent"), $("contentToolbar"));
+phonePark($("newMap"), $("contentToolbar"));
+phonePark($("memberCount"), $("memberNarrowBar"));
+
+/**
+ * Puts everything where the window's width says it goes. The drawer and the two sheets are dialogs only on a phone: on
+ * a wide window the first is a plain wrapper and the other two are the left columns they have always been, and a role
+ * of dialog there would be a claim the page does not keep.
+ */
+function phonePlace() {
+  const phone = PHONE.matches;
+
+  // The surface switch and the health pill first, so a phone's drawer never carries them inside the account's sheet.
+  const sheet = $("userMenu").querySelector(".sheet");
+  for (const { node, marker } of deskParked) {
+    if (phone) marker.after(node); else sheet.insertBefore(node, $("myProfile"));
+  }
+
+  for (const { node, marker, home } of phoneParked) {
+    if (phone) home.append(node); else marker.after(node);
+  }
+
+  if (!phone) phoneClose(false);
+
+  const dialogs = [["navDrawer", "aria-label", "Menu"], ["contentSide", "aria-labelledby", "contentSheetTitle"],
+    ["memberSide", "aria-labelledby", "memberSheetTitle"], ["servicesSide", "aria-labelledby", "servicesSheetTitle"]];
+  for (const [id, naming, name] of dialogs) {
+    const el = $(id);
+    if (phone) {
+      el.setAttribute("role", "dialog");
+      el.setAttribute("aria-modal", "true");
+      el.setAttribute(naming, name);
+    } else {
+      el.removeAttribute("role");
+      el.removeAttribute("aria-modal");
+      if (id === "navDrawer") el.removeAttribute(naming);
+    }
+  }
+
+  for (const id of PHONE_ACTION_ROWS) phoneFoldActions($(id));
+}
+
+phoneReady = true;
+PHONE.addEventListener("change", () => { phonePlace(); phoneSyncBack(); });
+phonePlace();
+phoneNavMenus();
+phoneSyncBack();
+
+// The router draws a page's strip after the page is shown, and the crumbs after it is read; look again as the page changes.
+function phoneAfterView() {
+  if (!phoneReady) return;
+  phoneNavMenus();
+  phoneSyncBack();
+}
+
+let phoneLooking = false;
+new MutationObserver(() => {
+  if (phoneLooking) return;
+  phoneLooking = true;
+  requestAnimationFrame(() => { phoneLooking = false; phoneNavMenus(); });
+}).observe($("app"), { childList: true, subtree: true });

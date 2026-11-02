@@ -455,7 +455,7 @@ public sealed class RolesPageTests : ConsoleTest
 
         await WaitForAsync(
             "(document.getElementById('roleEditorName')?.textContent || '')"
-            + ".includes('administrator')",
+            + ".includes('Administrator')",
             "Choosing the administrator did not open its editor.");
 
         int editable = await Browser.EvaluateAsync<int>(

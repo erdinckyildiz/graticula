@@ -22,7 +22,8 @@ public sealed class ItemTermsAndFavoritesTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
         await OpenAsync($"/studio/#/service/{Service}", token);
-        await WaitForAsync(Shown("#itemFavorite"), "The item page offers no favourite (D-305).");
+        // The favourite is behind ⋯ since the redesign of 2026-11-02 (ADR-255): the menu is opened first.
+        await WaitForAsync("(() => { const m = document.querySelector('#itemActions details.itemmore'); if (m) m.open = true; return true; })() && " + Shown("#itemFavorite"), "The item page offers no favourite (D-305).");
     }
 
     [Fact]
@@ -129,7 +130,7 @@ public sealed class ItemTermsAndFavoritesTests : ConsoleTest
         try
         {
             await OpenAsync($"/studio/#/item/{id}", token);
-            await WaitForAsync(Shown("#mapFavorite"), "A web map's page offers no favourite (D-305).");
+            await WaitForAsync("(() => { const m = document.querySelector('#mapActions details.itemmore'); if (m) m.open = true; return true; })() && " + Shown("#mapFavorite"), "A web map's page offers no favourite (D-305).");
             Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#mapAbout [data-item-categorize=\"map\"]')"),
                 "A web map's page offers no Categorize (D-305).");
 

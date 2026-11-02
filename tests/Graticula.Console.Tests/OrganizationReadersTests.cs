@@ -140,6 +140,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
                 "Services did not draw for an organization's administrator.");
             Assert.Equal("services,sources,logs", await Browser.EvaluateAsync<string>(
                 "[...document.querySelectorAll('#tabs a')].filter(a => a.getClientRects().length).map(a => a.dataset.tab).join(',')"));
+            await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
             Assert.False(await Browser.EvaluateAsync<bool>(Shown("#healthDot")), "The health pill is drawn, over a read only the system administrator may make.");
 
             // The geometry service is the server's: no Stop and no sharing to change, and the row says whose it is.
@@ -202,7 +203,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
                 "The single-organization line, which says every role but the administrator's can be changed, is shown.");
 
             await ClickAsync("#roleRows tr[data-role='publisher'] td.name");
-            await WaitForAsync(Shown("#roleCopy") + " && (document.getElementById('roleEditorName').textContent || '').includes('publisher')",
+            await WaitForAsync(Shown("#roleCopy") + " && (document.getElementById('roleEditorName').textContent || '').includes('Publisher')",
                 "A shared built-in role offers no Copy as a custom role, so the page names a way out it does not draw.");
             Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleSave")), "Save privileges is offered on a built-in role every organization shares.");
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#roleRows [data-role-delete]')"), "Delete is offered on a built-in role.");
@@ -239,7 +240,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
 
             // The administrator is not offered as a template, shared or not.
             await ClickAsync("#roleRows tr[data-role='administrator'] td.name");
-            await WaitForAsync("(document.getElementById('roleEditorName').textContent || '').includes('administrator')", "The administrator did not open.");
+            await WaitForAsync("(document.getElementById('roleEditorName').textContent || '').includes('Administrator')", "The administrator did not open.");
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('roleCopy')"), "The administrator offers Copy as a custom role.");
 
             // It is listed where a member is given a role, and only in this organization.
@@ -348,6 +349,8 @@ public sealed class OrganizationReadersTests : ConsoleTest
             await OpenOnHostAsync(host, "/server/services", token);
             await WaitForAsync("document.getElementById('view-services')?.classList.contains('on') && !document.getElementById('surfaces').hidden",
                 "Server did not draw for an organization's administrator.");
+            // The switch is in the account menu since ADR-255: opened first, it is offered.
+            await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
             Assert.False(await Browser.EvaluateAsync<bool>(Shown("#surfaces a[data-surface=system]")),
                 "The surface switch offers System to an organization's administrator.");
             Assert.True(await Browser.EvaluateAsync<bool>(Shown("#surfaces a[data-surface=studio]")), "The switch lost Studio.");
@@ -363,6 +366,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
             // The system administrator at home is offered System while there are two organizations, with Organizations.
             (string admin, _) = await SignInAsync();
             await OpenAsync("/server/services", admin);
+            await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
             await WaitForAsync(Shown("#surfaces a[data-surface=system]"), "The system administrator is not offered System.");
             await ClickAsync("#surfaces a[data-surface=system]");
             await WaitForAsync("location.pathname.startsWith('/system/') && document.getElementById('view-operations')?.classList.contains('on')",

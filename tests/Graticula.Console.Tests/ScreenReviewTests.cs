@@ -327,13 +327,25 @@ public sealed class ScreenReviewTests : ConsoleTest
                 + "&& document.querySelector('.view.on').textContent.trim().length > 40",
                 $"'{address}' never rendered, so its width proves nothing.");
 
-            // <b>The sections, on a row of their own — ADR-187.</b> They used to be a rail that had to give
-            // its 232 pixels back on a phone; now they are a bar, and on a phone the bar takes the
-            // header's second row and scrolls inside itself rather than pushing the page sideways.
+            // <b>The sections are in the drawer behind the bar's Menu — the phone layout of 2026-11-02, replacing
+            // what this asserted</b> (the sections as a bar of their own on the header's second row, ADR-187: owner
+            // decision, from the ArcGIS Enterprise phone layout). What has to hold is the same thing said of the new
+            // arrangement: the way to the sections is on the screen, and the sections are on it once it is opened.
+            await WaitForAsync(
+                "(() => { const b = document.getElementById('menuOpen').getBoundingClientRect(); "
+                + "return b.width >= 44 && b.right <= window.innerWidth + 1; })()",
+                $"The bar's Menu button is not on the screen at 390 px on '{address}'.");
+
+            await ClickAsync("#menuOpen");
+
             await WaitForAsync(
                 "(() => { const t = document.getElementById('tabs').getBoundingClientRect(); "
-                + "return t.width > 0 && t.right <= window.innerWidth + 1; })()",
-                $"The section bar is not on the screen at 390 px on '{address}'.");
+                + "return document.getElementById('navDrawer').classList.contains('open') "
+                + "&& t.width > 0 && t.left >= 0 && t.right <= window.innerWidth + 1; })()",
+                $"The section list is not on the screen at 390 px on '{address}' once the drawer is open.");
+
+            await Browser.CallAsync("Input.dispatchKeyEvent", new { type = "keyDown", key = "Escape", code = "Escape", windowsVirtualKeyCode = 27 });
+            await Browser.CallAsync("Input.dispatchKeyEvent", new { type = "keyUp", key = "Escape", code = "Escape", windowsVirtualKeyCode = 27 });
 
             await WaitForAsync(
                 "document.body.scrollWidth <= window.innerWidth + 1",

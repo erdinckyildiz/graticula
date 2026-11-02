@@ -73,6 +73,8 @@
 <link rel="stylesheet" href="console.css">
 </head>
 <body>
+<!-- First focusable element: "Skip to content" (the UI sweep of 2026-11-02); console.js moves focus to main. -->
+<nav aria-label="Skip links"><a id="skipToContent" class="skiplink" href="#">Skip to content</a></nav>
 
 <!--
   The header is shared by both surfaces (ADR-034 §5a) and names which one you are in. The
@@ -112,10 +114,23 @@
         <b>The sections are a bar in the header, and the left column belongs to the page — ADR-187.</b>
         The rail that held them is gone: Portal and Server Manager both put their primary navigation
         across the top, and a page with folders or filters had two left columns while the rail stood.
-        The mark is nine squares, a graticule in miniature, drawn inline so it needs no asset.
+        The mark is the graticule (ADR-255 section 4), drawn inline so it needs no asset.
       -->
+      <!--
+        <b>The phone's bar — 2026-11-02, owner decision, from the ArcGIS Enterprise phone layout.</b> At 720 pixels and
+        below the header is one 56-pixel bar: menu, the name, search, the account. The four things beside this comment
+        are drawn only there (console.css, "The phone layout"), and every one of them opens something that already
+        exists — the drawer below, the search form, a page's parent. Nothing here is a second copy of a control.
+      -->
+      <button type="button" class="barbtn" id="menuOpen" aria-label="Menu" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="navDrawer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <!-- On an item's or a group's page the bar's first control goes back to where it came from; href and label are the crumb's. -->
+      <a class="barbtn" id="barBack" href="#/content" aria-label="Back" hidden><svg viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+        focusable="false"><path d="M15 5l-7 7 7 7"/></svg></a>
       <a id="brand" href="" aria-label="Graticula home">
-        <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
+        <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
         <span class="name">Graticula</span>
         <span class="badge" id="surfaceBadge"></span>
       </a>
@@ -124,7 +139,6 @@
         Back, middle-click and copy-link work without this console implementing them. Rendered from
         JavaScript, because the list belongs to whichever surface is open.
       -->
-      <nav id="tabs" aria-label="Sections"></nav>
       <!--
         <b>One search for all of Studio, in the bar — ADR-196, owner 2026-10-18:</b> *"Arcgis'te de olduğu gibi bir genel
         sorgu. Itemid ile de sorgulama imkanı. Her bir sayfadaki değil, genel bir sorgu."* Content, groups and members by
@@ -135,7 +149,25 @@
         <input type="search" id="gq" placeholder="Search Studio" aria-label="Search Studio"
           title="Search content, groups and members, or paste an item id to open it"
           autocomplete="off" spellcheck="false">
+        <!-- The phone's search is a row laid over the bar; this closes it (console.js, "The phone layout"). -->
+        <button type="button" class="barbtn" id="gqClose" aria-label="Close search"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </form>
+      <!--
+        <b>The drawer — 2026-11-02, the phone layout, after ArcGIS Enterprise.</b> One element holding what the wide
+        header spreads over two lines: the sections (`#tabs`) and, in `#utilbar`, the switch between surfaces, the
+        server's health and the account. A wide window draws it as `display: contents`, so the header's grid places
+        its children as it always did; at 720 pixels and below it is a panel on the left, a dialog while it is open.
+        It sits after the search form, and not between brand and form as the sections once did, because it has to
+        contain the sections and `utilbar` and the form is between them in the bar.
+      -->
+      <div id="navDrawer">
+      <div class="drawerhead">
+        <span class="drawername"><b>Graticula</b> <span id="drawerSurface"></span></span>
+        <button type="button" class="barbtn" id="menuClose" aria-label="Close menu"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <nav id="tabs" aria-label="Sections"></nav>
       <!--
         <b>The reader's own controls are a thin line above the bar, as Server Manager keeps them</b> (owner,
         2026-10-16: the bar was *"sıkış tıkış"*, and Server Manager's *"çok daha basit"*): the switch to the other
@@ -172,12 +204,23 @@
             <div id="who"></div>
             <!-- Dark or light, chosen by the reader and remembered (ADR-187 step 4); the words name what it turns on. -->
             <a id="myProfile" href="/studio/" hidden>My profile</a>
+            <!-- Where the two-step notice's "Not now" leaves it: set up while the account has none (the phone layout fix of 2026-11-02). -->
+            <a id="accountTwoStep" href="/studio/" hidden>Set up two-step sign-in</a>
             <button id="themeToggle" type="button">Dark mode</button>
             <button id="signout" style="display:none">Sign out</button>
           </div>
         </details>
       </span>
       </div>
+      <!-- Where the account menu's own sheet is put on a phone, so the drawer ends with who is signed in. -->
+      <div id="drawerAccount"></div>
+      </div>
+      <button type="button" class="barbtn" id="barSearch" aria-label="Search Studio" aria-haspopup="true"
+        aria-expanded="false" aria-controls="globalSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></button>
+      <button type="button" class="barbtn" id="barAvatar" aria-label="Account" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="navDrawer"><span class="initial" id="barInitial" aria-hidden="true"></span></button>
+      <div id="navScrim" hidden></div>
     </header>
 
 <div id="signin" class="wrap">
@@ -211,14 +254,33 @@
     The note that stood at the foot of this card, about the admin API and ADR-020, was written for
     a developer reading the page and is gone for the same reason.
   -->
+  <!--
+    <b>The brand panel — the redesign of 2026-11-02, after the owner's mockups ("Sign in, with the mark").</b> On the left of a
+    wide window, and the navy top of a phone: the graticule mark drawn large and faint behind the page, the mark and the
+    name, what the product is for, and which organization this is. It is the page's own furniture and holds no control.
+    The mark is the mockup's — circle, a meridian ellipse, three parallels and a diagonal, white and #8fb4ea. It is not
+    `/favicon.svg` and the bar's mark are the same mark since the owner's decision of 2026-11-02 (ADR-255 section 4).
+  -->
+  <div class="signin-brand">
+    <svg class="signin-watermark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><g fill="none" stroke="#8fb4ea"><circle cx="16" cy="16" r="13.5" stroke-width=".25"/><ellipse cx="16" cy="16" rx="6.5" ry="13.5" stroke-width=".18"/><ellipse cx="16" cy="16" rx="10.5" ry="13.5" stroke-width=".12"/><path d="M16 2.5v27" stroke-width=".18"/><path d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4M7.6 5.2h16.8M7.6 26.8h16.8" stroke-width=".15"/></g></svg>
+    <div class="signin-logo">
+      <svg class="signin-mark" viewBox="0 0 32 32" role="img" aria-label="Graticula"><g fill="none"><circle cx="16" cy="16" r="13.5" stroke="#ffffff" stroke-width="2"/><ellipse cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path d="M3.4 20.6 28.6 11.4" stroke="#ffffff" stroke-width="2"/></g></svg>
+      <span class="signin-wordmark">GRATICULA</span>
+    </div>
+    <div class="signin-pitch">
+      <p class="signin-line">Your maps, your data, your server.</p>
+      <p class="signin-subline">Studio for content and maps. Server for the services behind them.</p>
+    </div>
+    <span class="signin-org" id="signinOrg"></span>
+  </div>
   <form class="panel" id="signinForm" method="post" action="">
     <div class="signin-head">
       <div>
-        <h2 id="signinTitle">Sign in to Graticula</h2>
+        <h1 id="signinTitle">Sign in to Graticula</h1>
         <!-- Filled from location.host: which server this is, which is the question the head answers. -->
         <p class="signin-where" id="signinWhere"></p>
       </div>
-      <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
     </div>
     <div class="signin-body">
     <!--
@@ -240,7 +302,7 @@
     <div id="signinCreds">
     <!-- ADR-088: a way in through each provider the operator configured, filled in when this panel is shown. -->
     <div id="signinProviders" hidden></div>
-    <label for="u">Name</label>
+    <label for="u">User name</label>
     <input type="text" id="u" autocomplete="username" autofocus>
     <!--
       <b>How a member of another organization signs in here</b> — ADR-204 §5e item 16. A bare name is always one of
@@ -342,7 +404,7 @@
 -->
 <div id="mustchange" class="wrap" style="display:none">
   <form class="panel" id="mustchangeForm" method="post" action="">
-    <h2>Set your own password</h2>
+    <h1>Set your own password</h1>
     <p class="hint" id="mustchangeWho"></p>
     <label for="cCurrent">The password you were given</label>
     <input id="cCurrent" type="password" autocomplete="current-password">
@@ -381,8 +443,11 @@
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
       stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3z"/><path d="M12 8v5M12 16.5v.01"/></svg>
     <p id="factorNoticeText"></p>
+    <!-- The phone's line: one short sentence in the place of the long one (the phone layout of 2026-11-02). -->
+    <span id="factorNoticeShort"></span>
     <a id="factorNoticeGo" href="/studio/">Set it up</a>
-    <button type="button" class="tiny ghost" id="factorNoticeHide">Not now</button>
+    <button type="button" class="tiny ghost" id="factorNoticeHide" aria-label="Not now"><span class="x"
+      aria-hidden="true">&times;</span><span class="lbl">Not now</span></button>
   </div>
 
   <!-- ------------------------------------------------------------ services -->
@@ -406,7 +471,17 @@
       was on them.
     -->
     <div id="serverGrid">
-      <div>
+      <!--
+        <b>The folders are the left column, and on a phone a sheet</b> — the redesign of 2026-11-02, after the mockups
+        (ServerServices, PhoneServerServices): at 720 pixels and below this is a full-screen dialog opened by the head's
+        scope button, as My content's filter sheet is.
+      -->
+      <div id="servicesSide">
+        <div class="sheethead">
+          <h2 id="servicesSheetTitle">Folders</h2>
+          <button type="button" class="barbtn" id="servicesSheetClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
         <!--
           <b>Folders on the left, and the rail is navigation.</b> ADR-034 §5h, after the owner's
           objection to three stacked tables. Narrow on purpose: the width belongs to the list.
@@ -426,6 +501,9 @@
           </div>
           <nav id="folders" aria-label="Folders"></nav>
         </div>
+        <div class="sheetfoot">
+          <button type="button" class="primary" id="servicesSheetShow">Show services</button>
+        </div>
 
         <!--
           <b>Operational widgets, and they report what this server measures.</b> The brief asked for
@@ -441,9 +519,11 @@
       <div id="serverMain">
         <div class="pagehead">
           <div>
-            <h2>Services</h2>
-            <p>Manage and monitor your GIS services.</p>
+            <h1>Services</h1>
           </div>
+          <!-- <b>The phone's scope button</b>, drawn at 720 pixels and below: the folder being listed, opening the folders sheet. -->
+          <button type="button" class="phonebtn" id="servicesScopeBtn" aria-haspopup="dialog" aria-expanded="false"
+            aria-controls="servicesSide"><span id="servicesScopeName">Site (root)</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
           <!--
             Where the surface's own action lands. Studio's *New layer* and Server's *New service* are the
             same slot filled by the router from `SURFACES[surface].action`, which is why no button is
@@ -471,8 +551,18 @@
             screen, beside the services it reorganises, and not on Publish, which composes
             something that does not exist yet.
           -->
-          <button class="tiny ghost" id="newService">Group layers&#8230;</button>
-          <button class="tiny ghost" id="serviceRefresh" type="button" aria-label="Refresh the list">&#8635; Refresh</button>
+          <!--
+            <b>One ⋯ for the rest, as the mockup draws it</b> (the redesign of 2026-11-02): Group layers, Refresh and Empty
+            services, which was a section on the page of its own and is shown, above the list's note, when it is chosen here.
+          -->
+          <details class="rowmenu" id="serviceMore">
+            <summary aria-label="More: group layers, refresh the list, empty services" title="More">&#8943;</summary>
+            <div class="rowmenubody">
+              <button type="button" id="newService">Group layers&#8230;</button>
+              <button type="button" id="serviceRefresh" aria-label="Refresh the list">&#8635; Refresh</button>
+              <button type="button" id="emptyOpen" aria-controls="emptyServices" aria-expanded="false">Empty services&#8230;</button>
+            </div>
+          </details>
         </div>
 
         <!--
@@ -492,6 +582,9 @@
               <th class="tick"><input type="checkbox" id="servicePickAll" aria-label="Select every service on this page"></th>
               <th><span class="sr-only">Picture</span></th>
               <th>Service</th>
+              <th class="col">Type</th>
+              <th class="col">Folder</th>
+              <th class="col">Status</th>
               <th><span class="sr-only">Actions</span></th>
             </tr></thead>
             <tbody id="services"></tbody>
@@ -506,7 +599,7 @@
           administrator does not enter. Its API, /admin/featureservices/empty and /sweep, is the organization's, so it is
           here, where that administrator manages services; the server's status page keeps only what is the server's.
         -->
-        <section class="emptysvc" id="emptyServices" aria-labelledby="emptyHead">
+        <section class="emptysvc" id="emptyServices" aria-labelledby="emptyHead" hidden>
           <h3 class="label" id="emptyHead">Empty services</h3>
           <p class="lede">Services left with no layers after their last layer was removed. Nothing records which were
             made on purpose, so this is a list you check, not an automatic clean-up.</p>
@@ -543,16 +636,23 @@
     -->
     <div class="pagehead">
       <div>
-        <h2 id="contentTitle" tabindex="-1">Content</h2>
+        <h1 id="contentTitle" tabindex="-1">Content</h1>
         <p>What you own, and what other people have shared with you.</p>
       </div>
+      <!--
+        <b>The phone's one scope button — 2026-11-02, the phone layout, after ArcGIS Enterprise.</b> Drawn only at 720
+        pixels and below, where the head is the title and this: it says which scope is shown and opens the filter sheet,
+        which is the left column below made a full-screen dialog. `drawMyContent` writes the scope's name into it.
+      -->
+      <button type="button" class="phonebtn" id="contentScopeBtn" aria-haspopup="dialog" aria-expanded="false"
+        aria-controls="contentSide"><span id="contentScopeName">Everything</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
       <!--
         <b>New map beside New item, 2026-09-30.</b> It was at the foot of a second table under every
         service, so the way to start a map moved further away with each thing published — the design
         review measured it as a scroll that grows with the content. Maps are rows of the one list now.
       -->
       <div class="right"><button class="ghost" id="newMap" type="button"><span
-        class="plus" aria-hidden="true">+</span>New map</button><div id="pageActionContent"></div></div>
+        class="plus" aria-hidden="true">+</span>New map</button></div>
     </div>
 
     <!--
@@ -587,14 +687,33 @@
       reached you, your folders, and the types present as ticks with their counts. Below 1,100 pixels it
       lies above the list.
     -->
-    <aside id="contentSide">
+    <section id="contentSide" aria-labelledby="contentSheetTitle">
+      <!-- <b>New item is at the top of the left column</b> on a wide window (DesktopContent, the redesign of 2026-11-02); the router
+           fills it, and a phone moves it into the toolbar as before (`phonePark`). -->
+      <div id="pageActionContent"></div>
+      <!-- At 720 pixels and below this aside is a full-screen sheet (the phone layout of 2026-11-02): a head with a Close, the
+           scopes, folders and types as they are, and a foot whose Show closes the sheet on the list it has already filtered. -->
+      <div class="sheethead">
+        <h2 id="contentSheetTitle">Filter</h2>
+        <button type="button" class="barbtn" id="contentSheetClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
       <nav class="sidelist scopes" id="contentScopes" aria-label="Content"></nav>
 
       <!-- ADR-114: the caller's own folders. They are in no URL; a service folder is the other kind. -->
       <div class="folderbar" id="contentFolders" role="group" aria-label="Your folders" hidden></div>
 
       <div class="facets" id="contentFacets" role="group" aria-label="Item type" hidden></div>
-    </aside>
+
+      <!-- Where `contentIdle`'s checkbox is put on a phone, which draws it here and not in the toolbar. -->
+      <div class="sheetidle" id="contentSheetIdle"></div>
+
+      <p class="sr-only" id="contentSheetSays" role="status" aria-live="polite"></p>
+      <div class="sheetfoot">
+        <button type="button" class="ghost" id="contentSheetClear">Clear</button>
+        <button type="button" class="primary" id="contentSheetShow">Show items</button>
+      </div>
+    </section>
 
     <!--
       <b>Search, type and order are always there, 2026-09-30.</b> The search box appeared only once a
@@ -628,16 +747,27 @@
     <div class="toolbar" id="contentToolbar">
       <input type="search" id="contentFilter" placeholder="Search by name, tag, owner or folder&hellip;"
              autocomplete="off" aria-label="Search your content">
+      <!-- The phone's filter icon, which opens the sheet above; it says how many filters are on (the phone layout of 2026-11-02). -->
+      <button type="button" class="phonebtn iconbtn" id="contentFilterBtn" aria-label="Filters" aria-haspopup="dialog"
+        aria-expanded="false" aria-controls="contentSide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg><span
+        class="dot" aria-hidden="true"></span></button>
       <!-- The type is chosen by the ticks in the left column; a Type select here filtered too, and the two combined. -->
+      <span class="sortwrap">
       <select id="contentSort" aria-label="Order">
         <option value="modified">Newest first</option>
         <option value="title">Name A&ndash;Z</option>
         <option value="type">Type</option>
         <option value="leastUsed">Least used (30 days)</option>
       </select>
+      <!-- The phone draws the select above as this icon and the choice beside it, laid under the select (console.css). -->
+      <span class="sorticon" aria-hidden="true"><span id="contentSortName"></span><svg viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path
+        d="M7 4v16M7 20l-3-3M7 20l3-3M14 6h7M14 12h5M14 18h3"/></svg></span>
+      </span>
       <!-- ADR-135: idle is not a type, so it is its own choice and goes with any type. -->
       <label class="check"><input type="checkbox" id="contentIdle"> Only items not used in 30 days</label>
-      <span class="val" id="contentCount"></span>
+      <span class="val" id="contentCount" role="status"></span>
     </div>
 
     <p class="hint" id="contentNote" role="status" aria-live="polite"></p>
@@ -655,7 +785,7 @@
       <table>
         <thead><tr>
           <th class="tick"><input type="checkbox" id="contentPickAll" aria-label="Select every item of yours shown"></th>
-          <th colspan="2">Title</th><th><span class="sr-only">Actions</span></th>
+          <th colspan="2">Title</th><th class="col">Type</th><th class="col">Shared with</th><th><span class="sr-only">Actions</span></th>
         </tr></thead>
         <tbody id="contentRows"></tbody>
       </table>
@@ -677,7 +807,7 @@
   <section class="view" id="view-publish">
     <div class="pagehead">
       <div>
-        <h2>Publish a service</h2>
+        <h1>Publish a service</h1>
         <p class="hint">Compose a service from tables in the databases this server is pointed
           at, then publish it. Nothing is served until you press Publish, and a service is
           published whole — its layers and its groups arrive together or not at all.</p>
@@ -764,7 +894,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Data sources</h2>
+        <h1>Data sources</h1>
         <p>Databases and folders this server reads layers from. Only administrators register one, because a source
           holds the credentials to someone else's database.</p>
       </div>
@@ -824,7 +954,7 @@
   <section class="view" id="view-orgsettings">
     <div class="pagehead">
       <div>
-        <h2>Map</h2>
+        <h1>Map</h1>
         <p>What every new map in this organization starts on, and the basemaps it offers.</p>
       </div>
     </div>
@@ -876,7 +1006,7 @@
   <section class="view" id="view-utilities">
     <div class="pagehead">
       <div>
-        <h2>Utility services</h2>
+        <h1>Utility services</h1>
         <p>This server's own services, which every organization on it uses, and the geometry service ArcGIS clients are
           pointed at.</p>
       </div>
@@ -922,7 +1052,7 @@
   <section class="view" id="view-machines">
     <div class="pagehead">
       <div>
-        <h2 id="mcTitle" tabindex="-1">Machines</h2>
+        <h1 id="mcTitle" tabindex="-1">Machines</h1>
         <p>The servers that share this site's database and serve its requests together. Each one says it is alive every
           ten seconds; one not heard from for thirty is shown down.</p>
       </div>
@@ -956,7 +1086,7 @@
   <section class="view" id="view-backups">
     <div class="pagehead">
       <div>
-        <h2 id="bkTitle" tabindex="-1">Backups</h2>
+        <h1 id="bkTitle" tabindex="-1">Backups</h1>
         <p>Copies of this server's whole database — every organization, its content and its settings — with its imagery
           and its certificate, taken while it serves.</p>
       </div>
@@ -1021,7 +1151,7 @@
   <section class="view" id="view-general">
     <div class="pagehead">
       <div>
-        <h2>General</h2>
+        <h1>General</h1>
         <p>What this organization is called and what it says about itself.</p>
       </div>
     </div>
@@ -1067,7 +1197,7 @@
   <section class="view" id="view-collaborations">
     <div class="pagehead">
       <div>
-        <h2>Partnered collaborations</h2>
+        <h1>Partnered collaborations</h1>
         <p id="pcLede">Partner with another organization on this server so that your groups and theirs can take each
           other's members. Each organization keeps its own members and content, and each decides whether the other may
           search for its members.</p>
@@ -1181,7 +1311,7 @@
          organization on it. The map ground joined it from Studio's Organization › Settings › Map. -->
     <div class="pagehead">
       <div>
-        <h2>General</h2>
+        <h1>General</h1>
         <p>What this whole server does unless a service sets its own: the page size, the sources styles may use and the
           ground under every map. Basemaps and how people sign in are Studio's,
           under Organization › Settings, and each organization's own.</p>
@@ -1196,7 +1326,7 @@
         its own page size in its Parameters tab keeps it; empty here means the server's default.</p>
 
       <div class="setting">
-        <label class="q" for="setPageSize">Page size:</label>
+        <label class="q" for="setPageSize">Page size</label>
         <input type="number" id="setPageSize" min="1" step="1" inputmode="numeric"
           aria-describedby="setPageSizeSource">
         <span class="u">features</span>
@@ -1224,7 +1354,7 @@
         <code>https://*.host</code> for every name under a host. With none listed, a style may use only this
         server's own resources.</p>
 
-      <label class="q" for="styleOrigins">Allowed origins, one a line:</label>
+      <label class="q" for="styleOrigins">Allowed origins, one a line</label>
       <textarea id="styleOrigins" rows="4" disabled spellcheck="false" autocomplete="off"
         aria-describedby="styleOriginsSource" placeholder="https://tiles.example.com"></textarea>
       <p class="hint" id="styleOriginsSource"></p>
@@ -1290,12 +1420,25 @@
       other Server administrator has the page head's sentence, which says where it is without a link to a page that
       has nothing for them. Last on the page, because the settings above are what the page is for.
     -->
+    <!--
+      <b>One save bar, the redesign of 2026-11-02 (SystemSettings).</b> The page size, the style sources and the map ground
+      each had a Save of their own, so three buttons on one page said which of three things had been kept. Their buttons
+      are still here — the bar presses whichever of them has something to save, so every handler, refusal and sentence
+      under a card is the one it was — and the bar says how many are waiting.
+    -->
     <div class="panel pad settingcard" id="securityPointer" hidden>
       <h4>Sign-in and security</h4>
       <p class="hint">How people sign in, and whether they also need a code from an authenticator app, is set once
         for the whole organization in Studio, under Organization › Settings › Security. Server and System use the same sign-in,
         so they have no security settings of their own.</p>
       <p class="pointerlink"><a id="securityPointerGo" href="/studio/signin">Open Security in Studio</a></p>
+    </div>
+
+    <!-- <b>The last child of the page</b> (the redesign of 2026-11-02, last round): docked at the foot, it is under nothing, so no card is hidden behind it. -->
+    <div class="savebar generalbar" id="generalSaveBar">
+      <span class="val" id="generalDirty" role="status" aria-live="polite" tabindex="-1">No unsaved changes</span>
+      <button type="button" class="ghost" id="generalDiscard" disabled>Discard</button>
+      <button type="button" class="primary" id="generalSave" disabled>Save</button>
     </div>
 
   </section>
@@ -1310,7 +1453,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Status</h2>
+        <h1>Status</h1>
         <p>Whether anything is wrong with this server right now, and where.</p>
       </div>
     </div>
@@ -1414,7 +1557,7 @@
   <section class="view" id="view-logs">
     <div class="pagehead">
       <div>
-        <h2>Logs</h2>
+        <h1>Logs</h1>
         <p id="logHeadLede">What this server and its studio have been doing.</p>
       </div>
     </div>
@@ -1426,12 +1569,20 @@
     -->
     <!-- Filled per surface (ADR-221 §5.3): Server's three logs are the organization's, System's one is the server's. -->
     <p class="lede" id="logLede"></p>
+    <!-- <b>On a phone the explanation is behind a small disclosure</b> (PhoneServerLogs, the redesign of 2026-11-02): the same
+         words as `#logLede`, copied there when the controls are drawn; drawn at 720 pixels and below only. -->
+    <details class="aboutlogs" id="logAbout"><summary>About these logs</summary><p class="lede" id="logAboutBody"></p></details>
 
     <!-- The log being read, as a column on the left — Server Manager's Logs page lists its views there (ADR-187 step 4). -->
     <div id="logSources"></div>
+    <!-- <b>And a select for the log being read</b>, on a phone, where three tabs and the filters did not fit one row. It mirrors
+         `#logSources` and presses the tab it names. -->
+    <select id="logSourcePick" class="logpick" aria-label="Which log" hidden></select>
     <div class="toolbar">
       <span style="flex:1"></span>
       <span class="val" id="logCount"></span>
+      <!-- Drawn only on a phone, where the filters are folded away until asked for (the redesign of 2026-11-02). -->
+      <button type="button" class="ghost" id="logFiltersToggle" aria-expanded="false" aria-controls="logFilters">Filters</button>
       <button class="tiny ghost" id="logRefresh" title="Read the log again">&#8635;</button>
     </div>
 
@@ -1466,7 +1617,8 @@
 
     <p class="hint" id="logWriter"></p>
 
-    <div class="panel widetable">
+    <!-- Focusable and named: the table is wider than a phone and a keyboard has to be able to scroll it (UI sweep 2026-11-02). -->
+    <div class="panel widetable" tabindex="0" role="region" aria-label="Log entries">
       <table>
         <thead><tr>
           <th style="width:1%">When</th>
@@ -1492,7 +1644,7 @@
   <section class="view" id="view-organizations">
     <div class="pagehead">
       <div>
-        <h2>Organizations</h2>
+        <h1>Organizations</h1>
         <p>Each organization is a portal of its own on this server, with its own members, groups and content, reached
           at its own host name. A host name works once DNS points it at this server and the server's certificate
           covers it.</p>
@@ -1630,14 +1782,14 @@
   <section class="view" id="view-groups">
     <div class="pagehead">
       <div>
-        <h2>Groups</h2>
+        <h1>Groups</h1>
         <p>A set of members, and the services shared with them. What is shared with a group is readable by its members and by nobody else.</p>
       </div>
     </div>
 
     <div class="toolbar">
       <input type="search" id="groupFilter" placeholder="Search groups by name, title or owner" aria-label="Search groups" autocomplete="off">
-      <span class="val" id="groupCount"></span>
+      <span class="val" id="groupCount" role="status"></span>
       <span style="flex:1"></span>
       <button class="primary" id="groupNew">New group</button>
     </div>
@@ -1764,14 +1916,14 @@
     <div class="pagehead" id="mapPagehead" data-tab="overview">
       <div id="mapThumb"></div>
       <div class="herotext">
-        <h2 id="mapTitle"></h2>
+        <h1 id="mapTitle"></h1>
         <p id="mapSub"></p>
       </div>
       <div class="itemactions" id="mapActions"></div>
       <nav class="segmented solid" id="mapTabs" aria-label="Item"></nav>
     </div>
     <div class="mapitem" id="mapOverview">
-      <aside class="panel" id="mapSide"></aside>
+      <aside class="panel" id="mapSide" role="region" aria-label="Item information"></aside>
       <div class="mapmain">
         <div class="panel" id="mapAbout"></div>
         <div class="panel" id="mapLayers"></div>
@@ -1790,7 +1942,7 @@
     <div class="pagehead" id="docPagehead" data-tab="overview">
       <div id="docThumb"></div>
       <div class="herotext">
-        <h2 id="docTitle" tabindex="-1"></h2>
+        <h1 id="docTitle" tabindex="-1"></h1>
         <p id="docSub"></p>
       </div>
       <div class="itemactions" id="docActions"></div>
@@ -1800,7 +1952,7 @@
     <input type="file" id="docReplaceFile" hidden>
     <input type="file" id="docThumbFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
     <div class="mapitem" id="docOverview">
-      <aside class="panel" id="docSide"></aside>
+      <aside class="panel" id="docSide" role="region" aria-label="Item information"></aside>
       <div class="mapmain">
         <div class="panel" id="docAbout"></div>
       </div>
@@ -1811,9 +1963,10 @@
   <section class="view" id="view-group">
     <div class="crumbs" id="groupCrumb"></div>
 
-    <div class="pagehead">
-      <div>
-        <h2 id="groupTitle"></h2>
+    <div class="pagehead" id="groupPagehead">
+      <span class="gheadtile" id="groupHeadTile" aria-hidden="true"></span>
+      <div class="grouptitles">
+        <h1 id="groupTitle"></h1>
         <!--
           <b>The summary is the page's subtitle, not a block on Overview.</b> The reference puts it on
           one tab with an empty state saying it *"is not available"*; a one-line summary is for being
@@ -1831,6 +1984,16 @@
       -->
       <div class="right" id="groupActions" hidden>
         <button class="tiny ghost" id="groupLeave" hidden>Leave group</button>
+      </div>
+      <!--
+        <b>The head holds the two verbs again, by the approved mockup of 2026-11-02</b> (DesktopGroup, PhoneGroup), which
+        overrides the owner's correction of 2026-08-18 quoted below. They are the tabs' own controls, reachable from
+        every tab: Add items is the same address as the Content tab's link, and Add member presses the Members tab's
+        button, so the picker, its focus and its refusals are the ones they always were. Shown to whoever may manage.
+      -->
+      <div class="headverbs" id="groupHeadVerbs" hidden>
+        <a class="btn primary" id="groupHeadShare">Add items</a>
+        <button type="button" id="groupHeadAdd">Add member</button>
       </div>
     </div>
 
@@ -1866,7 +2029,7 @@
         </div>
         <div>
           <h4>Facts</h4>
-          <div class="facts2" id="groupFacts"></div>
+          <dl class="facts2" id="groupFacts"></dl>
           <div class="row" id="groupLeaveRow" style="margin-top:var(--gap-3)"></div>
         </div>
       </div>
@@ -2056,11 +2219,11 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Member roles</h2>
+        <h1>Member roles</h1>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
         <!-- ADR-204 §5e item 18: while there are several organizations the built-in roles are every one's and fixed, and
              custom roles are the organization's own. Shown in place of the line above, which is untrue then. -->
-        <p class="hint" id="rolesWhose" hidden></p>
+        <!-- ADR-255: the note itself is drawn under the roles list (#rolesWhose), because the paragraph under a title is not drawn. -->
       </div>
       <div class="right">
         <span class="val" id="roleCount"></span>
@@ -2106,6 +2269,7 @@
             <tbody id="roleRows"></tbody>
           </table>
         </div>
+        <p class="hint" id="rolesWhose" hidden></p>
         <div id="rolesPager"></div>
       </div>
 
@@ -2134,8 +2298,20 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Security</h2>
+        <h1>Security</h1>
         <p>How people sign in to this organization, and which apps may sign them in.</p>
+      </div>
+      <!--
+        <b>The four sections are sub-pages, the redesign of 2026-11-02 (DesktopApps).</b> One at a time under a segmented
+        control, where they were four sections stacked on one page. Two-step sign-in and Service accounts are drawn only for
+        a reader with admin:manageSecurity, so their buttons are drawn with them (`drawSecurityPages`). Every section keeps
+        its own markup, ids and handlers; the control only chooses which is shown.
+      -->
+      <div class="segmented secswitch" id="secSwitch" role="group" aria-label="Security sections">
+        <button type="button" data-secpage-go="sf" aria-pressed="false" hidden>Two-step sign-in</button>
+        <button type="button" data-secpage-go="sa" aria-pressed="false" hidden>Service accounts</button>
+        <button type="button" data-secpage-go="idp" aria-pressed="false">Sign-in</button>
+        <button type="button" data-secpage-go="apps" aria-pressed="false">Apps</button>
       </div>
     </div>
     <!--
@@ -2144,7 +2320,7 @@
       covers — scripts included — and that is the part an administrator does not see from a sign-in page. Drawn only
       for a reader with admin:manageSecurity (`loadSecondFactorRequirement`); the server refuses anybody else.
     -->
-    <div id="sfRequireCard" hidden>
+    <div id="sfRequireCard" class="secpage" data-secpage="sf" hidden>
       <div class="pagehead sub">
         <div>
           <h3 id="sfRequireTitle" tabindex="-1">Two-step sign-in</h3>
@@ -2182,7 +2358,7 @@
       sign-in, because that card tells scripts to move to an API key, and this is where they get one. Drawn only for a
       reader with admin:manageSecurity (`loadServiceAccounts`), as the server refuses anybody else.
     -->
-    <div id="saCard" hidden>
+    <div id="saCard" class="secpage" data-secpage="sa" hidden>
       <div class="pagehead sub">
         <div>
           <h3 id="saTitle" tabindex="-1">Service accounts</h3>
@@ -2286,6 +2462,7 @@
         <button type="button" class="primary" id="saSecretDone">I have copied it</button>
       </footer>
     </dialog>
+    <div class="secpage" id="secpage-idp" data-secpage="idp">
     <div class="pagehead sub">
       <div>
         <h3 id="idpTitle" tabindex="-1">Sign-in</h3>
@@ -2317,6 +2494,7 @@
         <tbody id="idpRows"></tbody>
       </table>
     </div></div>
+    </div>
 
     <!-- Apps — beside Sign-in since 2026-10-17, as Organization › Settings › Security. -->
     <!--
@@ -2327,6 +2505,7 @@
       the server does not do: there is no edit, because an app's redirects are its identity and
       changing them in place would quietly redirect codes somewhere else.
     -->
+    <div class="secpage" id="secpage-apps" data-secpage="apps">
     <div class="pagehead sub">
       <div>
         <h3 id="appsTitle" tabindex="-1">Apps</h3>
@@ -2378,6 +2557,7 @@
         <tbody id="appRows"></tbody>
       </table>
     </div>
+    </div>
   </section>
 
   <section class="view" id="view-members">
@@ -2388,7 +2568,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Members</h2>
+        <h1>Members</h1>
         <p>Who has an account, and what each of them may do.</p>
       </div>
     </div>
@@ -2450,7 +2630,13 @@
       UX sweep of 2026-10-19 the role and the user type too, which were selects that saved on one arrow key.
     -->
     <div class="memberslayout">
-      <aside class="memberfilters" aria-label="Filters">
+      <section class="memberfilters" id="memberSide" aria-label="Filters">
+        <!-- At 720 pixels and below this is a full-screen sheet, as My content's is (the phone layout of 2026-11-02). -->
+        <div class="sheethead">
+          <h2 id="memberSheetTitle">Filter</h2>
+          <button type="button" class="barbtn" id="memberSheetClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
         <!-- Open beside the list on a wide screen; below 1024 pixels a button above it, with how many are on
              (UX sweep 2026-10-19: at 390 the eight sections put the first member 1,250 pixels down). -->
         <details class="mfwrap" id="mfWrap" open>
@@ -2479,12 +2665,20 @@
           <select id="mfGroup" aria-label="Group"><option value="">Any group</option></select></details>
         <button type="button" class="tiny ghost" id="mfClear" hidden>Clear filters</button>
         </details>
-      </aside>
+        <div class="sheetfoot">
+          <button type="button" class="primary" id="memberSheetShow">Show members</button>
+        </div>
+      </section>
 
       <div class="membersmain">
         <div class="toolbar">
           <input type="search" id="memberQ" placeholder="Search members by name" aria-label="Search members"
             autocomplete="off">
+          <!-- The phone's filter icon: it opens the sheet beside this toolbar's list (the phone layout of 2026-11-02). -->
+          <button type="button" class="phonebtn iconbtn" id="memberFilterBtn" aria-label="Filters" aria-haspopup="dialog"
+            aria-expanded="false" aria-controls="memberSide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5h18l-7 8v6l-4-2v-4z"/></svg><span
+            class="dot" aria-hidden="true"></span></button>
           <span class="val" id="memberCount" aria-live="polite"></span>
           <span style="flex:1"></span>
           <button type="button" class="ghost" id="memberCategorize" hidden>Categorize</button>
@@ -2539,7 +2733,7 @@
   <section class="view" id="view-toolbox">
     <div class="profilecard toolboxcard">
       <div class="profilehead">
-        <h2 id="tbTitle" tabindex="-1"></h2>
+        <h1 id="tbTitle" tabindex="-1"></h1>
         <p class="val" id="tbSub"></p>
       </div>
       <div id="tbBody"></div>
@@ -2550,7 +2744,7 @@
     <div class="profilecard">
       <div class="profilehead">
         <div class="profilephoto" id="profilePhoto"></div>
-        <h2 id="profileName" tabindex="-1"></h2>
+        <h1 id="profileName" tabindex="-1"></h1>
         <p class="val" id="profileSub"></p>
       </div>
       <div id="profileBody"></div>
@@ -2633,7 +2827,7 @@
   <section class="view" id="view-search">
     <div class="pagehead">
       <div>
-        <h2 id="searchTitle" tabindex="-1">Search</h2>
+        <h1 id="searchTitle" tabindex="-1">Search</h1>
         <p>Everything in Studio you can see: content by its title, tags, description, owner or item id; groups; and,
           for whoever manages members, members.</p>
       </div>
@@ -2713,7 +2907,7 @@
     <div class="pagehead" id="servicePagehead">
       <div id="itemThumb" hidden></div>
       <div class="herotext">
-        <h2 id="serviceTitle">—</h2>
+        <h1 id="serviceTitle">—</h1>
         <p id="serviceSub"></p>
       </div>
       <div class="itemactions" id="itemActions" hidden></div>
@@ -2778,7 +2972,7 @@
       <!-- The address is in Details now, as Portal keeps it (ADR-102 step 7). Kept as an empty hook. -->
       <div id="serviceAddress" hidden></div>
 
-      <h4 id="serviceLayersHead">Layers</h4>
+      <h4 id="serviceLayersHead" aria-level="2">Layers</h4>
 
       <!--
         <b>Two columns, not five — the design review's shape.</b> Theirs is a list with a subtitle; this
@@ -2830,7 +3024,7 @@
       </div>
       </div>
 
-      <aside class="panel pad" id="serviceDetails"></aside>
+      <aside class="panel pad" id="serviceDetails" role="region" aria-label="Item information"></aside>
     </div>
 
     <!--

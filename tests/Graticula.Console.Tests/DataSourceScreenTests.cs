@@ -722,9 +722,9 @@ public sealed class DataSourceScreenTests : ConsoleTest
             // Every button in a row shares one top, and none is clipped by the panel.
             string[] staircase = await Browser.EvaluateAsync<string[]>("""
             [...document.querySelectorAll('#sources td.acts')].flatMap(cell => {
-              const tops = [...cell.querySelectorAll('button')].map(b => Math.round(b.getBoundingClientRect().top));
+              const tops = [...cell.querySelectorAll(':scope > button, :scope > details > summary')].map(b => Math.round(b.getBoundingClientRect().top));
               const panel = cell.closest('.panel').getBoundingClientRect();
-              const last = [...cell.querySelectorAll('button')].pop()?.getBoundingClientRect();
+              const last = [...cell.querySelectorAll(':scope > button, :scope > details > summary')].pop()?.getBoundingClientRect();
               const name = cell.parentElement.querySelector('td.name').firstChild.textContent.trim();
               return (new Set(tops).size > 1 ? [`${name}: buttons on ${new Set(tops).size} lines`] : [])
                 .concat(last && last.right > panel.right + 1 ? [`${name}: last button past the panel`] : []);

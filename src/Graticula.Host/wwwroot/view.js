@@ -835,6 +835,23 @@ function saySource() {
     : "Features drawn in this browser, in a style chosen here rather than the layer's";
 }
 
+/**
+ * The heading: the service's own name, with its folder beneath — the UI sweep of 2026-11-02. The heading used to be
+ * `folder/name — layer`, which at 390 px broke mid-word and, with the legend beneath it, said the same path twice.
+ */
+function showHeading(rest) {
+  const parts = SERVICE.split("/");
+  const leaf = parts.pop() || SERVICE;
+  const folder = parts.join("/");
+  // <b>The layer's name only when it adds something — the UI sweep of 2026-11-02, verification round.</b> A layer titled as
+  // its service read "name — name". The document's title starts with what the heading says.
+  if (rest === ` — ${leaf}`) rest = "";
+  $("title").textContent = leaf + rest;
+  document.title = `${leaf + rest} · Graticula`;
+  const sub = $("titleFolder");
+  if (sub) { sub.textContent = folder; sub.hidden = !folder; }
+}
+
 /** The zoom, beside the coordinates, because neither is the whole answer alone. */
 function sayZoom() {
   const where = $("stripZoom");
@@ -910,6 +927,14 @@ function fitWhenSized(extent, token = ++fitFor, frames = 0) {
     const view = map.getView();
     view.setCenter([(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2]);
     view.setResolution(view.getConstrainedResolution(resolution) ?? resolution);
+
+    // <b>Not framed where the layer is not drawn — the UI sweep of 2026-11-02.</b> The whole of a city's buildings is
+    // far outside their minimum scale, so the first screen was a basemap under a notice that, at 390 px, sat in a
+    // panel nobody had opened. A layer with a limit is framed at the scale it starts drawing at, centred on its extent.
+    if (byView && byView.minScale) {
+      const limit = byView.minScale * 0.98 / (96 / 0.0254);
+      if (view.getResolution() > limit) view.setResolution(view.getConstrainedResolution(limit, 1) ?? limit);
+    }
   };
 
   go();
@@ -979,7 +1004,7 @@ function loadMap(document_) {
     + (mapExtent ? `<button id="frameLayer">Frame layer</button>` : "")
     + `<a href="${escape(serviceUrl())}/MapServer?f=html">Service document</a>`;
 
-  $("title").textContent = `${SERVICE} (MapServer)`;
+  showHeading(" (MapServer)");
 
   // <b>Now, not at module scope.</b> The legend names the layer, and at module scope the
   // title is still the markup's placeholder.
@@ -1043,6 +1068,17 @@ function readByView(at, described, count) {
   }
 }
 
+/**
+ * The scale notice on the map itself, in a live region — the UI sweep of 2026-11-02. The same sentence is in the facts,
+ * which a phone does not show, so a reader at 390 px was looking at a basemap with no explanation.
+ */
+function sayNotDrawn(text) {
+  const note = $("scaleNote");
+  if (!note) return;
+  note.hidden = !text;
+  if (note.textContent !== text) note.textContent = text;
+}
+
 /** Reads the features under the view, replacing the last view's. A newer view cancels this one. */
 async function readView() {
   if (!byView) return;
@@ -1067,8 +1103,11 @@ async function readView() {
   if (minScale && viewScale() > minScale) {
     dataSource.clear();
     facts(`Zoom in to 1:${Math.round(minScale).toLocaleString()} to draw it — the layer's visible range`);
+    sayNotDrawn(`Not drawn at this scale. Zoom in past 1:${Math.round(minScale).toLocaleString()} to see it.`);
     return;
   }
+
+  sayNotDrawn("");
 
   const [xmin, ymin, xmax, ymax] = map.getView().calculateExtent(map.getSize());
   const geometry = encodeURIComponent(JSON.stringify(
@@ -1143,7 +1182,7 @@ async function load(layerId, name) {
 
   const at = `${serviceUrl()}/FeatureServer/${encodeURIComponent(layerId)}`;
 
-  $("title").textContent = name ? `${SERVICE} — ${name}` : `${SERVICE} / ${layerId}`;
+  showHeading(name ? ` — ${name}` : ` / ${layerId}`);
 
   /*
     <b>A layer larger than the ceiling is read for the view, not from its first row, 2026-10-10.</b>
@@ -1331,8 +1370,8 @@ $("legendOpen").addEventListener("click", () => toggleOnMap($("legendOpen"), $("
  * shared with the organization is one they could open after it.
  */
 async function refused(status, error) {
-  $("title").textContent = SERVICE;
-  document.title = `${SERVICE} — Graticula`;
+  showHeading("");
+  document.title = `${SERVICE} · Graticula`;
   // The service's own page is the same 404, so the way back is the directory (UX sweep round 2, N9).
   $("back").href = "/rest/services";
   $("back").setAttribute("aria-label", "Back to the services directory");

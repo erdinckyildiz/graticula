@@ -40,31 +40,24 @@ namespace Graticula.Host;
 /// </remarks>
 internal static class RestDirectory
 {
-    /// <summary>The product's mark — a three-by-three grid in white — as the console draws it in its bar.</summary>
+    /// <summary>The product's mark - circle, meridian ellipse, three parallels and a diagonal (ADR-255 section 4) - as the console draws it in its bar.</summary>
     private const string MarkSvg =
-        "<svg viewBox=\"0 0 16 16\" focusable=\"false\"><g fill=\"#fff\">"
-        + "<rect x=\"1\" y=\"1\" width=\"4\" height=\"4\"/><rect x=\"6\" y=\"1\" width=\"4\" height=\"4\"/>"
-        + "<rect x=\"11\" y=\"1\" width=\"4\" height=\"4\"/><rect x=\"1\" y=\"6\" width=\"4\" height=\"4\"/>"
-        + "<rect x=\"6\" y=\"6\" width=\"4\" height=\"4\"/><rect x=\"11\" y=\"6\" width=\"4\" height=\"4\"/>"
-        + "<rect x=\"1\" y=\"11\" width=\"4\" height=\"4\"/><rect x=\"6\" y=\"11\" width=\"4\" height=\"4\"/>"
-        + "<rect x=\"11\" y=\"11\" width=\"4\" height=\"4\"/></g></svg>";
+        "<svg viewBox=\"0 0 32 32\" focusable=\"false\"><g fill=\"none\"><circle class=\"m-a\" cx=\"16\" cy=\"16\" r=\"13.5\" stroke=\"#1565d8\" stroke-width=\"2\"/><ellipse class=\"m-b\" cx=\"16\" cy=\"16\" rx=\"6.5\" ry=\"13.5\" stroke=\"#8fb4ea\" stroke-width=\"1.2\"/><path class=\"m-b\" d=\"M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4\" stroke=\"#8fb4ea\" stroke-width=\"1.2\"/><path class=\"m-a\" d=\"M3.4 20.6 28.6 11.4\" stroke=\"#1565d8\" stroke-width=\"2\"/></g></svg>";
 
-    /// <summary>The site's icon: the mark on the accent disc, as a standalone SVG document.</summary>
+    /// <summary>The site's icon: the graticule mark, as a standalone SVG document.</summary>
     /// <remarks>
     /// <b>Served at <c>/favicon.svg</c> and <c>/favicon.ico</c></b> — UX sweep 2026-10-19: every
     /// page cost a 404 in the browser's console for the icon nobody had served, and the tab showed
-    /// a blank page glyph. The disc is the console's light accent, which reads on a light and a
-    /// dark tab strip alike; an icon cannot follow the page's theme.
+    /// a blank page glyph. Since 2026-11-02 it is the graticule mark (ADR-255 section 4); the stylesheet inside it
+    /// switches to a light variant under a dark colour scheme, the one theme an icon can follow.
     /// </remarks>
     internal const string Favicon =
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\">"
-        + "<circle cx=\"16\" cy=\"16\" r=\"16\" fill=\"#1565d8\"/>"
-        + "<g fill=\"#fff\"><rect x=\"8\" y=\"8\" width=\"4.5\" height=\"4.5\"/>"
-        + "<rect x=\"13.75\" y=\"8\" width=\"4.5\" height=\"4.5\"/><rect x=\"19.5\" y=\"8\" width=\"4.5\" height=\"4.5\"/>"
-        + "<rect x=\"8\" y=\"13.75\" width=\"4.5\" height=\"4.5\"/><rect x=\"13.75\" y=\"13.75\" width=\"4.5\" height=\"4.5\"/>"
-        + "<rect x=\"19.5\" y=\"13.75\" width=\"4.5\" height=\"4.5\"/><rect x=\"8\" y=\"19.5\" width=\"4.5\" height=\"4.5\"/>"
-        + "<rect x=\"13.75\" y=\"19.5\" width=\"4.5\" height=\"4.5\"/><rect x=\"19.5\" y=\"19.5\" width=\"4.5\" height=\"4.5\"/>"
-        + "</g></svg>";
+        + "<style>.a{stroke:#1565d8}.b{stroke:#8fb4ea}@media(prefers-color-scheme:dark){.a{stroke:#dbe8ff}.b{stroke:#7ea6e6}}</style>"
+        + "<g fill=\"none\"><circle class=\"a\" cx=\"16\" cy=\"16\" r=\"14\" stroke-width=\"2.4\"/>"
+        + "<ellipse class=\"b\" cx=\"16\" cy=\"16\" rx=\"6.5\" ry=\"14\" stroke-width=\"1.6\"/>"
+        + "<path class=\"b\" d=\"M2 16h28M4 9.3h24M4 22.7h24\" stroke-width=\"1.6\"/>"
+        + "<path class=\"a\" d=\"M3.4 20.6 28.6 11.4\" stroke-width=\"2.4\"/></g></svg>";
 
     /// <summary>Segments that name a service type rather than a resource.</summary>
     private static readonly HashSet<string> ServiceTypes = new(StringComparer.Ordinal)
@@ -1511,9 +1504,9 @@ internal static class RestDirectory
                            padding: 18px 22px; border-bottom: 1px solid var(--rule); }
               .card-head h1 { margin: 0; font-size: 20px; font-weight: 600; }
               .card-head .where { margin: 2px 0 0; font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
-              .card-head .mark { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid;
-                                 place-items: center; background: var(--accent); }
-              .card-head .mark svg { width: 18px; height: 18px; display: block; }
+              .card-head .mark { width: 34px; height: 34px; flex: none; display: grid; place-items: center; }
+              .card-head .mark svg { width: 34px; height: 34px; display: block; }
+              @media (prefers-color-scheme: dark) { .card-head .mark .m-a { stroke: #dbe8ff; } .card-head .mark .m-b { stroke: #7ea6e6; } }
               .card-body { padding: 16px 22px 22px; }
               .card-body .hint { margin: 0 0 12px; }
               .card-body .hint.other { margin: 4px 0 0; }

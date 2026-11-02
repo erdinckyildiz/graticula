@@ -141,8 +141,11 @@ function wmDrawSaved() {
     ? "Not saved"
     : wmState.dirty ? "Unsaved changes" : "Saved";
   saved.classList.toggle("dirty", !wmState.id || wmState.dirty);
+  // <b>Not for a reader who cannot save — the UI sweep of 2026-11-02.</b> A signed-out visitor to a public map was told
+  // "Not saved" about a map that was never theirs to save; the line is for whoever the Save button is for.
+  saved.hidden = !wmState.id && !(typeof wmMe !== "undefined" && wmMe && wmMe.authenticated);
   wm$("title").textContent = wmState.meta.title || "Untitled map";
-  document.title = `${wmState.meta.title || "Map"} — Graticula`;
+  document.title = `${wmState.meta.title || "Map"} · Graticula`;
 
   // <b>Save where the changes are seen, not only in a tab.</b> The review found Save reachable only by
   // opening *Map*, so a reader who filtered a layer had nothing on screen saying how to keep it.
@@ -363,13 +366,13 @@ function wmQueryBox(extent) {
  * saving the result stored the larger box. The design review measured zoom 13.77 → 13.63 → 13.49 over
  * three save-and-reopen rounds, on a map Studio promises opens *as you left it*.
  */
-function wmFit(extent, frames = 0, margin = 40) {
+function wmFit(extent, frames = 0, margin = 40, done = null) {
   if (!extent || !extent.every(Number.isFinite)) return;
 
   const size = wmMap.getSize();
 
   if (!size || !size[0] || !size[1]) {
-    if (frames < 60) requestAnimationFrame(() => wmFit(extent, frames + 1, margin));
+    if (frames < 60) requestAnimationFrame(() => wmFit(extent, frames + 1, margin, done));
     return;
   }
 
@@ -377,6 +380,7 @@ function wmFit(extent, frames = 0, margin = 40) {
   const box = degenerate ? ol.extent.buffer(extent, 250) : extent;
 
   wmMap.getView().fit(box, { padding: [margin, margin, margin, margin], maxZoom: 18 });
+  if (done) done();
 }
 
 /**
@@ -2713,7 +2717,13 @@ async function wmAddService(name, type, onlyLayer = null) {
   // A map that was empty is framed on what was just added; one that was not keeps its view.
   if (wmLayers().length === entries.length) {
     const boxes = entries.map(wmExtentOf).filter(Boolean);
-    if (boxes.length) wmFit(boxes.reduce((all, box) => ol.extent.extend(all, box), ol.extent.createEmpty()));
+    // <b>Drawn at the first screen, after the fit — the UI sweep of 2026-11-02, verification round.</b> `?service=` arrives
+    // here, not through wmOpen, and the zoom-in ran only there; the fit may also wait for the map's size, so the zoom
+    // is the fit's callback rather than the line after it.
+    if (boxes.length) {
+      wmFit(boxes.reduce((all, box) => ol.extent.extend(all, box), ol.extent.createEmpty()), 0, 40,
+        () => { wmDrawnZoom(); wmDrawRangeNotice(); });
+    }
   }
 
   wmSaySummary();
@@ -3830,8 +3840,12 @@ async function wmOpen(doc) {
   // Nothing said where to look: frame what could be read.
   if (!target) {
     const boxes = wmLayers().map(wmExtentOf).filter(Boolean);
-    if (boxes.length) wmFit(boxes.reduce((all, box) => ol.extent.extend(all, box), ol.extent.createEmpty()));
+    if (boxes.length) {
+      wmFit(boxes.reduce((all, box) => ol.extent.extend(all, box), ol.extent.createEmpty()));
+      wmDrawnZoom();
+    }
   }
+  wmDrawRangeNotice();
 
   // <b>Not over what was said meanwhile — 2026-10-15.</b> The list is drawn before the layers load, so a reader can
   // act while they do: a removal's "was removed." and identify's "Asking 1 layer…" were both replaced by this summary
@@ -3994,7 +4008,7 @@ async function wmStart() {
     }
 
     if (added > 0) {
-      wmSay(`${added} layer${added === 1 ? "" : "s"} from ${service}. Not saved yet.`);
+      wmSay(`${added} layer${added === 1 ? "" : "s"} from ${service}.${wmMe && wmMe.authenticated ? " Not saved yet." : ""}`);
       return;
     }
 
@@ -4173,6 +4187,52 @@ function wmShowTwin(layer, run, truncated) {
   return true;
 }
 
+/**
+ * Zooms in from a framing that drew nothing, to the scale where the first layer that has a limit is drawn — the UI sweep
+ * of 2026-11-02.
+ *
+ * <b>Why.</b> `?service=` framed the layer's whole extent, which for a city's buildings is far outside their 1:72,224
+ * limit: the first screen was a basemap, and at 390 px the sentence that explained it was in a closed panel. Only when
+ * every layer with a limit is outside it, and only toward the zoomed-in side — a map already drawing something is left
+ * where its author framed it. The fit is retried after the layers' info arrives, which is when the limits are known.
+ */
+function wmDrawnZoom() {
+  const limited = wmLayers().filter(layer => {
+    const run = wmRuntime.get(layer);
+    return run && run.info && wmKind(layer) === "feature" && wmLayerRange(layer, run.info).minScale;
+  });
+  if (!limited.length) return;
+  if (wmLayers().some(layer => {
+    const run = wmRuntime.get(layer);
+    return run && run.info && wmKind(layer) === "feature" && wmInRange(layer, run.info);
+  })) return;
+
+  // The layer with the largest minScale draws soonest; 2% inside it so the slack of a rounding is not the margin.
+  const scale = Math.max(...limited.map(layer => wmLayerRange(layer, wmRuntime.get(layer).info).minScale));
+  const view = wmMap.getView();
+  const resolution = (scale * 0.98) / (96 * 39.37);
+  if (view.getResolution() > resolution) view.setResolution(view.getConstrainedResolution(resolution, 1) || resolution);
+}
+
+/**
+ * Says on the map itself that a layer is not drawn at this scale — the UI sweep of 2026-11-02. The sentence used to
+ * live only in the layer list, which at 390 px is a closed panel; an empty map under a closed panel explains nothing.
+ */
+function wmDrawRangeNotice() {
+  const note = wm$("rangeNote");
+  if (!note || !wmState.doc) return;
+  const out = wmLayers().filter(layer => {
+    const run = wmRuntime.get(layer);
+    return layer.visibility !== false && run && run.info && wmKind(layer) === "feature" && !wmInRange(layer, run.info);
+  });
+  if (!out.length) { note.hidden = true; note.textContent = ""; return; }
+  const first = out[0];
+  const text = wmRangeNote(wmLayerRange(first, wmRuntime.get(first).info));
+  const said = out.length === 1 ? text : `${out.length} layers are not drawn at this scale. ${text}`;
+  note.hidden = false;
+  if (note.textContent !== said) note.textContent = said;
+}
+
 /** What the layer list says about a layer the map is outside the range of. */
 function wmRangeNote(range) {
   const scale = value => `1:${Math.round(value).toLocaleString()}`;
@@ -4211,6 +4271,7 @@ wmMap.on("moveend", () => {
     }
   }
   if (crossed) wmDrawLayerList();
+  wmDrawRangeNotice();
 });
 
 /** The scales a Labels panel offers, ArcGIS's named ones, from the world down to a building. */

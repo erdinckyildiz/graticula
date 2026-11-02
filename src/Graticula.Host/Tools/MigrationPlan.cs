@@ -250,6 +250,16 @@ internal static class MigrationPlan
                     .ConfigureAwait(false);
                 continue;
             }
+            catch (InvalidOperationException broken)
+            {
+                // The unreadable-layer skip below, one level up — CI 2026-11-02 again, after the layer-level skip had
+                // shipped: a service whose layer is being deleted answers its own document 500 for the same moment, and
+                // that read had no skip. Counted with the layers, so a fault that breaks every read still fails the plan.
+                unreadable++;
+                await output.WriteLineAsync($"skipped {name}/{type}: could not be read ({broken.Message})")
+                    .ConfigureAwait(false);
+                continue;
+            }
 
             // The service's layers and, since ADR-213, its tables, each listed as the service lists it.
             List<(JsonElement Listed, bool IsTable)> members = [];

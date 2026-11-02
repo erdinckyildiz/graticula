@@ -41,9 +41,11 @@ public sealed class EmptyServiceSweepTests : ConsoleTest
         // panel is in the markup before any script runs, so the wait is for it on screen in the drawn page.
         await OpenAsync("/server/services", token);
 
-        await WaitForAsync(
-            "!!document.querySelector('#tabs a') && " + Shown("#emptySweep") + " && " + Shown("#emptyRead"),
-            "Services has no empty-services panel on screen.");
+        // The panel is chosen from the list's ⋯ menu since the redesign of 2026-11-02, and drawn when it is.
+        await WaitForAsync("!!document.querySelector('#tabs a') && !!document.getElementById('emptyOpen')", "Services has no Empty services item.");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#emptySweep")), "The empty-services panel is on the page before it is asked for.");
+        await ClickAsync("#emptyOpen");
+        await WaitForAsync(Shown("#emptySweep") + " && " + Shown("#emptyRead"), "Services has no empty-services panel on screen.");
 
         Assert.True(
             await Browser.EvaluateAsync<bool>(

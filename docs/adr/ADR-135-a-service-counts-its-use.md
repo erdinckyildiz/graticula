@@ -78,3 +78,14 @@ and its `numViews` on the portal face.
 ## 9. Revisit triggers
 
 - `service_usage` measured large enough to need its old days rolled up.
+
+## 10. Amendment of 2026-11-02 — a row's menu is back on a phone, as a 44-pixel ⋯
+
+**Owner decision 2026-11-02, from the ArcGIS Enterprise phone layout.** ADR-135 hid My content's row menu at 480 px and
+below so that a row could give its width to the name and its usage count ("the item page and the selection bar keep every
+action"). The phone layout (ADR-187 §11) reverses that **at 720 px and below**: each row is a card with its name, type and
+facts on the left, its picture top-right at 72 × 48, and the ⋯ — 44 × 44 pixels, opening the same menu (Open in Map Viewer,
+Move to folder…, the document, Delete…) as a bottom sheet — beside it. The count and the usage sentence stay in the
+facts line, so the row loses nothing the old rule bought. The old rule (`#contentRows td:last-child { display: none }`) is
+still in the stylesheet and is overridden by the phone block, which says so. Wide layouts are unchanged.
+

@@ -81,6 +81,8 @@ public sealed class DocumentScreensTests : ConsoleTest
             await Browser.EvaluateAsync<bool>("(document.querySelector('#contentRows td.name a').click(), true)");
             await WaitForAsync($"(document.getElementById('docTitle')?.textContent || '').includes('{title}')",
                 "The row did not open the document's page.");
+            // Download, Replace and the rest are behind ⋯ since the redesign of 2026-11-02 (ADR-255): opened first.
+            await Browser.EvaluateAsync<bool>("(document.querySelector('#docActions details.itemmore').open = true, true)");
             foreach (string control in new[] { "docDownload", "docReplace", "docShareOpen" })
             {
                 Assert.True(await Browser.EvaluateAsync<bool>($"!!document.getElementById('{control}') && document.getElementById('{control}').offsetParent !== null"),

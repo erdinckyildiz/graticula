@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graticula — map</title>
+<title>Map · Graticula</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <!--
@@ -69,10 +69,10 @@
   #studioBar { display: flex; align-items: stretch; gap: 12px; padding: 0 20px; min-height: 52px; min-width: 0;
                background: var(--surface); border-bottom: 1px solid var(--rule); }
   #brand { display: flex; align-items: center; gap: 10px; flex: none; color: var(--ink); text-decoration: none; }
-  #brand .mark { width: 28px; height: 28px; flex: none; border-radius: 50%; background: var(--accent);
-                 display: grid; place-items: center; }
-  :root[data-theme="dark"] #brand .mark { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
-  #brand .mark svg { width: 16px; height: 16px; display: block; }
+  #brand .mark { width: 28px; height: 28px; flex: none; display: grid; place-items: center; }
+  :root[data-theme="dark"] #brand .mark .m-a { stroke: #dbe8ff; }
+  :root[data-theme="dark"] #brand .mark .m-b { stroke: #7ea6e6; }
+  #brand .mark svg { width: 28px; height: 28px; display: block; }
   #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
   #brand .surf { font-size: 14px; font-weight: 500; color: var(--muted); }
   #studioNav { display: flex; gap: 2px; margin-left: 12px; min-width: 0; }
@@ -414,6 +414,11 @@
   #identify .feature { border-top: 2px solid var(--surface-2); }
   #identify p { margin: 8px 10px; color: var(--muted); }
 
+  /* The UI sweep of 2026-11-02: a layer outside its scale range is said on the map, not only in a closed panel. */
+  #rangeNote { position: absolute; z-index: 30; top: 12px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px);
+    margin: 0; padding: 6px 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface);
+    color: var(--ink); font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.2); text-align: center; }
+  #rangeNote[hidden] { display: none; }
   #strip { position: absolute; z-index: 30; left: 12px; bottom: 12px; display: flex; gap: 12px;
            align-items: center; padding: 5px 10px; border-radius: var(--round); background: var(--veil);
            border: 1px solid var(--rule-strong); font-size: 12px; color: var(--ink); }
@@ -505,7 +510,7 @@
   <!-- Studio's bar (UX sweep M1): this page is Studio's Map, so it carries Studio's sections as the console draws them. -->
   <header id="studioBar">
     <a id="brand" href="/studio/content" aria-label="Graticula Studio, Content">
-      <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
       <span class="name">Graticula</span>
       <span class="surf">Studio</span>
     </a>
@@ -667,6 +672,7 @@
 
     <div id="mapWrap">
       <div id="map" tabindex="0" aria-label="Map. Click it to see the features or pixel values at that point, or press Enter to see what is at the center."></div>
+      <p id="rangeNote" role="status" aria-live="polite" hidden></p>
       <div id="identify" role="region" aria-label="What is here" hidden></div>
       <div id="strip"><span id="stripScale"></span><span id="stripWhere"></span></div>
       <!-- ADR-134: drawing a new feature without a mouse — place at the centre, undo, finish, cancel. -->
