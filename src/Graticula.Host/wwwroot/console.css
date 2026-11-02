@@ -6977,3 +6977,259 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
     :root #navDrawer, :root #navDrawer.open { transition: none; }
   }
 }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The desktop layout, 2026-11-02 — owner decision after the mockups ("Ben çok beğendim. Buna geç."), the redesign
+   after ArcGIS Enterprise's structure (ADR-228).</b> Above 720 pixels (the phone has its own block above). One bar of
+   56 pixels: the mark and the name, the surface's sections with an underline under the current one, the search, the
+   account. The utility line that stood over the bar is gone: the switch between surfaces, the server's health, the
+   theme and Sign out are in the account menu (console.js moves `#surfaces` and `#healthDot` into its sheet). A
+   page's head is its title and one control; the paragraph under it, the two-step notice's three lines and the row
+   menus' words are shortened to what each screen's mockup draws. Nothing here adds a control or removes one.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 721px) {
+  :root { --header-h: 56px; }
+  html:root header:has(#utilbar), html:root header:has(#globalSearch:not([hidden])) {
+    display: grid; box-sizing: border-box; height: 56px; min-height: 0; padding: 0 20px; column-gap: 24px; row-gap: 0;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-rows: 56px;
+    grid-template-areas: "brand tenant tabs search acct";
+    align-items: stretch;
+  }
+  :root header #brand { grid-area: brand; align-self: center; padding: 0; gap: 8px; }
+  :root header #brand .badge {
+    padding: 0; border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 500; letter-spacing: 0;
+  }
+  /* The utility line dissolves: its children are the bar's own grid items, and what it held for the account is the menu's. */
+  :root header #utilbar { display: contents; }
+  :root header #utilbar > #tenantName { grid-area: tenant; align-self: center; order: 0; max-width: 24ch; }
+  :root header #utilbar > #healthLine, :root[data-surface] header #utilbar > #healthLine { display: none; }
+  :root header #utilbar > .right { grid-area: acct; margin: 0; align-self: center; }
+  :root header #tabs { grid-area: tabs; margin: 0; gap: 4px; min-height: 0; }
+  :root header #tabs a[data-tab], :root header #tabs a[data-link] {
+    display: flex; align-items: center; padding: 0 12px; border-bottom: 3px solid transparent;
+  }
+  :root header #tabs a[data-tab][aria-current="page"], :root header #tabs a[data-link][aria-current="page"] {
+    border-bottom-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  :root header #globalSearch { grid-area: search; margin: 0; align-self: center; }
+  :root header #globalSearch input { width: 320px; max-width: 26vw; height: 36px; box-sizing: border-box; }
+  /* The phone's controls are not drawn on a wide bar. */
+  :root header .barbtn { display: none; }
+
+  /* ── The account menu: who, the switch, health, the theme, Sign out ── */
+  :root header .usermenu > summary { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px; font-size: 14px; color: var(--ink); }
+  :root header .usermenu .initial { width: 30px; height: 30px; font-size: 14px; }
+  :root header .usermenu .sheet { min-width: 260px; padding: 6px; }
+  :root header #utilbar .usermenu .sheet #surfaces {
+    display: flex; flex-direction: column; gap: 0; padding: 6px 0; margin: 4px 0; background: none; border: 0;
+    border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); border-radius: 0;
+  }
+  :root header #utilbar .usermenu .sheet #surfaces[hidden] { display: none; }
+  :root header #utilbar .usermenu .sheet #surfaces::before {
+    content: "Switch to"; padding: 2px 10px 4px; color: var(--muted); font-size: 12px; font-weight: 600;
+  }
+  :root header #utilbar .usermenu .sheet #surfaces a, :root header #utilbar .usermenu .sheet #surfaces a + a {
+    display: block; padding: 8px 10px; border: 0; border-radius: 3px; background: none; color: var(--ink);
+    font-size: var(--t-small); font-weight: 400;
+  }
+  :root header #utilbar .usermenu .sheet #surfaces a[hidden] { display: none; }
+  :root header #utilbar .usermenu .sheet #surfaces a:hover { background: var(--surface-2); text-decoration: none; }
+  :root header #utilbar .usermenu .sheet #surfaces a[aria-current] { color: var(--accent-ink); font-weight: 600; background: none; }
+  :root header #utilbar .usermenu .sheet #healthDot {
+    display: flex; align-items: center; margin: 0 0 4px; padding: 8px 10px; border: 0; border-radius: 3px; background: none;
+    font-size: var(--t-small);
+  }
+  :root header #utilbar .usermenu .sheet #healthDot[hidden] { display: none; }
+  :root header #utilbar .usermenu .sheet #healthDot:hover { background: var(--surface-2); }
+
+  /* ── The two-step notice: one thin line, edge to edge ── */
+  main#app > .factornotice#factorNotice {
+    flex-wrap: nowrap; min-height: 36px; margin: calc(-1 * var(--gap-6)) calc(-1 * clamp(var(--gap-5), 3vw, 44px)) var(--gap-5);
+    padding: 0 20px; gap: var(--gap-3); border-width: 0 0 1px; border-radius: 0; font-size: 13px;
+  }
+  #factorNotice > p { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #factorNotice > #factorNoticeShort { display: none; }
+  #factorNotice > #factorNoticeHide { margin-left: auto; }
+
+  /* ── A page's head is its title and one control; the paragraph under it is where the mockup left it: nowhere ── */
+  #view-content .pagehead p, #view-groups .pagehead p, #view-members .pagehead p, #view-roles .pagehead p,
+  #view-orgsettings .pagehead p { display: none; }
+  .pagehead { margin-bottom: var(--gap-4); align-items: center; }
+  .pagehead h1 { font-size: 24px; line-height: 1.25; margin: 0; }
+}
+@media (min-width: 721px) and (max-width: 1000px) {
+  :root header #globalSearch input { width: 200px; max-width: 22vw; }
+  html:root header:has(#utilbar), html:root header:has(#globalSearch:not([hidden])) { column-gap: 12px; padding: 0 12px; }
+}
+
+/* ── An item on a wide window (the redesign of 2026-11-02): no breadcrumb, a small thumbnail with a pencil, a title and one
+      meta line, Open in Map Viewer / Share / ⋯ at the right, the tabs under it; Description and Layers on the left, Item
+      information on the right. The bar's back arrow, which a phone draws too, is the way to the parent. ── */
+@media (min-width: 721px) {
+  #view-service .crumbs, #view-map .crumbs, #view-document .crumbs, #view-group .crumbs { display: none; }
+  :root header #barBack:not([hidden]) {
+    display: inline-flex; position: absolute; left: 6px; top: 8px; width: 40px; height: 40px; z-index: 1;
+  }
+  :root header:has(#barBack:not([hidden])) #brand { margin-left: 28px; }
+
+  #itemThumb .thumb, #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 88px; height: 64px; }
+  #itemThumb .thumbcol { position: relative; }
+  #itemThumb .thumbcol [data-redraw-thumb] {
+    position: absolute; right: -10px; bottom: -10px; width: 32px; height: 32px; padding: 0; border: 0; background: none;
+    font-size: 0; color: var(--ink); box-shadow: none; min-height: 0;
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::before {
+    content: ""; position: absolute; left: 0; top: 0; width: 28px; height: 28px; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: 50%; background: var(--surface);
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::after {
+    content: ""; position: absolute; left: 7px; top: 7px; width: 14px; height: 14px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  #itemThumb .thumbcol .hint { display: none; }
+  #servicePagehead > .herotext h1, #mapPagehead > .herotext h1, #docPagehead > .herotext h1 { font-size: 24px; margin: 0 0 2px; }
+  #servicePagehead > #itemThumb { margin-right: var(--gap-4); }
+  #itemActions:not([hidden]), #mapActions, #docActions {
+    display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; max-width: none;
+  }
+  #servicePagehead > #itemActions { max-width: none; }
+  #itemActions > a.btn.primary, #mapActions > a.btn.primary, #docActions > button.primary { flex: none; text-align: center; }
+  :root #itemActions .itemmore > summary, :root #mapActions .itemmore > summary, :root #docActions .itemmore > summary {
+    display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); font-size: 0;
+  }
+  :root #itemActions .itemmore > summary::before, :root #mapActions .itemmore > summary::before,
+  :root #docActions .itemmore > summary::before { content: "\22EF"; font-size: 20px; line-height: 1; color: var(--ink); }
+  :root #itemActions .itemmore .sheet [hidden], :root #mapActions .itemmore .sheet [hidden],
+  :root #docActions .itemmore .sheet [hidden] { display: none; }
+  .menu .sheet [hidden] { display: none; }
+
+  /* Overview: Description and Layers on the left, Item information on the right. */
+  #serviceOverview.itemgrid, #serviceOverview.itemgrid:has(> .itemmain > #serviceLayersPanel[hidden]) {
+    grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: none; align-items: start;
+  }
+  #serviceOverview #serviceHead { grid-column: 1; grid-row: 1; }
+  #serviceOverview #serviceLayersHead { grid-column: 1; grid-row: 2; }
+  #serviceOverview #serviceLayersPanel { grid-column: 1; grid-row: 3; }
+  #serviceOverview > #serviceDetails { grid-column: 2; grid-row: 1 / span 3; }
+}
+@media (min-width: 721px) and (max-width: 900px) {
+  #serviceOverview.itemgrid, #serviceOverview.itemgrid:has(> .itemmain > #serviceLayersPanel[hidden]) { grid-template-columns: minmax(0, 1fr) 280px; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The sign-in page with the mark — 2026-11-02, owner decision after the mockups (SigninV2 and PhoneSigninV2).</b>
+   On a wide window the navy brand panel is the left 600 pixels and the card stands in the middle of what is left; on a
+   phone the panel is the navy top and the card is a sheet rounded at the top, rising from below. `#0f1d33` is the one
+   colour this adds, and it is the same in both themes: the panel is the brand's and does not follow the reader's. The
+   card keeps every control it had — the code step, the providers, "From another organization?", the refusal.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+html:root #signin {
+  display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); align-items: center; justify-items: center;
+  width: 100%; max-width: none; min-height: 100vh; margin: 0; padding: 0; background: var(--paper);
+}
+html:root #signin .signin-brand {
+  grid-column: 1; grid-row: 1; justify-self: stretch; align-self: stretch; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; padding: 56px;
+  background: #0f1d33; color: #e6ebf4;
+}
+.signin-watermark { position: absolute; right: -260px; bottom: -220px; width: 760px; height: 760px; opacity: .16; pointer-events: none; }
+.signin-logo, .signin-pitch, .signin-org { position: relative; }
+.signin-logo { display: flex; align-items: center; gap: 14px; }
+.signin-mark { width: 44px; height: 44px; flex: none; display: block; }
+.signin-wordmark { font-size: 22px; font-weight: 700; letter-spacing: .08em; color: #fff; }
+.signin-pitch { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.signin-line { margin: 0; font-size: 34px; line-height: 1.2; font-weight: 600; color: #fff; }
+.signin-subline { margin: 0; font-size: 16px; line-height: 1.5; color: #b9c6dc; }
+.signin-org { font-size: 13px; color: #9fb0cb; overflow-wrap: anywhere; }
+html:root #signin > form.panel {
+  grid-column: 2; grid-row: 1; width: 380px; max-width: calc(100% - 32px); box-sizing: border-box;
+  border-radius: 12px; box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
+}
+html:root #signin .signin-head { border-bottom: 0; padding: 36px 36px 6px; }
+html:root #signin .signin-head h1 { font-size: 24px; }
+html:root #signin .signin-head .mark { display: none; }
+html:root #signin .signin-body { padding: var(--gap-2) 36px 30px; }
+html:root #signin label { color: var(--ink); font-weight: 600; }
+html:root #signin #u, html:root #signin #p { min-height: 44px; border-radius: 6px; }
+html:root #signin label.keep { font-weight: 400; }
+html:root #signin button.primary { min-height: 46px; font-size: 15px; font-weight: 600; }
+html:root #signin .signin-stranger { padding: var(--gap-3) 36px; }
+html:root #mustchange { max-width: 420px; }
+html:root #mustchange .panel { border-radius: 12px; box-shadow: 0 1px 2px rgba(16, 24, 40, .06); }
+@media (max-width: 720px) {
+  html:root #signin { display: flex; flex-direction: column; align-items: stretch; background: #0f1d33; min-height: 100vh; min-height: 100dvh; }
+  html:root #signin .signin-brand {
+    flex: none; height: 260px; padding: 0; align-items: center; justify-content: center; gap: 14px; text-align: center;
+  }
+  .signin-watermark, .signin-pitch, .signin-org { display: none; }
+  .signin-logo { flex-direction: column; gap: 14px; }
+  html:root #signin > form.panel {
+    flex: 1 1 auto; width: auto; max-width: none; border: 0; border-radius: 20px 20px 0 0; box-shadow: none; background: var(--surface);
+  }
+  html:root #signin .signin-head { padding: 32px 24px 6px; }
+  html:root #signin .signin-body { padding: var(--gap-2) 24px 24px; }
+  html:root #signin #u, html:root #signin #p { min-height: 48px; border-radius: 8px; font-size: 16px; }
+  html:root #signin label.keep { min-height: 44px; font-size: 15px; }
+  html:root #signin button.primary { min-height: 50px; border-radius: 8px; font-size: 16px; }
+  html:root #signin .reveal-toggle { min-height: 44px; padding: 0 14px; font-size: 15px; }
+  html:root #signin .signin-stranger { padding: var(--gap-3) 24px; }
+}
+/* The bar waits for a session, as it always did; the desktop grid above would otherwise draw it over the sign-in page. */
+html[data-session="none"]:root #main > header { display: none; }
+
+/* Where the account menu offers two-step sign-in once the notice is dismissed — styled like its neighbours, both layouts. */
+#accountTwoStep[hidden] { display: none; }
+.menu .sheet #accountTwoStep { display: block; }
+#itemActions .itemmore, #mapActions .itemmore, #docActions .itemmore { position: relative; }
+#itemActions .itemmore > .sheet, #mapActions .itemmore > .sheet, #docActions .itemmore > .sheet { right: 0; left: auto; top: calc(100% + 4px); }
+.gtile { display: none; }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>Phone fixes from the ux-designer's verification of 2026-11-02.</b> (1) An open row menu stood under the next rows'
+   own ⋯ — the row is raised while its menu is open. (2) A name that is one long word (tr_il_buildings_postgis) was cut under
+   the picture: the cell may shrink and the word may break. (3) Groups' rows carry a letter tile, and the meta line is
+   written once, not by the old data-l label and the new suffix together. (5) The Select-all band paints its whole row.
+   (10) Targets of 44 pixels. (11) The account's role line wraps.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 720px) {
+  #contentRows tr.mediarow, #members tr, #view-groups #groupRows tr.pick { position: relative; }
+  #contentRows tr.mediarow:has(details[open]), #members tr:has(details[open]), #view-groups #groupRows tr.pick:has(details[open]) {
+    z-index: 900;
+  }
+  #contentRows tr.mediarow td.name, #contentRows tr.mediarow .svctitle { min-width: 0; overflow-wrap: anywhere; }
+  #contentRows tr.mediarow .svctitle > a { overflow-wrap: anywhere; word-break: break-word; }
+
+  #view-groups #groupRows tr.pick { padding-left: 62px; min-height: 60px; align-content: center; }
+  #view-groups #groupRows .gtile {
+    display: flex; align-items: center; justify-content: center; position: absolute; left: 12px; top: 10px; width: 40px; height: 40px;
+    border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  }
+  #view-groups #groupRows td[data-l]::before { content: none; }
+  #view-groups #groupRows td[data-l="Owner"]::before { content: "owner "; }
+  #view-groups #groupRows td[data-l="You are"]::before { content: "you are "; }
+  #view-groups #groupRows td[data-l="Members may"]::before { content: "members "; }
+  #view-groups #groupRows td[data-l="Members"][data-one]::after { content: " member"; }
+  #view-groups #groupRows td[data-l="Items"][data-one]::after { content: " item"; }
+  #view-groups #groupRows td.name .val { display: block; margin-left: 0; }
+  /* Spaces, not rules between the facts: a rule that starts a wrapped line is a stray one. */
+  #view-groups #groupRows tr.pick { column-gap: 12px; }
+  #view-groups #groupRows tr.pick td[data-l]:not([data-l="Owner"]) { margin-left: 0; padding-left: 0; border-left: 0; }
+
+  #contentTable thead tr { display: flex; background: var(--surface-2); }
+  #contentTable thead th.tick { flex: 1 1 auto; }
+
+  #view-orgsettings button, #view-orgsettings .dialogfoot button { min-height: 44px; }
+  details.rowmenu > .rowmenubody button, details.rowmenu > .rowmenubody a { min-height: 44px; display: flex; align-items: center; }
+  .pager button { min-height: 44px; min-width: 44px; }
+  #drawerAccount #who { white-space: normal; overflow: visible; text-overflow: clip; }
+  #drawerAccount #who small, #drawerAccount #who span { white-space: normal; }
+  #drawerAccount #accountTwoStep {
+    display: flex; align-items: center; width: 100%; min-height: 48px; padding: 0 16px; border-radius: 0; color: var(--ink);
+    font-size: 15px; text-decoration: none; box-sizing: border-box;
+  }
+  #drawerAccount #accountTwoStep[hidden] { display: none; }
+  #drawerAccount #accountTwoStep:hover { background: var(--surface-2); }
+}

@@ -528,7 +528,7 @@ async function loadGroups() {
       // tinted first row with a bar read as *the group you are in*. Hover is the whole of the affordance.
       : pageOf("groupRows", shown).map(g => `
       <tr class="pick" data-group="${h(g.name)}">
-        <td class="name"><a href="#/group/${encodeURIComponent(g.name)}"
+        <td class="name"><span class="gtile" aria-hidden="true">${h(Array.from(g.title || g.name)[0] || "?").toUpperCase()}</span><a href="#/group/${encodeURIComponent(g.name)}"
             >${h(g.title || g.name)}</a>${g.title && g.title !== g.name
           ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
         <td class="val" data-l="Members may"><span>${g.itemUpdate === "allItems"
@@ -538,8 +538,8 @@ async function loadGroups() {
           ? `<span class="val">member</span>`
           : `<b>${h(g.standing)}</b>`}</td>
         <td class="val" data-l="Owner"><span>${h(g.owner || "—")}</span></td>
-        <td class="num" data-l="Members"><span>${num(g.members)}</span></td>
-        <td class="num" data-l="Items"><span>${num(g.items)}</span></td>
+        <td class="num" data-l="Members"${g.members === 1 ? " data-one" : ""}><span>${num(g.members)}</span></td>
+        <td class="num" data-l="Items"${g.items === 1 ? " data-one" : ""}><span>${num(g.items)}</span></td>
       </tr>`).join("");
 
   $("groupsPager").innerHTML = pagerFor("groupRows", shown.length);
@@ -16370,7 +16370,9 @@ async function drawFactorNotice() {
   const administrator = !!signedInAs && (whoNow?.roles || []).includes("administrator");
   let hidden = true;
   try { hidden = sessionStorage.getItem(FACTOR_NOTICE_KEY) === "hidden"; } catch { /* private mode: show it */ }
-  if (!administrator || hidden) { notice.hidden = true; return; }
+  const entry = $("accountTwoStep");
+  if (entry) entry.hidden = true;
+  if (!administrator) { notice.hidden = true; return; }
 
   let state;
   try {
@@ -16381,6 +16383,13 @@ async function drawFactorNotice() {
   }
 
   if (!state.available || state.enabled) { notice.hidden = true; return; }
+
+  // The account menu keeps the way in after the line is dismissed, as the phone mockup's drawer does.
+  if (entry) {
+    entry.href = `/studio/user/${encodeURIComponent(signedInAs)}?security`;
+    entry.hidden = false;
+  }
+  if (hidden) { notice.hidden = true; return; }
 
   $("factorNoticeText").textContent = state.required
     ? "Your organization requires two-step sign-in and your account does not have it yet. Your next sign-in will ask "
@@ -16635,6 +16644,20 @@ document.addEventListener("change", event => {
  * menu still open after Escape and after a click elsewhere, and still open over the New group dialog. Its own listeners,
  * so no early return in a shared one can silence it; Escape hands focus back to the menu's summary.
  */
+// A modal overlay keeps Tab inside it: the page behind is inert, so without this the last control hands focus to the body.
+document.addEventListener("keydown", event => {
+  if (event.key !== "Tab" || !phoneOverlay || !phoneOverlay.modal) return;
+  const fields = [...phoneOverlay.el.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex='-1'])")]
+    .filter(node => !node.disabled && node.getClientRects().length > 0 && node.tabIndex >= 0);
+  if (fields.length === 0) return;
+  const first = fields[0], last = fields[fields.length - 1];
+  if (event.shiftKey && (document.activeElement === first || !phoneOverlay.el.contains(document.activeElement))) {
+    event.preventDefault(); last.focus();
+  } else if (!event.shiftKey && (document.activeElement === last || !phoneOverlay.el.contains(document.activeElement))) {
+    event.preventDefault(); first.focus();
+  }
+});
+
 document.addEventListener("keydown", event => {
   if (event.key !== "Escape") return;
   const open = [...document.querySelectorAll("details.menu[open], details.rowmenu[open]")];
@@ -33677,6 +33700,7 @@ async function start() {
 
     // Which server this is — the head's second line, as the portal's names its own.
     $("signinWhere").textContent = location.host;
+    if (!$("signinOrg").textContent) $("signinOrg").textContent = location.host;
 
     // ADR-088: a way in through each provider, back to where this page was.
     drawSigninProviders();
@@ -38185,6 +38209,8 @@ function drawTenancy(me) {
   // The sign-in card names the organization too: it is the one page where the reader has not yet said who they are,
   // and the host name alone does not tell somebody which organization's password to type.
   if ($("signinTitle")) $("signinTitle").textContent = several && called ? `Sign in to ${called}` : "Sign in to Graticula";
+  // The brand panel's last line (the redesign of 2026-11-02): the organization's name, or the host where the server is one's own.
+  if ($("signinOrg")) $("signinOrg").textContent = several && called ? called : location.host;
 
   // ADR-204 §5e item 16: how a member of another organization signs in here, under the name field, and nowhere on a
   // server of one. The description is attached here rather than in the markup: a hidden element's text is still read.
@@ -40169,7 +40195,9 @@ $("globalSearch").addEventListener("submit", () => { if (phoneOverlay?.el === $(
  * wants to leave the page they are on.
  */
 function phoneSyncBack() {
-  const crumb = document.querySelector(".view.on .crumbs a[href]");
+  // A phone goes back to the first step; a wide window, which hides the breadcrumb (the redesign of 2026-11-02), to the nearest.
+  const links = document.querySelectorAll(".view.on .crumbs a[href]");
+  const crumb = PHONE.matches ? links[0] : links[links.length - 1];
   const back = $("barBack");
   back.hidden = !crumb;
   if (!crumb) return;
@@ -40345,7 +40373,7 @@ const PHONE_ACTION_ROWS = ["itemActions", "mapActions", "docActions"];
 function phoneFoldActions(row) {
   if (!row || !phoneReady) return;
   phoneFolds.delete(row);
-  if (!PHONE.matches) return;
+  // The redesign of 2026-11-02 folds the row on a wide window too: Open in Map Viewer, Share and ⋯, as the mockups draw it.
 
   const own = selector => row.querySelector(`:scope > ${selector}`);
   const primary = own("a.btn.primary, button.primary");
@@ -40386,6 +40414,21 @@ function phoneUnfoldActions() {
 
 // -------------------------------------------------------------------------------------------- put it all in place
 
+/**
+ * <b>The account menu holds the way to the other surfaces and the server's health — the redesign of 2026-11-02, after
+ * ArcGIS Enterprise, on a wide window.</b> The utility line above the bar is gone, so `#surfaces` and `#healthDot` are
+ * moved into the menu's sheet and back to `#utilbar` when the window narrows (the phone's drawer lists them itself).
+ * Moved and never copied, so the ids, `refreshHealth` and the router's `aria-current` stay what they were.
+ */
+const deskParked = [];
+for (const id of ["surfaces", "healthDot"]) {
+  const node = $(id);
+  if (!node) continue;
+  const marker = document.createComment("where this is drawn on a phone");
+  node.before(marker);
+  deskParked.push({ node, marker });
+}
+
 phonePark($("userMenu").querySelector(".sheet"), $("drawerAccount"));
 phonePark($("contentIdle").closest("label"), $("contentSheetIdle"));
 phonePark($("pageActionContent"), $("contentToolbar"));
@@ -40400,14 +40443,17 @@ phonePark($("memberCount"), $("memberNarrowBar"));
 function phonePlace() {
   const phone = PHONE.matches;
 
+  // The surface switch and the health pill first, so a phone's drawer never carries them inside the account's sheet.
+  const sheet = $("userMenu").querySelector(".sheet");
+  for (const { node, marker } of deskParked) {
+    if (phone) marker.after(node); else sheet.insertBefore(node, $("myProfile"));
+  }
+
   for (const { node, marker, home } of phoneParked) {
     if (phone) home.append(node); else marker.after(node);
   }
 
-  if (!phone) {
-    phoneClose(false);
-    phoneUnfoldActions();
-  }
+  if (!phone) phoneClose(false);
 
   const dialogs = [["navDrawer", "aria-label", "Menu"], ["contentSide", "aria-labelledby", "contentSheetTitle"],
     ["memberSide", "aria-labelledby", "memberSheetTitle"]];
@@ -40424,11 +40470,11 @@ function phonePlace() {
     }
   }
 
-  if (phone) for (const id of PHONE_ACTION_ROWS) phoneFoldActions($(id));
+  for (const id of PHONE_ACTION_ROWS) phoneFoldActions($(id));
 }
 
 phoneReady = true;
-PHONE.addEventListener("change", phonePlace);
+PHONE.addEventListener("change", () => { phonePlace(); phoneSyncBack(); });
 phonePlace();
 phoneNavMenus();
 phoneSyncBack();

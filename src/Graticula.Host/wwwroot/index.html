@@ -74,7 +74,7 @@
 </head>
 <body>
 <!-- First focusable element: "Skip to content" (the UI sweep of 2026-11-02); console.js moves focus to main. -->
-<a id="skipToContent" class="skiplink" href="#">Skip to content</a>
+<nav aria-label="Skip links"><a id="skipToContent" class="skiplink" href="#">Skip to content</a></nav>
 
 <!--
   The header is shared by both surfaces (ADR-034 §5a) and names which one you are in. The
@@ -204,6 +204,8 @@
             <div id="who"></div>
             <!-- Dark or light, chosen by the reader and remembered (ADR-187 step 4); the words name what it turns on. -->
             <a id="myProfile" href="/studio/" hidden>My profile</a>
+            <!-- Where the two-step notice's "Not now" leaves it: set up while the account has none (the phone layout fix of 2026-11-02). -->
+            <a id="accountTwoStep" href="/studio/" hidden>Set up two-step sign-in</a>
             <button id="themeToggle" type="button">Dark mode</button>
             <button id="signout" style="display:none">Sign out</button>
           </div>
@@ -252,6 +254,25 @@
     The note that stood at the foot of this card, about the admin API and ADR-020, was written for
     a developer reading the page and is gone for the same reason.
   -->
+  <!--
+    <b>The brand panel — the redesign of 2026-11-02, after the owner's mockups ("Sign in, with the mark").</b> On the left of a
+    wide window, and the navy top of a phone: the graticule mark drawn large and faint behind the page, the mark and the
+    name, what the product is for, and which organization this is. It is the page's own furniture and holds no control.
+    The mark is the mockup's — circle, a meridian ellipse, three parallels and a diagonal, white and #8fb4ea. It is not
+    `/favicon.svg`, which is still the nine squares in a blue circle (open question in ADR-228).
+  -->
+  <div class="signin-brand">
+    <svg class="signin-watermark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><g fill="none" stroke="#8fb4ea"><circle cx="16" cy="16" r="13.5" stroke-width=".25"/><ellipse cx="16" cy="16" rx="6.5" ry="13.5" stroke-width=".18"/><ellipse cx="16" cy="16" rx="10.5" ry="13.5" stroke-width=".12"/><path d="M16 2.5v27" stroke-width=".18"/><path d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4M7.6 5.2h16.8M7.6 26.8h16.8" stroke-width=".15"/></g></svg>
+    <div class="signin-logo">
+      <svg class="signin-mark" viewBox="0 0 32 32" role="img" aria-label="Graticula"><g fill="none"><circle cx="16" cy="16" r="13.5" stroke="#ffffff" stroke-width="2"/><ellipse cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path d="M3.4 20.6 28.6 11.4" stroke="#ffffff" stroke-width="2"/></g></svg>
+      <span class="signin-wordmark">GRATICULA</span>
+    </div>
+    <div class="signin-pitch">
+      <p class="signin-line">Your maps, your data, your server.</p>
+      <p class="signin-subline">Studio for content and maps. Server for the services behind them.</p>
+    </div>
+    <span class="signin-org" id="signinOrg"></span>
+  </div>
   <form class="panel" id="signinForm" method="post" action="">
     <div class="signin-head">
       <div>
@@ -281,7 +302,7 @@
     <div id="signinCreds">
     <!-- ADR-088: a way in through each provider the operator configured, filled in when this panel is shown. -->
     <div id="signinProviders" hidden></div>
-    <label for="u">Name</label>
+    <label for="u">User name</label>
     <input type="text" id="u" autocomplete="username" autofocus>
     <!--
       <b>How a member of another organization signs in here</b> — ADR-204 §5e item 16. A bare name is always one of
@@ -638,7 +659,7 @@
       reached you, your folders, and the types present as ticks with their counts. Below 1,100 pixels it
       lies above the list.
     -->
-    <aside id="contentSide" aria-labelledby="contentSheetTitle">
+    <section id="contentSide" aria-labelledby="contentSheetTitle">
       <!-- At 720 pixels and below this aside is a full-screen sheet (the phone layout of 2026-11-02): a head with a Close, the
            scopes, folders and types as they are, and a foot whose Show closes the sheet on the list it has already filtered. -->
       <div class="sheethead">
@@ -661,7 +682,7 @@
         <button type="button" class="ghost" id="contentSheetClear">Clear</button>
         <button type="button" class="primary" id="contentSheetShow">Show items</button>
       </div>
-    </aside>
+    </section>
 
     <!--
       <b>Search, type and order are always there, 2026-09-30.</b> The search box appeared only once a
@@ -1850,7 +1871,7 @@
       <nav class="segmented solid" id="mapTabs" aria-label="Item"></nav>
     </div>
     <div class="mapitem" id="mapOverview">
-      <aside class="panel" id="mapSide"></aside>
+      <aside class="panel" id="mapSide" role="region" aria-label="Item information"></aside>
       <div class="mapmain">
         <div class="panel" id="mapAbout"></div>
         <div class="panel" id="mapLayers"></div>
@@ -1879,7 +1900,7 @@
     <input type="file" id="docReplaceFile" hidden>
     <input type="file" id="docThumbFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
     <div class="mapitem" id="docOverview">
-      <aside class="panel" id="docSide"></aside>
+      <aside class="panel" id="docSide" role="region" aria-label="Item information"></aside>
       <div class="mapmain">
         <div class="panel" id="docAbout"></div>
       </div>
@@ -1945,7 +1966,7 @@
         </div>
         <div>
           <h4>Facts</h4>
-          <div class="facts2" id="groupFacts"></div>
+          <dl class="facts2" id="groupFacts"></dl>
           <div class="row" id="groupLeaveRow" style="margin-top:var(--gap-3)"></div>
         </div>
       </div>
@@ -2529,7 +2550,7 @@
       UX sweep of 2026-10-19 the role and the user type too, which were selects that saved on one arrow key.
     -->
     <div class="memberslayout">
-      <aside class="memberfilters" id="memberSide" aria-label="Filters">
+      <section class="memberfilters" id="memberSide" aria-label="Filters">
         <!-- At 720 pixels and below this is a full-screen sheet, as My content's is (the phone layout of 2026-11-02). -->
         <div class="sheethead">
           <h2 id="memberSheetTitle">Filter</h2>
@@ -2567,7 +2588,7 @@
         <div class="sheetfoot">
           <button type="button" class="primary" id="memberSheetShow">Show members</button>
         </div>
-      </aside>
+      </section>
 
       <div class="membersmain">
         <div class="toolbar">
@@ -2871,7 +2892,7 @@
       <!-- The address is in Details now, as Portal keeps it (ADR-102 step 7). Kept as an empty hook. -->
       <div id="serviceAddress" hidden></div>
 
-      <h4 id="serviceLayersHead">Layers</h4>
+      <h4 id="serviceLayersHead" aria-level="2">Layers</h4>
 
       <!--
         <b>Two columns, not five — the design review's shape.</b> Theirs is a list with a subtitle; this
@@ -2923,7 +2944,7 @@
       </div>
       </div>
 
-      <aside class="panel pad" id="serviceDetails"></aside>
+      <aside class="panel pad" id="serviceDetails" role="region" aria-label="Item information"></aside>
     </div>
 
     <!--
