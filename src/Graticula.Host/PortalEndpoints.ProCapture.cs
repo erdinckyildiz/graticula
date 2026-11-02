@@ -298,6 +298,16 @@ internal static partial class PortalEndpoints
             }
         }
 
+        // ADR-258 §5.8: the geocode service, in its folder, by the rule the services directory lists it by — from
+        // configuration, so while blind too. The admin reference's services resource is the container of every service
+        // in a folder, and the Utilities folder of "automatically deployed services" is where this one is.
+        if (Geocoding.GeocodeServerEndpoints.DirectoryLists(
+                context.RequestServices.GetService<Geocoding.GeocoderSettings>(), folder, current))
+        {
+            listed.Add(new AdminListedService(
+                Geocoding.GeocoderSettings.Folder, Geocoding.GeocoderSettings.Name, "GeocodeServer", null));
+        }
+
         if (folder is null)
         {
             string[] folders = await Program.FoldersAsync(catalog.Catalog!, system, services, blind, cancellation).ConfigureAwait(false);

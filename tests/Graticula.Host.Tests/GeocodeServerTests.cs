@@ -573,4 +573,341 @@ public sealed class GeocodeServerTests
         Assert.Contains("bbox=32,39,33,40", query, StringComparison.Ordinal);
         Assert.Contains("lang=tr", query, StringComparison.Ordinal);
     }
+
+    // ---------- ADR-258 §5.8: geocodeAddresses, category, sourceCountry, distance, the portal's locator ----------
+
+    private static string Records(params string[] attributes) =>
+        Uri.EscapeDataString("{\"records\":[" + string.Join(",", attributes.Select(a => "{\"attributes\":" + a + "}")) + "]}");
+
+    /// <summary>A Photon that answers by the text asked, fails the texts it is told to, and counts how many it holds at once.</summary>
+    private sealed class BatchPhoton(Func<string, string?> answer) : HttpMessageHandler
+    {
+        private int _now;
+
+        public int MostAtOnce { get; private set; }
+
+        public List<Uri> Asked { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            int now = Interlocked.Increment(ref _now);
+
+            lock (Asked)
+            {
+                Asked.Add(request.RequestUri!);
+                MostAtOnce = Math.Max(MostAtOnce, now);
+            }
+
+            try
+            {
+                await Task.Delay(20, cancellationToken);
+
+                string q = Uri.UnescapeDataString(
+                    request.RequestUri!.Query.Split('&').First(part => part.TrimStart('?').StartsWith("q=", StringComparison.Ordinal))
+                        .TrimStart('?')[2..]);
+
+                return answer(q) is { } body
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") }
+                    : new HttpResponseMessage(HttpStatusCode.BadGateway);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _now);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Geocode_addresses_answers_every_record_by_its_objectid_in_the_order_sent()
+    {
+        BatchPhoton photon = new(q => q.Contains("Kizilay", StringComparison.Ordinal) ? Collection(AnkaraCity, Kizilay)
+            : q.Contains("Ankara", StringComparison.Ordinal) ? Collection(AnkaraCity)
+            : Collection(Muhurdar));
+
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        // OBJECTID 0 is what the ArcGIS API for Python numbers its first record with.
+        string addresses = Records(
+            "{\"OBJECTID\":0,\"SingleLine\":\"Kizilay Ankara\"}",
+            "{\"OBJECTID\":7,\"City\":\"Ankara\",\"CountryCode\":\"TR\"}",
+            "{\"objectid\":9,\"SingleLine\":\"\"}",
+            "{\"OBJECTID\":12,\"SingleLine\":\"Zzzz Qqqq\"}");
+
+        (HttpStatusCode status, JsonElement body) =
+            await GetAsync(app, $"{Root}/geocodeAddresses?addresses={addresses}&outSR=3857&f=json");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(3857, body.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+
+        JsonElement[] locations = [.. body.GetProperty("locations").EnumerateArray()];
+        long[] ids = [.. locations.Select(l => l.GetProperty("attributes").GetProperty("ResultID").GetInt64())];
+        Assert.Equal([0L, 7L, 9L, 12L], ids);
+
+        // The best of what Photon answered, scored as findAddressCandidates scores, with every field.
+        JsonElement first = locations[0];
+        Assert.Equal(100, first.GetProperty("score").GetDouble());
+        Assert.Equal("Kızılay, Çankaya, Ankara, 06420", first.GetProperty("address").GetString());
+        Assert.True(first.GetProperty("location").GetProperty("x").GetDouble() > 3_000_000, "projected to 3857");
+        Assert.Equal("M", first.GetProperty("attributes").GetProperty("Status").GetString());
+        Assert.Equal("Locality", first.GetProperty("attributes").GetProperty("Addr_type").GetString());
+
+        // A structured record is joined into one line, as findAddressCandidates joins it.
+        Assert.Equal("Ankara, Türkiye", locations[1].GetProperty("attributes").GetProperty("LongLabel").GetString());
+
+        // An empty record is not asked of the engine, and an answer that matches none of the words is no match: both
+        // are the reference's unmatched record — no location, empty address, score 0, Status U.
+        foreach (JsonElement unmatched in locations[2..])
+        {
+            Assert.False(unmatched.TryGetProperty("location", out _));
+            Assert.Equal(string.Empty, unmatched.GetProperty("address").GetString());
+            Assert.Equal(0, unmatched.GetProperty("score").GetDouble());
+            Assert.Equal("U", unmatched.GetProperty("attributes").GetProperty("Status").GetString());
+            Assert.Equal(0, unmatched.GetProperty("attributes").GetProperty("X").GetDouble());
+        }
+
+        Assert.Equal(3, photon.Asked.Count);
+    }
+
+    [Fact]
+    public async Task Geocode_addresses_reads_a_posted_form_and_honours_out_fields()
+    {
+        await using WebApplication app = await ServeAsync(StubPhoton.Json(Collection(Kizilay)), Settings());
+        using HttpClient client = app.GetTestClient();
+
+        using FormUrlEncodedContent form = new(new Dictionary<string, string>
+        {
+            ["addresses"] = "{\"records\":[{\"attributes\":{\"OBJECTID\":1,\"SingleLine\":\"Kizilay\"}}]}",
+            ["outFields"] = "none",
+            ["f"] = "json",
+        });
+
+        using HttpResponseMessage response = await client.PostAsync(new Uri($"{Root}/geocodeAddresses", UriKind.Relative), form);
+        JsonElement body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        string[] names = [.. body.GetProperty("locations")[0].GetProperty("attributes").EnumerateObject().Select(p => p.Name)];
+        Assert.Equal(["ResultID", "Status", "Score", "Match_addr"], names);
+    }
+
+    [Fact]
+    public async Task One_record_the_engine_fails_is_that_records_unmatched_answer_not_the_batchs()
+    {
+        BatchPhoton photon = new(q => q.Contains("broken", StringComparison.Ordinal) ? null : Collection(Kizilay));
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        string addresses = Records(
+            "{\"OBJECTID\":1,\"SingleLine\":\"Kizilay\"}",
+            "{\"OBJECTID\":2,\"SingleLine\":\"broken\"}",
+            "{\"OBJECTID\":3,\"SingleLine\":\"Kizilay\"}");
+
+        (HttpStatusCode status, JsonElement body) = await GetAsync(app, $"{Root}/geocodeAddresses?addresses={addresses}&f=json");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        string[] statuses =
+            [.. body.GetProperty("locations").EnumerateArray().Select(l => l.GetProperty("attributes").GetProperty("Status").GetString()!)];
+        Assert.Equal(["M", "U", "M"], statuses);
+    }
+
+    [Fact]
+    public async Task An_engine_that_is_down_fails_the_batch_with_a_503_after_a_bounded_number_of_tries()
+    {
+        BatchPhoton photon = new(_ => null);
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        string addresses = Records(
+            [.. Enumerable.Range(1, 60).Select(i => $"{{\"OBJECTID\":{i},\"SingleLine\":\"Ankara {i}\"}}")]);
+
+        (HttpStatusCode status, JsonElement body) = await GetAsync(app, $"{Root}/geocodeAddresses?addresses={addresses}&f=json");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, status);
+        Assert.Equal(503, body.GetProperty("error").GetProperty("code").GetInt32());
+
+        // It stopped once the first ones all failed, rather than asking sixty times.
+        Assert.True(photon.Asked.Count <= 2 * GeocoderSettings.BatchConcurrency, $"asked {photon.Asked.Count} times");
+    }
+
+    [Fact]
+    public async Task A_batch_asks_the_engine_at_most_four_at_a_time_and_stops_at_max_batch_size()
+    {
+        BatchPhoton photon = new(_ => Collection(Kizilay));
+        GeocoderSettings settings = Settings() with { MaxBatchSize = 30 };
+        await using WebApplication app = await ServeAsync(photon, settings);
+
+        string addresses = Records(
+            [.. Enumerable.Range(1, 40).Select(i => $"{{\"OBJECTID\":{i},\"SingleLine\":\"Kizilay {i}\"}}")]);
+
+        (HttpStatusCode status, JsonElement body) = await GetAsync(app, $"{Root}/geocodeAddresses?addresses={addresses}&f=json");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+
+        // The reference: records past MaxBatchSize are not geocoded.
+        Assert.Equal(30, body.GetProperty("locations").GetArrayLength());
+        Assert.Equal(30, photon.Asked.Count);
+        Assert.InRange(photon.MostAtOnce, 1, GeocoderSettings.BatchConcurrency);
+
+        (_, JsonElement service) = await GetAsync(app, $"{Root}?f=json");
+        JsonElement properties = service.GetProperty("locatorProperties");
+        Assert.Equal(30, properties.GetProperty("MaxBatchSize").GetInt32());
+        Assert.Equal(30, properties.GetProperty("SuggestedBatchSize").GetInt32());
+    }
+
+    [Fact]
+    public async Task Geocode_addresses_refuses_a_record_set_it_cannot_read_with_a_sentence()
+    {
+        await using WebApplication app = await ServeAsync(StubPhoton.Json(Collection(Kizilay)), Settings());
+
+        foreach (string addresses in (string[])[
+                     string.Empty,
+                     Uri.EscapeDataString("not json"),
+                     Uri.EscapeDataString("{\"rows\":[]}"),
+                     Records("{\"SingleLine\":\"Kizilay\"}")])
+        {
+            (HttpStatusCode status, JsonElement body) = await GetAsync(app, $"{Root}/geocodeAddresses?addresses={addresses}&f=json");
+
+            Assert.Equal(HttpStatusCode.BadRequest, status);
+            Assert.False(string.IsNullOrWhiteSpace(body.GetProperty("error").GetProperty("message").GetString()));
+        }
+    }
+
+    [Fact]
+    public async Task A_category_narrows_photon_by_layer_and_filters_what_it_answers()
+    {
+        StubPhoton photon = StubPhoton.Json(Collection(AnkaraCity, BusStop, Muhurdar));
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        (HttpStatusCode status, JsonElement body) = await GetAsync(
+            app, $"{Root}/findAddressCandidates?SingleLine=Ankara&category=POI&outFields=Addr_type&f=json");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        JsonElement only = Assert.Single(body.GetProperty("candidates").EnumerateArray());
+        Assert.Equal("POI", only.GetProperty("attributes").GetProperty("Addr_type").GetString());
+        Assert.Contains("layer=house&layer=other", photon.Asked[0].Query, StringComparison.Ordinal);
+
+        // A parent and a child together are their union: a locality and a house-numbered address.
+        (_, body) = await GetAsync(
+            app, $"{Root}/findAddressCandidates?SingleLine=Ankara&category=Populated%20Place,Point%20Address&outFields=Addr_type&f=json");
+        string[] types =
+            [.. body.GetProperty("candidates").EnumerateArray().Select(c => c.GetProperty("attributes").GetProperty("Addr_type").GetString()!).Order()];
+        Assert.Equal(["Locality", "PointAddress"], types);
+
+        // Postal has no Photon layer, so nothing is narrowed there and the answer is filtered here.
+        await GetAsync(app, $"{Root}/suggest?text=06420&category=Postal&f=json");
+        Assert.DoesNotContain("layer=", photon.Asked[^1].Query, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_category_that_cannot_be_mapped_is_refused_by_name_not_ignored()
+    {
+        StubPhoton photon = StubPhoton.Json(Collection(Kizilay));
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        foreach (string path in (string[])[
+                     $"{Root}/findAddressCandidates?SingleLine=Kizilay&category=Coffee%20Shop&f=json",
+                     $"{Root}/suggest?text=Kiz&category=Intersection&f=json",
+                     $"{Root}/geocodeAddresses?addresses={Records("{\"OBJECTID\":1,\"SingleLine\":\"Kizilay\"}")}&category=City&f=json"])
+        {
+            (HttpStatusCode status, JsonElement body) = await GetAsync(app, path);
+
+            Assert.Equal(HttpStatusCode.BadRequest, status);
+            Assert.Contains("cannot filter by the category", body.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        }
+
+        Assert.Empty(photon.Asked);
+    }
+
+    [Fact]
+    public async Task Source_country_is_sent_as_photons_countrycode_and_a_three_letter_code_is_refused()
+    {
+        StubPhoton photon = StubPhoton.Json(Collection(Kizilay));
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        (HttpStatusCode status, JsonElement body) =
+            await GetAsync(app, $"{Root}/findAddressCandidates?SingleLine=Kizilay&sourceCountry=de&f=json");
+
+        // Photon was told; the stub ignored it, so the answer is filtered here too, and a Turkish place is not German.
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Contains("countrycode=de", photon.Asked[0].Query, StringComparison.Ordinal);
+        Assert.Empty(body.GetProperty("candidates").EnumerateArray());
+
+        (_, body) = await GetAsync(app, $"{Root}/findAddressCandidates?SingleLine=Kizilay&sourceCountry=TR&f=json");
+        Assert.Single(body.GetProperty("candidates").EnumerateArray());
+
+        (status, body) = await GetAsync(app, $"{Root}/findAddressCandidates?SingleLine=Kizilay&sourceCountry=TUR&f=json");
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("alpha-2", body.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Distance_lifts_the_candidates_within_it_above_better_scores_outside_it_and_needs_a_location()
+    {
+        // For "Kizilay Ankara" Kızılay scores 100 and the city 50. A location at the city's centre with a 500 m radius
+        // lifts the city above Kızılay, which is about 1.5 km from it.
+        StubPhoton photon = StubPhoton.Json(Collection(Kizilay, AnkaraCity));
+        await using WebApplication app = await ServeAsync(photon, Settings());
+
+        (_, JsonElement plain) = await GetAsync(app, $"{Root}/findAddressCandidates?SingleLine=Kizilay%20Ankara&location=32.8597,39.9334&f=json");
+        Assert.StartsWith("Kızılay", plain.GetProperty("candidates")[0].GetProperty("address").GetString(), StringComparison.Ordinal);
+
+        (HttpStatusCode status, JsonElement boosted) = await GetAsync(
+            app, $"{Root}/findAddressCandidates?SingleLine=Kizilay%20Ankara&location=32.8597,39.9334&distance=500&maxLocations=2&f=json");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        JsonElement[] candidates = [.. boosted.GetProperty("candidates").EnumerateArray()];
+        Assert.Equal(2, candidates.Length);
+        Assert.Equal("Ankara", candidates[0].GetProperty("address").GetString());
+
+        // Boosted, not filtered: the one outside the radius is still answered. And Photon was asked for more than two,
+        // so a near place it ranked lower is there to be lifted.
+        Assert.StartsWith("Kızılay", candidates[1].GetProperty("address").GetString(), StringComparison.Ordinal);
+        Assert.Contains("limit=20", photon.Asked[^1].Query, StringComparison.Ordinal);
+
+        (status, _) = await GetAsync(app, $"{Root}/findAddressCandidates?SingleLine=Ankara&distance=500&f=json");
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+    }
+
+    [Fact]
+    public void The_portal_names_the_locator_only_when_configured_and_only_to_a_caller_it_would_answer()
+    {
+        RequestPrincipal anonymous = new(Principal.Anonymous, null, Authorization.Nothing);
+
+        Assert.Null(GeocodeServerEndpoints.PortalLocator(null, anonymous, "https://gis.example"));
+        Assert.Null(GeocodeServerEndpoints.PortalLocator(Settings(SharingScope.Organization), anonymous, "https://gis.example"));
+
+        Dictionary<string, object?> locator =
+            GeocodeServerEndpoints.PortalLocator(Settings(), anonymous, "https://gis.example/studio")!;
+
+        Assert.Equal("https://gis.example/studio/rest/services/Utilities/Geocode/GeocodeServer", locator["url"]);
+        Assert.Equal("Ymax", locator["northLat"]);
+        Assert.Equal("Ymin", locator["southLat"]);
+        Assert.Equal("Xmax", locator["eastLon"]);
+        Assert.Equal("Xmin", locator["westLon"]);
+        Assert.Equal(true, locator["suggest"]);
+        Assert.Equal(true, locator["placefinding"]);
+        Assert.Equal(true, locator["batch"]);
+
+        // Without it the Maps SDK's Search widget makes no source of a locator that is not Esri's World one.
+        Assert.Equal("SingleLine", locator["singleLineFieldName"]);
+    }
+
+    [Fact]
+    public void Max_batch_size_is_read_bounded_and_refused_when_unusable()
+    {
+        static GeocoderSettings? Read(string? value) => GeocoderSettings.Read(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Graticula:Geocoding:PhotonUrl"] = "http://127.0.0.1:2322",
+                ["Graticula:Geocoding:MaxBatchSize"] = value,
+            })
+            .Build());
+
+        Assert.Equal(GeocoderSettings.DefaultMaxBatchSize, Read(null)!.MaxBatchSize);
+        Assert.Equal(100, Read(null)!.SuggestedBatchSize);
+        Assert.Equal(1000, Read("1000")!.MaxBatchSize);
+        Assert.Equal(40, Read("40")!.SuggestedBatchSize);
+
+        foreach (string bad in (string[])["0", "-3", "2001", "lots"])
+        {
+            Assert.Throws<InvalidOperationException>(() => Read(bad));
+        }
+    }
 }

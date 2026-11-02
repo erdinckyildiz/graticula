@@ -93,8 +93,17 @@ public static class GeocodeServerWriter
     /// <summary>The service resource.</summary>
     /// <param name="currentVersion">The REST version this server reports.</param>
     /// <param name="engine">What answers, for the description — for instance <c>Photon</c>.</param>
+    /// <param name="maxBatchSize">The most records one <c>geocodeAddresses</c> request geocodes; 0 when there is no batch.</param>
+    /// <param name="suggestedBatchSize">The batch size a client is advised to send; 0 when there is no batch.</param>
     /// <returns>The document.</returns>
-    public static Dictionary<string, object?> ServiceDocument(double currentVersion, string engine)
+    /// <remarks>
+    /// <b>No <c>Batch</c> in <c>capabilities</c>, although batch is served.</b> The reference's example names
+    /// <c>Geocode,ReverseGeocode,Suggest</c>, and Esri's own World locator — which serves <c>geocodeAddresses</c> —
+    /// answers exactly that; what tells a client a locator takes batches is <c>locatorProperties.MaxBatchSize</c>, which
+    /// the ArcGIS API for Python reads to split its input, and the portal's <c>helperServices.geocode[].batch</c>.
+    /// </remarks>
+    public static Dictionary<string, object?> ServiceDocument(
+        double currentVersion, string engine, int maxBatchSize = 0, int suggestedBatchSize = 0)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(engine);
 
@@ -113,15 +122,17 @@ public static class GeocodeServerWriter
             ["locatorProperties"] = new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["UICLIDs"] = string.Empty,
-                ["SuggestedBatchSize"] = 0,
-                ["MaxBatchSize"] = 0,
+                ["SuggestedBatchSize"] = suggestedBatchSize,
+                ["MaxBatchSize"] = maxBatchSize,
                 ["MaxResultSize"] = MaximumLocations,
+                ["supportsBatchOutFields"] = maxBatchSize > 0 ? "True" : "False",
                 ["WriteXYCoordFields"] = "TRUE",
                 ["WriteStandardizedAddressField"] = "FALSE",
                 ["WriteReferenceIDField"] = "FALSE",
                 ["WritePercentAlongField"] = "FALSE",
             },
             ["capabilities"] = "Geocode,ReverseGeocode,Suggest",
+            ["categories"] = CategoryTree(),
             ["copyrightText"] = Attribution,
         };
     }
@@ -463,6 +474,197 @@ public static class GeocodeServerWriter
             ["CntryName"] = place.Country ?? string.Empty,
             ["CountryCode"] = place.CountryCode ?? string.Empty,
         };
+    }
+
+    /// <summary>
+    /// The attributes of a batch record nothing was found for — the reference's own unmatched record: every string
+    /// empty, every number 0, <c>Status</c> <c>U</c>.
+    /// </summary>
+    /// <returns>The attributes, in <see cref="CandidateFields"/> order.</returns>
+    public static Dictionary<string, object?> UnmatchedAttributes()
+    {
+        Dictionary<string, object?> attributes = new(StringComparer.Ordinal);
+
+        foreach ((string name, string type, _) in CandidateFields)
+        {
+            attributes[name] = type == "esriFieldTypeDouble" ? 0.0 : string.Empty;
+        }
+
+        attributes["Status"] = "U";
+        return attributes;
+    }
+
+    /// <summary>
+    /// The attributes a batch record carries — <c>ResultID</c> first, then what <c>outFields</c> asked for.
+    /// </summary>
+    /// <param name="resultId">The record's <c>OBJECTID</c>, which the reference returns as <c>ResultID</c>.</param>
+    /// <param name="all">Every attribute.</param>
+    /// <param name="outFields">The parameter as sent: empty, absent or <c>*</c> for all, <c>none</c> for the least.</param>
+    /// <returns>The chosen attributes.</returns>
+    /// <remarks>
+    /// The reference: <i>use <c>*</c>, an empty value, or omit it to return all fields; use <c>none</c> for the
+    /// minimum set, which still includes <c>ResultID</c></i>. What the minimum is beyond <c>ResultID</c> is not
+    /// listed; here it is <c>Status</c>, <c>Score</c> and <c>Match_addr</c> (INFERRED, ADR-258 §5.7).
+    /// </remarks>
+    public static Dictionary<string, object?> BatchAttributes(
+        object resultId, IReadOnlyDictionary<string, object?> all, string? outFields)
+    {
+        ArgumentNullException.ThrowIfNull(all);
+
+        Dictionary<string, object?> chosen = new(StringComparer.Ordinal) { ["ResultID"] = resultId };
+
+        string wanted = outFields?.Trim() ?? string.Empty;
+
+        IEnumerable<KeyValuePair<string, object?>> picked =
+            wanted.Length == 0 || wanted == "*"
+                ? all
+                : string.Equals(wanted, "none", StringComparison.OrdinalIgnoreCase)
+                    ? all.Where(a => a.Key is "Status" or "Score" or "Match_addr")
+                    : Choose(all, wanted);
+
+        foreach ((string key, object? value) in picked)
+        {
+            chosen[key] = value;
+        }
+
+        return chosen;
+    }
+
+    /// <summary>
+    /// The ArcGIS categories this service filters by, each with the kinds of place it means — ADR-258 §5.8, INFERRED.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Only the categories a Photon answer can honestly be sorted into.</b> The reference's tree has five top-level
+    /// categories, and a parent means all of its children. <i>Address</i> and its <i>Subaddress</i>,
+    /// <i>Point Address</i>, <i>Street Address</i> and <i>Street Name</i> map onto a house number and a street;
+    /// <i>Postal</i> and <i>Primary Postal</i> onto a postcode; <i>Populated Place</i> onto a locality, as a whole;
+    /// <i>POI</i> onto a point of interest, as a whole.
+    /// </para>
+    /// <para>
+    /// <b>Not mapped, and refused by name rather than ignored</b>: <i>Coordinate System</i> and its children (this
+    /// service does not read coordinates as text), <i>Intersection</i>, <i>Distance Marker</i>, <i>Street Midblock</i>
+    /// and <i>Street Between</i> (OpenStreetMap does not carry them as places), <i>Postal Locality</i> and
+    /// <i>Postal Extension</i>, the children of <i>Populated Place</i> (a neighbourhood, a district and a city are one
+    /// kind to the port), and every child of <i>POI</i> — <i>Food</i>, <i>Coffee Shop</i> and the rest would need a
+    /// table from OpenStreetMap's tags onto Esri's place types, which nobody has written and this service will not
+    /// invent.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyDictionary<string, IReadOnlySet<GeocodePlaceKind>> Categories { get; } =
+        new Dictionary<string, IReadOnlySet<GeocodePlaceKind>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Address"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.House, GeocodePlaceKind.Street },
+            ["Subaddress"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.House },
+            ["Point Address"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.House },
+            ["Street Address"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.House },
+            ["Street Name"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.Street },
+            ["Postal"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.Postcode },
+            ["Primary Postal"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.Postcode },
+            ["Populated Place"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.Locality },
+            ["POI"] = new HashSet<GeocodePlaceKind> { GeocodePlaceKind.PointOfInterest },
+        };
+
+    /// <summary>The service resource's <c>categories</c>: the mapped ones, nested as the reference nests them.</summary>
+    private static object[] CategoryTree()
+    {
+        static object Leaf(string name) => new Dictionary<string, object?>(StringComparer.Ordinal) { ["name"] = name };
+
+        static object Node(string name, params string[] children) => new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["name"] = name,
+            ["categories"] = children.Select(Leaf).ToArray(),
+        };
+
+        return
+        [
+            Node("Address", "Subaddress", "Point Address", "Street Address", "Street Name"),
+            Node("Postal", "Primary Postal"),
+            Leaf("Populated Place"),
+            Leaf("POI"),
+        ];
+    }
+
+    /// <summary>The kinds of place a <c>category</c> parameter asks for, or the sentence refusing it.</summary>
+    /// <param name="raw">The parameter as sent — one name or several separated by commas.</param>
+    /// <param name="kinds">The kinds, or null when no category was sent.</param>
+    /// <param name="refusal">Why it was refused, or null.</param>
+    /// <returns>Whether every name was one this service can apply.</returns>
+    public static bool TryCategories(string? raw, out IReadOnlySet<GeocodePlaceKind>? kinds, out string? refusal)
+    {
+        kinds = null;
+        refusal = null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return true;
+        }
+
+        HashSet<GeocodePlaceKind> union = [];
+        List<string> unknown = [];
+
+        foreach (string name in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (Categories.TryGetValue(name, out IReadOnlySet<GeocodePlaceKind>? these))
+            {
+                union.UnionWith(these);
+            }
+            else
+            {
+                unknown.Add(name);
+            }
+        }
+
+        if (unknown.Count > 0)
+        {
+            refusal = $"This service cannot filter by the categor{(unknown.Count == 1 ? "y" : "ies")} "
+                + $"{string.Join(", ", unknown.Select(u => $"'{u}'"))}. It filters by "
+                + $"{string.Join(", ", Categories.Keys)} — the ones an OpenStreetMap place can honestly be sorted into.";
+            return false;
+        }
+
+        kinds = union.Count > 0 ? union : null;
+        return true;
+    }
+
+    /// <summary>
+    /// The countries a <c>sourceCountry</c> parameter names, as upper-case alpha-2 codes, or the sentence refusing it.
+    /// </summary>
+    /// <param name="raw">The parameter as sent — one code or several separated by commas.</param>
+    /// <param name="countries">The codes, or null when none was sent.</param>
+    /// <param name="refusal">Why it was refused, or null.</param>
+    /// <returns>Whether every code could be applied.</returns>
+    /// <remarks>
+    /// <b>Two-letter codes only</b>: the reference takes ISO 3166-1 alpha-2 or alpha-3, and the engine and its answers
+    /// know only alpha-2 (ADR-258 §5.5 — no table is invented to convert). A three-letter code is refused with a
+    /// sentence saying what to send instead, not ignored.
+    /// </remarks>
+    public static bool TryCountries(string? raw, out IReadOnlySet<string>? countries, out string? refusal)
+    {
+        countries = null;
+        refusal = null;
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return true;
+        }
+
+        HashSet<string> codes = new(StringComparer.Ordinal);
+
+        foreach (string code in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (code.Length != 2 || !code.All(char.IsAsciiLetter))
+            {
+                refusal = $"'sourceCountry' names '{code}'; this service reads ISO 3166-1 alpha-2 codes only, "
+                    + "such as TR or DE, because its engine knows countries by those.";
+                return false;
+            }
+
+            codes.Add(code.ToUpperInvariant());
+        }
+
+        countries = codes.Count > 0 ? codes : null;
+        return true;
     }
 
     /// <summary>
