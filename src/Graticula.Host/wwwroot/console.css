@@ -277,11 +277,9 @@ a:hover { text-decoration: underline; }
   color: var(--ink); text-decoration: none;
 }
 #brand:hover { text-decoration: none; }
-#brand .mark {
-  width: 28px; height: 28px; flex: none; border-radius: var(--round);
-  background: var(--accent); border-radius: 50%; display: grid; place-items: center;
-}
-#brand .mark svg { width: 16px; height: 16px; display: block; }
+/* The graticule mark (ADR-255 section 4): its own strokes, no disc behind it. */
+#brand .mark { width: 28px; height: 28px; flex: none; display: grid; place-items: center; }
+#brand .mark svg { width: 28px; height: 28px; display: block; }
 #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 /* Teal for Server and violet for Studio, the two halves of the switch beside it. */
 #brand .badge {
@@ -1941,12 +1939,8 @@ html[data-session="none"] #main > header { display: none; }
 #signin .signin-where { margin: 2px 0 0; font-size: var(--t-small); color: var(--muted);
                         overflow-wrap: anywhere; }
 /* The header's mark, the same blue circle: it was the old navy square (UX sweep 2026-10-19). */
-#signin .signin-head .mark {
-  width: 34px; height: 34px; flex: none; border-radius: 50%;
-  background: var(--accent);
-  display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700;
-}
-#signin .signin-head .mark svg { width: 18px; height: 18px; display: block; }
+#signin .signin-head .mark { width: 34px; height: 34px; flex: none; display: grid; place-items: center; }
+#signin .signin-head .mark svg { width: 34px; height: 34px; display: block; }
 #signin .signin-body { padding: var(--gap-2) var(--gap-5) var(--gap-5); }
 #signin .signin-for { margin: var(--gap-3) 0 0; font-size: var(--t-small); color: var(--ink); overflow-wrap: break-word; }
 #signin .signin-stranger a { text-decoration: underline; text-underline-offset: 2px; }
@@ -4242,9 +4236,11 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
    the datastore's shorter set (two buttons and a note) pushed its Probe under the others' Pause.
    Pause and Resume share one width so the buttons after them do not move when a source is paused. */
 #sources td.acts { white-space: nowrap; width: 1%; text-align: left; }
-#sources td.acts [data-source-quiesce], #sources td.acts [data-source-resume] { min-width: 5.6em; }
-#sources td.acts .tiny { padding: 3px 9px; }
-#sources td.acts .danger { margin-left: var(--gap-3); }
+#sources td.acts [data-source-resume] { min-width: 5.6em; }
+#sources td.acts > .tiny { padding: 3px 9px; }
+/* The row that has its ⋯ open is raised over the rows after it (the menu itself is fixed to the window). */
+#sources tr:has(details.rowmenu[open]) { position: relative; z-index: 3; }
+#sources td.acts details.rowmenu { vertical-align: middle; }
 #sources td.acts .managed { color: var(--faint); font-size: var(--t-small); }
 #sources td.name .pill { margin-left: 6px; cursor: help; vertical-align: 1px; }
 /* One row of four buttons makes the table about 720 pixels at its narrowest, and beside the
@@ -4267,8 +4263,8 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   #sources td.val { grid-column: 1 / -1; }
   #sources td.acts { grid-column: 1 / -1; width: auto; white-space: normal; display: flex; flex-wrap: wrap;
     gap: 6px; padding-top: 6px; }
-  #sources td.acts .danger { margin-left: 0; }
-  #sources td.acts .tiny { min-height: 36px; }
+  #sources td.acts > .tiny { min-height: 36px; }
+  #sources td.acts details.rowmenu > summary { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0; box-sizing: border-box; font-size: 20px; }
   #sources .cardonly { display: inline; }
 }
 #dbconn #dcS3 summary { cursor: pointer; }
@@ -5151,9 +5147,11 @@ h4.spaced { margin-top: 24px; }
 
 :root[data-theme="dark"] button.primary:hover { filter: brightness(1.08); }
 
-/* The mark is navy on a navy-dark header; a hairline keeps its square. */
-:root[data-theme="dark"] #brand .mark,
-:root[data-theme="dark"] #signin .signin-head .mark { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
+/* Dark theme: the mark's light variant (ADR-255 section 4). */
+:root[data-theme="dark"] #brand .mark .m-a,
+:root[data-theme="dark"] #signin .signin-head .mark .m-a { stroke: #dbe8ff; }
+:root[data-theme="dark"] #brand .mark .m-b,
+:root[data-theme="dark"] #signin .signin-head .mark .m-b { stroke: #7ea6e6; }
 :root[data-theme="dark"] #brand .badge,
 :root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { color: var(--accent-ink); }
 :root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { background: var(--accent-soft); }
@@ -6585,6 +6583,13 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
     content: ""; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
     background: var(--warn); border: 2px solid var(--surface); box-sizing: content-box;
   }
+  /* The server is not healthy (ADR-255 section 4): a dot at the top right; the two-step dot, if both, drops to the bottom right. */
+  body[data-health]:not([data-health="ok"]) #barAvatar::before {
+    content: ""; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--alert); border: 2px solid var(--surface); box-sizing: content-box; z-index: 1;
+  }
+  body[data-health="unknown"] #barAvatar::before { background: var(--warn); }
+  body[data-health]:not([data-health="ok"]):has(#factorNotice:not([hidden])) #barAvatar::after { top: auto; bottom: 7px; }
 
   /* ── The drawer: a panel on the left, a dialog while it is open ── */
   #navScrim { position: fixed; inset: 0; z-index: 999; background: rgba(16, 24, 38, .5); }
@@ -7019,7 +7024,13 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
 
   /* ── The account menu: who, the switch, health, the theme, Sign out ── */
   :root header .usermenu > summary { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px; font-size: 14px; color: var(--ink); }
-  :root header .usermenu .initial { width: 30px; height: 30px; font-size: 14px; }
+  :root header .usermenu .initial { width: 30px; height: 30px; font-size: 14px; position: relative; }
+  /* The server is not healthy (ADR-255 section 4): a dot on the initial, named in the summary's label. */
+  :root body[data-health]:not([data-health="ok"]) header .usermenu .initial::after {
+    content: ""; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--alert); border: 2px solid var(--surface); box-sizing: content-box;
+  }
+  :root body[data-health="unknown"] header .usermenu .initial::after { background: var(--warn); }
   :root header .usermenu .sheet { min-width: 260px; padding: 6px; }
   :root header #utilbar .usermenu .sheet #surfaces {
     display: flex; flex-direction: column; gap: 0; padding: 6px 0; margin: 4px 0; background: none; border: 0;

@@ -114,7 +114,7 @@
         <b>The sections are a bar in the header, and the left column belongs to the page — ADR-187.</b>
         The rail that held them is gone: Portal and Server Manager both put their primary navigation
         across the top, and a page with folders or filters had two left columns while the rail stood.
-        The mark is nine squares, a graticule in miniature, drawn inline so it needs no asset.
+        The mark is the graticule (ADR-255 section 4), drawn inline so it needs no asset.
       -->
       <!--
         <b>The phone's bar — 2026-11-02, owner decision, from the ArcGIS Enterprise phone layout.</b> At 720 pixels and
@@ -130,7 +130,7 @@
         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
         focusable="false"><path d="M15 5l-7 7 7 7"/></svg></a>
       <a id="brand" href="" aria-label="Graticula home">
-        <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
+        <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
         <span class="name">Graticula</span>
         <span class="badge" id="surfaceBadge"></span>
       </a>
@@ -259,7 +259,7 @@
     wide window, and the navy top of a phone: the graticule mark drawn large and faint behind the page, the mark and the
     name, what the product is for, and which organization this is. It is the page's own furniture and holds no control.
     The mark is the mockup's — circle, a meridian ellipse, three parallels and a diagonal, white and #8fb4ea. It is not
-    `/favicon.svg`, which is still the nine squares in a blue circle (open question in ADR-255).
+    `/favicon.svg` and the bar's mark are the same mark since the owner's decision of 2026-11-02 (ADR-255 section 4).
   -->
   <div class="signin-brand">
     <svg class="signin-watermark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><g fill="none" stroke="#8fb4ea"><circle cx="16" cy="16" r="13.5" stroke-width=".25"/><ellipse cx="16" cy="16" rx="6.5" ry="13.5" stroke-width=".18"/><ellipse cx="16" cy="16" rx="10.5" ry="13.5" stroke-width=".12"/><path d="M16 2.5v27" stroke-width=".18"/><path d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4M7.6 5.2h16.8M7.6 26.8h16.8" stroke-width=".15"/></g></svg>
@@ -280,7 +280,7 @@
         <!-- Filled from location.host: which server this is, which is the question the head answers. -->
         <p class="signin-where" id="signinWhere"></p>
       </div>
-      <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
     </div>
     <div class="signin-body">
     <!--
@@ -2185,7 +2185,7 @@
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
         <!-- ADR-204 §5e item 18: while there are several organizations the built-in roles are every one's and fixed, and
              custom roles are the organization's own. Shown in place of the line above, which is untrue then. -->
-        <p class="hint" id="rolesWhose" hidden></p>
+        <!-- ADR-255: the note itself is drawn under the roles list (#rolesWhose), because the paragraph under a title is not drawn. -->
       </div>
       <div class="right">
         <span class="val" id="roleCount"></span>
@@ -2231,6 +2231,7 @@
             <tbody id="roleRows"></tbody>
           </table>
         </div>
+        <p class="hint" id="rolesWhose" hidden></p>
         <div id="rolesPager"></div>
       </div>
 

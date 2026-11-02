@@ -24944,14 +24944,8 @@ async function loadSources() {
         <td class="num">${num(d.layerCount)}<span class="cardonly"> layer${d.layerCount === 1 ? "" : "s"}</span></td>
         <td class="acts"><button class="tiny" data-probe="${h(d.id)}"
             data-probe-name="${h(d.name)}">Test connection</button>
-          ${d.name === "datastore" ? "" : d.quiesced
-            ? ` <button class="tiny primary" data-source-resume="${h(d.id)}"
-                  data-source-name="${h(d.name)}">Resume</button>`
-            : ` <button class="tiny" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
-                  data-source-layers="${num(d.layerCount)}"
-                  data-source-shares="${h((d.sharesWith || []).join(","))}"
-                  data-source-shared-layers="${num(sharedLayers(dataSources, d))}"
-                  >Pause…</button>`}${
+          ${d.name === "datastore" || !d.quiesced ? "" : ` <button class="tiny primary" data-source-resume="${h(d.id)}"
+                  data-source-name="${h(d.name)}">Resume</button>`}${
             d.name === "datastore"
               // ADR-204 §5d.1: the managed datastore stays the system's, and pausing it pauses every organization's
               // hosted layers, so it is paused from System › Status since ADR-221 §5.3 — for every reader of this list,
@@ -24962,15 +24956,26 @@ async function loadSources() {
                   ? ` <span class="managed">Set by Graticula:PlatformStore. <a href="${surfaceHref("system", "operations")}#datastoreCard"
                       >Pause it in System</a></span>`
                   : ` <span class="managed">set by Graticula:PlatformStore</span>`
-              : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
-                    data-source-kind="${h(d.kind)}"
-                    data-source-platform="${h(d.platform || "")}"
-                    data-source-authentication="${h(d.authentication || "")}"
-                    data-source-summary="${h(d.summary || "")}"
-                    data-source-layers="${num(d.layerCount)}">Edit…</button>
-                  <button class="tiny danger" data-source-remove="${h(d.id)}"
-                    data-source-name="${h(d.name)}"
-                    data-source-layers="${num(d.layerCount)}">Remove…</button>`}</td>
+              // ADR-255 section 4, owner decision of 2026-11-02: Test connection and Resume stay in the row; Pause, Edit
+              // and Remove are behind its ⋯, the same disclosure a member's row uses. Their handlers are unchanged.
+              : ` <details class="rowmenu">
+                    <summary aria-label="More actions for ${h(d.name)}" title="More actions">&#8943;</summary>
+                    <div class="rowmenubody">${d.quiesced ? "" : `
+                      <button type="button" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
+                        data-source-layers="${num(d.layerCount)}"
+                        data-source-shares="${h((d.sharesWith || []).join(","))}"
+                        data-source-shared-layers="${num(sharedLayers(dataSources, d))}">Pause…</button>`}
+                      <button type="button" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
+                        data-source-kind="${h(d.kind)}"
+                        data-source-platform="${h(d.platform || "")}"
+                        data-source-authentication="${h(d.authentication || "")}"
+                        data-source-summary="${h(d.summary || "")}"
+                        data-source-layers="${num(d.layerCount)}">Edit…</button>
+                      <button type="button" class="danger" data-source-remove="${h(d.id)}"
+                        data-source-name="${h(d.name)}"
+                        data-source-layers="${num(d.layerCount)}">Remove…</button>
+                    </div>
+                  </details>`}</td>
       </tr>`).join("");
 }
 
@@ -25227,6 +25232,9 @@ function focusSourceRow(id) {
 
   if (back && back.offsetParent !== null) {
     back.focus({ preventScroll: true });
+  } else if (back?.closest("details.rowmenu")) {
+    // Pause now lives behind the row's ⋯ (ADR-255): the cursor goes to that, which is on screen.
+    back.closest("details.rowmenu").querySelector("summary").focus({ preventScroll: true });
   } else {
     focusSources();
   }
@@ -27856,6 +27864,10 @@ async function refreshHealth() {
     $("healthLine").title = line;
     pill.title = line;
     pill.setAttribute("aria-label", `Server health: ${line}. Open System status.`);
+    // Anything but healthy is a dot on the account's avatar, named in its label (ADR-255 section 4).
+    document.body.dataset.health = state;
+    document.body.dataset.healthWord = word;
+    drawAccountLabels();
   };
 
   try {
@@ -33894,6 +33906,7 @@ async function start() {
     $("surfaces").hidden = true;
     $("healthDot").hidden = true;
     $("healthLine").hidden = true;
+    clearHealthOnAvatar();
     $("mustchange").style.display = "";
     $("mustchangeWho").innerHTML =
       `Signed in as <b>${h(me.name)}</b>. This has to be done before anything else works.`;
@@ -33938,6 +33951,7 @@ async function start() {
   if (!healthIsMine) {
     $("healthDot").hidden = true;
     $("healthLine").hidden = true;
+    clearHealthOnAvatar();
   }
 
   await Promise.all([
@@ -40362,9 +40376,30 @@ for (const crumbs of document.querySelectorAll(".crumbs")) {
 }
 
 // The two-step notice is one line on a phone; what it says to the account button is a dot and its name.
-new MutationObserver(() => {
-  $("barAvatar").setAttribute("aria-label", $("factorNotice").hidden ? "Account" : "Account, two-step sign-in is off");
-}).observe($("factorNotice"), { attributes: true, attributeFilter: ["hidden"] });
+new MutationObserver(drawAccountLabels).observe($("factorNotice"), { attributes: true, attributeFilter: ["hidden"] });
+
+/**
+ * What the account's button says besides who it is: a server that is not healthy, and the two-step notice. The state is in
+ * the name as well as in the dot's colour (ADR-255 section 4). The dot is `body[data-health]`'s, drawn in the stylesheet on
+ * the bar's avatar (a phone) and the account menu's initial (a wide window); nothing is drawn while the server is healthy.
+ */
+function drawAccountLabels() {
+  const state = document.body.dataset.health;
+  const bad = state && state !== "ok" ? document.body.dataset.healthWord : "";
+  const notes = [];
+  if (bad) notes.push(`server health: ${bad}`);
+  if (!$("factorNotice").hidden) notes.push("two-step sign-in is off");
+  const tail = notes.length ? `, ${notes.join(", ")}` : "";
+  $("barAvatar").setAttribute("aria-label", `Account${tail}`);
+  $("userMenu").querySelector("summary").setAttribute("aria-label", `Your account${tail}`);
+}
+
+/** A reader who may not read the server's health has no dot for it. */
+function clearHealthOnAvatar() {
+  delete document.body.dataset.health;
+  delete document.body.dataset.healthWord;
+  drawAccountLabels();
+}
 
 // ---------------------------------------------------------------------------------------------- a sub-page menu
 
