@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(125);
+    public static SchemaVersion ComponentSchemaVersion => new(126);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -154,7 +154,57 @@ public static class PlatformMigrations
         TheServerLogIsTheSitesV120,
         ADocumentKeepsAPictureV121,
         ANodeSaysWhichSchemaItReadsV125,
+        AnItemIsRelatedToTheItemItWasPublishedFromV126,
     ]);
+
+    /// <summary>
+    /// An item is related to the item it was published from — ArcGIS's <c>Service2Data</c>, ADR-257 §12.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by the ArcGIS veteran's review of v1.0.499.</b> The ArcGIS API for Python overwrites a hosted layer by
+    /// finding the data item it was published from through <c>relatedItems</c>, and this portal kept no such link: the
+    /// portal's publish made a service from a document and forgot which, so <c>manager.overwrite(csv)</c> answered
+    /// <i>Cannot find related data item used to publish this Feature Layer</i>.
+    /// </para>
+    /// <para>
+    /// <b>A table of relationships rather than a column on the document</b>, because ArcGIS's relationships are typed
+    /// and go both ways between any two items, and a column would hold one type in one direction. Both ends are items
+    /// and go with them; the recycle bin, which follows the store's foreign keys, keeps a relationship with whichever end
+    /// it holds. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: a table nothing older reads.
+    /// </para>
+    /// </remarks>
+    private static Migration AnItemIsRelatedToTheItemItWasPublishedFromV126 => Migration.Expand(
+        new SchemaVersion(126),
+        "An item is related to the item it was published from, as ArcGIS's Service2Data (ADR-257 §12).",
+
+        """
+        create table if not exists item_relationship (
+            origin_item_id      uuid not null references item (id) on delete cascade,
+            destination_item_id uuid not null references item (id) on delete cascade,
+            relationship_type   text not null,
+            created_at          timestamptz not null default now(),
+            tenant_id           uuid not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint item_relationship_pk primary key (origin_item_id, destination_item_id, relationship_type),
+            constraint item_relationship_type_known check (relationship_type in ('Service2Data'))
+        )
+        """,
+
+        "create index if not exists item_relationship_destination on item_relationship (destination_item_id, relationship_type)",
+
+        "create index if not exists item_relationship_tenant on item_relationship (tenant_id)",
+
+        "alter table item_relationship enable row level security",
+
+        "alter table item_relationship force row level security",
+
+        "drop policy if exists tenant_floor on item_relationship",
+
+        """
+        create policy tenant_floor on item_relationship
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
 
     /// <summary>
     /// A node says which schema its build reads, so a contract migration can wait until no node older than its minimum

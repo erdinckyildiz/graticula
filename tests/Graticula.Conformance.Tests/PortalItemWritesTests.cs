@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -152,6 +153,93 @@ public sealed class PortalItemWritesTests : ArcGisClient
         string bin = (await SendAsync(HttpMethod.Get, "/admin/recycle-bin")).GetRawText();
         Assert.DoesNotContain(single, bin, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(several, bin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// ADR-214 §5c: the bin through the portal, as the ArcGIS API for Python reaches it — <c>portals/self</c> says it is
+    /// on, <c>content/users/{u}?inRecycleBin=true</c> lists it, <c>restore</c> brings an item back and a permanent delete
+    /// of what is already in it empties its entry.
+    /// </summary>
+    [Fact]
+    public async Task The_recycle_bin_is_listed_restored_from_and_emptied_through_the_portal()
+    {
+        JsonElement self = await SendAsync(HttpMethod.Get, "/sharing/rest/portals/self?f=json");
+        Assert.True(self.GetProperty("recycleBinSupported").GetBoolean());
+        Assert.True(self.GetProperty("recycleBinEnabled").GetBoolean());
+
+        string kept = await AddMapAsync($"zz_bin_{Guid.NewGuid():N}"[..24]);
+        string gone = await AddMapAsync($"zz_bin_{Guid.NewGuid():N}"[..24]);
+
+        try
+        {
+            foreach (string id in new[] { kept, gone })
+            {
+                JsonElement deleted = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{id}/delete?f=json",
+                    new Dictionary<string, string>());
+                Assert.True(deleted.GetProperty("success").GetBoolean(), deleted.GetRawText());
+            }
+
+            JsonElement bin = await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/users/{User}?f=json&inRecycleBin=true&foldersContent=true&start=1&num=100&sortField=modified&sortOrder=desc");
+            List<JsonElement> listed = [.. bin.GetProperty("items").EnumerateArray()];
+            JsonElement entry = listed.Single(i => i.GetProperty("id").GetString() == kept);
+            Assert.Equal("Web Map", entry.GetProperty("type").GetString());
+            Assert.Equal(User, entry.GetProperty("owner").GetString(), StringComparer.OrdinalIgnoreCase);
+            Assert.Contains(listed, i => i.GetProperty("id").GetString() == gone);
+
+            JsonElement restored = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{kept}/restore?f=json",
+                new Dictionary<string, string>());
+            Assert.True(restored.GetProperty("success").GetBoolean(), restored.GetRawText());
+            Assert.Equal(kept, restored.GetProperty("itemId").GetString());
+            Assert.Equal(kept, (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{kept}?f=json")).GetProperty("id").GetString());
+
+            JsonElement purged = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{gone}/delete?f=json",
+                new Dictionary<string, string> { ["permanentDelete"] = "true" });
+            Assert.True(purged.GetProperty("success").GetBoolean(), purged.GetRawText());
+
+            string after = (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/users/{User}?f=json&inRecycleBin=true&num=100")).GetRawText();
+            Assert.DoesNotContain(gone, after, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(kept, after, StringComparison.OrdinalIgnoreCase);
+
+            // Restoring what is not in the bin is refused, not answered success.
+            JsonElement again = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{gone}/restore?f=json",
+                new Dictionary<string, string>());
+            Assert.True(again.TryGetProperty("error", out _), again.GetRawText());
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, $"/content/webmaps/{kept}");
+        }
+    }
+
+    /// <summary>
+    /// ADR-214 §5b: <c>created</c> and <c>modified</c> ranges are answered, and a range on a field with none is refused —
+    /// both answered <c>total: 0</c> on the showcase while <c>q=*</c> found twenty-four items.
+    /// </summary>
+    [Fact]
+    public async Task A_date_range_search_finds_what_q_star_finds_and_a_range_without_a_field_is_refused()
+    {
+        string id = await AddMapAsync($"zz_range_{Guid.NewGuid():N}"[..24]);
+
+        try
+        {
+            JsonElement all = await SendAsync(HttpMethod.Get, "/sharing/rest/search?f=json&num=100&q="
+                + Uri.EscapeDataString($"id:{id} AND created:[0 TO 9999999999999]"));
+            Assert.Contains(all.GetProperty("results").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            JsonElement recent = await SendAsync(HttpMethod.Get, "/sharing/rest/search?f=json&num=100&q="
+                + Uri.EscapeDataString($"id:{id} AND modified:[{now - 3_600_000:D19} TO {now + 3_600_000:D19}]"));
+            Assert.Contains(recent.GetProperty("results").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
+
+            JsonElement refused = await SendAsync(HttpMethod.Get,
+                "/sharing/rest/search?f=json&q=" + Uri.EscapeDataString("title:[a TO z]"));
+            Assert.True(refused.TryGetProperty("error", out _), refused.GetRawText());
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
     }
 
     [Fact]

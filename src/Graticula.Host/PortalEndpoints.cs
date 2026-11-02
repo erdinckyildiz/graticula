@@ -274,7 +274,9 @@ internal static partial class PortalEndpoints
         MapProPublishCapture(app);
         MapItemWrites(app);
         MapItemControls(app);
+        MapRecycleBinDoors(app);   // ADR-214 §5c — PortalEndpoints.RecycleBin.cs
         MapGroupWrites(app);
+        MapGroupMembers(app);      // ADR-256 §5a — PortalEndpoints.GroupMembers.cs
         MapContentAdds(app); // ADR-257: analyze and createService, beside addItem and publish
     }
 
@@ -756,6 +758,10 @@ internal static partial class PortalEndpoints
             isReadOnly = false,
             disableSignup = true,
             commentsEnabled = false,
+            // ADR-214 §5c: the recycle bin (ADR-203) is always on, and a client that is not told so sends no
+            // permanentDelete and deletes into it believing the item gone (the Python API warns and drops the flag).
+            recycleBinSupported = true,
+            recycleBinEnabled = true,
             supportsSceneServices = false,
             supports3DTilesServices = false,
             supportsHostedNotebooks = false,
@@ -1165,6 +1171,11 @@ internal static partial class PortalEndpoints
             mine = [.. mine, gallery];
         }
 
+        if (PortalQuery.Refusal(query) is { } rangeWhy)
+        {
+            return PortalError(400, rangeWhy);
+        }
+
         List<object> results = [.. mine.Where(group => PortalQuery.Matches(group, query))];
 
         // start, num and sortField as ArcGIS reads them — PortalPage (V-83); until 2026-10-17 every group, -1.
@@ -1320,6 +1331,12 @@ internal static partial class PortalEndpoints
             || !string.Equals(current.Principal.Name, username, StringComparison.OrdinalIgnoreCase))
         {
             return Unknown("User");
+        }
+
+        // ADR-214 §5c: `inRecycleBin=true` lists the member's recycle bin instead (PortalEndpoints.RecycleBin).
+        if (folderId is null && AsksForRecycleBin(context))
+        {
+            return await RecycleBinListingAsync(context, current, username, cancellation).ConfigureAwait(false);
         }
 
         IReadOnlyList<PublishedService>? visible =
@@ -1864,6 +1881,12 @@ internal static partial class PortalEndpoints
             return PortalError(400, refusedWhy);
         }
 
+        // ADR-214 §5b: a range this cannot evaluate is refused by name, not answered with nothing.
+        if (PortalQuery.Refusal(query) is { } rangeWhy)
+        {
+            return PortalError(400, rangeWhy);
+        }
+
         if (await ListAsync(context, catalog, maps, coverages, query, cancellation).ConfigureAwait(false)
             is not { } listed)
         {
@@ -1920,6 +1943,12 @@ internal static partial class PortalEndpoints
         if (narrowing.Refused is { } refusedWhy)
         {
             return PortalError(400, refusedWhy);
+        }
+
+        // ADR-214 §5b: a range this cannot evaluate is refused by name, not answered with nothing.
+        if (PortalQuery.Refusal(asked) is { } rangeWhy)
+        {
+            return PortalError(400, rangeWhy);
         }
 
         string query = string.IsNullOrWhiteSpace(asked) ? $"group:{group:N}" : $"group:{group:N} AND ({asked})";

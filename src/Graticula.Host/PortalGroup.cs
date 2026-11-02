@@ -41,7 +41,9 @@ namespace Graticula.Host;
 /// group exists is not reading what is in it, so there is no member list, no item
 /// list and no count of either here — a caller whose standing is
 /// <see cref="GroupStanding.Outside"/> reached the group through its
-/// organisation-wide visibility and learns only that it exists.
+/// organisation-wide visibility and learns only that it exists. The member list is answered on its own, at
+/// <c>community/groups/{id}/users</c> and <c>userList</c> since 2026-11-03, through Studio's group read and to whom
+/// Studio shows it (ADR-256 §5a).
 /// </para>
 /// </remarks>
 internal static class PortalGroup

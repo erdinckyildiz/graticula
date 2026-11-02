@@ -143,6 +143,42 @@ the portal both call them.
    in or can find*. No row button: a row is itself a link to the page, and two targets in one row is the fault the
    phone layout removed.
 
+### 5a. Reading a group's members, 2026-11-03
+
+From the ArcGIS veteran's review of v1.0.499: `community/groups/{id}/users` and `community/groups/{id}/userList`
+answered 404, and the ArcGIS API for Python's `group.get_members()` (a POST to `/users`) and `group.user_list()` (a GET
+of `/userList`, paged by `start` and `num` until `nextStart` is `-1`) call them — a script that had just run `addUsers`
+could not see whom it had added.
+
+**What ArcGIS documents:** `/users` answers `owner`, `admins` and `users`, each a username or a list of them;
+`/userList` answers the `owner` and a page of `users`, each with `username`, `fullName`, `memberType`, `thumbnail` and
+`joined`, with `total`, `start`, `num` and `nextStart`, and takes `start`, `num`, `sortField`, `sortOrder`, `name`,
+`memberType` and `joined`.
+
+**What is built** (`PortalEndpoints.GroupMembers`), read-only, GET or POST:
+
+1. The group is found by id among those the caller can see, as every door of §5 finds it; then **Studio's own
+   `GET /admin/groups/{name}` runs inside the request** and its `members` are read from its answer. Who may see a
+   group's members is decided there, once: a member of the group or an administrator, and only its owner and managers
+   when the group hides its members (`memberList = managers`, ArcGIS's `hiddenMembers`). Where Studio withholds the
+   list the portal answers ArcGIS's `403` with a sentence, never an empty list, for Studio's reason — `[]` says *nobody
+   is in it*.
+2. `/users`: `owner`; `admins` — the owner and the managers; `users` — the members who are neither.
+3. `/userList`: `owner` as one row, and the other members paged and sorted by `PortalPage` (`sortField` of `username`,
+   `fullName`, `joined` or `memberType`); `name` narrows to a username or full name containing it, `memberType` to
+   `owner`, `admin` or `member`, and `joined` to a `start,end` pair of epoch milliseconds — any other form of `joined`
+   is refused, not ignored. A manager is `admin`, as `PortalGroup` already maps the standing.
+
+**INFERRED, for the owner to confirm:** that `/users` lists the owner among `admins` and does not repeat the admins in
+`users` (the reference shows the owner in `admins` and is silent on the rest); the format of `joined`, which the
+reference names and does not spell; that the owner is not repeated among `/userList`'s `users`. `thumbnail` is null —
+no member picture is held. **Left out:** nothing the two calls need; `PortalGroup`'s note that a group read carries no
+member list stays true of `community/groups/{id}` itself. Measured:
+`PortalGroupWritesTests.A_groups_members_are_read_through_the_portal_and_hidden_where_Studio_hides_them` (a member
+added, read by the owner and by the member, then hidden from the member and still shown to the owner), and the ArcGIS
+API for Python 2.4.3 against the local fixture (`tools/sdk-probe/python-portal-doors.py`): `group.get_members()` →
+the owner, the owner among `admins`, no `users`; `group.user_list()` → the owner as `memberType: owner`.
+
 ## 6. Consequences
 
 **Positive.** An ArcGIS script that makes a group, peoples it and shares into it runs. Studio and the portal cannot

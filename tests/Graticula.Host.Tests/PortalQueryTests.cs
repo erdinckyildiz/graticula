@@ -238,4 +238,47 @@ public sealed class PortalQueryTests
 
         Assert.Equal(expected, PortalQuery.Matches(item, query));
     }
+
+    /// <summary>
+    /// <c>created</c> and <c>modified</c> ranges, as the search reference writes them — ADR-214 §5b. Until 2026-11-03 every
+    /// one answered nothing, so a script asking what changed this week was told nothing had.
+    /// </summary>
+    [Theory]
+    [InlineData("modified:[1700000000000 TO 1900000000000]", true)]
+    [InlineData("created:[0 TO 9999999999999]", true)]
+    [InlineData("created:[0000001700000000000 TO 0000001800000000000]", true)]
+    [InlineData("modified:[1810000000000 TO 1900000000000]", false)]
+    [InlineData("modified:[1750000000000 TO *]", true)]
+    [InlineData("modified:[* TO 1750000000000]", false)]
+    [InlineData("modified:{1750000000000 TO 1800000000000}", false)]
+    [InlineData("created:[1750000000000 TO 1800000000000}", true)]
+    [InlineData("created:{1750000000000 TO 1800000000000]", false)]
+    [InlineData("type:\"Feature Service\" AND modified:[1700000000000 TO 1900000000000]", true)]
+    [InlineData("-modified:[1700000000000 TO 1900000000000]", false)]
+    [InlineData("numViews:[5 TO 10]", true)]
+    public void A_range_is_read_in_epoch_milliseconds_with_inclusive_and_exclusive_bounds(string query, bool expected)
+    {
+        object item = new { title = "tr_il", type = "Feature Service", created = 1750000000000L, modified = (long?)1800000000000L, numViews = 7 };
+
+        Assert.Equal(expected, PortalQuery.Matches(item, query));
+        Assert.Null(PortalQuery.Refusal(query));
+    }
+
+    /// <summary>A range this cannot evaluate is refused with a sentence, not answered with nothing.</summary>
+    [Theory]
+    [InlineData("title:[a TO z]")]
+    [InlineData("modified:[yesterday TO today]")]
+    [InlineData("modified:[1700000000000]")]
+    public void A_range_this_cannot_evaluate_is_refused(string query)
+    {
+        Assert.NotNull(PortalQuery.Refusal(query));
+        Assert.False(PortalQuery.Matches(new { title = "a", modified = 1L }, query));
+    }
+
+    [Fact]
+    public void An_item_without_the_field_is_outside_every_range()
+    {
+        Assert.False(PortalQuery.Matches(new { title = "a", modified = (long?)null }, "modified:[* TO *]"));
+        Assert.Null(PortalQuery.Refusal("type:Map"));
+    }
 }

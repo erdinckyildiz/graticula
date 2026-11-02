@@ -73,8 +73,30 @@ internal static class PortalQuery
         return parsed.Root.Evaluate(item, groups) ?? true;
     }
 
-    /// <summary>A parsed query, and whether it names a field this server cannot evaluate.</summary>
-    private sealed record Parsed(Node Root, bool Unknown);
+    /// <summary>
+    /// Why a query is refused outright rather than answered with nothing, or null when it is not.
+    /// </summary>
+    /// <remarks>
+    /// <b>A range this cannot evaluate is a question the client must be told it asked badly — ADR-214 §5b,
+    /// 2026-11-03.</b> An unknown field still answers nothing, because Pro searches for Esri's geocoder by URL and
+    /// *none* is the true answer there. A range is different: <c>modified:[a TO b]</c> answered <c>total: 0</c> on
+    /// the showcase while <c>q=*</c> found twenty-four items (the ArcGIS veteran's review of v1.0.499), and a script reading that cannot tell "nothing changed"
+    /// from "this server does not understand dates". So a range on a field with no range, or one that does not
+    /// parse, is refused with a sentence.
+    /// </remarks>
+    /// <param name="query">The <c>q</c> parameter, as the client wrote it.</param>
+    /// <returns>The sentence, or null.</returns>
+    public static string? Refusal(string? query) =>
+        string.IsNullOrWhiteSpace(query) ? null : Parse(query)?.Refused;
+
+    /// <summary>The fields a range can be asked of: the item's numbers, as the search reference lists them.</summary>
+    private static readonly HashSet<string> Ranged = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "created", "modified", "numviews", "size",
+    };
+
+    /// <summary>A parsed query, whether it names a field this server cannot evaluate, and why it is refused.</summary>
+    private sealed record Parsed(Node Root, bool Unknown, string? Refused = null);
 
     /// <summary>
     /// Parses the search reference's grammar — V-48, the third ArcGIS review.
@@ -100,6 +122,7 @@ internal static class PortalQuery
         List<string> tokens = Tokens(query);
         int position = 0;
         bool unknown = false;
+        string? refused = null;
 
         Node? Or(string? field)
         {
@@ -193,6 +216,12 @@ internal static class PortalQuery
             {
                 string named = token[..^1];
 
+                if (position < tokens.Count && tokens[position] is ['[' or '{', ..] range)
+                {
+                    position++;
+                    return RangeOf(named, range);
+                }
+
                 if (!Known.Contains(named))
                 {
                     unknown = true;
@@ -209,9 +238,40 @@ internal static class PortalQuery
         Node? Term(string? field, string token) =>
             token is "(" or ")" ? null : new Word(field, Unquote(token));
 
+        // `field:[a TO b]`, `{a TO b}` or a mix — ADR-214 §5b. Square brackets include the bound and braces exclude it,
+        // `*` leaves a side open, and a value is epoch milliseconds, zero-padded or not, as the search reference writes
+        // them. A range this cannot evaluate refuses the query (Refusal) and matches nothing here.
+        Node RangeOf(string named, string range)
+        {
+            if (!Ranged.Contains(named))
+            {
+                refused ??= $"A range can be asked of created, modified, numViews and size; '{named}' has none here.";
+                return new Nothing();
+            }
+
+            string[] bounds = range.Length >= 2 && range[^1] is ']' or '}'
+                ? System.Text.RegularExpressions.Regex.Split(range[1..^1].Trim(), @"\s+TO\s+")
+                : [];
+
+            if (bounds.Length != 2
+                || Bound(bounds[0]) is not { } low
+                || Bound(bounds[1]) is not { } high)
+            {
+                refused ??= $"'{named}:{range}' is not a range this server can read: write [low TO high], with epoch milliseconds or *.";
+                return new Nothing();
+            }
+
+            return new Range(named, low.Value, range[0] == '[', high.Value, range[^1] == ']');
+        }
+
+        static (long? Value, bool Ok)? Bound(string text) =>
+            text == "*" ? (null, true)
+            : long.TryParse(text, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out long value) ? (value, true)
+            : null;
+
         Node? root = tokens.Count == 0 ? new AllOf([]) : Or(null);
 
-        return root is null || position != tokens.Count ? null : new Parsed(root, unknown);
+        return root is null || position != tokens.Count ? null : new Parsed(root, unknown, refused);
     }
 
     /// <summary>
@@ -236,6 +296,15 @@ internal static class PortalQuery
             {
                 afterField = false;
                 i++;
+            }
+            else if (afterField && c is '[' or '{')
+            {
+                // A range is one token, spaces and all, up to its closing bracket or brace (ADR-214 §5b).
+                int close = query.IndexOfAny([']', '}'], i + 1);
+                int end = close < 0 ? query.Length : close + 1;
+                tokens.Add(query[i..end]);
+                afterField = false;
+                i = end;
             }
             else if (c is '(' or ')')
             {
@@ -294,6 +363,32 @@ internal static class PortalQuery
     {
         public override bool? Evaluate(object item, IReadOnlyCollection<Guid>? groups) =>
             Nodes.Any(node => node.Evaluate(item, groups) != false);
+    }
+
+    /// <summary>A clause that matches nothing: a range this cannot evaluate, which <see cref="Refusal"/> also names.</summary>
+    private sealed record Nothing : Node
+    {
+        public override bool? Evaluate(object item, IReadOnlyCollection<Guid>? groups) => false;
+    }
+
+    /// <summary>A numeric field between two bounds, either open — ADR-214 §5b.</summary>
+    private sealed record Range(string Field, long? Low, bool LowIncluded, long? High, bool HighIncluded) : Node
+    {
+        public override bool? Evaluate(object item, IReadOnlyCollection<Guid>? groups)
+        {
+            long? value = PortalQuery.Field(item, Field) switch
+            {
+                long l => l,
+                int i => i,
+                double d => (long)d,
+                DateTimeOffset at => at.ToUnixTimeMilliseconds(),
+                _ => null,
+            };
+
+            return value is { } v
+                && (Low is not { } low || (LowIncluded ? v >= low : v > low))
+                && (High is not { } high || (HighIncluded ? v <= high : v < high));
+        }
     }
 
     private sealed record Not(Node Inner) : Node

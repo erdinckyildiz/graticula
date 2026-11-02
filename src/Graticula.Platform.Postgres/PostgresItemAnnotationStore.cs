@@ -230,4 +230,51 @@ public sealed class PostgresItemAnnotationStore : IItemAnnotationStore
 
         return favorites;
     }
+
+    /// <inheritdoc/>
+    public async Task<bool> RelateAsync(Guid origin, Guid destination, string relationshipType, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            insert into item_relationship (origin_item_id, destination_item_id, relationship_type)
+            select @origin, @destination, @type
+             where exists (select 1 from item where id = @origin) and exists (select 1 from item where id = @destination)
+            on conflict do nothing
+            """);
+        command.Parameters.AddWithValue("origin", origin);
+        command.Parameters.AddWithValue("destination", destination);
+        command.Parameters.AddWithValue("type", relationshipType);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await using NpgsqlCommand held = _dataSource.CreateCommand(
+            """
+            select exists (select 1 from item_relationship
+                            where origin_item_id = @origin and destination_item_id = @destination and relationship_type = @type)
+            """);
+        held.Parameters.AddWithValue("origin", origin);
+        held.Parameters.AddWithValue("destination", destination);
+        held.Parameters.AddWithValue("type", relationshipType);
+        return await held.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<Guid>> RelatedAsync(
+        Guid item, string relationshipType, bool forward, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(forward
+            ? "select destination_item_id from item_relationship where origin_item_id = @item and relationship_type = @type order by created_at"
+            : "select origin_item_id from item_relationship where destination_item_id = @item and relationship_type = @type order by created_at");
+        command.Parameters.AddWithValue("item", item);
+        command.Parameters.AddWithValue("type", relationshipType);
+
+        List<Guid> related = [];
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            related.Add(reader.GetGuid(0));
+        }
+
+        return related;
+    }
 }
