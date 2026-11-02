@@ -241,8 +241,11 @@ public sealed class UiSweepOf20261102Tests : ConsoleTest
         {
             ("/studio/#/general", "view-general"),
             ("/system/#/settings", "view-settings"),
-            ("/studio/#/services", "view-services"),
+            // Services is one screen, Server's: Studio's and System's addresses redirect to it (SCREEN_SURFACE), and a
+            // title read there is measured mid-navigation. Logs is the screen two surfaces really both draw.
             ("/server/#/services", "view-services"),
+            ("/server/#/logs", "view-logs"),
+            ("/system/#/logs", "view-logs"),
         })
         {
             await OpenAsync(address, token);
@@ -257,6 +260,8 @@ public sealed class UiSweepOf20261102Tests : ConsoleTest
         Assert.Contains("System", titles["/system/#/settings"]);
         Assert.Contains("Organization", titles["/studio/#/general"]);
         Assert.Contains("Server", titles["/server/#/services"]);
+        Assert.Contains("Server", titles["/server/#/logs"]);
+        Assert.Contains("System", titles["/system/#/logs"]);
     }
 
     /// <summary>
