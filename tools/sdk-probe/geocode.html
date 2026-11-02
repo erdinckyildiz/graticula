@@ -1,0 +1,92 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>geocode probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="s"></div>
+<script>
+// ADR-258 §5.8: the Maps SDK for JavaScript against a GeocodeServer. Two ways in:
+//   ?portal=<https://server>          the locator is the one the portal names in helperServices.geocode, and the
+//                                     Search widget is built with its default sources — no URL given to it at all;
+//   ?locator=<…/GeocodeServer>        the locator by URL (the control: Esri's World geocoder).
+// Then locator.suggestLocations, locator.addressToLocations (by text and by the suggestion's magicKey),
+// locator.locationToAddress, and the Search widget's own suggest and search. &text=, &single=, &x=&y= choose the inputs.
+var params = new URLSearchParams(location.search);
+require(["esri/config", "esri/portal/Portal", "esri/rest/locator", "esri/widgets/Search", "esri/geometry/Point"],
+function (esriConfig, Portal, locator, Search, Point) {
+  var out = {};
+  var text = params.get("text") || "Kizil";
+  var single = params.get("single") || "Kizilay Ankara";
+  var at = new Point({ x: Number(params.get("x") || 29.0244), y: Number(params.get("y") || 40.9903), spatialReference: { wkid: 4326 } });
+  function fail(step) { return function (e) { out[step + "Error"] = String(e && (e.message || e.name) || e); }; }
+
+  var ready;
+  if (params.get("portal")) {
+    esriConfig.portalUrl = params.get("portal");
+    var portal = Portal.getDefault();
+    ready = portal.load().then(function () {
+      var named = portal.helperServices && portal.helperServices.geocode;
+      out.portalLocators = (named || []).map(function (g) { return { url: g.url, name: g.name, batch: g.batch }; });
+      return named && named[0] && named[0].url;
+    });
+  } else {
+    ready = Promise.resolve(params.get("locator"));
+  }
+
+  ready.then(function (url) {
+    out.locator = url;
+    if (!url) { throw new Error("no locator"); }
+    return locator.suggestLocations(url, { text: text, location: at, maxSuggestions: 5 }).then(function (s) {
+      out.suggest = s.map(function (x) { return x.text; });
+      var first = s[0];
+      return locator.addressToLocations(url, { address: { SingleLine: single }, outFields: ["*"], maxLocations: 3 })
+        .then(function (c) {
+          out.find = c.map(function (x) {
+            return { address: x.address, score: x.score, type: x.attributes.Addr_type, x: Math.round(x.location.x * 1e4) / 1e4,
+                     extent: !!x.extent, sr: x.location.spatialReference.wkid };
+          });
+        }, fail("find"))
+        .then(function () {
+          if (!first) { return; }
+          return locator.addressToLocations(url, { address: { SingleLine: first.text }, magicKey: first.magicKey, maxLocations: 1 })
+            .then(function (c) { out.findByKey = c.map(function (x) { return [x.address, x.score]; }); }, fail("findByKey"));
+        })
+        .then(function () {
+          return locator.locationToAddress(url, { location: at }).then(function (r) {
+            out.reverse = r.address;
+          }, fail("reverse"));
+        });
+    }, fail("suggest")).then(function () { return url; });
+  }).then(function (url) {
+    // The Search widget. With a portal and no sources, its default sources are the portal's locators.
+    var widget = params.get("portal")
+      ? new Search({ container: "s" })
+      : new Search({ container: "s", includeDefaultSources: false,
+                     sources: [{ url: url, name: "control", singleLineFieldName: "SingleLine", outFields: ["*"] }] });
+    return widget.when().then(function () {
+      // The default sources arrive with the portal; wait for them rather than read an empty list too early.
+      return new Promise(function (done) {
+        var tries = 0;
+        var poll = setInterval(function () {
+          if (widget.allSources.length > 0 || ++tries > 40) { clearInterval(poll); done(); }
+        }, 250);
+      });
+    }).then(function () {
+      var vm = widget.viewModel;
+      out.widgetPortal = vm.portal && vm.portal.url;
+      out.widgetPortalLoaded = vm.portal && vm.portal.loaded;
+      out.widgetPortalLocators = vm.portal && vm.portal.helperServices && vm.portal.helperServices.geocode
+        ? vm.portal.helperServices.geocode.length : null;
+      out.widgetState = vm.state;
+      out.widgetSources = widget.allSources.toArray().map(function (s) { return s.url || s.name; });
+      return widget.suggest(text);
+    }).then(function (r) {
+      out.widgetSuggest = r && r.results && r.results[0] ? r.results[0].results.map(function (x) { return x.text; }) : r;
+      return widget.search(single);
+    }).then(function (r) {
+      var hits = r && r.results && r.results[0] ? r.results[0].results : [];
+      out.widgetSearch = hits.map(function (x) { return x.name; });
+      out.widgetExtent = hits[0] && hits[0].extent ? hits[0].extent.spatialReference.wkid : null;
+    }, fail("widget"));
+  }).catch(fail("probe")).then(function () { window.__result = JSON.stringify(out); });
+});
+</script></body></html>
