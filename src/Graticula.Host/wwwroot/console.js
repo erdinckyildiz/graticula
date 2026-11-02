@@ -7350,7 +7350,8 @@ function drawServiceBounds(doc) {
   const granted = String(doc.capabilities || "")
     .split(",").map(one => one.trim()).filter(Boolean);
 
-  const known = ["Query", "Create", "Update", "Delete", "Extract"];
+  // Not Extract since 2026-11-03: the document never names it (ADR-106 §5.5), and the owner's choice is Settings'.
+  const known = ["Query", "Create", "Update", "Delete"];
   const all = [...known, ...granted.filter(one => !known.includes(one))];
 
   ops.innerHTML = `
@@ -8275,8 +8276,9 @@ async function drawServiceDetails(qualified, knownKind) {
         // card was a wall of seven equal buttons). The menu is drawn only when it holds something.
         const more = `      ${knownKind || serviceDataEntries().length === 0
         // Settings › Feature layer's *Export data* is Extract, and it is about others: the owner may always
-        // take their own data away, as in Portal; anybody else only when the service offers Extract.
-        || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
+        // take their own data away, as in Portal; anybody else only when the service offers Extract. Asked of the
+        // content listing's `exportsData` since 2026-11-03: the ArcGIS capabilities no longer name Extract (ADR-106 §5.5).
+        || !(manages || item?.exportsData === true)
         ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}

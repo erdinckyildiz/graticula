@@ -276,7 +276,7 @@ write Parquet through DuckDB or a new dependency, for a file that lives minutes.
 - **Enforced on the server**, through the existing `RefusedByCeilingAsync(context, layer, "Extract")` for the ceiling
   and the owner's offer, at the start **and again at every download**. A refused reader is answered 403 with the
   sentence; a caller who may not read the service gets the same 404 as every other route.
-- **Advertised**: a layer's and the service's `capabilities` include `Extract` for a signed-in caller **where the
+- ~~**Advertised**~~ **Not advertised since 2026-11-03 — see the note after this list.** A layer's and the service's `capabilities` include `Extract` for a signed-in caller **where the
   service offers it**, and for nobody else. **Amended 2026-09-30, when it was built:** the draft said the owner and
   administrators too, always; the first build did that and every capability string an administrator read grew
   `,Extract`. Not kept, because ArcGIS Online states Extract as the service's setting and not the caller's, because
@@ -288,6 +288,24 @@ write Parquet through DuckDB or a new dependency, for a file that lives minutes.
   derived from the edits and do not move (condition 7).
 - **Query is untouched.** A reader of a service without `Extract` still pages `query`; that is the owner's decision,
   and the gate is a convenience gate (§3).
+
+> **Amended 2026-11-03 — `Extract` leaves the ArcGIS capability strings** (the ArcGIS veteran's review of v1.0.499; §9's
+> third trigger, met by reading rather than by a client failing). What an ArcGIS client does with `Extract` is call
+> `createReplica`: the ArcGIS API for Python's `FeatureLayerCollection.replicas.create` returns nothing unless the
+> service is `syncEnabled` or names `Extract`, and otherwise posts `createReplica` (`arcgis/features/layer.py`, the
+> installed 2.4.3, read 2026-11-03). That operation is not served here (ADR-082), and neither is the portal `export`
+> ArcGIS Online's *Export Data* calls (§1 above, owner decision 1). So naming `Extract` invited a 404 and answered
+> nothing an ArcGIS client could reach — the word was accurate only for Studio, which is ours. **What changes:** no
+> FeatureServer or MapServer `capabilities` string names `Extract` (`Program.CapabilitiesFor`); Studio's *Export data*
+> asks the content listing's `exportsData` instead (`/content/items`: the owner and administrators always, another
+> signed-in reader where the owner chose Extract), and its served-capabilities pills no longer list Extract. **What does
+> not change:** the owner's choice, its storage, the enforcement at start and at every download, anonymous never, and
+> `updateDefinition` and the service's admin document, which carry `Extract` as the owner's setting — what they
+> describe. **INFERRED, for the owner to confirm:** that the word is the client's, not ours — an ArcGIS client that one
+> day exports through something this server answers (a `createReplica` with `syncModel=none`, or the portal's
+> `export`) is the moment to name it again. Conformance: `FeatureExportConformanceTests.A_reader_exports_only_where_the_owner_offered_Extract…`
+> (no capability string names it before or after the offer; the reader's listing says `exportsData`) and
+> `ItemStewardshipConformanceTests.Extract_is_the_owners_setting_and_no_capability_string_names_it`.
 
 ### 5.6 The formats
 

@@ -1302,6 +1302,14 @@ internal static partial class AdminEndpoints
                 // ADR-075, D-271: whether this caller may change the item — share it, restyle it.
                 manages = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization),
 
+                // ADR-106 §5.5: whether this caller may export its data — Studio's *Export data*: its owner and
+                // administrators always, another signed-in reader where the owner chose Extract. Said here since
+                // 2026-11-03 rather than as `Extract` in the ArcGIS capabilities, which ArcGIS clients read as
+                // createReplica's, an operation this server does not have (ADR-082; the ArcGIS veteran's review).
+                exportsData = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization)
+                    || (!current.Principal.IsAnonymous
+                        && service.LayersAndTables.Any(l => l.CapabilityCeiling?.Contains("Extract") == true)),
+
                 // <b>Which group, not just *a* group.</b> `Evaluate` iterates the item's groups
                 // against the caller's and returns on the first hit, so the answer is in hand at the
                 // moment of the decision and was being discarded — leaving a screen able to group rows
