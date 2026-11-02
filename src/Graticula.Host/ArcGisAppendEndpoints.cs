@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -32,9 +33,10 @@ namespace Graticula.Host;
 /// it does not fit.
 /// </para>
 /// <para>
-/// <b>What is offered, and what is refused by name.</b> GeoJSON and zipped shapefiles; <c>fieldMappings</c>,
-/// <c>appendFields</c>, <c>truncateExisting</c> and, since ADR-116, <c>upsert</c> with <c>upsertMatchingField</c>,
-/// <c>skipUpdates</c>, <c>skipInserts</c> and <c>updateGeometry</c>. <c>appendItemId</c>, the other formats and
+/// <b>What is offered, and what is refused by name.</b> GeoJSON and zipped shapefiles, and since ADR-257 a CSV and a
+/// workbook; <c>fieldMappings</c>, <c>appendFields</c>, <c>truncateExisting</c> and, since ADR-116, <c>upsert</c> with
+/// <c>upsertMatchingField</c>, <c>skipUpdates</c>, <c>skipInserts</c> and <c>updateGeometry</c>. Since ADR-257 the file
+/// may be an item the caller added (<c>appendItemId</c>) as well as an upload. <c>edits</c>, the other formats and
 /// <c>async=true</c> are refused with the reason rather than ignored, because a caller told it succeeded at something
 /// it did not do builds on it (ADR-008 §2).
 /// </para>
@@ -226,37 +228,58 @@ internal static class ArcGisAppendEndpoints
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(form["appendItemId"]) || !string.IsNullOrWhiteSpace(form["edits"]))
+        if (!string.IsNullOrWhiteSpace(form["edits"]))
         {
             await RefuseAsync(context, 400,
-                "Only 'appendUploadId' is read: upload the file to this service's uploads/upload first. Nothing was written.")
+                "'edits' is not read: upload the file to this service's uploads/upload, or add it as an item, first. "
+                + "Nothing was written.")
                 .ConfigureAwait(false);
             return;
         }
 
         string format = form["appendUploadFormat"].ToString().Trim();
 
-        if (!format.Equals("geojson", StringComparison.OrdinalIgnoreCase)
-            && !format.Equals("shapefile", StringComparison.OrdinalIgnoreCase))
+        if (!Formats.Contains(format))
         {
             await RefuseAsync(context, 400,
-                $"'appendUploadFormat' is '{format}'; this server appends 'geojson' and 'shapefile'. Nothing was written.")
+                $"'appendUploadFormat' is '{format}'; this server appends {string.Join(", ", Formats.Select(f => $"'{f}'"))}. "
+                + "Nothing was written.")
                 .ConfigureAwait(false);
             return;
         }
 
         string id = form["appendUploadId"].ToString().Trim();
-        string owner = context.Features.Get<RequestPrincipal>()?.Principal.Id.ToString() ?? string.Empty;
+        string itemId = form["appendItemId"].ToString().Trim();
+        RequestPrincipal? caller = context.Features.Get<RequestPrincipal>();
+        string owner = caller?.Principal.Id.ToString() ?? string.Empty;
 
         Forget();
 
-        if ((Uploads.TryGetValue(id, out Upload? held) ? held : SiteHandoff.Load<Upload>(UploadKind, id)) is not { } upload
-            || !string.Equals(upload.Owner, owner, StringComparison.Ordinal))
+        Upload? upload = null;
+        byte[]? itemContent = null;
+
+        // ADR-257: an item the caller added (a document) is appended as an upload is — the same read, the same write.
+        if (itemId.Length > 0)
+        {
+            if (caller is null || await ItemFileAsync(context, caller, itemId, format, cancellation).ConfigureAwait(false)
+                    is not { } item)
+            {
+                return;
+            }
+
+            (upload, itemContent) = item;
+        }
+        else if ((Uploads.TryGetValue(id, out Upload? held) ? held : SiteHandoff.Load<Upload>(UploadKind, id)) is not { } waiting
+            || !string.Equals(waiting.Owner, owner, StringComparison.Ordinal))
         {
             await RefuseAsync(context, 400,
                 $"No upload '{id}' of yours is waiting here. An upload is kept for an hour, on the server it was sent to.")
                 .ConfigureAwait(false);
             return;
+        }
+        else
+        {
+            upload = waiting;
         }
 
         IReadOnlyDictionary<string, string>? mappings;
@@ -277,7 +300,7 @@ internal static class ArcGisAppendEndpoints
         DateTimeOffset submitted = DateTimeOffset.UtcNow;
         AppendResult? result;
 
-        await using (FileStream stream = File.OpenRead(upload.Path))
+        await using (Stream stream = itemContent is not null ? new MemoryStream(itemContent, writable: false) : File.OpenRead(upload.Path))
         {
             FormFile file = new(stream, 0, stream.Length, "file", upload.Name);
 
@@ -298,9 +321,12 @@ internal static class ArcGisAppendEndpoints
             return;
         }
 
-        // Appended once: the upload is spent.
-        if (Uploads.TryRemove(id, out Upload? spent)) TryDelete(spent.Path);
-        SiteHandoff.Remove(UploadKind, id);
+        // Appended once: the upload is spent. An item is not: it stays the caller's, as it was.
+        if (itemContent is null)
+        {
+            if (Uploads.TryRemove(id, out Upload? spent)) TryDelete(spent.Path);
+            SiteHandoff.Remove(UploadKind, id);
+        }
 
         await Results.Json(new
         {
@@ -310,6 +336,55 @@ internal static class ArcGisAppendEndpoints
             recordCount = result.Rows + result.Updated,
             status = "Completed",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The <c>appendUploadFormat</c>s read — what <c>HostedDataEndpoints.ReadUpdateFileAsync</c> reads: GeoJSON and a
+    /// zipped shapefile (ADR-105), and a CSV or a workbook since ADR-257, which that reader already took for Update data.
+    /// </summary>
+    internal static readonly HashSet<string> Formats = new(StringComparer.OrdinalIgnoreCase) { "geojson", "shapefile", "csv", "excel" };
+
+    /// <summary>The ArcGIS item type each format is added as, for <c>appendItemId</c>.</summary>
+    private static readonly FrozenDictionary<string, string> ItemTypes = new Dictionary<string, string>
+    {
+        ["geojson"] = "GeoJson",
+        ["shapefile"] = "Shapefile",
+        ["csv"] = "CSV",
+        ["excel"] = "Microsoft Excel",
+    }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The file of the item <c>appendItemId</c> names — a document the caller may read, of the format asked — as an
+    /// upload named for its file and its bytes; or null, with the refusal written.
+    /// </summary>
+    private static async Task<(Upload Upload, byte[] Content)?> ItemFileAsync(
+        HttpContext context, RequestPrincipal caller, string itemId, string format, CancellationToken cancellation)
+    {
+        IDocumentStore? documents = context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore;
+
+        if (documents is null || !Guid.TryParse(itemId, out _)
+            || await documents.FindAsync(itemId.ToLowerInvariant(), cancellation).ConfigureAwait(false) is not { } document
+            || !LayerAccess.Evaluate(document.Sharing, document.Owner, caller.Principal, caller.Authorization, document.SharedWith).IsAllowed())
+        {
+            await RefuseAsync(context, 400, $"No item '{itemId}' that you may read is here. Nothing was written.").ConfigureAwait(false);
+            return null;
+        }
+
+        if (!string.Equals(document.Kind.ArcGisType, ItemTypes[format], StringComparison.OrdinalIgnoreCase))
+        {
+            await RefuseAsync(context, 400,
+                $"'{document.Title}' is a {document.Kind.ArcGisType} item and 'appendUploadFormat' says {format}. Nothing was written.")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        if (await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) is not { } content)
+        {
+            await RefuseAsync(context, 400, $"'{document.Title}' has no file. Nothing was written.").ConfigureAwait(false);
+            return null;
+        }
+
+        return (new Upload(string.Empty, document.FileName, caller.Principal.Id.ToString(), DateTimeOffset.UtcNow), content);
     }
 
     /// <summary>ArcGIS <c>fieldMappings</c>: <c>[{"name": target, "source": source}]</c>, as source → target.</summary>

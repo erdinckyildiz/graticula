@@ -807,6 +807,16 @@ internal static partial class PortalEndpoints
     /// </summary>
     private static async Task<(int Status, string? Message)> InnerAsync(HttpContext context, Func<Task> handler)
     {
+        (int status, string? message, _) = await InnerAnswerAsync(context, handler).ConfigureAwait(false);
+        return (status, message);
+    }
+
+    /// <summary>
+    /// <see cref="InnerAsync"/>, keeping what the handler answered as well — ADR-257's doors read the id or the job a
+    /// Studio handler made from its own answer.
+    /// </summary>
+    private static async Task<(int Status, string? Message, JsonElement Answer)> InnerAnswerAsync(HttpContext context, Func<Task> handler)
+    {
         Stream original = context.Response.Body;
         using MemoryStream captured = new();
         context.Response.Body = captured;
@@ -826,10 +836,12 @@ internal static partial class PortalEndpoints
         context.Response.Headers.Location = default;
 
         string? message = null;
+        JsonElement body = default;
 
         try
         {
             using JsonDocument answer = JsonDocument.Parse(captured.ToArray());
+            body = answer.RootElement.Clone();
 
             if (answer.RootElement.ValueKind == JsonValueKind.Object
                 && answer.RootElement.TryGetProperty("error", out JsonElement error)
@@ -843,7 +855,7 @@ internal static partial class PortalEndpoints
             // Not JSON: the status says what happened.
         }
 
-        return (status, message);
+        return (status, message, body);
     }
 
     /// <summary>Portal's item <c>unshare</c>: from the groups named.</summary>

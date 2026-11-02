@@ -67,7 +67,7 @@ applies `fieldMappings` (`[{"name": target, "source": source}]`) and `appendFiel
 `truncateExisting=true` (refused while the item is protected, ADR-103 §10.4), and answers
 `{layerName, submissionTime, lastUpdatedTime, recordCount, status: "Completed"}`. An upload is spent once appended.
 
-5.3 Refused by name, nothing written: `upsert=true`, `async=true`, `appendItemId`, `edits`, and every other format.
+5.3 Refused by name, nothing written: `upsert=true`, `async=true`, `appendItemId`, `edits`, and every other format. *(2026-11-02, [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md) §5.6: `appendItemId` is read now, naming a document the caller may read, and `csv` and `excel` are formats; `upsert` was taken up by ADR-116. `async=true`, `edits` and the other formats are still refused.)*
 
 5.4 Owner or administrator of a hosted layer, as ADR-103.
 
@@ -95,7 +95,7 @@ it, for an hour; nothing in the catalogue.
 ## 9. Revisit triggers
 
 - An ArcGIS client is found that sends only `async=true`.
-- Portal items land (ADR-056) — `appendItemId` then has something to name.
+- ~~Portal items land (ADR-056) — `appendItemId` then has something to name.~~ *Met 2026-11-02 by documents (ADR-188) and [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md).*
 
 ## 10. Conditions
 

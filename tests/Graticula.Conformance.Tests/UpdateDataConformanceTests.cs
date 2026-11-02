@@ -289,7 +289,7 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
             JsonElement layer = JsonDocument.Parse(layerBody).RootElement;
 
             Assert.True(layer.GetProperty("supportsAppend").GetBoolean(), "A hosted layer does not say supportsAppend.");
-            Assert.Equal("geojson,shapefile", layer.GetProperty("supportedAppendFormats").GetString());
+            Assert.Equal("geojson,shapefile,csv,excel", layer.GetProperty("supportedAppendFormats").GetString());
 
             // A file whose column is called something else, mapped onto the layer's `name`.
             string renamed = Polygons("mapped").Replace("\"name\"", "\"label\"", StringComparison.Ordinal);

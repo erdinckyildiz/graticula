@@ -242,7 +242,7 @@ internal static partial class AdminEndpoints
     /// <b>Multipart</b>: <c>file</c>, and optionally <c>title</c> (the file's name without its extension otherwise),
     /// <c>snippet</c> and <c>sharing</c> (private otherwise).
     /// </remarks>
-    private static async Task CreateDocumentAsync(
+    internal static async Task CreateDocumentAsync(
         HttpContext context, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentCreate).ConfigureAwait(false))
@@ -426,7 +426,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Replaces a document's description.</summary>
-    private static async Task SetDocumentDescriptionAsync(
+    internal static async Task SetDocumentDescriptionAsync(
         HttpContext context, string id, WebMapDescriptionRequest request, IDocumentStore documents, IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -451,7 +451,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Replaces a document's tags.</summary>
-    private static async Task SetDocumentTagsAsync(
+    internal static async Task SetDocumentTagsAsync(
         HttpContext context, string id, TagsRequest request, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -682,9 +682,19 @@ internal static partial class AdminEndpoints
             await stream.ReadExactlyAsync(content, cancellation).ConfigureAwait(false);
         }
 
-        if (Documents.Recognise(file.FileName, content.AsSpan(0, Math.Min(content.Length, 4096)), out string? why) is not { } kind)
+        // ADR-257: an upload may name its ArcGIS item type, as the portal's addItem does, and a zipped shapefile, a
+        // zipped file geodatabase or GeoJSON is kept only when it does.
+        if (Documents.Recognise(
+                file.FileName, content.AsSpan(0, Math.Min(content.Length, 4096)), out string? why, form["type"].ToString()) is not { } kind)
         {
             await Refuse(context, 415, why!).ConfigureAwait(false);
+            return null;
+        }
+
+        // What the declared type says is inside a zip is looked at, not believed: the head says only that it is a zip.
+        if (HostedDataEndpoints.ArchiveRefusal(kind, content) is { } inside)
+        {
+            await Refuse(context, 415, inside).ConfigureAwait(false);
             return null;
         }
 

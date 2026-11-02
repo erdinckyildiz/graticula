@@ -322,7 +322,7 @@ unmeasured**: Pro may offer *Share as Web Layer* to a server with no publishing 
 (`addItem`, `createService` and `shareItems` are not served). Left answering, rather than reverted again
 on a guess, until it is observed in Pro on dev.graticula.com which of the two failures is real — the
 spinning dialog without the answer, or a sharing path that fails with it. The owner's check is
-[Q-176](../open-questions.md).)*
+[Q-176](../open-questions.md).)* *(2026-11-02: `addItem` with a data file or a document, `publish` of one, and `createService` with its layers or a view's source are served now — [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md); Pro's own sharing path had been served since ADR-191.)*
 
 *(Observed the same day, and the route now answers an empty list. In Pro against dev.graticula.com the owner's
 screen showed **Share As Web Layer** open with "https://dev.graticula.com (Hosting Server)" chosen, and the request

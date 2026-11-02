@@ -50,7 +50,7 @@ internal static partial class AdminEndpoints
     /// <summary>
     /// Makes a view of a hosted service: whoever manages the source and may publish (ADR-113 §5.3).
     /// </summary>
-    private static async Task CreateViewAsync(
+    internal static async Task CreateViewAsync(
         HttpContext context,
         string name,
         string? folder,
