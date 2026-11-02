@@ -105,15 +105,29 @@ public sealed class ViewerReadsALargeLayerForTheViewTests : ConsoleTest
         (string token, string cookie) = await SignInAsync();
         string service = await AnyQueryableServiceAsync();
 
-        // One to ten: closer than any framing of a layer will land, so the opening view is outside it.
+        // One to ten: closer than any framing of a layer lands. Since the UI sweep of 2026-11-02 the page opens at the
+        // scale the layer starts drawing at rather than outside it, so the reader is taken out of range by hand.
         await Browser.PlantAsync(LargeLayer + "\nwindow.__minScale = 10;");
         await OpenAsync($"/studio/view.html?service={Uri.EscapeDataString(service)}", token, cookie);
 
         await WaitForAsync(
+            "window.__queries.length > 0",
+            "The page opened outside the layer's range and asked for nothing: it should open where the layer draws.");
+
+        int before = await Browser.EvaluateAsync<int>("window.__queries.length");
+
+        await Browser.EvaluateAsync<string>("""
+            (() => { const view = map.getView(); view.setResolution(view.getResolution() * 64); return 'out'; })()
+            """);
+
+        await WaitForAsync(
             $"{Facts}.includes('Zoom in to 1:10')",
             "Zoomed out past the layer's minimum scale, the viewer did not say how far to come in.");
+        await WaitForAsync(
+            "!document.getElementById('scaleNote').hidden",
+            "Out of range, the notice on the map itself stayed hidden — at 390 px the facts are not shown.");
 
-        Assert.Equal(0, await Browser.EvaluateAsync<int>("window.__queries.length"));
+        Assert.Equal(before, await Browser.EvaluateAsync<int>("window.__queries.length"));
     }
 
     /// <summary>The fixture's queryable layer, whose service has features to draw.</summary>

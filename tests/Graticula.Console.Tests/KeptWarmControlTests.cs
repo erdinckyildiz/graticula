@@ -58,7 +58,7 @@ public sealed class KeptWarmControlTests : ConsoleTest
                 "The section never said the service is not kept warm, which is what the server holds.");
 
             string count = await TextAsync("servicePinCount");
-            Assert.Matches(@"^\d+ of \d+ services on this server are kept warm\.$", count);
+            Assert.Matches(@"^\d+ services? (is|are) kept warm on this server, which keeps at most \d+\.$", count);
 
             // Let this test's own route reach the server; every other write stays trapped.
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/pinned?'], true)");
