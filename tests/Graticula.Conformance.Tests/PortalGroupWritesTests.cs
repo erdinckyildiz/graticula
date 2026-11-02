@@ -198,6 +198,58 @@ public sealed class PortalGroupWritesTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-256 §5a: a group's members are read through <c>community/groups/{id}/users</c> and <c>userList</c> — the Python
+    /// API's <c>group.get_members()</c> and <c>group.user_list()</c>, both 404 until v1.0.499's review — and a group that
+    /// hides its members hides them here as Studio does.
+    /// </summary>
+    [Fact]
+    public async Task A_groups_members_are_read_through_the_portal_and_hidden_where_Studio_hides_them()
+    {
+        string root = await RequireServerAsync();
+        string admin = await TokenAsync(root) ?? throw new InvalidOperationException("No token: this test signs in.");
+        string title = $"ZZ Portal Members {Guid.NewGuid():N}"[..30];
+        const string Reader = Member + "_r";
+
+        try
+        {
+            string member = await MakeMemberAsync(Reader, MemberPassword, "user", "creator");
+            string id = (await PortalAsync(root, admin, "community/createGroup", new() { ["title"] = title, ["access"] = "org" }))
+                .GetProperty("group").GetProperty("id").GetString()!;
+            await PortalAsync(root, admin, $"community/groups/{id}/addUsers", new() { ["users"] = Reader });
+
+            JsonElement users = await PortalAsync(root, admin, $"community/groups/{id}/users", []);
+            string owner = users.GetProperty("owner").GetString()!;
+            Assert.Contains(owner, users.GetProperty("admins").EnumerateArray().Select(a => a.GetString()));
+            Assert.Equal([Reader], users.GetProperty("users").EnumerateArray().Select(u => u.GetString()));
+
+            JsonElement list = await PortalAsync(root, admin, $"community/groups/{id}/userList", new() { ["start"] = "1", ["num"] = "100" });
+            Assert.Equal("owner", list.GetProperty("owner").GetProperty("memberType").GetString());
+            JsonElement row = Assert.Single(list.GetProperty("users").EnumerateArray());
+            Assert.Equal(Reader, row.GetProperty("username").GetString());
+            Assert.Equal("member", row.GetProperty("memberType").GetString());
+            Assert.Equal(-1, list.GetProperty("nextStart").GetInt32());
+            Assert.Empty((await PortalAsync(root, admin, $"community/groups/{id}/userList", new() { ["memberType"] = "admin" }))
+                .GetProperty("users").EnumerateArray());
+
+            // A member reads them too, until the group hides its members from all but its owner and managers.
+            Assert.Equal([Reader], (await PortalAsync(root, member, $"community/groups/{id}/users", []))
+                .GetProperty("users").EnumerateArray().Select(u => u.GetString()));
+            await PortalAsync(root, admin, $"community/groups/{id}/update", new() { ["hiddenMembers"] = "true" });
+            JsonElement hidden = await PortalAsync(root, member, $"community/groups/{id}/users", []);
+            Assert.Equal(403, hidden.GetProperty("error").GetProperty("code").GetInt32());
+            JsonElement listHidden = await PortalAsync(root, member, $"community/groups/{id}/userList", null);
+            Assert.True(listHidden.TryGetProperty("error", out _), listHidden.GetRawText());
+            Assert.Equal([Reader], (await PortalAsync(root, admin, $"community/groups/{id}/users", []))
+                .GetProperty("users").EnumerateArray().Select(u => u.GetString()));
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/groups/{Name(title)}");
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{Reader}?deleteOwned=true");
+        }
+    }
+
     private static string Name(string title) => title.ToLowerInvariant().Replace(' ', '-');
 
     private static IEnumerable<string> MembersOf(JsonElement group) =>

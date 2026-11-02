@@ -6227,7 +6227,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>One group, its members and what is shared with it.</summary>
-    private static async Task DescribeGroupAsync(
+    internal static async Task DescribeGroupAsync(
         HttpContext context,
         string name,
         IGroupDirectory groups,

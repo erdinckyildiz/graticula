@@ -276,6 +276,7 @@ internal static partial class PortalEndpoints
         MapItemControls(app);
         MapRecycleBinDoors(app);   // ADR-214 §5c — PortalEndpoints.RecycleBin.cs
         MapGroupWrites(app);
+        MapGroupMembers(app);      // ADR-256 §5a — PortalEndpoints.GroupMembers.cs
         MapContentAdds(app); // ADR-257: analyze and createService, beside addItem and publish
     }
 
