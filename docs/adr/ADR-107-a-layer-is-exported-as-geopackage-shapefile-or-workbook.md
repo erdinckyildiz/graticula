@@ -18,7 +18,7 @@ was drafted from the owner's answers of 2026-09-30 — a job that leaves a file 
 formats, two million rows, Extract announced in capabilities. This ADR was built from the ArcGIS reviewer's list
 without knowing of it: a synchronous request, three formats, a million rows. The owner decided the same day that
 this goes first, as ADR-106's first step, with POST and the explicit-Extract rule; ADR-106 then builds the job, the
-other five formats and Extract's announcement on top of it. Where the two disagree, ADR-106 is the decision.
+other five formats and Extract's announcement on top of it. Where the two disagree, ADR-106 is the decision. *(Extract's announcement in the ArcGIS capabilities was withdrawn on 2026-11-03 — ADR-106 §5.5's amendment; Studio reads `exportsData` from the content listing.)*
 
 ## 1. Context
 
