@@ -47,7 +47,10 @@ with the Graticula mark and a card, and on a phone the panel is the top and the 
 ## 4. What was left out, and why
 
 - **Group scope control, group row ⋯.** The mockup's *My groups* control and row actions have nothing behind them: the list is
-  the caller's groups, or every group for an administrator, and a row opens a page. Nothing was invented.
+  the caller's groups, or every group for an administrator, and a row opens a page. Nothing was invented. *Superseded for the
+  scope control 2026-11-03 by [ADR-256](ADR-256-portal-group-writes-go-through-studios-privilege.md) §5.7:* the list also
+  held the organisation-visible groups the caller is outside, which this line missed, and *Join group* gave a scope
+  something to hold — **All groups / My groups / Can join**. Row ⋯ stays left out.
 - **The mark — decided 2026-11-02 by the owner: the graticule mark everywhere.** Circle, a meridian ellipse, three parallels
   and a diagonal, the path data of the sign-in page (graticula.com's favicon). `/favicon.svg` and `/favicon.ico`, the bar's
   logo on Studio, Server and System, the sign-in head, the REST services directory's card and the web-map page's bar all draw

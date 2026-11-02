@@ -1786,6 +1786,17 @@
         <h1>Groups</h1>
         <p>A set of members, and the services shared with them. What is shared with a group is readable by its members and by nobody else.</p>
       </div>
+      <!--
+        <b>The head's one control: which groups the list holds — ADR-256 §5.7.</b> ArcGIS Enterprise's Groups page has *My
+        groups* and *My organization's groups*; this has those two and *Can join*, the groups whose owner lets members add
+        themselves and that the reader is not in yet, because finding them is why a member opens the page. Pressed buttons
+        rather than links: it changes what the list holds and goes nowhere, as Search's *My organization* switch does.
+      -->
+      <div class="segmented" id="groupScope" role="group" aria-label="Which groups">
+        <button type="button" data-group-scope="all" aria-pressed="true">All groups</button>
+        <button type="button" data-group-scope="mine" aria-pressed="false">My groups</button>
+        <button type="button" data-group-scope="join" aria-pressed="false">Can join</button>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -1984,6 +1995,12 @@
         belongs on the tab it changes; *Leave group* is about the group itself and stays.
       -->
       <div class="right" id="groupActions" hidden>
+        <!--
+          <b>Join group, ADR-256 §5.7</b>: drawn exactly when the server says `mayJoin` — the group lets members add
+          themselves, the reader can find it and is not in it. An invitation-only group draws neither this nor a
+          disabled copy of it; its Facts say *by invitation*.
+        -->
+        <button class="primary" id="groupJoin" hidden>Join group</button>
         <button class="tiny ghost" id="groupLeave" hidden>Leave group</button>
       </div>
       <!--

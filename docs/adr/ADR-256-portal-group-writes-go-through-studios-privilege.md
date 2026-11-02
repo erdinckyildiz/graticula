@@ -126,6 +126,22 @@ the portal both call them.
    member's role in place), `reassign` (ownership transfer), `protect`/`unprotect` as separate operations, and the
    join-request queue (`pendingUsers`, `acceptJoinRequests`) are not built. Groups have no recycle bin, from either
    door.
+7. **Studio offers the join — built 2026-11-03.** `GET /admin/groups` and `GET /admin/groups/{name}` carry `mayJoin`,
+   worked out by the server as `mayManage` and `mayLeave` are: outside the group, policy `self`, the group visible to
+   the organisation or the public, and the caller at home (a member of another organisation reaches a group only through
+   ADR-204's admission). It reads the row the store already returned and decides only whether a button is drawn;
+   `JoinAsync` stays the authority. Studio › Groups has the head's one control (ADR-255 §2) — **All groups**, **My
+   groups**, **Can join** — after ArcGIS Enterprise's *My groups* / *My organization's groups*, the third because finding
+   a group to join is why a member opens the page; a row the reader is outside says *not a member*, and *· can join*
+   where they can. The act is on the group's page, in the head: **Join group** where `mayJoin`, **Leave group** where
+   `mayLeave` (it had followed `standing` alone, so an outsider and a member of an administrative group were offered a
+   Leave the server refused). An invitation-only group draws neither, and its Facts say *by invitation*; the Facts now
+   say *not a member* to an outsider, where they said *a member*. Joining re-reads the page and puts the focus on Leave
+   group, which stands where Join did; leaving a group the reader can still find stays on its page with the focus on
+   Join group, and leaving any other returns to the list as before. The toast is the live region. The listing's
+   sentence said *groups you own or belong to* while it carried the findable groups as well, and says *groups you are
+   in or can find*. No row button: a row is itself a link to the page, and two targets in one row is the fault the
+   phone layout removed.
 
 ## 6. Consequences
 
@@ -136,8 +152,21 @@ honoured.
 
 **Negative.** Studio's group handlers changed shape to serve a second door; a future change to an act changes both
 surfaces at once, which is the intent and also the risk. The INFERRED mappings in §5.3 are guesses about intent where
-ArcGIS's documentation is silent or where ours has no equivalent. Studio's Groups screen has no *Join* button yet; the
-route exists and the screen does not offer it.
+ArcGIS's documentation is silent or where ours has no equivalent. ~~Studio's Groups screen has no *Join* button yet; the
+route exists and the screen does not offer it.~~ **Built 2026-11-03 — §5.7.**
+
+**The screen's review, 2026-11-03.** Rendered as a plain member at 1,280 × 800 and 390 × 844 (headless Chromium against
+the local fixture) and measured rather than looked at. *Phone:* the three scope buttons are 44 pixels tall and share the
+head's row with the title with no sideways scroll; Join group and Leave group are 44 pixels and the head's full width, in
+the same place (12, 140, 366 × 44), so the head is 168 pixels before and after joining and nothing below it moves.
+*Desktop:* the scope control sits beside the title; Join group is the head's one primary button at its right, Leave group
+the head's quiet one in the same slot, and the head is 64 pixels before, after and with neither. *Labels:* "Join group"
+and "Leave group", as Studio's other verbs are named; the count beside the search says *1 group you can join*. *Focus:*
+on Leave group after joining and on Join group after leaving, measured in the browser, and on the pressed scope button
+after a scope change, since the control is not redrawn. *An invitation-only group:* no button, and *not a member — its
+owner or a manager adds members*. *Left as found:* a group row at 390 is 92 pixels whatever its standing — a member's
+row measures the same — two over the phone layout's 90, which the existing test does not see because it measures an
+owner's shorter row; and an outsider's tabs count *Members 0* where the member list is withheld rather than empty.
 
 **State.** Nothing new in the catalogue: the portal writes the same `sharing_group` and `sharing_group_member` rows
 Studio writes, and a join is a `sharing_group_member` row whose `added_by` is the member. Nothing held at runtime.

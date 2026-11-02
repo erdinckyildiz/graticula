@@ -6214,9 +6214,13 @@ internal static partial class AdminEndpoints
                 mayManage = all
                     || g.Standing is GroupStanding.Owner or GroupStanding.Manager,
                 mayDelete = all || g.Standing == GroupStanding.Owner,
+                mayJoin = MayJoin(current, g),
             }),
 
-            listing = all ? "every group on the server" : "groups you own or belong to",
+            // <b>"Or can find" since ADR-256 §5.7.</b> The list has carried the public and organisation-visible groups the
+            // caller is outside since visibility was enforced (PostgresGroupDirectory.ListAsync), and this sentence said
+            // only *own or belong to* — wrong on exactly the rows a Join button is for.
+            listing = all ? "every group on the server" : "groups you are in or can find",
 
             note = "A group confers reading: what is shared with it is readable by its members "
                 + "and by nobody else. A group whose itemUpdate is allItems also confers "
@@ -6329,6 +6333,7 @@ internal static partial class AdminEndpoints
             // prevent, for the same reason.
             mayLeave = found.MembersMayLeave
                 && found.Standing is GroupStanding.Member or GroupStanding.Manager,
+            mayJoin = MayJoin(current, found),
             createdAt = found.CreatedAt,
             standing = found.Standing.ToString().ToLowerInvariant(),
 
@@ -6548,6 +6553,23 @@ internal static partial class AdminEndpoints
                   + "outside it.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Whether this caller may add themselves to this group — ADR-256 §5.7, so Studio's <i>Join group</i> is drawn exactly
+    /// where <see cref="IGroupDirectory.JoinAsync"/> would succeed rather than worked out on the screen from three fields.
+    /// </summary>
+    /// <remarks>
+    /// <b>The store's own rule, read from the row it already returned:</b> outside the group, the policy is <c>self</c>,
+    /// the group is findable (organisation or public), and the caller is at home — a member of another organisation who
+    /// reached this host is admitted only by a manager (ADR-204), and <c>JoinAsync</c> refuses them. The store stays the
+    /// authority; this decides only whether a button is drawn.
+    /// </remarks>
+    private static bool MayJoin(RequestPrincipal current, GroupSummary group) =>
+        !current.Principal.IsAnonymous
+        && current.HomeOrganisation is null
+        && group.Standing == GroupStanding.Outside
+        && group.JoinPolicy == GroupJoinPolicy.Self
+        && group.Visibility is GroupVisibility.Organization or GroupVisibility.Public;
 
     private static string Wire(GroupVisibility visibility) => visibility switch
     {

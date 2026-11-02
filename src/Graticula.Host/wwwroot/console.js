@@ -428,6 +428,12 @@ let groupOpen = null;
 /** What is typed in the Groups search box. */
 let groupFilter = "";
 
+/**
+ * Which groups Studio › Groups lists — `all` (every group the server lists for this reader), `mine` (those they are in)
+ * or `join` (those they may add themselves to): the head's one control, ADR-256 §5.7.
+ */
+let groupScope = "all";
+
 /** Who is signed in, set by `whoami` and read only by *Leave group*. */
 let signedInAs = "";
 
@@ -483,19 +489,31 @@ async function loadGroups() {
 
   const needle = groupFilter.trim().toLowerCase();
 
+  // <b>The scope first, then the search inside it</b> — ADR-256 §5.7. *Can join* is the server's `mayJoin`, not a rule
+  // worked out here from the policy and the visibility: the button on the group's page reads the same field.
+  for (const b of document.querySelectorAll("#groupScope [data-group-scope]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.groupScope === groupScope));
+  }
+  const scoped = groupScope === "mine"
+    ? groups.filter(g => g.standing !== "outside")
+    : groupScope === "join" ? groups.filter(g => g.mayJoin) : groups;
+
   // <b>A search box, because the reference has one over seventy groups.</b> Matching the title, the
   // name, the description and the owner: an operator looking for a group remembers one of those and
   // not which one it was.
   const shown = needle
-    ? groups.filter(g => [g.name, g.title, g.description, g.owner]
+    ? scoped.filter(g => [g.name, g.title, g.description, g.owner]
         .some(v => (v || "").toLowerCase().includes(needle)))
-    : groups;
+    : scoped;
 
+  const what = groupScope === "join" ? "you can join" : groupScope === "mine" ? "you are in" : "";
   $("groupCount").textContent = groups.length === 0
     ? (answer.elsewhere || []).length ? "no groups here" : "no groups"
     : needle
-      ? `${shown.length} of ${groups.length}`
-      : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${h(answer.listing || "")}`;
+      ? `${shown.length} of ${scoped.length}${what ? ` ${what}` : ""}`
+      : what
+        ? `${scoped.length} group${scoped.length === 1 ? "" : "s"} ${what}`
+        : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${answer.listing || ""}`;
 
   // <b>Three empty states, not one — and the filtered case used to render nothing at all.</b> The
   // branch was on `groups.length` while the rows came from `shown`, so a search matching nothing
@@ -521,6 +539,12 @@ async function loadGroups() {
         // Not *no groups* to somebody listed in other organizations' groups below: the sentence would be false.
         : (answer.elsewhere || []).length ? `You are in none of this organization's groups.` : `You are in no groups.`}
         <b>New group</b> makes one, and whoever makes it owns it.</td></tr>`
+    : scoped.length === 0
+      ? `<tr><td colspan="6" class="empty">${groupScope === "join"
+          ? `There is no group you can join yourself. Its owner allows it in the group's Settings, with
+             <b>They add themselves</b> under <b>How people join</b>; any other group is joined when its owner or a
+             manager adds you.`
+          : `You are in none of the groups listed here. <b>All groups</b> shows the ones you can find.`}</td></tr>`
     : shown.length === 0
       ? `<tr><td colspan="6" class="empty">Nothing matches <b>${h(groupFilter)}</b>. The search reads
            a group's name, title, description and owner.</td></tr>`
@@ -536,7 +560,11 @@ async function loadGroups() {
           : g.itemUpdate === "ownItems" ? "edit their own" : "read"}</span></td>
         <td data-l="You are">${g.standing === "member"
           ? `<span class="val">member</span>`
-          : `<b>${h(g.standing)}</b>`}</td>
+          : g.standing === "outside"
+            // Not a member: said in words, and whether they can change that (ADR-256 §5.7). The act is on the group's
+            // page, which a row opens — a button inside a row that is itself a link would be two targets in one.
+            ? `<span class="val">not a member${g.mayJoin ? " · can join" : ""}</span>`
+            : `<b>${h(g.standing)}</b>`}</td>
         <td class="val" data-l="Owner"><span>${h(g.owner || "—")}</span></td>
         <td class="num" data-l="Members"${g.members === 1 ? " data-one" : ""}><span>${num(g.members)}</span></td>
         <td class="num" data-l="Items"${g.items === 1 ? " data-one" : ""}><span>${num(g.items)}</span></td>
@@ -738,8 +766,13 @@ async function showGroup(name, tab) {
   // <b>The head holds one verb now, so it is shown exactly when that verb is available.</b> It used
   // to hold three and its own visibility was a compound of two flags, which is how an owner with no
   // `mayManage` ended up with no head at all.
-  $("groupLeave").hidden = one.standing === "owner";
-  $("groupActions").hidden = one.standing === "owner";
+  // <b>Join or Leave, each exactly where the server says it works</b> — ADR-256 §5.7. Leave followed `standing` alone, so
+  // a member of an administrative group and a reader outside the group were both offered a Leave the server refused;
+  // `mayLeave` and `mayJoin` are the server's answers and the head draws what they say, and nothing for an invitation-only
+  // group the reader is outside (its Facts say *by invitation*).
+  $("groupJoin").hidden = !one.mayJoin;
+  $("groupLeave").hidden = !one.mayLeave;
+  $("groupActions").hidden = !one.mayJoin && !one.mayLeave;
 
   // <b>The two managing verbs live on the tabs they act on</b> — the owner's correction, 2026-08-18 —
   // so each is drawn by its own tab and only when that tab is the one showing.
@@ -775,6 +808,21 @@ async function showGroup(name, tab) {
 function focusGroupAdd() {
   const tab = $("groupAdd");
   (tab && tab.getClientRects().length ? tab : $("groupHeadAdd"))?.focus();
+}
+
+/**
+ * After Join or Leave: focus on the head's other verb where it is drawn, and on the title where neither is — a redraw
+ * leaves focus on the body otherwise, and a keyboard reader starts again from the top (ADR-256 §5.7).
+ */
+function focusGroupHead(id) {
+  const verb = $(id);
+  if (verb && !verb.hidden && verb.getClientRects().length) {
+    verb.focus();
+    return;
+  }
+  const title = $("groupTitle");
+  title?.setAttribute("tabindex", "-1");
+  title?.focus();
 }
 
 /** Re-reads the open group and redraws whichever tab is showing. */
@@ -821,7 +869,12 @@ function drawGroupOverview(one) {
       ? `its owner <span class="val">— you may delete it; you cannot leave it</span>`
       : one.standing === "manager"
         ? `a manager <span class="val">— you may add members and share services</span>`
-        : `a member <span class="val">— you read what is shared with it</span>`}</dd>
+        : one.standing === "outside"
+          // It said *a member* to somebody who was not, and read what was shared as theirs (ADR-256 §5.7).
+          ? `not a member <span class="val">— ${one.mayJoin
+              ? "Join group adds you"
+              : "its owner or a manager adds members"}</span>`
+          : `a member <span class="val">— you read what is shared with it</span>`}</dd>
     <dt>Owner</dt><dd>${h(one.owner || "—")}</dd>
     <dt>Created</dt><dd>${day(one.createdAt)}</dd>
     <dt>Members</dt><dd>${one.members
@@ -859,8 +912,10 @@ function drawGroupOverview(one) {
   const out = $("groupLeaveRow");
 
   if (out) {
+    // `groupLeaveHere`, not a second `groupLeave`: the head's button carries that id, and two elements with one id is
+    // a page whose second control `$()` cannot find (ADR-256 §5.7). The click handler takes either.
     out.innerHTML = one.mayLeave
-      ? `<button class="tiny danger" id="groupLeave">Leave this group</button>
+      ? `<button class="tiny danger" id="groupLeaveHere">Leave this group</button>
          <span class="hint" style="margin:0">You stop reading what is shared with it. Nothing
            you own is deleted, and an owner or manager can add you back.</span>`
       : ``;
@@ -31011,14 +31066,43 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.id === "groupLeave") {
+  // <b>Join group — ADR-256 §5.7.</b> The route existed and nothing offered it. The page is re-read rather than patched,
+  // so the Facts, the tabs' counts and the head say what the server now says; the redraw drops focus, so it is put on
+  // Leave group, which stands where Join did. The toast is the live region that says it happened.
+  if (t.id === "groupJoin") {
     if (!groupNow) return;
+    const joining = groupNow;
 
-    // <b>Confirmed, because it is not undoable by the person doing it.</b> Rejoining needs an
-    // owner or a manager, so a mis-click costs somebody else's attention rather than a click.
+    t.disabled = true;
+
+    try {
+      await api(`/admin/groups/${encodeURIComponent(joining.name)}/membership`, { method: "PUT" });
+    } catch (failure) {
+      t.disabled = false;
+      toast(failure.message);
+      return;
+    }
+
+    t.disabled = false;
+    await refreshGroup();
+    toast(`You joined ${joining.title || joining.name}. What is shared with it is now readable by you.`, true);
+    focusGroupHead("groupLeave");
+    return;
+  }
+
+  if (t.id === "groupLeave" || t.id === "groupLeaveHere") {
+    if (!groupNow) return;
+    const leaving = groupNow;
+
+    // A group the reader can find again after leaving: they stay on its page, and one they may join back says so.
+    const findable = leaving.visibility === "organization" || leaving.visibility === "public";
+    const rejoin = findable && leaving.joinPolicy === "self";
+
+    // <b>Confirmed, because it is not undoable by the person doing it</b> — unless the group lets them back in
+    // themselves, which the question now says rather than claiming only an owner or manager can (ADR-256 §5.7).
     if (!confirm(
-      `Leave '${groupNow.name}'? You stop reading what is shared with it, and only its owner or `
-      + `a manager can add you back.`)) {
+      `Leave '${leaving.title || leaving.name}'? You stop reading what is shared with it`
+      + (rejoin ? `. You can join it again from its page.` : `, and only its owner or a manager can add you back.`))) {
       return;
     }
 
@@ -31026,15 +31110,33 @@ async function handleClick(event) {
 
     try {
       const answer = await api(
-        `/admin/groups/${encodeURIComponent(groupNow.name)}/membership`, { method: "DELETE" });
+        `/admin/groups/${encodeURIComponent(leaving.name)}/membership`, { method: "DELETE" });
 
-      toast(answer?.note || "You left the group.", true);
-      navigateTo("#/groups");
+      // A group the reader can still find is redrawn as one they are outside; any other is gone from their list.
+      if (findable) {
+        await refreshGroup();
+        toast(`You left ${leaving.title || leaving.name}. ${answer?.note || ""}`.trim(), true);
+        focusGroupHead("groupJoin");
+      } else {
+        toast(answer?.note || "You left the group.", true);
+        navigateTo("#/groups");
+      }
     } catch (failure) {
       t.disabled = false;
       toast(failure.message);
     }
 
+    return;
+  }
+
+  // The scope of Studio › Groups — All groups, My groups, Can join (ADR-256 §5.7). The list is redrawn from the server
+  // and the pressed button keeps the focus, since it is not inside what is redrawn.
+  const scopeButton = t.closest?.("#groupScope [data-group-scope]");
+
+  if (scopeButton) {
+    groupScope = scopeButton.dataset.groupScope;
+    resetPage("groupRows");
+    await section("groups", loadGroups, "groupRows");
     return;
   }
 
