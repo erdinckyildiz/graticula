@@ -5588,6 +5588,12 @@ header #tabs a[data-tab], header #tabs a[data-link] { padding-top: 0; padding-bo
 .healthpill #healthWord { display: inline-flex; align-items: center; gap: 6px; }
 .healthpill svg { width: 13px; height: 13px; flex: none; }
 .healthpill:hover { text-decoration: underline; }
+/* <b>A dot and an icon at 480 px and below — the UI sweep of 2026-11-02, verification round.</b> The word took the room the
+   organization's name needed, and "Default" was cut. The word stays for a screen reader (the link also has its label). */
+@media (max-width: 480px) {
+  .healthpill .healthtext { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .healthpill { padding: 1px 6px; }
+}
 .healthpill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
 .healthpill.failing, .healthpill.unusable { color: var(--alert); border-color: var(--alert-line); background: var(--alert-soft); }
 .healthpill[hidden] { display: none; }
@@ -5992,7 +5998,7 @@ img.avatar.photo { object-fit: cover; padding: 0; }
 }
 #view-user .profilehead { text-align: center; border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
 #view-user .profilephoto { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: var(--gap-3); }
-#view-user .profilehead h1 { margin: 0; }
+#view-user .profilehead h1 { margin: 0; font-size: var(--t-page); font-weight: 600; } /* the UI sweep of 2026-11-02, verification round: one h1, one size */
 #view-user .profileform { display: flex; flex-direction: column; gap: 6px; }
 #view-user .profileform label { font-weight: 600; font-size: 14px; margin-top: 8px; }
 #view-user .profilefacts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: var(--gap-4) 0 0;
@@ -6498,3 +6504,8 @@ ol.sfsteps > li > b { margin-left: -30px; }
 .skiplink { position: absolute; left: 8px; top: -48px; z-index: 1000; padding: 8px 14px; border-radius: var(--round);
             background: var(--surface); color: var(--ink); border: 2px solid var(--accent); text-decoration: none; }
 .skiplink:focus { top: 8px; }
+
+/* <b>A link beside a line of prose is underlined — the UI sweep of 2026-11-02, verification round.</b> axe's
+   link-in-text-block on the service page's list (`tr > .name > a`): a name link above a "table · id 3" line was told
+   from its text by colour alone. Only name cells that carry such a line, and not the clickable rows (`tr.pick`). */
+tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-underline-offset: 2px; }

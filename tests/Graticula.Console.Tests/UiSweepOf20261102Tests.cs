@@ -115,7 +115,7 @@ public sealed class UiSweepOf20261102Tests : ConsoleTest
             await Browser.EvaluateAsync<bool>(
                 "[...document.querySelectorAll('#contentRows a.thumblink')]"
                 + ".every(a => a.getAttribute('tabindex') === '-1' && a.getAttribute('aria-hidden') === 'true'"
-                + " || a.title.startsWith('Draw '))"),
+                + " || (a.title.startsWith('Draw ') && (a.getAttribute('aria-label') || '').length > 0))"),
             "A thumbnail link that opens the same page as the name is a second Tab stop.");
     }
 
@@ -225,5 +225,128 @@ public sealed class UiSweepOf20261102Tests : ConsoleTest
             """);
 
         Assert.Equal("wrap", wrap);
+    }
+
+    /// <summary>
+    /// A heading that two surfaces share does not give two screens one window title: Organization's and System's General,
+    /// Studio's and Server's Services. The verification round found "General · Graticula" twice.
+    /// </summary>
+    [Fact]
+    public async Task Screens_that_share_a_heading_across_surfaces_have_distinct_titles()
+    {
+        (string token, _) = await SignInAsync();
+        var titles = new System.Collections.Generic.Dictionary<string, string>();
+
+        foreach ((string address, string view) in new[]
+        {
+            ("/studio/#/general", "view-general"),
+            ("/system/#/settings", "view-settings"),
+            ("/studio/#/services", "view-services"),
+            ("/server/#/services", "view-services"),
+        })
+        {
+            await OpenAsync(address, token);
+            await WaitForAsync(
+                $"document.querySelector('#{view}.on') && document.title.length > 0 && document.title !== 'Graticula console'"
+                + $" && [...document.querySelectorAll('h1')].some(h => h.getClientRects().length && document.title.startsWith(h.textContent.trim()))",
+                $"{address} never titled itself.");
+            titles[address] = await Browser.EvaluateAsync<string>("document.title") ?? string.Empty;
+        }
+
+        Assert.Equal(titles.Count, new System.Collections.Generic.HashSet<string>(titles.Values).Count);
+        Assert.Contains("System", titles["/system/#/settings"]);
+        Assert.Contains("Organization", titles["/studio/#/general"]);
+        Assert.Contains("Server", titles["/server/#/services"]);
+    }
+
+    /// <summary>
+    /// Roles, privileges and user types are read in words on the Roles page and the Members screen; the identifiers are
+    /// tooltips and values. The verification round found <c>data_editor</c>, <c>content:publishTools</c> and
+    /// <c>creator</c> as visible text.
+    /// </summary>
+    [Fact]
+    public async Task The_roles_page_and_member_filters_show_no_identifier_as_text()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/roles", token);
+        await WaitForAsync("document.querySelectorAll('#roleRows button.rowname').length > 0", "No roles drawn.");
+        await WaitForAsync("document.querySelectorAll('#rolePrivileges .privilegename').length > 0", "No privileges drawn.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "[...document.querySelectorAll('#roleRows button.rowname')].every(b => !/[_]|^[a-z]/.test(b.textContent.trim()))"
+                + " && [...document.querySelectorAll('#rolePrivileges .privilegename')].every(b => !b.textContent.includes(':'))"
+                + " && [...document.querySelectorAll('#roleFromPick option')].every(o => !/[_]/.test(o.textContent))"),
+            "A role or a privilege is still printed as its identifier.");
+
+        await OpenAsync("/studio/#/members", token);
+        await WaitForAsync("document.querySelectorAll('#mfTypes label').length > 0", "Members drew no user-type filter.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "[...document.querySelectorAll('#mfTypes label')].every(l => /^[A-Z]/.test(l.textContent.trim()))"
+                + " && [...document.querySelectorAll('#mType option')].every(o => /^[A-Z]/.test(o.textContent.trim()))"
+                + " && [...document.querySelectorAll('#mType option')].every(o => /^[a-z]+$/.test(o.value))"),
+            "A user type is printed in lower case, or its value changed.");
+    }
+
+    /// <summary>
+    /// A service opened on the web map from its address is drawn: the first screen is inside the layer's scale range, not
+    /// the whole extent under a sentence saying to zoom in.
+    /// </summary>
+    [Fact]
+    public async Task A_service_opened_on_the_web_map_is_framed_where_it_draws()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string service = (Environment.GetEnvironmentVariable("GRATICULA_TEST_QUERYABLE") ?? "hosted/ci_buildings").Trim('/');
+
+        await Browser.PlantAsync(
+            """
+            (() => {
+              const inner = window.fetch.bind(window);
+              window.fetch = async (input, init) => {
+                const url = typeof input === "string" ? input : input.url;
+                const path = new URL(url, location.href);
+                const response = await inner(input, init);
+                if (!/\/FeatureServer\/\d+$/.test(path.pathname)) return response;
+                const body = await response.clone().json().catch(() => null);
+                if (!body || body.error) return response;
+                body.minScale = 72224;
+                return new Response(JSON.stringify(body),
+                  { status: response.status, headers: { "Content-Type": "application/json" } });
+              };
+            })();
+            """);
+        await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(service)}", token, cookie);
+
+        await WaitForAsync(
+            "typeof wmLayers === 'function' && wmLayers().length > 0 && wmLayers().every(l => (wmRuntime.get(l) || {}).info)",
+            "The layer never loaded.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>("wmMap.getView().getResolution() * 96 * 39.37 <= 72224 * 1.05"),
+            "The map opened outside the layer's scale range.");
+    }
+
+    /// <summary>
+    /// The layer viewer's heading names the layer only when it differs from the service, and its window title begins with
+    /// what the heading says.
+    /// </summary>
+    [Fact]
+    public async Task The_viewer_heading_does_not_repeat_the_service_name()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string service = (Environment.GetEnvironmentVariable("GRATICULA_TEST_QUERYABLE") ?? "hosted/ci_buildings").Trim('/');
+
+        await OpenAsync($"/studio/view.html?service={Uri.EscapeDataString(service)}", token, cookie);
+        await WaitForAsync("(document.getElementById('title')?.textContent || '').length > 1 && document.title.endsWith('Graticula')",
+            "The viewer never titled itself.");
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>(
+                "(() => { const t = document.getElementById('title').textContent.trim();"
+                + " const [a, b] = t.split(' — '); return (b === undefined || a !== b) && document.title.startsWith(t); })()"),
+            "The viewer repeats the service's name in its heading, or its title does not begin with it.");
     }
 }

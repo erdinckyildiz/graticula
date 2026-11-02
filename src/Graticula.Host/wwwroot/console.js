@@ -1676,12 +1676,12 @@ function drawServiceAccounts(focus) {
         own here instead.</td></tr>`
     : saAccounts.map(a => {
       const open = a.name === saOpen;
-      const role = (a.roles || []).join(", ") || "no role";
+      const role = (a.roles || []).map(roleDisplay).join(", ") || "no role";
       return `
       <tr${open ? ' class="on"' : ""}>
         <td class="name"><b>${h(a.name)}</b>
           <div class="rowmeta">${a.description ? `${h(a.description)} · ` : ""}made ${day(a.created)}</div></td>
-        <td class="val" data-l="User type and role"><span>${h(a.userType)} · ${h(role)}</span></td>
+        <td class="val" data-l="User type and role"><span>${h(userTypeDisplay(a.userType))} · ${h(role)}</span></td>
         <td class="val" data-l="Live keys and secrets"><span>${h(saLive(a))}</span></td>
         <td class="val" data-l="State"><span>${a.disabled ? "Turned off: its keys and secrets are refused" : "On"}</span></td>
         <td class="act" style="text-align:right">
@@ -1816,11 +1816,11 @@ async function openServiceAccountForm() {
 
   // The server refuses the administrator role by name, so it is not offered.
   $("saRole").innerHTML = `<option value="">no role</option>` + roles.filter(r => r !== "administrator")
-    .map(r => `<option value="${h(r)}"${r === "viewer" ? " selected" : ""}>${h(r)}</option>`).join("");
+    .map(r => `<option value="${h(r)}"${r === "viewer" ? " selected" : ""}>${h(roleDisplay(r))}</option>`).join("");
 
   // The ladder the members screen describes, in the server's order; viewer by default, beside the viewer role.
   $("saType").innerHTML = Object.keys(USER_TYPE_SAYS)
-    .map(t => `<option value="${h(t)}"${t === "viewer" ? " selected" : ""}>${h(t)}</option>`).join("");
+    .map(t => `<option value="${h(t)}"${t === "viewer" ? " selected" : ""}>${h(userTypeDisplay(t))}</option>`).join("");
   saTypeSays();
 
   $("saDialog").showModal();
@@ -2895,7 +2895,7 @@ async function loadRoles() {
       <tr class="pick${r.name === roleOpen ? " on" : ""}" data-role="${h(r.name)}"
           data-privileges="${r.privileges.length}">
         <td class="name"><button type="button" class="rowname"
-            data-role="${h(r.name)}"${r.name === roleOpen ? ' aria-current="true"' : ""}>${h(r.name)}</button>
+            data-role="${h(r.name)}" title="${h(r.name)}"${r.name === roleOpen ? ' aria-current="true"' : ""}>${h(roleDisplay(r.name))}</button>
           <span class="rowmeta"><span class="nowrap">${num(r.privileges.length)} privilege${r.privileges.length === 1 ? "" : "s"}</span> ·
             <span class="nowrap">${r.members ? `held by ${num(r.members)}` : "held by nobody"}</span>${r.builtIn
               ? ' · <span class="nowrap">built in</span>' : ""}</span></td>
@@ -2937,7 +2937,7 @@ async function loadRoles() {
   // here — eighteen privilege rows earlier on a full page. A grant here is not a setting on a role, it
   // is a capability handed to N live accounts, and the number belongs beside the button that hands it
   // over. Design review 2026-08-19.
-  $("roleEditorName").innerHTML = h(chosen.name);
+  $("roleEditorName").innerHTML = h(roleDisplay(chosen.name));
   $("roleEditorSays").textContent = [
     usSpelling(chosen.description),
     !chosen.editable
@@ -2963,7 +2963,7 @@ async function loadRoles() {
     ? `<label>Copy privileges from
          <select id="roleFromPick"><option value="">a role…</option>${
            roles.filter(r => r.name !== chosen.name)
-             .map(r => `<option value="${h(r.name)}">${h(r.name)} (${r.privileges.length})</option>`)
+             .map(r => `<option value="${h(r.name)}">${h(roleDisplay(r.name))} (${r.privileges.length})</option>`)
              .join("")}</select></label>`
     : chosen.builtIn && chosen.name !== "administrator"
       ? `<button type="button" id="roleCopy" data-role-copy="${h(chosen.name)}"
@@ -3134,10 +3134,20 @@ function roleDisplay(name) {
   return ROLE_NAMES[name] || name;
 }
 
+/**
+ * A user type in words — the UI sweep of 2026-11-02, verification round. The values sent to the API stay the codes;
+ * only what is read is capitalised.
+ */
+const USER_TYPE_NAMES = { viewer: "Viewer", editor: "Editor", creator: "Creator", unrestricted: "Unrestricted" };
+function userTypeDisplay(type) {
+  return USER_TYPE_NAMES[type] || type;
+}
+
 const PRIVILEGE_LABELS = {
   "content:create": "Create content",
   "content:publishFeatures": "Publish hosted feature layers",
   "content:publishTiles": "Publish hosted tile layers",
+  "content:publishTools": "Publish geoprocessing tools",
   "content:registerDataStore": "Register data stores",
   "features:edit": "Edit features",
   "features:fullEdit": "Edit any feature",
@@ -5711,7 +5721,7 @@ function drawMyContent() {
               : i.cover
               ? `<a class="thumblink" href="${h(visHref(i.cover.layer || "", "features")
                    || `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`)}"
-                   title="Draw ${h(i.cover.layer || i.name)} on the map"
+                   title="Draw ${h(i.cover.layer || i.name)} on the map" aria-label="Draw ${h(i.cover.layer || i.name)} on the map"
                    ><img class="thumb" alt="" loading="lazy"
                    data-thumb="${h(thumbnailFor(i.cover.url))}"></a>`
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
@@ -15321,7 +15331,7 @@ function lastSignInText(at) {
 /** The filter column's lists, drawn from what the server said exists, ticked from `memberFilter`. */
 function drawMemberFilters(roles, types) {
   const box = (kind, value, on) =>
-    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(kind === "role" ? roleDisplay(value) : value)}</label>`;
+    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(kind === "role" ? roleDisplay(value) : userTypeDisplay(value))}</label>`;
   const roleQ = ($("mfRoleQ")?.value || "").trim().toLowerCase();
   $("mfRoles").innerHTML = roles.filter(r => !roleQ || r.toLowerCase().includes(roleQ) || roleDisplay(r).toLowerCase().includes(roleQ) || memberFilter.roles.has(r))
     .map(r => box("role", r, memberFilter.roles.has(r))).join("") || `<span class="hint">No role matches.</span>`;
@@ -15419,7 +15429,7 @@ async function loadMembers() {
   // fact the platform already states, and the two would part company the day a type is added.
   memberUserTypes = answer.userTypes || [];
 
-  fill("mType", answer.userTypes || [], "creator");
+  fill("mType", answer.userTypes || [], "creator", userTypeDisplay);
   describeRole();
   drawMemberFilters(answer.roles || [], answer.userTypes || []);
   drawMemberSort();
@@ -15452,7 +15462,7 @@ async function loadMembers() {
         could demote an administrator with a keystroke, saved at once (UX sweep 2026-10-19, critical). Change
         role… and Change user type… open a dialog that says what the change does and waits for a button.
       -->
-      <td data-l="User type"><span>${h(m.userType || "")}</span></td>
+      <td data-l="User type"><span>${h(userTypeDisplay(m.userType || ""))}</span></td>
       <td data-l="Role"><span>${(m.roles || []).length
         ? m.roles.map(r => `<span class="pill rolepill" data-role-is="${h(r)}">${h(roleDisplay(r))}</span>`).join(" ")
         : `<span class="val">none</span>`}${m.roleManaged
@@ -15545,13 +15555,13 @@ async function openMemberChange(name, kind) {
 
   $("memberChangeBody").innerHTML = `
     <p class="hint" style="margin-top:0">Now: role <b>${h(roleDisplay((m.roles || [])[0]) || "none")}</b>, user type
-      <b>${h(m.userType || "none")}</b>. The user type is a ceiling: a role cannot grant more than it allows.</p>
+      <b>${h(userTypeDisplay(m.userType) || "none")}</b>. The user type is a ceiling: a role cannot grant more than it allows.</p>
     <fieldset class="pickset">
       <legend>${kind === "role" ? "Role" : "User type"}</legend>
       ${options.map(v => `
         <label class="pickrow">
           <input type="radio" name="memberChangePick" value="${h(v)}"${v === current ? " checked" : ""}>
-          <span><b>${h((kind === "role" ? roleDisplay(v) : v) || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
+          <span><b>${h((kind === "role" ? roleDisplay(v) : userTypeDisplay(v)) || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
             <span class="lede">${lede(v)}</span></span>
         </label>`).join("")}
     </fieldset>`;
@@ -15635,7 +15645,7 @@ function describeMemberChange() {
       at once.</b>` : "",
     gained.length ? (lost.length ? gain : `<b>${gain}</b>`) : "",
     !lost.length && !gained.length ? "<b>The two roles grant the same privileges.</b>" : "",
-    capped ? `${c.self ? "Your" : "Their"} user type, ${h(c.userType)}, keeps ${num(capped)} of the new role's privileges from working.` : "",
+    capped ? `${c.self ? "Your" : "Their"} user type, ${h(userTypeDisplay(c.userType))}, keeps ${num(capped)} of the new role's privileges from working.` : "",
     losesPage ? closesHere : `It takes effect on ${their} next request. What ${they} own stays ${c.self ? "yours" : "theirs"}.`,
   ].filter(Boolean).join(" ");
 }
@@ -16382,8 +16392,8 @@ function drawProfile() {
 
   const facts = p.mayEdit ? `
     <dl class="profilefacts">
-      ${p.roles ? `<dt>Role</dt><dd>${h((p.roles || []).join(", ") || "none")}</dd>` : ""}
-      ${p.userType ? `<dt>User type</dt><dd>${h(p.userType)}</dd>` : ""}
+      ${p.roles ? `<dt>Role</dt><dd>${h((p.roles || []).map(roleDisplay).join(", ") || "none")}</dd>` : ""}
+      ${p.userType ? `<dt>User type</dt><dd>${h(userTypeDisplay(p.userType))}</dd>` : ""}
       <dt>Last login</dt><dd>${h(lastSignInText(p.lastSignIn))}</dd>
       <dt>Member since</dt><dd>${h(new Date(p.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }))}</dd>
       ${p.mayCategorize ? `<dt>Categories</dt><dd>${cats.length ? cats.map(h).join(", ") : "none"}
@@ -21272,7 +21282,7 @@ function drawServerHero() {
       <!-- <b>A break after each slash — the UI sweep of 2026-11-02.</b> The address broke inside "services" at 390 px. -->
       <div class="urlrow">
         <span class="key" id="heroUrlKey">Service URL</span>
-        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url).replace(/\//g, "/<wbr>")}</code>
+        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url).replace(/([/_])/g, "$1<wbr>")}</code>
         <button type="button" class="tiny" data-copy="${h(url)}">Copy URL</button>
       </div>
     </div>
@@ -27692,7 +27702,7 @@ async function refreshHealth() {
     pill.className = `healthpill ${state}`;
     pill.href = surfaceHref("system", "operations");
     $("healthWord").innerHTML = (state === "failing" || state === "unusable" ? icon("failing") : `<span class="dot ${state}" aria-hidden="true"></span>`)
-      + h(word);
+      + `<span class="healthtext">${h(word)}</span>`;
     $("healthLine").textContent = line;
     $("healthLine").title = line;
     pill.title = line;
@@ -32923,7 +32933,7 @@ async function whoami() {
   // the second line was left dangling under the name. The name is the identity and the rest is what
   // it can do, which is the hierarchy this pair should read as anyway.
   $("who").innerHTML = me.authenticated
-    ? `<b>${h(me.name)}</b>${h(me.roles.join(", ") || "no roles")} · ${h(me.userType)}`
+    ? `<b>${h(me.name)}</b>${h(me.roles.map(roleDisplay).join(", ") || "no roles")} · ${h(userTypeDisplay(me.userType))}`
     : "anonymous";
   drawUserMenu(me.authenticated ? me.name : "");
   return me;
@@ -38090,12 +38100,23 @@ const groupAdmits = new Map();
 let tenancyName = "";
 function drawDocumentTitle() {
   let screen = "";
+  let section = "";
   for (const heading of document.querySelectorAll("h1")) {
     if (!heading.getClientRects().length) continue;
     const text = (heading.textContent || "").replace(/[\u200b\u00ad]/g, "").replace(/\s+/g, " ").trim();
-    if (text && text !== "\u2014") { screen = text; break; }
+    if (text && text !== "\u2014") {
+      screen = text;
+      // <b>Where one heading serves two surfaces, the title says which \u2014 the UI sweep of 2026-11-02, verification round.</b>
+      // Organization's General and System's General were both "General \u00b7 Graticula", and so were the two Services.
+      const view = heading.closest(".view");
+      const id = view ? view.id : "";
+      section = id === "view-general" ? "Organization"
+        : id === "view-settings" ? "System"
+        : id === "view-services" && surfaceOfPath() === "server" ? "Server" : "";
+      break;
+    }
   }
-  const parts = [screen];
+  const parts = [screen, section];
   if (tenancyName && !screen.includes(tenancyName)) parts.push(tenancyName);
   parts.push("Graticula");
   const title = screen || tenancyName ? parts.filter(Boolean).join(" · ") : "Graticula console";

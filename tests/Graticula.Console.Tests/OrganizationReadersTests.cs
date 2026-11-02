@@ -202,7 +202,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
                 "The single-organization line, which says every role but the administrator's can be changed, is shown.");
 
             await ClickAsync("#roleRows tr[data-role='publisher'] td.name");
-            await WaitForAsync(Shown("#roleCopy") + " && (document.getElementById('roleEditorName').textContent || '').includes('publisher')",
+            await WaitForAsync(Shown("#roleCopy") + " && (document.getElementById('roleEditorName').textContent || '').includes('Publisher')",
                 "A shared built-in role offers no Copy as a custom role, so the page names a way out it does not draw.");
             Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleSave")), "Save privileges is offered on a built-in role every organization shares.");
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#roleRows [data-role-delete]')"), "Delete is offered on a built-in role.");
@@ -239,7 +239,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
 
             // The administrator is not offered as a template, shared or not.
             await ClickAsync("#roleRows tr[data-role='administrator'] td.name");
-            await WaitForAsync("(document.getElementById('roleEditorName').textContent || '').includes('administrator')", "The administrator did not open.");
+            await WaitForAsync("(document.getElementById('roleEditorName').textContent || '').includes('Administrator')", "The administrator did not open.");
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('roleCopy')"), "The administrator offers Copy as a custom role.");
 
             // It is listed where a member is given a role, and only in this organization.

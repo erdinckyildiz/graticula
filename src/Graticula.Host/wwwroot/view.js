@@ -843,7 +843,11 @@ function showHeading(rest) {
   const parts = SERVICE.split("/");
   const leaf = parts.pop() || SERVICE;
   const folder = parts.join("/");
+  // <b>The layer's name only when it adds something — the UI sweep of 2026-11-02, verification round.</b> A layer titled as
+  // its service read "name — name". The document's title starts with what the heading says.
+  if (rest === ` — ${leaf}`) rest = "";
   $("title").textContent = leaf + rest;
+  document.title = `${leaf + rest} · Graticula`;
   const sub = $("titleFolder");
   if (sub) { sub.textContent = folder; sub.hidden = !folder; }
 }
@@ -1367,7 +1371,7 @@ $("legendOpen").addEventListener("click", () => toggleOnMap($("legendOpen"), $("
  */
 async function refused(status, error) {
   showHeading("");
-  document.title = `${SERVICE} — Graticula`;
+  document.title = `${SERVICE} · Graticula`;
   // The service's own page is the same 404, so the way back is the directory (UX sweep round 2, N9).
   $("back").href = "/rest/services";
   $("back").setAttribute("aria-label", "Back to the services directory");
