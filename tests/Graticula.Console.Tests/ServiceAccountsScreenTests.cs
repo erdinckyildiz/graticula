@@ -78,6 +78,7 @@ public sealed class ServiceAccountsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
         await OpenAsync("/studio/signin", token);
+        await SecuritySectionAsync("sa");
         await WaitForAsync(Shown("#saNew"), "Organization › Settings › Security drew no service accounts for an administrator (D-303).");
 
         await Browser.EvaluateAsync<bool>(Fake);

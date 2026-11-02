@@ -52,9 +52,9 @@ with the Graticula mark and a card, and on a phone the panel is the top and the 
   still the nine squares in a blue circle. Whether the favicon and the bar's mark should become the mockup's is the owner's.
 - **Health in the bar.** The mockup shows *[N] service failing* as a link in Server's bar. It is in the account menu here,
   as the brief says; a failing server is therefore one click further than the mockup draws it. Listed for confirmation.
-- **Some screens are restyled by the new bar and page head only** — Publish, Data sources, Logs, System's screens and
-  Organization's sub-pages keep their present bodies, which already have the mockups' structure; their per-screen differences
-  are not yet rebuilt (§6).
+- **The *⋯* menu on Data sources' rows.** The mockup folds a source's verbs behind it beside *Test connection*. All four verbs
+  (Test connection, Pause, Edit, Remove) stay in the row as buttons: folding them is a change of markup and focus handling this
+  rebuild did not need, and no verb is lost either way. Listed for confirmation, with the favicon above.
 
 ## 5. Consequences
 
@@ -63,7 +63,25 @@ with the Graticula mark and a card, and on a phone the panel is the top and the 
 Console tests that asserted the old arrangement were changed, each for the reason above (the utility line, the breadcrumb,
 the buttons now behind ⋯). `PhoneLayoutTests` and a new `DesktopLayoutTests` hold both widths.
 
-## 6. Not done
+## 6. What is rebuilt, and what is not
 
-The per-screen bodies of Server's service page, Publish, Sources, Logs and System's General (one save bar) are not rebuilt to
-their mockups; the bar, the page head and the item page are. Recorded here rather than implied.
+**Rebuilt on 2026-11-02, after the first cut of this ADR, to their mockups (desktop above 720 pixels, and the phone where a phone
+mockup exists or the screen has to work at 390):** Server's service page (a flat head, tabs with an underline, pages in cards),
+Publish (the verbs at the head's right; the panes' heads in sentence case), Data sources (a quiet table; the explanation a
+footnote), Logs (the log being read as a segmented control in the head, one row of filters; on a phone the filters behind a *Filters*
+button of 44 pixels and each entry a block of When, What, Who · From and Resource); System's Status (a verdict card of two columns
+and one grid of cards; a deliberate stop keeps the warning colour, a failing service the fault's), General (**one save bar** that
+counts what is waiting and presses the three cards' own Save buttons, which are no longer drawn), Backups (the schedule beside
+the list), Organizations, Utility services and Machines (no paragraph under the title; the card under the table as wide as the table);
+Studio's Search (no paragraph; the tabs' counts as pills), a file's page (Summary and Description left, Item information right),
+Groups (New group and the search in the head's row), a group's page (a tile, and **Add items and Add member in the head**, from every
+tab — this overrides the owner's correction of 2026-08-18 that put them on their tabs, which the approved mockup contradicts), Members
+(New member first in its row; the filters were already on the left), a profile (who and what is known on the left, the form and the
+second factor on the right), Member roles (privileges in two columns, the save bar kept in view) and Security (its four sections as
+sub-pages under one segmented control; `/studio/apps` opens the Apps one).
+
+**Already matching, left as it was:** Organization settings (a left list of sub-pages on a wide window and a menu button on a phone,
+from the earlier cut), Organizations and Machines apart from the shared head and table-head styling above, Utility services' table.
+
+**Not done:** the favicon and the bar's mark (§4), and the *⋯* menu on Data sources' rows (§4). The Status page's *Read its warnings*
+and the other issue actions keep their present places.

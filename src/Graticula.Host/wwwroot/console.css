@@ -7299,18 +7299,20 @@ html[data-session="none"]:root #main > header { display: none; }
     min-height: 0; box-shadow: none; white-space: nowrap;
   }
   :root #view-logs > #logSources button[aria-selected="true"] { background: var(--accent); color: #fff; font-weight: 600; border: 0; }
-  :root #view-logs.on > #logLede { display: none; }
+  /* The paragraph that says which log is which, and where the server's own is, is a footnote under the table: the link in it has
+     no other place, and the mockup draws nothing of it where the filters are. */
+  :root #view-logs.on > #logLede { grid-row: 99; margin: var(--gap-4) 0 0; font-size: 12.5px; color: var(--muted); max-width: none; }
   :root #view-logs.on > #logFilters {
-    grid-column: 1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
-    background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-3);
+    grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0 150px 0 0; margin: 0 0 var(--gap-3);
   }
   :root #view-logs.on > #logSources + .toolbar {
-    grid-column: 2; grid-row: 2; margin: 0 0 var(--gap-3); justify-content: flex-end; background: none; border: 0; box-shadow: none; padding: 0;
+    grid-column: 1 / -1; grid-row: 2; justify-self: end; margin: 0 0 var(--gap-3); background: none; border: 0; box-shadow: none; padding: 0;
   }
   :root #view-logs.on > #logSources + .toolbar > span[style] { display: none; }
   :root #view-logs #logFiltersToggle { display: none; }
   :root #view-logs #logFilters > label { color: var(--muted); font-size: var(--t-small); }
-  :root #view-logs #logFilters input[type=search], :root #view-logs #logFilters input[type=text] { flex: 1 1 9rem; max-width: 18rem; }
+  :root #view-logs #logFilters input[type=search], :root #view-logs #logFilters input[type=text] { flex: 1 1 8rem; max-width: 12rem; }
   :root #view-logs > .panel.widetable { grid-column: 1 / -1; }
 
   /* ── System › Status: a verdict card of two columns, then one grid of cards ── */
@@ -7461,7 +7463,8 @@ html[data-session="none"]:root #main > header { display: none; }
   :root #view-logs #logFilters:not(.open) { display: none; }
   :root #view-logs #logFiltersToggle { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--gap-4); }
   :root #view-logs #logRefresh { min-height: 44px; min-width: 44px; }
-  :root #view-logs #logLede, :root #view-logs #logHeadLede { display: none; }
+  :root #view-logs #logHeadLede { display: none; }
+  :root #view-logs #logLede { font-size: 12.5px; color: var(--muted); }
   :root #view-logs .panel.widetable { border: 0; background: none; box-shadow: none; overflow: visible; }
   :root #view-logs .panel.widetable table { min-width: 0; width: 100%; }
   :root #view-logs table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
