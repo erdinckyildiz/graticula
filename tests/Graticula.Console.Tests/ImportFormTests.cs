@@ -457,7 +457,7 @@ public sealed class ImportFormTests : ConsoleTest
         {
             // ADR-143: its Overview offers the uploaded file back, and fetches it.
             await OpenAsync($"/studio/#/service/hosted/{name}", token);
-            await WaitForAsync(Shown("#imageDownload") + " && !document.getElementById('imageDownload').hasAttribute('aria-disabled')",
+            await WaitForAsync("(() => { const m = document.querySelector('#itemActions details.itemmore'); if (m) m.open = true; return true; })() && " + Shown("#imageDownload") + " && !document.getElementById('imageDownload').hasAttribute('aria-disabled')",
                 "An uploaded image's Overview offers no Download.");
             Assert.Equal("Download", (await Browser.EvaluateAsync<string>("document.getElementById('imageDownload').textContent") ?? "").Trim());
             await ClickAsync("#imageDownload");

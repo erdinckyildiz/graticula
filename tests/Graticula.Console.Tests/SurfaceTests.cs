@@ -244,6 +244,9 @@ public sealed class SurfaceTests : ConsoleTest
 
         await DrawnAsync();
 
+        // In the account menu since the redesign of 2026-11-02 (ADR-255): opened first, the switch is drawn.
+        await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
+
         Assert.False(
             await Browser.EvaluateAsync<bool>(
                 "document.getElementById('surfaces').offsetParent === null"),
@@ -332,7 +335,8 @@ public sealed class SurfaceTests : ConsoleTest
             "Studio opened without knowing who was looking, so the session did not survive the "
             + "one click. Moving between the surfaces would then cost a sign-in.");
 
-        // And the way back is there, which is what makes it a switch rather than a door.
+        // And the way back is there, which is what makes it a switch rather than a door (in the account menu, ADR-255).
+        await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
         Assert.False(
             await Browser.EvaluateAsync<bool>(
                 "document.getElementById('surfaces').offsetParent === null"),

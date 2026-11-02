@@ -266,6 +266,9 @@ public sealed class QuiesceControlTests : ConsoleTest
 
         // <b>Visible, not merely present.</b> This console has three times shipped a control that
         // existed and rendered nowhere.
+        // Behind the row's ⋯ since ADR-255 section 4: the menu is opened first, as a reader opens it.
+        await Browser.EvaluateAsync<bool>(
+            "(document.querySelector('#sources [data-source-quiesce]').closest('details').open = true, true)");
         Assert.True(
             await Browser.EvaluateAsync<bool>(
                 "!!document.querySelector('#sources [data-source-quiesce]')?.offsetParent"),

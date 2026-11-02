@@ -30,7 +30,7 @@ public sealed class ServiceScopeTests : ConsoleTest
     /// <summary>The three scopes a service can carry.</summary>
     // <b>In words, as every other sharing pill says them</b> — `SCOPE_WORDS` in console.js. Until ADR-220 this pill
     // alone printed the stored value, which for the fifth level would have read `allorganizations` to an operator.
-    private static readonly string[] Scopes = ["Everyone (public)", "Owner", "Organization", "All organizations", "Groups"];
+    private static readonly string[] Scopes = ["Everyone (public)", "Owner only", "Organization", "All organizations", "Groups"];
 
     [Fact]
     public async Task A_private_image_service_says_so_on_its_own_page()
@@ -57,14 +57,21 @@ public sealed class ServiceScopeTests : ConsoleTest
         string scope = await Browser.EvaluateAsync<string>(
             "document.getElementById('serviceScope')?.textContent || ''") ?? string.Empty;
 
-        Assert.Equal("Owner", scope.Trim());
+        Assert.Equal("Owner only", scope.Trim());
 
         // <b>Visible, not merely present.</b> This console has shipped a control that existed
-        // in the DOM and could not be seen three separate times.
+        // in the DOM and could not be seen three separate times. Since the last round of the redesign of 2026-11-02 the
+        // pill the reader sees is the head's meta line's (`#heroScope`), and the head bar's own, which it is read from,
+        // is not drawn while the head card is.
+        await WaitForAsync("!!document.querySelector('#heroScope .pill')", "The head's meta line carries no sharing scope.");
+        Assert.Equal(
+            "Owner only",
+            (await Browser.EvaluateAsync<string>("document.querySelector('#heroScope .pill').textContent") ?? string.Empty).Trim());
+
         bool seen = await Browser.EvaluateAsync<bool>(
             """
             (() => {
-              const e = document.getElementById('serviceScope');
+              const e = document.querySelector('#heroScope .pill');
               if (!e || e.offsetParent === null) return false;
               const box = e.getBoundingClientRect();
               return box.width > 0 && box.height > 0;

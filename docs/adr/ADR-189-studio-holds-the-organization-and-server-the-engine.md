@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM` — every part is an owner decision of one day, taken against Portal and Server Manager screenshots and checked on dev.graticula.com; §9 says what would show it wrong |
 | **Decided** | 2026-10-17, by owner decision |
 | **Supersedes** | [ADR-187](ADR-187-primary-navigation-is-a-top-bar.md) §5 in part (Server's fourth tab, Security, and Studio's Anonymous view and Domains tabs); [ADR-087](ADR-087-domains-are-shared.md)'s placement of the Domains screen |
-| **Superseded by** | — |
+| **Superseded by** | — (layout parts amended by [ADR-255](ADR-255-the-interface-follows-arcgis-enterprises-structure.md)) |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -134,3 +134,5 @@ item, folder, view and data source, which were already. A refusal is said inside
 ## 10. Dissent
 
 None recorded.
+
+**Amended 2026-11-02 — [ADR-255](ADR-255-the-interface-follows-arcgis-enterprises-structure.md).** Page heads no longer carry an explanatory paragraph on a wide window; which tabs belong to which surface is unchanged.

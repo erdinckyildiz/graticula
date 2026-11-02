@@ -103,6 +103,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         (string token, _) = await SignInAsync();
 
         await OpenAsync("/studio/#/signin", token);
+        await SecuritySectionAsync("idp");
         await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
 
         await ClickAsync("#idpNew");
@@ -223,6 +224,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         try
         {
             await OpenAsync("/studio/#/signin", token);
+            await SecuritySectionAsync("idp");
             await WaitForAsync($"!!document.getElementById('idpRows') && {InRow(name, "[data-idp-groups]")}", "Organization › Security lists no Groups for the directory just added.");
             await WaitForAsync(Shown("#idpMapAdd"), "Groups opened no editor.");
 
@@ -303,6 +305,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         string pem = authority.ExportCertificatePem();
 
         await OpenAsync("/studio/#/signin", token);
+        await SecuritySectionAsync("idp");
         await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
         await ClickAsync("#idpNew");
         await WaitForAsync(Shown("[name=idpKind][value=ldap]"), "Add a provider offers no directory.");
@@ -336,6 +339,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         (string token, _) = await SignInAsync();
 
         await OpenAsync("/studio/#/signin", token);
+        await SecuritySectionAsync("idp");
         await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
         await ClickAsync("#idpNew");
         await WaitForAsync(Shown("[name=idpKind][value=saml]"), "Add a provider offers no SAML.");
@@ -390,6 +394,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         try
         {
             await OpenAsync("/studio/#/signin", token);
+            await SecuritySectionAsync("idp");
             string row = $"[...document.querySelectorAll('#idpRows tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(name)}))";
             await WaitForAsync($"!!({row})", "Organization › Security does not list the SAML provider just added.");
             await Browser.EvaluateAsync<bool>($"(() => {{ ({row}).querySelector('[data-idp-edit]').click(); return true; }})()");
@@ -431,6 +436,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         try
         {
             await OpenAsync("/studio/#/signin", token);
+            await SecuritySectionAsync("idp");
             string row = $"[...document.querySelectorAll('#idpRows tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(name)}))";
             await WaitForAsync($"!!({row})", "Organization › Security does not list the SAML provider just added.");
             Assert.Contains("SAML", await Browser.EvaluateAsync<string>($"({row}).querySelector('.idpissuer').textContent") ?? string.Empty, StringComparison.Ordinal);

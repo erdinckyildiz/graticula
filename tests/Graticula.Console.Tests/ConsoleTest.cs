@@ -1426,6 +1426,19 @@ public abstract class ConsoleTest : IAsyncLifetime
             + "return !!e && e.getClientRects().length > 0; })()";
     }
 
+    /// <summary>
+    /// Chooses one of Organization › Settings › Security's four sub-pages — <c>sf</c>, <c>sa</c>, <c>idp</c> or <c>apps</c> — by its
+    /// switch, once the switch has been drawn: since the redesign of 2026-11-02 (ADR-255) one is drawn at a time, where all four
+    /// were stacked on one page.
+    /// </summary>
+    protected async Task SecuritySectionAsync(string key)
+    {
+        await WaitForAsync(
+            $"document.getElementById('view-signin')?.getClientRects().length > 0 && !!document.querySelector('[data-secpage-go={key}]:not([hidden])')",
+            $"Security drew no switch for its '{key}' section.");
+        await ClickAsync($"[data-secpage-go={key}]");
+    }
+
     protected async Task ClickAsync(string selector)
     {
         string quoted = JsonSerializer.Serialize(selector);

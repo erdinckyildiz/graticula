@@ -169,15 +169,26 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
         (string token, string cookie) = await SignInAsync();
         string service = QueryableService();
 
-        // One to ten: closer than any framing of a layer will land.
+        // One to ten: closer than any framing of a layer lands. Since the UI sweep of 2026-11-02 a service opened here is
+        // framed where it draws, so the reader is taken out of range by hand.
         await Browser.PlantAsync(CutShort + "\nwindow.__minScale = 10;");
         await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(service)}", token, cookie);
+
+        await WaitForAsync(
+            "window.__queries.length > 0",
+            "The map opened outside the layer's range and asked for nothing: it should open where the layer draws.");
+
+        int before = await Browser.EvaluateAsync<int>("window.__queries.length");
+
+        await Browser.EvaluateAsync<string>("""
+            (() => { const view = wmMap.getView(); view.setResolution(view.getResolution() * 64); return 'out'; })()
+            """);
 
         await WaitForAsync(
             $"{State}.includes('Zoom in past 1:10')",
             "Outside the layer's minimum scale, the layer list did not say how far to zoom in.");
 
-        Assert.Equal(0, await Browser.EvaluateAsync<int>("window.__queries.length"));
+        Assert.Equal(before, await Browser.EvaluateAsync<int>("window.__queries.length"));
     }
 
     private static string QueryableService()

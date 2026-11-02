@@ -58,7 +58,7 @@ public sealed class KeptWarmControlTests : ConsoleTest
                 "The section never said the service is not kept warm, which is what the server holds.");
 
             string count = await TextAsync("servicePinCount");
-            Assert.Matches(@"^\d+ of \d+ services on this server are kept warm\.$", count);
+            Assert.Matches(@"^\d+ services? (is|are) kept warm on this server, which keeps at most \d+\.$", count);
 
             // Let this test's own route reach the server; every other write stays trapped.
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/pinned?'], true)");
@@ -79,10 +79,10 @@ public sealed class KeptWarmControlTests : ConsoleTest
             (_, string pinned) = await AdminAsync(HttpMethod.Get, route);
             JsonElement held = JsonDocument.Parse(pinned).RootElement;
             Assert.True(held.GetProperty("pinned").GetBoolean(), $"The page said kept warm and the server holds: {pinned}");
-            Assert.Contains(
-                $"{held.GetProperty("pinnedOnServer").GetInt32()} of {held.GetProperty("limit").GetInt32()} services",
-                await TextAsync("servicePinCount"),
-                StringComparison.Ordinal);
+            string said = await TextAsync("servicePinCount");
+            int onServer = held.GetProperty("pinnedOnServer").GetInt32();
+            Assert.StartsWith($"{onServer} service{(onServer == 1 ? " is" : "s are")} kept warm on this server", said, StringComparison.Ordinal);
+            Assert.Contains($"which keeps at most {held.GetProperty("limit").GetInt32()}", said, StringComparison.Ordinal);
 
             // The warmer's first round lands within seconds of a pin (ADR-218 §5.2), and the page reads it again.
             await WaitForAsync(

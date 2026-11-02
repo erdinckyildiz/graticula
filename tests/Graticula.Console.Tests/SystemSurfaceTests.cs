@@ -70,6 +70,8 @@ public sealed class SystemSurfaceTests : ConsoleTest
             "Server did not draw.");
         Assert.Equal("services,sources,logs", await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a')].map(a => a.dataset.tab).join(',')"));
+        // The switch is in the account menu since the redesign of 2026-11-02 (ADR-255): opened first, it is offered.
+        await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
         Assert.True(await Browser.EvaluateAsync<bool>(Shown("#surfaces a[data-surface=system]")), "The switch does not offer System.");
 
         // Server's Logs are the organization's three; the server's process log is System's alone.
@@ -182,6 +184,7 @@ public sealed class SystemSurfaceTests : ConsoleTest
 
         Assert.False(await Browser.EvaluateAsync<bool>("typeof whoNow !== 'undefined' && !!whoNow?.systemAdministrator"),
             "whoami still says system administrator, so this test measures the wrong reader.");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('userMenu').open = true, true)");
         Assert.True(await Browser.EvaluateAsync<bool>(Shown("#surfaces a[data-surface=system]")),
             "A holder of admin:manageServer on a server of one is not offered System.");
 

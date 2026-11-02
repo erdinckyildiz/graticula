@@ -45,7 +45,7 @@ public sealed class AddItemDialogTests : ConsoleTest
     /// </remarks>
     [Theory]
     [InlineData("/studio/#/content", "newLayer")]
-    [InlineData("/server/#/services", "newService")]
+    [InlineData("/server/#/services", "publishService")]
     public async Task A_surface_has_one_page_action_and_it_is_the_visible_one(string address, string id)
     {
         (string token, _) = await SignInAsync();

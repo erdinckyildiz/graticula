@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Graticula — layer</title>
+<title>Layer · Graticula</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <!--
@@ -86,7 +86,20 @@
           border: 1px solid var(--rule-strong); border-radius: var(--round); }
   #back:hover { border-color: var(--accent); color: var(--accent-ink); }
   header h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; min-width: 0;
-              overflow-wrap: anywhere; line-height: 1.25; }
+              overflow-wrap: break-word; line-height: 1.25; }
+  /* The UI sweep of 2026-11-02: the service's name is the heading and its folder is the line beneath, not a path in the h1. */
+  .titles { min-width: 0; }
+  #titleFolder { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  #titleFolder[hidden] { display: none; }
+  /* <b>Bottom left, above the strip — the UI sweep of 2026-11-02, verification round.</b> At the top it sat over the zoom
+     buttons, at 390 over the Ground button and at 1,280 over the folder chips; the bottom edge has only the strip and,
+     on the right, the legend, which the max-width leaves clear. */
+  #scaleNote { position: absolute; z-index: 45; left: 12px; bottom: 56px; margin: 0; width: fit-content; max-width: calc(100% - 330px);
+               padding: 6px 12px; border-radius: var(--round); border: 1px solid var(--rule-strong); background: var(--veil);
+               color: var(--ink); font-size: 13px; }
+  /* 106, not 96: at 390 the strip grows to 93 px with its wrapped coordinates, and the note sat 10 px over it. */
+  @media (max-width: 760px) { #scaleNote { max-width: calc(100% - 24px); bottom: 106px; } }
+  #scaleNote[hidden] { display: none; }
 
   /* <b>The facts wrap rather than clip.</b> Clipped, they cut "service document" to "service dc" at 1,280 (UX sweep
      m9); a fact can wait for a second line where a control could not wait off the edge. */
@@ -143,13 +156,14 @@
 
   /* The strip: scale, which face drew this, and where. */
   #strip { position: absolute; z-index: 40; left: 12px; right: 12px; bottom: 12px;
-           display: flex; align-items: center; gap: 14px;
+           display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
            padding: 6px 12px; border-radius: var(--round);
            background: var(--veil); border: 1px solid var(--rule-strong);
            font-size: 12.5px; color: var(--ink); }
-  #stripMode { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  /* Wraps rather than ellipsizes (the UI sweep of 2026-11-02): at 390 px the sentence was cut with no way to read the rest. */
+  #stripMode { flex: 1 1 12em; min-width: 0; white-space: normal; overflow-wrap: anywhere; color: var(--muted); }
   #stripWhere { font-family: var(--mono); white-space: nowrap; color: var(--muted);
-                flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+                flex: none; }
   /* <b>The other half of *where am I*.</b> A pair of coordinates without a zoom says which
      patch of the world and not how much of it, and the two are read as one figure. */
   #stripZoom { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
@@ -287,7 +301,10 @@
     <div class="title">
       <!-- The way back to the service's own page in the directory; view.js points it there. -->
       <a id="back" href="/rest/services" aria-label="Back to the services directory"><svg class="i" aria-hidden="true"><use href="#i-back"/></svg></a>
-      <h1 id="title">layer</h1>
+      <div class="titles">
+        <h1 id="title">layer</h1>
+        <span id="titleFolder" hidden></span>
+      </div>
     </div>
     <div id="facts"></div>
     <!--
@@ -347,6 +364,7 @@
       <span id="stripWhere"></span>
       <span id="stripZoom"></span>
     </div>
+    <p id="scaleNote" role="status" aria-live="polite" hidden></p>
     <div id="note" role="status" aria-live="polite"></div>
     <div id="attrs" role="region" aria-label="Attributes"></div>
     <!-- What Enter on the map found, or did not: said for the keyboard reader the card alone would not tell. -->

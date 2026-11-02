@@ -277,11 +277,9 @@ a:hover { text-decoration: underline; }
   color: var(--ink); text-decoration: none;
 }
 #brand:hover { text-decoration: none; }
-#brand .mark {
-  width: 28px; height: 28px; flex: none; border-radius: var(--round);
-  background: var(--accent); border-radius: 50%; display: grid; place-items: center;
-}
-#brand .mark svg { width: 16px; height: 16px; display: block; }
+/* The graticule mark (ADR-255 section 4): its own strokes, no disc behind it. */
+#brand .mark { width: 28px; height: 28px; flex: none; display: grid; place-items: center; }
+#brand .mark svg { width: 28px; height: 28px; display: block; }
 #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 /* Teal for Server and violet for Studio, the two halves of the switch beside it. */
 #brand .badge {
@@ -430,7 +428,7 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
   name's 15.5 at 650: the difference is size and nothing else, which is what makes them read as the
   same voice at two levels rather than as two decisions.
 */
-.pagehead h2 {
+.pagehead h1 {
   /* <b>26/600 from 33/650, 2026-09-25, and through `--t-page` at last.</b> Owner: *"a professional
      look and feel"*, chosen as the calmer enterprise direction. The title was the loudest thing on
      every screen and the token that named its size was declared and never read. */
@@ -1860,7 +1858,10 @@ dialog { color: var(--ink); }
   /* <b>The actions stay where the thumb is.</b> Reaching the row menu on the services table cost a
      550-pixel sideways swipe, and the column it is in is the one every row is opened from. The shadow
      is the edge that says the other columns pass under this one rather than ending there. */
-  .widetable table td:last-child, .widetable table th:last-child {
+  /* <b>Only a column of actions is pinned — the UI sweep of 2026-11-02.</b> The rule pinned whatever column came last, and the
+     attribute table (item, Data) held its last data column over the ones beside it below 1,100 pixels. A table pins its last
+     column when the cells of it hold a row menu or a button, which is what an action column is. */
+  .widetable table:has(> tbody > tr > td:last-child :is(.menu, button)) :is(td, th):last-child {
     position: sticky; right: 0; z-index: 1; background: var(--surface);
     box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
   }
@@ -1913,7 +1914,7 @@ dialog { color: var(--ink); }
 */
 #signin, #mustchange { max-width: 380px; margin: 72px auto; }
 #signin .panel, #mustchange .panel { padding: var(--gap-5); }
-#signin h2, #mustchange h2 { margin: 0 0 var(--gap-2); font-size: 19px; font-weight: 600; }
+#signin h1, #mustchange h1 { margin: 0 0 var(--gap-2); font-size: 19px; font-weight: 600; }
 #signin label, #mustchange label { display: block; font-size: var(--t-small); color: var(--muted);
                                    margin: var(--gap-3) 0 var(--gap-1); }
 #signin input, #signin button.primary,
@@ -1934,16 +1935,12 @@ html[data-session="none"] #main > header { display: none; }
   display: flex; align-items: center; justify-content: space-between; gap: var(--gap-3);
   padding: var(--gap-4) var(--gap-5); border-bottom: 1px solid var(--rule);
 }
-#signin .signin-head h2 { margin: 0; font-size: 20px; }
+#signin .signin-head h1 { margin: 0; font-size: 20px; }
 #signin .signin-where { margin: 2px 0 0; font-size: var(--t-small); color: var(--muted);
                         overflow-wrap: anywhere; }
 /* The header's mark, the same blue circle: it was the old navy square (UX sweep 2026-10-19). */
-#signin .signin-head .mark {
-  width: 34px; height: 34px; flex: none; border-radius: 50%;
-  background: var(--accent);
-  display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700;
-}
-#signin .signin-head .mark svg { width: 18px; height: 18px; display: block; }
+#signin .signin-head .mark { width: 34px; height: 34px; flex: none; display: grid; place-items: center; }
+#signin .signin-head .mark svg { width: 34px; height: 34px; display: block; }
 #signin .signin-body { padding: var(--gap-2) var(--gap-5) var(--gap-5); }
 #signin .signin-for { margin: var(--gap-3) 0 0; font-size: var(--t-small); color: var(--ink); overflow-wrap: break-word; }
 #signin .signin-stranger a { text-decoration: underline; text-underline-offset: 2px; }
@@ -4239,9 +4236,14 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
    the datastore's shorter set (two buttons and a note) pushed its Probe under the others' Pause.
    Pause and Resume share one width so the buttons after them do not move when a source is paused. */
 #sources td.acts { white-space: nowrap; width: 1%; text-align: left; }
-#sources td.acts [data-source-quiesce], #sources td.acts [data-source-resume] { min-width: 5.6em; }
-#sources td.acts .tiny { padding: 3px 9px; }
-#sources td.acts .danger { margin-left: var(--gap-3); }
+#sources td.acts [data-source-resume] { min-width: 5.6em; }
+#sources td.acts > .tiny { padding: 3px 9px; }
+/* The row that has its ⋯ open is raised over the rows after it (the menu itself is fixed to the window). */
+#sources tr:has(details.rowmenu[open]) { position: relative; z-index: 3; }
+#sources td.acts details.rowmenu { vertical-align: middle; }
+/* <b>2026-11-02</b> — the row's buttons and its menu summary share one height and one alignment, so they share one top (the redesign of 2026-11-02). */
+#sources td.acts > .tiny, #sources td.acts details.rowmenu > summary { height: 30px; box-sizing: border-box; vertical-align: middle; }
+#sources td.acts details.rowmenu > summary { display: inline-flex; align-items: center; justify-content: center; }
 #sources td.acts .managed { color: var(--faint); font-size: var(--t-small); }
 #sources td.name .pill { margin-left: 6px; cursor: help; vertical-align: 1px; }
 /* One row of four buttons makes the table about 720 pixels at its narrowest, and beside the
@@ -4264,8 +4266,8 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   #sources td.val { grid-column: 1 / -1; }
   #sources td.acts { grid-column: 1 / -1; width: auto; white-space: normal; display: flex; flex-wrap: wrap;
     gap: 6px; padding-top: 6px; }
-  #sources td.acts .danger { margin-left: 0; }
-  #sources td.acts .tiny { min-height: 36px; }
+  #sources td.acts > .tiny { min-height: 36px; }
+  #sources td.acts details.rowmenu > summary { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0; box-sizing: border-box; font-size: 20px; }
   #sources .cardonly { display: inline; }
 }
 #dbconn #dcS3 summary { cursor: pointer; }
@@ -4559,7 +4561,7 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #mapPagehead:not([data-tab="overview"]) > #mapThumb, #docPagehead:not([data-tab="overview"]) > #docThumb { display: none; }
 #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 180px; height: 116px; max-width: none; border-radius: var(--round-lg); }
 #mapPagehead > .herotext, #docPagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
-#mapPagehead > .herotext h2, #docPagehead > .herotext h2 { margin: 0 0 4px; overflow-wrap: break-word; }
+#mapPagehead > .herotext h1, #docPagehead > .herotext h1 { margin: 0 0 4px; overflow-wrap: break-word; }
 #mapPagehead > .herotext p, #docPagehead > .herotext p { margin: 0; color: var(--muted); }
 #mapPagehead > #mapActions, #docPagehead > #docActions {
   grid-area: actions; max-width: 440px; margin-left: var(--gap-5); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gap-2);
@@ -4736,7 +4738,7 @@ h4.spaced { margin-top: 24px; }
   border-radius: var(--round-lg, 10px); padding: var(--gap-5);
 }
 #view-toolbox .profilehead { border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
-#view-toolbox .profilehead h2 { margin: 0; }
+#view-toolbox .profilehead h1 { margin: 0; }
 #view-toolbox .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #view-toolbox .stacked > label { font-weight: 600; }
 #view-toolbox .tburl { overflow-wrap: anywhere; }
@@ -4755,7 +4757,9 @@ h4.spaced { margin-top: 24px; }
 }
 
 /* ADR-135: at phone width a My content row gives its width to the name and its count — the picture and the row's
-   menu go (the item page and the selection bar keep every action), so the name and its usage can be read. */
+   menu go (the item page and the selection bar keep every action), so the name and its usage can be read.
+   <b>Amended 2026-11-02 for 720 px and below</b> (owner decision, from the ArcGIS Enterprise phone layout, ADR-135 §10):
+   the row is a card and its ⋯ is back at 44 pixels — "The phone layout" at the end of this file overrides this. */
 @media (max-width: 480px) {
   #view-content .widetable th:last-child, #contentRows td:last-child { display: none; }
   #contentRows td.name { min-width: 0; width: auto; }
@@ -4914,7 +4918,10 @@ h4.spaced { margin-top: 24px; }
 
   /* <b>A wide table's actions stay on screen</b> — the phone rule below, from 1,100 down: Members needs 823
      pixels and its row actions were past the edge at 768 (design review re-measure). */
-  .widetable table td:last-child, .widetable table th:last-child {
+  /* <b>Only a column of actions is pinned — the UI sweep of 2026-11-02.</b> The rule pinned whatever column came last, and the
+     attribute table (item, Data) held its last data column over the ones beside it below 1,100 pixels. A table pins its last
+     column when the cells of it hold a row menu or a button, which is what an action column is. */
+  .widetable table:has(> tbody > tr > td:last-child :is(.menu, button)) :is(td, th):last-child {
     position: sticky; right: 0; z-index: 1; background: var(--surface);
     box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
   }
@@ -5143,9 +5150,11 @@ h4.spaced { margin-top: 24px; }
 
 :root[data-theme="dark"] button.primary:hover { filter: brightness(1.08); }
 
-/* The mark is navy on a navy-dark header; a hairline keeps its square. */
-:root[data-theme="dark"] #brand .mark,
-:root[data-theme="dark"] #signin .signin-head .mark { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
+/* Dark theme: the mark's light variant (ADR-255 section 4). */
+:root[data-theme="dark"] #brand .mark .m-a,
+:root[data-theme="dark"] #signin .signin-head .mark .m-a { stroke: #dbe8ff; }
+:root[data-theme="dark"] #brand .mark .m-b,
+:root[data-theme="dark"] #signin .signin-head .mark .m-b { stroke: #7ea6e6; }
 :root[data-theme="dark"] #brand .badge,
 :root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { color: var(--accent-ink); }
 :root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { background: var(--accent-soft); }
@@ -5326,7 +5335,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #servicePagehead:not([data-tab="overview"]) > #itemThumb { display: none; }
 #servicePagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
 /* A service's name is one word — tur_admin_public — and it set a phone's page width: 308 in 285 (2026-10-18). */
-#servicePagehead > .herotext h2 { overflow-wrap: break-word; }
+#servicePagehead > .herotext h1 { overflow-wrap: break-word; }
 #servicePagehead > #itemActions {
   grid-area: actions; margin-left: var(--gap-5); max-width: 440px;
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: var(--gap-2);
@@ -5409,7 +5418,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
   column-gap: var(--gap-5); row-gap: var(--gap-3); margin: 0 0 var(--gap-4);
 }
 #serverHero .thumb { width: 180px; height: 116px; border-radius: var(--round-lg); }
-#serverHero .herotext h2 { margin: 0 0 4px; }
+#serverHero .herotext h1 { margin: 0 0 4px; }
 #serverHero .herotext p { margin: 0 0 var(--gap-3); color: var(--muted); display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
 #serverHero .urlrow { display: flex; align-items: center; gap: var(--gap-2); max-width: 760px; }
 #serverHero .urlrow .key { font-size: var(--t-small); color: var(--muted); white-space: nowrap; }
@@ -5418,7 +5427,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 /* UX sweep 2026-10-19, findings 7, 8 and 11: the name and the address wrap rather than widen the page, a failing
    service says so under its name, and a stopped one gets a neutral line instead of a red toast. */
 #serverHero .herotext { min-width: 0; }
-#serverHero .herotext h2 { overflow-wrap: anywhere; }
+#serverHero .herotext h1 { overflow-wrap: anywhere; }
 #serverHero .urlrow { flex-wrap: wrap; }
 #serverHero .urlrow code {
   flex: 1 1 260px; min-width: 0; padding: 5px 8px; border: 1px solid var(--rule); border-radius: var(--round);
@@ -5582,6 +5591,12 @@ header #tabs a[data-tab], header #tabs a[data-link] { padding-top: 0; padding-bo
 .healthpill #healthWord { display: inline-flex; align-items: center; gap: 6px; }
 .healthpill svg { width: 13px; height: 13px; flex: none; }
 .healthpill:hover { text-decoration: underline; }
+/* <b>A dot and an icon at 480 px and below — the UI sweep of 2026-11-02, verification round.</b> The word took the room the
+   organization's name needed, and "Default" was cut. The word stays for a screen reader (the link also has its label). */
+@media (max-width: 480px) {
+  .healthpill .healthtext { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .healthpill { padding: 1px 6px; }
+}
 .healthpill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
 .healthpill.failing, .healthpill.unusable { color: var(--alert); border-color: var(--alert-line); background: var(--alert-soft); }
 .healthpill[hidden] { display: none; }
@@ -5986,7 +6001,7 @@ img.avatar.photo { object-fit: cover; padding: 0; }
 }
 #view-user .profilehead { text-align: center; border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
 #view-user .profilephoto { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: var(--gap-3); }
-#view-user .profilehead h2 { margin: 0; }
+#view-user .profilehead h1 { margin: 0; font-size: var(--t-page); font-weight: 600; } /* the UI sweep of 2026-11-02, verification round: one h1, one size */
 #view-user .profileform { display: flex; flex-direction: column; gap: 6px; }
 #view-user .profileform label { font-weight: 600; font-size: 14px; margin-top: 8px; }
 #view-user .profilefacts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: var(--gap-4) 0 0;
@@ -6462,4 +6477,1275 @@ ol.sfsteps > li > b { margin-left: -30px; }
   #mcRows td.name { grid-column: 1 / -1; }
   #mcRows td.act, .widetable #mcRows td.act:last-child { grid-column: 1 / -1; grid-row: auto; text-align: left; }
   #mcRows .rowmeta code { white-space: normal; overflow-wrap: anywhere; }
+}
+
+/* ═══════════════════════════════════════════ The UI sweep of 2026-11-02 */
+
+/* <b>The settings column wraps on a phone instead of scrolling out of sight.</b> At 480 pixels and under the strip opened
+   scrolled to the current page with the others cut off at the edge; wrapped, every page is in view and nothing needs scrolling. */
+@media (max-width: 480px) {
+  .view.withside > nav.subpages { flex-wrap: wrap; overflow-x: visible; }
+}
+
+/* The Access constraints box takes the sans face its siblings have — the base rule gives every textarea the mono one. */
+#ogcAccess { font-family: var(--sans); }
+
+/* The delete box had its heading and button against its edge. */
+#serviceDanger { padding: var(--gap-4); }
+
+/* A save bar's sentence wraps; "No unsaved ch…" told nobody anything. */
+.savebar > .val { white-space: normal; overflow: visible; text-overflow: clip; }
+@media (max-width: 760px) {
+  .savebar > .val { white-space: normal; overflow: visible; text-overflow: clip; }
+  #utilbar > #tenantName { max-width: 55vw; }
+}
+
+/* The service address in a service header breaks after a slash, not inside a word. */
+.svcurl, #serviceUrl { word-break: normal; overflow-wrap: normal; }
+
+/* "Skip to content": off screen until it has focus, then the first thing on the page. */
+.skiplink { position: absolute; left: 8px; top: -48px; z-index: 1000; padding: 8px 14px; border-radius: var(--round);
+            background: var(--surface); color: var(--ink); border: 2px solid var(--accent); text-decoration: none; }
+.skiplink:focus { top: 8px; }
+
+/* <b>A link beside a line of prose is underlined — the UI sweep of 2026-11-02, verification round.</b> axe's
+   link-in-text-block on the service page's list (`tr > .name > a`): a name link above a "table · id 3" line was told
+   from its text by colour alone. Only name cells that carry such a line, and not the clickable rows (`tr.pick`). */
+tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ═══════════════════════════════════════════ The phone layout (2026-11-02, owner decision, after ArcGIS Enterprise) */
+
+/*
+  <b>At 720 pixels and below Studio and Server are laid out as ArcGIS Enterprise lays out its own on a phone</b> — the
+  owner approved six mockups of it (My content, the menu drawer, the filter sheet, an item, Groups, Members) and the
+  plan behind them: one 56-pixel bar (menu, name, search, account); the sections, the switch between surfaces, the
+  server's health and the account's items in a drawer; two-step notice as one line and a dot on the account; a page's
+  title with one menu button for its sub-pages; one toolbar row (New, search, filter) and a count row with a sort icon;
+  My content's scopes, folders and types in a full-screen sheet; a row's ⋯ back, each row a card with its picture at the
+  right; an item with no breadcrumb, one action row and its tabs as a menu; Groups and Members as compact rows.
+
+  It amends ADR-187 (the sections across the top) and ADR-135 (a row's menu hidden on a phone) for narrow widths only.
+  <b>Nothing here is a second copy of a control</b>: console.js moves the existing nodes to where they sit on a phone
+  and puts them back when the window grows (`phonePark`), and the controls this section draws — the bar's four, the
+  sheets' heads and feet, the scope and filter buttons — open things that already exist. The wide layout is not
+  touched: everything below is inside the media query, apart from hiding what only a phone draws.
+*/
+
+/* What only a phone draws is not drawn at all on a wide window. */
+.sortwrap { display: contents; }
+.barbtn, .phonebtn, #navScrim, .sheethead, .sheetfoot, .sheetidle, #factorNoticeShort, #drawerAccount, .drawerhead,
+#factorNoticeHide .x, .sorticon { display: none; }
+.barbtn[hidden], .phonebtn[hidden] { display: none; }
+/* The drawer's wrapper is not a box on a wide window: the header's grid places `#tabs` and `#utilbar` as it always did. */
+#navDrawer { display: contents; }
+
+@media (max-width: 720px) {
+  :root { --header-h: 56px; }
+  html.phoneoverlay, html.phoneoverlay body { overflow: hidden; }
+
+  /* ── The bar: menu, name, search, account ── */
+  :root header, :root header:has(#utilbar) {
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; height: 56px; min-height: 0; padding: 0 6px;
+    row-gap: 0; box-sizing: border-box;
+    /* A bar of 56 pixels is cheap enough to stay; the three rows that scrolled away at 760 are gone. */
+    position: sticky; top: 0;
+  }
+  .barbtn {
+    display: inline-flex; align-items: center; justify-content: center; flex: none; position: relative;
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--round); background: none;
+    color: var(--ink); cursor: pointer; text-decoration: none; box-shadow: none; min-height: 0;
+  }
+  .barbtn:hover { background: var(--surface-2); }
+  .barbtn svg { width: 22px; height: 22px; display: block; }
+  .barbtn[hidden] { display: none; }
+  header:has(#barBack:not([hidden])) #menuOpen { display: none; }
+
+  :root #brand { flex: 1 1 auto; min-width: 0; padding: 0 6px; gap: 6px; min-height: 44px; }
+  :root #brand .mark { display: none; }
+  :root #brand .name { display: inline; font-size: 15px; }
+  :root #brand .badge {
+    padding: 0; border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 500;
+    text-transform: none; letter-spacing: 0;
+  }
+
+  /* The search is a button until it is pressed, then a row laid over the bar. */
+  :root header #globalSearch { display: none; }
+  :root header #globalSearch.open:not([hidden]) {
+    display: flex; position: absolute; inset: 0; z-index: 3; align-items: center; gap: 4px; padding: 0 6px 0 12px;
+    background: var(--surface); grid-area: auto;
+  }
+  :root header #globalSearch input { flex: 1 1 auto; width: auto; max-width: none; min-height: 44px; }
+  header:has(#globalSearch[hidden]) #barSearch { display: none; }
+
+  #barAvatar .initial {
+    width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 14px; font-weight: 600;
+  }
+  /* Two-step is off: a dot on the account, and the notice says it in one line (and the button's label says it too). */
+  body:has(#factorNotice:not([hidden])) #barAvatar::after {
+    content: ""; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--warn); border: 2px solid var(--surface); box-sizing: content-box;
+  }
+  /* The server is not healthy (ADR-255 section 4): a dot at the top right; the two-step dot, if both, drops to the bottom right. */
+  body[data-health]:not([data-health="ok"]) #barAvatar::before {
+    content: ""; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--alert); border: 2px solid var(--surface); box-sizing: content-box; z-index: 1;
+  }
+  body[data-health="unknown"] #barAvatar::before { background: var(--warn); }
+  body[data-health]:not([data-health="ok"]):has(#factorNotice:not([hidden])) #barAvatar::after { top: auto; bottom: 7px; }
+
+  /* ── The drawer: a panel on the left, a dialog while it is open ── */
+  #navScrim { position: fixed; inset: 0; z-index: 999; background: rgba(16, 24, 38, .5); }
+  #navScrim:not([hidden]) { display: block; }
+  :root #navDrawer {
+    display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0; z-index: 1000;
+    width: min(300px, 86vw); box-sizing: border-box; overflow-y: auto; background: var(--surface);
+    box-shadow: 2px 0 12px rgba(16, 24, 38, .18);
+    visibility: hidden; transform: translateX(-100%); transition: transform .18s ease, visibility 0s .18s;
+  }
+  :root #navDrawer.open { visibility: visible; transform: none; transition: transform .18s ease; }
+  .drawerhead {
+    display: flex; align-items: center; justify-content: space-between; flex: none; height: 56px;
+    padding: 0 6px 0 16px; border-bottom: 1px solid var(--rule);
+  }
+  .drawername b { letter-spacing: .06em; text-transform: uppercase; }
+  #drawerSurface { color: var(--muted); }
+
+  :root #navDrawer #tabs {
+    display: flex; flex-direction: column; flex: none; order: 0; gap: 0; margin: 0; padding: 8px 0; min-height: 0;
+    align-self: auto; overflow: visible; -webkit-mask-image: none; mask-image: none; border: 0;
+  }
+  :root #navDrawer #tabs a[data-tab], :root #navDrawer #tabs a[data-link] {
+    display: flex; align-items: center; min-height: 48px; padding: 0 16px; margin: 0; border: 0;
+    border-left: 3px solid transparent; color: var(--ink); font-size: 15px;
+  }
+  :root #navDrawer #tabs a[data-tab][aria-current="page"] {
+    background: var(--accent-soft); color: var(--accent-ink); border-left-color: var(--accent); font-weight: 600;
+  }
+  :root #navDrawer #tabs a[data-tab]:hover, :root #navDrawer #tabs a[data-link]:hover { background: var(--surface-2); }
+
+  :root #navDrawer #utilbar {
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; flex: none;
+    min-height: 0; margin: 0; padding: 8px 0; background: none; border: 0; border-top: 1px solid var(--rule);
+    font-size: 14px; color: var(--ink);
+  }
+  #navDrawer #utilbar .right { display: none; }
+  #navDrawer #utilbar > #tenantName { order: -2; max-width: none; padding: 8px 16px; }
+  :root #navDrawer #surfaces { display: flex; flex-direction: column; gap: 0; padding: 0; border: 0; background: none; }
+  #navDrawer #surfaces[hidden] { display: none; }
+  #navDrawer #surfaces::before {
+    content: "Switch to"; padding: 8px 16px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted);
+  }
+  :root #navDrawer #utilbar #surfaces a {
+    display: flex; align-items: center; justify-content: flex-start; min-height: 44px; padding: 0 16px; border: 0;
+    font-size: 15px; color: var(--ink); background: none;
+  }
+  :root #navDrawer #utilbar #surfaces a[hidden] { display: none; }
+  :root #navDrawer #utilbar #surfaces a[aria-current] { color: var(--accent-ink); font-weight: 600; }
+  #navDrawer #healthDot { order: 5; align-self: flex-start; margin: 8px 16px; min-height: 32px; }
+  #navDrawer .healthpill .healthtext {
+    position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto;
+  }
+
+  #drawerAccount { display: block; margin-top: auto; flex: none; padding: 8px 0 16px; border-top: 1px solid var(--rule); }
+  #drawerAccount .sheet { display: flex; flex-direction: column; }
+  #drawerAccount #who { padding: 8px 16px; color: var(--muted); font-size: 12px; text-align: left; border: 0; margin: 0; }
+  #drawerAccount #who b { display: block; color: var(--ink); font-size: 14px; }
+  #drawerAccount #myProfile, #drawerAccount #themeToggle, #drawerAccount #signout {
+    display: flex; align-items: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 16px; border: 0; border-radius: 0;
+    background: none; box-shadow: none; color: var(--ink); font-size: 15px; font-weight: 400; text-align: left;
+    text-decoration: none; cursor: pointer;
+  }
+  #drawerAccount #myProfile[hidden] { display: none; }
+  #drawerAccount #signout[style*="display: none"], #drawerAccount #signout[style*="display:none"] { display: none; }
+  #drawerAccount #myProfile:hover, #drawerAccount #themeToggle:hover, #drawerAccount #signout:hover { background: var(--surface-2); }
+  #utilbar #userMenu { display: none; }
+
+  /* ── The page: tighter, and its explanatory paragraphs go ── */
+  main#app.wrap { padding: 12px 12px 24px; }
+  #view-content .pagehead, #view-groups .pagehead, #view-members .pagehead, #view-group .pagehead {
+    flex-direction: row; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  #view-content .pagehead > div:first-child, #view-groups .pagehead > div:first-child,
+  #view-members .pagehead > div:first-child, #view-group .pagehead > div:first-child { flex: 1 1 auto; min-width: 0; }
+  #view-content .pagehead p, #view-groups .pagehead p, #view-members .pagehead p { display: none; }
+  #view-content .pagehead h1, #view-groups .pagehead h1, #view-members .pagehead h1, #view-group .pagehead h1 {
+    font-size: 22px; margin: 0; overflow-wrap: anywhere;
+  }
+  #view-content .pagehead .right { display: none; }
+  /* Any page with a sub-page menu button: its title and the button or buttons share the row, wrapping when they cannot. */
+  .pagehead:has(> .navmenubtn) { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .pagehead:has(> .navmenubtn) > div:first-child { flex: 1 1 12rem; }
+  #view-content .pagehead .phonebtn, #view-members .pagehead > .phonebtn, #view-group .pagehead > .phonebtn,
+  #view-groups .pagehead > .phonebtn { flex: none; }
+
+  .phonebtn {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; position: relative;
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); color: var(--ink);
+    font: 500 14px var(--sans); cursor: pointer; box-shadow: none;
+  }
+  .phonebtn[hidden] { display: none; }
+  .phonebtn .caret { width: 12px; height: 12px; flex: none; }
+  .phonebtn.iconbtn { width: 44px; padding: 0; justify-content: center; }
+  .phonebtn.iconbtn svg { width: 18px; height: 18px; }
+  .phonebtn .dot {
+    display: none; position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--surface); box-sizing: content-box;
+  }
+  .phonebtn.on .dot { display: block; }
+
+  /* The two-step notice: one line, the dot on the account says the rest. */
+  main#app > .factornotice#factorNotice {
+    flex-wrap: nowrap; min-height: 44px; margin: -12px -12px 10px; padding: 0 0 0 16px; gap: 8px;
+    border-width: 0 0 1px; border-radius: 0; font-size: 13px;
+  }
+  #factorNotice > .ico, #factorNotice > p { display: none; }
+  #factorNotice > #factorNoticeShort { display: block; flex: 1 1 auto; min-width: 0; }
+  #factorNotice > a { min-height: 44px; }
+  #factorNoticeHide { min-height: 44px; width: 44px; padding: 0; }
+  #factorNoticeHide .x { display: inline; font-size: 22px; line-height: 1; }
+  #factorNoticeHide .lbl { display: none; }
+
+  /* ── A page's sub-pages, and an item's tabs, as one menu button each ── */
+  #groupTabs[data-navmenu]:not(.menuopen), #serviceTabs[data-navmenu]:not(.menuopen), #mapTabs[data-navmenu]:not(.menuopen),
+  #docTabs[data-navmenu]:not(.menuopen), nav.orgstrip[data-navmenu]:not(.menuopen), nav.subpages[data-navmenu]:not(.menuopen) {
+    display: none;
+  }
+  #groupTabs[data-navmenu].menuopen, #serviceTabs[data-navmenu].menuopen, #mapTabs[data-navmenu].menuopen,
+  #docTabs[data-navmenu].menuopen, nav.orgstrip[data-navmenu].menuopen, nav.subpages[data-navmenu].menuopen {
+    display: flex; flex-direction: column; position: fixed; z-index: 950; width: 240px; max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 80px); overflow-y: auto; gap: 0; margin: 0; padding: 4px; box-sizing: border-box;
+    background: var(--surface); border: 1px solid var(--rule-strong); border-radius: var(--round); box-shadow: var(--lift-2);
+    grid-row: auto; grid-column: auto;
+  }
+  nav[data-navmenu].menuopen a {
+    display: flex; align-items: center; justify-content: flex-start; text-align: left; gap: 8px; min-height: 44px; margin: 0 !important;
+    padding: 0 12px; border: 0; border-radius: var(--round); color: var(--ink); background: none; box-shadow: none;
+    font-size: 15px; font-weight: 400; white-space: normal;
+  }
+  nav[data-navmenu].menuopen a[aria-current] {
+    background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  }
+  nav[data-navmenu].menuopen a:hover { background: var(--surface-2); }
+  nav[data-navmenu].menuopen a .count { margin-left: auto; }
+  .navmenubtn { max-width: 60vw; }
+  .navmenubtn .navmenulabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #servicePagehead > .navmenubtn, #mapPagehead > .navmenubtn, #docPagehead > .navmenubtn { grid-area: tabs; justify-self: start; }
+  #servicePagehead > .navmenubtn { order: 2; }
+  .view.withside.on { display: block; }
+
+  /* ── My content: one toolbar row, a count row, the list as cards ── */
+  #view-content > #contentToolbar {
+    display: flex; flex-wrap: wrap; gap: 0 8px; align-items: center;
+    padding: 0; margin: 0 0 4px; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  #view-content > #contentToolbar[hidden] { display: none; }
+  /* Row one is New, the search and the filter; a break; row two is the count, New map and the order. */
+  #contentToolbar::before { content: ""; order: 3; flex: 1 1 100%; height: 0; }
+  #contentToolbar > #pageActionContent { order: 0; flex: none; margin-bottom: 8px; }
+  #contentToolbar > #pageActionContent:empty { display: none; }
+  #contentToolbar > #pageActionContent > button { min-height: 44px; padding: 0 14px; }
+  #contentToolbar > #contentFilter { order: 1; flex: 1 1 0; min-width: 0; width: auto; min-height: 44px; margin-bottom: 8px; box-sizing: border-box; }
+  #contentToolbar > #contentFilterBtn { order: 2; flex: none; margin-bottom: 8px; }
+  #contentToolbar > #contentCount { order: 4; flex: 1 1 0; min-width: 0; font-size: 13px; color: var(--muted); }
+  #contentToolbar > #newMap { order: 5; flex: none; min-height: 44px; padding: 0 8px; }
+  #contentToolbar > #newMap[hidden] { display: none; }
+  /* The order select is the native one, drawn as an icon with the choice beside it: the control is still a select
+     (a phone's own picker, a name, a value) laid over a picture of it. */
+  #contentToolbar > .sortwrap { order: 6; flex: none; display: grid; }
+  .sortwrap > #contentSort { grid-area: 1 / 1; opacity: 0; width: 100%; height: 44px; margin: 0; cursor: pointer; }
+  .sortwrap > .sorticon {
+    grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px;
+    min-height: 44px; padding: 0 4px 0 8px; font-size: 13px; color: var(--ink); pointer-events: none;
+  }
+  .sortwrap > .sorticon svg { width: 16px; height: 16px; flex: none; }
+  .sortwrap > #contentSort:focus-visible + .sorticon { outline: 2px solid var(--accent); outline-offset: 0; border-radius: var(--round); }
+  .sortwrap:has(> #contentSort[hidden]) { display: none; }
+  #contentToolbar > label.check[hidden] { display: none; }
+  #contentNote { margin: 0 0 6px; }
+
+  #view-content #contentTable { background: none; border: 0; box-shadow: none; padding: 0; overflow: visible; }
+  #contentTable table, #contentTable tbody { display: block; min-width: 0; width: 100%; }
+  #contentTable thead { display: block; }
+  #contentTable thead tr { display: flex; align-items: center; min-height: 44px; }
+  #contentTable thead th { display: none; padding: 0; border: 0; }
+  #contentTable thead th.tick { display: flex; align-items: center; width: auto; }
+  #contentTable thead th.tick::after { content: "Select all"; margin-left: 4px; font-size: 13px; font-weight: 400; color: var(--muted); }
+  #contentPickAll { margin: 12px; }
+
+  #contentRows tr.mediarow {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto 44px; column-gap: 8px; align-items: start;
+    margin: 0 0 8px; padding: 8px 4px 8px 12px; background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--round-lg); box-shadow: none;
+  }
+  #contentRows tr.mediarow td { display: block; padding: 0; border: 0; width: auto; max-width: none; min-width: 0; }
+  #contentRows tr.mediarow td.tick { grid-column: 1; grid-row: 1; padding: 0; width: auto; }
+  #contentRows tr.mediarow td.tick:empty { display: none; }
+  #contentRows tr.mediarow td.name { grid-column: 2; grid-row: 1; padding-top: 2px; width: auto; max-width: none; }
+  #contentRows tr.mediarow td.thumbcell { grid-column: 3; grid-row: 1; padding-top: 2px; width: auto; }
+  #contentRows tr.mediarow td.acts { grid-column: 4; grid-row: 1; text-align: center; width: auto; }
+  #contentRows tr.mediarow .thumb { width: 72px; height: 48px; border-radius: var(--round); }
+  #contentRows tr.mediarow .svctitle { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
+  #contentRows tr.mediarow .svctitle > a { font-size: 15px; overflow-wrap: anywhere; }
+  #contentRows tr.mediarow .svcdesc { display: none; }
+  #contentRows tr.mediarow .svcmeta { font-size: 12px; gap: 0 8px; margin-top: 2px; }
+  #contentRows tr.mediarow td.acts .menu > summary {
+    display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0;
+    font-size: 20px; box-sizing: border-box;
+  }
+  #contentRows td.empty { display: block; }
+
+  /* ── The filter sheet: My content's left column, full screen ── */
+  :root #view-content.on > #contentSide:not(.open), :root #memberSide:not(.open) { display: none; }
+  :root #view-content.on > #contentSide.open, :root #memberSide.open {
+    display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 1000; box-sizing: border-box;
+    margin: 0; padding: 0 16px; gap: 0; border: 0; border-radius: 0; overflow-y: auto; background: var(--surface);
+    max-height: none; top: 0;
+  }
+  .sheethead {
+    display: flex; align-items: center; justify-content: space-between; flex: none; position: sticky; top: 0; z-index: 1;
+    height: 56px; margin: 0 -16px; padding: 0 6px 0 16px; background: var(--surface); border-bottom: 1px solid var(--rule);
+  }
+  .sheethead h2 { margin: 0; font-size: 18px; font-weight: 600; }
+  .sheetfoot {
+    display: flex; gap: 8px; flex: none; position: sticky; bottom: 0; margin: auto -16px 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--rule);
+  }
+  .sheetfoot button { flex: 1 1 0; min-height: 48px; font-size: 15px; }
+  .sheetfoot .ghost { border: 1px solid var(--control-edge); color: var(--ink); }
+  .sheetfoot .primary { flex: 2 1 0; }
+  #contentSide > .sidelist.scopes, #contentSide > .facets, #contentSide > #contentFolders, #contentSide > .sheetidle {
+    margin: 0; padding: 8px 0 4px; border: 0;
+  }
+  #contentSide > .sidelist.scopes::before, #contentSide > .sheetidle::before {
+    display: block; padding: 8px 0; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  }
+  #contentSide > .sidelist.scopes::before { content: "Show"; }
+  :root #contentSide > .sidelist.scopes { flex-direction: row; flex-wrap: wrap; gap: 8px; overflow: visible; }
+  :root #contentSide > .sidelist.scopes a {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--control-edge);
+    border-radius: 22px; background: var(--surface); color: var(--ink); font-size: 14px; white-space: nowrap;
+  }
+  :root #contentSide > .sidelist.scopes a[aria-current="page"] {
+    background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  #contentSide > #contentFolders { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #contentSide > #contentFolders[hidden], #contentSide > .facets[hidden] { display: none; }
+  #contentSide > #contentFolders .folderlabel, #contentSide > .facets .folderlabel {
+    flex: none; margin: 0; padding: 8px 0; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  }
+  #contentSide > #contentFolders .folderlabel { flex: 1 1 100%; }
+  #contentSide > #contentFolders .chip { min-height: 44px; padding: 0 14px; font-size: 14px; }
+  #contentSide > #contentFolders .hint, #contentSide > #contentFolders #folderNew, #contentSide > #contentFolders .foldermenu { margin-left: 0; }
+  #contentSide > #contentFolders #folderNew, #contentSide > #contentFolders .foldermenu summary { min-height: 44px; display: inline-flex; align-items: center; }
+  #contentSide > .facets { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+  #contentSide .facets label.check, #contentSide .sheetidle label.check {
+    display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0; border: 0; border-radius: 0;
+    font-size: 15px; cursor: pointer;
+  }
+  #contentSide .facets label.check input, #contentSide .sheetidle label.check input { width: 20px; height: 20px; margin: 0; }
+  #contentSide .facets .linkbtn { align-self: flex-start; min-height: 44px; }
+  #contentSide > .sheetidle { display: block; padding: 4px 0; }
+  #contentSide > .sheetidle:empty { display: none; }
+  #contentSide > .sheetidle::before { content: none; }
+
+  /* ── The members' filter sheet ── */
+  #memberSide.open .mfwrap > summary { display: none; }
+  #memberSide.open details { border-top: 0; padding: 4px 0; }
+  #memberSide.open details > summary { min-height: 44px; display: flex; align-items: center; }
+  #memberSide.open .mflist { max-height: none; overflow: visible; }
+  #memberSide.open .mflist label { min-height: 44px; }
+  #memberSide.open .mflist input { width: 20px; height: 20px; }
+  #memberSide.open select, #memberSide.open input[type=search] { min-height: 44px; }
+  #memberSide.open .mfwrap { margin: 0; }
+  .memberslayout { display: block; }
+
+  /* ── Groups: +, search, count, and rows that are two lines ── */
+  #view-groups > .toolbar {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center;
+    padding: 0; margin: 0 0 4px; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  #view-groups > .toolbar > #groupNew {
+    grid-column: 1; grid-row: 1; width: 44px; height: 44px; padding: 0; font-size: 0; display: inline-flex;
+    align-items: center; justify-content: center;
+  }
+  #view-groups > .toolbar > #groupNew::before { content: "+"; font-size: 24px; line-height: 1; font-weight: 400; }
+  #view-groups > .toolbar > #groupFilter { grid-column: 2; grid-row: 1; width: 100%; flex: none; min-height: 44px; box-sizing: border-box; }
+  #view-groups > .toolbar > #groupCount { grid-column: 1 / -1; grid-row: 2; font-size: 13px; color: var(--muted); }
+  #view-groups > .toolbar > span[style] { display: none; }
+  #view-groups > .panel:has(#groupRows) { background: none; border: 0; box-shadow: none; padding: 0; }
+  #view-groups #groupRows tr.pick, #members tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; margin: 0 0 8px; padding: 8px 6px 8px 12px;
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); box-sizing: border-box;
+  }
+  #view-groups #groupRows td { padding: 0; border: 0; }
+  #view-groups #groupRows tr.pick td.name { flex: 1 1 100%; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+  #view-groups #groupRows tr.pick td.name .val { display: inline; margin-left: 6px; font-size: 12px; }
+  #view-groups #groupRows tr.pick td[data-l] {
+    display: block; flex: 0 0 auto; grid-column: auto; font-size: 12px; color: var(--muted);
+  }
+  #view-groups #groupRows tr.pick td[data-l] > * { display: inline; }
+  #view-groups #groupRows tr.pick td[data-l]:not([data-l="Owner"]) { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--rule-strong); }
+  #view-groups #groupRows td[data-l="Owner"] { order: 1; }
+  #view-groups #groupRows td[data-l="Members"] { order: 2; }
+  #view-groups #groupRows td[data-l="Items"] { order: 3; }
+  #view-groups #groupRows td[data-l="You are"] { order: 4; }
+  #view-groups #groupRows td[data-l="Members may"] { order: 5; }
+  #view-groups #groupRows td[data-l="Owner"]::before { content: "owner "; }
+  #view-groups #groupRows td[data-l="Members"]::after { content: " members"; }
+  #view-groups #groupRows td[data-l="Items"]::after { content: " items"; }
+  #view-groups #groupRows td[data-l="You are"]::before { content: "you are "; }
+  #view-groups #groupRows td[data-l="Members may"]::before { content: "members "; }
+  #view-groups #groupRows td[data-l]::before, #view-groups #groupRows td[data-l]::after { display: inline; }
+  #view-groups #groupRows td.empty { flex: 1 1 100%; }
+
+  /* ── Members: New member, search, filter; a count row; two-line rows ── */
+  #view-members .toolbar {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center;
+    padding: 0; margin: 0 0 4px; border: 0; border-radius: 0; background: none; box-shadow: none;
+  }
+  #view-members .toolbar > #memberNew { grid-column: 1; grid-row: 1; min-height: 44px; padding: 0 12px; }
+  #view-members .toolbar > #memberQ { grid-column: 2; grid-row: 1; width: 100%; flex: none; min-height: 44px; box-sizing: border-box; }
+  #view-members .toolbar > #memberFilterBtn { grid-column: 3; grid-row: 1; }
+  #view-members .toolbar > #memberCategorize { grid-column: 1 / -1; grid-row: 2; min-height: 44px; }
+  #view-members .toolbar > #memberCategorize[hidden] { display: none; }
+  #view-members .toolbar > span[style] { display: none; }
+  #memberNarrowBar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin: 0 0 4px; min-height: 44px; }
+  #memberNarrowBar label.check { margin-right: 0; }
+  #memberNarrowBar > #memberCount { margin-right: auto; font-size: 13px; color: var(--muted); }
+  #memberNarrowBar label.q {
+    position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  #memberNarrowBar select { min-height: 44px; max-width: 55%; border: 0; background: none; font-size: 13px; color: var(--ink); }
+  #view-members .panel.widetable:has(#members) { background: none; border: 0; box-shadow: none; padding: 0; overflow: visible; }
+  #members tr { position: relative; gap: 2px 8px; flex-wrap: wrap; }
+  #members td { padding: 0; border: 0; }
+  #members td.tick { flex: none; order: 0; width: auto; }
+  #members td.tick input { width: 24px; height: 24px; margin: 0 8px 0 0; }
+  #members td.name { flex: 1 1 calc(100% - 44px); min-width: 0; order: 0; padding-right: 40px; }
+  #members td.act { flex: none; order: 1; align-self: flex-start; position: absolute; top: 4px; right: 4px; box-shadow: none; background: transparent; }
+  #members td.act::before, #members td.act::after { content: none; }
+  #members td[data-l] {
+    display: block; flex: 0 0 auto; order: 2; grid-column: auto; font-size: 12px; color: var(--muted);
+  }
+  #members td[data-l]::before { content: none; }
+  #members td[data-l] > * { display: inline; }
+  #members td[data-l="User type"] { order: 2; margin-left: 82px; }
+  #members td[data-l="Role"] { order: 3; padding-left: 8px; margin-left: 8px; border-left: 1px solid var(--rule-strong); }
+  #members td[data-l="Last login"] { order: 4; padding-left: 8px; margin-left: 8px; border-left: 1px solid var(--rule-strong); }
+  /* The login's own line is inline style (`display:block`), so it takes `!important` to sit beside the name. */
+  #members td.name .whorow > span > .val { display: inline !important; margin-left: 6px; font-size: 12px; }
+  #members td.name .whorow > span > .hint { display: none; }
+  #members td.act details.rowmenu > summary {
+    display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; box-sizing: border-box; font-size: 20px;
+  }
+  #members td.empty { flex: 1 1 100%; }
+
+  /* ── An item: no breadcrumb, a thumbnail with a pencil, one row of actions, tabs as a menu ── */
+  #view-service .crumbs, #view-map .crumbs, #view-document .crumbs, #view-group .crumbs { display: none; }
+  #itemThumb .thumb, #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 88px; height: 64px; }
+  #itemThumb .thumbcol { position: relative; }
+  #itemThumb .thumbcol [data-redraw-thumb] {
+    position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; padding: 0; border: 0; background: none;
+    font-size: 0; color: var(--ink); box-shadow: none; min-height: 0;
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::before {
+    content: ""; position: absolute; left: 6px; top: 6px; width: 30px; height: 30px; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: 50%; background: var(--surface);
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::after {
+    content: ""; position: absolute; left: 14px; top: 14px; width: 14px; height: 14px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  #servicePagehead > .herotext h1, #mapPagehead > .herotext h1, #docPagehead > .herotext h1 { font-size: 22px; }
+  #mapPagehead, #docPagehead { padding-bottom: var(--gap-3); }
+  #itemActions:not([hidden]), #mapActions, #docActions { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
+  #itemActions > a.btn.primary, #mapActions > a.btn.primary, #docActions > button.primary {
+    flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; padding: 0 12px;
+  }
+  #itemActions > button, #mapActions > button, #docActions > button { min-height: 44px; padding: 0 14px; flex: none; }
+  .itemactions > details.itemmore { flex: none; }
+  :root #itemActions .itemmore > summary, :root #mapActions .itemmore > summary, :root #docActions .itemmore > summary {
+    display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); font-size: 0;
+  }
+  :root #itemActions .itemmore > summary::before, :root #mapActions .itemmore > summary::before,
+  :root #docActions .itemmore > summary::before { content: "\22EF"; font-size: 20px; line-height: 1; color: var(--ink); }
+  :root #itemActions .itemmore .sheet [hidden], :root #mapActions .itemmore .sheet [hidden],
+  :root #docActions .itemmore .sheet [hidden] { display: none; }
+  .menu .sheet [hidden] { display: none; }
+  .menu .sheet button { min-height: 44px; }
+  .mapitem > .mapmain { order: 1; }
+  .mapitem > aside { order: 2; }
+  .widewords { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root #navDrawer, :root #navDrawer.open { transition: none; }
+  }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The desktop layout, 2026-11-02 — owner decision after the mockups ("Ben çok beğendim. Buna geç."), the redesign
+   after ArcGIS Enterprise's structure (ADR-255).</b> Above 720 pixels (the phone has its own block above). One bar of
+   56 pixels: the mark and the name, the surface's sections with an underline under the current one, the search, the
+   account. The utility line that stood over the bar is gone: the switch between surfaces, the server's health, the
+   theme and Sign out are in the account menu (console.js moves `#surfaces` and `#healthDot` into its sheet). A
+   page's head is its title and one control; the paragraph under it, the two-step notice's three lines and the row
+   menus' words are shortened to what each screen's mockup draws. Nothing here adds a control or removes one.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 721px) {
+  :root { --header-h: 56px; }
+  html:root header:has(#utilbar), html:root header:has(#globalSearch:not([hidden])) {
+    display: grid; box-sizing: border-box; height: 56px; min-height: 0; padding: 0 20px; column-gap: 24px; row-gap: 0;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+    grid-template-rows: 56px;
+    grid-template-areas: "brand tenant tabs search acct";
+    align-items: stretch;
+  }
+  :root header #brand { grid-area: brand; align-self: center; padding: 0; gap: 8px; }
+  :root header #brand .badge {
+    padding: 0; border: 0; background: none; color: var(--muted); font-size: 15px; font-weight: 500; letter-spacing: 0;
+  }
+  /* The utility line dissolves: its children are the bar's own grid items, and what it held for the account is the menu's. */
+  :root header #utilbar { display: contents; }
+  :root header #utilbar > #tenantName { grid-area: tenant; align-self: center; order: 0; max-width: 24ch; }
+  :root header #utilbar > #healthLine, :root[data-surface] header #utilbar > #healthLine { display: none; }
+  :root header #utilbar > .right { grid-area: acct; margin: 0; align-self: center; }
+  :root header #tabs { grid-area: tabs; margin: 0; gap: 4px; min-height: 0; }
+  :root header #tabs a[data-tab], :root header #tabs a[data-link] {
+    display: flex; align-items: center; padding: 0 12px; border-bottom: 3px solid transparent;
+  }
+  :root header #tabs a[data-tab][aria-current="page"], :root header #tabs a[data-link][aria-current="page"] {
+    border-bottom-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+  }
+  :root header #globalSearch { grid-area: search; margin: 0; align-self: center; }
+  :root header #globalSearch input { width: 320px; max-width: 26vw; height: 36px; box-sizing: border-box; }
+  /* The phone's controls are not drawn on a wide bar. */
+  :root header .barbtn { display: none; }
+
+  /* ── The account menu: who, the switch, health, the theme, Sign out ── */
+  :root header .usermenu > summary { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px; font-size: 14px; color: var(--ink); }
+  :root header .usermenu .initial { width: 30px; height: 30px; font-size: 14px; position: relative; }
+  /* The server is not healthy (ADR-255 section 4): a dot on the initial, named in the summary's label. */
+  :root body[data-health]:not([data-health="ok"]) header .usermenu .initial::after {
+    content: ""; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--alert); border: 2px solid var(--surface); box-sizing: content-box;
+  }
+  :root body[data-health="unknown"] header .usermenu .initial::after { background: var(--warn); }
+  :root header .usermenu .sheet { min-width: 260px; padding: 6px; }
+  :root header #utilbar .usermenu .sheet #surfaces {
+    display: flex; flex-direction: column; gap: 0; padding: 6px 0; margin: 4px 0; background: none; border: 0;
+    border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); border-radius: 0;
+  }
+  :root header #utilbar .usermenu .sheet #surfaces[hidden] { display: none; }
+  :root header #utilbar .usermenu .sheet #surfaces::before {
+    content: "Switch to"; padding: 2px 10px 4px; color: var(--muted); font-size: 12px; font-weight: 600;
+  }
+  :root header #utilbar .usermenu .sheet #surfaces a, :root header #utilbar .usermenu .sheet #surfaces a + a {
+    display: block; padding: 8px 10px; border: 0; border-radius: 3px; background: none; color: var(--ink);
+    font-size: var(--t-small); font-weight: 400;
+  }
+  :root header #utilbar .usermenu .sheet #surfaces a[hidden] { display: none; }
+  :root header #utilbar .usermenu .sheet #surfaces a:hover { background: var(--surface-2); text-decoration: none; }
+  :root header #utilbar .usermenu .sheet #surfaces a[aria-current] { color: var(--accent-ink); font-weight: 600; background: none; }
+  :root header #utilbar .usermenu .sheet #healthDot {
+    display: flex; align-items: center; margin: 0 0 4px; padding: 8px 10px; border: 0; border-radius: 3px; background: none;
+    font-size: var(--t-small);
+  }
+  :root header #utilbar .usermenu .sheet #healthDot[hidden] { display: none; }
+  :root header #utilbar .usermenu .sheet #healthDot:hover { background: var(--surface-2); }
+
+  /* ── The two-step notice: one thin line, edge to edge ── */
+  main#app > .factornotice#factorNotice {
+    flex-wrap: nowrap; min-height: 36px; margin: calc(-1 * var(--gap-6)) calc(-1 * clamp(var(--gap-5), 3vw, 44px)) var(--gap-5);
+    padding: 0 20px; gap: var(--gap-3); border-width: 0 0 1px; border-radius: 0; font-size: 13px;
+  }
+  #factorNotice > p { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #factorNotice > #factorNoticeShort { display: none; }
+  #factorNotice > #factorNoticeHide { margin-left: auto; }
+
+  /* ── A page's head is its title and one control; the paragraph under it is where the mockup left it: nowhere ── */
+  #view-content .pagehead p, #view-groups .pagehead p, #view-members .pagehead p, #view-roles .pagehead p,
+  #view-orgsettings .pagehead p { display: none; }
+  /* Server and System: the same, on the screens whose mockups draw a title and its controls only. */
+  :is(#view-services, #view-operations, #view-machines, #view-utilities, #view-backups, #view-general, #view-logs,
+      #view-organizations, #view-sources, #view-publish) > .pagehead > div > p { display: none; }
+  .pagehead { margin-bottom: var(--gap-4); align-items: center; }
+  .pagehead h1 { font-size: 24px; line-height: 1.25; margin: 0; }
+}
+@media (min-width: 721px) and (max-width: 1000px) {
+  :root header #globalSearch input { width: 200px; max-width: 22vw; }
+  html:root header:has(#utilbar), html:root header:has(#globalSearch:not([hidden])) { column-gap: 12px; padding: 0 12px; }
+}
+
+/* ── An item on a wide window (the redesign of 2026-11-02): no breadcrumb, a small thumbnail with a pencil, a title and one
+      meta line, Open in Map Viewer / Share / ⋯ at the right, the tabs under it; Description and Layers on the left, Item
+      information on the right. The bar's back arrow, which a phone draws too, is the way to the parent. ── */
+@media (min-width: 721px) {
+  #view-service .crumbs, #view-map .crumbs, #view-document .crumbs, #view-group .crumbs { display: none; }
+  :root header #barBack:not([hidden]) {
+    display: inline-flex; position: absolute; left: 6px; top: 8px; width: 40px; height: 40px; z-index: 1;
+  }
+  :root header:has(#barBack:not([hidden])) #brand { margin-left: 28px; }
+
+  #itemThumb .thumb, #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 88px; height: 64px; }
+  #itemThumb .thumbcol { position: relative; }
+  #itemThumb .thumbcol [data-redraw-thumb] {
+    position: absolute; right: -10px; bottom: -10px; width: 32px; height: 32px; padding: 0; border: 0; background: none;
+    font-size: 0; color: var(--ink); box-shadow: none; min-height: 0;
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::before {
+    content: ""; position: absolute; left: 0; top: 0; width: 28px; height: 28px; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: 50%; background: var(--surface);
+  }
+  #itemThumb .thumbcol [data-redraw-thumb]::after {
+    content: ""; position: absolute; left: 7px; top: 7px; width: 14px; height: 14px; background: currentColor;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  #itemThumb .thumbcol .hint { display: none; }
+  #servicePagehead > .herotext h1, #mapPagehead > .herotext h1, #docPagehead > .herotext h1 { font-size: 24px; margin: 0 0 2px; }
+  #servicePagehead > #itemThumb { margin-right: var(--gap-4); }
+  #itemActions:not([hidden]), #mapActions, #docActions {
+    display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: 8px; max-width: none;
+  }
+  #servicePagehead > #itemActions { max-width: none; }
+  #itemActions > a.btn.primary, #mapActions > a.btn.primary, #docActions > button.primary { flex: none; text-align: center; }
+  :root #itemActions .itemmore > summary, :root #mapActions .itemmore > summary, :root #docActions .itemmore > summary {
+    display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; box-sizing: border-box;
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); font-size: 0;
+  }
+  :root #itemActions .itemmore > summary::before, :root #mapActions .itemmore > summary::before,
+  :root #docActions .itemmore > summary::before { content: "\22EF"; font-size: 20px; line-height: 1; color: var(--ink); }
+  :root #itemActions .itemmore .sheet [hidden], :root #mapActions .itemmore .sheet [hidden],
+  :root #docActions .itemmore .sheet [hidden] { display: none; }
+  .menu .sheet [hidden] { display: none; }
+
+  /* Overview: Description and Layers on the left, Item information on the right. */
+  #serviceOverview.itemgrid, #serviceOverview.itemgrid:has(> .itemmain > #serviceLayersPanel[hidden]) {
+    grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: none; align-items: start;
+  }
+  #serviceOverview #serviceHead { grid-column: 1; grid-row: 1; }
+  #serviceOverview #serviceLayersHead { grid-column: 1; grid-row: 2; }
+  #serviceOverview #serviceLayersPanel { grid-column: 1; grid-row: 3; }
+  #serviceOverview > #serviceDetails { grid-column: 2; grid-row: 1 / span 3; }
+}
+@media (min-width: 721px) and (max-width: 900px) {
+  #serviceOverview.itemgrid, #serviceOverview.itemgrid:has(> .itemmain > #serviceLayersPanel[hidden]) { grid-template-columns: minmax(0, 1fr) 280px; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The sign-in page with the mark — 2026-11-02, owner decision after the mockups (SigninV2 and PhoneSigninV2).</b>
+   On a wide window the navy brand panel is the left 600 pixels and the card stands in the middle of what is left; on a
+   phone the panel is the navy top and the card is a sheet rounded at the top, rising from below. `#0f1d33` is the one
+   colour this adds, and it is the same in both themes: the panel is the brand's and does not follow the reader's. The
+   card keeps every control it had — the code step, the providers, "From another organization?", the refusal.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+html:root #signin {
+  display: grid; grid-template-columns: minmax(0, 600px) minmax(0, 1fr); align-items: center; justify-items: center;
+  width: 100%; max-width: none; min-height: 100vh; margin: 0; padding: 0; background: var(--paper);
+}
+html:root #signin .signin-brand {
+  grid-column: 1; grid-row: 1; justify-self: stretch; align-self: stretch; position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; padding: 56px;
+  background: #0f1d33; color: #e6ebf4;
+}
+.signin-watermark { position: absolute; right: -260px; bottom: -220px; width: 760px; height: 760px; opacity: .16; pointer-events: none; }
+.signin-logo, .signin-pitch, .signin-org { position: relative; }
+.signin-logo { display: flex; align-items: center; gap: 14px; }
+.signin-mark { width: 44px; height: 44px; flex: none; display: block; }
+.signin-wordmark { font-size: 22px; font-weight: 700; letter-spacing: .08em; color: #fff; }
+.signin-pitch { display: flex; flex-direction: column; gap: 14px; max-width: 420px; }
+.signin-line { margin: 0; font-size: 34px; line-height: 1.2; font-weight: 600; color: #fff; }
+.signin-subline { margin: 0; font-size: 16px; line-height: 1.5; color: #b9c6dc; }
+.signin-org { font-size: 13px; color: #9fb0cb; overflow-wrap: anywhere; }
+html:root #signin > form.panel {
+  grid-column: 2; grid-row: 1; width: 380px; max-width: calc(100% - 32px); box-sizing: border-box;
+  border-radius: 12px; box-shadow: 0 1px 2px rgba(16, 24, 40, .06);
+}
+html:root #signin .signin-head { border-bottom: 0; padding: 36px 36px 6px; }
+html:root #signin .signin-head h1 { font-size: 24px; }
+html:root #signin .signin-head .mark { display: none; }
+html:root #signin .signin-body { padding: var(--gap-2) 36px 30px; }
+html:root #signin label { color: var(--ink); font-weight: 600; }
+html:root #signin #u, html:root #signin #p { min-height: 44px; border-radius: 6px; }
+html:root #signin label.keep { font-weight: 400; }
+html:root #signin button.primary { min-height: 46px; font-size: 15px; font-weight: 600; }
+html:root #signin .signin-stranger { padding: var(--gap-3) 36px; }
+html:root #mustchange { max-width: 420px; }
+html:root #mustchange .panel { border-radius: 12px; box-shadow: 0 1px 2px rgba(16, 24, 40, .06); }
+@media (max-width: 720px) {
+  html:root #signin { display: flex; flex-direction: column; align-items: stretch; background: #0f1d33; min-height: 100vh; min-height: 100dvh; }
+  html:root #signin .signin-brand {
+    flex: none; height: 260px; padding: 0; align-items: center; justify-content: center; gap: 14px; text-align: center;
+  }
+  .signin-watermark, .signin-pitch, .signin-org { display: none; }
+  .signin-logo { flex-direction: column; gap: 14px; }
+  html:root #signin > form.panel {
+    flex: 1 1 auto; width: auto; max-width: none; border: 0; border-radius: 20px 20px 0 0; box-shadow: none; background: var(--surface);
+  }
+  html:root #signin .signin-head { padding: 32px 24px 6px; }
+  html:root #signin .signin-body { padding: var(--gap-2) 24px 24px; }
+  html:root #signin #u, html:root #signin #p { min-height: 48px; border-radius: 8px; font-size: 16px; }
+  html:root #signin label.keep { min-height: 44px; font-size: 15px; }
+  html:root #signin button.primary { min-height: 50px; border-radius: 8px; font-size: 16px; }
+  html:root #signin .reveal-toggle { min-height: 44px; padding: 0 14px; font-size: 15px; }
+  html:root #signin .signin-stranger { padding: var(--gap-3) 24px; }
+}
+/* The bar waits for a session, as it always did; the desktop grid above would otherwise draw it over the sign-in page. */
+html[data-session="none"]:root #main > header { display: none; }
+
+/* Where the account menu offers two-step sign-in once the notice is dismissed — styled like its neighbours, both layouts. */
+#accountTwoStep[hidden] { display: none; }
+.menu .sheet #accountTwoStep { display: block; }
+#itemActions .itemmore, #mapActions .itemmore, #docActions .itemmore { position: relative; }
+#itemActions .itemmore > .sheet, #mapActions .itemmore > .sheet, #docActions .itemmore > .sheet { right: 0; left: auto; top: calc(100% + 4px); }
+.gtile { display: none; }
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>Phone fixes from the ux-designer's verification of 2026-11-02.</b> (1) An open row menu stood under the next rows'
+   own ⋯ — the row is raised while its menu is open. (2) A name that is one long word (tr_il_buildings_postgis) was cut under
+   the picture: the cell may shrink and the word may break. (3) Groups' rows carry a letter tile, and the meta line is
+   written once, not by the old data-l label and the new suffix together. (5) The Select-all band paints its whole row.
+   (10) Targets of 44 pixels. (11) The account's role line wraps.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 720px) {
+  #contentRows tr.mediarow, #members tr, #view-groups #groupRows tr.pick { position: relative; }
+  #contentRows tr.mediarow:has(details[open]), #members tr:has(details[open]), #view-groups #groupRows tr.pick:has(details[open]) {
+    z-index: 900;
+  }
+  #contentRows tr.mediarow td.name, #contentRows tr.mediarow .svctitle { min-width: 0; overflow-wrap: anywhere; }
+  #contentRows tr.mediarow .svctitle > a { overflow-wrap: anywhere; word-break: break-word; }
+
+  #view-groups #groupRows tr.pick { padding-left: 62px; min-height: 60px; align-content: center; }
+  #view-groups #groupRows .gtile {
+    display: flex; align-items: center; justify-content: center; position: absolute; left: 12px; top: 10px; width: 40px; height: 40px;
+    border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  }
+  #view-groups #groupRows td[data-l]::before { content: none; }
+  #view-groups #groupRows td[data-l="Owner"]::before { content: "owner "; }
+  #view-groups #groupRows td[data-l="You are"]::before { content: "you are "; }
+  #view-groups #groupRows td[data-l="Members may"]::before { content: "members "; }
+  #view-groups #groupRows td[data-l="Members"][data-one]::after { content: " member"; }
+  #view-groups #groupRows td[data-l="Items"][data-one]::after { content: " item"; }
+  #view-groups #groupRows td.name .val { display: block; margin-left: 0; }
+  /* Spaces, not rules between the facts: a rule that starts a wrapped line is a stray one. */
+  #view-groups #groupRows tr.pick { column-gap: 12px; }
+  #view-groups #groupRows tr.pick td[data-l]:not([data-l="Owner"]) { margin-left: 0; padding-left: 0; border-left: 0; }
+
+  #contentTable thead tr { display: flex; background: var(--surface-2); }
+  #contentTable thead th.tick { flex: 1 1 auto; }
+
+  #view-orgsettings button, #view-orgsettings .dialogfoot button { min-height: 44px; }
+  details.rowmenu > .rowmenubody button, details.rowmenu > .rowmenubody a { min-height: 44px; display: flex; align-items: center; }
+  .pager button { min-height: 44px; min-width: 44px; }
+  #drawerAccount #who { white-space: normal; overflow: visible; text-overflow: clip; }
+  #drawerAccount #who small, #drawerAccount #who span { white-space: normal; }
+  #drawerAccount #accountTwoStep {
+    display: flex; align-items: center; width: 100%; min-height: 48px; padding: 0 16px; border-radius: 0; color: var(--ink);
+    font-size: 15px; text-decoration: none; box-sizing: border-box;
+  }
+  #drawerAccount #accountTwoStep[hidden] { display: none; }
+  #drawerAccount #accountTwoStep:hover { background: var(--surface-2); }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The screens' bodies, the redesign of 2026-11-02 (ADR-255 §6)</b> — each rebuilt to its approved mockup: Server's service
+   page, Publish, Data sources and Logs; System's Status, General, Organizations, Utility services, Machines and
+   Backups; Studio's search, a group and its page, Members, a profile, Member roles and Security. Layout and presentation
+   only: a rule here moves, sizes or shows a node that is already there; none adds a control, and each control a mockup
+   draws that this console has no behaviour for is left out (ADR-255 §4).
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shared by the list screens: the column heads are quiet, on the card's own white ── */
+:root :is(#view-services, #view-sources, #view-organizations, #view-utilities, #view-machines, #view-backups, #view-logs,
+          #view-groups, #view-members, #view-roles, #view-signin) .panel thead th {
+  background: var(--surface); color: var(--muted); font-size: 12.5px; font-weight: 600; text-transform: none; letter-spacing: 0;
+}
+
+@media (min-width: 721px) {
+  /* A screen that is a card of settings is not wider than a page of settings reads: the mockup centres 760 pixels. */
+  :root #view-settings.on { max-width: 760px; margin-left: auto; margin-right: auto; }
+  :root #view-settings .pagehead p, :root #view-operations .pagehead p, :root #view-logs .pagehead p,
+  :root #view-sources .pagehead p, :root #view-organizations .pagehead p, :root #view-utilities .pagehead p,
+  :root #view-machines .pagehead p, :root #view-backups .pagehead p, :root #view-signin > .pagehead p,
+  :root #view-publish .pagehead p, :root #view-search .pagehead p { display: none; }
+
+  /* ── Server › a service: a flat head, the tabs under it, and the pages in cards ── */
+  :root #serverHero.pagehead {
+    background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-4); gap: var(--gap-4); align-items: flex-start;
+  }
+  :root #serverHero .herothumb img.thumb { width: 134px; height: 90px; border-radius: var(--round-lg); }
+  :root #serverHero .herotext h1 { font-size: 24px; margin: 0 0 4px; }
+  :root #serviceEdit.panel { background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #serviceNav {
+    background: none; border: 0; border-bottom: 1px solid var(--rule); padding: 0; margin: 0 0 var(--gap-4); gap: 4px;
+  }
+  :root #serviceNav a { padding: 12px 16px; border-bottom: 3px solid transparent; border-radius: 0; background: none; }
+  :root #serviceNav a[aria-current] { border-bottom-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  :root #servicePagesBody {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4) var(--gap-5);
+  }
+
+  /* ── Server › Publish: the three panes' heads in sentence case on white, the verbs at the head's right ── */
+  :root #view-publish > .pagehead { align-items: center; margin-bottom: var(--gap-3); }
+  :root #view-publish > .pagehead > .pageacts { margin-left: auto; }
+  :root #view-publish .composerpane > header, :root #view-publish .composerpane > .panehead, :root #view-publish .composerpane > h2,
+  :root #view-publish .composerpane > h3 {
+    background: var(--surface); text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--ink);
+  }
+
+  /* ── Server › Data sources: a quiet table; its explanation is a footnote, not a card ── */
+  :root #view-sources .panel:not(.widetable):not(:has(table)) { background: none; border: 0; box-shadow: none; padding: var(--gap-3) 0 0; }
+
+  /* ── Server › Logs: the log being read is the segmented control in the head, one row of filters, then the table ── */
+  :root #view-logs.on { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-4); row-gap: 0; align-items: center; }
+  :root #view-logs.on > * { grid-column: 1 / -1; min-width: 0; }
+  :root #view-logs.on > .pagehead { grid-column: 1; grid-row: 1; margin-bottom: var(--gap-3); }
+  :root #view-logs.on > #logSources {
+    grid-column: 2; grid-row: 1; position: static; display: inline-flex; flex-direction: row; gap: 2px; padding: 3px; margin: 0 0 var(--gap-3);
+    border: 1px solid var(--rule-strong); border-radius: 6px; background: var(--surface); width: auto;
+  }
+  :root #view-logs > #logSources button {
+    border: 0; border-radius: 4px; background: none; color: var(--ink); padding: 6px 14px; font-size: var(--t-small); text-align: center;
+    min-height: 0; box-shadow: none; white-space: nowrap;
+  }
+  :root #view-logs > #logSources button[aria-selected="true"] { background: var(--accent); color: #fff; font-weight: 600; border: 0; }
+  /* The paragraph that says which log is which, and where the server's own is, is a footnote under the table: the link in it has
+     no other place, and the mockup draws nothing of it where the filters are. */
+  :root #view-logs.on > #logLede { grid-row: 99; margin: var(--gap-4) 0 0; font-size: 12.5px; color: var(--muted); max-width: none; }
+  :root #view-logs.on > #logFilters {
+    grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0 150px 0 0; margin: 0 0 var(--gap-3);
+  }
+  :root #view-logs.on > #logSources + .toolbar {
+    grid-column: 1 / -1; grid-row: 2; justify-self: end; margin: 0 0 var(--gap-3); background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  :root #view-logs.on > #logSources + .toolbar > span[style] { display: none; }
+  :root #view-logs #logFiltersToggle { display: none; }
+  :root #view-logs #logFilters > label { color: var(--muted); font-size: var(--t-small); }
+  :root #view-logs #logFilters input[type=search], :root #view-logs #logFilters input[type=text] { flex: 1 1 8rem; max-width: 12rem; }
+  :root #view-logs > .panel.widetable { grid-column: 1 / -1; }
+
+  /* ── System › Status: a verdict card of two columns, then one grid of cards ── */
+  :root #view-operations.on { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap-4); align-items: start; }
+  :root #view-operations.on > * { grid-column: 1 / -1; min-width: 0; }
+  :root #view-operations.on > .pagehead { grid-column: 1 / 3; grid-row: 1; margin-bottom: 0; }
+  :root #view-operations.on > .toolbar {
+    grid-column: 3; grid-row: 1; justify-self: end; display: flex; flex-direction: row-reverse; align-items: center; gap: var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0; margin: 0;
+  }
+  :root #view-operations #statusVerdict {
+    display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); column-gap: var(--gap-6); align-items: start;
+  }
+  :root #view-operations #statusVerdict > h3 { grid-column: 1; margin: 0 0 var(--gap-3); }
+  :root #view-operations #statusVerdict > dl.verdictcounts {
+    grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3) var(--gap-4); margin: 0;
+  }
+  :root #view-operations #statusVerdict > dl.verdictcounts > * { background: none; border: 0; padding: 0; min-height: 0; box-shadow: none; }
+  :root #view-operations #statusVerdict > ul.verdictissues { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  :root #view-operations .widgetrow, :root #view-operations .opscards, :root #view-operations .opsone,
+  :root #view-operations .opsone > div { display: contents; }
+  :root #view-operations #resourceWidget, :root #view-operations .opscard, :root #view-operations .opsone > div > .panel {
+    grid-column: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); box-shadow: none;
+  }
+  :root #view-operations #resourceWidget { padding: var(--gap-4); }
+  :root #view-operations .opsone > div > .label { grid-column: 1 / -1; }
+  :root #view-operations .opsone > div > p.lede { display: none; }
+  :root #view-operations #routeList { grid-column: 1 / -1; }
+  :root #view-operations .opscard .hint { display: none; }
+  :root #view-operations .opscard .hint#datastoreOwnersHead, :root #view-operations .opscard .hint#datastoreNote { display: block; }
+
+  /* ── System › General: one column of cards and one save bar that stays at the foot of the window ── */
+  :root #view-settings .settingcard { max-width: none; }
+  :root #view-settings .settingcard .hint { max-width: none; font-size: 12.5px; }
+  :root #view-settings .settingcard > .row:has(#setSave) { justify-content: flex-start; }
+  :root #view-settings #setSave, :root #view-settings #styleOriginsSave, :root #view-settings #groundSave,
+  :root #view-settings #groundDiscard, :root #view-settings #groundSaveBar { display: none; }
+  :root #view-settings > #generalSaveBar {
+    position: sticky; bottom: 0; z-index: 3; margin: var(--gap-5) calc(-1 * var(--gap-5)) 0; padding: var(--gap-3) var(--gap-5);
+    border-top: 1px solid var(--rule); border-radius: 0; background: var(--surface);
+  }
+
+  /* ── System › Utility services and Machines: the card under the table is as wide as the table ── */
+  :root #view-utilities .settingcard, :root #view-machines .settingcard { max-width: none; }
+  :root #view-utilities .settingcard .hint, :root #view-machines .settingcard .hint { max-width: none; }
+
+  /* ── System › Backups: the list on the left, the schedule and its notes on the right ── */
+  :root #view-backups.on { display: grid; grid-template-columns: minmax(0, 1fr) 340px; column-gap: var(--gap-4); align-items: start; }
+  :root #view-backups.on > * { grid-column: 1; min-width: 0; }
+  :root #view-backups.on > .pagehead { grid-column: 1; grid-row: 1; margin-bottom: var(--gap-3); }
+  :root #view-backups.on > .toolbar {
+    grid-column: 2; grid-row: 1; justify-self: end; background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-3);
+  }
+  :root #view-backups.on > p.hint:empty { display: none; }
+  :root #view-backups.on > #bkScheduleCard { grid-column: 2; grid-row: 2 / span 3; max-width: none; margin: 0; }
+  :root #view-backups.on > #bkNoteCard { grid-column: 2; grid-row: 5; max-width: none; margin: 0; }
+
+  /* ── Studio › Search: a title with the count, the tabs with their counts as pills ── */
+  :root #view-search .toolbar { background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #view-search #searchQ { max-width: 520px; }
+  :root #searchTabs a .count, :root #groupTabs a .count {
+    display: inline-block; min-width: 1.6em; padding: 0 6px; border-radius: 10px; background: var(--surface-3); color: var(--ink);
+    font-size: 12px; font-weight: 600; text-align: center;
+  }
+
+  /* ── Studio › Groups: the verbs are in the head, at its right ── */
+  :root #view-groups.on { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap-4); align-items: center; }
+  :root #view-groups.on > * { grid-column: 1 / -1; min-width: 0; }
+  :root #view-groups.on > .pagehead { grid-column: 1; grid-row: 1; margin-bottom: var(--gap-3); }
+  :root #view-groups.on > .toolbar {
+    grid-column: 2; grid-row: 1; display: flex; flex-direction: row-reverse; align-items: center; gap: var(--gap-3); margin: 0 0 var(--gap-3);
+    background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  :root #view-groups.on > .toolbar > span[style] { display: none; }
+  :root #view-groups.on > .toolbar #groupFilter { width: 340px; }
+  :root #view-groups.on > .toolbar #groupCount, :root #view-groups.on > .toolbar #groupNew { white-space: nowrap; }
+
+  /* ── Studio › a group: a tile and a title, Add items and Add member at the right, the tabs under them ── */
+  :root #view-group #groupPagehead { align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-3); }
+  :root #view-group .gheadtile {
+    flex: none; display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: var(--round-lg);
+    background: var(--accent-soft); color: var(--accent-ink); font-size: 24px; font-weight: 600;
+  }
+  :root #view-group .grouptitles { flex: 1 1 auto; min-width: 0; }
+  :root #view-group .headverbs { display: flex; align-items: center; gap: var(--gap-2); margin-left: auto; }
+  :root #view-group .headverbs[hidden] { display: none; }
+  :root #view-group .headverbs > * { white-space: nowrap; }
+  :root #view-group #tab-overview .grouppair { grid-template-columns: minmax(0, 1fr) 340px; }
+  :root #view-group #tab-overview .grouppair > div {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4) var(--gap-5);
+  }
+  :root #view-group #tab-overview .grouppair > div:first-child { align-self: start; }
+
+  /* ── Studio › a file: Summary and Description on the left, Item information on the right, as a map's page and a service's are ── */
+  :root #docOverview.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--gap-4); align-items: start; }
+  :root #docOverview > .mapmain { grid-column: 1; grid-row: 1; min-width: 0; }
+  :root #docOverview > #docSide { grid-column: 2; grid-row: 1; min-width: 0; width: auto; }
+
+  /* ── Studio › Members: the verb, the search and the count in one row over the table ── */
+  :root #view-members .membersmain > .toolbar { background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-3); }
+  :root #view-members .membersmain > .toolbar #memberNew { order: -1; }
+
+  /* ── Studio › a profile: who, on the left, in a card; the form and the second factor, on the right ── */
+  :root #view-user .profilecard {
+    display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: var(--gap-4); align-items: start; max-width: none;
+    background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  :root #view-user #profileBody { display: contents; }
+  :root #view-user .profilehead, :root #view-user .profilefacts, :root #view-user .profileform, :root #view-user #profileSecurity,
+  :root #view-user #profileBody > .profilebio, :root #view-user #profileBody > p {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4) var(--gap-5); margin: 0;
+  }
+  :root #view-user .profilehead { grid-column: 1; grid-row: 1; text-align: center; padding: var(--gap-5); border-bottom: 1px solid var(--rule); }
+  :root #view-user .profilefacts { grid-column: 1; grid-row: 2; }
+  :root #view-user .profileform { grid-column: 2; grid-row: 1 / span 2; }
+  :root #view-user #profileSecurity { grid-column: 2; grid-row: 3; }
+  :root #view-user #profileBody > .profilebio, :root #view-user #profileBody > p { grid-column: 2; grid-row: 1; }
+
+  /* ── Studio › Member roles: the privileges in two columns, in words, and a save bar that stays in view ── */
+  :root #view-roles #rolePrivileges .rolesection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--gap-5); }
+  :root #view-roles #rolePrivileges .rolesection > h4 { grid-column: 1 / -1; }
+  :root #view-roles #rolePrivileges .rolegroup { padding-left: 0; padding-right: 0; min-width: 0; }
+  :root #view-roles #rolePrivileges .rolegrouphead { text-transform: uppercase; letter-spacing: .04em; font-size: 11.5px; color: var(--muted); }
+  :root #view-roles #roleSaveBar { position: sticky; bottom: 0; z-index: 3; }
+
+  /* ── Studio › Security: the four sections are sub-pages under one segmented control ── */
+  :root #view-signin > .pagehead { align-items: center; }
+  :root #view-signin > .pagehead > .secswitch { margin-left: 0; }
+  :root #view-signin > .pagehead > .secswitch button { padding: 6px 14px; font-size: var(--t-small); }
+  :root #view-signin > .pagehead > .secswitch button[hidden] { display: none; }
+}
+
+/* The sub-pages of Security, at every width: only the chosen section is drawn. */
+#view-signin[data-secpage="sf"] .secpage:not([data-secpage="sf"]),
+#view-signin[data-secpage="sa"] .secpage:not([data-secpage="sa"]),
+#view-signin[data-secpage="idp"] .secpage:not([data-secpage="idp"]),
+#view-signin[data-secpage="apps"] .secpage:not([data-secpage="apps"]) { display: none; }
+.secpage[hidden] { display: none; }
+#view-signin > .pagehead > .secswitch { flex-wrap: wrap; }
+#view-signin .secswitch button[hidden] { display: none; }
+/* The group's head verbs and tile, and the Logs filter toggle, are drawn only where their screen's mockup draws them. */
+.headverbs[hidden] { display: none; }
+#generalSaveBar { display: flex; }
+
+/* ── A phone (390 × 844): the bodies of the screens the phone mockups draw ── */
+@media (max-width: 720px) {
+  /* Logs: the filters are folded away behind a button; each entry is a block of When, What, Who · From and Resource. */
+  :root #view-logs #logFilters:not(.open) { display: none; }
+  :root #view-logs #logFiltersToggle { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--gap-4); }
+  :root #view-logs #logRefresh { min-height: 44px; min-width: 44px; }
+  :root #view-logs #logHeadLede { display: none; }
+  :root #view-logs #logLede { font-size: 12.5px; color: var(--muted); }
+  :root #view-logs .panel.widetable { border: 0; background: none; box-shadow: none; overflow: visible; }
+  :root #view-logs .panel.widetable table { min-width: 0; width: 100%; }
+  :root #view-logs table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  :root #view-logs table tbody { display: block; }
+  :root #view-logs tr.logrow {
+    display: grid; grid-template-columns: 96px max-content minmax(0, 1fr); align-items: baseline; row-gap: 4px; padding: var(--gap-3) var(--gap-4);
+    margin-bottom: var(--gap-2); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
+  }
+  :root #view-logs tr.logrow > td { display: block; padding: 0; border: 0; min-width: 0; }
+  :root #view-logs tr.logrow > td[data-l] { grid-column: 1 / -1; display: flex; gap: var(--gap-2); align-items: baseline; }
+  :root #view-logs tr.logrow > td[data-l]::before { content: attr(data-l); flex: 0 0 88px; color: var(--muted); font-size: 12.5px; }
+  :root #view-logs tr.logrow > td[data-l="Who · From"] { grid-column: 1 / 3; }
+  :root #view-logs tr.logrow > td[data-from] { grid-column: 3; }
+  :root #view-logs tr.logrow > td[data-from]::before { content: "\00b7"; margin: 0 6px 0 2px; color: var(--muted); }
+  :root #view-logs tr.logrow > td:empty { display: none; }
+  :root #view-logs tr.logrow code { overflow-wrap: anywhere; white-space: normal; }
+  :root #view-logs tr.logdetail:not([hidden]) { display: block; margin: calc(-1 * var(--gap-2)) 0 var(--gap-2); }
+  :root #view-logs tr.logdetail[hidden] { display: none; }
+  :root #view-logs tr.logdetail > td { display: block; }
+
+  /* Status: the verdict first, its counts two by two, and its failing and stopped services under them. */
+  :root #view-operations #statusVerdict > dl.verdictcounts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3); }
+  :root #view-operations #statusVerdict > dl.verdictcounts > * { background: none; border: 0; padding: 0; min-height: 0; box-shadow: none; }
+  :root #view-operations .opscard .hint { display: none; }
+  :root #view-operations .opscard .hint#datastoreOwnersHead, :root #view-operations .opscard .hint#datastoreNote { display: block; }
+  :root #view-operations #opsRefresh { min-height: 44px; }
+  :root #view-operations > .toolbar { background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #view-operations .pagehead p { display: none; }
+
+  /* System › General: one bar at the foot; it stays in view. */
+  :root #view-settings > #generalSaveBar { position: sticky; bottom: 0; z-index: 3; margin: var(--gap-4) calc(-1 * var(--gap-3)) 0; }
+  :root #view-settings #setSave, :root #view-settings #styleOriginsSave, :root #view-settings #groundSave,
+  :root #view-settings #groundDiscard, :root #view-settings #groundSaveBar { display: none; }
+  :root #generalSaveBar button { min-height: 44px; }
+
+  /* Search: the title, then the tabs with their counts. */
+  :root #view-search .pagehead p, :root #view-publish .pagehead p, :root #view-sources .pagehead p, :root #view-backups .pagehead p,
+  :root #view-machines .pagehead p, :root #view-utilities .pagehead p, :root #view-organizations .pagehead p,
+  :root #view-roles .pagehead p, :root #view-orgsettings .pagehead p { display: none; }
+  :root #searchTabs a .count, :root #groupTabs a .count {
+    display: inline-block; min-width: 1.6em; padding: 0 6px; border-radius: 10px; background: var(--surface-3); color: var(--ink);
+    font-size: 12px; font-weight: 600; text-align: center;
+  }
+
+  /* A group: its tile and title, then Add items and Add member side by side. */
+  :root #view-group #groupPagehead { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--gap-3); align-items: center; }
+  :root #view-group .gheadtile {
+    display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: var(--round-lg);
+    background: var(--accent-soft); color: var(--accent-ink); font-size: 20px; font-weight: 600;
+  }
+  :root #view-group .headverbs { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-2); margin-top: var(--gap-3); }
+  :root #view-group .headverbs[hidden] { display: none; }
+  :root #view-group .headverbs > * { min-height: 44px; display: flex; align-items: center; justify-content: center; text-align: center; }
+  :root #view-group #groupActions { grid-column: 1 / -1; }
+  :root #view-group #tab-overview .grouppair > div {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-3) var(--gap-4); margin-bottom: var(--gap-3);
+  }
+
+  /* A profile: who, then what is known of them, then the form. */
+  :root #view-user .profilecard { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap-3); background: none; border: 0; box-shadow: none; padding: 0; }
+  :root #view-user #profileBody { display: contents; }
+  :root #view-user .profilehead { grid-row: 1; }
+  :root #view-user .profilefacts { grid-row: 2; }
+  :root #view-user .profileform { grid-row: 3; }
+  :root #view-user #profileSecurity { grid-row: 4; }
+  :root #view-user .profilehead, :root #view-user .profilefacts, :root #view-user .profileform, :root #view-user #profileSecurity {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-4); margin: 0;
+  }
+
+  /* Security: its four sections are sub-pages, as on a wide window. */
+  :root #view-signin > .pagehead { display: block; }
+  :root #view-signin > .pagehead p, :root #view-settings .pagehead p { display: none; }
+  :root #view-signin > .pagehead > .secswitch { margin-top: var(--gap-3); display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
+  :root #view-signin > .pagehead > .secswitch button { min-height: 44px; padding: 0 14px; white-space: nowrap; }
+  :root #view-roles #roleSaveBar { position: sticky; bottom: 0; z-index: 3; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The last round of the redesign of 2026-11-02 — the ux-designer's verification of dev.</b> (1) Targets of 44 pixels on a
+   phone, everywhere, not screen by screen. (2) The service page's Layers card is one card again. (3) Server › Services as its
+   mockup draws it: a head of a title and one control, the folders as the left column and, on a phone, a sheet; a row of
+   picture, name, Type, Folder and Status, then Start or Stop; Group layers, Refresh and Empty services in one ⋯.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── (3) Services: the columns, the ⋯ and the head ── */
+#services td.col, #view-services th.col { white-space: nowrap; color: var(--muted); vertical-align: middle; }
+#view-services th.col { width: 1%; }
+#services td.col.status .pill { font-weight: 600; }
+#services td.acts { vertical-align: middle; }
+#services tr.svcrow td.tick { vertical-align: middle; padding-top: 14px; }
+#serviceMore > summary {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; box-sizing: border-box;
+  border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); font-size: 20px; color: var(--ink);
+}
+#serviceMore > summary:hover, #serviceMore[open] > summary { background: var(--surface-2); }
+#view-services .toolbar { align-items: center; }
+@media (min-width: 721px) {
+  /* Type, Folder and Status are columns, so the facts line under the name does not say them again. */
+  #services .svcmeta > .dup, #services .svctitle > .dup, #services .svcmeta > .dup + .sep { display: none; }
+}
+@media (max-width: 720px) {
+  #services tr.svcrow td.col, #view-services th.col { display: none; }
+  #view-services #serviceSummary { margin: 0 0 var(--gap-2); }
+  #view-services > #serverGrid #serverMain > .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+  #view-services .toolbar #serviceFilter { flex: 1 1 100%; width: auto; }
+  #view-services .toolbar #serviceTypePick, #view-services .toolbar #serviceStatusPick { flex: 1 1 0; min-width: 0; width: auto; }
+  #view-services .toolbar #serviceCount:empty { display: none; }
+  #view-services .toolbar > span[style] { display: none; }
+
+  /* The folders sheet: the left column, full screen, as My content's filter sheet is. */
+  :root #serverGrid > #servicesSide:not(.open) { display: none; }
+  :root #serverGrid > #servicesSide.open {
+    display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 1000; box-sizing: border-box; margin: 0;
+    padding: 0 16px; gap: 0; border: 0; border-radius: 0; overflow-y: auto; background: var(--surface); max-height: none;
+  }
+  #servicesSide .sidelist { margin: 8px 0; }
+  #servicesSide .sidelist a { display: flex; align-items: center; min-height: 44px; }
+  #servicesSide #folderRail { border: 0; box-shadow: none; margin: 0; border-radius: 0; }
+  #servicesSide .rail-head { padding-left: 0; padding-right: 0; }
+  :root #servicesSide #folders { display: flex; flex-direction: column; gap: 2px; overflow: visible; padding: 0; }
+  :root #servicesSide #folders .rail-item { display: flex; min-height: 48px; border: 0; border-radius: var(--round); padding: 0 8px; }
+  :root #servicesSide #folders .rail-item.on { background: var(--accent-soft); }
+  #servicesSide .rail-head .tiny { min-height: 44px; }
+  #view-services .pagehead { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 10px; }
+  #view-services .pagehead > div:first-child { flex: 1 1 auto; min-width: 0; }
+  #view-services .pagehead h1 { font-size: 22px; margin: 0; }
+  #view-services .pagehead .phonebtn { flex: none; }
+  #view-services .pagehead .right { flex: none; }
+  #servicesSide { order: 0; }
+  #view-services #serviceMore > summary { width: 44px; height: 44px; }
+}
+
+/* ── (2) The Layers card is one card: its head and its list in one column, the aside beside it ── */
+#serviceOverview > .itemmain { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+#serviceOverview.itemgrid { align-items: start; grid-template-rows: none; }
+#serviceOverview #serviceLayersHead { margin-bottom: -16px; }
+#serviceOverview #serviceLayersPanel { margin-top: 0; }
+@media (min-width: 721px) {
+  #serviceOverview > .itemmain { grid-column: 1; grid-row: 1; }
+  #serviceOverview > #serviceDetails { grid-column: 2; grid-row: 1; }
+}
+@media (max-width: 720px) {
+  #serviceOverview > .itemmain, #serviceOverview > #serviceDetails { grid-column: 1; grid-row: auto; }
+}
+
+/* ── (1) Phone: every control is 44 pixels tall; a checkbox's label is its target; a card's title link is the card ── */
+@media (max-width: 720px) {
+  /* `:is` takes its most specific member, so this beats the one-class rules (.rowbtn, .pillbtn, .tiny …) that set 30 or 40. */
+  :root :is(button, input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]):not([type=range]):not(.sr-only),
+    select, textarea, summary, .chip, [role=button]) { min-height: 44px; box-sizing: border-box; }
+  :root :is(.rowbtn, .pillbtn, button.rowname, .pubmenu, .ol-zoom-in, .ol-zoom-out) { min-height: 44px; min-width: 44px; }
+  :root #contentRows .svcmeta .pillbtn { min-height: 44px; }
+  :root label:has(> input[type=checkbox]), :root label:has(> input[type=radio]) { min-height: 44px; align-items: center; }
+  #bkScheduleCard label.check, #view-settings label.check { min-height: 44px; }
+  /*
+    A tick on its own is a 44-pixel box with a 22-pixel square drawn in it. A native checkbox ignores padding, so on a phone the
+    ones that have no label around them are drawn by the stylesheet, in the same colours; the ones inside a label stay native and
+    the label is their target.
+  */
+  #main input[type=checkbox]:not(label input) {
+    appearance: none; -webkit-appearance: none; position: relative; width: 44px; height: 44px; margin: 0; padding: 0; border: 0;
+    background: none; flex: none; cursor: pointer;
+  }
+  #main input[type=checkbox]:not(label input)::before {
+    content: ""; position: absolute; inset: 11px; box-sizing: border-box; border: 1.5px solid var(--control-edge);
+    border-radius: 4px; background: var(--surface);
+  }
+  #main input[type=checkbox]:not(label input):checked::before, input[type=checkbox]:not(label input):indeterminate::before {
+    background: var(--accent); border-color: var(--accent);
+  }
+  #main input[type=checkbox]:not(label input):checked::after {
+    content: ""; position: absolute; left: 18px; top: 14px; width: 6px; height: 12px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  #main input[type=checkbox]:not(label input):indeterminate::after {
+    content: ""; position: absolute; left: 15px; top: 21px; width: 14px; height: 2px; background: #fff;
+  }
+  #main input[type=checkbox]:not(label input):disabled { opacity: .45; cursor: default; }
+  #main input[type=checkbox]:not(label input):focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 8px; }
+  label > input[type=checkbox], label > input[type=radio] { margin: 0; }
+  :root :is(a.btn, a.title, a.name, a.rowlink, .svctitle > a, td.name > a, .whorow a, .itemactions a, .pager a, .svcmeta a, #serviceSummary a, #sources td.name a,
+    #sources td.acts a, #searchTabs a) { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; box-sizing: border-box; }
+  :root #sources td.acts > .tiny { min-height: 44px; }
+  #services .svcmeta a:has(.pill) { min-height: 44px; }
+  #sources td.name .pill[tabindex] { min-height: 44px; display: inline-flex; align-items: center; box-sizing: border-box; }
+
+  /* The title link is stretched over its card, with the tick and the ⋯ above it. */
+  #contentRows tr.mediarow, #services tr.svcrow, #view-groups #groupRows tr.pick, #members tr { position: relative; }
+  #contentRows tr.mediarow .svctitle > a::after, #services tr.svcrow .svctitle > a::after,
+  #view-groups #groupRows td.name a::after, #members td.name a::after { content: ""; position: absolute; inset: 0; }
+  #contentRows tr.mediarow td.tick, #contentRows tr.mediarow td.acts, #services tr.svcrow td.tick, #services tr.svcrow td.acts,
+  #view-groups #groupRows td.tick, #members td.tick { position: relative; z-index: 1; }
+  #members td.act { z-index: 1; }
+  #services tr.svcrow td.svcbody a:not(.name), #contentRows tr.mediarow td.name a:not(:first-child) { position: relative; z-index: 1; }
+
+  /* The drawer's surface switch lists the others, and the current one is not among them. */
+  #navDrawer #utilbar #surfaces a[aria-current] { display: none; }
+  #navDrawer .healthpill, #navDrawer #healthDot { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (min-width: 721px) {
+  #utilbar .usermenu .initial, :root header .usermenu .initial { width: 28px; height: 28px; font-size: 13px; }
+}
+
+/* ── (8) A web map's page: Item information on the right, as a feature layer's and a file's are ── */
+@media (min-width: 721px) {
+  :root #mapOverview.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--gap-4); align-items: start; }
+  :root #mapOverview > .mapmain { grid-column: 1; grid-row: 1; min-width: 0; order: 0; }
+  :root #mapOverview > #mapSide { grid-column: 2; grid-row: 1; min-width: 0; width: auto; order: 0; }
+}
+
+/* ── (9) Two buttons that read as labels read as links ── */
+button.tiny.ghost[data-describe], button.tiny.ghost[data-item-categorize] {
+  color: var(--link); text-decoration: underline; text-underline-offset: 2px; padding-inline: 0; justify-content: flex-start;
+}
+button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:hover { background: none; text-decoration-thickness: 2px; }
+
+/* ── (4) A service's head: the sharing pill is in the meta line; on a phone the title sits beside the picture and the address is one line ── */
+#view-service:has(#serverHero:not([hidden])) #serviceScope { display: none; }
+#serverHero #heroScope:empty { display: none; }
+:root #serverHero .urlrow code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; flex: 1 1 0; }
+@media (max-width: 720px) {
+  :root #serverHero.pagehead { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--gap-3); row-gap: var(--gap-2); align-items: start; padding: var(--gap-3); }
+  :root #serverHero .herothumb { grid-column: 1; grid-row: 1 / span 2; }
+  :root #serverHero .herothumb img.thumb, :root #serverHero .herothumb .thumb { width: 88px; height: 58px; }
+  :root #serverHero .herotext { display: contents; }
+  :root #serverHero .herotext h1 { grid-column: 2; grid-row: 1; align-self: end; margin: 0; font-size: 20px; }
+  :root #serverHero .herotext > p:not(.herofail) { grid-column: 2; grid-row: 2; align-self: start; margin: 0; }
+  :root #serverHero .herotext > .herofail { grid-column: 1 / -1; }
+  :root #serverHero .urlrow { grid-column: 1 / -1; flex-wrap: nowrap; max-width: none; }
+  :root #serverHero .urlrow .key { display: none; }
+  :root #serverHero .heroactions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+/* ── Logs on a phone: the explanation behind a disclosure and the log chosen from a select (PhoneServerLogs) ── */
+.aboutlogs, #logSourcePick { display: none; }
+@media (max-width: 720px) {
+  :root #view-logs #logLede { display: none; }
+  :root #view-logs #logAbout { display: block; margin: 0 0 var(--gap-2); }
+  :root #view-logs #logAbout > summary { display: flex; align-items: center; color: var(--link); font-size: 14px; cursor: pointer; }
+  :root #view-logs #logAbout > p { margin: var(--gap-2) 0 0; }
+  :root #view-logs #logSources { display: none; }
+  :root #view-logs #logSourcePick:not([hidden]) { display: block; width: 100%; margin: 0 0 var(--gap-2); }
+}
+
+/* ── Status on a phone: a failing or stopped service under its badge, the address broken at a word and not inside one ── */
+@media (max-width: 720px) {
+  :root .verdictissues li { flex-direction: column; align-items: flex-start; }
+  :root .verdictissues li p { flex: none; width: 100%; overflow-wrap: break-word; }
+}
+
+/* ── Content on a wide window: Type and Shared with are columns; New item heads the left column (DesktopContent) ── */
+#contentRows td.col, #contentTable th.col { white-space: nowrap; color: var(--muted); vertical-align: middle; width: 1%; padding-right: var(--gap-4); }
+#contentSide > #pageActionContent:not(:empty) { margin-bottom: var(--gap-3); }
+#contentSide > #pageActionContent > button { width: 100%; justify-content: center; }
+@media (min-width: 721px) {
+  #contentRows .svcmeta > .dup, #contentRows .svctitle > .dup, #contentRows .svcmeta > .dup + .sep { display: none; }
+}
+@media (max-width: 720px) {
+  #contentRows tr.mediarow td.col, #contentTable th.col { display: none; }
+}
+
+/* The 44-pixel title link makes a group's or a member's card taller; the card's padding gives the height back, so a row is still two lines. */
+@media (max-width: 720px) {
+  :root #view-groups #groupRows tr.pick, :root #members tr { padding-top: 0; padding-bottom: 6px; gap: 0 8px; }
+  #view-groups #groupRows td.name { display: flex; align-items: center; flex-wrap: wrap; column-gap: 6px; }
+}
+@media (max-width: 720px) {
+  #members td.name { flex: 1 1 calc(100% - 56px); }
+  :root #members td.tick { display: flex; align-items: center; }
+  #members td[data-l="User type"] { margin-left: 52px; }
 }
