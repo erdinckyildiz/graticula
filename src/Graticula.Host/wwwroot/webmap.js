@@ -464,11 +464,17 @@ function wmBaseMapJson(which) {
 let wmGallery = [];
 
 async function wmLoadGallery() {
-  const query = typeof SERVER_GALLERY_QUERY === "string" ? SERVER_GALLERY_QUERY : "";
   wmGallery = [];
-  if (!query) return wmGallery;
 
   try {
+    // <b>The gallery is named to a signed-in reader only</b> (ADR-184 §5.4, 2026-11-03), and `ground.js` reads the portal
+    // signed out on purpose, so this page asks for the query as itself; the signed-out answer is the fallback.
+    const self = await wmFetch("/sharing/rest/portals/self?f=json").catch(() => null);
+    const query = typeof self?.basemapGalleryGroupQuery === "string" && self.basemapGalleryGroupQuery
+      ? self.basemapGalleryGroupQuery
+      : typeof SERVER_GALLERY_QUERY === "string" ? SERVER_GALLERY_QUERY : "";
+    if (!query) return wmGallery;
+
     const groups = await wmFetch(`/sharing/rest/community/groups?q=${encodeURIComponent(query)}&num=1&f=json`);
     const group = groups && Array.isArray(groups.results) ? groups.results[0] : null;
     if (!group) return wmGallery;
