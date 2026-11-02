@@ -14,7 +14,8 @@ namespace Graticula.Host;
 /// the emptiness was the fault: our groups are real, a service can be shared with
 /// one, and <em>this portal has no groups</em> was therefore false. What was missing
 /// was never code but the decision this type carries — that ours <b>are</b> portal
-/// groups rather than something that resembles them, published read-only, with the
+/// groups rather than something that resembles them, published read-only (writes opened 2026-11-02 by ADR-256, through
+/// Studio's own acts — PortalEndpoints.GroupWrites), with the
 /// fields this server holds and none invented to fill a shape.
 /// [Q-127](../../docs/open-questions.md).
 /// </para>

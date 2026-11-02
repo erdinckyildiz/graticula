@@ -79,6 +79,11 @@ public static class Documents
     private static readonly DocumentKind Gif = new("gif", "image/gif", "Image", ".gif");
     private static readonly DocumentKind WebP = new("webp", "image/webp", "Image", ".webp");
 
+    // ADR-257: the data files a portal client adds as items before it publishes them, kept as documents as a CSV is.
+    private static readonly DocumentKind Shapefile = new("shapefile", "application/zip", "Shapefile", ".zip");
+    private static readonly DocumentKind FileGeodatabase = new("filegdb", "application/zip", "File Geodatabase", ".zip");
+    private static readonly DocumentKind GeoJson = new("geojson", "application/geo+json", "GeoJson", ".geojson");
+
     /// <summary>The largest picture a document keeps as its thumbnail: 1 MB, ArcGIS's limit on an item's.</summary>
     public const int MaximumThumbnailBytes = 1 << 20;
 
@@ -101,12 +106,18 @@ public static class Documents
     /// <summary>Every kind accepted, by its stored name.</summary>
     public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP];
 
+    /// <summary>
+    /// The data kinds kept only when the upload names its item type (ADR-257): a zipped shapefile, a zipped file
+    /// geodatabase and GeoJSON, which the portal's <c>addItem</c> declares and Studio's own picker does not offer.
+    /// </summary>
+    public static IReadOnlyList<DocumentKind> Data { get; } = [Shapefile, FileGeodatabase, GeoJson];
+
     /// <summary>The kind stored under a name, or null for a name this build does not know.</summary>
     /// <param name="name">The stored name.</param>
     /// <returns>The kind.</returns>
     public static DocumentKind? Named(string? name)
     {
-        foreach (DocumentKind kind in Accepted)
+        foreach (DocumentKind kind in Accepted.Concat(Data))
         {
             if (string.Equals(kind.Name, name, StringComparison.Ordinal))
             {
@@ -131,17 +142,54 @@ public static class Documents
     /// UTF-8 with no NUL and does not open like markup — a file beginning <c>&lt;</c> is HTML, SVG or XML whatever its
     /// name says, and every one of those is something a browser may run (ADR-188 §5.3).
     /// </para>
+    /// <para>
+    /// <b>A declared type is believed only where the bytes agree (ADR-257).</b> A <c>.zip</c> is a shapefile or a file
+    /// geodatabase only when it was added as one, and what is inside it is the caller's to check, since this sees only
+    /// the head. GeoJSON is plain text opening with <c>{</c>, named <c>.geojson</c>, or <c>.json</c> when added as
+    /// GeoJson. Without a declared type a <c>.zip</c> is refused as it always was.
+    /// </para>
     /// </remarks>
     /// <param name="fileName">The name it was uploaded under.</param>
     /// <param name="head">Its first bytes — at least the first 512, or all of a shorter file.</param>
     /// <param name="refusal">Why not, in a sentence for the person who uploaded it.</param>
+    /// <param name="declaredType">The ArcGIS item type the upload names (<c>Shapefile</c>, <c>File Geodatabase</c>,
+    /// <c>GeoJson</c> and so on), or null.</param>
     /// <returns>The kind, or null.</returns>
-    public static DocumentKind? Recognise(string fileName, ReadOnlySpan<byte> head, out string? refusal)
+    public static DocumentKind? Recognise(string fileName, ReadOnlySpan<byte> head, out string? refusal, string? declaredType = null)
     {
         ArgumentNullException.ThrowIfNull(fileName);
 
         refusal = null;
         string extension = Path.GetExtension(fileName).ToLowerInvariant();
+        string declared = (declaredType ?? string.Empty).Trim();
+
+        if (head.StartsWith(ZipSignature) && extension == ".zip")
+        {
+            if (declared.Equals(Shapefile.ArcGisType, StringComparison.OrdinalIgnoreCase))
+            {
+                return Shapefile;
+            }
+
+            if (declared.Equals(FileGeodatabase.ArcGisType, StringComparison.OrdinalIgnoreCase))
+            {
+                return FileGeodatabase;
+            }
+
+            refusal = "A '.zip' is kept only as a Shapefile or a File Geodatabase item; add it with that type. "
+                + "Nothing was kept.";
+            return null;
+        }
+
+        if (extension == ".geojson" || (extension == ".json" && declared.Equals(GeoJson.ArcGisType, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!LooksLikePlainText(head) || FirstNonSpace(head) != (byte)'{')
+            {
+                refusal = $"'{fileName}' is named as GeoJSON but is not a JSON object in plain UTF-8 text.";
+                return null;
+            }
+
+            return GeoJson;
+        }
 
         DocumentKind? bySignature =
             head.StartsWith("%PDF-"u8) ? Pdf
@@ -234,6 +282,22 @@ public static class Documents
 
     private static bool Matches(DocumentKind kind, string extension) =>
         extension == kind.Extension || (kind == Jpeg && extension == ".jpeg");
+
+    /// <summary>The first byte of <paramref name="head"/> past a byte-order mark and white space, or 0.</summary>
+    private static byte FirstNonSpace(ReadOnlySpan<byte> head)
+    {
+        ReadOnlySpan<byte> body = head.StartsWith(ByteOrderMark) ? head[3..] : head;
+
+        foreach (byte b in body)
+        {
+            if (b is not ((byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n'))
+            {
+                return b;
+            }
+        }
+
+        return 0;
+    }
 
     private static bool LooksLikePlainText(ReadOnlySpan<byte> head)
     {

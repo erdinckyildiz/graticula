@@ -763,6 +763,10 @@ internal static partial class AdminEndpoints
         // that route's *owner or manager* guard had an exception, and an authorisation check
         // with an exception is the one that gets read wrong.
         app.MapDelete("/admin/groups/{name}/membership", LeaveGroupAsync);
+
+        // <b>Joining, the other half — ADR-256.</b> A group whose join policy is *they add themselves* had no act by
+        // which anybody could; the portal's community/groups/{id}/join and this route are the same act.
+        app.MapPut("/admin/groups/{name}/membership", JoinGroupAsync);
         app.MapPut("/admin/groups/{name}/items/{service}", ShareWithGroupAsync);
         app.MapDelete("/admin/groups/{name}/items/{service}", UnshareFromGroupAsync);
 
@@ -6434,48 +6438,23 @@ internal static partial class AdminEndpoints
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (!await Authorize.RequireAsync(context, Privilege.GroupsCreate).ConfigureAwait(false))
+        // The act is shared with the portal's createGroup (ADR-256), so the privilege, the store and the audit are one.
+        (GroupAct act, Guid id) = await CreateGroupActAsync(
+            context, groups, audit, request.Name, request.Title, request.Description, request.ItemUpdate, "admin", cancellation)
+            .ConfigureAwait(false);
+
+        if (!act.Done)
         {
+            await RefuseAsync(context, act).ConfigureAwait(false);
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-        {
-            await Refuse(context, 400, "'name' is required.").ConfigureAwait(false);
-            return;
-        }
-
-        if (!TryReadItemUpdate(request.ItemUpdate, out GroupItemUpdate itemUpdate, out string? bad))
-        {
-            await Refuse(context, 400, bad!).ConfigureAwait(false);
-            return;
-        }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        (GroupChange outcome, Guid id) = await groups.CreateAsync(
-            current.Principal.Id,
-            request.Name.Trim(),
-            request.Title?.Trim(),
-            request.Description?.Trim(),
-            itemUpdate,
-            cancellation).ConfigureAwait(false);
-
-        if (outcome != GroupChange.Done)
-        {
-            await RefuseGroupChangeAsync(context, request.Name, outcome, null).ConfigureAwait(false);
-            return;
-        }
-
-        await AuditAsync(
-            context, audit, "group.create", request.Name,
-            Detail(new { itemUpdate = Wire(itemUpdate) }),
-            succeeded: true, cancellation).ConfigureAwait(false);
+        TryReadItemUpdate(request.ItemUpdate, out GroupItemUpdate itemUpdate, out _);
 
         await Results.Json(new
         {
             id,
-            name = request.Name.Trim(),
+            name = request.Name!.Trim(),
             itemUpdate = Wire(itemUpdate),
             note = "You own it and manage it. Nothing is shared with it yet, and a service reaches "
                 + "its members only once its own sharing scope is 'group'.",
@@ -6490,29 +6469,13 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        GroupAct act = await DeleteGroupActAsync(context, groups, audit, name, "admin", cancellation).ConfigureAwait(false);
 
-        if (current.Principal.IsAnonymous)
+        if (!act.Done)
         {
-            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            await RefuseAsync(context, act).ConfigureAwait(false);
             return;
         }
-
-        GroupChange outcome = await groups.RemoveAsync(
-            current.Principal.Id,
-            current.Authorization.Allows(Privilege.AdminManageAllContent),
-            name,
-            cancellation).ConfigureAwait(false);
-
-        if (outcome != GroupChange.Done)
-        {
-            await RefuseGroupChangeAsync(context, name, outcome, null).ConfigureAwait(false);
-            return;
-        }
-
-        await AuditAsync(
-            context, audit, "group.delete", name, Detail(new { removed = name }),
-            succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
@@ -6540,69 +6503,19 @@ internal static partial class AdminEndpoints
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        GroupAct act = await SetGroupSettingsActAsync(context, groups, audit, name, request, "admin", cancellation)
+            .ConfigureAwait(false);
 
-        if (current.Principal.IsAnonymous)
+        if (!act.Done)
         {
-            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            await RefuseAsync(context, act).ConfigureAwait(false);
             return;
         }
 
-        if (!TryReadVisibility(request.Visibility, out GroupVisibility visibility, out string? bad)
-            || !TryReadJoinPolicy(request.JoinPolicy, out GroupJoinPolicy join, out bad)
-            || !TryReadContribute(request.Contribute, out GroupContribute contribute, out bad)
-            || !TryReadMemberList(request.MemberList, out GroupMemberList memberList, out bad))
-        {
-            await Refuse(context, 400, bad!).ConfigureAwait(false);
-            return;
-        }
-
-        // ADR-199: making a group findable by anybody is sharing to the public, and takes the privilege an item's public
-        // sharing takes, as ArcGIS's does.
-        if (visibility == GroupVisibility.Public
-            && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic).ConfigureAwait(false))
-        {
-            return;
-        }
-
-        GroupChange outcome = await groups.SetSettingsAsync(
-            current.Principal.Id,
-            current.Authorization.Allows(Privilege.AdminManageAllContent),
-            name,
-            request.Title?.Trim(),
-            request.Summary?.Trim(),
-            request.Description?.Trim(),
-            visibility,
-            join,
-            contribute,
-            request.DeleteLocked,
-            memberList,
-            request.MembersMayLeave,
-            cancellation).ConfigureAwait(false);
-
-        if (outcome != GroupChange.Done)
-        {
-            // <b>One unbuilt setting left, so the refusal has one thing to name.</b> There were
-            // two until 2026-08-25, when `public` stopped being a visibility this product offers
-            // (owner decision, Q-119) rather than one it stored and refused.
-            string? offender = request.JoinPolicy;
-
-            await RefuseGroupChangeAsync(context, name, outcome, offender).ConfigureAwait(false);
-            return;
-        }
-
-        await AuditAsync(
-            context, audit, "group.settings", name,
-            Detail(new
-            {
-                visibility = request.Visibility,
-                joinPolicy = request.JoinPolicy,
-                contribute = request.Contribute,
-                deleteLocked = request.DeleteLocked,
-                memberList = Wire(memberList),
-                membersMayLeave = request.MembersMayLeave,
-            }),
-            succeeded: true, cancellation).ConfigureAwait(false);
+        // Read again for the answer; the act has already refused anything these could not read.
+        TryReadVisibility(request.Visibility, out GroupVisibility visibility, out _);
+        TryReadJoinPolicy(request.JoinPolicy, out GroupJoinPolicy join, out _);
+        TryReadContribute(request.Contribute, out GroupContribute contribute, out _);
 
         await Results.Json(new
         {
@@ -6749,61 +6662,45 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        GroupAct act = await LeaveGroupActAsync(context, groups, audit, name, "admin", cancellation).ConfigureAwait(false);
 
-        if (current.Principal.IsAnonymous)
+        if (!act.Done)
         {
-            await Refuse(context, 401, "Sign in.").ConfigureAwait(false);
+            await RefuseAsync(context, act).ConfigureAwait(false);
             return;
         }
 
-        GroupChange outcome = await groups
-            .LeaveAsync(current.Principal.Id, name, cancellation)
-            .ConfigureAwait(false);
-
-        await AuditAsync(
-            context, audit, "group.leave", name, Detail(new { left = true }),
-            succeeded: outcome == GroupChange.Done, cancellation).ConfigureAwait(false);
-
-        switch (outcome)
+        await Results.Json(new
         {
-            case GroupChange.Done:
-                await Results.Json(new
-                {
-                    group = name,
-                    left = true,
-                    note = "You are no longer a member. What was shared with this group is no "
-                         + "longer readable through it.",
-                }).ExecuteAsync(context).ConfigureAwait(false);
-                return;
+            group = name,
+            left = true,
+            note = "You are no longer a member. What was shared with this group is no "
+                 + "longer readable through it.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
 
-            // <b>A group forbidding this is its own refusal, and it names the way out.</b>
-            case GroupChange.Locked:
-                await Refuse(
-                    context, 409,
-                    $"'{name}' is an administrative group: its members cannot leave it. Its "
-                    + "owner or a manager can remove you, or turn the setting off.")
-                    .ConfigureAwait(false);
-                return;
+    /// <summary>The caller joins a group that lets people add themselves — ADR-256.</summary>
+    private static async Task JoinGroupAsync(
+        HttpContext context,
+        string name,
+        IGroupDirectory groups,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        GroupAct act = await JoinGroupActAsync(context, groups, audit, name, "admin", cancellation).ConfigureAwait(false);
 
-            // <b>The owner is refused differently, because their way out is different.</b>
-            case GroupChange.OwnerOnly:
-                await Refuse(
-                    context, 409,
-                    $"You own '{name}', so leaving would be walking out of a group nobody can "
-                    + "administer. Transfer it or delete it.")
-                    .ConfigureAwait(false);
-                return;
-
-            // <b>Absent covers *no such group* and *you were not in it*, and must.</b> Two
-            // different answers would let somebody enumerate groups they are outside.
-            default:
-                await Refuse(
-                    context, 404,
-                    $"You are not a member of '{name}'.")
-                    .ConfigureAwait(false);
-                return;
+        if (!act.Done)
+        {
+            await RefuseAsync(context, act).ConfigureAwait(false);
+            return;
         }
+
+        await Results.Json(new
+        {
+            group = name,
+            joined = true,
+            note = "You are a member. What is shared with this group is readable through it.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Adds a member, or makes one a manager.</summary>
@@ -6818,32 +6715,14 @@ internal static partial class AdminEndpoints
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (!await Authorize.RequireAsync(context, Privilege.GroupsManageMembers)
-            .ConfigureAwait(false))
+        GroupAct act = await SetGroupMemberActAsync(context, groups, audit, name, member, request.Manager, "admin", cancellation)
+            .ConfigureAwait(false);
+
+        if (!act.Done)
         {
+            await RefuseAsync(context, act).ConfigureAwait(false);
             return;
         }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        GroupChange outcome = await groups.SetMemberAsync(
-            current.Principal.Id,
-            current.Authorization.Allows(Privilege.AdminManageAllContent),
-            name,
-            member,
-            request.Manager,
-            cancellation).ConfigureAwait(false);
-
-        if (outcome != GroupChange.Done)
-        {
-            await RefuseGroupChangeAsync(context, name, outcome, member).ConfigureAwait(false);
-            return;
-        }
-
-        await AuditAsync(
-            context, audit, "group.member", name,
-            Detail(new { member, manager = request.Manager }),
-            succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
@@ -6862,30 +6741,14 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.GroupsManageMembers)
-            .ConfigureAwait(false))
+        GroupAct act = await RemoveGroupMemberActAsync(context, groups, audit, name, member, "admin", cancellation)
+            .ConfigureAwait(false);
+
+        if (!act.Done)
         {
+            await RefuseAsync(context, act).ConfigureAwait(false);
             return;
         }
-
-        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-
-        GroupChange outcome = await groups.RemoveMemberAsync(
-            current.Principal.Id,
-            current.Authorization.Allows(Privilege.AdminManageAllContent),
-            name,
-            member,
-            cancellation).ConfigureAwait(false);
-
-        if (outcome != GroupChange.Done)
-        {
-            await RefuseGroupChangeAsync(context, name, outcome, member).ConfigureAwait(false);
-            return;
-        }
-
-        await AuditAsync(
-            context, audit, "group.member.remove", name, Detail(new { member }),
-            succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new { group = name, member, removed = true })
             .ExecuteAsync(context).ConfigureAwait(false);
@@ -7018,31 +6881,40 @@ internal static partial class AdminEndpoints
 
     /// <summary>One refusal per outcome.</summary>
     private static Task RefuseGroupChangeAsync(
-        HttpContext context, string name, GroupChange outcome, string? target) => outcome switch
+        HttpContext context, string name, GroupChange outcome, string? target)
     {
-        GroupChange.Absent => Refuse(context, 404, $"No group '{name}'."),
+        (int status, string message) = GroupChangeRefusal(name, outcome, target);
 
-        GroupChange.Exists => Refuse(context, 409,
+        return Refuse(context, status, message);
+    }
+
+    /// <summary>One refusal per outcome, as a status and a sentence — Studio's and, since ADR-256, the portal's.</summary>
+    internal static (int Status, string Message) GroupChangeRefusal(
+        string name, GroupChange outcome, string? target) => outcome switch
+    {
+        GroupChange.Absent => (404, $"No group '{name}'."),
+
+        GroupChange.Exists => (409,
             $"A group called '{name}' already exists. Names are compared without regard to case."),
 
-        GroupChange.NotYours => Refuse(context, 403,
+        GroupChange.NotYours => (403,
             $"You neither own nor manage '{name}'. The privilege to manage a group's members is not "
             + "the privilege to manage every group's members (ADR-036 §3) — ask its owner to make "
             + "you a manager."),
 
-        GroupChange.OwnerOnly => Refuse(context, 403,
+        GroupChange.OwnerOnly => (403,
             $"Only the owner of '{name}' may do that. A manager may add members and share items; "
             + "deleting and transferring stay with the owner, which is the difference between "
             + "delegating work and delegating control."),
 
-        GroupChange.ItemNotYours => Refuse(context, 403,
+        GroupChange.ItemNotYours => (403,
             $"'{target}' is not yours, so it was not shared into '{name}'. A service goes into a group "
             + "because its owner or an administrator put it there — running the group is not owning "
             + "what is in it (ADR-075)."),
-        GroupChange.NoSuchTarget => Refuse(context, 404,
+        GroupChange.NoSuchTarget => (404,
             $"'{target}' is not something this server has, or is disabled."),
 
-        GroupChange.Locked => Refuse(context, 409,
+        GroupChange.Locked => (409,
             $"'{name}' is locked against deletion. Turn that off on its Settings tab first — the lock "
             + "exists because a confirmation is dismissed by habit, and it binds an administrator too: "
             + "a protection the most privileged caller passes through is a protection against typing "
@@ -7051,7 +6923,7 @@ internal static partial class AdminEndpoints
         // <b>Two settings share this outcome and the message says which.</b> A refusal naming the
         // wrong one of them is worse than a generic refusal: it sends the operator to change a control
         // that was not the problem.
-        GroupChange.NotBuilt => Refuse(context, 400, target == "public"
+        GroupChange.NotBuilt => (400, target == "public"
             ? "'public' is a group visibility this server stores and does not honour yet. It would "
               + "mean 'discoverable by anybody, including an anonymous caller', and there is nowhere "
               + "for that to happen: the group listing requires a signed-in caller, so 'public' and "
@@ -7065,12 +6937,15 @@ internal static partial class AdminEndpoints
               + "it a policy reported and unenforced, which this project has already had to correct "
               + "once (D-67). Use 'invitation' or 'self'."),
 
-        GroupChange.Immutable => Refuse(context, 409,
+        GroupChange.Immutable => (409,
             $"What '{name}' confers on its items was fixed when it was created and cannot be "
             + "changed. Widening it would make every item already shared with the group editable by "
             + "every member, retroactively (ADR-036 §4c). Make a new group and move the shares."),
 
-        _ => Refuse(context, 500, "Unhandled group outcome."),
+        GroupChange.InvitationOnly => (403,
+            $"'{name}' takes members by invitation only. Ask its owner or a manager to add you."),
+
+        _ => (500, "Unhandled group outcome."),
     };
 
     private static string Wire(GroupMemberList list) =>

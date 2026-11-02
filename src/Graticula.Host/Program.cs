@@ -189,6 +189,7 @@ public static class Program
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
         HostSettings settings;
+        Graticula.Host.Geocoding.GeocoderSettings? geocoding;
 
         // <b>The refusal is written carefully and then thrown away — [D-171](../../docs/architecture-debt.md).</b>
         // `HostSettings.Read` says exactly what is missing, where to set it, and that the
@@ -208,6 +209,9 @@ public static class Program
         try
         {
             settings = HostSettings.Read(builder.Configuration);
+
+            // ADR-258: a GeocodeServer over a Photon the operator runs, only when one is configured.
+            geocoding = Graticula.Host.Geocoding.GeocoderSettings.Read(builder.Configuration);
         }
         catch (InvalidOperationException misconfigured)
         {
@@ -229,6 +233,15 @@ public static class Program
         // register.
         builder.Services.AddSingleton(settings);
         builder.Services.AddSingleton(BackupsFor(builder.Configuration, settings));
+
+        // <b>ADR-258: registered only when configured</b>, so a deployment without a geocoder resolves no settings,
+        // maps no route and lists no service — absent, not broken.
+        if (geocoding is not null)
+        {
+            builder.Services.AddSingleton(geocoding);
+            builder.Services.AddSingleton<Graticula.Geocoding.IGeocoder>(
+                new Graticula.Host.Geocoding.PhotonGeocoder(geocoding));
+        }
         builder.Services.AddHostedService<BackupScheduler>();
 
         // ADR-013 condition 2, owner decision 2026-10-13: small attachments are read whole and their connection given
@@ -1403,6 +1416,10 @@ public static class Program
         app.UseWhen(
             context => string.Equals(context.Request.Query["f"], "pjson", StringComparison.OrdinalIgnoreCase),
             branch => branch.Use(PrettyJson.IndentAsync));
+
+        // A portal answer travels with its length, as the ArcGIS API for Python needs to read an error as one —
+        // PortalContentLength's remarks. Inside JSONP and pjson, which both set the length of what they rewrite.
+        app.UseWhen(context => PortalContentLength.Applies(context.Request), branch => branch.Use(PortalContentLength.SendAsync));
 
         /*
           <b>Who is calling, resolved once, [D-12](../../docs/architecture-debt.md).</b> The
@@ -2946,6 +2963,8 @@ public static class Program
         AttachmentEndpoints.Map(app);
         RelationshipEndpoints.Map(app);
         GeometryServerEndpoints.Map(app);
+        Graticula.Host.Geocoding.GeocodeServerEndpoints.Map(
+            app, app.Services.GetService<Graticula.Host.Geocoding.GeocoderSettings>());  // ADR-258: absent unless configured
         HostedDataEndpoints.Map(app);
         OAuthEndpoints.Map(app);
         ArcGisAdminEndpoints.Map(app);
@@ -3240,7 +3259,8 @@ public static class Program
         ICoverageCatalog coverages,
         RequestPrincipal current,
         bool seesStopped,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        Graticula.Host.Geocoding.GeocoderSettings? geocoding = null)
     {
         Dictionary<string, HashSet<string>> named = new(StringComparer.OrdinalIgnoreCase);
 
@@ -3279,6 +3299,13 @@ public static class Program
             {
                 Add(service.Folder, service.Name);
             }
+        }
+
+        // ADR-258: the geocode service, counted by the rule the folder page lists it by.
+        if (Graticula.Host.Geocoding.GeocodeServerEndpoints.DirectoryLists(
+                geocoding, Graticula.Host.Geocoding.GeocoderSettings.Folder, current))
+        {
+            Add(Graticula.Host.Geocoding.GeocoderSettings.Folder, Graticula.Host.Geocoding.GeocoderSettings.Name);
         }
 
         foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
@@ -3446,6 +3473,14 @@ public static class Program
                     Type: s.Kind)),
         ];
 
+        // <b>The geocode service, ADR-258</b> — from configuration rather than the store, so it is listed while
+        // blind too: nothing has to be read to know it is there.
+        if (Graticula.Host.Geocoding.GeocodeServerEndpoints.DirectoryLists(
+                context.RequestServices.GetService<Graticula.Host.Geocoding.GeocoderSettings>(), folder, current))
+        {
+            systemServices.Add(($"{folder}/{Graticula.Host.Geocoding.GeocoderSettings.Name}", "GeocodeServer"));
+        }
+
         // <b>Which services have tile services is `ServiceFaces.Tileable`, below</b> —
         // hosted, registered PostGIS and DuckDB-read layers since ADR-095 (Q-67 said
         // hosted only). The spatial reference does not decide: a layer keeps the
@@ -3549,7 +3584,8 @@ public static class Program
             // missing them would be a wrong number rather than an absent one.
             IReadOnlyDictionary<string, int>? counts = folder is null && !blind
                 ? await FolderCountsAsync(
-                        services, system, coverages, current, seesStopped, cancellation)
+                        services, system, coverages, current, seesStopped, cancellation,
+                        context.RequestServices.GetService<Graticula.Host.Geocoding.GeocoderSettings>())
                     .ConfigureAwait(false)
                 : null;
 

@@ -258,7 +258,7 @@ geocoding.**
   pointing at a list, and they are out. The observation store and the 3D/terrain
   pipeline — the two engines `protocol-surface.md` said *"do not exist in any
   form"* — are not built.
-- **Q-84 defers** with the geocoder, including the reference-data question.
+- **Q-84 defers** with the geocoder, including the reference-data question. **Amended 2026-11-02 — owner decision on [Q-226](open-questions.md), [ADR-258](adr/ADR-258-an-optional-photon-adapter-behind-geocodeserver.md):** *geocoding* stays on the list above as an engine of ours — Q-84's locator over a customer's address data is still deferred — **and an optional GeocodeServer over a Photon the operator runs is in.** It is off unless `Graticula:Geocoding:PhotonUrl` is set, and then it answers `findAddressCandidates`, `suggest` and `reverseGeocode` at `Utilities/Geocode/GeocodeServer` from OpenStreetMap data. The baseline deployment — `graticula → PostgreSQL/PostGIS` — does not change: a server without the key has no route and no directory entry for it. *Added rather than rewritten, so the deferral and the change stay visible.*
 - **Offline sync is out — [ADR-082](adr/ADR-082-offline-sync-is-not-in-v1.md), owner decision
   2026-09-23.** `createReplica`, `synchronizeReplica`, `unRegisterReplica` and `extractChanges`
   are not served, and every layer says `supportsDisconnectedEditing: false`. **Offline tiles are in since

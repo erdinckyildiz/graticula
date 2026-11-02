@@ -1562,6 +1562,9 @@ def a_serving_assembly_that_reaches_for_the_network():
         # ADR-012 phase 0 item 4: one request a node sends itself, at its own loopback address and port, before it
         # says it is ready -- the warm-up of its first request. It leaves no machine, so an air gap does not see it.
         "src/Graticula.Host/SiteNode.cs",
+        # ADR-258: the GeocodeServer asks the Photon geocoder an operator configured (Graticula:Geocoding:PhotonUrl),
+        # and only then; unset, no client is built and no route exists. An air-gapped deployment points it at its own.
+        "src/Graticula.Host/Geocoding/PhotonGeocoder.cs",
     }
 
     # **Target-typed `new(` too** -- found 2026-09-24 writing that file: `HttpClient Http = new(...)` is the

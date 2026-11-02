@@ -1143,10 +1143,11 @@ public static class FeatureServerMetadataWriter
             // for Python reads these before it sends anything, and `FeatureLayer.append` stopped in the
             // client with *Append is not supported on this layer* while `uploads/upload` and `append` both
             // worked. A hosted layer is the one the route accepts (`HostedLayerAtAsync`), and these are the
-            // two formats it reads; a registered table is appended to by nobody.
+            // two formats it reads; a registered table is appended to by nobody. A CSV and a workbook since ADR-257,
+            // which the same reader takes (ArcGisAppendEndpoints.Formats).
             cacheMaxAge = cacheMaxAge ?? 0,
             supportsAppend = layer.IsHosted,
-            supportedAppendFormats = layer.IsHosted ? "geojson,shapefile" : string.Empty,
+            supportedAppendFormats = layer.IsHosted ? "geojson,shapefile,csv,excel" : string.Empty,
 
             // <b>What the query answers, which was nine relations while this said one.</b> A client
             // that reads the list offers only what is in it, so the Maps SDK's spatial filter
