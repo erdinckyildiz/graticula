@@ -53,10 +53,10 @@ internal static class ServiceItem
     /// whether the data changed.
     /// </para>
     /// <para>
-    /// <b>Hosted layers only, and only from what this server recorded</b> (migration 133): every edit face, append,
+    /// <b>Hosted layers only, and only from what this server recorded</b> (migration 127): every edit face, append,
     /// overwrite, truncate, restore, analysis replacement and field change stamps it. A registered layer's table is also
     /// written in its own database by whoever owns it, which this server never sees — a date there would tell
-    /// <c>refresh()</c> nothing changed when something had, so none is said. A hosted layer from before migration 133
+    /// <c>refresh()</c> nothing changed when something had, so none is said. A hosted layer from before migration 127
     /// that has not changed since has no date either, rather than an invented one.
     /// </para>
     /// </remarks>

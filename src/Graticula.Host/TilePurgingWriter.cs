@@ -83,7 +83,7 @@ internal sealed class TilePurgingWriter(
             return;
         }
 
-        // When the rows last changed, for the layer's editingInfo (migration 133) — the layer and its views.
+        // When the rows last changed, for the layer's editingInfo (migration 127) — the layer and its views.
         if (changed is not null)
         {
             await changed(layerIds, cancellationToken).ConfigureAwait(false);

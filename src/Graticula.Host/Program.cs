@@ -1112,7 +1112,7 @@ public static class Program
                 (await services.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
                     .FirstOrDefault(service => service.Id == id)?.TileScheme;
 
-            // Migration 133: an edit records when the layer's rows last changed, for its editingInfo.
+            // Migration 127: an edit records when the layer's rows last changed, for its editingInfo.
             IAdminCatalog changes = app.Services.GetRequiredService<IAdminCatalog>();
             app.Services.GetRequiredService<LayerConnections>().DataChanged = (ids, cancellation) =>
                 changes.MarkLayersChangedAsync(ids, data: true, schema: false, cancellation);

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(133);
+    public static SchemaVersion ComponentSchemaVersion => new(127);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -154,7 +154,7 @@ public static class PlatformMigrations
         TheServerLogIsTheSitesV120,
         ADocumentKeepsAPictureV121,
         ANodeSaysWhichSchemaItReadsV125,
-        ALayerKnowsWhenItLastChangedV133,
+        ALayerKnowsWhenItLastChangedV127,
     ]);
 
     /// <summary>
@@ -173,8 +173,8 @@ public static class PlatformMigrations
     /// </para>
     /// <para><b>Expand.</b> Two nullable columns; a build before this one never reads them.</para>
     /// </remarks>
-    private static Migration ALayerKnowsWhenItLastChangedV133 => Migration.Expand(
-        new SchemaVersion(133),
+    private static Migration ALayerKnowsWhenItLastChangedV127 => Migration.Expand(
+        new SchemaVersion(127),
         "A layer knows when its data and its schema last changed through this server (editingInfo).",
 
         "alter table layer add column if not exists data_changed_at timestamptz",

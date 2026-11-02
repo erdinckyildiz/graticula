@@ -459,7 +459,7 @@ neither it nor the layer's `serviceItemId` anywhere in the server; the service d
 
 **The time is recorded, not derived.** Nothing in the server knew when a layer last changed: the query face's validator
 (`PostGisFeatureSource.CacheValidatorAsync`, D-266) is a fingerprint of `pg_stat_user_tables` counters, which says
-*whether* a table changed and never *when*, and ADR-240's last edit time is grapy's. So migration 133 adds
+*whether* a table changed and never *when*, and ADR-240's last edit time is grapy's. So migration 127 adds
 `layer.data_changed_at` and `layer.schema_changed_at`, and they are written where this server changes a layer:
 
 - **rows** — every edit through the one writer both editing faces get (`LayerConnections.WriterFor`'s

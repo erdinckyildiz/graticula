@@ -116,7 +116,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     public Func<Guid, CancellationToken, Task<Graticula.Tiles.VectorTileScheme?>>? SchemeOfService { get; set; }
 
     /// <summary>
-    /// Records that these layers' rows changed now, for their documents' <c>editingInfo</c> (migration 133) — set at
+    /// Records that these layers' rows changed now, for their documents' <c>editingInfo</c> (migration 127) — set at
     /// start, as <see cref="SchemeOfService"/> is; null records nothing.
     /// </summary>
     public Func<Guid[], CancellationToken, Task>? DataChanged { get; set; }

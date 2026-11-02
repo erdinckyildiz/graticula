@@ -350,7 +350,7 @@ internal sealed partial class AnalysisRunner : BackgroundService
         _tiles.Purge(layer.Id);
         await _catalog.TouchServiceAsync(service.Id, cancellation).ConfigureAwait(false);
 
-        // Its rows and its fields are the analysis's now (migration 133).
+        // Its rows and its fields are the analysis's now (migration 127).
         await _catalog.MarkLayersChangedAsync([layer.Id, .. layer.ViewLayers], data: true, schema: true, cancellation)
             .ConfigureAwait(false);
 

@@ -3157,7 +3157,7 @@ internal static class HostedDataEndpoints
     {
         contexts.Forget(layer);
 
-        // What the layer's editingInfo says (migration 133): its rows, its fields or both changed now, here and under
+        // What the layer's editingInfo says (migration 127): its rows, its fields or both changed now, here and under
         // its views.
         await catalog.MarkLayersChangedAsync([layer.Id, .. layer.ViewLayers], data, schema, cancellation).ConfigureAwait(false);
         tiles.Purge(layer.Id);

@@ -435,7 +435,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // A restore changes what the layer draws, like any edit does (ADR-069), and when its rows last changed (migration 133).
+        // A restore changes what the layer draws, like any edit does (ADR-069), and when its rows last changed (migration 127).
         tiles.Purge(layer.Id);
 
         if (connections.DataChanged is { } changed)
