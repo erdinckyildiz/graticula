@@ -41,6 +41,9 @@ internal static class SharingGovernedExtensions
     /// <summary>A system_service row, via the geometry group's filter.</summary>
     public const string BySystemService = "the system service's sharing scope";
 
+    /// <summary>A service with no catalogue row, whose sharing is the scope its configuration names — the geocode service, ADR-258.</summary>
+    public const string ByConfiguration = "the sharing scope its configuration names";
+
     /// <summary>The catalogue, which filters rather than refuses.</summary>
     public const string ByFiltering = "listed only what the caller may see";
 
