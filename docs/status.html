@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f663b009</code> · 2026-11-02 01:41</p>
+<p class="stamp">Generated from commit <code>c51c9a30</code> · 2026-11-02 05:55</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">252</div><div class="kpi-l">ADRs</div><div class="kpi-n">82 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open debts</div><div class="kpi-n">326 repaid · 22 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5728</div><div class="kpi-l">tests</div><div class="kpi-n">620 source files, 276,567 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5739</div><div class="kpi-l">tests</div><div class="kpi-n">621 source files, 276,920 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -556,19 +556,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1633</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:57.8%"></div></div><div class="bar-n">944</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">906</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:35.0%"></div></div><div class="bar-n">571</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.9%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.1%"></div></div><div class="bar-n">377</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:14.9%"></div></div><div class="bar-n">243</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1640</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:57.6%"></div></div><div class="bar-n">944</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">910</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:34.8%"></div></div><div class="bar-n">571</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.0%"></div></div><div class="bar-n">377</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:14.8%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.0%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.6%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.5%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.3%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">54</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">50</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.0%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.6%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">29</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">24</div></div>
@@ -618,6 +618,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>c51c9a30</code><time>2026-11-02</time><span>The portal answers protect, reassign, updateFolder and an item&#x27;s groups through Studio&#x27;s own handlers (ADR-214 §5a)</span></li>
+<li><code>80b1b76f</code><time>2026-11-02</time><span>A migration plan skips a layer it cannot read instead of stopping (CI run 41361219688)</span></li>
+<li><code>4b9bd960</code><time>2026-11-02</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>95286d78</code><time>2026-11-02</time><span>grapy reads nine refusals again and builds them: MTVI2, Band Arithmetic 14 and 18, Reclass By ASCII File, TIN Slope and Aspect, Subset Features in ga, and Spatial Analyst&#x27;s random rasters (ADR-224)</span></li>
 <li><code>f663b009</code><time>2026-11-02</time><span>A category search finding its children is recorded as INFERRED (Q-227)</span></li>
 <li><code>21557c10</code><time>2026-11-02</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>504d774c</code><time>2026-11-02</time><span>The portal answers an ArcGIS client as ArcGIS does: seven findings of the ArcGIS veteran&#x27;s review of 2026-11-02</span></li>
@@ -628,10 +632,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>63882071</code><time>2026-11-02</time><span>A KML export reads in Google Earth as written, and Pro&#x27;s sharing engine is followed at a second organisation (ADR-106, ADR-164, ADR-079, ADR-214)</span></li>
 <li><code>7a6b4135</code><time>2026-11-02</time><span>The portal makes a group through community/createGroup, as the Python API and scripts ask it to</span></li>
 <li><code>60fdf97a</code><time>2026-11-02</time><span>A layer published from Pro lands on the showcase as a hosted layer (ADR-191 condition 1)</span></li>
-<li><code>5deaac8a</code><time>2026-11-02</time><span>ArcGIS Pro publishes to and reads from a second organisation (ADR-204 condition 3)</span></li>
-<li><code>a04b43e2</code><time>2026-11-01</time><span>Postgres test classes migrate their schemas one at a time across the cluster, as the policies and grants the migrations now create deadlocked two at once (CI run 41311505377)</span></li>
-<li><code>9f1f0d35</code><time>2026-11-01</time><span>A refused node&#x27;s reason reaches its log: the host is disposed on every way out of Main, and D-333 is repaid inside the Linux fence</span></li>
-<li><code>8ac8394f</code><time>2026-11-01</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

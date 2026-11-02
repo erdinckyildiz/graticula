@@ -118,7 +118,7 @@ internal static partial class AdminEndpoints
         return folder;
     }
 
-    private static async Task RenameContentFolderAsync(
+    internal static async Task RenameContentFolderAsync(
         HttpContext context, Guid id, ContentFolderRequest request, IContentFolderStore folders, IAuditLog audit,
         CancellationToken cancellation)
     {

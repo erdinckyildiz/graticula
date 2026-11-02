@@ -224,7 +224,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Turns a map's delete protection on or off — whoever may change the map.</summary>
-    private static async Task SetWebMapProtectionAsync(
+    internal static async Task SetWebMapProtectionAsync(
         HttpContext context, string id, ProtectionRequest request, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
