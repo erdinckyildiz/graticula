@@ -293,7 +293,7 @@ const pill = value => {
  * A sharing scope, said the one way the Share dialog says it — Portal's words (ADR-079 condition 2's review, 2026-10-14).
  * The same scope was *Only you (private)* in the map viewer, *Owner* in Share and *private* in this pill.
  */
-const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization",
+const SCOPE_WORDS = { private: "Owner only", group: "Groups", organization: "Organization",
   allorganizations: "All organizations", public: "Everyone (public)", failing: "Started, failing" };
 
 /**
@@ -2939,7 +2939,7 @@ async function loadRoles() {
   // over. Design review 2026-08-19.
   $("roleEditorName").innerHTML = h(chosen.name);
   $("roleEditorSays").textContent = [
-    chosen.description || "",
+    usSpelling(chosen.description),
     !chosen.editable
       ? (chosen.members ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"} here.` : "Held by nobody here.")
       : chosen.members
@@ -3040,8 +3040,7 @@ async function loadRoles() {
                 ${held.has(c.name) ? "checked" : ""}
                 ${chosen.editable ? "" : "disabled"}>
               <span class="privilegetext">
-                <b class="privilegename">${h(named(c.name))}</b>
-                <code class="mono">${h(c.name)}</code>
+                <b class="privilegename" title="${h(c.name)}">${h(named(c.name))}</b>
                 ${least === undefined
                   ? ""
                   : least === null
@@ -3050,7 +3049,7 @@ async function loadRoles() {
                         ? "unrestricted only"
                         : `${h(least)} or above`}</span>`}
                 ${c.description || c.requires.length || c.includes.length
-                  ? `<span class="privilegewhat">${h(c.description || "")}${c.requires.length
+                  ? `<span class="privilegewhat">${h(usSpelling(c.description))}${c.requires.length
                       ? ` Needs ${c.requires.map(n => h(named(n))).join(", ")}.` : ""}${c.includes.length
                       ? ` Includes ${c.includes.map(n => h(named(n))).join(", ")}.` : ""}</span>` : ""}
               </span>
@@ -3115,6 +3114,26 @@ function drawRoleDirty() {
  * What each privilege is called in words. The server names them by identifier and describes them in a sentence;
  * the screen needs a name between the two. A privilege missing here is shown by its identifier, which is still true.
  */
+/**
+ * A built-in role as the product names it, not as the API does — the UI sweep of 2026-11-02. `data_editor` is an
+ * identifier; a reader chose between "data_editor" and "publisher" in the New member dialog. A custom role is its own
+ * name, which somebody typed. The value sent to the API is always the identifier, never this.
+ */
+/**
+ * The server's own descriptions of a role and a privilege, in the console's spelling — the UI sweep of 2026-11-02.
+ * They are written in the platform and arrive in the API's answer; the console is American English throughout, and
+ * "organisation" in the middle of a screen that says "organization" everywhere else read as two products. Only the text
+ * shown is changed; the field and its value are the API's.
+ */
+function usSpelling(text) {
+  return String(text ?? "").replace(/organisation/g, "organization").replace(/Organisation/g, "Organization");
+}
+
+const ROLE_NAMES = { viewer: "Viewer", data_editor: "Data editor", user: "User", publisher: "Publisher", administrator: "Administrator" };
+function roleDisplay(name) {
+  return ROLE_NAMES[name] || name;
+}
+
 const PRIVILEGE_LABELS = {
   "content:create": "Create content",
   "content:publishFeatures": "Publish hosted feature layers",
@@ -5686,7 +5705,7 @@ function drawMyContent() {
           <tr class="mediarow">
             ${pickCell(i, `service:${i.name}`)}
             <td class="thumbcell">${i.kind === "ImageServer"
-              ? `<a class="thumblink" href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
+              ? `<a class="thumblink" tabindex="-1" aria-hidden="true" href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
                    title="Open ${h(i.name)}"><img class="thumb" alt="" loading="lazy"
                    data-thumb="${h(thumbnailFor(`/rest/services/${i.name}/ImageServer`))}"></a>`
               : i.cover
@@ -6027,7 +6046,7 @@ async function bulkGo(go) {
 let mapOpen = null;
 
 const MAP_SCOPES = [
-  ["private", "Owner", "Only you, and administrators."],
+  ["private", "Owner only", "Only you, and administrators."],
   ["group", "Groups", "The members of the groups ticked below."],
   ["organization", "Organization", "The members of your organization, signed in."],
   ["allorganizations", "All organizations on this server",
@@ -6656,7 +6675,7 @@ function mapRow(i) {
 
   return `<tr class="mediarow">
     ${pickCell(i, `webmap:${m.id}`)}
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
+    <td class="thumbcell"><a class="thumblink" tabindex="-1" aria-hidden="true" href="${open}" title="Open ${h(i.name)}"
       >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
         : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
     <td class="name">
@@ -7163,7 +7182,7 @@ async function drawServiceUnread(qualified) {
       ? `<b>Stopped.</b> Clients get HTTP 503 until it is started. Its item, sharing and settings are kept; the Data
          and Visualization tabs come back when it starts.${may("admin:manageServer")
            ? ` <a href="${h(server)}">Start it in Server › Services</a>` : ""}`
-      : `<b>The service did not answer.</b> What is shown here comes from the catalogue; the Data and Visualization
+      : `<b>The service did not answer.</b> What is shown here comes from the catalog; the Data and Visualization
          tabs need the service itself.`;
     notice.hidden = false;
   }
@@ -7176,7 +7195,7 @@ async function drawServiceUnread(qualified) {
     box.innerHTML = serviceCatalogue === null
       ? `<tr><td colspan="3" class="empty">Its layers could not be read while the service does not answer.</td></tr>`
       : serviceCatalogue.length === 0
-        ? `<tr><td colspan="3" class="empty">The catalogue lists no layers for this service.</td></tr>`
+        ? `<tr><td colspan="3" class="empty">The catalog lists no layers for this service.</td></tr>`
         : serviceCatalogue.map(layer => {
           const geometry = GEOMETRY_NAMES[layer.geometry] || (layer.geometry || "").replace(/^esriGeometry/, "") || null;
           return `<tr>
@@ -8859,7 +8878,7 @@ async function exportServiceData(format, button, chosen = null) {
  * offered by {@link shareScopes} only where {@link allOrganizationsOffer} says.
  */
 const SHARE_SCOPES = [
-  ["private", "Owner", "Only you and an administrator can reach it."],
+  ["private", "Owner only", "Only you and an administrator can reach it."],
   ["organization", "Organization",
    "Members of this organization can read it once signed in. A stranger with the address still gets nothing."],
   ["allorganizations", "All organizations on this server",
@@ -9180,7 +9199,7 @@ async function saveShare() {
 
   $("share").close();
 
-  const said = { private: "Owner", group: "Owner", organization: "Organization",
+  const said = { private: "Owner only", group: "Owner only", organization: "Organization",
     allorganizations: "every organization on this server", public: "Everyone" };
   const groups = sharing.wanted.size;
   const bareShared = sharing.qualified.split("/").pop();
@@ -10105,7 +10124,7 @@ function drawServiceDelete() {
     : hostedHere
       ? `Deleting this service unpublishes <b>${what}</b> and
          <b>takes their data out of the datastore</b>. Hosted data belongs to the service that holds it,
-         so it waits with the service in the recycle bin for 14 days, and is restored with it (ADR-203).`
+         so it waits with the service in the recycle bin for 14 days, and is restored with it.`
       : `Deleting this service unpublishes <b>${what}</b>. These
          are registered: they point at a database that is not ours, so <b>no table is
          dropped</b> — the registration goes and the data stays exactly as it is.`;
@@ -10496,9 +10515,13 @@ function drawServiceSettings(name, folder) {
     && (p !== "classes" || (imagery && (serviceDoc?.bandCount || 1) === 1 && /^[US](8|16|32)$/.test(serviceDoc?.pixelType || ""))));
   const open = shownPages.includes(page) ? page : shownPages[0];
 
+  // <b>Focus follows the tab, the UI sweep of 2026-11-02.</b> Activating a tab redraws the strip, and the link that had
+  // focus was replaced by a new one: focus fell to BODY and a keyboard reader started again from the top of the page.
+  const navHadFocus = $("serviceNav").contains(document.activeElement);
   $("serviceNav").innerHTML = shownPages.map(p =>
     `<a href="#" data-service-page="${p}"${p === open ? ' aria-current="page"' : ""}>${
       SERVICE_PAGE_LABELS[p] || p[0].toUpperCase() + p.slice(1)}</a>`).join("");
+  if (navHadFocus) $("serviceNav").querySelector('a[aria-current="page"]')?.focus({ preventScroll: true });
 
   // <b>No Save on the Sharing page, because that page has nothing to save.</b> The scope applies the
   // moment it is chosen — ADR-031 §2b, so that an owner narrowing who may read a service can trust it
@@ -11577,30 +11600,30 @@ function serviceSettingsMarkup(name, folder) {
       <p class="hint">Leave a box empty to follow the server. A value typed here applies to every layer in this
         service, and is held down to the server's own limit rather than refused.</p>
       <h4>Response</h4>
-      <div class="setting"><label class="q" for="capMaxRows">Features per page:</label>
+      <div class="setting"><label class="q" for="capMaxRows">Features per page</label>
         <input type="number" id="capMaxRows" min="1" step="1" inputmode="numeric"
           aria-describedby="capPageSays"><span class="u">features</span></div>
       <p class="hint inherit" id="capPageSays"><span class="inheritstate" data-state-of="capMaxRows"></span>
         What a query returns when it does not ask for a number, and the most it returns when it does. Empty follows
         the server's page size<span id="capServerPage"></span><span id="capServerWhere"></span>.</p>
-      <div class="setting"><label class="q" for="capOutBytes">Largest response:</label>
+      <div class="setting"><label class="q" for="capOutBytes">Largest response</label>
         <input type="number" id="capOutBytes" min="1" aria-describedby="capOutBytesSays"><span class="u">bytes</span></div>
       <p class="hint inherit" id="capOutBytesSays"><span class="inheritstate" data-state-of="capOutBytes"></span></p>
 
       <h4>Request</h4>
-      <div class="setting"><label class="q" for="capInBytes">Largest request body:</label>
+      <div class="setting"><label class="q" for="capInBytes">Largest request body</label>
         <input type="number" id="capInBytes" min="1" aria-describedby="capInBytesSays"><span class="u">bytes</span></div>
       <p class="hint inherit" id="capInBytesSays"><span class="inheritstate" data-state-of="capInBytes"></span></p>
-      <div class="setting"><label class="q" for="capEdits">Edits per call:</label>
+      <div class="setting"><label class="q" for="capEdits">Edits per call</label>
         <input type="number" id="capEdits" min="1" aria-describedby="capEditsSays"><span class="u">edits</span></div>
       <p class="hint inherit" id="capEditsSays"><span class="inheritstate" data-state-of="capEdits"></span></p>
 
       <h4>Time</h4>
-      <div class="setting"><label class="q" for="capDeadline">The whole request:</label>
+      <div class="setting"><label class="q" for="capDeadline">The whole request</label>
         <input type="number" id="capDeadline" min="1" aria-describedby="capDeadlineSays"><span class="u">seconds</span></div>
       <p class="hint inherit" id="capDeadlineSays"><span class="inheritstate" data-state-of="capDeadline"></span>
         Reading it, querying, projecting, encoding and writing the answer, together.</p>
-      <div class="setting"><label class="q" for="capTimeout">One database statement:</label>
+      <div class="setting"><label class="q" for="capTimeout">One database statement</label>
         <input type="number" id="capTimeout" min="1000" step="1000" aria-describedby="capTimeoutSays"><span class="u">ms</span></div>
       <p class="hint inherit" id="capTimeoutSays"><span class="inheritstate" data-state-of="capTimeout"></span>
         Stops counting the moment the query returns, so a slow download never trips it.</p>
@@ -15298,9 +15321,9 @@ function lastSignInText(at) {
 /** The filter column's lists, drawn from what the server said exists, ticked from `memberFilter`. */
 function drawMemberFilters(roles, types) {
   const box = (kind, value, on) =>
-    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(value)}</label>`;
+    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(kind === "role" ? roleDisplay(value) : value)}</label>`;
   const roleQ = ($("mfRoleQ")?.value || "").trim().toLowerCase();
-  $("mfRoles").innerHTML = roles.filter(r => !roleQ || r.toLowerCase().includes(roleQ) || memberFilter.roles.has(r))
+  $("mfRoles").innerHTML = roles.filter(r => !roleQ || r.toLowerCase().includes(roleQ) || roleDisplay(r).toLowerCase().includes(roleQ) || memberFilter.roles.has(r))
     .map(r => box("role", r, memberFilter.roles.has(r))).join("") || `<span class="hint">No role matches.</span>`;
   $("mfTypes").innerHTML = types.map(t => box("type", t, memberFilter.types.has(t))).join("");
   $("mfStatus").value = memberFilter.status;
@@ -15383,12 +15406,12 @@ async function loadMembers() {
   }
   $("mfGroup").value = memberFilter.group;
 
-  const fill = (id, values, chosen) => {
+  const fill = (id, values, chosen, label = v => v) => {
     $(id).innerHTML = values.map(v =>
-      `<option value="${h(v)}"${v === chosen ? " selected" : ""}>${h(v)}</option>`).join("");
+      `<option value="${h(v)}"${v === chosen ? " selected" : ""}>${h(label(v))}</option>`).join("");
   };
 
-  fill("mRole", answer.roles || [], "publisher");
+  fill("mRole", answer.roles || [], "publisher", roleDisplay);
   memberRoleNames = answer.roles || [];
   // <b>The ladder, in the server's order.</b> `UserTypes.All` is viewer, editor, creator,
   // unrestricted — each ceiling contains the one below — and the console needs the order to know
@@ -15431,7 +15454,7 @@ async function loadMembers() {
       -->
       <td data-l="User type"><span>${h(m.userType || "")}</span></td>
       <td data-l="Role"><span>${(m.roles || []).length
-        ? m.roles.map(r => `<span class="pill rolepill" data-role-is="${h(r)}">${h(r)}</span>`).join(" ")
+        ? m.roles.map(r => `<span class="pill rolepill" data-role-is="${h(r)}">${h(roleDisplay(r))}</span>`).join(" ")
         : `<span class="val">none</span>`}${m.roleManaged
         // ADR-089, by owner decision: the mapping decides, and the row says where to change it.
         ? `<span class="hint" id="roleFrom-${h(roleFromId(m.name))}" style="display:block">Set by ${h(m.signsInWith)}'s groups —
@@ -15511,7 +15534,7 @@ async function openMemberChange(name, kind) {
     if (kind === "role") {
       if (!value) return "No role: they read what is shared with them and hold no privilege.";
       const r = role(value);
-      return r ? `${h(r.description || "")} <span class="val">${num(r.privileges.length)} privilege${
+      return r ? `${h(usSpelling(r.description))} <span class="val">${num(r.privileges.length)} privilege${
         r.privileges.length === 1 ? "" : "s"}</span>` : "";
     }
     const n = catalogue.length ? withheld(value) : 0;
@@ -15521,14 +15544,14 @@ async function openMemberChange(name, kind) {
   };
 
   $("memberChangeBody").innerHTML = `
-    <p class="hint" style="margin-top:0">Now: role <b>${h(((m.roles || [])[0]) || "none")}</b>, user type
+    <p class="hint" style="margin-top:0">Now: role <b>${h(roleDisplay((m.roles || [])[0]) || "none")}</b>, user type
       <b>${h(m.userType || "none")}</b>. The user type is a ceiling: a role cannot grant more than it allows.</p>
     <fieldset class="pickset">
       <legend>${kind === "role" ? "Role" : "User type"}</legend>
       ${options.map(v => `
         <label class="pickrow">
           <input type="radio" name="memberChangePick" value="${h(v)}"${v === current ? " checked" : ""}>
-          <span><b>${h(v || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
+          <span><b>${h((kind === "role" ? roleDisplay(v) : v) || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
             <span class="lede">${lede(v)}</span></span>
         </label>`).join("")}
     </fieldset>`;
@@ -16704,10 +16727,13 @@ function describeRole() {
   const role = $("mRole")?.value;
   const carries = memberGrants[role] || [];
 
+  // <b>In words, the identifier in the tooltip — the UI sweep of 2026-11-02.</b> The dialog listed
+  // `content:publishFeatures`, which is what the server calls the privilege and not what it lets somebody do.
   $("mGrants").innerHTML = carries.length
-    ? `<b>${h(role)}</b> carries ${carries.map(p => `<code>${h(p)}</code>`).join(" ")}`
-    : `<b>${h(role)}</b> carries nothing. Reading is governed by each layer's sharing rather than `
-      + `by a privilege, so a viewer reads plenty and can change nothing (ADR-018 §2).`;
+    ? `<b>${h(roleDisplay(role))}</b> carries ${carries.map(p =>
+      `<span class="pill" title="${h(p)}">${h(PRIVILEGE_LABELS[p] || p)}</span>`).join(" ")}`
+    : `<b>${h(roleDisplay(role))}</b> carries nothing. Reading is governed by each layer's sharing rather than `
+      + `by a privilege, so a viewer reads plenty and can change nothing.`;
 }
 
 /**
@@ -21238,14 +21264,15 @@ function drawServerHero() {
   hero.innerHTML = `
     ${picture}
     <div class="herotext">
-      <h2>${wrapName(system ? system.name : row.name)}</h2>
+      <h1>${wrapName(system ? system.name : row.name)}</h1>
       <p>${words[kind] || kind}${(row?.folder || system?.folder) ? ` in ${h(row?.folder || system?.folder)}` : ""}
         ${pill(failing ? "failing" : status)}${row ? refusingSays(row.refusing) : ""}${system ? ` <span class="rowmeta">no layers</span>` : ""}<span
           id="heroPin">${row ? servicePinPill(qualified) : ""}</span></p>
       ${failing ? `<p class="herofail">${h(failingSays(failing))} <a href="${failingLogHref(qualified)}">Read its warnings</a></p>` : ""}
+      <!-- <b>A break after each slash — the UI sweep of 2026-11-02.</b> The address broke inside "services" at 390 px. -->
       <div class="urlrow">
         <span class="key" id="heroUrlKey">Service URL</span>
-        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url)}</code>
+        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url).replace(/\//g, "/<wbr>")}</code>
         <button type="button" class="tiny" data-copy="${h(url)}">Copy URL</button>
       </div>
     </div>
@@ -21404,7 +21431,9 @@ function drawServicePin(failed = null) {
   }
 
   const others = p.pinnedOnServer - (p.pinned ? 1 : 0);
-  count.textContent = `${num(p.pinnedOnServer)} of ${num(p.limit)} services on this server are kept warm`
+  // <b>The limit is the places there are, not the services there are</b> — the UI sweep of 2026-11-02. "0 of 50 services
+  // are kept warm" beside a Status page that counts 30 services read as a wrong total; 50 is how many this server will keep.
+  count.textContent = `${num(p.pinnedOnServer)} service${p.pinnedOnServer === 1 ? " is" : "s are"} kept warm on this server, which keeps at most ${num(p.limit)}`
     + (p.pinned && others > 0 ? `, this one and ${num(others)} other${others === 1 ? "" : "s"}.`
       : p.pinned ? ", this one alone." : ".");
 
@@ -21679,7 +21708,7 @@ function showAskedLayer() {
 function endpointsMarkup(name, layer, place) {
   if (!place) {
     return `<dt>None</dt><dd>Not in the services directory. A stopped layer is
-      absent from it, which is expected; otherwise the catalogue and the directory
+      absent from it, which is expected; otherwise the catalog and the directory
       disagree and that is worth looking into.</dd>`;
   }
 
@@ -27275,9 +27304,11 @@ function drawGroundLists(focusAfter = null) {
     + (changed ? " Not saved yet." : "");
 
   // The limit before the list rather than after it, as a count (UX sweep 2026-10-19).
+  // <b>What each number counts, said — the UI sweep of 2026-11-02.</b> "0 of 8 chosen" stood above thirteen boxes: eight is
+  // the most a ground may use, not how many are listed, and the sentence read as if the list were eight long.
   $("groundCap").textContent = full
-    ? `${groundChosen.length} of ${groundMost} chosen, the most a ground can be: each one is a request for every tile on screen. Untick one to choose another.`
-    : `${groundChosen.length} of ${groundMost} chosen`;
+    ? `${groundChosen.length} of the ${num(names.length)} listed chosen, the most a ground can use (${groundMost}): each one is a request for every tile on screen. Untick one to choose another.`
+    : `${groundChosen.length} chosen of the ${num(names.length)} listed; a ground can use up to ${groundMost}`;
 
   const kinds = names.map(n => groundRows.get(n)).filter(r => groundCaution(r));
   $("groundLegend").hidden = kinds.length === 0;
@@ -27487,7 +27518,7 @@ async function loadOperations() {
   $("storeMetrics").innerHTML =
     metric("Status", h(health.status === "ok" ? "Healthy" : "Degraded")) +
     metric("Reachable", store.reachable ? "Yes" : "No", store.error || "") +
-    metric("Layers in the catalogue", num(store.layers)) +
+    metric("Layers in the catalog", num(store.layers)) +
     metric("Version", h(health.version || "—"));
 
   const r = health.runtime || {};
@@ -27750,10 +27781,31 @@ let handedFile = null;
 /** The GeoTIFFs handed to the imagery form together — more than one is a mosaic (ADR-140). */
 let handedImages = null;
 
+/**
+ * What opened the New item dialog, so Escape or Cancel can give focus back to it — the UI sweep of 2026-11-02.
+ *
+ * <b>`<dialog>` restores focus to the element that had it, and that element is gone.</b> Content redraws its head while
+ * the dialog is open, so the button was replaced and Escape landed on MAIN. The opener is remembered by id as well as
+ * by element: the button that is there now is the one that opened it.
+ */
+let addItemOpener = null;
+$("addItem")?.addEventListener("close", () => {
+  const was = addItemOpener;
+  addItemOpener = null;
+  // After the dialog's own restoration, which would otherwise be the last word.
+  setTimeout(() => {
+    const back = was && was.isConnected && was.offsetParent !== null ? was
+      : was?.id && $(was.id)?.offsetParent !== null ? $(was.id) : $("newLayer");
+    if (back && back.offsetParent !== null && (document.activeElement === document.body || document.activeElement === $("app"))) back.focus();
+  }, 0);
+});
+
 /** Opens the New item dialog on its first screen. */
 function openAddItem() {
   itemStep = "item";
   handedFile = null;
+  addItemOpener = document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+    ? document.activeElement : $("newLayer");
 
   // <b>The drawer is emptied, and this is not tidiness.</b> Both surfaces build a `#newResult` box
   // for the server's answer, and two elements with one id means `getElementById` returns whichever
@@ -29298,7 +29350,7 @@ function drawPublish() {
       ? `<p class="hint"><b>What was refused is not retried by this screen.</b> The service exists with
           the layers that landed; upload the archive again and tick only the ones that were refused, or
           fix them at the source. Nothing is half-written — a layer either has its table and its
-          catalogue row, or neither.</p>`
+          catalog row, or neither.</p>`
       : ""}`;
 
   const open = $("gdbOpen");
@@ -34302,7 +34354,7 @@ function docRow(i) {
 
   return `<tr class="mediarow">
     ${pickCell(i, `document:${d.id}`)}
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${d.thumbnail
+    <td class="thumbcell"><a class="thumblink" tabindex="-1" aria-hidden="true" href="${open}" title="Open ${h(i.name)}">${d.thumbnail
       ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(docThumbAddress(d))}">`
       // The page's rule, so a picture is the same picture in its row and on its page (design review 2026-10-31).
       : DOC_KINDS[d.kind] === "Picture" && d.size <= DOC_PICTURE_THUMB_BYTES
@@ -36679,8 +36731,8 @@ async function drawOgcSetting(name, folder) {
       <p class="inspire-state" id="ogcInspireState"></p>
       <label class="field">Metadata record <input type="url" id="inspireUrl" maxlength="2000" value="${h(inspire?.metadataUrl || "")}"
         placeholder="Not an INSPIRE service" aria-describedby="inspireUrlHint"${manages ? "" : " readonly"}>
-        <span class="hint" id="inspireUrlHint">The service's metadata record in your CSW catalogue, for example
-          ${breakable("https://catalogue.example/csw?service=CSW&request=GetRecordById&id=…").replace(/\?/g, "?<wbr>").replace(/&amp;/g, "&amp;<wbr>")}</span></label>
+        <span class="hint" id="inspireUrlHint">The service's metadata record in your CSW catalog, for example
+          ${breakable("https://catalog.example/csw?service=CSW&request=GetRecordById&id=…").replace(/\?/g, "?<wbr>").replace(/&amp;/g, "&amp;<wbr>")}</span></label>
       <label class="field">Language <select id="inspireLanguage" aria-describedby="inspireLanguageHint"${manages ? "" : " disabled"}>
         ${inspireLanguages(inspire?.language || "eng")}</select>
         <span class="hint" id="inspireLanguageHint">The language of this service's capabilities documents (ISO 639-2/B).</span></label>
@@ -38027,6 +38079,36 @@ let tenantRemoving = null;
 const groupAdmits = new Map();
 
 /**
+ * The window's title, which names the screen — the UI sweep of 2026-11-02.
+ *
+ * <b>Every screen of both surfaces was "Default · Graticula".</b> A tab strip of eight tabs read the same eight times, a
+ * screen reader announced the same title on every navigation, and history showed one entry. The screen is named by its
+ * own heading, which is also the page's `h1`, so the title is read from it rather than kept in a second table that
+ * would drift from it; the headings that are filled in after a load (an item's name, a member's) are picked up by the
+ * observer below. `Screen · organization · Graticula`, the organization only where the server holds several.
+ */
+let tenancyName = "";
+function drawDocumentTitle() {
+  let screen = "";
+  for (const heading of document.querySelectorAll("h1")) {
+    if (!heading.getClientRects().length) continue;
+    const text = (heading.textContent || "").replace(/[\u200b\u00ad]/g, "").replace(/\s+/g, " ").trim();
+    if (text && text !== "\u2014") { screen = text; break; }
+  }
+  const parts = [screen];
+  if (tenancyName && !screen.includes(tenancyName)) parts.push(tenancyName);
+  parts.push("Graticula");
+  const title = screen || tenancyName ? parts.filter(Boolean).join(" · ") : "Graticula console";
+  if (document.title !== title) document.title = title;
+}
+
+let titleTimer = 0;
+new MutationObserver(() => {
+  if (titleTimer) return;
+  titleTimer = setTimeout(() => { titleTimer = 0; drawDocumentTitle(); }, 60);
+}).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "hidden", "style"] });
+
+/**
  * Which organization this console is, where the server holds more than one — in the bar and in the window's title, so
  * two tabs on two organizations cannot be taken for each other — and, to a member of another organization, what they
  * are looking at.
@@ -38040,10 +38122,13 @@ function drawTenancy(me) {
   if (badge) {
     badge.hidden = !several;
     $("tenantNameText").textContent = several ? called : "";
+    // The name is cut with an ellipsis on a phone ("Def…"); the whole of it is in the tooltip (UI sweep 2026-11-02).
+    $("tenantNameText").title = several ? called : "";
     badge.title = several ? `This console is ${called}'s` : "";
   }
 
-  document.title = several && called ? `${called} · Graticula` : "Graticula console";
+  tenancyName = several && called ? called : "";
+  drawDocumentTitle();
 
   // The sign-in card names the organization too: it is the one page where the reader has not yet said who they are,
   // and the host name alone does not tell somebody which organization's password to type.
@@ -39221,7 +39306,7 @@ function toolboxRow(i) {
 
   return `<tr class="mediarow">
     <td class="pick"></td>
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">
+    <td class="thumbcell"><a class="thumblink" tabindex="-1" aria-hidden="true" href="${open}" title="Open ${h(i.name)}">
       <div class="thumb doctile" aria-hidden="true">${icon("analysis")}<span>PYT</span></div></a></td>
     <td class="name">
       <div class="svctitle"><a href="${open}">${h(i.name)}</a>
@@ -39901,4 +39986,12 @@ document.addEventListener("click", async event => {
   if (!t) return;
   if (t.dataset.mcRemove) { await removeMachine(t.dataset.mcRemove); return; }
   await setMachineState(t.dataset.mcName, t.dataset.mcState);
+});
+
+// <b>The skip link goes to the main landmark by focus, not by address</b> — the UI sweep of 2026-11-02. A `#app` link
+// would be read by the router as a screen. Before sign-in there is no main to go to, so it goes to the card.
+$("skipToContent")?.addEventListener("click", event => {
+  event.preventDefault();
+  const target = $("app")?.style.display !== "none" ? $("app") : document.querySelector("#signin input, #mustchange input");
+  target?.focus({ preventScroll: false });
 });

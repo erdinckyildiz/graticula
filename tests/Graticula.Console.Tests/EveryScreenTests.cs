@@ -208,7 +208,7 @@ public sealed class EveryScreenTests : ConsoleTest
             // itself: a page whose only identifier is which table is on it is a page
             // somebody arrives at and has to deduce.
             await WaitForAsync(
-                $"(document.querySelector('#view-{screen} .pagehead h2')?.textContent || '')"
+                $"(document.querySelector('#view-{screen} .pagehead h1')?.textContent || '')"
                 + ".trim().length > 0",
                 $"{surface}/#/{screen} painted no heading of its own.");
 

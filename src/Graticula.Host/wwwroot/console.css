@@ -430,7 +430,7 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
   name's 15.5 at 650: the difference is size and nothing else, which is what makes them read as the
   same voice at two levels rather than as two decisions.
 */
-.pagehead h2 {
+.pagehead h1 {
   /* <b>26/600 from 33/650, 2026-09-25, and through `--t-page` at last.</b> Owner: *"a professional
      look and feel"*, chosen as the calmer enterprise direction. The title was the loudest thing on
      every screen and the token that named its size was declared and never read. */
@@ -1860,7 +1860,10 @@ dialog { color: var(--ink); }
   /* <b>The actions stay where the thumb is.</b> Reaching the row menu on the services table cost a
      550-pixel sideways swipe, and the column it is in is the one every row is opened from. The shadow
      is the edge that says the other columns pass under this one rather than ending there. */
-  .widetable table td:last-child, .widetable table th:last-child {
+  /* <b>Only a column of actions is pinned — the UI sweep of 2026-11-02.</b> The rule pinned whatever column came last, and the
+     attribute table (item, Data) held its last data column over the ones beside it below 1,100 pixels. A table pins its last
+     column when the cells of it hold a row menu or a button, which is what an action column is. */
+  .widetable table:has(> tbody > tr > td:last-child :is(.menu, button)) :is(td, th):last-child {
     position: sticky; right: 0; z-index: 1; background: var(--surface);
     box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
   }
@@ -1913,7 +1916,7 @@ dialog { color: var(--ink); }
 */
 #signin, #mustchange { max-width: 380px; margin: 72px auto; }
 #signin .panel, #mustchange .panel { padding: var(--gap-5); }
-#signin h2, #mustchange h2 { margin: 0 0 var(--gap-2); font-size: 19px; font-weight: 600; }
+#signin h1, #mustchange h1 { margin: 0 0 var(--gap-2); font-size: 19px; font-weight: 600; }
 #signin label, #mustchange label { display: block; font-size: var(--t-small); color: var(--muted);
                                    margin: var(--gap-3) 0 var(--gap-1); }
 #signin input, #signin button.primary,
@@ -1934,7 +1937,7 @@ html[data-session="none"] #main > header { display: none; }
   display: flex; align-items: center; justify-content: space-between; gap: var(--gap-3);
   padding: var(--gap-4) var(--gap-5); border-bottom: 1px solid var(--rule);
 }
-#signin .signin-head h2 { margin: 0; font-size: 20px; }
+#signin .signin-head h1 { margin: 0; font-size: 20px; }
 #signin .signin-where { margin: 2px 0 0; font-size: var(--t-small); color: var(--muted);
                         overflow-wrap: anywhere; }
 /* The header's mark, the same blue circle: it was the old navy square (UX sweep 2026-10-19). */
@@ -4559,7 +4562,7 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #mapPagehead:not([data-tab="overview"]) > #mapThumb, #docPagehead:not([data-tab="overview"]) > #docThumb { display: none; }
 #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 180px; height: 116px; max-width: none; border-radius: var(--round-lg); }
 #mapPagehead > .herotext, #docPagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
-#mapPagehead > .herotext h2, #docPagehead > .herotext h2 { margin: 0 0 4px; overflow-wrap: break-word; }
+#mapPagehead > .herotext h1, #docPagehead > .herotext h1 { margin: 0 0 4px; overflow-wrap: break-word; }
 #mapPagehead > .herotext p, #docPagehead > .herotext p { margin: 0; color: var(--muted); }
 #mapPagehead > #mapActions, #docPagehead > #docActions {
   grid-area: actions; max-width: 440px; margin-left: var(--gap-5); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gap-2);
@@ -4736,7 +4739,7 @@ h4.spaced { margin-top: 24px; }
   border-radius: var(--round-lg, 10px); padding: var(--gap-5);
 }
 #view-toolbox .profilehead { border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
-#view-toolbox .profilehead h2 { margin: 0; }
+#view-toolbox .profilehead h1 { margin: 0; }
 #view-toolbox .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #view-toolbox .stacked > label { font-weight: 600; }
 #view-toolbox .tburl { overflow-wrap: anywhere; }
@@ -4914,7 +4917,10 @@ h4.spaced { margin-top: 24px; }
 
   /* <b>A wide table's actions stay on screen</b> — the phone rule below, from 1,100 down: Members needs 823
      pixels and its row actions were past the edge at 768 (design review re-measure). */
-  .widetable table td:last-child, .widetable table th:last-child {
+  /* <b>Only a column of actions is pinned — the UI sweep of 2026-11-02.</b> The rule pinned whatever column came last, and the
+     attribute table (item, Data) held its last data column over the ones beside it below 1,100 pixels. A table pins its last
+     column when the cells of it hold a row menu or a button, which is what an action column is. */
+  .widetable table:has(> tbody > tr > td:last-child :is(.menu, button)) :is(td, th):last-child {
     position: sticky; right: 0; z-index: 1; background: var(--surface);
     box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
   }
@@ -5326,7 +5332,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #servicePagehead:not([data-tab="overview"]) > #itemThumb { display: none; }
 #servicePagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
 /* A service's name is one word — tur_admin_public — and it set a phone's page width: 308 in 285 (2026-10-18). */
-#servicePagehead > .herotext h2 { overflow-wrap: break-word; }
+#servicePagehead > .herotext h1 { overflow-wrap: break-word; }
 #servicePagehead > #itemActions {
   grid-area: actions; margin-left: var(--gap-5); max-width: 440px;
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: var(--gap-2);
@@ -5409,7 +5415,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
   column-gap: var(--gap-5); row-gap: var(--gap-3); margin: 0 0 var(--gap-4);
 }
 #serverHero .thumb { width: 180px; height: 116px; border-radius: var(--round-lg); }
-#serverHero .herotext h2 { margin: 0 0 4px; }
+#serverHero .herotext h1 { margin: 0 0 4px; }
 #serverHero .herotext p { margin: 0 0 var(--gap-3); color: var(--muted); display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
 #serverHero .urlrow { display: flex; align-items: center; gap: var(--gap-2); max-width: 760px; }
 #serverHero .urlrow .key { font-size: var(--t-small); color: var(--muted); white-space: nowrap; }
@@ -5418,7 +5424,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 /* UX sweep 2026-10-19, findings 7, 8 and 11: the name and the address wrap rather than widen the page, a failing
    service says so under its name, and a stopped one gets a neutral line instead of a red toast. */
 #serverHero .herotext { min-width: 0; }
-#serverHero .herotext h2 { overflow-wrap: anywhere; }
+#serverHero .herotext h1 { overflow-wrap: anywhere; }
 #serverHero .urlrow { flex-wrap: wrap; }
 #serverHero .urlrow code {
   flex: 1 1 260px; min-width: 0; padding: 5px 8px; border: 1px solid var(--rule); border-radius: var(--round);
@@ -5986,7 +5992,7 @@ img.avatar.photo { object-fit: cover; padding: 0; }
 }
 #view-user .profilehead { text-align: center; border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
 #view-user .profilephoto { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: var(--gap-3); }
-#view-user .profilehead h2 { margin: 0; }
+#view-user .profilehead h1 { margin: 0; }
 #view-user .profileform { display: flex; flex-direction: column; gap: 6px; }
 #view-user .profileform label { font-weight: 600; font-size: 14px; margin-top: 8px; }
 #view-user .profilefacts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: var(--gap-4) 0 0;
@@ -6463,3 +6469,32 @@ ol.sfsteps > li > b { margin-left: -30px; }
   #mcRows td.act, .widetable #mcRows td.act:last-child { grid-column: 1 / -1; grid-row: auto; text-align: left; }
   #mcRows .rowmeta code { white-space: normal; overflow-wrap: anywhere; }
 }
+
+/* ═══════════════════════════════════════════ The UI sweep of 2026-11-02 */
+
+/* <b>The settings column wraps on a phone instead of scrolling out of sight.</b> At 480 pixels and under the strip opened
+   scrolled to the current page with the others cut off at the edge; wrapped, every page is in view and nothing needs scrolling. */
+@media (max-width: 480px) {
+  .view.withside > nav.subpages { flex-wrap: wrap; overflow-x: visible; }
+}
+
+/* The Access constraints box takes the sans face its siblings have — the base rule gives every textarea the mono one. */
+#ogcAccess { font-family: var(--sans); }
+
+/* The delete box had its heading and button against its edge. */
+#serviceDanger { padding: var(--gap-4); }
+
+/* A save bar's sentence wraps; "No unsaved ch…" told nobody anything. */
+.savebar > .val { white-space: normal; overflow: visible; text-overflow: clip; }
+@media (max-width: 760px) {
+  .savebar > .val { white-space: normal; overflow: visible; text-overflow: clip; }
+  #utilbar > #tenantName { max-width: 55vw; }
+}
+
+/* The service address in a service header breaks after a slash, not inside a word. */
+.svcurl, #serviceUrl { word-break: normal; overflow-wrap: normal; }
+
+/* "Skip to content": off screen until it has focus, then the first thing on the page. */
+.skiplink { position: absolute; left: 8px; top: -48px; z-index: 1000; padding: 8px 14px; border-radius: var(--round);
+            background: var(--surface); color: var(--ink); border: 2px solid var(--accent); text-decoration: none; }
+.skiplink:focus { top: 8px; }

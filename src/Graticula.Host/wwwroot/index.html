@@ -214,7 +214,7 @@
   <form class="panel" id="signinForm" method="post" action="">
     <div class="signin-head">
       <div>
-        <h2 id="signinTitle">Sign in to Graticula</h2>
+        <h1 id="signinTitle">Sign in to Graticula</h1>
         <!-- Filled from location.host: which server this is, which is the question the head answers. -->
         <p class="signin-where" id="signinWhere"></p>
       </div>
@@ -342,7 +342,7 @@
 -->
 <div id="mustchange" class="wrap" style="display:none">
   <form class="panel" id="mustchangeForm" method="post" action="">
-    <h2>Set your own password</h2>
+    <h1>Set your own password</h1>
     <p class="hint" id="mustchangeWho"></p>
     <label for="cCurrent">The password you were given</label>
     <input id="cCurrent" type="password" autocomplete="current-password">
@@ -441,7 +441,7 @@
       <div id="serverMain">
         <div class="pagehead">
           <div>
-            <h2>Services</h2>
+            <h1>Services</h1>
             <p>Manage and monitor your GIS services.</p>
           </div>
           <!--
@@ -543,7 +543,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2 id="contentTitle" tabindex="-1">Content</h2>
+        <h1 id="contentTitle" tabindex="-1">Content</h1>
         <p>What you own, and what other people have shared with you.</p>
       </div>
       <!--
@@ -637,7 +637,7 @@
       </select>
       <!-- ADR-135: idle is not a type, so it is its own choice and goes with any type. -->
       <label class="check"><input type="checkbox" id="contentIdle"> Only items not used in 30 days</label>
-      <span class="val" id="contentCount"></span>
+      <span class="val" id="contentCount" role="status"></span>
     </div>
 
     <p class="hint" id="contentNote" role="status" aria-live="polite"></p>
@@ -677,7 +677,7 @@
   <section class="view" id="view-publish">
     <div class="pagehead">
       <div>
-        <h2>Publish a service</h2>
+        <h1>Publish a service</h1>
         <p class="hint">Compose a service from tables in the databases this server is pointed
           at, then publish it. Nothing is served until you press Publish, and a service is
           published whole — its layers and its groups arrive together or not at all.</p>
@@ -764,7 +764,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Data sources</h2>
+        <h1>Data sources</h1>
         <p>Databases and folders this server reads layers from. Only administrators register one, because a source
           holds the credentials to someone else's database.</p>
       </div>
@@ -824,7 +824,7 @@
   <section class="view" id="view-orgsettings">
     <div class="pagehead">
       <div>
-        <h2>Map</h2>
+        <h1>Map</h1>
         <p>What every new map in this organization starts on, and the basemaps it offers.</p>
       </div>
     </div>
@@ -876,7 +876,7 @@
   <section class="view" id="view-utilities">
     <div class="pagehead">
       <div>
-        <h2>Utility services</h2>
+        <h1>Utility services</h1>
         <p>This server's own services, which every organization on it uses, and the geometry service ArcGIS clients are
           pointed at.</p>
       </div>
@@ -922,7 +922,7 @@
   <section class="view" id="view-machines">
     <div class="pagehead">
       <div>
-        <h2 id="mcTitle" tabindex="-1">Machines</h2>
+        <h1 id="mcTitle" tabindex="-1">Machines</h1>
         <p>The servers that share this site's database and serve its requests together. Each one says it is alive every
           ten seconds; one not heard from for thirty is shown down.</p>
       </div>
@@ -956,7 +956,7 @@
   <section class="view" id="view-backups">
     <div class="pagehead">
       <div>
-        <h2 id="bkTitle" tabindex="-1">Backups</h2>
+        <h1 id="bkTitle" tabindex="-1">Backups</h1>
         <p>Copies of this server's whole database — every organization, its content and its settings — with its imagery
           and its certificate, taken while it serves.</p>
       </div>
@@ -1021,7 +1021,7 @@
   <section class="view" id="view-general">
     <div class="pagehead">
       <div>
-        <h2>General</h2>
+        <h1>General</h1>
         <p>What this organization is called and what it says about itself.</p>
       </div>
     </div>
@@ -1067,7 +1067,7 @@
   <section class="view" id="view-collaborations">
     <div class="pagehead">
       <div>
-        <h2>Partnered collaborations</h2>
+        <h1>Partnered collaborations</h1>
         <p id="pcLede">Partner with another organization on this server so that your groups and theirs can take each
           other's members. Each organization keeps its own members and content, and each decides whether the other may
           search for its members.</p>
@@ -1181,7 +1181,7 @@
          organization on it. The map ground joined it from Studio's Organization › Settings › Map. -->
     <div class="pagehead">
       <div>
-        <h2>General</h2>
+        <h1>General</h1>
         <p>What this whole server does unless a service sets its own: the page size, the sources styles may use and the
           ground under every map. Basemaps and how people sign in are Studio's,
           under Organization › Settings, and each organization's own.</p>
@@ -1310,7 +1310,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Status</h2>
+        <h1>Status</h1>
         <p>Whether anything is wrong with this server right now, and where.</p>
       </div>
     </div>
@@ -1414,7 +1414,7 @@
   <section class="view" id="view-logs">
     <div class="pagehead">
       <div>
-        <h2>Logs</h2>
+        <h1>Logs</h1>
         <p id="logHeadLede">What this server and its studio have been doing.</p>
       </div>
     </div>
@@ -1466,7 +1466,8 @@
 
     <p class="hint" id="logWriter"></p>
 
-    <div class="panel widetable">
+    <!-- Focusable and named: the table is wider than a phone and a keyboard has to be able to scroll it (UI sweep 2026-11-02). -->
+    <div class="panel widetable" tabindex="0" role="region" aria-label="Log entries">
       <table>
         <thead><tr>
           <th style="width:1%">When</th>
@@ -1492,7 +1493,7 @@
   <section class="view" id="view-organizations">
     <div class="pagehead">
       <div>
-        <h2>Organizations</h2>
+        <h1>Organizations</h1>
         <p>Each organization is a portal of its own on this server, with its own members, groups and content, reached
           at its own host name. A host name works once DNS points it at this server and the server's certificate
           covers it.</p>
@@ -1630,14 +1631,14 @@
   <section class="view" id="view-groups">
     <div class="pagehead">
       <div>
-        <h2>Groups</h2>
+        <h1>Groups</h1>
         <p>A set of members, and the services shared with them. What is shared with a group is readable by its members and by nobody else.</p>
       </div>
     </div>
 
     <div class="toolbar">
       <input type="search" id="groupFilter" placeholder="Search groups by name, title or owner" aria-label="Search groups" autocomplete="off">
-      <span class="val" id="groupCount"></span>
+      <span class="val" id="groupCount" role="status"></span>
       <span style="flex:1"></span>
       <button class="primary" id="groupNew">New group</button>
     </div>
@@ -1764,7 +1765,7 @@
     <div class="pagehead" id="mapPagehead" data-tab="overview">
       <div id="mapThumb"></div>
       <div class="herotext">
-        <h2 id="mapTitle"></h2>
+        <h1 id="mapTitle"></h1>
         <p id="mapSub"></p>
       </div>
       <div class="itemactions" id="mapActions"></div>
@@ -1790,7 +1791,7 @@
     <div class="pagehead" id="docPagehead" data-tab="overview">
       <div id="docThumb"></div>
       <div class="herotext">
-        <h2 id="docTitle" tabindex="-1"></h2>
+        <h1 id="docTitle" tabindex="-1"></h1>
         <p id="docSub"></p>
       </div>
       <div class="itemactions" id="docActions"></div>
@@ -1813,7 +1814,7 @@
 
     <div class="pagehead">
       <div>
-        <h2 id="groupTitle"></h2>
+        <h1 id="groupTitle"></h1>
         <!--
           <b>The summary is the page's subtitle, not a block on Overview.</b> The reference puts it on
           one tab with an empty state saying it *"is not available"*; a one-line summary is for being
@@ -2056,7 +2057,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Member roles</h2>
+        <h1>Member roles</h1>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
         <!-- ADR-204 §5e item 18: while there are several organizations the built-in roles are every one's and fixed, and
              custom roles are the organization's own. Shown in place of the line above, which is untrue then. -->
@@ -2134,7 +2135,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Security</h2>
+        <h1>Security</h1>
         <p>How people sign in to this organization, and which apps may sign them in.</p>
       </div>
     </div>
@@ -2388,7 +2389,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Members</h2>
+        <h1>Members</h1>
         <p>Who has an account, and what each of them may do.</p>
       </div>
     </div>
@@ -2539,7 +2540,7 @@
   <section class="view" id="view-toolbox">
     <div class="profilecard toolboxcard">
       <div class="profilehead">
-        <h2 id="tbTitle" tabindex="-1"></h2>
+        <h1 id="tbTitle" tabindex="-1"></h1>
         <p class="val" id="tbSub"></p>
       </div>
       <div id="tbBody"></div>
@@ -2550,7 +2551,7 @@
     <div class="profilecard">
       <div class="profilehead">
         <div class="profilephoto" id="profilePhoto"></div>
-        <h2 id="profileName" tabindex="-1"></h2>
+        <h1 id="profileName" tabindex="-1"></h1>
         <p class="val" id="profileSub"></p>
       </div>
       <div id="profileBody"></div>
@@ -2633,7 +2634,7 @@
   <section class="view" id="view-search">
     <div class="pagehead">
       <div>
-        <h2 id="searchTitle" tabindex="-1">Search</h2>
+        <h1 id="searchTitle" tabindex="-1">Search</h1>
         <p>Everything in Studio you can see: content by its title, tags, description, owner or item id; groups; and,
           for whoever manages members, members.</p>
       </div>
@@ -2713,7 +2714,7 @@
     <div class="pagehead" id="servicePagehead">
       <div id="itemThumb" hidden></div>
       <div class="herotext">
-        <h2 id="serviceTitle">—</h2>
+        <h1 id="serviceTitle">—</h1>
         <p id="serviceSub"></p>
       </div>
       <div class="itemactions" id="itemActions" hidden></div>
