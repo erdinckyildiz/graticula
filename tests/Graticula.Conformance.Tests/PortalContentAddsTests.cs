@@ -174,6 +174,44 @@ public sealed class PortalContentAddsTests : ArcGisClient
     }
 
     [Fact]
+    public async Task A_document_is_added_as_Studio_keeps_one_and_is_not_published_as_data()
+    {
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string? item = null;
+
+        try
+        {
+            using MultipartFormDataContent form = new()
+            {
+                { new StringContent("PDF"), "type" },
+                { new StringContent($"zz manual {tag}"), "title" },
+                { new StringContent("json"), "f" },
+                { new ByteArrayContent(Encoding.ASCII.GetBytes("%PDF-1.4\n%%EOF\n")), "file", "manual.pdf" },
+            };
+
+            JsonElement added = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/addItem", form);
+            Assert.True(added.TryGetProperty("success", out JsonElement ok) && ok.GetBoolean(), added.GetRawText());
+            item = added.GetProperty("id").GetString();
+
+            Assert.Equal("PDF", (await SendAsync(HttpMethod.Get, $"/content/documents/{item}")).GetProperty("type").GetString());
+            Assert.NotEmpty(ErrorOf(await PublishAsync(item!, "csv", $"zz_cpdf_{tag}")));
+
+            // A zip that names no data type is refused by Studio's own upload, through the door.
+            using MultipartFormDataContent zip = new()
+            {
+                { new StringContent("Shapefile"), "type" },
+                { new StringContent("json"), "f" },
+                { new ByteArrayContent([0x50, 0x4B, 0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), "file", "empty.zip" },
+            };
+            Assert.NotEmpty(ErrorOf(await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/addItem", zip)));
+        }
+        finally
+        {
+            await RemoveAsync(null, item);
+        }
+    }
+
+    [Fact]
     public async Task A_member_who_may_not_publish_is_refused_the_publish_and_the_service()
     {
         string root = await RequireServerAsync();

@@ -52,6 +52,20 @@ public sealed class PortalContentAddsAreStudiosImportTests
         Assert.Null(PortalEndpoints.FileTypeOf(itemType));
     }
 
+    [Theory]
+    [InlineData("PDF", true)]
+    [InlineData("Microsoft Word", true)]
+    [InlineData("Image", true)]
+    [InlineData("CSV", true)]
+    [InlineData("File Geodatabase", true)]
+    [InlineData("Web Map", false)]
+    [InlineData("Service Definition", false)]
+    [InlineData("Feature Service", false)]
+    public void Any_file_Studio_keeps_is_added_through_the_document_door(string itemType, bool file)
+    {
+        Assert.Equal(file, PortalEndpoints.IsFileItemType(itemType));
+    }
+
     [Fact]
     public void A_zip_is_a_document_only_when_it_is_added_as_a_shapefile_or_a_geodatabase()
     {

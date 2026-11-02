@@ -56,6 +56,14 @@ internal static partial class PortalEndpoints
         ["excel"] = "Microsoft Excel",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Whether <c>addItem</c> of this ArcGIS item type is a file Studio keeps as a document: a data file, or a PDF, an
+    /// Office file or a picture (ADR-188).
+    /// </summary>
+    internal static bool IsFileItemType(string? itemType) =>
+        Documents.Accepted.Concat(Documents.Data)
+            .Any(kind => string.Equals(kind.ArcGisType, itemType?.Trim(), StringComparison.OrdinalIgnoreCase));
+
     /// <summary>The <c>publish</c> file type for an ArcGIS item type a data file is added as, or null.</summary>
     internal static string? FileTypeOf(string? itemType) =>
         DataFileTypes.FirstOrDefault(p => string.Equals(p.Value, itemType?.Trim(), StringComparison.OrdinalIgnoreCase)).Key;
