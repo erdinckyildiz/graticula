@@ -82,7 +82,7 @@ Off unless configured; when configured, a `GeocodeServer` in the directory.
 - **Two geocoding surfaces later.** If Q-84's locator is built it will want the same `GeocodeServer` shape; the port is
   the seam that keeps that one surface with two engines rather than two surfaces.
 - **A public geocoder is a public proxy onto the operator's Photon.** Sharing is configurable (§5.2), and the default is
-  public (INFERRED, §5.7).
+  ~~public (INFERRED, §5.7)~~ **the organisation's — owner decision 2026-11-02** (§5.7 (2)).
 
 ## 4. Evidence
 
@@ -125,7 +125,7 @@ of ours; absent unless `Graticula:Geocoding:PhotonUrl` is set.**
 |---|---|---|
 | `Graticula:Geocoding:PhotonUrl` | unset — **no service** | The Photon to ask, absolute `http`/`https`, no query; a trailing `/` is added |
 | `Graticula:Geocoding:TimeoutSeconds` | 5 | One request's deadline, above 0 and at most 120 |
-| `Graticula:Geocoding:Sharing` | `public` | `public`, `allorganizations`, `organization` or `private` — who may use the service; `group` is refused, as a service in configuration has no groups |
+| `Graticula:Geocoding:Sharing` | `organization` | `public`, `allorganizations`, `organization` or `private` — who may use the service; `group` is refused, as a service in configuration has no groups |
 | `Graticula:Geocoding:Languages` | empty | Two-letter codes the index was imported with, e.g. `tr,en` |
 
 Configuration rather than the admin API, by ADR-017 §5c: where an engine beside the server lives is a fact the server
@@ -219,8 +219,10 @@ change.
 ### 5.7 INFERRED items, listed for confirmation
 
 1. The score rule (§5.4).
-2. `public` as the default sharing — the data is OpenStreetMap's and public already, and a web map's search box asks
-   anonymously; an operator who does not want an open proxy onto their Photon sets `organization`.
+2. ~~`public` as the default sharing — the data is OpenStreetMap's and public already, and a web map's search box asks
+   anonymously; an operator who does not want an open proxy onto their Photon sets `organization`.~~ **Answered
+   2026-11-02 by owner decision: `organization` by default** (*"Kuruluş içi"*) — a configured server is not an open
+   proxy onto the operator's Photon; an operator who wants an anonymous search box sets `public`.
 3. The service's place and name, `Utilities/Geocode`, beside the geometry service, fixed rather than configurable.
 4. The default `outFields` (`Score`, `Match_addr`) — the reference describes the default as the minimum.
 5. The extent box for a place Photon gives no extent (§5.5) and alpha-2 country codes.

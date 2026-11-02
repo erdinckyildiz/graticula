@@ -759,7 +759,7 @@ and 64 GB of memory by Photon's README. Keep it on a private address; the server
 |---|---|---|
 | `Graticula__Geocoding__PhotonUrl` | unset: no service | Photon's address, such as `http://127.0.0.1:2322/` |
 | `Graticula__Geocoding__TimeoutSeconds` | 5 | How long one search may wait for Photon |
-| `Graticula__Geocoding__Sharing` | `public` | `public`, `allorganizations`, `organization` or `private` |
+| `Graticula__Geocoding__Sharing` | `organization` | `public`, `allorganizations`, `organization` or `private` |
 | `Graticula__Geocoding__Languages` | none | The languages the index was imported with, such as `tr,en`; a request's `langCode` is passed on only when it is one of them |
 
 A value the server cannot use stops it at startup with the key named. When Photon is down or slow, the three

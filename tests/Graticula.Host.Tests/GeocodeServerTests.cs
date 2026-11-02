@@ -519,18 +519,25 @@ public sealed class GeocodeServerTests
     {
         Assert.Null(GeocoderSettings.Read(new ConfigurationBuilder().Build()));
 
+        // Unset, it is the organisation's (owner decision 2026-11-02): not an open proxy onto the operator's Photon.
+        Assert.Equal(
+            SharingScope.Organization,
+            GeocoderSettings.Read(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Graticula:Geocoding:PhotonUrl"] = "http://127.0.0.1:2322" })
+                .Build())!.Sharing);
+
         GeocoderSettings read = GeocoderSettings.Read(new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Graticula:Geocoding:PhotonUrl"] = "http://127.0.0.1:2322",
                 ["Graticula:Geocoding:Languages"] = "tr, EN",
-                ["Graticula:Geocoding:Sharing"] = "organization",
+                ["Graticula:Geocoding:Sharing"] = "public",
             })
             .Build())!;
 
         Assert.Equal("http://127.0.0.1:2322/", read.PhotonUrl.ToString());
         Assert.Equal(TimeSpan.FromSeconds(5), read.Timeout);
-        Assert.Equal(SharingScope.Organization, read.Sharing);
+        Assert.Equal(SharingScope.Public, read.Sharing);
         Assert.True(read.Languages.SetEquals(["tr", "en"]));
 
         foreach ((string key, string value) in (ValueTuple<string, string>[])[
