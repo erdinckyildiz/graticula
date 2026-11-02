@@ -4241,6 +4241,9 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 /* The row that has its ⋯ open is raised over the rows after it (the menu itself is fixed to the window). */
 #sources tr:has(details.rowmenu[open]) { position: relative; z-index: 3; }
 #sources td.acts details.rowmenu { vertical-align: middle; }
+/* <b>2026-11-02</b> — the row's buttons and its menu summary share one height and one alignment, so they share one top (the redesign of 2026-11-02). */
+#sources td.acts > .tiny, #sources td.acts details.rowmenu > summary { height: 30px; box-sizing: border-box; vertical-align: middle; }
+#sources td.acts details.rowmenu > summary { display: inline-flex; align-items: center; justify-content: center; }
 #sources td.acts .managed { color: var(--faint); font-size: var(--t-small); }
 #sources td.name .pill { margin-left: 6px; cursor: help; vertical-align: 1px; }
 /* One row of four buttons makes the table about 720 pixels at its narrowest, and beside the
@@ -7551,4 +7554,198 @@ html[data-session="none"]:root #main > header { display: none; }
   :root #view-signin > .pagehead > .secswitch { margin-top: var(--gap-3); display: flex; flex-wrap: nowrap; max-width: 100%; overflow-x: auto; }
   :root #view-signin > .pagehead > .secswitch button { min-height: 44px; padding: 0 14px; white-space: nowrap; }
   :root #view-roles #roleSaveBar { position: sticky; bottom: 0; z-index: 3; }
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   <b>The last round of the redesign of 2026-11-02 — the ux-designer's verification of dev.</b> (1) Targets of 44 pixels on a
+   phone, everywhere, not screen by screen. (2) The service page's Layers card is one card again. (3) Server › Services as its
+   mockup draws it: a head of a title and one control, the folders as the left column and, on a phone, a sheet; a row of
+   picture, name, Type, Folder and Status, then Start or Stop; Group layers, Refresh and Empty services in one ⋯.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── (3) Services: the columns, the ⋯ and the head ── */
+#services td.col, #view-services th.col { white-space: nowrap; color: var(--muted); vertical-align: middle; }
+#view-services th.col { width: 1%; }
+#services td.col.status .pill { font-weight: 600; }
+#services td.acts { vertical-align: middle; }
+#services tr.svcrow td.tick { vertical-align: middle; padding-top: 14px; }
+#serviceMore > summary {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; box-sizing: border-box;
+  border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); font-size: 20px; color: var(--ink);
+}
+#serviceMore > summary:hover, #serviceMore[open] > summary { background: var(--surface-2); }
+#view-services .toolbar { align-items: center; }
+@media (min-width: 721px) {
+  /* Type, Folder and Status are columns, so the facts line under the name does not say them again. */
+  #services .svcmeta > .dup, #services .svctitle > .dup, #services .svcmeta > .dup + .sep { display: none; }
+}
+@media (max-width: 720px) {
+  #services tr.svcrow td.col, #view-services th.col { display: none; }
+  #view-services #serviceSummary { margin: 0 0 var(--gap-2); }
+  #view-services > #serverGrid #serverMain > .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+  #view-services .toolbar #serviceFilter { flex: 1 1 100%; width: auto; }
+  #view-services .toolbar #serviceTypePick, #view-services .toolbar #serviceStatusPick { flex: 1 1 0; min-width: 0; width: auto; }
+  #view-services .toolbar #serviceCount:empty { display: none; }
+  #view-services .toolbar > span[style] { display: none; }
+
+  /* The folders sheet: the left column, full screen, as My content's filter sheet is. */
+  :root #serverGrid > #servicesSide:not(.open) { display: none; }
+  :root #serverGrid > #servicesSide.open {
+    display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 1000; box-sizing: border-box; margin: 0;
+    padding: 0 16px; gap: 0; border: 0; border-radius: 0; overflow-y: auto; background: var(--surface); max-height: none;
+  }
+  #servicesSide .sidelist { margin: 8px 0; }
+  #servicesSide .sidelist a { display: flex; align-items: center; min-height: 44px; }
+  #servicesSide #folderRail { border: 0; box-shadow: none; margin: 0; border-radius: 0; }
+  #servicesSide .rail-head { padding-left: 0; padding-right: 0; }
+  :root #servicesSide #folders { display: flex; flex-direction: column; gap: 2px; overflow: visible; padding: 0; }
+  :root #servicesSide #folders .rail-item { display: flex; min-height: 48px; border: 0; border-radius: var(--round); padding: 0 8px; }
+  :root #servicesSide #folders .rail-item.on { background: var(--accent-soft); }
+  #servicesSide .rail-head .tiny { min-height: 44px; }
+  #view-services .pagehead { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 10px; }
+  #view-services .pagehead > div:first-child { flex: 1 1 auto; min-width: 0; }
+  #view-services .pagehead h1 { font-size: 22px; margin: 0; }
+  #view-services .pagehead .phonebtn { flex: none; }
+  #view-services .pagehead .right { flex: none; }
+  #servicesSide { order: 0; }
+  #view-services #serviceMore > summary { width: 44px; height: 44px; }
+}
+
+/* ── (2) The Layers card is one card: its head and its list in one column, the aside beside it ── */
+#serviceOverview > .itemmain { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+#serviceOverview.itemgrid { align-items: start; grid-template-rows: none; }
+#serviceOverview #serviceLayersHead { margin-bottom: -16px; }
+#serviceOverview #serviceLayersPanel { margin-top: 0; }
+@media (min-width: 721px) {
+  #serviceOverview > .itemmain { grid-column: 1; grid-row: 1; }
+  #serviceOverview > #serviceDetails { grid-column: 2; grid-row: 1; }
+}
+@media (max-width: 720px) {
+  #serviceOverview > .itemmain, #serviceOverview > #serviceDetails { grid-column: 1; grid-row: auto; }
+}
+
+/* ── (1) Phone: every control is 44 pixels tall; a checkbox's label is its target; a card's title link is the card ── */
+@media (max-width: 720px) {
+  /* `:is` takes its most specific member, so this beats the one-class rules (.rowbtn, .pillbtn, .tiny …) that set 30 or 40. */
+  :root :is(button, input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]):not([type=range]):not(.sr-only),
+    select, textarea, summary, .chip, [role=button]) { min-height: 44px; box-sizing: border-box; }
+  :root :is(.rowbtn, .pillbtn, button.rowname, .pubmenu, .ol-zoom-in, .ol-zoom-out) { min-height: 44px; min-width: 44px; }
+  :root #contentRows .svcmeta .pillbtn { min-height: 44px; }
+  :root label:has(> input[type=checkbox]), :root label:has(> input[type=radio]) { min-height: 44px; align-items: center; }
+  #bkScheduleCard label.check, #view-settings label.check { min-height: 44px; }
+  /*
+    A tick on its own is a 44-pixel box with a 22-pixel square drawn in it. A native checkbox ignores padding, so on a phone the
+    ones that have no label around them are drawn by the stylesheet, in the same colours; the ones inside a label stay native and
+    the label is their target.
+  */
+  #main input[type=checkbox]:not(label input) {
+    appearance: none; -webkit-appearance: none; position: relative; width: 44px; height: 44px; margin: 0; padding: 0; border: 0;
+    background: none; flex: none; cursor: pointer;
+  }
+  #main input[type=checkbox]:not(label input)::before {
+    content: ""; position: absolute; inset: 11px; box-sizing: border-box; border: 1.5px solid var(--control-edge);
+    border-radius: 4px; background: var(--surface);
+  }
+  #main input[type=checkbox]:not(label input):checked::before, input[type=checkbox]:not(label input):indeterminate::before {
+    background: var(--accent); border-color: var(--accent);
+  }
+  #main input[type=checkbox]:not(label input):checked::after {
+    content: ""; position: absolute; left: 18px; top: 14px; width: 6px; height: 12px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  #main input[type=checkbox]:not(label input):indeterminate::after {
+    content: ""; position: absolute; left: 15px; top: 21px; width: 14px; height: 2px; background: #fff;
+  }
+  #main input[type=checkbox]:not(label input):disabled { opacity: .45; cursor: default; }
+  #main input[type=checkbox]:not(label input):focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 8px; }
+  label > input[type=checkbox], label > input[type=radio] { margin: 0; }
+  :root :is(a.btn, a.title, a.name, a.rowlink, .svctitle > a, td.name > a, .whorow a, .itemactions a, .pager a, .svcmeta a, #serviceSummary a, #sources td.name a,
+    #sources td.acts a, #searchTabs a) { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; box-sizing: border-box; }
+  :root #sources td.acts > .tiny { min-height: 44px; }
+  #services .svcmeta a:has(.pill) { min-height: 44px; }
+  #sources td.name .pill[tabindex] { min-height: 44px; display: inline-flex; align-items: center; box-sizing: border-box; }
+
+  /* The title link is stretched over its card, with the tick and the ⋯ above it. */
+  #contentRows tr.mediarow, #services tr.svcrow, #view-groups #groupRows tr.pick, #members tr { position: relative; }
+  #contentRows tr.mediarow .svctitle > a::after, #services tr.svcrow .svctitle > a::after,
+  #view-groups #groupRows td.name a::after, #members td.name a::after { content: ""; position: absolute; inset: 0; }
+  #contentRows tr.mediarow td.tick, #contentRows tr.mediarow td.acts, #services tr.svcrow td.tick, #services tr.svcrow td.acts,
+  #view-groups #groupRows td.tick, #members td.tick { position: relative; z-index: 1; }
+  #members td.act { z-index: 1; }
+  #services tr.svcrow td.svcbody a:not(.name), #contentRows tr.mediarow td.name a:not(:first-child) { position: relative; z-index: 1; }
+
+  /* The drawer's surface switch lists the others, and the current one is not among them. */
+  #navDrawer #utilbar #surfaces a[aria-current] { display: none; }
+  #navDrawer .healthpill, #navDrawer #healthDot { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (min-width: 721px) {
+  #utilbar .usermenu .initial, :root header .usermenu .initial { width: 28px; height: 28px; font-size: 13px; }
+}
+
+/* ── (8) A web map's page: Item information on the right, as a feature layer's and a file's are ── */
+@media (min-width: 721px) {
+  :root #mapOverview.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--gap-4); align-items: start; }
+  :root #mapOverview > .mapmain { grid-column: 1; grid-row: 1; min-width: 0; order: 0; }
+  :root #mapOverview > #mapSide { grid-column: 2; grid-row: 1; min-width: 0; width: auto; order: 0; }
+}
+
+/* ── (9) Two buttons that read as labels read as links ── */
+button.tiny.ghost[data-describe], button.tiny.ghost[data-item-categorize] {
+  color: var(--link); text-decoration: underline; text-underline-offset: 2px; padding-inline: 0; justify-content: flex-start;
+}
+button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:hover { background: none; text-decoration-thickness: 2px; }
+
+/* ── (4) A service's head: the sharing pill is in the meta line; on a phone the title sits beside the picture and the address is one line ── */
+#view-service:has(#serverHero:not([hidden])) #serviceScope { display: none; }
+#serverHero #heroScope:empty { display: none; }
+:root #serverHero .urlrow code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; flex: 1 1 0; }
+@media (max-width: 720px) {
+  :root #serverHero.pagehead { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--gap-3); row-gap: var(--gap-2); align-items: start; padding: var(--gap-3); }
+  :root #serverHero .herothumb { grid-column: 1; grid-row: 1 / span 2; }
+  :root #serverHero .herothumb img.thumb, :root #serverHero .herothumb .thumb { width: 88px; height: 58px; }
+  :root #serverHero .herotext { display: contents; }
+  :root #serverHero .herotext h1 { grid-column: 2; grid-row: 1; align-self: end; margin: 0; font-size: 20px; }
+  :root #serverHero .herotext > p:not(.herofail) { grid-column: 2; grid-row: 2; align-self: start; margin: 0; }
+  :root #serverHero .herotext > .herofail { grid-column: 1 / -1; }
+  :root #serverHero .urlrow { grid-column: 1 / -1; flex-wrap: nowrap; max-width: none; }
+  :root #serverHero .urlrow .key { display: none; }
+  :root #serverHero .heroactions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+/* ── Logs on a phone: the explanation behind a disclosure and the log chosen from a select (PhoneServerLogs) ── */
+.aboutlogs, #logSourcePick { display: none; }
+@media (max-width: 720px) {
+  :root #view-logs #logLede { display: none; }
+  :root #view-logs #logAbout { display: block; margin: 0 0 var(--gap-2); }
+  :root #view-logs #logAbout > summary { display: flex; align-items: center; color: var(--link); font-size: 14px; cursor: pointer; }
+  :root #view-logs #logAbout > p { margin: var(--gap-2) 0 0; }
+  :root #view-logs #logSources { display: none; }
+  :root #view-logs #logSourcePick:not([hidden]) { display: block; width: 100%; margin: 0 0 var(--gap-2); }
+}
+
+/* ── Status on a phone: a failing or stopped service under its badge, the address broken at a word and not inside one ── */
+@media (max-width: 720px) {
+  :root .verdictissues li { flex-direction: column; align-items: flex-start; }
+  :root .verdictissues li p { flex: none; width: 100%; overflow-wrap: break-word; }
+}
+
+/* ── Content on a wide window: Type and Shared with are columns; New item heads the left column (DesktopContent) ── */
+#contentRows td.col, #contentTable th.col { white-space: nowrap; color: var(--muted); vertical-align: middle; width: 1%; padding-right: var(--gap-4); }
+#contentSide > #pageActionContent:not(:empty) { margin-bottom: var(--gap-3); }
+#contentSide > #pageActionContent > button { width: 100%; justify-content: center; }
+@media (min-width: 721px) {
+  #contentRows .svcmeta > .dup, #contentRows .svctitle > .dup, #contentRows .svcmeta > .dup + .sep { display: none; }
+}
+@media (max-width: 720px) {
+  #contentRows tr.mediarow td.col, #contentTable th.col { display: none; }
+}
+
+/* The 44-pixel title link makes a group's or a member's card taller; the card's padding gives the height back, so a row is still two lines. */
+@media (max-width: 720px) {
+  :root #view-groups #groupRows tr.pick, :root #members tr { padding-top: 0; padding-bottom: 6px; gap: 0 8px; }
+  #view-groups #groupRows td.name { display: flex; align-items: center; flex-wrap: wrap; column-gap: 6px; }
+}
+@media (max-width: 720px) {
+  #members td.name { flex: 1 1 calc(100% - 56px); }
+  :root #members td.tick { display: flex; align-items: center; }
+  #members td[data-l="User type"] { margin-left: 52px; }
 }

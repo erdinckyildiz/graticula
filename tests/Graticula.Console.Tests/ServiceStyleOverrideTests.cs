@@ -352,8 +352,9 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
 
         await OpenAsync("/server/#/services", token);
 
+        // Group layers is in the list's ⋯ menu since the redesign of 2026-11-02, so it is present and pressed, not on show.
         await WaitForAsync(
-            Shown("#newService"),
+            "!!document.querySelector('#serviceMore #newService')",
             "The Services screen offers no Group layers action.");
 
         await ClickAsync("#newService");

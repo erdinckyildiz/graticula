@@ -15,14 +15,31 @@ public sealed class GraticuleMarkAndAccountDotTests : ConsoleTest
 {
     private static readonly string[] Favicons = ["/favicon.svg", "/favicon.ico"];
 
-    private const string Unhealthy = """
+    /// <summary>
+    /// The health answer is stubbed for the page's life, and so is the list of services it counts failures from: the test holds
+    /// the mechanism (a state in, a dot out) whatever the server under test really reports, and a refresh the console makes on
+    /// its own timer asks the same stub and cannot undo what the test set.
+    /// </summary>
+    private static string Say(string status) => $$"""
         (async () => {
-          const origin = api;
-          api = async (path, options) => String(path).startsWith('/admin/health') ? { status: 'degraded' } : origin(path, options);
-          try { await refreshHealth(); } finally { api = origin; }
+          // The page's first read of the health is a real request begun before this ran; it is let finish, or it lands after the stub and wins.
+          for (let i = 0; i < 100 && !document.body.dataset.health; i++) await new Promise(r => setTimeout(r, 50));
+          if (!window.__healthStubbed) {
+            window.__healthStubbed = true;
+            const origin = api;
+            api = async (path, options) => String(path).startsWith('/admin/health')
+              ? { status: window.__health, platformStore: { layers: 0 } } : origin(path, options);
+            readServiceStates = async () => [];
+          }
+          window.__health = '{{status}}';
+          await refreshHealth();
           return document.body.dataset.health;
         })()
         """;
+
+    private static readonly string Unhealthy = Say("degraded");
+
+    private static readonly string Healthy = Say("ok");
 
     private const string DotDrawn = """
         (() => {
@@ -70,7 +87,7 @@ public sealed class GraticuleMarkAndAccountDotTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
         await OpenAsync("/server/services", token);
-        await WaitForAsync("document.body.dataset.health === 'ok'", "The health was never read as healthy.");
+        Assert.Equal("ok", await Browser.EvaluateAsync<string>(Healthy));
 
         Assert.False(await Browser.EvaluateAsync<bool>(DotDrawn), "A healthy server has a dot on the avatar.");
         Assert.DoesNotContain("server health", await Browser.EvaluateAsync<string>("document.querySelector('#userMenu summary').getAttribute('aria-label')") ?? string.Empty,
@@ -91,7 +108,7 @@ public sealed class GraticuleMarkAndAccountDotTests : ConsoleTest
         await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new { width = 390, height = 844, deviceScaleFactor = 1, mobile = true });
         (string token, _) = await SignInAsync();
         await OpenAsync("/server/services", token);
-        await WaitForAsync("document.body.dataset.health === 'ok'", "The health was never read as healthy.");
+        Assert.Equal("ok", await Browser.EvaluateAsync<string>(Healthy));
 
         const string Before = "(() => getComputedStyle(document.getElementById('barAvatar'), '::before').content)()";
         Assert.Matches("^(none|normal)$", await Browser.EvaluateAsync<string>(Before) ?? string.Empty);

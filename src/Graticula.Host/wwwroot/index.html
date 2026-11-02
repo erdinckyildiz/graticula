@@ -471,7 +471,17 @@
       was on them.
     -->
     <div id="serverGrid">
-      <div>
+      <!--
+        <b>The folders are the left column, and on a phone a sheet</b> — the redesign of 2026-11-02, after the mockups
+        (ServerServices, PhoneServerServices): at 720 pixels and below this is a full-screen dialog opened by the head's
+        scope button, as My content's filter sheet is.
+      -->
+      <div id="servicesSide">
+        <div class="sheethead">
+          <h2 id="servicesSheetTitle">Folders</h2>
+          <button type="button" class="barbtn" id="servicesSheetClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
         <!--
           <b>Folders on the left, and the rail is navigation.</b> ADR-034 §5h, after the owner's
           objection to three stacked tables. Narrow on purpose: the width belongs to the list.
@@ -491,6 +501,9 @@
           </div>
           <nav id="folders" aria-label="Folders"></nav>
         </div>
+        <div class="sheetfoot">
+          <button type="button" class="primary" id="servicesSheetShow">Show services</button>
+        </div>
 
         <!--
           <b>Operational widgets, and they report what this server measures.</b> The brief asked for
@@ -507,8 +520,10 @@
         <div class="pagehead">
           <div>
             <h1>Services</h1>
-            <p>Manage and monitor your GIS services.</p>
           </div>
+          <!-- <b>The phone's scope button</b>, drawn at 720 pixels and below: the folder being listed, opening the folders sheet. -->
+          <button type="button" class="phonebtn" id="servicesScopeBtn" aria-haspopup="dialog" aria-expanded="false"
+            aria-controls="servicesSide"><span id="servicesScopeName">Site (root)</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
           <!--
             Where the surface's own action lands. Studio's *New layer* and Server's *New service* are the
             same slot filled by the router from `SURFACES[surface].action`, which is why no button is
@@ -536,8 +551,18 @@
             screen, beside the services it reorganises, and not on Publish, which composes
             something that does not exist yet.
           -->
-          <button class="tiny ghost" id="newService">Group layers&#8230;</button>
-          <button class="tiny ghost" id="serviceRefresh" type="button" aria-label="Refresh the list">&#8635; Refresh</button>
+          <!--
+            <b>One ⋯ for the rest, as the mockup draws it</b> (the redesign of 2026-11-02): Group layers, Refresh and Empty
+            services, which was a section on the page of its own and is shown, above the list's note, when it is chosen here.
+          -->
+          <details class="rowmenu" id="serviceMore">
+            <summary aria-label="More: group layers, refresh the list, empty services" title="More">&#8943;</summary>
+            <div class="rowmenubody">
+              <button type="button" id="newService">Group layers&#8230;</button>
+              <button type="button" id="serviceRefresh" aria-label="Refresh the list">&#8635; Refresh</button>
+              <button type="button" id="emptyOpen" aria-controls="emptyServices" aria-expanded="false">Empty services&#8230;</button>
+            </div>
+          </details>
         </div>
 
         <!--
@@ -557,6 +582,9 @@
               <th class="tick"><input type="checkbox" id="servicePickAll" aria-label="Select every service on this page"></th>
               <th><span class="sr-only">Picture</span></th>
               <th>Service</th>
+              <th class="col">Type</th>
+              <th class="col">Folder</th>
+              <th class="col">Status</th>
               <th><span class="sr-only">Actions</span></th>
             </tr></thead>
             <tbody id="services"></tbody>
@@ -571,7 +599,7 @@
           administrator does not enter. Its API, /admin/featureservices/empty and /sweep, is the organization's, so it is
           here, where that administrator manages services; the server's status page keeps only what is the server's.
         -->
-        <section class="emptysvc" id="emptyServices" aria-labelledby="emptyHead">
+        <section class="emptysvc" id="emptyServices" aria-labelledby="emptyHead" hidden>
           <h3 class="label" id="emptyHead">Empty services</h3>
           <p class="lede">Services left with no layers after their last layer was removed. Nothing records which were
             made on purpose, so this is a list you check, not an automatic clean-up.</p>
@@ -624,7 +652,7 @@
         review measured it as a scroll that grows with the content. Maps are rows of the one list now.
       -->
       <div class="right"><button class="ghost" id="newMap" type="button"><span
-        class="plus" aria-hidden="true">+</span>New map</button><div id="pageActionContent"></div></div>
+        class="plus" aria-hidden="true">+</span>New map</button></div>
     </div>
 
     <!--
@@ -660,6 +688,9 @@
       lies above the list.
     -->
     <section id="contentSide" aria-labelledby="contentSheetTitle">
+      <!-- <b>New item is at the top of the left column</b> on a wide window (DesktopContent, the redesign of 2026-11-02); the router
+           fills it, and a phone moves it into the toolbar as before (`phonePark`). -->
+      <div id="pageActionContent"></div>
       <!-- At 720 pixels and below this aside is a full-screen sheet (the phone layout of 2026-11-02): a head with a Close, the
            scopes, folders and types as they are, and a foot whose Show closes the sheet on the list it has already filtered. -->
       <div class="sheethead">
@@ -754,7 +785,7 @@
       <table>
         <thead><tr>
           <th class="tick"><input type="checkbox" id="contentPickAll" aria-label="Select every item of yours shown"></th>
-          <th colspan="2">Title</th><th><span class="sr-only">Actions</span></th>
+          <th colspan="2">Title</th><th class="col">Type</th><th class="col">Shared with</th><th><span class="sr-only">Actions</span></th>
         </tr></thead>
         <tbody id="contentRows"></tbody>
       </table>
@@ -1395,18 +1426,19 @@
       are still here — the bar presses whichever of them has something to save, so every handler, refusal and sentence
       under a card is the one it was — and the bar says how many are waiting.
     -->
-    <div class="savebar generalbar" id="generalSaveBar">
-      <span class="val" id="generalDirty" role="status" aria-live="polite" tabindex="-1">No unsaved changes</span>
-      <button type="button" class="ghost" id="generalDiscard" disabled>Discard</button>
-      <button type="button" class="primary" id="generalSave" disabled>Save</button>
-    </div>
-
     <div class="panel pad settingcard" id="securityPointer" hidden>
       <h4>Sign-in and security</h4>
       <p class="hint">How people sign in, and whether they also need a code from an authenticator app, is set once
         for the whole organization in Studio, under Organization › Settings › Security. Server and System use the same sign-in,
         so they have no security settings of their own.</p>
       <p class="pointerlink"><a id="securityPointerGo" href="/studio/signin">Open Security in Studio</a></p>
+    </div>
+
+    <!-- <b>The last child of the page</b> (the redesign of 2026-11-02, last round): docked at the foot, it is under nothing, so no card is hidden behind it. -->
+    <div class="savebar generalbar" id="generalSaveBar">
+      <span class="val" id="generalDirty" role="status" aria-live="polite" tabindex="-1">No unsaved changes</span>
+      <button type="button" class="ghost" id="generalDiscard" disabled>Discard</button>
+      <button type="button" class="primary" id="generalSave" disabled>Save</button>
     </div>
 
   </section>
@@ -1537,9 +1569,15 @@
     -->
     <!-- Filled per surface (ADR-221 §5.3): Server's three logs are the organization's, System's one is the server's. -->
     <p class="lede" id="logLede"></p>
+    <!-- <b>On a phone the explanation is behind a small disclosure</b> (PhoneServerLogs, the redesign of 2026-11-02): the same
+         words as `#logLede`, copied there when the controls are drawn; drawn at 720 pixels and below only. -->
+    <details class="aboutlogs" id="logAbout"><summary>About these logs</summary><p class="lede" id="logAboutBody"></p></details>
 
     <!-- The log being read, as a column on the left — Server Manager's Logs page lists its views there (ADR-187 step 4). -->
     <div id="logSources"></div>
+    <!-- <b>And a select for the log being read</b>, on a phone, where three tabs and the filters did not fit one row. It mirrors
+         `#logSources` and presses the tab it names. -->
+    <select id="logSourcePick" class="logpick" aria-label="Which log" hidden></select>
     <div class="toolbar">
       <span style="flex:1"></span>
       <span class="val" id="logCount"></span>

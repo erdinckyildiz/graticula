@@ -94,3 +94,31 @@ sub-pages under one segmented control; `/studio/apps` opens the Apps one).
 from the earlier cut), Organizations and Machines apart from the shared head and table-head styling above, Utility services' table.
 
 **Not done:** nothing that this ADR lists; the Status page's *Read its warnings* and the other issue actions keep their present places.
+
+**The last round, 2026-11-02 — the ux-designer's verification of dev, and the owner's approval to ship once it is green.**
+*Done:* (1) **Targets of 44 pixels on a phone, everywhere and not screen by screen** — one rule under 720 pixels for every button,
+input, select, summary, chip and link of a row; a checkbox with no label around it is drawn by the stylesheet as a 44-pixel box with
+a 22-pixel square in it (a native checkbox ignores padding), one inside a label keeps the native box and the label is its target;
+a card's title link is stretched over the card with the tick and the ⋯ above it. Measured on twenty-three screens at 390: none under 44.
+(2) **The Layers card is one card again** — `.itemmain` is a flex column, no longer `display: contents`, so its heading and list are not
+two grid items stretched by the aside's rows. (3) **Server › Services as its mockup draws it** — a head of the title and the one
+action; the folders as the left column and, at 720 pixels and below, a sheet behind a scope button in the head; rows with a picture,
+the name, **Type, Folder and Status columns**, then Start or Stop (the facts line no longer repeats them on a wide window); Group
+layers, Refresh and **Empty services in one ⋯**, the last drawing its section when chosen. (4) A service's head: the sharing pill is
+in the meta line, the picture and the title share a row on a phone, and the address is one line with an ellipsis and its Copy.
+(5) System › General: the save bar is the last child of the page. (6) The desktop avatar is 28 pixels. (7) The drawer's *Switch to*
+leaves out the surface the reader is on, and the health pill there is 44 pixels. (8) A web map's page: Item information on the right.
+(9) *Add description…* and *Categorize* are links to look at. (10) A phone's Status breaks a line at a word. (11) **One window title
+format, `Screen · Surface or section · Graticula`**, and Security's four sub-pages are four titles. Of the mockup differences:
+**Logs on a phone** (the explanation behind *About these logs*, the log chosen from a select), **Status on a phone** (a service under
+its badge) and **Content on a wide window** (Type and Shared-with columns; New item at the top of the left column).
+*Not done, and why:* Organization settings on a phone as one picker under an h1 "Organization", and Members' h1 "Organization" above
+its strip — both make a second h1 the page's title or demote the page's own, and the window title, the one-h1 test and every
+heading style read from that h1; **left for the owner's decision**, not dropped. System › General's card paragraphs into hints and
+footnotes — a rewording of fourteen sentences across three cards that the mockup does not specify; Services' per-row ⋯ (the row keeps
+Start or Stop and, where it can act, Delete, which are not folded). *Tests:* the data-source row's buttons and menu share one height, so
+one top (a 30-pixel summary beside a 29-pixel button was two "lines"); the two account-dot tests answer the health request with a
+stubbed body and so hold whatever the server under test really reports; new tests hold the phone's targets, the Layers card and
+Services' columns and sheet. Three tests that asserted the old arrangement were changed: Empty services' (it is chosen from the
+menu before it is on show), the Group layers tests (the button is in a closed menu: present, not on show) and the surface's one page
+action (Server's is *New service*, which was never `#newService`).

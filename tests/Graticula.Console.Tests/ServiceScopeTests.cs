@@ -60,11 +60,18 @@ public sealed class ServiceScopeTests : ConsoleTest
         Assert.Equal("Owner only", scope.Trim());
 
         // <b>Visible, not merely present.</b> This console has shipped a control that existed
-        // in the DOM and could not be seen three separate times.
+        // in the DOM and could not be seen three separate times. Since the last round of the redesign of 2026-11-02 the
+        // pill the reader sees is the head's meta line's (`#heroScope`), and the head bar's own, which it is read from,
+        // is not drawn while the head card is.
+        await WaitForAsync("!!document.querySelector('#heroScope .pill')", "The head's meta line carries no sharing scope.");
+        Assert.Equal(
+            "Owner only",
+            (await Browser.EvaluateAsync<string>("document.querySelector('#heroScope .pill').textContent") ?? string.Empty).Trim());
+
         bool seen = await Browser.EvaluateAsync<bool>(
             """
             (() => {
-              const e = document.getElementById('serviceScope');
+              const e = document.querySelector('#heroScope .pill');
               if (!e || e.offsetParent === null) return false;
               const box = e.getBoundingClientRect();
               return box.width > 0 && box.height > 0;

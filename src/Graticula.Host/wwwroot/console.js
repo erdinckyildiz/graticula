@@ -5706,21 +5706,21 @@ function drawMyContentList() {
   // <b>A first run names both ways in, as buttons</b> (ADR-079 condition 2's review, 2026-10-14): it named only
   // *New item*, as text, and the server's note above it said everything here belonged to somebody else.
   $("contentRows").innerHTML = total === 0 && isOutsider()
-    ? `<tr><td colspan="4" class="empty">Nothing is shared with you here yet. What ${
+    ? `<tr><td colspan="6" class="empty">Nothing is shared with you here yet. What ${
         h(whoNow?.organisation?.name || "this organization")}'s groups share with you, and what it shares with everyone,
         appears here.</td></tr>`
     : total === 0
-    ? `<tr><td colspan="4" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
+    ? `<tr><td colspan="6" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
          <button type="button" class="linkbtn" data-empty-new="newLayer">New item</button> publishes a layer from a
          file or a database; <button type="button" class="linkbtn" data-empty-new="newMap">New map</button> starts a
          map from the layers you can read.</td></tr>`
     : inScope.length === 0 && contentFolderPick
-      ? `<tr><td colspan="4" class="empty">${contentFolderPick === "root"
+      ? `<tr><td colspan="6" class="empty">${contentFolderPick === "root"
           ? "Everything of yours is in a folder."
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="4" class="empty">${contentScope === "favorites"
+      ? `<tr><td colspan="6" class="empty">${contentScope === "favorites"
              // D-305: a list the member makes, so it says how (a design review: it said "Nothing arrived this way").
              ? "Nothing is marked as a favorite. <b>Add favorite</b> on an item's page puts it here."
              : contentScope === "administrative"
@@ -5731,13 +5731,13 @@ function drawMyContentList() {
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0 && contentIdle && !contentFilter
-        ? `<tr><td colspan="4" class="empty">${usageCountsAMonth()
+        ? `<tr><td colspan="6" class="empty">${usageCountsAMonth()
              ? `No idle services${among}. Everything published over
                30 days ago has had a request since ${h(day(new Date(Date.now() - 30 * 86400000).toISOString()))}.`
              : `Nothing can be called idle yet: counting began ${usageSince ? h(day(usageSince)) : "with the first request"}, and
                thirty days of it are needed.`}</td></tr>`
       : visible.length === 0
-        ? `<tr><td colspan="4" class="empty">Nothing matches${contentFilter
+        ? `<tr><td colspan="6" class="empty">Nothing matches${contentFilter
              ? ` <b>${h(contentFilter)}</b>` : ""}${among}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
@@ -5816,8 +5816,34 @@ function drawMyContentList() {
           </tr>`;
         }).join("");
 
+  drawContentColumns();
   $("contentRowsPager").innerHTML = pagerFor("contentRows", visible.length);
   drawContentBulk();
+}
+
+/**
+ * <b>Type and Shared with are columns on a wide window</b> (the redesign of 2026-11-02, after DesktopContent): the four row
+ * templates — a service, a web map, a file, a layer — each wrote the kind beside the name and the sharing first among the facts,
+ * so the columns are read from what they drew rather than written four times. What a column repeats is marked `dup`, and the
+ * stylesheet draws one or the other: the columns above 720 pixels, the line under the name below it.
+ */
+function drawContentColumns() {
+  for (const row of $("contentRows").querySelectorAll("tr.mediarow")) {
+    const acts = row.querySelector(":scope > td.acts");
+    const name = row.querySelector(":scope > td.name");
+    if (!acts || !name || row.querySelector(":scope > td.col")) continue;
+    const kind = name.querySelector(".svctype");
+    const shared = name.querySelector(".svcmeta > .pill, .svcmeta > .pillbtn");
+    kind?.classList.add("dup");
+    shared?.classList.add("dup");
+    const type = document.createElement("td");
+    type.className = "col type";
+    type.textContent = kind ? kind.textContent.trim() : "";
+    const share = document.createElement("td");
+    share.className = "col shared";
+    if (shared) share.append(shared.cloneNode(true));
+    acts.before(type, share);
+  }
 }
 
 // ---------------------------------------------------------------- several items at once (ADR-129)
@@ -17508,10 +17534,12 @@ async function loadServices() {
   $("servicesPager").innerHTML = pagerFor("services", shown_.length);
 
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
+  // The phone's scope button names the folder being listed (the redesign of 2026-11-02).
+  if ($("servicesScopeName")) $("servicesScopeName").textContent = selectedFolder || "Site (root)";
   const statusWords = { started: "started", failing: "failing", stopped: "stopped" };
 
   $("services").innerHTML = shown_.length === 0
-    ? `<tr><td colspan="4" class="empty">${rows.length === 0
+    ? `<tr><td colspan="7" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : needle
           ? `No service in any folder matches <b>${h(serviceFilter)}</b>.`
@@ -17541,9 +17569,12 @@ async function loadServices() {
         : `<a href="${surfaceHref("studio",
                "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
              title="Set on this service's Sharing page in Studio">${pill(r.sharing)}</a>`;
+      // <b>Type, Folder and Status are columns on a wide window</b> (the redesign of 2026-11-02, after the mockup), so
+      // the facts line below the name does not say them again there (`.dup`); a phone has no columns and keeps them in it.
+      const statusPill = `${pill(failing ? "failing" : r.status)}${refusingSays(r.refusing)}`;
       const facts = [
-        `${pill(failing ? "failing" : r.status)}${refusingSays(r.refusing)}`,
-        `<span>${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
+        `<span class="dup">${statusPill}</span>`,
+        `<span class="dup">${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
         sharingFact,
         r.owner ? `<span><span class="sr-only">Owner </span>${h(r.owner)}</span>` : "",
         r.system ? "" : `<span>${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
@@ -17585,7 +17616,7 @@ async function loadServices() {
 
         <td class="svcbody">
           <div class="svctitle"><a class="name" href="${page}">${h(r.name)}</a>
-            <span class="svctype">${h(typeOf(r))}</span></div>
+            <span class="svctype dup">${h(typeOf(r))}</span></div>
           ${r.description ? `<p class="svcdesc">${h(r.description)}</p>` : ""}
           <div class="svcmeta">${facts}</div>
           ${deleteWhy}
@@ -17598,6 +17629,9 @@ async function loadServices() {
             <a href="${failingLogHref(r.qualified)}">Read its warnings</a></p>` : ""}
         </td>
 
+        <td class="col type">${h(typeOf(r))}</td>
+        <td class="col folder">${h(r.folder || "Site (root)")}</td>
+        <td class="col status">${statusPill}</td>
         <td class="acts">${stopControl}${deleteControl}</td>
       </tr>`;
     }).join("");
@@ -17833,6 +17867,13 @@ function closeDrawer() {
 
   if (back?.isConnected && back.offsetParent !== null) {
     back.focus();
+    return;
+  }
+
+  // An item in a ⋯ menu closed when it was pressed (Group layers, in Services'): the menu's own button is where the reader was.
+  const menu = back?.isConnected ? back.closest("details.rowmenu") : null;
+  if (menu?.querySelector("summary")?.offsetParent) {
+    menu.querySelector("summary").focus();
     return;
   }
 
@@ -20787,6 +20828,7 @@ async function loadServiceCapabilities(name, folderGiven) {
       scope.className = "pill p-" + c.sharing;
       scope.textContent = SCOPE_WORDS[c.sharing] || c.sharing;
     }
+    mirrorServiceScope();
   }
 
   const raster = $("coverageSettings");
@@ -21378,12 +21420,13 @@ function drawServerHero() {
       <h1>${wrapName(system ? system.name : row.name)}</h1>
       <p>${words[kind] || kind}${(row?.folder || system?.folder) ? ` in ${h(row?.folder || system?.folder)}` : ""}
         ${pill(failing ? "failing" : status)}${row ? refusingSays(row.refusing) : ""}${system ? ` <span class="rowmeta">no layers</span>` : ""}<span
-          id="heroPin">${row ? servicePinPill(qualified) : ""}</span></p>
+          id="heroPin">${row ? servicePinPill(qualified) : ""}</span><span id="heroScope"></span></p>
       ${failing ? `<p class="herofail">${h(failingSays(failing))} <a href="${failingLogHref(qualified)}">Read its warnings</a></p>` : ""}
-      <!-- <b>A break after each slash — the UI sweep of 2026-11-02.</b> The address broke inside "services" at 390 px. -->
+      <!-- <b>One line with an ellipsis, and the whole address in its title</b> — the redesign of 2026-11-02. It was broken after each slash
+           (the UI sweep) and ran to four lines on a phone; a break opportunity would also defeat the ellipsis. -->
       <div class="urlrow">
         <span class="key" id="heroUrlKey">Service URL</span>
-        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url).replace(/([/_])/g, "$1<wbr>")}</code>
+        <code id="heroUrl" aria-labelledby="heroUrlKey" title="${h(url)}">${h(url)}</code>
         <button type="button" class="tiny" data-copy="${h(url)}">Copy URL</button>
       </div>
     </div>
@@ -21394,8 +21437,21 @@ function drawServerHero() {
       ${system && !inSystem && mayEnterSystem() ? `<a class="btn" href="${h(surfaceHref("system",
         `service/${qualified.split("/").map(encodeURIComponent).join("/")}`))}">Open in System</a>` : ""}
     </div>`;
+  mirrorServiceScope();
   drawStoppedNote();
   paintPreviews();
+}
+
+/**
+ * <b>Who may read the service is in the head's meta line, with its kind, its folder and its state</b> (the redesign of
+ * 2026-11-02, the ux-designer's verification): a pill above the card, at the far right, was a fifth place for a fact
+ * the line already carries. The pill is still written into `#serviceScope`, which the head card's drawing and this copy read.
+ */
+function mirrorServiceScope() {
+  const scope = $("serviceScope");
+  const slot = $("heroScope");
+  if (!slot) return;
+  slot.innerHTML = scope && !scope.hidden && scope.textContent ? `<span class="${h(scope.className)}">${h(scope.textContent)}</span>` : "";
 }
 
 /**
@@ -30276,6 +30332,22 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>Empty services is in the list's ⋯</b> (the redesign of 2026-11-02): the section is drawn when it is chosen, and
+  // choosing it again puts it away. Focus goes to its heading, which is where the reader's attention should be.
+  if (t.id === "emptyOpen") {
+    const section_ = $("emptyServices");
+    section_.hidden = !section_.hidden;
+    t.setAttribute("aria-expanded", String(!section_.hidden));
+    if (!section_.hidden) {
+      $("emptyHead").tabIndex = -1;
+      $("emptyHead").focus();
+      section_.scrollIntoView({ block: "nearest" });
+    } else {
+      $("serviceMore").querySelector("summary").focus();
+    }
+    return;
+  }
+
   if (t.id === "emptyRead") {
     t.disabled = true;
     $("emptyWhen").textContent = "Reading…";
@@ -34157,6 +34229,13 @@ function drawLogControlsNow() {
               ? ` All three are ${h(whoNow?.organisation?.name || "this organization")}'s own; the server's own warnings`
                 + " are its system administrator's, because they are about every organization on it."
               : "");
+    }
+    if ($("logAboutBody")) $("logAboutBody").innerHTML = $("logLede")?.innerHTML || "";
+    const pick = $("logSourcePick");
+    if (pick) {
+      pick.hidden = inSystem;
+      pick.innerHTML = visibleLogSources().map(([key, label]) =>
+        `<option value="${h(key)}"${key === logSource ? " selected" : ""}>${h(label)}</option>`).join("");
     }
     sources.innerHTML = visibleLogSources().map(([key, label]) =>
       `<button role="tab" aria-selected="${key === logSource}" aria-controls="logRows"
@@ -38337,6 +38416,20 @@ function drawDocumentTitle() {
       break;
     }
   }
+  // <b>One format everywhere — the last round of the redesign of 2026-11-02:</b> `Screen · Surface or section · Graticula`. A screen
+  // with no section of its own is named for its surface (Status and Data sources were "Status · Graticula"), and Security's four
+  // sub-pages are four titles — "Two-step sign-in · Security · Graticula" — because the heading says Security on every one.
+  if (screen) {
+    const pressed = document.querySelector("#view-signin.on #secSwitch [aria-pressed=true]");
+    if (pressed && pressed.getClientRects().length) {
+      screen = pressed.textContent.trim();
+      section = "Security";
+    } else if (!section) {
+      const surface = surfaceOfPath();
+      section = surface ? surface.charAt(0).toUpperCase() + surface.slice(1) : "";
+    }
+    if (section === screen) section = "";
+  }
   const parts = [screen, section];
   if (tenancyName && !screen.includes(tenancyName)) parts.push(tenancyName);
   parts.push("Graticula");
@@ -38348,7 +38441,7 @@ let titleTimer = 0;
 new MutationObserver(() => {
   if (titleTimer) return;
   titleTimer = setTimeout(() => { titleTimer = 0; drawDocumentTitle(); }, 60);
-}).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "hidden", "style"] });
+}).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "hidden", "style", "aria-pressed"] });
 
 /**
  * Which organization this console is, where the server holds more than one — in the bar and in the window's title, so
@@ -40531,6 +40624,21 @@ $("contentSheetClear").addEventListener("click", () => {
   else { drawMyContent(); paintPreviews(); }
 });
 
+// <b>The phone's select for the log being read</b> presses the tab it names, so the one handler that changes the log stays the only one.
+$("logSourcePick").addEventListener("change", event => {
+  document.querySelector(`#logSources [data-log-source="${CSS.escape(event.target.value)}"]`)?.click();
+});
+
+// <b>Server › Services' folders sheet</b> (the redesign of 2026-11-02): the left column, a full-screen dialog on a phone.
+$("servicesScopeBtn").addEventListener("click", () => phoneOpen($("servicesSide"), $("servicesScopeBtn"), $("servicesSheetClose")));
+for (const closer of [$("servicesSheetClose"), $("servicesSheetShow")]) {
+  closer.addEventListener("click", () => phoneClose());
+}
+// A folder is a link and the list changes under the sheet: the sheet's work is done, and focus is the page's to place.
+$("servicesSide").addEventListener("click", event => {
+  if (phoneOverlay?.el === $("servicesSide") && event.target instanceof Element && event.target.closest("#folders a[href]")) phoneClose(false);
+});
+
 $("memberFilterBtn").addEventListener("click", () => {
   // The column is a `details` that a phone keeps closed until asked; the sheet is that asking.
   $("mfWrap").open = true;
@@ -40643,7 +40751,7 @@ function phonePlace() {
   if (!phone) phoneClose(false);
 
   const dialogs = [["navDrawer", "aria-label", "Menu"], ["contentSide", "aria-labelledby", "contentSheetTitle"],
-    ["memberSide", "aria-labelledby", "memberSheetTitle"]];
+    ["memberSide", "aria-labelledby", "memberSheetTitle"], ["servicesSide", "aria-labelledby", "servicesSheetTitle"]];
   for (const [id, naming, name] of dialogs) {
     const el = $(id);
     if (phone) {
