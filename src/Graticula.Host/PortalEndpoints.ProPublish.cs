@@ -60,6 +60,21 @@ internal static partial class PortalEndpoints
         /// a publish answer without a <c>jobId</c> as a failure and deletes the service item it named (dev, 2026-10-17).
         /// </summary>
         public string? WrittenJob { get; set; }
+
+        /// <summary>
+        /// The ArcGIS item type of a data file uploaded in parts (ADR-257) — <c>CSV</c>, <c>Shapefile</c> and so on — or
+        /// null for a service definition.
+        /// </summary>
+        public string? ItemType { get; set; }
+
+        /// <summary>The file's own name, as <c>addItem</c>'s <c>fileName</c> said it, for a data file.</summary>
+        public string? FileName { get; set; }
+
+        /// <summary>The owner's folder the data file goes into, or null for the root.</summary>
+        public Guid? Folder { get; set; }
+
+        /// <summary>The document a committed data file became, which the item's <c>status</c> names (ADR-257).</summary>
+        public string? DocumentId { get; set; }
     }
 
     private static readonly ConcurrentDictionary<string, StagedDefinition> Staged = new(StringComparer.OrdinalIgnoreCase);
@@ -171,6 +186,8 @@ internal static partial class PortalEndpoints
         HttpContext context, ImportScratch scratch, IWebMapStore maps, IContentFolderStore folders, IAuditLog audit,
         string username, CancellationToken cancellation)
     {
+        // A data file is a body as large as the upload limit allows (ADR-257), not Kestrel's default.
+        HostedDataEndpoints.AllowUpload(context);
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         string type = First(form, context, "type");
 
@@ -178,6 +195,13 @@ internal static partial class PortalEndpoints
         if (string.Equals(type, "Web Map", StringComparison.OrdinalIgnoreCase))
         {
             return await AddWebMapAsync(context, form, username, maps, folders, audit, cancellation).ConfigureAwait(false);
+        }
+
+        // ADR-257: a CSV, a zipped shapefile or file geodatabase, GeoJSON or a workbook is a door onto Studio's own
+        // document upload, so the privilege, the store and the audit line are Studio's.
+        if (FileTypeOf(type) is not null)
+        {
+            return await AddDataItemAsync(context, form, type, username, scratch, folders, cancellation).ConfigureAwait(false);
         }
 
         if (Publisher(context, username) is not { } current)
@@ -188,14 +212,15 @@ internal static partial class PortalEndpoints
         if (!string.Equals(type, "Service Definition", StringComparison.OrdinalIgnoreCase))
         {
             return PortalError(400,
-                $"A service definition or a web map is added from Pro here (ADR-191); '{type}' is neither.");
+                $"A service definition, a web map, or a CSV, Shapefile, File Geodatabase, GeoJson or Microsoft Excel "
+                + $"file is added here (ADR-191, ADR-257); '{type}' is none of these.");
         }
 
         string id = Guid.NewGuid().ToString("N");
 
         // ADR-012 phase 2: on a site the definition is staged in the shared server directories, so addPart, commit and
         // publish may each reach a different node.
-        string directory = System.IO.Path.Combine(SiteHandoff.Directory(StagedKind) ?? System.IO.Path.Combine(scratch.Directory, "portal"), id);
+        string directory = StagingDirectory(scratch, id);
         System.IO.Directory.CreateDirectory(directory);
 
         StagedDefinition staged = new(id, current.Principal.Id, directory,
@@ -209,6 +234,17 @@ internal static partial class PortalEndpoints
             await file.CopyToAsync(target, cancellation).ConfigureAwait(false);
         }
 
+        Stage(staged);
+        return Results.Ok(new { success = true, id, folder = (string?)null });
+    }
+
+    /// <summary>Where an upload <paramref name="id"/> is staged: on a site, where the site's other nodes read it.</summary>
+    private static string StagingDirectory(ImportScratch scratch, string id) =>
+        System.IO.Path.Combine(SiteHandoff.Directory(StagedKind) ?? System.IO.Path.Combine(scratch.Directory, "portal"), id);
+
+    /// <summary>Keeps a new upload, within the bound: a service definition, or a data file sent in parts (ADR-257).</summary>
+    private static void Stage(StagedDefinition staged)
+    {
         // Bounded: an entry whose folder the scratch sweep took is gone, and past MaximumStaged the oldest go first.
         foreach (StagedDefinition gone in Staged.Values.Where(s => !System.IO.Directory.Exists(s.Directory)).ToList())
         {
@@ -220,16 +256,15 @@ internal static partial class PortalEndpoints
             Staged.TryRemove(oldest.Id, out _);
         }
 
-        Staged[id] = staged;
+        Staged[staged.Id] = staged;
         Remember(staged);
-        return Results.Ok(new { success = true, id, folder = (string?)null });
     }
 
     /// <summary>Portal's <c>addPart</c>: one numbered part of a multipart upload.</summary>
     private static async Task<IResult> AddPartAsync(
         HttpContext context, string username, string id, CancellationToken cancellation)
     {
-        if (Publisher(context, username) is not { } current || Mine(id, current) is not { } staged)
+        if (Uploader(context, username, id) is not { } staged)
         {
             return Unknown("Item");
         }
@@ -252,17 +287,33 @@ internal static partial class PortalEndpoints
     private static async Task<IResult> CommitAsync(
         HttpContext context, string username, string id, CancellationToken cancellation)
     {
-        if (Publisher(context, username) is not { } current || Mine(id, current) is not { } staged)
+        if (Uploader(context, username, id) is not { } staged)
         {
             return Unknown("Item");
         }
 
         await ReassembleAsync(staged.Directory, staged.File, cancellation).ConfigureAwait(false);
 
-        return File.Exists(staged.File)
+        if (!File.Exists(staged.File))
+        {
+            return PortalError(400, "Nothing was uploaded to commit.");
+        }
+
+        // ADR-257: a data file's parts, joined, go through the same door a single-request addItem does.
+        return staged.ItemType is null
             ? Results.Ok(new { success = true, id })
-            : PortalError(400, "Nothing was uploaded to commit.");
+            : await CommitDataItemAsync(context, staged, cancellation).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The staged upload <paramref name="id"/>, when it is the caller's and they may send its parts: a service
+    /// definition to a publisher, a data file (ADR-257) to whoever added it.
+    /// </summary>
+    private static StagedDefinition? Uploader(HttpContext context, string username, string id) =>
+        Self(context, username) is { } current && Mine(id, current) is { } staged
+            && (staged.ItemType is not null || current.Authorization.Allows(Privilege.ContentPublishFeatures))
+            ? staged
+            : null;
 
     /// <summary>Where <c>addPart</c> keeps part <paramref name="number"/>: zero-padded, so name order is number order.</summary>
     internal static string PartPath(string directory, int number) =>
@@ -304,10 +355,28 @@ internal static partial class PortalEndpoints
         }
 
         string askedJob = context.Request.Query["jobId"].ToString();
-        if (askedJob.Length > 0 && AllStaged().Any(s => s.Owner == current.Principal.Id
-                && string.Equals(s.WrittenJob, askedJob, StringComparison.OrdinalIgnoreCase)))
+
+        // The ArcGIS API for Python posts it, as `jobid` (ADR-257).
+        if (askedJob.Length == 0 && context.Request.HasFormContentType)
+        {
+            IFormCollection posted = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+            askedJob = (posted["jobId"].ToString() is { Length: > 0 } named ? named : posted["jobid"].ToString()).Trim();
+        }
+
+        if (askedJob.Length > 0 && (AllStaged().Any(s => s.Owner == current.Principal.Id
+                && string.Equals(s.WrittenJob, askedJob, StringComparison.OrdinalIgnoreCase))
+            || PublishedWhileAsked(askedJob, current.Principal.Id)))
         {
             return Results.Ok(new { status = "completed", itemId = id, jobId = askedJob });
+        }
+
+        // A data file uploaded in parts is the document its commit made (ADR-257).
+        if (AllStaged().FirstOrDefault(s => s.Owner == current.Principal.Id && s.ItemType is not null
+                && string.Equals(s.Id, id, StringComparison.OrdinalIgnoreCase)) is { } data)
+        {
+            return Results.Ok(data.DocumentId is { } document
+                ? new { status = "completed", itemId = document }
+                : (object)new { status = "partial", itemId = id });
         }
 
         Guid? job = Guid.TryParse(askedJob, out Guid asked) ? asked
@@ -378,11 +447,19 @@ internal static partial class PortalEndpoints
         }
 
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        string fileType = First(form, context, "filetype");
 
-        if (!string.Equals(First(form, context, "filetype"), "serviceDefinition", StringComparison.OrdinalIgnoreCase))
+        // ADR-257: a CSV, shapefile, file geodatabase, GeoJSON or workbook item is published by Studio's own import.
+        if (DataFileTypes.ContainsKey(fileType))
+        {
+            return await PublishDataItemAsync(context, form, current, fileType, cancellation).ConfigureAwait(false);
+        }
+
+        if (!string.Equals(fileType, "serviceDefinition", StringComparison.OrdinalIgnoreCase))
         {
             return PortalError(400,
-                "Only a service definition is published from Pro here (Copy all data → Feature, ADR-191).");
+                "A service definition (Copy all data → Feature, ADR-191), or a csv, shapefile, fileGeodatabase, geojson "
+                + $"or excel item (ADR-257), is published here; '{fileType}' is none of these.");
         }
 
         if (Mine(First(form, context, "itemid"), current) is not { } staged || !File.Exists(staged.File))
@@ -811,6 +888,7 @@ internal static partial class PortalEndpoints
 
         if (current.Principal.IsAnonymous || !Guid.TryParseExact(id, "N", out _)
             || StagedById(id) is not { } staged || staged.Owner != current.Principal.Id
+            || staged.ItemType is not null
             || !System.IO.Directory.Exists(staged.Directory))
         {
             return null;

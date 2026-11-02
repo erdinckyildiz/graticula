@@ -191,7 +191,7 @@ internal static class HostedDataEndpoints
     /// thing. What it is <em>not</em> is <c>admin:manageServer</c>: hosting data
     /// must not require the account that can stop services.
     /// </remarks>
-    private static async Task ImportAsync(
+    internal static async Task ImportAsync(
         HttpContext context,
         PostGisImporter importer,
         IAdminCatalog catalog,
@@ -1031,7 +1031,7 @@ internal static class HostedDataEndpoints
     /// mind and need somewhere to put what they gather. The result is a complete
     /// layer with no features: a client can add it, draw nothing, and edit.
     /// </remarks>
-    private static async Task DefineAsync(
+    internal static async Task DefineAsync(
         HttpContext context,
         LayerDesign design,
         PostGisImporter importer,
@@ -1453,6 +1453,56 @@ internal static class HostedDataEndpoints
         Kml,
     }
 
+    /// <summary>
+    /// Why a zip kept as a shapefile or a file geodatabase document is not one, or null when it is, or when the kind is
+    /// not one of those two — ADR-257. The archive's own listing is read, nothing is unpacked.
+    /// </summary>
+    /// <param name="kind">What the upload was recognised as.</param>
+    /// <param name="content">Its bytes.</param>
+    /// <returns>The refusal, or null.</returns>
+    internal static string? ArchiveRefusal(Graticula.Platform.Catalog.DocumentKind kind, byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(kind);
+        ArgumentNullException.ThrowIfNull(content);
+
+        bool shapefile = kind.ArcGisType == "Shapefile";
+        bool geodatabase = kind.ArcGisType == "File Geodatabase";
+
+        if (!shapefile && !geodatabase)
+        {
+            return null;
+        }
+
+        using System.IO.MemoryStream bytes = new(content, writable: false);
+
+        if (RecogniseArchive(bytes) == ForeignArchive.Geodatabase)
+        {
+            return geodatabase
+                ? null
+                : "This zip holds a file geodatabase, not a shapefile. Add it as a File Geodatabase item.";
+        }
+
+        if (geodatabase)
+        {
+            return "This zip holds no file geodatabase (a folder named '.gdb'). Nothing was kept.";
+        }
+
+        bytes.Position = 0;
+
+        try
+        {
+            using System.IO.Compression.ZipArchive zip = new(bytes, System.IO.Compression.ZipArchiveMode.Read);
+
+            return zip.Entries.Take(512).Any(e => e.FullName.EndsWith(".shp", StringComparison.OrdinalIgnoreCase))
+                ? null
+                : "This zip holds no '.shp' file, so it is not a shapefile. Nothing was kept.";
+        }
+        catch (System.IO.InvalidDataException broken)
+        {
+            return $"The zip could not be read: {broken.Message}";
+        }
+    }
+
     private static ForeignArchive RecogniseArchive(System.IO.Stream archive)
     {
         const int Enough = 512;
@@ -1549,7 +1599,7 @@ internal static class HostedDataEndpoints
     /// is to refuse what cannot be done before anything is written, and then to say where to watch.
     /// </para>
     /// </remarks>
-    private static async Task PublishGeodatabaseAsync(
+    internal static async Task PublishGeodatabaseAsync(
         HttpContext context,
         GeodatabasePublish asked,
         IJobStore jobs,

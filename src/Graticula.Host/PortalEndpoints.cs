@@ -274,6 +274,7 @@ internal static partial class PortalEndpoints
         MapProPublishCapture(app);
         MapItemWrites(app);
         MapItemControls(app);
+        MapContentAdds(app); // ADR-257: analyze and createService, beside addItem and publish
     }
 
     /// <summary>
@@ -303,8 +304,10 @@ internal static partial class PortalEndpoints
     /// gates its edit tools on <c>features:user:edit</c> — Field Maps and the JS Editor widget among them (INFERRED) —
     /// could hide editing from an administrator who may edit everything here. <c>features:user:edit</c> and
     /// <c>features:user:fullEdit</c> follow this server's own <see cref="Privilege.FeaturesEdit"/> and
-    /// <see cref="Privilege.FeaturesFullEdit"/>. <c>portal:user:createItem</c> stays off: there is no portal write
-    /// API (ADR-040 §4f), and a privilege for an action that fails is the generous list this guards against.
+    /// <see cref="Privilege.FeaturesFullEdit"/>. <c>portal:user:createItem</c> follows <see cref="Privilege.ContentCreate"/>
+    /// since ADR-257, where <c>addItem</c> takes a member's file as Studio's upload does; before it there was no portal
+    /// write a member who may not publish could make, and a privilege for an action that fails is the generous list
+    /// this guards against.
     /// </remarks>
     private static string[] PrivilegesOf(RequestPrincipal current, bool administrator, bool publishing)
     {
@@ -316,7 +319,13 @@ internal static partial class PortalEndpoints
         {
             if (current.Authorization.Allows(Privilege.ContentPublishFeatures))
             {
-                held.AddRange(["portal:user:createItem", "portal:publisher:publishFeatures"]);
+                held.Add("portal:publisher:publishFeatures");
+            }
+
+            // ADR-257: whoever may create content may add an item, publisher or not.
+            if (current.Authorization.Allows(Privilege.ContentCreate))
+            {
+                held.Add("portal:user:createItem");
             }
 
             if (current.Authorization.Allows(Privilege.GroupsShareTo))
