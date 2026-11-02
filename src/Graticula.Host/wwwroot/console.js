@@ -8052,8 +8052,9 @@ function drawServiceLayers(layers, qualified) {
     : ordered.length === 0 ? "Tables" : "Layers and tables";
 
   box.innerHTML = ordered.length === 0 && serviceTables.length === 0
-    ? `<tr><td colspan="2" class="empty">This service holds no layers. A service can exist before its
-         layers do, which is the order you need when the structure matters.</td></tr>`
+    ? `<tr><td colspan="2" class="empty" data-empty-service>This service holds no layers yet. An ArcGIS client
+         that created it adds them with addToDefinition; one left behind when its last layer was unpublished can be
+         deleted from Server's Services list.</td></tr>`
     : ordered.length === 0
     ? `${tableRows}<tr><td colspan="3" class="empty tablesonly">${serviceTables.length === 1 ? "A table holds"
          : "Tables hold"} rows without a location, so this service draws no map. Rows are read and edited on

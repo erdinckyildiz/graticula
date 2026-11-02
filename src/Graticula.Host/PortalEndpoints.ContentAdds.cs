@@ -627,6 +627,7 @@ internal static partial class PortalEndpoints
         return Results.Ok(new { publishParameters = parameters, records = Array.Empty<object>() });
     }
 
+
     /// <summary>ArcGIS geometry types, as the hosted geometry types Studio designs a layer with (INFERRED: always multi-part, as ArcGIS's are).</summary>
     private static readonly FrozenDictionary<string, string> DesignedGeometry = new Dictionary<string, string>
     {
@@ -642,11 +643,159 @@ internal static partial class PortalEndpoints
         "esriFieldTypeOID", "esriFieldTypeGeometry",
     };
 
+    /// <summary>The keys of an ArcGIS layer definition a designed layer is made from.</summary>
+    private static readonly HashSet<string> DesignedLayerKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "name", "type", "geometryType", "fields", "id", "hasZ", "hasM", "extent", "spatialReference",
+    };
+
+    /// <summary>
+    /// Keys of an ArcGIS layer definition that describe what this server works out for itself, or that change nothing
+    /// a client can observe here, and are passed over. ADR-257 §11: the ArcGIS API for Python's own examples send them,
+    /// and refusing a definition for its <c>objectIdField</c> would refuse every one of them.
+    /// </summary>
+    private static readonly HashSet<string> DescriptiveLayerKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "objectIdField", "uniqueIdField", "displayField", "description", "copyrightText", "defaultVisibility",
+        "minScale", "maxScale", "htmlPopupType", "capabilities", "supportsRollbackOnFailureParameter",
+        "allowGeometryUpdates", "currentVersion", "maxRecordCount", "supportedQueryFormats", "hasStaticData",
+        "isDataVersioned", "supportsAdvancedQueries", "supportsStatistics", "useStandardizedQueries", "popupInfo",
+    };
+
+    /// <summary>
+    /// The hosted layer an ArcGIS layer definition describes — <c>createService</c>'s <c>createParameters.layers</c> and
+    /// a service's <c>addToDefinition</c> (ADR-257 §5.5, §11). Every key is either read, passed over as descriptive, or
+    /// refused by name: a definition told <c>success</c> while its renderer or its attachments were dropped would be
+    /// built on by a client that believes they are there (ADR-008 §2).
+    /// </summary>
+    /// <param name="layer">The layer's definition.</param>
+    /// <param name="fallbackName">The name a lone unnamed layer takes, or empty.</param>
+    /// <param name="serviceName">The service it is designed into.</param>
+    /// <param name="serviceSrid">The spatial reference a layer that names none is stored in, or null for Web Mercator.</param>
+    /// <param name="design">The design, when this returns true.</param>
+    /// <param name="error">Why not, when it returns false.</param>
+    /// <returns>Whether the layer can be designed.</returns>
+    internal static bool TryReadLayerDesign(
+        JsonElement layer, string fallbackName, string serviceName, int? serviceSrid,
+        out HostedDataEndpoints.LayerDesign? design, out string? error)
+    {
+        design = null;
+        error = null;
+
+        if (layer.ValueKind != JsonValueKind.Object)
+        {
+            error = "Every layer is a JSON object.";
+            return false;
+        }
+
+        string layerName = layer.TryGetProperty("name", out JsonElement ln) && ln.ValueKind == JsonValueKind.String
+            && ln.GetString() is { Length: > 0 } given
+                ? given.Trim()
+                : fallbackName;
+
+        if (layerName.Length == 0)
+        {
+            error = "Every layer has a name of its own.";
+            return false;
+        }
+
+        foreach (JsonProperty property in layer.EnumerateObject())
+        {
+            if (DesignedLayerKeys.Contains(property.Name) || DescriptiveLayerKeys.Contains(property.Name)
+                || property.Value.ValueKind == JsonValueKind.Null)
+            {
+                continue;
+            }
+
+            if (property.Name.Equals("hasAttachments", StringComparison.OrdinalIgnoreCase))
+            {
+                if (property.Value.ValueKind == JsonValueKind.False)
+                {
+                    continue;
+                }
+
+                error = $"Layer '{layerName}' asks for attachments, which are turned on after it exists — on its Settings page in "
+                    + "Studio. Nothing was created: send it with hasAttachments false.";
+                return false;
+            }
+
+            error = property.Name.Equals("drawingInfo", StringComparison.OrdinalIgnoreCase)
+                ? $"Layer '{layerName}' carries a drawingInfo, which this server does not take from a definition: a layer's "
+                  + "drawing is its style, set on its Style page in Studio. Nothing was created: send it without one."
+                : $"Layer '{layerName}' carries '{property.Name}', which this server does not make from a definition. "
+                  + "Nothing was created: a layer is designed here from its name, geometryType, fields and spatial reference.";
+            return false;
+        }
+
+        string? geometry = layer.TryGetProperty("geometryType", out JsonElement g) && g.ValueKind == JsonValueKind.String ? g.GetString() : null;
+        bool table = geometry is null
+            || (layer.TryGetProperty("type", out JsonElement t) && string.Equals(t.GetString(), "Table", StringComparison.OrdinalIgnoreCase));
+        string designed;
+
+        if (table)
+        {
+            designed = "Table";
+        }
+        else if (!DesignedGeometry.TryGetValue(geometry!, out designed!))
+        {
+            error = $"Layer '{layerName}' has geometryType '{geometry}'; a hosted layer is one of "
+                + string.Join(", ", DesignedGeometry.Keys) + ", or none for a table.";
+            return false;
+        }
+        else
+        {
+            bool z = layer.TryGetProperty("hasZ", out JsonElement hz) && hz.ValueKind == JsonValueKind.True;
+            bool m = layer.TryGetProperty("hasM", out JsonElement hm) && hm.ValueKind == JsonValueKind.True;
+            designed += (z ? "Z" : string.Empty) + (m ? "M" : string.Empty);
+        }
+
+        JsonElement[] described = layer.TryGetProperty("fields", out JsonElement f) && f.ValueKind == JsonValueKind.Array
+            ? [.. f.EnumerateArray().Where(field => !(field.TryGetProperty("type", out JsonElement ft)
+                && MadeByTheTable.Contains(ft.GetString() ?? string.Empty)))]
+            : [];
+
+        List<HostedDataEndpoints.FieldDesign> fields = [];
+
+        if (described.Length > 0
+            && !ArcGisAdminEndpoints.TryDefinition(
+                JsonSerializer.Serialize(new { fields = described }), adding: true, out fields, out string? fieldError))
+        {
+            error = $"Layer '{layerName}': {fieldError}";
+            return false;
+        }
+
+        int? srid = SridOf(layer, "spatialReference")
+            ?? (layer.TryGetProperty("extent", out JsonElement extent) && extent.ValueKind == JsonValueKind.Object
+                ? SridOf(extent, "spatialReference")
+                : null)
+            ?? serviceSrid;
+
+        design = new HostedDataEndpoints.LayerDesign(layerName, designed, fields, null, serviceName, Srid: table ? null : srid);
+        return true;
+    }
+
+    /// <summary>The EPSG code a <c>spatialReference</c> property names, 102100 read as 3857; or null.</summary>
+    internal static int? SridOf(JsonElement owner, string property) =>
+        owner.ValueKind == JsonValueKind.Object
+        && owner.TryGetProperty(property, out JsonElement sr) && sr.ValueKind == JsonValueKind.Object
+        && (sr.TryGetProperty("latestWkid", out JsonElement w) || sr.TryGetProperty("wkid", out w))
+        && w.TryGetInt32(out int wkid) && wkid > 0
+            ? ArcGisGeometryReader.Canonical(wkid)
+            : null;
+
+    /// <summary>
+    /// A service name the portal may create empty: the rule Studio's views keep, which the ArcGIS API for Python's own
+    /// check (letters, digits and underscores) falls inside.
+    /// </summary>
+    private static readonly Regex EmptyServiceName = new("^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$", RegexOptions.CultureInvariant);
+
     /// <summary>
     /// Portal's <c>createService</c> — ADR-257: a service with its layers named in <c>createParameters.layers</c>
     /// (and <c>tables</c>), each one designed by Studio's <c>POST /admin/hosted/define</c>; or, with
     /// <c>isView=true</c>, a view of the source the layers' <c>adminLayerInfo.viewLayerDefinition</c> names, made by
-    /// Studio's view. A service with no layers is refused: none is created here (ADR-057 condition 4).
+    /// Studio's view. <b>Without layers, since 2026-11-02 (ADR-257 §11, owner decision)</b>, an empty hosted service —
+    /// the shape the ArcGIS API for Python's <c>create_service</c> and <c>create_view</c> send, filled next by the
+    /// service's <c>addToDefinition</c>.
     /// </summary>
     private static async Task<IResult> CreateServiceAsync(HttpContext context, string username, CancellationToken cancellation)
     {
@@ -709,17 +858,9 @@ internal static partial class PortalEndpoints
             }
         }
 
-        if (layers.Count == 0)
-        {
-            return PortalError(400,
-                (view ? "A view is made of its source in one request here" : "A service is created with its layers here")
-                + ": name them in createParameters." + (view
-                    ? "layers, each with adminLayerInfo.viewLayerDefinition's sourceServiceName and sourceLayerId."
-                    : "layers, each with its name, geometryType and fields.")
-                + " An empty service filled by addToDefinition afterwards is not made (ADR-057 condition 4, ADR-257).");
-        }
-
-        IResult result = view
+        IResult result = layers.Count == 0
+            ? await CreateEmptyServiceAsync(context, name, create, view, current, cancellation).ConfigureAwait(false)
+            : view
             ? await CreateViewServiceAsync(context, name, create, layers, cancellation).ConfigureAwait(false)
             : await CreateDesignedServiceAsync(context, name, create, layers, cancellation).ConfigureAwait(false);
 
@@ -765,6 +906,90 @@ internal static partial class PortalEndpoints
     }
 
     /// <summary>
+    /// An empty hosted service and its item — ADR-257 §11. What <c>createParameters</c> says about the service and this
+    /// server keeps is kept through the writers Studio uses: <c>serviceDescription</c>, <c>copyrightText</c>, and the
+    /// editing <c>capabilities</c> offer. A view asked for this way is an empty service until its
+    /// <c>addToDefinition</c> names the source, and is made a view of it then; its capabilities become its ceiling now,
+    /// as Studio's view sets them.
+    /// </summary>
+    /// <returns>The service's name as a value result, or the refusal.</returns>
+    private static async Task<IResult> CreateEmptyServiceAsync(
+        HttpContext context, string name, JsonElement create, bool view, RequestPrincipal current, CancellationToken cancellation)
+    {
+        if (!EmptyServiceName.IsMatch(name))
+        {
+            return PortalError(400,
+                $"'{name}' is not a service name here: letters, digits, '_' and '-', starting with a letter or digit, at most 40.");
+        }
+
+        IServiceProvider services = context.RequestServices;
+        IAdminCatalog catalog = services.GetRequiredService<IAdminCatalog>();
+
+        // A layer of that name would make the admin pages that find a layer by its name ambiguous, as Studio's view refuses.
+        if (await HostedDataEndpoints.NameTakenAsync(catalog, name, cancellation).ConfigureAwait(false)
+            || await catalog.FindServiceAtAsync(FeatureServerMetadataWriter.HostedFolder, name, cancellation).ConfigureAwait(false) is not null)
+        {
+            return PortalError(409, $"A service or layer named '{name}' already exists in hosted.");
+        }
+
+        string? capabilities = create.TryGetProperty("capabilities", out JsonElement c) && c.ValueKind == JsonValueKind.String
+            ? c.GetString()
+            : null;
+
+        HashSet<string> asked = new(
+            (capabilities ?? "Query").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (asked.Remove("Editing") && !asked.Overlaps(["Create", "Update", "Delete"]))
+        {
+            asked.UnionWith(["Create", "Update", "Delete"]);
+        }
+
+        // Sync, ChangeTracking and the rest are not served (ADR-082); the stock client asks for them by default only on
+        // ArcGIS Online, so they are left out of the offer rather than refused, and the service document says what is.
+        string[] offered = [.. AdminEndpoints.OwnerOperations.Where(op => asked.Contains(op))];
+
+        if (await catalog.CreateEmptyServiceAsync(name, FeatureServerMetadataWriter.HostedFolder, current.Principal.Id, cancellation)
+            .ConfigureAwait(false) is null)
+        {
+            return PortalError(409, $"A service named '{name}' already exists in hosted.");
+        }
+
+        string folder = FeatureServerMetadataWriter.HostedFolder;
+
+        if (view)
+        {
+            // The ceiling is what was asked, as Studio's view sets it: an add-only view offers no Query (ADR-113 §5.3).
+            string[] ceiling = [.. ((string[])["Query", "Create", "Update", "Delete"]).Where(asked.Contains)];
+            ceiling = ceiling.Length == 0 ? ["Query"] : ceiling;
+            await catalog.SetServiceCapabilitiesAsync(name, folder, new ServiceCapabilityLimits(null, null, ceiling, null), cancellation)
+                .ConfigureAwait(false);
+        }
+
+        await catalog.SetEditingOfferedAsync(name, folder, offered, cancellation).ConfigureAwait(false);
+
+        string? Text(string key) => create.TryGetProperty(key, out JsonElement value) && value.ValueKind == JsonValueKind.String
+            && value.GetString() is { Length: > 0 } said
+                ? said
+                : null;
+
+        if (Text("serviceDescription") is { } description)
+        {
+            await catalog.SetServiceDescriptionAsync(name, folder, description, cancellation).ConfigureAwait(false);
+        }
+
+        if (Text("copyrightText") is { } credits)
+        {
+            await catalog.SetServiceCreditsAsync(name, folder, credits, cancellation).ConfigureAwait(false);
+        }
+
+        await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "service.create.empty", name,
+            AdminEndpoints.Detail(new { folder, view, offered }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        return Results.Ok(name);
+    }
+
+    /// <summary>
     /// The layers of a <c>createService</c>, each designed through Studio's <c>POST /admin/hosted/define</c> into one
     /// service. Every layer is read and checked before the first is made, so a refusal leaves nothing behind; a failure
     /// past that leaves the layers before it, and the answer names them.
@@ -773,67 +998,60 @@ internal static partial class PortalEndpoints
     private static async Task<IResult> CreateDesignedServiceAsync(
         HttpContext context, string name, JsonElement create, List<JsonElement> layers, CancellationToken cancellation)
     {
-        IServiceProvider services = context.RequestServices;
-        IAdminCatalog catalog = services.GetRequiredService<IAdminCatalog>();
+        IAdminCatalog catalog = context.RequestServices.GetRequiredService<IAdminCatalog>();
 
         if (await catalog.FindServiceAtAsync(FeatureServerMetadataWriter.HostedFolder, name, cancellation).ConfigureAwait(false) is not null)
         {
             return PortalError(409, $"A service named '{name}' already exists in hosted.");
         }
 
-        int? srid = create.TryGetProperty("spatialReference", out JsonElement sr) && sr.ValueKind == JsonValueKind.Object
-            && (sr.TryGetProperty("latestWkid", out JsonElement w) || sr.TryGetProperty("wkid", out w))
-            && w.TryGetInt32(out int wkid) && wkid > 0
-                ? wkid
-                : null;
+        (int status, string? message, _) = await DefineLayersAsync(
+            context, name, SridOf(create, "spatialReference"), layers, lone: layers.Count == 1 ? name : string.Empty, cancellation)
+            .ConfigureAwait(false);
 
+        return status is >= 200 and < 300 ? Results.Ok(name) : PortalError(status, message!);
+    }
+
+    /// <summary>
+    /// ArcGIS layer definitions designed into one hosted service through Studio's <c>POST /admin/hosted/define</c> — the
+    /// one-request <c>createService</c> and a service's <c>addToDefinition</c> (ADR-257 §5.5, §11). Every layer is read
+    /// and its name checked before the first is made, so a refusal leaves nothing behind; a failure past that leaves the
+    /// layers before it, and the message names them.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="serviceName">The service, in hosted.</param>
+    /// <param name="serviceSrid">The spatial reference a layer naming none is stored in, or null.</param>
+    /// <param name="layers">The definitions.</param>
+    /// <param name="lone">The name a lone unnamed layer takes, or empty.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A 2xx status and the names made, or the refusal's status and sentence.</returns>
+    internal static async Task<(int Status, string? Message, IReadOnlyList<string> Made)> DefineLayersAsync(
+        HttpContext context, string serviceName, int? serviceSrid, IReadOnlyList<JsonElement> layers, string lone,
+        CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        IAdminCatalog catalog = services.GetRequiredService<IAdminCatalog>();
         List<HostedDataEndpoints.LayerDesign> designs = [];
         HashSet<string> names = new(StringComparer.Ordinal);
 
         foreach (JsonElement layer in layers)
         {
-            string layerName = layer.TryGetProperty("name", out JsonElement ln) && ln.GetString() is { Length: > 0 } given
-                ? given.Trim()
-                : layers.Count == 1 ? name : string.Empty;
-
-            if (layerName.Length == 0 || !names.Add(layerName))
+            if (!TryReadLayerDesign(layer, lone, serviceName, serviceSrid, out HostedDataEndpoints.LayerDesign? design, out string? error))
             {
-                return PortalError(400, "Every layer in createParameters has a name of its own.");
+                return (400, error, []);
             }
 
-            string? geometry = layer.TryGetProperty("geometryType", out JsonElement g) ? g.GetString() : null;
-            string designed;
-
-            if (geometry is null)
+            if (!names.Add(design!.Name!))
             {
-                designed = "Table";
-            }
-            else if (!DesignedGeometry.TryGetValue(geometry, out designed!))
-            {
-                return PortalError(400, $"Layer '{layerName}' has geometryType '{geometry}'; a hosted layer is one of "
-                    + string.Join(", ", DesignedGeometry.Keys) + ", or none for a table.");
+                return (400, $"Two layers are named '{design.Name}'; every layer has a name of its own.", []);
             }
 
-            JsonElement[] described = layer.TryGetProperty("fields", out JsonElement f) && f.ValueKind == JsonValueKind.Array
-                ? [.. f.EnumerateArray().Where(field => !(field.TryGetProperty("type", out JsonElement t)
-                    && MadeByTheTable.Contains(t.GetString() ?? string.Empty)))]
-                : [];
-
-            List<HostedDataEndpoints.FieldDesign> fields = [];
-
-            if (described.Length > 0
-                && !ArcGisAdminEndpoints.TryDefinition(
-                    JsonSerializer.Serialize(new { fields = described }), adding: true, out fields, out string? fieldError))
+            if (await HostedDataEndpoints.NameTakenAsync(catalog, design.Name!, cancellation).ConfigureAwait(false))
             {
-                return PortalError(400, $"Layer '{layerName}': {fieldError}");
+                return (409, $"A layer named '{design.Name}' already exists. Nothing was created.", []);
             }
 
-            if (await HostedDataEndpoints.NameTakenAsync(catalog, layerName, cancellation).ConfigureAwait(false))
-            {
-                return PortalError(409, $"A layer named '{layerName}' already exists. Nothing was created.");
-            }
-
-            designs.Add(new HostedDataEndpoints.LayerDesign(layerName, designed, fields, null, name, Srid: designed == "Table" ? null : srid));
+            designs.Add(design);
         }
 
         PostGisImporter importer = services.GetRequiredService<PostGisImporter>();
@@ -848,14 +1066,14 @@ internal static partial class PortalEndpoints
 
             if (status is < 200 or >= 300)
             {
-                return PortalError(status, (message ?? $"Layer '{design.Name}' was not created.")
-                    + (made.Count > 0 ? $" Already made in '{name}': {string.Join(", ", made)}." : string.Empty));
+                return (status, (message ?? $"Layer '{design.Name}' was not created.")
+                    + (made.Count > 0 ? $" Already made in '{serviceName}': {string.Join(", ", made)}." : string.Empty), made);
             }
 
             made.Add(design.Name!);
         }
 
-        return Results.Ok(name);
+        return (200, null, made);
     }
 
     /// <summary>
@@ -906,4 +1124,8 @@ internal static partial class PortalEndpoints
             ? Results.Ok(name)
             : PortalError(status, message ?? $"The view '{name}' was not made.");
     }
+
+    /// <summary>A Studio handler run inside a request that is not its own: its status and refusal, for a door (ADR-257 §11).</summary>
+    internal static Task<(int Status, string? Message)> InnerStatusAsync(HttpContext context, Func<Task> handler) =>
+        InnerAsync(context, handler);
 }

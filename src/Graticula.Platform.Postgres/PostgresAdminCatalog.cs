@@ -32,8 +32,9 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     /// <remarks>
     /// <para>
     /// <b>[ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5h: one
-    /// act.</b> A service is not created without layers, so there is no empty container to make
-    /// first — and a half-published service, a container whose layers failed, is exactly the
+    /// act.</b> A service is not composed without layers, so there is no empty container to make
+    /// first — the portal's <c>createService</c> for an ArcGIS client is the one empty service, ADR-257 §11 —
+    /// and a half-published service, a container whose layers failed, is exactly the
     /// residue that decision refuses to create deliberately. It must not be created by accident
     /// either, which is what the transaction is for.
     /// </para>
@@ -849,6 +850,36 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("overrides", FieldOverrideJson.Write(fieldOverrides));
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<Guid?> CreateEmptyServiceAsync(
+        string name, string folder, Guid owner, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+
+        // One statement, so the service and its item arrive together (ADR-056 §6). `on conflict do nothing` against
+        // the name's unique index makes a repeated create a null — the caller's 409 — rather than an exception, and
+        // the item insert then selects from nothing.
+        const string Sql = """
+            with created as (
+                insert into service (id, name, folder, kind, status, next_layer_index)
+                values (gen_random_uuid(), @name, @folder, 'FeatureServer', 'started', 0)
+                on conflict do nothing
+                returning id
+            )
+            insert into item (id, kind, title, owner_principal_id, sharing, service_id)
+            select id, 'service', @name, @owner, 'private', id from created
+            returning service_id
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", name.Trim());
+        command.Parameters.AddWithValue("folder", folder.Trim());
+        command.Parameters.AddWithValue("owner", owner);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid id ? id : null;
     }
 
     /// <inheritdoc/>

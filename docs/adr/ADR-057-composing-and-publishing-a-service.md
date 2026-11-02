@@ -12,6 +12,8 @@
 > **Amended 2026-10-03 by [ADR-166](ADR-166-ogc-faces-are-turned-off-one-by-one.md).** §5g: each OGC face may be turned off by the service's owner as well as following the feature face.
 >
 > **Amended 2026-10-13 by [ADR-054](ADR-054-the-symbology-document-is-not-bounded.md) condition 2, owner decision.** A symbology a publish carries is read by `SymbologyConversion.Read` and stored in its canonical form, as `PUT /admin/layers/{name}/symbology` stores one; a document that does not parse refuses the publish `400`.
+>
+> **Amended 2026-11-02 by owner decision — [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md) §11.** §5h and condition 4 are narrowed, not withdrawn: asked whether the ArcGIS API for Python's `create_service` and `create_view` should work as they are, the owner answered *"Boş servise izin ver"* — allow the empty service. **The portal's `createService` makes an empty hosted service**, which the client fills with the service's `addToDefinition`. Studio and Server still compose a service with its layers: `POST /admin/featureservices` stays retired and `POST /admin/publish` still refuses an empty composition.
 
 ---
 
@@ -417,6 +419,22 @@ with no way to publish anything.
 its layers in one transaction and Server's **Publish** tab composes one; the endpoint answers
 400 naming its replacement; the drawer keeps only its group form. §7 condition 4 carries what
 the last two cost and what they found.
+
+**Amended 2026-11-02, by owner decision: *"Boş servise izin ver"* — allow the empty service.**
+The sentence above that a service *"is simply no longer something a person can make on
+purpose"* is no longer true of the portal. The ArcGIS API for Python's `create_service` and
+`create_view` send `createService` with no layers and then the service's `addToDefinition`,
+and nothing else they can be told to send; refusing the first refused both. So the portal's
+`createService` makes an empty hosted service and its item, and `addToDefinition` fills it
+through Studio's own define and view handlers ([ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md)
+§11). **What stays:** Studio and Server compose a service with its layers — the three-act
+sequence this section removed from the screen is not put back, `POST /admin/featureservices`
+still answers 400 and `POST /admin/publish` still refuses an empty composition. The empty
+container is the ArcGIS client protocol's, reached only through that protocol's door. The
+*existing* end above was already right and is unchanged: an empty service is listed, has a
+page that says it holds no layers, and is sweepable — except that a sweep can now meet a
+service a client made a moment ago and has not yet filled, which the sweep's asking first is
+what protects.
 
 ### 5i. One table is one layer *within a service* — and the schema's answer was not a decision
 
@@ -841,6 +859,13 @@ the same file already had one.
    caller with the old address written down is exactly the reader who has to be told where the
    act went. `IAdminCatalog.CreateServiceAsync` went with it — a catalogue method that makes an
    empty service and has no caller is the same rule with a longer fuse.
+
+   **Amended 2026-11-02 by owner decision (*"Boş servise izin ver"*), [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md)
+   §11.** What this condition did stands — the endpoint still answers 400 and the drawer is
+   still gone — but the decision it applied is narrowed: the portal's `createService` makes an
+   empty hosted service for the ArcGIS API for Python's `create_service` and `create_view`, and
+   `IAdminCatalog.CreateEmptyServiceAsync` is the catalogue method it needs, back with exactly
+   that one caller.
 
    **Three conformance classes made empty containers because they were about something else**,
    and moving them cost less than the estimate: every class that touches the whole catalogue is

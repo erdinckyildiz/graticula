@@ -11,8 +11,10 @@ namespace Graticula.Platform.Admin;
 /// <b>[ADR-057](../../../docs/adr/ADR-057-composing-and-publishing-a-service.md) §5a and §5h.</b>
 /// The composition <i>is</i> the service: its name is the service name, its order is the layer
 /// order, and index 0 is drawn on top. Publishing it creates the service and everything in it
-/// in one act, because the owner's rule is that a service is not created without layers — so
-/// there is no empty container to make first and no sequence to remember.
+/// in one act, because the owner's rule is that a service is not composed without layers — so
+/// there is no empty container to make first and no sequence to remember. (The portal's
+/// <c>createService</c> makes an empty one for the ArcGIS API for Python since 2026-11-02, ADR-257 §11;
+/// a composition is still never empty.)
 /// </para>
 /// <para>
 /// <b>One index space, and that is why the tree is flattened here rather than in SQL.</b> A

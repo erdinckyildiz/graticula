@@ -13,7 +13,7 @@ namespace Graticula.Conformance.Tests;
 
 /// <summary>
 /// Portal content adds as doors onto Studio's import — ADR-257, Q-225: the ArcGIS API for Python's
-/// <c>gis.content.add</c>, <c>item.publish()</c>, <c>create_service</c>, <c>create_view</c> and
+/// <c>gis.content.add</c>, <c>item.publish()</c>, <c>create_service</c>, <c>create_view</c> (in two requests, ADR-257 §11) and
 /// <c>FeatureLayer.append(item_id=…)</c>, driven by their documented requests.
 /// </summary>
 /// <remarks>
@@ -378,8 +378,60 @@ public sealed class PortalContentAddsTests : ArcGisClient
         }
     }
 
+    private Task<JsonElement> CreateServiceAsync(object createParameters, bool view = false, string? token = null, string? user = null) =>
+        SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{user ?? User}/createService", Form(new()
+        {
+            ["createParameters"] = JsonSerializer.Serialize(createParameters),
+            ["outputType"] = "featureService",
+            ["isView"] = view ? "true" : "false",
+            ["f"] = "json",
+        }), token);
+
+    private Task<JsonElement> AddToDefinitionAsync(string service, object definition, string? token = null) =>
+        SendAsync(HttpMethod.Post, $"/rest/admin/services/hosted/{service}/FeatureServer/addToDefinition", Form(new()
+        {
+            ["addToDefinition"] = JsonSerializer.Serialize(definition),
+            ["async"] = "false",
+            ["f"] = "json",
+        }), token);
+
+    private static object PointLayer(string name) => new
+    {
+        name,
+        type = "Feature Layer",
+        geometryType = "esriGeometryPoint",
+        objectIdField = "OBJECTID",
+        hasAttachments = false,
+        extent = new { xmin = 25, ymin = 35, xmax = 45, ymax = 43, spatialReference = new { wkid = 4326 } },
+        fields = new object[]
+        {
+            new { name = "OBJECTID", type = "esriFieldTypeOID", nullable = false },
+            new { name = "label", type = "esriFieldTypeString", length = 64, nullable = true, domain = (object?)null },
+        },
+    };
+
+    /// <summary>Removes a service by its layers, then the service itself, as the admin pages do.</summary>
+    private async Task RemoveServiceAsync(string service, params string[] layers)
+    {
+        foreach (string layer in layers)
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/layers/{Uri.EscapeDataString(layer)}");
+        }
+
+        await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{Uri.EscapeDataString(service)}?folder=hosted");
+    }
+
+    private async Task<JsonElement?> ListedAsync(string service)
+    {
+        JsonElement listed = await SendAsync(HttpMethod.Get, "/admin/featureservices");
+        return listed.GetProperty("services").EnumerateArray()
+            .Where(s => s.GetProperty("name").GetString() == service)
+            .Select(s => (JsonElement?)s)
+            .FirstOrDefault();
+    }
+
     [Fact]
-    public async Task A_service_is_created_with_its_layers_and_a_view_of_it_with_its_source_and_an_empty_one_is_refused()
+    public async Task A_service_is_created_with_its_layers_and_a_view_of_it_with_its_source()
     {
         string tag = Guid.NewGuid().ToString("N")[..8];
         string name = $"zz_csvc_{tag}";
@@ -389,35 +441,24 @@ public sealed class PortalContentAddsTests : ArcGisClient
 
         try
         {
-            JsonElement empty = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/createService", Form(new()
+            JsonElement created = await CreateServiceAsync(new
             {
-                ["createParameters"] = JsonSerializer.Serialize(new { name }), ["outputType"] = "featureService", ["f"] = "json",
-            }));
-            Assert.Contains("ADR-057", ErrorOf(empty), StringComparison.Ordinal);
-
-            JsonElement created = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/createService", Form(new()
-            {
-                ["createParameters"] = JsonSerializer.Serialize(new
+                name,
+                spatialReference = new { wkid = 4326 },
+                layers = new[]
                 {
-                    name,
-                    spatialReference = new { wkid = 4326 },
-                    layers = new[]
+                    new
                     {
-                        new
+                        name,
+                        geometryType = "esriGeometryPoint",
+                        fields = new object[]
                         {
-                            name,
-                            geometryType = "esriGeometryPoint",
-                            fields = new object[]
-                            {
-                                new { name = "OBJECTID", type = "esriFieldTypeOID" },
-                                new { name = "label", type = "esriFieldTypeString", length = 64 },
-                            },
+                            new { name = "OBJECTID", type = "esriFieldTypeOID" },
+                            new { name = "label", type = "esriFieldTypeString", length = 64 },
                         },
                     },
-                }),
-                ["outputType"] = "featureService",
-                ["f"] = "json",
-            }));
+                },
+            });
             Assert.True(created.TryGetProperty("success", out JsonElement ok) && ok.GetBoolean(), created.GetRawText());
             made = true;
             Assert.Equal(0, await CountAsync(name));
@@ -425,31 +466,16 @@ public sealed class PortalContentAddsTests : ArcGisClient
             JsonElement fields = await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{name}/FeatureServer/0?f=json");
             Assert.Contains("label", fields.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()));
 
-            JsonElement emptyView = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/createService", Form(new()
+            JsonElement madeView = await CreateServiceAsync(new
             {
-                ["isView"] = "true",
-                ["createParameters"] = JsonSerializer.Serialize(new { name = view, isView = true }),
-                ["outputType"] = "featureService",
-                ["f"] = "json",
-            }));
-            Assert.NotEmpty(ErrorOf(emptyView));
-
-            JsonElement madeView = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/createService", Form(new()
-            {
-                ["isView"] = "true",
-                ["createParameters"] = JsonSerializer.Serialize(new
+                name = view,
+                isView = true,
+                capabilities = "Query",
+                layers = new[]
                 {
-                    name = view,
-                    isView = true,
-                    capabilities = "Query",
-                    layers = new[]
-                    {
-                        new { adminLayerInfo = new { viewLayerDefinition = new { sourceServiceName = name, sourceLayerId = 0 } } },
-                    },
-                }),
-                ["outputType"] = "featureService",
-                ["f"] = "json",
-            }));
+                    new { adminLayerInfo = new { viewLayerDefinition = new { sourceServiceName = name, sourceLayerId = 0 } } },
+                },
+            }, view: true);
             Assert.True(madeView.TryGetProperty("isView", out JsonElement isView) && isView.GetBoolean(), madeView.GetRawText());
             viewed = true;
             Assert.Equal(0, await CountAsync(view));
@@ -462,6 +488,225 @@ public sealed class PortalContentAddsTests : ArcGisClient
             }
 
             await RemoveAsync(made ? name : null);
+        }
+    }
+
+    /// <summary>
+    /// ADR-257 §11, owner decision 2026-11-02: the ArcGIS API for Python's <c>create_service</c> makes the service empty
+    /// and <c>manager.add_to_definition</c> adds its layer — the two requests it sends, in its order.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_service_is_created_and_filled_by_its_addToDefinition()
+    {
+        string root = await RequireServerAsync();
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string name = $"zz_cempty_{tag}";
+        string layer = $"zz_cemptyl_{tag}";
+        string member = $"zz_cemptym_{tag}";
+        bool made = false;
+
+        try
+        {
+            JsonElement created = await CreateServiceAsync(new
+            {
+                name,
+                serviceDescription = "made empty",
+                capabilities = "Query,Editing",
+                spatialReference = new { wkid = 102100 },
+                maxRecordCount = 1000,
+                hasStaticData = false,
+            });
+            Assert.True(created.TryGetProperty("success", out JsonElement ok) && ok.GetBoolean(), created.GetRawText());
+            made = true;
+            Assert.False(created.GetProperty("isView").GetBoolean());
+            Assert.Equal(created.GetProperty("itemId").GetString(), created.GetProperty("serviceItemId").GetString());
+            Assert.EndsWith($"/rest/services/hosted/{name}/FeatureServer", created.GetProperty("serviceurl").GetString(), StringComparison.Ordinal);
+
+            // It exists and holds nothing, as ArcGIS's empty service answers.
+            JsonElement document = await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{name}/FeatureServer?f=json");
+            Assert.Equal(0, document.GetProperty("layers").GetArrayLength());
+            Assert.Equal(0, document.GetProperty("tables").GetArrayLength());
+            Assert.Equal("made empty", document.GetProperty("description").GetString());
+
+            JsonElement admin = await SendAsync(HttpMethod.Get, $"/rest/admin/services/hosted/{name}/FeatureServer?f=json");
+            Assert.Equal(created.GetProperty("itemId").GetString(), admin.GetProperty("serviceItemId").GetString());
+            Assert.Contains("Create", admin.GetProperty("capabilities").GetString(), StringComparison.Ordinal);
+
+            // Studio's services list carries it, and says it is empty rather than leaving it out.
+            JsonElement? listed = await ListedAsync(name);
+            Assert.True(listed is not null, "Studio's services list does not carry the empty service.");
+            Assert.True(listed!.Value.GetProperty("empty").GetBoolean(), listed.Value.GetRawText());
+
+            // A second one of that name is refused.
+            Assert.NotEmpty(ErrorOf(await CreateServiceAsync(new { name })));
+
+            // A key this server does not make a layer from is refused by name, and nothing is made.
+            JsonElement drawn = await AddToDefinitionAsync(name, new
+            {
+                layers = new object[] { new { name = layer, geometryType = "esriGeometryPoint", drawingInfo = new { renderer = new { } } } },
+            });
+            Assert.Contains("drawingInfo", ErrorOf(drawn), StringComparison.Ordinal);
+            Assert.Equal(0, (await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{name}/FeatureServer?f=json")).GetProperty("layers").GetArrayLength());
+
+            // A member who may not publish cannot add to it.
+            string token = await MemberTokenAsync(root, member, "user");
+            Assert.NotEmpty(ErrorOf(await AddToDefinitionAsync(name, new { layers = new[] { PointLayer(layer) } }, token)));
+
+            JsonElement added = await AddToDefinitionAsync(name, new { layers = new[] { PointLayer(layer) } });
+            Assert.True(added.GetProperty("success").GetBoolean(), added.GetRawText());
+            Assert.Equal(0, added.GetProperty("layers")[0].GetProperty("id").GetInt32());
+            Assert.Equal(layer, added.GetProperty("layers")[0].GetProperty("name").GetString());
+
+            JsonElement edits = await SendAsync(HttpMethod.Post, $"/rest/services/hosted/{name}/FeatureServer/0/applyEdits", Form(new()
+            {
+                ["adds"] = JsonSerializer.Serialize(new[]
+                {
+                    new { attributes = new { label = "Ankara" }, geometry = new { x = 32.85, y = 39.93, spatialReference = new { wkid = 4326 } } },
+                }),
+                ["f"] = "json",
+            }));
+            Assert.True(edits.GetProperty("addResults")[0].GetProperty("success").GetBoolean(), edits.GetRawText());
+            Assert.Equal(1, await CountAsync(name));
+
+            JsonElement? filled = await ListedAsync(name);
+            Assert.False(filled!.Value.GetProperty("empty").GetBoolean());
+
+            // A view layer is not added beside a layer of the service's own.
+            JsonElement mixed = await AddToDefinitionAsync(name, new
+            {
+                layers = new[] { new { adminLayerInfo = new { viewLayerDefinition = new { sourceServiceName = name, sourceLayerId = 0 } } } },
+            });
+            Assert.NotEmpty(ErrorOf(mixed));
+        }
+        finally
+        {
+            if (made)
+            {
+                await RemoveServiceAsync(name, layer);
+            }
+
+            await SendAsync(HttpMethod.Delete, $"/admin/members/{member}");
+        }
+    }
+
+    /// <summary>
+    /// The ArcGIS API for Python's <c>create_view</c>: an empty view service, then <c>addToDefinition</c> naming each
+    /// source layer — Studio's view, made in two requests (ADR-257 §11). The client builds the address with two slashes,
+    /// <c>/sharing/rest//content/…</c>, which every portal it works against answers.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_view_becomes_a_view_of_the_source_its_addToDefinition_names()
+    {
+        string root = await RequireServerAsync();
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string source = $"zz_cvsrc_{tag}";
+        string view = $"zz_cvview_{tag}";
+        bool madeSource = false;
+        bool madeView = false;
+
+        try
+        {
+            Assert.True((await CreateServiceAsync(new { name = source, layers = new[] { PointLayer(source) } }))
+                .GetProperty("success").GetBoolean());
+            madeSource = true;
+
+            await SendAsync(HttpMethod.Post, $"/rest/services/hosted/{source}/FeatureServer/0/applyEdits", Form(new()
+            {
+                ["adds"] = JsonSerializer.Serialize(new[]
+                {
+                    new { attributes = new { label = "Ankara" }, geometry = new { x = 32.85, y = 39.93, spatialReference = new { wkid = 4326 } } },
+                    new { attributes = new { label = "Izmir" }, geometry = new { x = 27.14, y = 38.42, spatialReference = new { wkid = 4326 } } },
+                }),
+                ["f"] = "json",
+            }));
+
+            // The client's own address, with the slash its resturl already ends in.
+            JsonElement created = await SendAsync(HttpMethod.Post, $"//sharing/rest//content/users/{User}/createService", Form(new()
+            {
+                ["createParameters"] = JsonSerializer.Serialize(new
+                {
+                    name = view, isView = true, sourceSchemaChangesAllowed = true, isUpdatableView = true, capabilities = "Query",
+                    preserveLayerIds = true, options = new { dataSourceType = "relational" },
+                }),
+                ["isView"] = "True",
+                ["outputType"] = "featureService",
+                ["f"] = "json",
+            }));
+            Assert.True(created.TryGetProperty("success", out JsonElement ok) && ok.GetBoolean(), created.GetRawText());
+            madeView = true;
+            Assert.True(created.GetProperty("isView").GetBoolean());
+            Assert.Equal(0, (await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{view}/FeatureServer?f=json")).GetProperty("layers").GetArrayLength());
+
+            // The source layer as the client reads it before it names it.
+            JsonElement sourceLayer = await SendAsync(HttpMethod.Get, $"/rest/admin/services/hosted/{source}/FeatureServer/0?f=json");
+            Assert.Equal(0, sourceLayer.GetProperty("id").GetInt32());
+            Assert.Equal(source, sourceLayer.GetProperty("name").GetString());
+
+            // A field subset is not a view this server makes, and nothing is added.
+            JsonElement subset = await AddToDefinitionAsync(view, new
+            {
+                layers = new[] { new { id = 0, adminLayerInfo = new { viewLayerDefinition = new { sourceServiceName = source, sourceLayerId = 0, sourceLayerFields = "label" } } } },
+            });
+            Assert.Contains("sourceLayerFields", ErrorOf(subset), StringComparison.Ordinal);
+
+            // A member who may not publish is refused.
+            string member = $"zz_cvm_{tag}";
+            try
+            {
+                string token = await MemberTokenAsync(root, member, "user");
+                Assert.NotEmpty(ErrorOf(await AddToDefinitionAsync(view, new
+                {
+                    layers = new[] { new { id = 0, adminLayerInfo = new { viewLayerDefinition = new { sourceServiceName = source, sourceLayerId = 0 } } } },
+                }, token)));
+            }
+            finally
+            {
+                await SendAsync(HttpMethod.Delete, $"/admin/members/{member}");
+            }
+
+            JsonElement added = await AddToDefinitionAsync(view, new
+            {
+                layers = new[]
+                {
+                    new
+                    {
+                        id = 0, name = source,
+                        adminLayerInfo = new { popupInfo = (object?)null, viewLayerDefinition = new { sourceServiceName = source, sourceLayerId = 0, sourceLayerFields = "*" } },
+                    },
+                },
+                tables = Array.Empty<object>(),
+            });
+            Assert.True(added.GetProperty("success").GetBoolean(), added.GetRawText());
+
+            Assert.Equal(2, await CountAsync(view));
+
+            JsonElement viewDocument = await SendAsync(HttpMethod.Get, $"/rest/services/hosted/{view}/FeatureServer?f=json");
+            Assert.True(viewDocument.GetProperty("isView").GetBoolean(), viewDocument.GetRawText());
+
+            JsonElement viewLayer = await SendAsync(HttpMethod.Get, $"/rest/admin/services/hosted/{view}/FeatureServer/0?f=json");
+            Assert.Equal(source, viewLayer.GetProperty("adminLayerInfo").GetProperty("viewLayerDefinition").GetProperty("sourceServiceName").GetString());
+
+            // Studio's own view page says what it is a view of.
+            JsonElement studio = await SendAsync(HttpMethod.Get, $"/admin/services/{view}/views?folder=hosted");
+            Assert.Equal(source, studio.GetProperty("source").GetProperty("name").GetString());
+
+            // The same source layer twice is refused.
+            Assert.NotEmpty(ErrorOf(await AddToDefinitionAsync(view, new
+            {
+                layers = new[] { new { adminLayerInfo = new { viewLayerDefinition = new { sourceServiceName = source, sourceLayerId = 0 } } } },
+            })));
+        }
+        finally
+        {
+            if (madeView)
+            {
+                await RemoveServiceAsync(view, view);
+            }
+
+            if (madeSource)
+            {
+                await RemoveServiceAsync(source, source);
+            }
         }
     }
 }
