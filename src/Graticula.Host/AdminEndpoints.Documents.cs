@@ -605,6 +605,10 @@ internal static partial class AdminEndpoints
             fileName = document.FileName,
             kind = document.Kind.Name,
             type = document.Kind.ArcGisType,
+            // ADR-264: an app's or a link's address, and whether its content is an app's JSON rather than a file.
+            url = document.Url,
+            app = Documents.IsApp(document.Kind),
+            link = Documents.IsLink(document.Kind),
             size = document.Size,
             created = document.Created,
             modified = document.Modified,

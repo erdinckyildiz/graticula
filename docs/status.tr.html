@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ffb2f34e</code> · 2026-11-03 13:36</p>
+<p class="stamp">Şu commit’ten üretildi: <code>1e8b1ee2</code> · 2026-11-03 14:29</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">261</div><div class="kpi-l">ADR</div><div class="kpi-n">90 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">262</div><div class="kpi-l">ADR</div><div class="kpi-n">91 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">637/672</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">25 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık borç</div><div class="kpi-n">326 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5935</div><div class="kpi-l">test</div><div class="kpi-n">637 kaynak dosya, 285,134 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5938</div><div class="kpi-l">test</div><div class="kpi-n">640 kaynak dosya, 285,920 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -430,6 +430,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">261</td><td>The hosting server&#x27;s Administrator API starts, stops and reads the logs</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the doors are this server&#x27;s own acts behind the Administrator API&#x27;s addresses;…</td><td class="num"></td></tr>
 <tr><td class="id">262</td><td>The portal answers for its users</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every act is Studio&#x27;s own; who sees whom and the invitation&#x27;s password are…</td><td class="num"></td></tr>
 <tr><td class="id">263</td><td>A layer&#x27;s export becomes an item through the portal</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the export is ADR-106&#x27;s, unchanged; which item kind each file is, and the…</td><td class="num"></td></tr>
+<tr><td class="id">264</td><td>An app or a link is an item, and an item keeps resources</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — a store of what clients send, which the clients&#x27; own documentation describes;…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -564,11 +565,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1727</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.7%"></div></div><div class="bar-n">944</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.8%"></div></div><div class="bar-n">946</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.7%"></div></div><div class="bar-n">944</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.1%"></div></div><div class="bar-n">571</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">439</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.2%"></div></div><div class="bar-n">436</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.3%"></div></div><div class="bar-n">437</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:14.1%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.6%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.2%"></div></div><div class="bar-n">124</div></div>
@@ -625,6 +626,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>1e8b1ee2</code><time>2026-11-03</time><span>Four doors from the ArcGIS veteran&#x27;s review of v1.0.499: a service item&#x27;s own title, the Administrator API&#x27;s start, stop and logs, the portal&#x27;s users, and item.export (ADR-260 to ADR-263)</span></li>
 <li><code>ffb2f34e</code><time>2026-11-03</time><span>The Map Viewer&#x27;s left panel names its tool, Analysis leaves the keyboard on its button, and Add says a folder once</span></li>
 <li><code>fd7e09d0</code><time>2026-11-03</time><span>v1-scope says the viewer follows ArcGIS Map Viewer&#x27;s layout since ADR-259</span></li>
 <li><code>9576eaf7</code><time>2026-11-03</time><span>Add shows every kind a service is drawn as, filters by kind, and keeps what it did said</span></li>
@@ -638,7 +640,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>de72e3b4</code><time>2026-11-02</time><span>The portal answers an ArcGIS client as ArcGIS does, a KML reads in Google Earth as written, and Pro is followed at a second organisation (ADR-079, 106, 164, 191, 204, 214)</span></li>
 <li><code>e374a6d5</code><time>2026-11-01</time><span>Postgres test classes migrate one at a time across the cluster, so main&#x27;s suite is green again after v1.0.493&#x27;s test deadlock</span></li>
 <li><code>8caafb80</code><time>2026-11-01</time><span>A refused node says why, the imagery chain passes against the built image, and grapy&#x27;s last debts are repaid inside the Linux fence (ADR-254, D-333, D-357)</span></li>
-<li><code>872ec1f2</code><time>2026-11-01</time><span>The admission gate bounds a standing queue, organisations share one pool, a rolling upgrade runs without a failed request, and no GPL library is linked into our code (ADR-012, ADR-046, ADR-204, ADR-254)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

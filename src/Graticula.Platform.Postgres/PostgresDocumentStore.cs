@@ -22,7 +22,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
         + "d.created_at, d.modified_at, "
         + "coalesce((select array_agg(gm.group_id) from item_group gm where gm.item_id = i.id), '{}'::uuid[]), "
         + "coalesce((select array_agg(g.name order by g.name) from item_group gm join sharing_group g on g.id = gm.group_id where gm.item_id = i.id), '{}'::text[]), "
-        + "i.delete_protected, i.tags, i.content_folder_id, i.description, d.thumbnail is not null";
+        + "i.delete_protected, i.tags, i.content_folder_id, i.description, d.thumbnail is not null, d.url, d.type_keywords";
 
     private const string From =
         "from item i join document d on d.item_id = i.id join principal p on p.id = i.owner_principal_id "
@@ -305,6 +305,26 @@ public sealed class PostgresDocumentStore : IDocumentStore
     }
 
     /// <summary>A row, or null for a kind this build does not know — a later build's, read by an earlier one.</summary>
+    /// <inheritdoc/>
+    public async Task<bool> SetLinkAsync(string id, string? url, IReadOnlyList<string>? typeKeywords, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(id, out Guid item))
+        {
+            return false;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update document set url = @url, type_keywords = @keywords, modified_at = now() where item_id = @id");
+        command.Parameters.AddWithValue("id", item);
+        command.Parameters.AddWithValue("url", (object?)url ?? DBNull.Value);
+        command.Parameters.Add(new NpgsqlParameter("keywords", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+        {
+            Value = typeKeywords is null ? DBNull.Value : System.Linq.Enumerable.ToArray(typeKeywords),
+        });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
     private static Document? Read(NpgsqlDataReader reader)
     {
         if (Documents.Named(reader.GetString(7)) is not { } kind)
@@ -330,6 +350,8 @@ public sealed class PostgresDocumentStore : IDocumentStore
             reader.IsDBNull(14) ? null : reader.GetFieldValue<string[]>(14),
             reader.IsDBNull(15) ? null : reader.GetGuid(15),
             reader.IsDBNull(16) ? null : reader.GetString(16),
-            reader.GetBoolean(17));
+            reader.GetBoolean(17),
+            reader.IsDBNull(18) ? null : reader.GetString(18),
+            reader.IsDBNull(19) ? null : reader.GetFieldValue<string[]>(19));
     }
 }

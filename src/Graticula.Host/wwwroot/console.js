@@ -5449,6 +5449,14 @@ async function showItemById(id) {
     return;
   }
 
+  // ADR-264: a service elsewhere, registered by its address, is a link with a page of its own — not one of this server's.
+  let elsewhere = false;
+  try { elsewhere = !!item.url && new URL(item.url, location.href).origin !== location.origin; } catch { elsewhere = true; }
+  if (elsewhere) {
+    showDocumentItem(item.id);
+    return;
+  }
+
   const service = /\/rest\/services\/(.+?)\/(FeatureServer|MapServer|VectorTileServer|ImageServer)(\/|$)/.exec(item.url || "");
   if (service) {
     itemIds.set(service[1], item.id);
@@ -34739,7 +34747,10 @@ $("analyzeDialog")?.addEventListener("close", () => {
 // ---------------------------------------------------------------- documents (ADR-188 condition 4)
 
 /** The portal item types a document is listed as (`DocumentKind.ArcGisType`). */
-const DOCUMENT_TYPES = new Set(["PDF", "Microsoft Word", "Microsoft Excel", "Microsoft Powerpoint", "CSV", "Image"]);
+const DOCUMENT_TYPES = new Set(["PDF", "Microsoft Word", "Microsoft Excel", "Microsoft Powerpoint", "CSV", "Image",
+  // ADR-263, ADR-264: an export's file, and an app kept for the client that reads it.
+  "Shapefile", "File Geodatabase", "GeoJson", "GeoPackage", "KML", "CSV Collection", "Feature Collection",
+  "Dashboard", "Web Experience", "Web Mapping Application", "Form", "StoryMap", "Document Link"]);
 
 /** The document whose item page is open, as the server last described it. */
 let docOpen = null;
@@ -34760,10 +34771,17 @@ let docRules = { accepted: [".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".png", "
 const DOC_KINDS = {
   pdf: "PDF", docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint presentation", csv: "CSV table",
   png: "Picture", jpeg: "Picture", gif: "Picture", webp: "Picture",
+  // ADR-264's review: a registered service is named as Studio names a layer, with where it is said beside it.
+  featureservicelink: "Feature layer (by URL)", mapservicelink: "Map image layer (by URL)",
+  vectortileservicelink: "Vector tile layer (by URL)", imageservicelink: "Imagery layer (by URL)", documentlink: "Document link",
 };
 
 /** The few letters a document's tile carries, so a PDF and a workbook differ at a glance. */
-const docBadge = d => ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
+const docBadge = d => d.link ? "LINK" : d.app ? "APP"
+  : ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
+
+/** Where a link points, as its host — what a reader needs to tell two links apart (ADR-264). */
+const docHost = d => { try { return new URL(d.url).host; } catch { return ""; } };
 
 /** A document as a row of the content list, beside services and web maps. */
 function docAsItem(d) {
@@ -34771,7 +34789,7 @@ function docAsItem(d) {
     doc: d,
     name: d.title || d.fileName || "Untitled document",
     bare: d.title || d.fileName || "Untitled document",
-    kind: d.type || "Document",
+    kind: d.link && DOC_KINDS[d.kind] ? DOC_KINDS[d.kind] : d.type || "Document",
     description: d.snippet || "",
     tags: d.tags || [],
     contentFolder: d.contentFolder || null,
@@ -34789,7 +34807,7 @@ function docAsItem(d) {
 
 /** The tile a document shows where a service shows its picture: its kind's letters on the kind's own colour. */
 const docTile = (d, cls = "") => `<div class="thumb doctile ${cls}" data-kind="${h(d.kind || "")}" aria-hidden="true">${
-  icon("document")}<span>${h(docBadge(d))}</span></div>`;
+  icon(d.link ? "external" : "document")}<span>${h(docBadge(d))}</span></div>`;
 
 function docRow(i) {
   const d = i.doc;
@@ -34798,7 +34816,8 @@ function docRow(i) {
     pill(i.sharing),
     i.scope !== "mine" && i.owner ? `<span title="Owner">${h(i.owner)}</span>` : "",
     folderNote(i).replace(/^ · /, ""),
-    `<span title="File">${h(fileSize(d.size))}</span>`,
+    // ADR-264: a link says where it points; an app or a file says its size.
+    d.link ? `<span title="${h(d.url || "")}">${h(docHost(d))}</span>` : `<span title="File">${h(fileSize(d.size))}</span>`,
     `<span title="Modified">${day(i.updated)}</span>`,
   ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
 
@@ -34819,7 +34838,9 @@ function docRow(i) {
     <td class="acts"><details class="menu">
       <summary title="More" aria-label="More actions for ${h(i.name)}">⋯</summary>
       <div class="sheet">
-        <button type="button" data-doc-download="${h(d.id)}">Download</button>
+        ${d.url ? `<a href="${h(d.url)}" target="_blank" rel="noopener noreferrer"
+          aria-label="${d.link ? "Open link" : "Open app"} (opens in a new tab)">${d.link ? "Open link" : "Open app"}</a>` : ""}
+        ${d.app && !d.size ? "" : `<button type="button" data-doc-download="${h(d.id)}">Download</button>`}
         ${i.scope === "mine" ? `<button type="button" data-move-document="${h(d.id)}" data-move-title="${h(i.name)}"
           data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : ""}
         ${d.manages ? `<a class="danger" href="${open}?tab=settings">Delete…</a>` : ""}
@@ -34865,7 +34886,8 @@ async function showDocumentItem(id) {
   if (docOpen !== doc) return;
   $("docCrumb").innerHTML = contentCrumb(doc, doc.title);
   $("docTitle").innerHTML = nameWithBreaks(doc.title);
-  $("docSub").textContent = [kind, fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""].filter(Boolean).join(" · ");
+  $("docSub").textContent = [kind, doc.link ? docHost(doc) : fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""]
+    .filter(Boolean).join(" · ");
   // D-321: a picture is its own thumbnail, as Portal shows one; a file of another kind keeps its kind's tile. Read with the
   // session's credential through the preview queue, and only below a size a thumbnail is worth fetching whole.
   // A picture its owner gave it comes first (D-321, as Portal's *Edit thumbnail*); its address carries the item's time, so a
@@ -34888,11 +34910,16 @@ async function showDocumentItem(id) {
 
   // Redrawing the actions drops focus; the control that had it gets it back.
   const had = document.activeElement?.id;
+  // ADR-264: an item with an address opens there first, as Portal's app page does; its JSON downloads from More, and
+  // neither an app nor a link has a file of its own to replace.
   $("docActions").innerHTML = `
-    <button type="button" class="primary" id="docDownload">Download</button>
+    ${doc.url ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
+      rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
+      doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
+    ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
     <button type="button" id="docFavorite" data-of="doc" hidden></button>
-    ${doc.manages ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
+    ${doc.manages && !doc.app ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
     ${more ? `<details class="menu itemmore">
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
       <div class="sheet">${more}</div>
@@ -34984,8 +35011,10 @@ function drawDocSide() {
         h(bareId(doc.id).slice(16))}</code>
         <button type="button" class="tiny" data-copy="${h(bareId(doc.id))}" data-copied="The item ID is on the clipboard."
           aria-label="Copy the item ID">Copy</button></dd>
-      <dt>File</dt><dd class="docfile">${h(doc.fileName || "—")}</dd>
-      <dt>Size</dt><dd>${h(fileSize(doc.size))}</dd>
+      ${doc.url ? `<dt>URL</dt><dd class="docfile"><a href="${h(doc.url)}" target="_blank" rel="noopener noreferrer">${
+        h(doc.url)}</a></dd>` : ""}
+      ${doc.app ? "" : `<dt>File</dt><dd class="docfile">${h(doc.fileName || "—")}</dd>`}
+      ${doc.app && !doc.size ? "" : `<dt>Size</dt><dd>${h(fileSize(doc.size))}</dd>`}
       <dt>Owner</dt><dd>${h(doc.owner || "—")}</dd>
       <dt>Sharing</dt><dd>${doc.manages
         ? `<button type="button" class="pillbtn" data-doc-share-pill title="Set who can open this document">${pill(doc.sharing)}</button>`
@@ -34994,7 +35023,11 @@ function drawDocSide() {
       <dt>Created</dt><dd>${h(day(doc.created))}</dd>
       <dt>Updated</dt><dd>${h(day(doc.modified))}</dd>
     </dl>
-    ${doc.manages ? `<p class="hint" id="docReplaceSays">Replace file keeps this item — its address, sharing and groups —
+    ${doc.app ? `<p class="hint">${doc.link
+      ? `This item points to ${doc.type === "Document Link" ? "a document" : "a service"} on ${h(docHost(doc) || "another server")}. That server answers requests; this one keeps only the item.`
+      : `Kept for the ${h(doc.type || "app")} client that opens it. This server stores the item and its resources; it does
+        not run ${h(doc.type || "the app")} itself.`}</p>` : ""}
+    ${doc.manages && !doc.app ? `<p class="hint" id="docReplaceSays">Replace file keeps this item — its address, sharing and groups —
       and changes only the file people download.</p>` : ""}`;
 }
 
@@ -35023,11 +35056,14 @@ function drawDocAbout(editing = false) {
 
   $("docAbout").innerHTML = `
     <h4>Summary</h4>
-    <p>${doc.snippet ? h(doc.snippet) : `<span class="hint">No summary yet. A line on what the file is makes it easier to find.</span>`}</p>
+    <p>${doc.snippet ? h(doc.snippet) : `<span class="hint">No summary yet. ${doc.link
+      ? "A line on what this points to and who runs it" : doc.app ? "A line on what this app shows and who uses it"
+      : "A line on what the file is"} makes it easier to find.</span>`}</p>
     ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
-      : `<p class="hint">No description yet.<span class="widewords"> What the file is, where it came from and how current it is.</span></p>`}
+      : `<p class="hint">No description yet.<span class="widewords"> ${doc.link ? "What it is, who runs it and what it is for."
+        : doc.app ? "What the app is for, who uses it and what it reads." : "What the file is, where it came from and how current it is."}</span></p>`}
     ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
     ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;

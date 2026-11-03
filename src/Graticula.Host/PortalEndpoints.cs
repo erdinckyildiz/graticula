@@ -280,6 +280,7 @@ internal static partial class PortalEndpoints
         MapContentAdds(app); // ADR-257: analyze and createService, beside addItem and publish
         MapUsers(app);       // ADR-262: the organization's users — PortalEndpoints.Users.cs
         MapItemExport(app);  // ADR-263: item.export — PortalEndpoints.ItemExport.cs
+        MapAppItems(app);    // ADR-264: apps, links and item resources — PortalEndpoints.AppItems.cs
     }
 
     /// <summary>
@@ -2228,7 +2229,10 @@ internal static partial class PortalEndpoints
             && context.RequestServices.GetService(typeof(IDocumentStore)) is IDocumentStore documents
             && await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) is { } content)
         {
-            return DocumentDownload.Result(document, content);
+            // ADR-264: an app's data is its JSON, read by its client as a web map's is; a link with none is an empty object.
+            return Documents.IsApp(document.Kind)
+                ? Results.Content(content.Length == 0 ? "{}" : System.Text.Encoding.UTF8.GetString(content), "application/json; charset=utf-8")
+                : DocumentDownload.Result(document, content);
         }
 
         IReadOnlyList<PublishedService>? visible =
@@ -2577,14 +2581,15 @@ internal static partial class PortalEndpoints
             title = document.Title,
             name = document.FileName,
             type = document.Kind.ArcGisType,
-            typeKeywords = new[] { "Data", "Document" },
+            // ADR-264: an app's or a link's own, which its client reads; a file's are what they always were.
+            typeKeywords = document.TypeKeywords ?? (Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
             description = document.Description ?? document.Snippet,
             thumbnail = document.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = document.Snippet,
             tags = document.Tags ?? [],
             categories = Annotations(context).CategoriesOf(Guid.Parse(document.Id)),
             licenseInfo = Annotations(context).LicenseOf(Guid.Parse(document.Id)),
-            url = (string?)null,
+            url = document.Url,
             access = Access(document.Sharing),
             @protected = document.DeleteProtected,
             spatialReference = (string?)null,

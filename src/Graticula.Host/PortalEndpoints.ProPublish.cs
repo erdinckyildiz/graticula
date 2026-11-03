@@ -199,7 +199,8 @@ internal static partial class PortalEndpoints
 
         // ADR-257: a file — a CSV, a zipped shapefile or file geodatabase, GeoJSON, a workbook, or any document Studio
         // keeps — is a door onto Studio's own document upload, so the privilege, the store and the audit line are Studio's.
-        if (IsFileItemType(type))
+        // ADR-264: an app or a link goes through the same door, which adds it with its text or its address.
+        if (IsFileItemType(type) || Documents.AppOfType(type) is not null)
         {
             return await AddDataItemAsync(context, form, type, username, scratch, folders, cancellation).ConfigureAwait(false);
         }
@@ -213,7 +214,9 @@ internal static partial class PortalEndpoints
         {
             return PortalError(400,
                 $"A service definition, a web map, or a file Studio keeps (CSV, Shapefile, File Geodatabase, GeoJson, "
-                + $"PDF, Microsoft Word, Excel or Powerpoint, Image) is added here (ADR-191, ADR-257); '{type}' is none of these.");
+                + $"PDF, Microsoft Word, Excel or Powerpoint, Image), or an app or a link (Dashboard, Web Experience, Web Mapping "
+                + $"Application, Form, StoryMap, a service or a document by its URL) is added here (ADR-191, ADR-257, ADR-264); "
+                + $"'{type}' is none of these.");
         }
 
         string id = Guid.NewGuid().ToString("N");

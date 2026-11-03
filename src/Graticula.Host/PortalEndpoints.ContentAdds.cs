@@ -163,6 +163,12 @@ internal static partial class PortalEndpoints
             return Results.Ok(new { success = true, id, folder = folder?.ToString("N") });
         }
 
+        // ADR-264: an app or a link is added with its text, its address, or both, and no file.
+        if (Documents.AppOfType(type) is { } app && form.Files.GetFile("file") is null)
+        {
+            return await AddAppItemAsync(context, current, form, app, folder, cancellation).ConfigureAwait(false);
+        }
+
         if (form.Files.GetFile("file") is not { Length: > 0 } file)
         {
             return PortalError(400, $"A {type} item is added with its 'file', or with multipart=true and its parts.");

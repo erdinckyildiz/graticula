@@ -250,6 +250,12 @@ internal static partial class PortalEndpoints
                 ? new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "text", "thumbnail" }
                 : new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "file", "thumbnail" };
 
+        // ADR-264: an app or a link keeps its JSON, its address and its type keywords as well.
+        if (item.Document is { } app && Documents.IsApp(app.Kind))
+        {
+            kept.UnionWith(["text", "url", "typeKeywords"]);
+        }
+
         string[] refused = [.. sent.Keys.Where(k => !kept.Contains(k) && !EchoedFields.Contains(k)).Order(StringComparer.Ordinal)];
 
         // A picture is a file, not a field; for a service it is drawn from its layers, never kept. A document keeps its
@@ -536,6 +542,41 @@ internal static partial class PortalEndpoints
             {
                 return PortalError(415, $"'{document.Title}' was not changed: a thumbnail is a PNG, JPEG, GIF or WebP picture.");
             }
+        }
+
+        // ADR-264: an app's JSON is its content, and its address and type keywords are beside it.
+        bool app = Documents.IsApp(document.Kind);
+        string? url = document.Url;
+        IReadOnlyList<string>? keywords = document.TypeKeywords;
+
+        if (app && given("text") is { } text)
+        {
+            if (AppTextRefusal(text, limit) is { } notJson)
+            {
+                return PortalError(400, $"'{document.Title}' was not changed: {notJson}");
+            }
+
+            replacement = (document.FileName, document.Kind, System.Text.Encoding.UTF8.GetBytes(text));
+        }
+
+        if (app && given("url") is { } address)
+        {
+            if (address.Length > 0 && AppUrlRefusal(address) is { } notAddress)
+            {
+                return PortalError(400, $"'{document.Title}' was not changed: {notAddress}");
+            }
+
+            url = address.Length == 0 ? null : address;
+        }
+
+        if (app && given("typeKeywords") is { } words)
+        {
+            keywords = [.. words.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Take(128)];
+        }
+
+        if (app && (url != document.Url || !ReferenceEquals(keywords, document.TypeKeywords)))
+        {
+            await documents.SetLinkAsync(document.Id, url, keywords, cancellation).ConfigureAwait(false);
         }
 
         if (title != document.Title || snippet != document.Snippet)
