@@ -145,6 +145,49 @@ public sealed class WebMapToolbarsTests : ConsoleTest
     }
 
     /// <summary>
+    /// Transparency is what the slider says and moves: none at full opacity, more to the right (ADR-259's desktop review,
+    /// 2026-11-04, found the label reading the opacity once the slider moved). And one Escape closes one thing: a pop-up
+    /// open over a tool's panel closes alone.
+    /// </summary>
+    [Fact]
+    public async Task Transparency_reads_as_it_moves_and_one_Escape_closes_one_thing()
+    {
+        (string token, string cookie) = await SignInAsync();
+        await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(Service())}", token, cookie);
+        await WaitForAsync("wmLayers().length === 1 && (wmRuntime.get(wmLayers()[0]) || {}).status === 'ok'",
+            "The service's layer never became readable.");
+
+        await ClickAsync("#layerList button[data-act=select]");
+        await WaitForAsync("!!document.querySelector('#layerTool input[data-act=opacity]')", "Properties did not show the layer's transparency.");
+        Assert.Equal("0", await Browser.EvaluateAsync<string>("document.querySelector('#layerTool input[data-act=opacity]').value"));
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const slider = document.querySelector('#layerTool input[data-act=opacity]');
+              slider.value = '30';
+              slider.dispatchEvent(new Event('input', { bubbles: true }));
+              return true;
+            })()
+            """);
+        await WaitForAsync("Math.abs(wmLayers()[0].opacity - 0.7) < 1e-9"
+            + " && document.querySelector('#layerTool [id^=opSaid-]').textContent === '30%'"
+            + " && document.querySelector('#layerTool input[data-act=opacity]').getAttribute('aria-valuetext') === '30% transparent'",
+            "Thirty per cent transparency did not draw the layer at 70 % opacity and say 30 %.");
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              document.getElementById('identify').hidden = false;
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+              return true;
+            })()
+            """);
+        await WaitForAsync("document.getElementById('identify').hidden", "Escape did not close the pop-up.");
+        Assert.True(await Browser.EvaluateAsync<bool>(Shown("#side")), "One Escape closed the pop-up and the tool's panel together.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// On a phone the right toolbar is a column at the map's edge and both toolbars open the same sheet, one at a time.
     /// </summary>
     [Fact]
@@ -181,8 +224,20 @@ public sealed class WebMapToolbarsTests : ConsoleTest
                 + " return t.bottom <= s.top; })()"),
                 "On a phone the sheet covers the right toolbar.");
 
+            // × from a setting whose own button is not shown on a phone gives the keyboard to Properties, which stands
+            // for it, rather than to the page (ADR-259's phone review, 2026-11-04).
+            await ClickAsync("#sideClose");
+            await WaitForAsync("!" + Shown("#side") + " && document.activeElement?.id === 'tool-properties'",
+                "× from Filter did not give the keyboard back to the Layer tool.");
+
             await ClickAsync("#tab-layers");
-            await WaitForAsync(Shown("#panel") + " && !" + Shown("#side"), "Layers opened its sheet over Filter's instead of in its place.");
+            await WaitForAsync(Shown("#panel") + " && !" + Shown("#side"), "Layers did not open its sheet.");
+
+            // The table is not opened under the sheet, where all but its first row were hidden.
+            await ClickAsync("#layerList button[data-act=menu]");
+            await ClickAsync("#layerList [data-act=table]");
+            await WaitForAsync(Shown("#tablePanel") + " && !" + Shown("#panel"),
+                "Show table opened the table under the Layers sheet.");
         }
         finally
         {

@@ -97,7 +97,7 @@
   body.reader [data-act="remove"], body.reader [data-act="up"], body.reader [data-act="down"] { display: none; }
   /* ADR-259: the right toolbar's tools that write the map, which a reader cannot keep. */
   body.reader #tool-style, body.reader #tool-popup, body.reader #tool-labels, body.reader #tool-filter,
-  body.reader #basemapField { display: none; }
+  body.reader #basemapField, body.reader #layerSwitch { display: none; }
   /* And nothing of the editor's (ADR-079 condition 2's review, 2026-10-14): Style, Pop-up and Labels opened panels whose
      Apply a reader cannot keep, "Saved" said something a reader cannot do, and the Map tab was a form with Save
      greyed out — read as broken rather than as not theirs. The tab reads as About instead. */
@@ -139,6 +139,8 @@
                                          box-shadow: inset -3px 0 0 var(--accent); }
   /* A layer's tool with no layer it can act on: still reachable, so it can say why (ADR-259 §3.2). */
   #rtools button[aria-disabled="true"] { opacity: .45; }
+  /* Open, it is working: the dimmed label read at 2:1 (ADR-259's desktop review, 2026-11-04). */
+  #rtools button[aria-disabled="true"][aria-expanded="true"] { opacity: 1; }
   #rtools button:focus-visible { outline-offset: -3px; }
   #rtools .rsep { flex: none; height: 1px; margin: 6px 12px; background: var(--rule-strong); }
   #rtools[hidden] { display: none; }
@@ -454,6 +456,13 @@
     #identify .editform input, #identify .editform select, #identify .editform textarea,
     #identify .editform button, #identify .featacts button, #sketchBar button { min-height: 44px; }
     #mapSave, #mapSaveAs, #mapDelete, #addLayer, #frameAll, #mapCopyLink { min-height: 44px; }
+    /* ADR-259's phone review (2026-11-04): fields under 16px make iOS zoom the page as they take the focus, and the
+       sheets' buttons and fields were 24 to 31px tall. */
+    #panel input:not([type=checkbox]):not([type=radio]):not([type=range]), #panel select, #panel textarea,
+    #side input:not([type=checkbox]):not([type=radio]):not([type=range]), #side select, #side textarea { font-size: 16px; min-height: 44px; }
+    #panel button, #side button { min-height: 44px; }
+    #panel .linkbtn, #side .linkbtn { min-height: 0; }
+    #side input[type=range] { min-height: 44px; }
   }
   .lrange { border: 0; padding: 0; margin: 6px 0 0; }
   .lrange legend { padding: 0; }
@@ -836,7 +845,7 @@
       </section>
 
       <section class="tabpanel" id="pane-measure" hidden>
-        <p class="hint">Click on the map to add points; double-click to finish. Distances and areas are
+        <p class="hint">Choose Distance or Area, then tap or click the map to add points; double-tap or double-click to finish. Distances and areas are
           measured on the sphere, not on the flat map, so they hold at any latitude.</p>
         <div class="row tools">
           <button id="measureLine" aria-pressed="false">Distance</button>
