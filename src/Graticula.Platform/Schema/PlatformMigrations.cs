@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(128);
+    public static SchemaVersion ComponentSchemaVersion => new(129);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -157,25 +157,33 @@ public static class PlatformMigrations
         AnItemIsRelatedToTheItemItWasPublishedFromV126,
         ALayerKnowsWhenItLastChangedV127,
         AnAppIsAnItemAndAnItemKeepsResourcesV128,
+        AnExportsItemNamesItsJobV129,
     ]);
 
     /// <summary>
-    /// An item is related to the item it was published from — ArcGIS's <c>Service2Data</c>, ADR-257 §12.
+    /// An export's item names the job that fills it, in the store rather than in the process that started it — D-384,
+    /// ADR-263 §5.3.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Found by the ArcGIS veteran's review of v1.0.499.</b> The ArcGIS API for Python overwrites a hosted layer by
-    /// finding the data item it was published from through <c>relatedItems</c>, and this portal kept no such link: the
-    /// portal's publish made a service from a document and forgot which, so <c>manager.overwrite(csv)</c> answered
-    /// <i>Cannot find related data item used to publish this Feature Layer</i>.
+    /// <b>Which job an item waits for was held in one process</b>, so on a site of several nodes a status asked of another
+    /// node answered as for any document — <i>completed</i>, with the item still empty — and a restart before the job
+    /// finished left the item empty for good. The job is already the store's (ADR-011) and its file is already on the
+    /// site's shared exports path (D-282); the link between them was the one thing that was not.
     /// </para>
     /// <para>
-    /// <b>A table of relationships rather than a column on the document</b>, because ArcGIS's relationships are typed
-    /// and go both ways between any two items, and a column would hold one type in one direction. Both ends are items
-    /// and go with them; the recycle bin, which follows the store's foreign keys, keeps a relationship with whichever end
-    /// it holds. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: a table nothing older reads.
+    /// <b>A column on the document, not a table</b>: an item waits for at most one export, and the column is cleared when
+    /// the file is in. No foreign key to the job, because a job's row may be swept before a client asks again, and that is
+    /// answered as a failure rather than refused by the store. <b>Expand</b>: a nullable column a build before this one
+    /// does not read.
     /// </para>
     /// </remarks>
+    private static Migration AnExportsItemNamesItsJobV129 => Migration.Expand(
+        new SchemaVersion(129),
+        "An export's item names the job that fills it (D-384, ADR-263).",
+
+        "alter table document add column if not exists export_job uuid");
+
     /// <summary>
     /// An app or a link is an item — a document whose content is its JSON and which may carry a URL — and any item keeps
     /// resources, the files an app stores beside itself (ADR-264, the ArcGIS veteran's review of v1.0.499, #1).
@@ -232,6 +240,23 @@ public static class PlatformMigrations
             with check (graticula_tenant() is null or tenant_id = graticula_tenant())
         """);
 
+    /// <summary>
+    /// An item is related to the item it was published from — ArcGIS's <c>Service2Data</c>, ADR-257 §12.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by the ArcGIS veteran's review of v1.0.499.</b> The ArcGIS API for Python overwrites a hosted layer by
+    /// finding the data item it was published from through <c>relatedItems</c>, and this portal kept no such link: the
+    /// portal's publish made a service from a document and forgot which, so <c>manager.overwrite(csv)</c> answered
+    /// <i>Cannot find related data item used to publish this Feature Layer</i>.
+    /// </para>
+    /// <para>
+    /// <b>A table of relationships rather than a column on the document</b>, because ArcGIS's relationships are typed
+    /// and go both ways between any two items, and a column would hold one type in one direction. Both ends are items
+    /// and go with them; the recycle bin, which follows the store's foreign keys, keeps a relationship with whichever end
+    /// it holds. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: a table nothing older reads.
+    /// </para>
+    /// </remarks>
     private static Migration AnItemIsRelatedToTheItemItWasPublishedFromV126 => Migration.Expand(
         new SchemaVersion(126),
         "An item is related to the item it was published from, as ArcGIS's Service2Data (ADR-257 §12).",

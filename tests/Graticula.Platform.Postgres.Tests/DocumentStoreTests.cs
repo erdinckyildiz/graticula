@@ -145,6 +145,28 @@ public sealed class DocumentStoreTests : PostgresFixture
     }
 
     [Fact]
+    public async Task An_exports_item_names_its_job_in_the_store_and_is_cleared_once()
+    {
+        // D-384: which job an export's item waits for was held in one process, so another node of a site, or this one
+        // after a restart, answered as for any document. It is the store's now, and any node reads it.
+        (PostgresDocumentStore store, Guid owner, _) = await ReadyAsync();
+        Document made = await store.CreateAsync(
+            "Export", null, owner, SharingScope.Private, "export.gpkg", Pdf, "%PDF-1.4"u8.ToArray(), CancellationToken.None);
+        Guid job = Guid.NewGuid();
+
+        Assert.Null(await store.ExportJobAsync(made.Id, CancellationToken.None));
+        Assert.True(await store.SetExportJobAsync(made.Id, job, expected: null, CancellationToken.None));
+        Assert.Equal(job, await new PostgresDocumentStore(DataSource).ExportJobAsync(made.Id, CancellationToken.None));
+
+        // Two nodes finishing the same export: the first clears it, the second finds nothing to clear.
+        Assert.False(await store.SetExportJobAsync(made.Id, null, Guid.NewGuid(), CancellationToken.None));
+        Assert.True(await store.SetExportJobAsync(made.Id, null, job, CancellationToken.None));
+        Assert.False(await store.SetExportJobAsync(made.Id, null, job, CancellationToken.None));
+        Assert.Null(await store.ExportJobAsync(made.Id, CancellationToken.None));
+        Assert.Null(await store.ExportJobAsync("not an id", CancellationToken.None));
+    }
+
+    [Fact]
     public async Task The_store_refuses_a_size_that_is_not_the_files()
     {
         await MigrateAsync();

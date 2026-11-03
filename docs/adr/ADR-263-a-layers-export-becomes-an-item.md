@@ -52,12 +52,16 @@ A large layer's export takes minutes; ADR-106 made it a job for that reason. Not
 5. **GeoJSON and Feature Collection are one layer.** Several layers in either are a zip no item type names, so the export
    is refused and the answer says which formats hold several. *(INFERRED, and confirmed by the owner 2026-11-04:
    "Reddetsin".)*
-6. **Which export an item waits for is held in the process**, at most 256 at once, the oldest forgotten first; a restart
-   before the job finishes leaves the item empty, and its status no longer says *processing*.
+6. ~~**Which export an item waits for is held in the process**, at most 256 at once, the oldest forgotten first; a restart
+   before the job finishes leaves the item empty, and its status no longer says *processing*.~~ **Amended 2026-11-04
+   ([D-384](../architecture-debt.md), closed):** it is the store's — migration 129's `document.export_job`, set when the
+   item is made and cleared, only by whoever still finds it set, when the file is in or the job has failed. The job is
+   already ADR-011's and its file is already on the site's shared exports path, so any node answers the status, and a
+   restart before the job finishes leaves the item *processing* while the job is run again.
 
 ## 4. Consequences
 
-- **State.** The item is a document in the catalogue. Which export it waits for is node-local, in the process that started it: on a site of several nodes, a status asked of another node does not see the wait and answers as for any document, so a client polling through a balancer may read an empty item as complete. Recorded rather than solved; a single node, the baseline, is unaffected.
+- **State.** The item is a document in the catalogue, and the export it waits for is a column of it (`document.export_job`, migration 129), so every node of a site answers its status the same way and a restart does not orphan it. *(Was node-local until 2026-11-04: D-384, closed the day after it was opened.)*
 - `item.export()` works from the Python API, and so does ArcGIS Online's *Export Data* as scripts call it.
 - An export item is a document like an uploaded file: listed in My content, shared, deleted and recycled as one.
 - ADR-106 stays the export; this is a door onto it, and its file-kept-for-a-while answer is unchanged for Studio.

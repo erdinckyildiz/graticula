@@ -304,7 +304,6 @@ public sealed class PostgresDocumentStore : IDocumentStore
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as byte[];
     }
 
-    /// <summary>A row, or null for a kind this build does not know — a later build's, read by an earlier one.</summary>
     /// <inheritdoc/>
     public async Task<bool> SetLinkAsync(string id, string? url, IReadOnlyList<string>? typeKeywords, CancellationToken cancellationToken)
     {
@@ -325,6 +324,42 @@ public sealed class PostgresDocumentStore : IDocumentStore
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
+    /// <inheritdoc/>
+    public async Task<Guid?> ExportJobAsync(string id, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(id, out Guid item))
+        {
+            return null;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("select export_job from document where item_id = @id");
+        command.Parameters.AddWithValue("id", item);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid job ? job : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetExportJobAsync(string id, Guid? job, Guid? expected, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(id, out Guid item))
+        {
+            return false;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(expected is null
+            ? "update document set export_job = @job where item_id = @id"
+            : "update document set export_job = @job where item_id = @id and export_job = @expected");
+        command.Parameters.AddWithValue("id", item);
+        command.Parameters.Add(new NpgsqlParameter("job", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)job ?? DBNull.Value });
+        if (expected is { } waiting)
+        {
+            command.Parameters.AddWithValue("expected", waiting);
+        }
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <summary>A row, or null for a kind this build does not know — a later build's, read by an earlier one.</summary>
     private static Document? Read(NpgsqlDataReader reader)
     {
         if (Documents.Named(reader.GetString(7)) is not { } kind)
