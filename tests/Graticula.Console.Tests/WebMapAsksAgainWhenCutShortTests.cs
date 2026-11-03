@@ -63,6 +63,24 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
 
         int before = await Browser.EvaluateAsync<int>("window.__queries.length");
 
+        // <b>And the layer is never drawn empty while it is asked again</b> (2026-11-03: a GeoParquet layer blinked out
+        // and back on every pan, because the re-ask emptied the source before the answer came). Every frame drawn from
+        // here on is counted, and one drawn with no features in the layer is the defect.
+        await WaitForAsync("wmRuntime.get(wmLayers()[0]).ol.getSource().getFeatures().length > 0",
+            "The layer's first answer drew no features to keep.");
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const source = wmRuntime.get(wmLayers()[0]).ol.getSource();
+              window.__emptyFrames = 0;
+              window.__frames = 0;
+              wmMap.on("postrender", () => {
+                window.__frames++;
+                if (source.getFeatures().length === 0) window.__emptyFrames++;
+              });
+              return true;
+            })()
+            """);
+
         await Browser.EvaluateAsync<string>("""
             (() => {
               const view = wmMap.getView();
@@ -75,6 +93,10 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
             $"window.__queries.length > {before}",
             "Zooming in over a layer whose answer was cut short asked for nothing. The view counts as loaded because "
             + "a wider one was, and the reader is left with the first page wherever they go — the defect of 2026-10-10.");
+
+        await WaitForAsync("!wmRuntime.get(wmLayers()[0]).replace && window.__frames > 0",
+            "The layer's second answer never replaced the first.");
+        Assert.Equal(0, await Browser.EvaluateAsync<int>("window.__emptyFrames"));
     }
 
     /// <summary>

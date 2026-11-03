@@ -40,7 +40,7 @@ public sealed class WebMapViewerTests : ConsoleTest
     });
 
     private const string LayerNames =
-        "[...document.querySelectorAll('#layerList > li[data-layer] .lhead label')].map(l => l.textContent.trim())";
+        "[...document.querySelectorAll('#layerList > li[data-layer] .lhead .ltitle')].map(l => l.textContent.trim())";
 
     [Fact]
     public async Task A_saved_map_opens_draws_its_layers_and_names_the_one_it_cannot_read()
@@ -116,7 +116,11 @@ public sealed class WebMapViewerTests : ConsoleTest
                 "The layer list is in the markup and not on screen.");
 
             // <b>The recurring defect: a redraw drops focus to the body.</b> Moving the readable layer up
-            // redraws the list; the keyboard must still be on that layer's controls.
+            // redraws the list; the keyboard must still be on that layer's controls. Move up is in the layer's ⋯ menu
+            // (ADR-259), which opens with the keyboard on its first action.
+            await ClickAsync("#layerList button[data-act=menu][data-layer=readable]");
+            await WaitForAsync("!document.getElementById('menu-readable').hidden && document.getElementById('menu-readable').contains(document.activeElement)",
+                "The layer's ⋯ menu did not open with the keyboard in it.");
             await Browser.EvaluateAsync<string>(
                 "(() => { const b = document.querySelector('#layerList button[data-act=up][data-layer=readable]'); b.focus(); b.click(); return 'ok'; })()");
 
@@ -205,10 +209,10 @@ public sealed class WebMapViewerTests : ConsoleTest
         {
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
 
-            await WaitForAsync("!!document.querySelector('#layerList button[data-act=style][data-layer=styled]')",
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=select][data-layer=styled]')",
                 "A feature layer on the map offers no Style.");
 
-            await ClickAsync("#layerList button[data-act=style][data-layer=styled]");
+            await OpenLayerToolAsync("style", "styled");
 
             await WaitForAsync("!!document.getElementById('styHow-styled')", "Style did not open the layer's style panel.");
 
@@ -219,7 +223,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             await Browser.EvaluateAsync<bool>("(() => { document.getElementById('styColour-styled').value = '#aa3377'; return true; })()");
 
-            await ClickAsync("#layerList button[data-act=styleApply][data-layer=styled]");
+            await ClickAsync("#layerTool button[data-act=styleApply][data-layer=styled]");
 
             await WaitForAsync(
                 "(wmLayers()[0].layerDefinition || {}).drawingInfo?.renderer?.type === 'simple'",
@@ -247,10 +251,10 @@ public sealed class WebMapViewerTests : ConsoleTest
                 "Saving the map did not send the layer's style in its document.");
 
             // The layer's default, from the map: the same drawingInfo, to the layer's symbology.
-            await WaitForAsync("!!document.querySelector('#layerList button[data-act=styleDefault][data-layer=styled]')",
+            await WaitForAsync("!!document.querySelector('#layerTool button[data-act=styleDefault][data-layer=styled]')",
                 "A styled layer offers no Save as the layer's default to a role that may publish.");
 
-            await ClickAsync("#layerList button[data-act=styleDefault][data-layer=styled]");
+            await ClickAsync("#layerTool button[data-act=styleDefault][data-layer=styled]");
 
             await WaitForAsync(
                 "(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/symbology'))",
@@ -320,10 +324,10 @@ public sealed class WebMapViewerTests : ConsoleTest
         {
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
 
-            await WaitForAsync("!!document.querySelector('#layerList button[data-act=style][data-layer=byvalue]')",
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=select][data-layer=byvalue]')",
                 "The styled layer offers no Style.");
 
-            await ClickAsync("#layerList button[data-act=style][data-layer=byvalue]");
+            await OpenLayerToolAsync("style", "byvalue");
 
             await WaitForAsync("document.getElementById('styHow-byvalue')?.value === 'unique'",
                 "The Style panel of a layer styled by value opened on another kind, where one Apply would replace it.");
@@ -496,10 +500,10 @@ public sealed class WebMapViewerTests : ConsoleTest
         {
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
 
-            await WaitForAsync("!!document.querySelector('#layerList button[data-act=popup][data-layer=pops]')",
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=select][data-layer=pops]')",
                 "A feature layer offers no Pop-up.");
 
-            await ClickAsync("#layerList button[data-act=popup][data-layer=pops]");
+            await OpenLayerToolAsync("popup", "pops");
 
             await WaitForAsync("document.querySelectorAll('#pop-pops [data-pop-field]').length > 0",
                 "The Pop-up panel lists none of the layer's fields.");
@@ -551,7 +555,7 @@ public sealed class WebMapViewerTests : ConsoleTest
             // A field that is not there is said, and nothing is applied.
             await Browser.EvaluateAsync<bool>("(() => { const t = document.getElementById('popTitle-pops'); t.dataset.good = t.value; t.value = 'X {nosuchfield}'; return true; })()");
 
-            await ClickAsync("#layerList button[data-act=popupApply][data-layer=pops]");
+            await ClickAsync("#layerTool button[data-act=popupApply][data-layer=pops]");
 
             await WaitForAsync(
                 "/nosuchfield/.test(document.getElementById('popSays-pops')?.textContent || '') && !wmLayers()[0].popupInfo",
@@ -566,7 +570,7 @@ public sealed class WebMapViewerTests : ConsoleTest
                   const boxes = [...document.querySelectorAll('#pop-pops [data-pop-field]')];
                   boxes.forEach((b, i) => b.checked = i === 0);
                   document.getElementById('popTitle-pops').value = 'Feature {{{first}}}';
-                  document.querySelector('#layerList button[data-act=popupApply][data-layer=pops]').click();
+                  document.querySelector('#layerTool button[data-act=popupApply][data-layer=pops]').click();
                   return true;
                 })()
                 """);
@@ -654,9 +658,9 @@ public sealed class WebMapViewerTests : ConsoleTest
         {
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
 
-            await WaitForAsync("!!document.querySelector('#layerList button[data-act=labels][data-layer=labs]')",
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=select][data-layer=labs]')",
                 "A feature layer offers no Labels.");
-            await ClickAsync("#layerList button[data-act=labels][data-layer=labs]");
+            await OpenLayerToolAsync("labels", "labs");
             await WaitForAsync("document.querySelectorAll('#labField-labs option').length > 0",
                 "The Labels panel offers none of the layer's fields.");
 
@@ -715,7 +719,7 @@ public sealed class WebMapViewerTests : ConsoleTest
             await WaitForAsync("window.__thumb !== null", "Taking the map's picture never finished.");
             Assert.Equal("taken", await Browser.EvaluateAsync<string>("window.__thumb"));
 
-            await ClickAsync("#layerList button[data-act=labelsReset][data-layer=labs]");
+            await ClickAsync("#layerTool button[data-act=labelsReset][data-layer=labs]");
             await WaitForAsync("!wmLayers()[0].showLabels && !((wmLayers()[0].layerDefinition || {}).drawingInfo || {}).labelingInfo",
                 "Remove labels left them in the document.");
 
@@ -768,8 +772,8 @@ public sealed class WebMapViewerTests : ConsoleTest
         try
         {
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
-            await WaitForAsync("!!document.querySelector('#layerList button[data-act=style][data-layer=pts]')", "The layer offers no Style.");
-            await ClickAsync("#layerList button[data-act=style][data-layer=pts]");
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=select][data-layer=pts]')", "The layer offers no Style.");
+            await OpenLayerToolAsync("style", "pts");
 
             async Task ChooseAsync(string how)
             {
@@ -779,14 +783,14 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             await ChooseAsync("heat");
             await WaitForAsync("!!document.getElementById('styRadius-pts')", "Heat map asks for no radius.");
-            await ClickAsync("#layerList button[data-act=styleApply][data-layer=pts]");
+            await ClickAsync("#layerTool button[data-act=styleApply][data-layer=pts]");
             await WaitForAsync("wmLayers()[0].layerDefinition.drawingInfo.renderer.type === 'heatmap'", "Apply wrote no heat map.");
             Assert.True(await Browser.EvaluateAsync<bool>("wmRuntime.get(wmLayers()[0]).ol instanceof ol.layer.Heatmap"),
                 "The heat map is not drawn as one.");
 
             await ChooseAsync("size");
             await WaitForAsync("!!document.getElementById('styMin-pts')", "Size asks for no range.");
-            await ClickAsync("#layerList button[data-act=styleApply][data-layer=pts]");
+            await ClickAsync("#layerTool button[data-act=styleApply][data-layer=pts]");
             await WaitForAsync(
                 "(wmLayers()[0].layerDefinition.drawingInfo.renderer.visualVariables || []).some(v => v.type === 'sizeInfo' && v.maxDataValue === 100)",
                 "Apply wrote no size by number, or not the layer's own range.");
@@ -1106,7 +1110,7 @@ public sealed class WebMapViewerTests : ConsoleTest
         await WaitForAsync("typeof wmMap === 'object' && !!wmMap.getSize() && wmMap.getSize()[0] > 0",
             "The map never got a size.");
 
-        await Browser.EvaluateAsync<bool>("(document.getElementById('tab-search').focus(), true)");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('tool-search').focus(), true)");
 
         double before = await Browser.EvaluateAsync<double>("wmMap.getView().getZoom()");
 
@@ -1201,7 +1205,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             foreach (string selector in new[]
                      {
-                         "#layerList [data-act=style]", "#layerList [data-act=popup]", "#layerList [data-act=labels]",
+                         "#tool-style", "#tool-popup", "#tool-labels", "#tool-filter",
                          "#mapTitle", "#mapSave",
                      })
             {
@@ -1280,7 +1284,8 @@ public sealed class WebMapViewerTests : ConsoleTest
             "With nothing to add, Add layer did not link to where a service is published.");
         Assert.False(await Browser.EvaluateAsync<bool>(Shown("#addFilter")), "With nothing to add, the filter is still offered.");
         Assert.Equal("addStatus", await Browser.EvaluateAsync<string>("document.activeElement && document.activeElement.id"));
-        Assert.Equal(string.Empty, (await Browser.EvaluateAsync<string>("document.getElementById('layerList').textContent") ?? "").Trim());
+        // Said once: Add is its own panel (ADR-259), so Layers' own empty sentence is not on screen beside it.
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#layerList")), "Layers' sentence is shown beside Add's.");
     }
 
     /// <summary>

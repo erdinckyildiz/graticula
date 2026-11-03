@@ -11,9 +11,9 @@
 
   <b>A map a user keeps, where view.html is an operator's look at one service.</b> It opens a saved
   ArcGIS Web Map document (`?id=`), or starts an unsaved one from a service (`?service=`), draws its
-  layers on the vendored OpenLayers (ADR-020 §4), and saves it back. The layout is NextGIS Web's web
-  map, which is what the owner compared against: the map, and a side panel with Layers, Search,
-  Measure and Map tabs.
+  layers on the vendored OpenLayers (ADR-020 §4), and saves it back. The layout is ArcGIS Map Viewer's
+  (ADR-259, which replaced NextGIS Web's): the map's tools in a toolbar at the left, the selected
+  layer's settings and the map tools in one at the right, each opening its own panel.
 
   <b>No inline script</b>, because the console's policy has no `'unsafe-inline'` and
   `No_console_page_carries_an_inline_script` enforces it. The style block is allowed.
@@ -93,8 +93,11 @@
   #saved.dirty { color: var(--warn); }
   #headSave { flex: none; padding: 5px 14px; }
   /* A signed-out reader of a shared map: nothing that changes the map (2026-09-30). */
-  body.reader #addLayer, body.reader #addBox, body.reader .lfilter,
+  body.reader #addLayer, body.reader #addBox, body.reader .lfilter, body.reader #tab-add,
   body.reader [data-act="remove"], body.reader [data-act="up"], body.reader [data-act="down"] { display: none; }
+  /* ADR-259: the right toolbar's tools that write the map, which a reader cannot keep. */
+  body.reader #tool-style, body.reader #tool-popup, body.reader #tool-labels, body.reader #tool-filter,
+  body.reader #basemapField { display: none; }
   /* And nothing of the editor's (ADR-079 condition 2's review, 2026-10-14): Style, Pop-up and Labels opened panels whose
      Apply a reader cannot keep, "Saved" said something a reader cannot do, and the Map tab was a form with Save
      greyed out — read as broken rather than as not theirs. The tab reads as About instead. */
@@ -114,8 +117,41 @@
             border-radius: var(--round); white-space: nowrap; background: var(--surface); }
   #studio:hover { border-color: var(--accent); color: var(--accent-ink); }
 
-  /* A rail of tools, the panel they open, and the map (UX sweep 2026-10-19: six tools no longer share a 340 px strip). */
-  #body { position: relative; display: grid; grid-template-columns: 76px 320px minmax(0, 1fr); min-height: 0; }
+  /* ADR-259: the map's toolbar and its panel, the map, the right panel and the right toolbar. A panel closed by its tool
+     gives its column back to the map. */
+  #body { position: relative; display: grid; min-height: 0; --lw: 320px; --rw: 0px;
+          grid-template-columns: 76px var(--lw) minmax(0, 1fr) var(--rw) 76px; }
+  body.lclosed #body { --lw: 0px; }
+  @media (min-width: 761px) { body.lclosed #panel { display: none; } }
+  body.ropen #body { --rw: 340px; }
+  #side { grid-column: 4; grid-row: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+          background: var(--surface); border-left: 1px solid var(--rule); }
+  #side .sidehead { display: flex; align-items: center; gap: 8px; padding: 10px 10px 0 16px; }
+  #side .sidehead h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+  #sideClose { width: 32px; height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 20px; flex: none; }
+  #rtools { grid-column: 5; grid-row: 1; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; min-height: 0;
+            overflow: auto; background: var(--surface); border-left: 1px solid var(--rule); }
+  #rtools button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+                   min-height: 58px; padding: 6px 2px; border: 0; border-radius: 0; background: none; flex: none;
+                   font: inherit; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+  #rtools button:hover { color: var(--ink); border: 0; }
+  #rtools button[aria-expanded="true"] { color: var(--accent-ink); font-weight: 600; background: var(--accent-soft);
+                                         box-shadow: inset -3px 0 0 var(--accent); }
+  /* A layer's tool with no layer it can act on: still reachable, so it can say why (ADR-259 §3.2). */
+  #rtools button[aria-disabled="true"] { opacity: .45; }
+  #rtools button:focus-visible { outline-offset: -3px; }
+  #rtools .rsep { flex: none; height: 1px; margin: 6px 12px; background: var(--rule-strong); }
+  #rtools[hidden] { display: none; }
+  /* The selected layer's settings, given the whole panel rather than the room under a card. */
+  #layerTool .lstyle { margin-top: 0; padding: 0; border: 0; }
+  #layerTool .lfilter, #layerTool .lctl, #layerTool .lstate { margin-left: 0; }
+  #layerTool .lfilter { margin-top: 0; }
+  #layerTool .lprops > * + * { margin-top: 12px; }
+  #layerTool .lprops input[type="range"] { width: 100%; }
+  #layerTool .lnone { color: var(--muted); }
+  #layerSwitch { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 16px 0; }
+  #layerSwitch button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink);
+                                          font-weight: 600; }
   #tabs { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; background: var(--surface);
           border-right: 1px solid var(--rule); min-height: 0; overflow: auto; }
   #tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
@@ -165,6 +201,7 @@
     background: var(--surface); }
   #pane-analysis .azfoot .fill { flex: 1 1 100%; margin: 0; }
   #pane-analysis #analyzeButtons { display: flex; gap: 8px; }
+  #pane-analysis .azfoot:empty { display: none; }
   #pane-analysis .bad { color: var(--alert); }
   .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
   .said.bad { color: var(--alert); }
@@ -231,6 +268,25 @@
   #layerList > li.off { background: var(--surface-2); }
   .lhead { display: flex; align-items: flex-start; gap: 7px; }
   .lhead label { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
+  /* ADR-259: a layer is a row — show it, select it by its name, and ⋯ for what is done to it. */
+  #layerList > li { cursor: default; }
+  #layerList > li.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
+  #layerList > li.sel.off { background: var(--accent-soft); }
+  .lhead input[type="checkbox"] { margin-top: 3px; flex: none; }
+  .lhead .lname { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+                  padding: 0; border: 0; background: none; text-align: left; color: var(--ink); font: inherit;
+                  overflow-wrap: anywhere; }
+  .lhead .lname:hover { color: var(--accent-ink); border: 0; }
+  .lhead .lname .lkind { white-space: normal; }
+  .lhead .lmore { flex: none; width: 28px; height: 28px; padding: 0; border: 0; background: none; color: var(--muted);
+                  font-size: 18px; line-height: 1; border-radius: var(--round); }
+  .lhead .lmore[aria-expanded="true"], .lhead .lmore:hover { background: var(--surface-3); color: var(--ink); }
+  .lmenu { display: flex; flex-direction: column; margin: 6px 0 2px 22px; padding: 4px; background: var(--surface);
+           border: 1px solid var(--rule-strong); border-radius: var(--round-lg); box-shadow: var(--float); }
+  .lmenu button { border: 0; border-radius: var(--round); background: none; text-align: left; padding: 6px 8px; }
+  .lmenu button:hover:not(:disabled) { background: var(--surface-2); border: 0; }
+  .lmenu button[aria-pressed="true"] { font-weight: 600; color: var(--accent-ink); }
+  .lmenu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 2px; }
   .lkind { font-size: 11px; color: var(--faint); white-space: nowrap; }
   /* A hint written as a paragraph wraps; nowrap is for the short labels beside a control (ADR-079's review: the pop-up
      panel's "…starts with http:// or https://" was cut at the panel's edge). */
@@ -258,18 +314,21 @@
   .lfilter .active { font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink);
                      overflow-wrap: anywhere; }
 
-  #addBox { border: 1px solid var(--rule); border-radius: 4px; padding: 9px; margin: 8px 0 12px;
-            background: var(--surface-2); }
-  #addList { list-style: none; margin: 8px 0 0; padding: 0; max-height: 280px; overflow: auto; }
+  #addList { list-style: none; margin: 8px 0 0; padding: 0; }
   #addList li { padding: 4px 0;
                 border-top: 1px solid var(--rule); }
   #addList li:first-child { border-top: 0; }
   #addList .svcrow { display: flex; gap: 8px; align-items: center; }
+  #addList .kinds button::before { content: "+ "; }
+  #addList .kinds button { min-height: 24px; }
   #addList .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  #addList .onmap { font-size: 12px; color: var(--accent-ink); white-space: nowrap; padding: 1px 4px; }
-  #addList details.kinds { margin: 2px 0 2px 12px; font-size: 12.5px; }
-  #addList details.kinds summary { color: var(--muted); cursor: pointer; }
-  #addList details.kinds .svcrow { padding: 2px 0; }
+  #addList .onmap { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted);
+                    white-space: nowrap; padding: 1px 4px; }
+  #addList .onmap svg.i { width: 14px; height: 14px; }
+  .addfind { display: flex; gap: 6px; }
+  .addfind input { flex: 1 1 auto; min-width: 0; width: auto; }
+  .addfind select { flex: 0 0 auto; width: auto; }
+  #addList .kinds { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
   #addList .type { font-size: 11px; color: var(--faint); white-space: nowrap; }
 
   #searchResults, #measureList { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -291,7 +350,8 @@
   #timeBar[hidden] { display: none; }
   #timeBar .timewrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 300px; }
   #timeSaid { font-size: 12px; text-align: center; }
-  #timeBar .timeends { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  #timeBar .timeends { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted);
+                       white-space: nowrap; }
   /* One track, two thumbs: both inputs lie on it and only their thumbs take the pointer; the window between them is
      drawn on the track (design review 2026-10-01: two stacked sliders did not read as one window). */
   #timeBar .timetrack { position: relative; height: 24px; --from: 0%; --to: 100%;
@@ -471,6 +531,23 @@
     body:not(.sheet) #panel { display: none; }
     /* The sheet is as tall as what it holds, up to its limit: a panel of basis nought had no height at all. */
     #panel .tabpanel { flex: 0 1 auto; }
+    /* ADR-259 §3.5: the right toolbar is a column of icons at the map's edge, and its panel the same sheet as the left's. */
+    #rtools { position: absolute; z-index: 31; top: 12px; right: 12px; grid-column: auto; grid-row: auto; padding: 2px;
+              max-height: calc(100% - 140px); border: 1px solid var(--rule-strong); border-radius: var(--round-lg);
+              box-shadow: var(--lift); }
+    #rtools button { width: 44px; min-height: 44px; padding: 0; }
+    #rtools .tl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #rtools .rsep { margin: 2px 6px; }
+    /* One Layer tool on a phone: a column of eight unlabelled icons reached under a tall sheet (UX review 2026-11-03). */
+    #rtools #tool-style, #rtools #tool-filter, #rtools #tool-popup, #rtools #tool-labels { display: none; }
+    #layerSwitch button { min-height: 44px; }
+    #side { position: absolute; z-index: 60; left: 0; right: 0; bottom: 57px; max-height: 55%; grid-column: auto; grid-row: auto;
+            border-left: 0; border-top: 1px solid var(--rule-strong); border-radius: 12px 12px 0 0; box-shadow: var(--float); }
+    #side .tabpanel { flex: 0 1 auto; }
+    #sideClose { width: 44px; height: 44px; font-size: 22px; }
+    .lhead .lmore { width: 44px; height: 44px; margin: -8px -6px -8px 0; }
+    .lmenu button { min-height: 44px; }
+    .lhead .lname { min-height: 32px; }
     #sheetClose { display: inline-flex; align-self: flex-end; align-items: center; justify-content: center;
                   margin: 6px 8px -6px 0; width: 44px; height: 44px; padding: 0; border: 0; background: none;
                   color: var(--muted); font-size: 22px; flex: none; }
@@ -505,6 +582,13 @@
   <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4V3Z"/></symbol>
   <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M7 14h10v7H7z"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+  <symbol id="i-add" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></symbol>
+  <symbol id="i-basemap" viewBox="0 0 24 24"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-style" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10Z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15.5" cy="8" r="1"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z"/></symbol>
+  <symbol id="i-popup" viewBox="0 0 24 24"><path d="M4 4h16v12H10l-4 4v-4H4V4Z"/><path d="M8 9h8M8 12h5"/></symbol>
+  <symbol id="i-label" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="8.5" r="1.2"/></symbol>
 </svg>
 <div id="frame">
   <!-- Studio's bar (UX sweep M1): this page is Studio's Map, so it carries Studio's sections as the console draws them. -->
@@ -533,11 +617,12 @@
   </div>
 
   <div id="body">
-    <div id="tabs" role="tablist" aria-label="Map tools">
+    <!-- ADR-259: ArcGIS Map Viewer's shape. This toolbar holds what the map has; #rtools, at the right, what the selected
+         layer can be given and the map tools. -->
+    <div id="tabs" role="tablist" aria-label="Map contents">
+      <button role="tab" id="tab-add" aria-controls="pane-add" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-add"/></svg><span class="tl">Add</span></button>
       <button role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg><span class="tl">Layers</span></button>
-      <button role="tab" id="tab-search" aria-controls="pane-search" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><span class="tl">Search</span></button>
-      <button role="tab" id="tab-measure" aria-controls="pane-measure" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-ruler"/></svg><span class="tl">Measure</span></button>
-      <button role="tab" id="tab-analysis" aria-controls="pane-analysis" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-analysis"/></svg><span class="tl">Analysis</span></button>
+      <button role="tab" id="tab-basemap" aria-controls="pane-basemap" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-basemap"/></svg><span class="tl">Basemap</span></button>
       <button role="tab" id="tab-bookmarks" aria-controls="pane-bookmarks" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-bookmark"/></svg><span class="tl">Bookmarks</span></button>
       <button role="tab" id="tab-print" aria-controls="pane-print" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-print"/></svg><span class="tl">Print</span></button>
       <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span class="tl">Map</span></button>
@@ -547,20 +632,44 @@
       <button type="button" id="sheetClose" aria-label="Close the panel">&times;</button>
       <div class="tabpanel" id="notFound" hidden></div>
 
-      <section class="tabpanel" id="pane-layers" role="tabpanel" aria-labelledby="tab-layers">
-        <div class="row">
-          <button id="addLayer" aria-expanded="false" aria-controls="addBox">Add layer</button>
-          <button id="frameAll" title="Zoom to every layer that says where it is">Zoom to all</button>
-        </div>
-        <div id="addBox" hidden>
+      <section class="tabpanel" id="pane-add" role="tabpanel" aria-labelledby="tab-add" hidden>
+        <div id="addBox">
           <label class="field" for="addFilter" style="margin-top:0">Services you can read</label>
-          <input type="search" id="addFilter" placeholder="Filter by name&hellip;" autocomplete="off">
+          <div class="addfind">
+            <input type="search" id="addFilter" placeholder="Filter by name&hellip;" autocomplete="off">
+            <!-- What ArcGIS Map Viewer's Add filters by: the kind of layer (2026-11-03, the vector tiles were not found). -->
+            <select id="addType" aria-label="Kind of layer">
+              <option value="">All kinds</option>
+              <option value="FeatureServer">Features</option>
+              <option value="ImageServer">Imagery</option>
+              <option value="VectorTileServer">Vector tiles</option>
+              <option value="MapServer">Map image</option>
+            </select>
+          </div>
           <p class="said" id="addStatus" role="status" aria-live="polite"></p>
           <ul id="addList"></ul>
+        </div>
+      </section>
+
+      <section class="tabpanel" id="pane-layers" role="tabpanel" aria-labelledby="tab-layers">
+        <div class="row">
+          <button id="addLayer" aria-controls="pane-add">Add layer</button>
+          <button id="frameAll" title="Zoom to every layer that says where it is">Zoom to all</button>
         </div>
         <p class="said" id="layersStatus" role="status" aria-live="polite"></p>
         <h3 class="lgroup" id="opsHead" hidden><span class="cap">Operational layers</span></h3>
         <ul id="layerList" aria-label="Layers, top of the map first"></ul>
+      </section>
+
+      <section class="tabpanel" id="pane-basemap" role="tabpanel" aria-labelledby="tab-basemap" hidden>
+        <div id="basemapField">
+          <label class="field" for="mapBasemap" style="margin-top:0">Basemap</label>
+          <!-- Filled by wmDrawBaseMapChoices: the portal's basemap gallery (ADR-184), the server's ground (ADR-086). -->
+          <select id="mapBasemap">
+            <option value="osm">OpenStreetMap</option>
+            <option value="none">None</option>
+          </select>
+        </div>
         <!-- C1 of the UX sweep: the basemap's own layers, drawn and switchable, but not clicked, searched or filtered. -->
         <div id="baseList" hidden>
           <h3 class="lgroup" id="baseHead"></h3>
@@ -568,40 +677,6 @@
         </div>
       </section>
 
-      <section class="tabpanel" id="pane-search" role="tabpanel" aria-labelledby="tab-search" hidden>
-        <form id="searchForm" class="row" role="search">
-          <label for="searchText" class="field" style="margin:0;width:100%">Find features by any text attribute</label>
-          <input type="search" id="searchText" autocomplete="off" style="flex:1;width:auto">
-          <button class="primary" type="submit">Search</button>
-        </form>
-        <p class="said" id="searchStatus" role="status" aria-live="polite"></p>
-        <ul id="searchResults"></ul>
-      </section>
-
-      <section class="tabpanel" id="pane-measure" role="tabpanel" aria-labelledby="tab-measure" hidden>
-        <p class="hint">Click on the map to add points; double-click to finish. Distances and areas are
-          measured on the sphere, not on the flat map, so they hold at any latitude.</p>
-        <div class="row tools">
-          <button id="measureLine" aria-pressed="false">Distance</button>
-          <button id="measureArea" aria-pressed="false">Area</button>
-          <button id="measureClear">Clear</button>
-        </div>
-        <!-- The running figure while drawing: shown, not announced. The result is announced below. -->
-        <p id="measureLive"></p>
-        <p class="said" id="measureStatus" role="status" aria-live="polite"></p>
-        <span class="sr" id="measureSaid" role="status" aria-live="polite"></span>
-        <ul id="measureList" aria-label="Measurements"></ul>
-      </section>
-
-      <!-- ADR-222 condition 7: the Spatial Analysis Service's tools, run on a layer of this map; the result joins the map.
-           The tools and their questions are analysis.js's, shared with an item's Analyze… dialog. -->
-      <section class="tabpanel" id="pane-analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
-        <div class="stacked" id="azPick"><label for="azLayer">Analyze</label>
-          <select id="azLayer"></select></div>
-        <p class="hint" id="azNone" hidden></p>
-        <div id="analyzeBody"></div>
-        <div class="azfoot" id="analyzeFoot"></div>
-      </section>
       <section class="tabpanel" id="pane-bookmarks" role="tabpanel" aria-labelledby="tab-bookmarks" hidden>
           <!-- ADR-130: places to come back to, kept with the map as the Web Map's own bookmarks. -->
           <div class="bookmarks">
@@ -651,12 +726,6 @@
             <!-- Which layers the people it is shared with will not see: their services are narrower. -->
             <p class="warnnote" id="sharingNote" hidden></p>
           </div>
-          <label class="field" for="mapBasemap">Basemap</label>
-          <!-- Filled by wmDrawBaseMapChoices: the portal's basemap gallery (ADR-184), the server's ground (ADR-086). -->
-          <select id="mapBasemap">
-            <option value="osm">OpenStreetMap</option>
-            <option value="none">None</option>
-          </select>
           <p class="hint" id="mapOwner"></p>
           <p class="hint">Saving also keeps the current view — where the map is and how far in — as the
             view it opens at. <b>Save as new map</b> makes a private copy.</p>
@@ -716,6 +785,73 @@
         <div class="tablescroll"><table id="tableGrid"></table></div>
       </section>
     </div>
+
+
+    <div id="rtools" role="toolbar" aria-label="Layer settings and map tools" aria-orientation="vertical">
+      <button type="button" id="tool-properties" data-tool="properties" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><span class="tl">Properties</span></button>
+      <button type="button" id="tool-style" data-tool="style" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-style"/></svg><span class="tl">Styles</span></button>
+      <button type="button" id="tool-filter" data-tool="filter" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-filter"/></svg><span class="tl">Filter</span></button>
+      <button type="button" id="tool-popup" data-tool="popup" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-popup"/></svg><span class="tl">Pop-ups</span></button>
+      <button type="button" id="tool-labels" data-tool="labels" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-label"/></svg><span class="tl">Labels</span></button>
+      <span class="rsep" aria-hidden="true"></span>
+      <button type="button" id="tool-search" data-tool="search" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><span class="tl">Search</span></button>
+      <button type="button" id="tool-measure" data-tool="measure" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-ruler"/></svg><span class="tl">Measure</span></button>
+      <button type="button" id="tool-analysis" data-tool="analysis" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-analysis"/></svg><span class="tl">Analysis</span></button>
+    </div>
+
+    <!-- ADR-259: the panel the right toolbar opens — the selected layer's settings, or a map tool. -->
+    <aside id="side" aria-labelledby="sideTitle" hidden>
+      <div class="sidehead">
+        <h2 id="sideTitle">Properties</h2>
+        <button type="button" id="sideClose" aria-label="Close the panel">&times;</button>
+      </div>
+      <!-- ADR-259 §3.5: on a phone the right toolbar has one Layer tool, and the panel switches between its settings. -->
+      <div id="layerSwitch" role="group" aria-label="Layer settings" hidden>
+        <button type="button" data-tool="properties" aria-pressed="false">Properties</button>
+        <button type="button" data-tool="style" aria-pressed="false">Styles</button>
+        <button type="button" data-tool="filter" aria-pressed="false">Filter</button>
+        <button type="button" data-tool="popup" aria-pressed="false">Pop-ups</button>
+        <button type="button" data-tool="labels" aria-pressed="false">Labels</button>
+      </div>
+      <section class="tabpanel" id="pane-layer" hidden>
+        <div id="layerTool"></div>
+      </section>
+
+      <section class="tabpanel" id="pane-search" hidden>
+        <form id="searchForm" class="row" role="search">
+          <label for="searchText" class="field" style="margin:0;width:100%">Find features by any text attribute</label>
+          <input type="search" id="searchText" autocomplete="off" style="flex:1;width:auto">
+          <button class="primary" type="submit">Search</button>
+        </form>
+        <p class="said" id="searchStatus" role="status" aria-live="polite"></p>
+        <ul id="searchResults"></ul>
+      </section>
+
+      <section class="tabpanel" id="pane-measure" hidden>
+        <p class="hint">Click on the map to add points; double-click to finish. Distances and areas are
+          measured on the sphere, not on the flat map, so they hold at any latitude.</p>
+        <div class="row tools">
+          <button id="measureLine" aria-pressed="false">Distance</button>
+          <button id="measureArea" aria-pressed="false">Area</button>
+          <button id="measureClear">Clear</button>
+        </div>
+        <!-- The running figure while drawing: shown, not announced. The result is announced below. -->
+        <p id="measureLive"></p>
+        <p class="said" id="measureStatus" role="status" aria-live="polite"></p>
+        <span class="sr" id="measureSaid" role="status" aria-live="polite"></span>
+        <ul id="measureList" aria-label="Measurements"></ul>
+      </section>
+
+      <!-- ADR-222 condition 7: the Spatial Analysis Service's tools, run on a layer of this map; the result joins the map.
+           The tools and their questions are analysis.js's, shared with an item's Analyze… dialog. -->
+      <section class="tabpanel" id="pane-analysis" hidden>
+        <div class="stacked" id="azPick"><label for="azLayer">Analyze</label>
+          <select id="azLayer"></select></div>
+        <p class="hint" id="azNone" hidden></p>
+        <div id="analyzeBody"></div>
+        <div class="azfoot" id="analyzeFoot"></div>
+      </section>
+    </aside>
   </div>
 </div>
 

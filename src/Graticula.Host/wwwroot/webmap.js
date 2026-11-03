@@ -108,6 +108,10 @@ const wmState = {
 /** What the page knows about each operational layer, keyed by the layer's own JSON object. */
 const wmRuntime = new WeakMap();
 
+/** ADR-259: the open right-hand tool and the selected layer's id; the layer whose ⋯ menu is open. */
+const wmSide = { tool: null, layer: null };
+let wmMenuOpen = null;
+
 /** How many times something has been said in the header — see wmOpen. */
 let wmSpoken = 0;
 
@@ -1258,8 +1262,16 @@ function wmBuildLayer(layer, run, index) {
           f: "json",
         });
 
+        (run.extents = run.extents || []).push(extent);
         wmFetch(url).then(payload => {
           const features = WM_ESRI.readFeatures(payload, { featureProjection: WM_MERCATOR });
+          // Asked again after a move: what the last view drew goes in the same task as the new answer comes, so no
+          // frame is drawn between them with the layer empty (2026-11-03, a GeoParquet layer blinked on every pan).
+          if (run.replace) {
+            run.replace = false;
+            const old = source.getFeatures();
+            if (old.length) source.removeFeatures(old);
+          }
           source.addFeatures(features);
           const truncated = !!payload.exceededTransferLimit;
           const wasError = !!run.error;
@@ -1276,6 +1288,7 @@ function wmBuildLayer(layer, run, index) {
         }).catch(e => {
           run.error = e.message || String(e);
           wmDrawLayerList();
+          run.extents = (run.extents || []).filter(one => one !== extent);
           source.removeLoadedExtent(extent);
           failure();
         });
@@ -1575,6 +1588,17 @@ function wmSwatchMarkup(run) {
 }
 
 function wmDrawLayerList() {
+  // A removed layer is not selected; an open layer tool with nothing selected takes the top layer.
+  if (wmSide.layer && !wmSelectedLayer()) wmSide.layer = null;
+  if (wmMenuOpen && !wmLayerById(wmMenuOpen)) wmMenuOpen = null;
+  if (!wmSide.layer && WM_LAYER_TOOLS.includes(wmSide.tool) && wmLayers().length) {
+    wmSide.layer = wmLayers()[wmLayers().length - 1].id;
+  }
+  wmDrawLayerRows();
+  wmDrawSide();
+}
+
+function wmDrawLayerRows() {
   const list = wm$("layerList");
   const layers = wmLayers();
 
@@ -1591,91 +1615,60 @@ function wmDrawLayerList() {
     const reader = document.body.classList.contains("reader");
     const based = wmBaseLayers().length > 0;
     const lead = based
-      ? "No operational layers yet. Clicking, searching and filtering work on those; the basemap below is drawn, not read."
+      ? "No operational layers yet. Clicking, searching and filtering work on those; the basemap is drawn, not read."
       : "This map has no layers yet.";
-    wmRedraw(list, wm$("addBox").hidden ? `<li class="hint" style="border:0;padding:0">${lead}${reader ? ""
-      : ` <b>Add layer</b> lists the services you can read.`}</li>` : "");
+    wmRedraw(list, `<li class="hint" style="border:0;padding:0">${lead}${reader ? ""
+      : ` <b>Add layer</b> lists the services you can read.`}</li>`);
     return;
   }
 
-  // Top of the list is top of the map: the document's last layer is drawn last.
+  // Top of the list is top of the map: the document's last layer is drawn last. ADR-259: a layer is a row — show it,
+  // select it by its name, and ⋯ for what is done to it; what it is given is in the right toolbar's panel.
+  const selected = wmSelectedLayer();
   const markup = layers.map((layer, index) => ({ layer, index })).reverse().map(({ layer, index }) => {
     const key = layer.id;
+    const k = wmEscape(key);
     const kind = wmKind(layer);
     const state = wmLayerState(layer);
     const run = wmRuntime.get(layer);
     const on = layer.visibility !== false;
-    const opacity = Math.round((Number.isFinite(Number(layer.opacity)) ? Number(layer.opacity) : 1) * 100);
     const title = layer.title || "Untitled layer";
-    const filter = (layer.layerDefinition && layer.layerDefinition.definitionExpression) || "";
     const readable = run && run.status === "ok";
     const top = index === layers.length - 1;
     const bottom = index === 0;
+    const mine = layer === selected;
+    const menu = wmMenuOpen === key;
+    const tabled = wmTable.layer === layer;
 
-    return `<li class="${on ? "" : "off"}" data-layer="${wmEscape(key)}">
+    return `<li class="${on ? "" : "off"}${mine ? " sel" : ""}" data-layer="${k}">
       <div class="lhead">
-        <input type="checkbox" id="vis-${wmEscape(key)}" data-act="visible" data-layer="${wmEscape(key)}"
-          data-focus="vis:${wmEscape(key)}" ${on ? "checked" : ""}>
+        <input type="checkbox" id="vis-${k}" data-act="visible" data-layer="${k}"
+          data-focus="vis:${k}" aria-label="Show ${wmEscape(title)}" ${on ? "checked" : ""}>
         ${wmSwatchMarkup(run)}
-        <label for="vis-${wmEscape(key)}">${wmEscape(title)}</label>
-        <span class="lkind">${wmEscape(kind ? WM_KIND_LABEL[kind] : layer.layerType || "Unknown")}</span>
+        <button type="button" class="lname" data-act="select" data-layer="${k}" data-focus="sel:${k}"
+          aria-pressed="${mine ? "true" : "false"}"><span class="ltitle">${wmEscape(title)}</span>
+          <span class="lkind">${wmEscape(kind ? WM_KIND_LABEL[kind] : layer.layerType || "Unknown")}</span></button>
+        <button type="button" class="lmore" data-act="menu" data-layer="${k}" data-focus="menu:${k}"
+          aria-expanded="${menu ? "true" : "false"}" aria-controls="menu-${k}" aria-label="Actions for ${wmEscape(title)}">&hellip;</button>
       </div>
       ${state.text ? `<div class="lstate ${state.tone}">${wmEscape(state.text)}</div>` : ""}
       ${readable && wmTimeNarrowed(layer) ? `<div class="lstate">Time: only features ${wmEscape(wmTimeBetween())}.</div>` : ""}
-      ${readable && kind === "feature" && !run.ownStyle
-        ? `<div class="lstate">Drawn in one color: its document names no renderer this viewer reads.</div>` : ""}
-      <div class="lctl">
-        <label class="lkind" for="op-${wmEscape(key)}">Opacity</label>
-        <input type="range" id="op-${wmEscape(key)}" min="0" max="100" step="5" value="${opacity}"
-          data-act="opacity" data-layer="${wmEscape(key)}" data-focus="op:${wmEscape(key)}"
-          aria-valuetext="${opacity}%">
-        <button class="tiny" data-act="up" data-layer="${wmEscape(key)}" data-focus="up:${wmEscape(key)}"
-          data-focus-fallback="down:${wmEscape(key)}" ${top ? "disabled" : ""}
-          aria-label="Move ${wmEscape(title)} up">&uarr;</button>
-        <button class="tiny" data-act="down" data-layer="${wmEscape(key)}" data-focus="down:${wmEscape(key)}"
-          data-focus-fallback="up:${wmEscape(key)}" ${bottom ? "disabled" : ""}
-          aria-label="Move ${wmEscape(title)} down">&darr;</button>
-        ${readable && kind === "feature" ? `<button class="tiny" data-act="style" data-layer="${wmEscape(key)}"
-          aria-label="Style of ${wmEscape(title)}" data-focus="style:${wmEscape(key)}" aria-expanded="${run.styleOpen ? "true" : "false"}"
-          aria-controls="sty-${wmEscape(key)}">Style</button>
-          <button class="tiny" data-act="popup" data-layer="${wmEscape(key)}"
-          aria-label="Pop-up of ${wmEscape(title)}" data-focus="popup:${wmEscape(key)}" aria-expanded="${run.popupOpen ? "true" : "false"}"
-          aria-controls="pop-${wmEscape(key)}">Pop-up</button>
-          <button class="tiny" data-act="labels" data-layer="${wmEscape(key)}"
-          aria-label="Labels of ${wmEscape(title)}" data-focus="labels:${wmEscape(key)}" aria-expanded="${run.labelOpen ? "true" : "false"}"
-          aria-controls="lab-${wmEscape(key)}">Labels</button>
-          ${wmEditable(layer, "Create") ? `<button class="tiny" data-act="addFeature" data-layer="${wmEscape(key)}"
-          data-focus="addFeature:${wmEscape(key)}" aria-pressed="${wmAdding.layer === layer ? "true" : "false"}"
-          aria-label="Add a feature to ${wmEscape(title)}">Add feature</button>` : ""}
-          <button class="tiny" data-act="table" data-layer="${wmEscape(key)}" data-focus="table:${wmEscape(key)}"
-          aria-pressed="${wmTable.layer === layer ? "true" : "false"}"
-          aria-label="Attribute table of ${wmEscape(title)}">Table</button>` : ""}
-        ${readable && kind === "imagery" && wmFunctionsOffered(run.info) ? `<div class="lrule">
-          <label class="lkind" for="rule-${wmEscape(key)}">Shown as</label>
-          <select id="rule-${wmEscape(key)}" data-act="renderingRule" data-layer="${wmEscape(key)}" data-focus="rule:${wmEscape(key)}"
-            aria-label="Shown as, ${wmEscape(title)}">
-            ${[["", `Service default${run.info.defaultRasterFunction ? ` (${wmFunctionLabel(run.info.defaultRasterFunction)})` : ""}`],
-              ["None", "Raw values (no function)"], ...wmFunctionOptions(run.info)].map(([v, n]) =>
-              `<option value="${v}"${((layer.renderingRule || {}).rasterFunction || "") === v ? " selected" : ""}>${wmEscape(n)}</option>`).join("")}
-          </select>
-          ${wmRuleArgsMarkup(layer, key, run.info)}
-          ${wmFunctionKey(wmShownFunction(layer, run.info))}</div>` : ""}
-        ${readable && kind === "imagery" && run.classLegend && run.classLegend.length && !layer.renderingRule ? `<ul class="lslegend">${
-          run.classLegend.slice(0, 8).map(row => `<li><img class="swatch" alt="" src="data:${wmEscape(row.contentType || "image/png")};base64,${wmEscape(row.imageData || "")}">${wmEscape(row.label || "")}</li>`).join("")}
-          ${run.classLegend.length > 8 ? `<li class="lkind">and ${run.classLegend.length - 8} more</li>` : ""}</ul>` : ""}
-        ${readable && kind === "imagery" ? `<button class="tiny" data-act="pixels" data-layer="${wmEscape(key)}"
-          data-focus="pixels:${wmEscape(key)}" aria-pressed="${layer.popupEnabled === false ? "false" : "true"}"
-          title="Show pixel values when the map is clicked">Pixel values</button>` : ""}
-        ${readable && wmExtentOf(layer) ? `<button class="tiny" data-act="zoom" data-layer="${wmEscape(key)}"
-          aria-label="Zoom to ${wmEscape(title)}"
-          data-focus="zoom:${wmEscape(key)}">Zoom to</button>` : ""}
-        <button class="tiny danger" data-act="remove" data-layer="${wmEscape(key)}"
-          data-focus="remove:${wmEscape(key)}" aria-label="Remove ${wmEscape(title)} from the map">Remove</button>
+      ${readable && kind === "feature" && (layer.layerDefinition || {}).definitionExpression
+        ? `<div class="lstate">Filtered: ${wmEscape(layer.layerDefinition.definitionExpression)}</div>` : ""}
+      <div class="lmenu" id="menu-${k}" role="group" aria-label="Actions for ${wmEscape(title)}"${menu ? "" : " hidden"}>
+        ${readable && wmExtentOf(layer) ? `<button type="button" data-act="zoom" data-layer="${k}"
+          data-focus="zoom:${k}">Zoom to</button>` : ""}
+        ${readable && kind === "feature" ? `<button type="button" data-act="table" data-layer="${k}" data-focus="table:${k}"
+          aria-pressed="${tabled ? "true" : "false"}">${tabled ? "Hide table" : "Show table"}</button>` : ""}
+        ${readable && kind === "feature" && wmEditable(layer, "Create") ? `<button type="button" data-act="addFeature"
+          data-layer="${k}" data-focus="addFeature:${k}" aria-pressed="${wmAdding.layer === layer ? "true" : "false"}">Add feature</button>` : ""}
+        <button type="button" data-act="up" data-layer="${k}" data-focus="up:${k}"
+          data-focus-fallback="down:${k}" ${top ? "disabled" : ""}>Move up</button>
+        <button type="button" data-act="down" data-layer="${k}" data-focus="down:${k}"
+          data-focus-fallback="up:${k}" ${bottom ? "disabled" : ""}>Move down</button>
+        <hr>
+        <button type="button" class="danger" data-act="remove" data-layer="${k}" data-focus="remove:${k}">Remove</button>
       </div>
-      ${readable && kind === "feature" && run.styleOpen ? wmStyleMarkup(layer, run, key, title) : ""}
-      ${readable && kind === "feature" && run.popupOpen ? wmPopupPanel(layer, run, key, title) : ""}
-      ${readable && kind === "feature" && run.labelOpen ? wmLabelPanel(layer, run, key) : ""}
-      ${kind === "feature" ? wmFilterMarkup(layer, run, key, title, filter) : ""}
     </li>`;
   }).join("");
 
@@ -2209,7 +2202,7 @@ async function wmSetFilter(layer, expression) {
   wmSayIn("layersStatus", clause ? `${layer.title} is filtered.` : `${layer.title} shows every feature.`);
 }
 
-wm$("layerList").addEventListener("change", event => {
+function wmLayerOnChange(event) {
   const t = event.target;
 
   // ADR-136: an imagery layer shown through a raster function — the Web Map's own `renderingRule`.
@@ -2301,11 +2294,18 @@ wm$("layerList").addEventListener("change", event => {
     wmMarkDirty();
   }
 
+  // ADR-123, ADR-259: whether a click on this image answers its pixel, from its Properties.
+  if (t.dataset.act === "pixelsCheck") {
+    layer.popupEnabled = t.checked;
+    wmMarkDirty();
+    wmDrawLayerList();
+  }
+
   // ADR-117: a label setting takes effect as it is changed, as ArcGIS Map Viewer's do (design review 2026-10-01).
   if (t.dataset.act === "labelsApply") wmApplyLabels(layer);
-});
+}
 
-wm$("layerList").addEventListener("input", event => {
+function wmLayerOnInput(event) {
   const t = event.target;
 
   // What is typed survives a redraw of the list — a view that loads more features redraws it.
@@ -2319,20 +2319,22 @@ wm$("layerList").addEventListener("input", event => {
   const layer = wmLayerById(t.dataset.layer);
   if (!layer) return;
   layer.opacity = Math.max(0, Math.min(1, Number(t.value) / 100));
-  t.setAttribute("aria-valuetext", `${t.value}%`);
+  t.setAttribute("aria-valuetext", `${t.value}% opaque`);
+  const said = wm$(`opSaid-${layer.id}`);
+  if (said) said.textContent = `${t.value}%`;
   wmApply(layer, wmLayers().indexOf(layer));
-});
+}
 
-wm$("layerList").addEventListener("keydown", event => {
+function wmLayerOnKeydown(event) {
   const t = event.target;
   if (event.key === "Enter" && t.dataset.filter) {
     event.preventDefault();
     const layer = wmLayerById(t.dataset.filter);
     if (layer) wmSetFilter(layer, t.value);
   }
-});
+}
 
-wm$("layerList").addEventListener("click", event => {
+function wmLayerOnClick(event) {
   const t = event.target.closest("button[data-act]");
   if (!t) return;
   const layer = wmLayerById(t.dataset.layer);
@@ -2341,7 +2343,19 @@ wm$("layerList").addEventListener("click", event => {
   // A reset asks for the saved state, so what was typed in its panel is let go before the redraw would keep it.
   if (/Reset$/.test(t.dataset.act)) wmForgetEdits(t.closest(".lstyle"));
 
+  // A menu's action other than moving closes the menu (ADR-259).
+  if (["zoom", "table", "addFeature", "remove"].includes(t.dataset.act)) wmMenuOpen = null;
+
   switch (t.dataset.act) {
+    case "select": wmSelectLayer(layer, `sel:${layer.id}`); break;
+    case "menu": {
+      wmMenuOpen = wmMenuOpen === layer.id ? null : layer.id;
+      wmDrawLayerRows();
+      if (wmMenuOpen) wm$(`menu-${layer.id}`)?.scrollIntoView({ block: "nearest" });
+      const first = wmMenuOpen && wm$(`menu-${layer.id}`)?.querySelector("button:not(:disabled)");
+      if (first) first.focus(); else wm$("layerList").querySelector(`[data-act=menu][data-layer="${CSS.escape(layer.id)}"]`)?.focus();
+      break;
+    }
     case "up": wmMove(layer, +1); break;
     case "down": wmMove(layer, -1); break;
     case "zoom": wmFit(wmExtentOf(layer)); break;
@@ -2351,18 +2365,7 @@ wm$("layerList").addEventListener("click", event => {
       break;
     }
     case "unfilter": wmSetFilter(layer, ""); break;
-    case "style": {
-      const run = wmRuntime.get(layer);
-      if (run) {
-        const opening = !run.styleOpen;
-        // One panel at a time: two open ones push the list past the window.
-        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.styleOpen = false; r.popupOpen = false; r.labelOpen = false; } }
-        run.styleOpen = opening;
-        run.styleError = null;
-      }
-      wmDrawLayerList();
-      break;
-    }
+    case "style": wmSide.layer = layer.id; wmOpenTool("style"); break;
     case "styleApply": wmApplyStyle(layer); break;
     case "table":
       if (!wmMayLeaveTable()) break;
@@ -2376,26 +2379,8 @@ wm$("layerList").addEventListener("click", event => {
       wmMarkDirty();
       wmDrawLayerList();
       break;
-    case "popup": {
-      const run = wmRuntime.get(layer);
-      if (run) {
-        const opening = !run.popupOpen;
-        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.popupOpen = false; r.styleOpen = false; r.labelOpen = false; } }
-        run.popupOpen = opening;
-      }
-      wmDrawLayerList();
-      break;
-    }
-    case "labels": {
-      const run = wmRuntime.get(layer);
-      if (run) {
-        const opening = !run.labelOpen;
-        for (const other of wmLayers()) { const r = wmRuntime.get(other); if (r) { r.popupOpen = false; r.styleOpen = false; r.labelOpen = false; } }
-        run.labelOpen = opening;
-      }
-      wmDrawLayerList();
-      break;
-    }
+    case "popup": wmSide.layer = layer.id; wmOpenTool("popup"); break;
+    case "labels": wmSide.layer = layer.id; wmOpenTool("labels"); break;
     case "labelsReset": wmApplyLabels(layer, true); break;
     case "popInsert": {
       // Puts `{field}` where the cursor is in the text, and goes back to it.
@@ -2428,12 +2413,40 @@ wm$("layerList").addEventListener("click", event => {
       wmSaySummary(`${layer.title} was removed.`);
       // Focus the neighbour the reader was next to, or the Add button when nothing is left.
       const next = layers[Math.min(at, layers.length - 1)];
-      const target = next ? wm$(`vis-${next.id}`) : wm$("addLayer");
+      const target = next ? wm$("layerList").querySelector(`[data-act=select][data-layer="${CSS.escape(next.id)}"]`) : wm$("addLayer");
       if (target) target.focus();
       break;
     }
     default: break;
   }
+}
+
+for (const region of [wm$("layerList"), wm$("layerTool")]) {
+  region.addEventListener("change", wmLayerOnChange);
+  region.addEventListener("input", wmLayerOnInput);
+  region.addEventListener("keydown", wmLayerOnKeydown);
+  region.addEventListener("click", wmLayerOnClick);
+}
+
+// The empty panel's way to Add, which names no layer.
+wm$("layerTool").addEventListener("click", event => {
+  if (!event.target.closest("[data-act=openAdd]")) return;
+  wm$("addLayer").click();
+});
+
+// A ⋯ menu closes on Escape, giving the keyboard back to its button, and on a click anywhere outside it.
+wm$("layerList").addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !wmMenuOpen || !event.target.closest(".lmenu")) return;
+  event.stopPropagation();
+  const key = wmMenuOpen;
+  wmMenuOpen = null;
+  wmDrawLayerRows();
+  wm$("layerList").querySelector(`[data-act=menu][data-layer="${CSS.escape(key)}"]`)?.focus();
+});
+document.addEventListener("click", event => {
+  if (!wmMenuOpen || event.target.closest(".lmenu, .lmore")) return;
+  wmMenuOpen = null;
+  wmDrawLayerRows();
 });
 
 wm$("frameAll").addEventListener("click", async () => {
@@ -2500,9 +2513,6 @@ const WM_TYPE_LABEL = { FeatureServer: "Features", MapServer: "Map image", Vecto
 /** The kinds a service is added as, the one a person almost always wants first. */
 const WM_TYPE_ORDER = ["FeatureServer", "ImageServer", "VectorTileServer", "MapServer"];
 
-/** Services whose *other ways to draw it* the reader opened, so a redraw does not close it on them. */
-const wmOpenedKinds = new Set();
-
 /** Whether the map already holds this service in this form. */
 function wmOnMap(name, type) {
   const needle = `/rest/services/${name}/${type}`.toLowerCase();
@@ -2521,21 +2531,23 @@ function wmOnMap(name, type) {
  */
 function wmAddControl(name, type) {
   const key = `add:${type}:${name}`;
+  const kind = WM_TYPE_LABEL[type] || type;
   return wmOnMap(name, type)
-    ? `<span class="onmap" tabindex="-1" data-focus="${wmEscape(key)}">On map</span>`
+    ? `<span class="onmap" tabindex="-1" data-focus="${wmEscape(key)}"><svg class="i" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>${wmEscape(kind)} on map</span>`
     : `<button class="tiny" data-add="${wmEscape(name)}" data-type="${wmEscape(type)}" data-focus="${wmEscape(key)}"
-        aria-label="Add ${wmEscape(name)} as ${WM_TYPE_LABEL[type] || type}">Add</button>`;
+        aria-label="Add ${wmEscape(name)} as ${wmEscape(kind)}">${wmEscape(kind)}</button>`;
 }
 
 /**
- * The services list: one row per service, added as features by default.
+ * The services list: one row per service, with an Add for each kind it can be drawn as.
  *
  * <b>One row, not one per face.</b> The directory lists a service once for each face it answers, so the
  * first version offered `wm_buildings` three times and left the reader to guess which *Add* they meant.
- * Features is what an ArcGIS map viewer adds; the map image and the vector tiles are there for whoever
- * wants them, one disclosure away.
+ * <b>Every kind on the row, named</b> — 2026-11-03: the vector tiles sat one closed disclosure away under
+ * *Other ways to draw it*, and the owner could not find the vector tile services the portal lists as items of
+ * their own. A kind can also be chosen, as ArcGIS Map Viewer's Add filters by type.
  */
-function wmDrawAddList() {
+function wmDrawAddList(sayCount = true) {
   const list = wm$("addList");
   if (!wmServices) return;
 
@@ -2547,12 +2559,14 @@ function wmDrawAddList() {
 
   const names = [...byName.keys()];
   const needle = wm$("addFilter").value.trim().toLowerCase();
-  const shown = needle ? names.filter(n => n.toLowerCase().includes(needle)) : names;
+  const kind = wm$("addType").value;
+  const shown = names.filter(n => (!needle || n.toLowerCase().includes(needle)) && (!kind || byName.get(n).has(kind)));
 
   // <b>Nothing to filter, and the way out is a link</b> (ADR-079 condition 2's review, 2026-10-14): a first run put the
   // keyboard in a filter with nothing under it and named *My content* without a way to reach it.
   const none = names.length === 0;
   wm$("addFilter").hidden = none;
+  wm$("addType").hidden = none;
 
   if (none) {
     wmRedraw(list, "");
@@ -2566,61 +2580,46 @@ function wmDrawAddList() {
     return;
   }
 
-  wmSayIn("addStatus", needle ? `${shown.length} of ${names.length} services match.`
-    : `${names.length} service${names.length === 1 ? "" : "s"}.`);
+  if (sayCount) {
+    wmSayIn("addStatus", needle || kind ? `${shown.length} of ${names.length} services match.`
+      : `${names.length} service${names.length === 1 ? "" : "s"}.`);
+  }
+
+  if (!shown.length) {
+    wmRedraw(list, `<li><button type="button" class="tiny" id="addClear" data-focus="addClear">Clear the filter</button></li>`);
+    return;
+  }
 
   wmRedraw(list, shown.slice(0, 200).map(name => {
-    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t));
-    const [first, ...rest] = types;
+    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t) && (!kind || t === kind));
 
     return `<li>
-      <div class="svcrow">
-        <span class="name">${wmEscape(name)}</span>
-        <span class="type">${WM_TYPE_LABEL[first]}</span>
-        ${wmAddControl(name, first)}
-      </div>
-      ${rest.length ? `<details class="kinds" data-kinds="${wmEscape(name)}"${wmOpenedKinds.has(name) ? " open" : ""}>
-        <summary>Other ways to draw it</summary>
-        ${rest.map(type => `<div class="svcrow"><span class="name">${WM_TYPE_LABEL[type]}</span>
-          ${wmAddControl(name, type)}</div>`).join("")}
-      </details>` : ""}
+      <div class="svcrow"><span class="name">${wmEscape(name)}</span></div>
+      <div class="kinds" role="group" aria-label="Add ${wmEscape(name)} as">${types.map(type => wmAddControl(name, type)).join("")}</div>
     </li>`;
   }).join(""));
 }
 
-wm$("addList").addEventListener("toggle", event => {
-  const box = event.target;
-  if (!(box instanceof HTMLDetailsElement) || !box.dataset.kinds) return;
-  if (box.open) wmOpenedKinds.add(box.dataset.kinds); else wmOpenedKinds.delete(box.dataset.kinds);
-}, true);
 
-wm$("addLayer").addEventListener("click", async () => {
-  const box = wm$("addBox");
-  const open = box.hidden;
-  box.hidden = !open;
-  wm$("addLayer").setAttribute("aria-expanded", String(open));
-  if (wmLayers().length === 0) wmDrawLayerList();
-
-  if (!open) return;
-
-  wm$("addFilter").focus();
-
-  if (wmServices) {
-    wmDrawAddList();
-    return;
-  }
-
-  wmSayIn("addStatus", "Reading the services you can see…");
-
-  try {
-    wmServices = await wmReadServices();
-    wmDrawAddList();
-  } catch (e) {
-    wmSayIn("addStatus", `The services directory could not be read: ${e.message}`, true);
-  }
+// Layers' own way to Add. The keyboard goes to the filter, unless Add has already said there is nothing to filter and
+// given it to that sentence (ADR-079's review).
+wm$("addLayer").addEventListener("click", () => {
+  wmShowTab("add");
+  wmOpenSheet(true);
+  const filter = wm$("addFilter");
+  if (filter.getClientRects().length) filter.focus();
+  else if (wm$("addStatus").hasAttribute("tabindex")) wm$("addStatus").focus();
 });
 
-wm$("addFilter").addEventListener("input", wmDrawAddList);
+wm$("addFilter").addEventListener("input", () => wmDrawAddList());
+wm$("addType").addEventListener("change", () => wmDrawAddList());
+wm$("addList").addEventListener("click", event => {
+  if (!event.target.closest("#addClear")) return;
+  wm$("addFilter").value = "";
+  wm$("addType").value = "";
+  wmDrawAddList();
+  wm$("addFilter").focus();
+});
 
 /*
   <b>Busy, not disabled.</b> Disabling the pressed button dropped the keyboard to `<body>` — a disabled
@@ -2646,7 +2645,9 @@ wm$("addList").addEventListener("click", async event => {
     wmSayIn("addStatus", e.tablesOnly ? e.message : `${name} could not be added: ${e.message}`, !e.tablesOnly);
   } finally {
     t.removeAttribute("aria-disabled");
-    wmDrawAddList();
+    // Not the count: it wrote over what the Add did, failures included, before anybody could read it (UX review
+    // 2026-11-03).
+    wmDrawAddList(false);
   }
 });
 
@@ -3247,7 +3248,7 @@ function wmDrawSearchState() {
   wm$("searchText").disabled = empty;
   wm$("searchForm").querySelector("button[type=submit]").disabled = empty;
   if (empty) {
-    wmSayIn("searchStatus", "Nothing to search on this map: search reads its operational feature layers, and its layers are all in the basemap.");
+    wmSayIn("searchStatus", "Nothing to search on this map yet: search reads its operational feature layers, and it has none.");
   } else if (/^Nothing to search on this map/.test(wm$("searchStatus").textContent)) {
     wmSayIn("searchStatus", "");
   }
@@ -3285,7 +3286,7 @@ function wmDrawAnalysis() {
     none.hidden = false;
     none.textContent = !wmToken
       ? "Sign in to analyze: a result is a hosted layer of your own."
-      : "This map has no hosted layer of this server to analyze. Add one from Layers.";
+      : "This map has no hosted layer of this server to analyze. Use Add to put one on it.";
     return;
   }
 
@@ -3308,7 +3309,7 @@ function wmOpenAnalysis() {
     body: wm$("analyzeBody"),
     foot: wm$("analyzeFoot"),
     lead: name => `Runs on <b>${name}</b>. The result is a new hosted layer of yours, private until you share it, and is added to this map.`,
-    close: () => wmShowTab("layers", true),
+    close: () => { wmCloseTool(); wm$("tool-analysis").focus(); },
     succeeded: async (run, value, open) => {
       let added = 0;
       try {
@@ -3333,9 +3334,11 @@ wm$("azLayer")?.addEventListener("change", wmOpenAnalysis);
 
 // ----------------------------------------------------------------------------- tabs
 
-const WM_TABS = ["layers", "search", "measure", "analysis", "bookmarks", "print", "map"];
+// ADR-259: ArcGIS Map Viewer's two toolbars. The left one holds what the map has; the right one, #rtools, what the
+// selected layer can be given and the map tools.
+const WM_TABS = ["add", "layers", "basemap", "bookmarks", "print", "map"];
 
-/** The tool whose panel is shown, or would be when the phone's sheet opens. */
+/** The tool whose panel is shown, or would be when its panel opens. */
 let wmTabShown = "layers";
 
 function wmShowTab(name, focus = false) {
@@ -3349,46 +3352,50 @@ function wmShowTab(name, focus = false) {
     if (on && focus) button.focus();
   }
 
-  // Measuring belongs to its tab; leaving it puts the map back to identifying.
-  if (name !== "measure") wmStopMeasuring();
   if (name === "map") wmDrawMapForm();
-  if (name === "search") wmDrawSearchState();
-  if (name === "analysis") wmDrawAnalysis();
+  if (name === "add") wmOpenAdd();
   if (name === "print" && !wm$("printTitle").value) wm$("printTitle").value = wmState.meta.title || "";
 }
 
 /**
- * On a phone the panel is a sheet over the map, opened by a tool and closed by the same tool or its own button — UX
- * sweep M5, 2026-10-19. On a wider screen it is always open and these do nothing a reader can see.
+ * Whether the left panel is open. On a phone it is a sheet over the map, opened by a tool and closed by the same tool
+ * or its own button — UX sweep M5, 2026-10-19; on a wider screen it is a column, and ADR-259 lets the open tool close
+ * it, as ArcGIS Map Viewer's does, to give the map the room.
  */
 const WM_PHONE = window.matchMedia("(max-width: 760px)");
+let wmLeftOpen = !WM_PHONE.matches;
 
 function wmOpenSheet(open) {
-  document.body.classList.toggle("sheet", open);
-  // The control that opened a sheet says so; on a wide screen nothing opens or closes. <b>And no tool is selected
-  // while its sheet is closed</b> (UX sweep round 2, N6): a selected tab whose panel is not there is what a screen
-  // reader announced. The roving tabindex stays on the last one, so Tab still lands on it.
+  wmLeftOpen = open;
+  document.body.classList.toggle("sheet", open && WM_PHONE.matches);
+  document.body.classList.toggle("lclosed", !open);
+  // One sheet at a time on a phone: the left one covers the right one's place.
+  if (open && WM_PHONE.matches && wmSide.tool) wmCloseTool();
+  // <b>No tool is selected while its panel is closed</b> (UX sweep round 2, N6): a selected tab whose panel is not
+  // there is what a screen reader announced. The roving tabindex stays on the last one, so Tab still lands on it.
   for (const tab of WM_TABS) {
     const button = wm$(`tab-${tab}`);
     const current = tab === wmTabShown;
-    if (WM_PHONE.matches) {
-      button.setAttribute("aria-selected", String(open && current));
-      button.setAttribute("aria-expanded", String(open && current));
-    } else {
-      button.setAttribute("aria-selected", String(current));
-      button.removeAttribute("aria-expanded");
-    }
+    button.setAttribute("aria-selected", String(open && current));
+    button.setAttribute("aria-expanded", String(open && current));
   }
+  wmResized();
+}
+
+/** The map is told its size changed, after the grid has given a column to a panel or taken one back. */
+function wmResized() {
+  requestAnimationFrame(() => wmMap.updateSize());
 }
 
 wm$("tabs").addEventListener("click", event => {
   const tab = event.target.closest("[role=tab]");
   if (!tab) return;
   const name = tab.id.replace("tab-", "");
-  if (WM_PHONE.matches && document.body.classList.contains("sheet") && name === wmTabShown) {
+  if (wmLeftOpen && name === wmTabShown && (event.detail > 0 || WM_PHONE.matches)) {
     wmOpenSheet(false);
     return;
   }
+  if (wmLeftOpen && name === wmTabShown) return;
   wmShowTab(name);
   wmOpenSheet(true);
 });
@@ -3398,32 +3405,263 @@ wm$("sheetClose").addEventListener("click", () => {
   wm$(`tab-${wmTabShown}`).focus();
 });
 
-WM_PHONE.addEventListener("change", () => wmOpenSheet(document.body.classList.contains("sheet")));
-wmOpenSheet(false);
+WM_PHONE.addEventListener("change", () => {
+  // Turning a phone into a wide window, or the other way: the wide one starts with its panel, the phone with the map.
+  if (wmSide.tool && WM_PHONE.matches) wmCloseTool();
+  wmOpenSheet(!WM_PHONE.matches);
+});
+wmOpenSheet(wmLeftOpen);
 
-// Left and right along the bottom bar, up and down along the rail.
+// Up and down along the rail, left and right along the phone's bottom bar.
 wm$("tabs").addEventListener("keydown", event => {
-  const at = WM_TABS.indexOf((document.activeElement.id || "").replace("tab-", ""));
+  const shown = WM_TABS.filter(tab => wm$(`tab-${tab}`).offsetParent !== null);
+  const at = shown.indexOf((document.activeElement.id || "").replace("tab-", ""));
   if (at < 0) return;
   const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 }[event.key];
-  if (step) {
-    event.preventDefault();
-    wmShowTab(WM_TABS[(at + step + WM_TABS.length) % WM_TABS.length], true);
-    wmOpenSheet(document.body.classList.contains("sheet"));
-  } else if (event.key === "Home" || event.key === "End") {
-    event.preventDefault();
-    wmShowTab(WM_TABS[event.key === "Home" ? 0 : WM_TABS.length - 1], true);
-    wmOpenSheet(document.body.classList.contains("sheet"));
-  }
+  let next = null;
+  if (step) next = shown[(at + step + shown.length) % shown.length];
+  else if (event.key === "Home" || event.key === "End") next = shown[event.key === "Home" ? 0 : shown.length - 1];
+  if (!next) return;
+  event.preventDefault();
+  wmShowTab(next, true);
+  wmOpenSheet(wmLeftOpen);
 });
 
 // Escape closes an open sheet when nothing over the map wants it first.
 document.addEventListener("keydown", event => {
-  if (event.key !== "Escape" || !WM_PHONE.matches || !document.body.classList.contains("sheet")) return;
+  if (event.key !== "Escape" || event.defaultPrevented) return;
   if (!wm$("identify").hidden || wmAdding.draw) return;
+  if (wmSide.tool) {
+    const from = wmSide.tool;
+    wmCloseTool();
+    wm$(`tool-${WM_PHONE.matches && WM_LAYER_TOOLS.includes(from) ? "properties" : from}`).focus();
+    return;
+  }
+  if (!WM_PHONE.matches || !document.body.classList.contains("sheet")) return;
   wmOpenSheet(false);
   wm$(`tab-${wmTabShown}`).focus();
 });
+
+// ----------------------------------------------------------------------------- the right toolbar (ADR-259)
+
+/** The tools that act on the selected layer, and the map tools under the divider. */
+const WM_LAYER_TOOLS = ["properties", "style", "filter", "popup", "labels"];
+const WM_MAP_TOOLS = ["search", "measure", "analysis"];
+const WM_TOOL_NAMES = {
+  properties: "Properties", style: "Styles", filter: "Filter", popup: "Pop-ups", labels: "Labels",
+  search: "Search", measure: "Measure", analysis: "Analysis",
+};
+
+function wmSelectedLayer() {
+  return wmSide.layer ? wmLayerById(wmSide.layer) : null;
+}
+
+/**
+ * Which layer tools the layer can take. Styles, pop-ups, labels and a filter are written in a feature layer's fields;
+ * every layer has Properties. A tool that does not apply is drawn disabled rather than hidden, so the toolbar keeps its
+ * shape and the tool can still say why.
+ */
+function wmToolApplies(tool, layer) {
+  if (!layer) return false;
+  if (tool === "properties") return true;
+  const run = wmRuntime.get(layer);
+  return wmKind(layer) === "feature" && !!run && run.status === "ok";
+}
+
+function wmSelectLayer(layer, focus) {
+  wmSide.layer = layer ? layer.id : null;
+  // Selecting a layer shows what it is, as ArcGIS Map Viewer opens Properties; an open layer tool follows the selection.
+  if (layer && !WM_LAYER_TOOLS.includes(wmSide.tool) && !WM_PHONE.matches) wmOpenTool("properties");
+  wmDrawLayerList();
+  if (focus) wm$(focus)?.focus();
+}
+
+function wmOpenTool(tool, focus = false) {
+  if (WM_LAYER_TOOLS.includes(tool) && !wmSelectedLayer()) {
+    // A layer tool with nothing selected takes the top layer: the one a reader sees first in the list.
+    const top = wmLayers()[wmLayers().length - 1];
+    wmSide.layer = top ? top.id : null;
+  }
+  wmSide.tool = tool;
+  document.body.classList.add("ropen");
+  wm$("side").hidden = false;
+  // One sheet at a time on a phone; a wide window that cannot hold both panels and a map gives up the left one.
+  if (WM_PHONE.matches || window.innerWidth < 1100) {
+    if (wmLeftOpen) wmOpenSheet(false);
+  }
+
+  const layerTool = WM_LAYER_TOOLS.includes(tool);
+  wm$("pane-layer").hidden = !layerTool;
+  for (const name of WM_MAP_TOOLS) wm$(`pane-${name}`).hidden = name !== tool;
+
+  // Measuring belongs to its tool; leaving it puts the map back to identifying.
+  if (tool !== "measure") wmStopMeasuring();
+  if (tool === "search") wmDrawSearchState();
+  if (tool === "analysis") wmDrawAnalysis();
+
+  wmDrawLayerList();
+  wmResized();
+  if (focus) wm$(`tool-${tool}`).focus();
+}
+
+function wmCloseTool() {
+  if (wmSide.tool === "measure") wmStopMeasuring();
+  wmSide.tool = null;
+  document.body.classList.remove("ropen");
+  wm$("side").hidden = true;
+  wmDrawSide();
+  wmResized();
+}
+
+wm$("rtools").addEventListener("click", event => {
+  const button = event.target.closest("button[data-tool]");
+  if (!button) return;
+  const tool = button.dataset.tool;
+  const same = wmSide.tool === tool || (WM_PHONE.matches && tool === "properties" && WM_LAYER_TOOLS.includes(wmSide.tool));
+  if (same) wmCloseTool(); else wmOpenTool(tool);
+});
+
+wm$("rtools").addEventListener("keydown", event => {
+  const buttons = [...wm$("rtools").querySelectorAll("button[data-tool]")].filter(b => b.getClientRects().length > 0);
+  const at = buttons.indexOf(document.activeElement);
+  const step = { ArrowDown: 1, ArrowUp: -1, ArrowRight: 1, ArrowLeft: -1 }[event.key];
+  let next = null;
+  if (at >= 0 && step) next = buttons[(at + step + buttons.length) % buttons.length];
+  else if (at >= 0 && (event.key === "Home" || event.key === "End")) next = buttons[event.key === "Home" ? 0 : buttons.length - 1];
+  if (!next) return;
+  event.preventDefault();
+  for (const b of buttons) b.tabIndex = b === next ? 0 : -1;
+  next.focus();
+});
+
+wm$("layerSwitch").addEventListener("click", event => {
+  const button = event.target.closest("button[data-tool]");
+  if (!button || button.dataset.tool === wmSide.tool) return;
+  wmOpenTool(button.dataset.tool);
+  wm$("layerSwitch").querySelector(`[data-tool="${button.dataset.tool}"]`).focus();
+});
+
+wm$("sideClose").addEventListener("click", () => {
+  const from = wmSide.tool;
+  wmCloseTool();
+  if (from) wm$(`tool-${from}`).focus();
+});
+
+/**
+ * The right panel's head and, for a layer tool, its body: the selected layer's settings drawn by the same functions
+ * that drew them under the layer's card before ADR-259, so what they write is unchanged.
+ */
+function wmDrawSide() {
+  const layer = wmSelectedLayer();
+  for (const tool of [...WM_LAYER_TOOLS, ...WM_MAP_TOOLS]) {
+    const button = wm$(`tool-${tool}`);
+    button.setAttribute("aria-expanded", String(wmSide.tool === tool));
+    if (WM_LAYER_TOOLS.includes(tool)) {
+      const applies = wmToolApplies(tool, layer || wmLayers()[wmLayers().length - 1]);
+      button.setAttribute("aria-disabled", String(!applies));
+    }
+  }
+
+  // The run flags the editors and their redraws still read: one panel, for the selected layer.
+  for (const other of wmLayers()) {
+    const run = wmRuntime.get(other);
+    if (!run) continue;
+    const mine = other === layer;
+    run.styleOpen = mine && wmSide.tool === "style";
+    run.popupOpen = mine && wmSide.tool === "popup";
+    run.labelOpen = mine && wmSide.tool === "labels";
+  }
+
+  // On a phone Properties stands for every layer setting.
+  if (WM_PHONE.matches && WM_LAYER_TOOLS.includes(wmSide.tool)) wm$("tool-properties").setAttribute("aria-expanded", "true");
+  const stops = [...wm$("rtools").querySelectorAll("button[data-tool]")];
+  const stop = stops.find(b => b.getAttribute("aria-expanded") === "true" && b.getClientRects().length)
+    || stops.find(b => b.tabIndex === 0 && b.getClientRects().length) || stops[0];
+  for (const b of stops) b.tabIndex = b === stop ? 0 : -1;
+  const switcher = wm$("layerSwitch");
+  switcher.hidden = !(WM_PHONE.matches && WM_LAYER_TOOLS.includes(wmSide.tool));
+  for (const b of switcher.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.tool === wmSide.tool));
+
+  const tool = wmSide.tool;
+  if (!tool) return;
+  wm$("sideTitle").textContent = WM_LAYER_TOOLS.includes(tool) && layer
+    ? `${WM_TOOL_NAMES[tool]} · ${layer.title || "Untitled layer"}` : WM_TOOL_NAMES[tool];
+  if (!WM_LAYER_TOOLS.includes(tool)) return;
+  wmRedraw(wm$("layerTool"), wmLayerToolMarkup(tool, layer));
+}
+
+function wmLayerToolMarkup(tool, layer) {
+  if (!layer) {
+    const reader = document.body.classList.contains("reader");
+    return `<p class="lnone">This map has no layers yet${reader ? "." : `. <button type="button" class="linkbtn" data-act="openAdd"
+      data-focus="openAdd">Add a layer</button>, then select it in Layers to change it here.`}</p>`;
+  }
+  const key = layer.id;
+  const run = wmRuntime.get(layer);
+  const title = layer.title || "Untitled layer";
+  const kind = wmKind(layer);
+  const readable = run && run.status === "ok";
+
+  if (tool === "properties") return wmPropertiesMarkup(layer, run, key, title, kind, readable);
+
+  if (!wmToolApplies(tool, layer)) {
+    return `<p class="lnone">${wmEscape(WM_TOOL_NAMES[tool])} are set on a feature layer's fields. ${wmEscape(title)} is ${
+      readable ? `a ${wmEscape((kind ? WM_KIND_LABEL[kind] : layer.layerType || "layer").toLowerCase())}` : "not loaded"}, so it has none here.</p>`;
+  }
+  if (tool === "style") return wmStyleMarkup(layer, run, key, title);
+  if (tool === "popup") return wmPopupPanel(layer, run, key, title);
+  if (tool === "labels") return wmLabelPanel(layer, run, key);
+  if (tool === "filter") return wmFilterMarkup(layer, run, key, title, (layer.layerDefinition && layer.layerDefinition.definitionExpression) || "");
+  return "";
+}
+
+/** Properties: what the layer is, how opaque it is drawn and, for imagery, how it is shown and whether a click reads it. */
+function wmPropertiesMarkup(layer, run, key, title, kind, readable) {
+  const k = wmEscape(key);
+  const opacity = Math.round((Number.isFinite(Number(layer.opacity)) ? Number(layer.opacity) : 1) * 100);
+  const state = wmLayerState(layer);
+  return `<div class="lprops">
+    <p class="lkind">${wmEscape(kind ? WM_KIND_LABEL[kind] : layer.layerType || "Unknown")}${layer.url && !document.body.classList.contains("reader")
+      ? ` · <span class="lsrc">${wmEscape(String(layer.url).replace(/^https?:\/\/[^/]+/, ""))}</span>` : ""}</p>
+    ${state.text ? `<div class="lstate ${state.tone}">${wmEscape(state.text)}</div>` : ""}
+    <div>
+      <label class="field" for="op-${k}">Transparency: <span id="opSaid-${k}">${100 - opacity}%</span></label>
+      <input type="range" id="op-${k}" min="0" max="100" step="5" value="${opacity}"
+        data-act="opacity" data-layer="${k}" data-focus="op:${k}" aria-valuetext="${opacity}% opaque">
+    </div>
+    ${readable && kind === "imagery" && wmFunctionsOffered(run.info) ? `<div class="lrule">
+      <label class="lkind" for="rule-${k}">Shown as</label>
+      <select id="rule-${k}" data-act="renderingRule" data-layer="${k}" data-focus="rule:${k}">
+        ${[["", `Service default${run.info.defaultRasterFunction ? ` (${wmFunctionLabel(run.info.defaultRasterFunction)})` : ""}`],
+          ["None", "Raw values (no function)"], ...wmFunctionOptions(run.info)].map(([v, n]) =>
+          `<option value="${v}"${((layer.renderingRule || {}).rasterFunction || "") === v ? " selected" : ""}>${wmEscape(n)}</option>`).join("")}
+      </select>
+      ${wmRuleArgsMarkup(layer, key, run.info)}
+      ${wmFunctionKey(wmShownFunction(layer, run.info))}</div>` : ""}
+    ${readable && kind === "imagery" && run.classLegend && run.classLegend.length && !layer.renderingRule ? `<ul class="lslegend">${
+      run.classLegend.slice(0, 8).map(row => `<li><img class="swatch" alt="" src="data:${wmEscape(row.contentType || "image/png")};base64,${wmEscape(row.imageData || "")}">${wmEscape(row.label || "")}</li>`).join("")}
+      ${run.classLegend.length > 8 ? `<li class="lkind">and ${run.classLegend.length - 8} more</li>` : ""}</ul>` : ""}
+    ${readable && kind === "imagery" ? `<label class="check"><input type="checkbox" data-act="pixelsCheck" data-layer="${k}"
+      data-focus="pixels:${k}"${layer.popupEnabled === false ? "" : " checked"}> Show pixel values when the map is clicked</label>` : ""}
+    ${readable && kind === "feature" && run.ownStyle ? "" : readable && kind === "feature"
+      ? `<div class="lstate">Drawn in one color: its document names no renderer this viewer reads.</div>` : ""}
+  </div>`;
+}
+
+/** Add is a tool of its own (ADR-259 §3.4): the services are read the first time it opens. */
+async function wmOpenAdd() {
+  if (wmServices) {
+    wmDrawAddList();
+    return;
+  }
+  wmSayIn("addStatus", "Reading the services you can see…");
+  try {
+    wmServices = await wmReadServices();
+    wmDrawAddList();
+  } catch (e) {
+    wmSayIn("addStatus", `The services directory could not be read: ${e.message}`, true);
+  }
+}
 
 // ----------------------------------------------------------------------------- the Map tab
 
@@ -3447,7 +3685,7 @@ function wmDrawMapForm() {
   wm$("mapReadOnly").innerHTML = reading
     ? `<h3>${wmEscape(meta.title || "Untitled map")}</h3>${meta.snippet ? `<p>${wmEscape(meta.snippet)}</p>` : ""}`
     : "";
-  wm$("tab-map").textContent = reading ? "About" : "Map";
+  wm$("tab-map").querySelector(".tl").textContent = reading ? "About" : "Map";
   wmOfferAllOrganizations(meta.sharing);
   wm$("mapSharing").value = meta.sharing || "private";
   wmDrawBaseMapChoices();
@@ -3892,6 +4130,8 @@ function wmShowNotFound(title, said, markup, bad = true) {
   wm$("title").textContent = title;
   wmSay(said, bad);
   wm$("tabs").hidden = true;
+  wm$("rtools").hidden = true;
+  wmCloseTool();
   for (const tab of WM_TABS) wm$(`pane-${tab}`).hidden = true;
   wm$("headSave").hidden = true;
   wm$("saved").textContent = "";
@@ -4052,7 +4292,7 @@ async function wmStart() {
     ? "A new, empty map. Sign in to Studio to add layers to it."
     // On a phone the Layers sheet is closed, so the sentence names the way to it (design review 2026-10-31).
     : WM_PHONE.matches
-    ? "A new, empty map. Open Layers, then Add layer to list the services you can read."
+    ? "A new, empty map. Use Add to put a layer on it."
     : "A new, empty map. Add layer lists the services you can read.");
 }
 
@@ -4271,9 +4511,16 @@ wmMap.on("moveend", () => {
       run.inRange = inside;
     }
 
-    if (run.truncated && inside && run.ol.getSource && run.ol.getSource().refresh) {
+    // Not `refresh()`: that empties the layer at once and leaves it empty until the answer comes, so every pan over a
+    // large layer blinked. The extents are let go instead, the source asks for the view again on the next frame, and
+    // the loader swaps the old features for the new ones when they arrive.
+    const source = run.ol.getSource && run.ol.getSource();
+    if (run.truncated && inside && source && source.removeLoadedExtent) {
       run.truncated = false;
-      run.ol.getSource().refresh();
+      for (const extent of run.extents || []) source.removeLoadedExtent(extent);
+      run.extents = [];
+      run.replace = true;
+      source.changed();
     }
   }
   if (crossed) wmDrawLayerList();
@@ -5695,7 +5942,8 @@ function wmTimeAt(stop) {
 /** A moment as a person reads it: with the time of day when the stops are shorter than a day. */
 function wmTimeSaid(ms) {
   const d = new Date(ms);
-  return wmTime.unit < 86400000 ? d.toLocaleString() : d.toLocaleDateString();
+  // No seconds: they were noise on a daily series and pushed the two ends of the bar into each other (UX review 2026-11-03).
+  return wmTime.unit < 86400000 ? d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : d.toLocaleDateString();
 }
 
 /** Works out the span the map's layers cover and shows the slider, or hides it when none has time. */
@@ -6295,7 +6543,7 @@ function wmPopupImageField(popup) {
 
 
 // ADR-122: the pop-up panel shows the part its content mode uses, and typing text chooses Text.
-wm$("layerList").addEventListener("change", event => {
+wm$("layerTool").addEventListener("change", event => {
   const t = event.target;
   if (!(t instanceof HTMLInputElement) || !/^popMode-/.test(t.name)) return;
   const panel = t.closest(".lstyle");
@@ -6303,7 +6551,7 @@ wm$("layerList").addEventListener("change", event => {
   panel.classList.toggle("popmode-text", t.value === "text");
   panel.classList.toggle("popmode-fields", t.value !== "text");
 });
-wm$("layerList").addEventListener("input", event => {
+wm$("layerTool").addEventListener("input", event => {
   const t = event.target;
   if (!(t instanceof HTMLTextAreaElement) || t.dataset.popText === undefined || !t.value) return;
   const panel = t.closest(".lstyle");

@@ -47,14 +47,17 @@ public sealed class WebMapImageryTests : ConsoleTest
             Assert.Contains("Imagery", await Browser.EvaluateAsync<string>("document.getElementById('layerList').innerText") ?? "",
                 StringComparison.Ordinal);
 
-            Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerList [data-act=pixels][aria-pressed=true]')"),
+            // ADR-259: how an image is shown, and whether a click reads it, are in the layer's Properties.
+            await OpenLayerToolAsync("properties");
+            await WaitForAsync("!!document.querySelector('#layerTool [data-act=pixelsCheck]')", "The image layer's Properties did not open.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerTool [data-act=pixelsCheck]:checked')"),
                 "An imagery layer offers no way to stop answering clicks.");
 
             // ADR-136: a one-band image is shown through a raster function, kept as the layer's renderingRule.
-            await WaitForAsync("!!document.querySelector('#layerList select[data-act=renderingRule]')",
+            await WaitForAsync("!!document.querySelector('#layerTool select[data-act=renderingRule]')",
                 "A one-band image layer offers no raster function.");
             await Browser.EvaluateAsync<bool>(
-                "(() => { const s = document.querySelector('#layerList select[data-act=renderingRule]'); s.value = 'Slope'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+                "(() => { const s = document.querySelector('#layerTool select[data-act=renderingRule]'); s.value = 'Slope'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
             await WaitForAsync(
                 "wmLayers().some(l => (l.renderingRule || {}).rasterFunction === 'Slope') && wmState.dirty"
                 + " && performance.getEntriesByType('resource').some(e => e.name.includes('/ImageServer/exportImage') && e.name.includes('RENDERINGRULE'))",
@@ -120,7 +123,9 @@ public sealed class WebMapImageryTests : ConsoleTest
                 await WaitForAsync(
                     "!!wmState.doc && wmLayers().some(l => l.title === 'Saved imagery' && (wmRuntime.get(l) || {}).status === 'ok')",
                     "A saved map's imagery layer did not come back as one the viewer draws.");
-                Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerList [data-act=pixels][aria-pressed=false]')"),
+                await OpenLayerToolAsync("properties");
+                await WaitForAsync("!!document.querySelector('#layerTool [data-act=pixelsCheck]')", "The saved image layer's Properties did not open.");
+                Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerTool [data-act=pixelsCheck]:not(:checked)')"),
                     "The saved map's choice not to answer clicks with pixel values was lost.");
                 NothingWentWrong(await PageErrorsAsync());
 
