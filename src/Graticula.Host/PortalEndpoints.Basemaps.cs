@@ -83,7 +83,7 @@ internal static partial class PortalEndpoints
         return new
         {
             id = ItemIdOf(service, BasemapFace),
-            title = service.Name,
+            title = service.Title,
             baseMapLayers = new object[]
             {
                 new
@@ -91,7 +91,7 @@ internal static partial class PortalEndpoints
                     // The qualified name, as ADR-086's ground spells it, so the pages' ground reader takes it as is.
                     id = service.QualifiedName,
                     layerType = "VectorTileLayer",
-                    title = service.Name,
+                    title = service.Title,
                     url,
                     styleUrl = $"{url}/resources/styles/root.json",
                     visibility = true,
@@ -115,7 +115,7 @@ internal static partial class PortalEndpoints
             orgId = PortalId(context),
             owner = service.Owner is { } id && id == current.Principal.Id ? current.Principal.Name : "graticula",
             ownerFolder = (string?)null,
-            title = service.Name,
+            title = service.Title,
             name = (string?)null,
             type = "Web Map",
             typeKeywords = WebMapKeywords,

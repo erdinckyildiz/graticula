@@ -70,6 +70,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: one (ADR-204)",
         ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
         ["ExportOutputs.Pictures"] = "at most MaximumPictures (1,024) and MaximumBytes (256 MB), each kept ten minutes, oldest forgotten first (D-299)",
+        ["PortalEndpoints.ItemExport.WaitingExports"] = "at most MaximumWaitingExports (256) exports waiting for their file, oldest forgotten first (ADR-263)",
         ["PortalEndpoints.ProPublish.Staged"] = "at most MaximumStaged (256) service definitions from Pro and data files sent in parts (ADR-257), oldest forgotten first, and none whose scratch folder was swept (ADR-191)",
         ["InitialExtents.Found"] = "one per published layer per reference it is served in; a changed range replaces the layer's entry",
         ["GeometryServerEndpoints.Units.LinearUnits"] = "fixed: Esri's linear units, by code and name (ADR-145)",

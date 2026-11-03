@@ -100,6 +100,9 @@ public sealed class ProPublishPairingAndItemTests
         Assert.Equal("Turkey's 81 provinces, coloured by area.", item.Snippet);
         Assert.Equal("Boundaries from tur_admin1.", item.Description);
         Assert.Equal("Turkey,provinces", item.Tags);
+
+        // ADR-260: the name typed in the pane is the item's title; the service is named from it separately.
+        Assert.Equal("Turkey_Provinces", item.Title);
     }
 
     [Fact]

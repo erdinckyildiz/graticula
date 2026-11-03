@@ -88,7 +88,9 @@ hold through this door too. **INFERRED, for the owner to confirm:** *(Confirmed 
    recycled and then purged through the bin's own purge, audited as `recyclebin.purge`; condition 1.)*
 3. **Pro's rollback**: a delete of a service Pro published in the last fifteen minutes is refused, and a delete of the
    service-definition item Pro uploaded forgets the upload, never the service.
-4. **A service's title is its name**: an `update` with another title is refused rather than renaming the service.
+4. ~~**A service's title is its name**: an `update` with another title is refused rather than renaming the service.~~
+   *(Superseded 2026-11-03 by [ADR-260](ADR-260-a-service-items-title-is-its-own.md), by owner decision: the title is the
+   item's own column, an `update` writes it, and the name is not touched.)*
 5. **Description and summary are one text for a service** (as its item has always said): a changed `description` is
    written; a changed `snippet` only when the description was not changed.
 

@@ -5484,6 +5484,8 @@ let contentFilter = "";
  */
 /** A content row's own name, without its folder. */
 const bareOf = i => i.bare || String(i.name || "").split("/").pop();
+/** What a row calls an item: its title, which for a service need not be its name (ADR-260); the name otherwise. */
+const titleOfItem = i => i.title || bareOf(i);
 
 /** What the content screen last read, so a keystroke, a type or an order redraws without asking again. */
 let contentAnswer = null;
@@ -5678,7 +5680,7 @@ function drawMyContentList() {
   const among = contentKinds.size === 0 ? ""
     : ` among ${[...contentKinds].map(k => h(itemTypeName(k))).join(", ")} items`;
 
-  const byName = (x, y) => bareOf(x).localeCompare(bareOf(y), undefined, { sensitivity: "base" });
+  const byName = (x, y) => titleOfItem(x).localeCompare(titleOfItem(y), undefined, { sensitivity: "base" });
 
   const order = {
     modified: (x, y) => String(y.updated || "").localeCompare(String(x.updated || "")) || byName(x, y),
@@ -5697,7 +5699,7 @@ function drawMyContentList() {
   const visible = inScope
     .filter(i => contentKinds.size === 0 || contentKinds.has(i.kind))
     .filter(i => !contentIdle || idleItem(i))
-    .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder,
+    .filter(i => !needle || [i.name, bareOf(i), i.title, i.kind, i.description, i.owner, i.folder,
       i.scope === "mine" ? myFolders.find(f => f.id === i.contentFolder)?.title : "", ...(i.tags || [])]
       .some(v => (v || "").toLowerCase().includes(needle)))
     .sort(order);
@@ -5856,7 +5858,7 @@ function drawMyContentList() {
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
             <td class="name">
               <div class="svctitle"><a href="#/service/${
-                i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
+                i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(titleOfItem(i))}</a>
                 <span class="svctype type">${h(itemTypeName(i.kind))}</span></div>
               ${i.description ? `<p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>` : ""}
               <div class="svcmeta">${facts}</div>
@@ -8501,6 +8503,8 @@ async function drawServiceDetails(qualified, knownKind) {
       ...(item.isView ? [["View of", `<span id="svcViewOf" class="val">…</span>`]] : []),
       ...(item.hasViews ? [["Views", `<span id="svcViews" class="val">…</span>`]] : []),
       // ADR-135: what it has been asked, so its owner sees whether anybody uses it.
+      // ADR-260: the name stays the service's address, and is said where the title has replaced it in the head.
+      ...(item.title && item.title !== bareOf(item) ? [["Service name", `<code>${h(bareOf(item))}</code>`]] : []),
       ["Usage", usageSaid(item.usage)],
       ["Published", item.created ? h(day(item.created)) : `<span class="val">—</span>`],
       ["Updated", item.updated ? h(day(item.updated)) : `<span class="val">—</span>`],
@@ -8526,6 +8530,8 @@ async function drawServiceDetails(qualified, knownKind) {
     }
 
     serviceItem = item;
+    // ADR-260: the page is headed by what a person calls it once the row has said; the name is its address, below.
+    if (item.title && item.title !== bareOf(item)) $("serviceTitle").innerHTML = nameWithBreaks(item.title);
     // ADR-196: opened by its service address, the page moves to its item's once the row says the id.
     if (item.itemId) {
       itemIds.set(item.name, item.itemId);
@@ -9567,8 +9573,7 @@ function idleItem(i) {
 
 function describedAs(item) {
   const edit = item.manages === false ? "" : `<button type="button" class="tiny ghost"
-    data-describe="${h(item.name)}">${item.description || item.credits || item.licenseInfo || (item.tags || []).length
-      ? "Edit details" : "Add description, credits, terms and tags"}</button>`;
+    data-describe="${h(item.name)}">Edit title and details</button>`;
 
   // ADR-111: the words it is found by, under what it is.
   const tags = (item.tags || []).length
@@ -9707,7 +9712,16 @@ function editDescription(qualified) {
 
   const item = serviceItem && serviceItem.name === qualified ? serviceItem : null;
 
-  box.innerHTML = `<label class="field" style="display:block">Description
+  // ADR-260: the title is the item's and can be anything a person calls it; the name is the address and does not move.
+  const heading = box.closest(".itemhead")?.querySelector("h4");
+  if (heading) heading.textContent = "Details";
+  box.innerHTML = `<label class="field" style="display:block">Title
+      <input type="text" id="describeTitle" maxlength="250" style="width:100%" value="${h(item?.title || bareOf(item || { name: qualified }))}"
+        aria-describedby="describeTitleHint">
+    </label>
+    <span class="hint" id="describeTitleHint">What lists and ArcGIS clients call it. Its service name,
+      <code>${h(bareOf(item || { name: qualified }))}</code>, stays its address and does not change.</span>
+    <label class="field" style="display:block;margin-top:var(--gap-2)">Description
       <textarea id="describeText" rows="4" maxlength="4000" style="width:100%">${h(item?.description || "")}</textarea>
     </label>
     <label class="field" style="display:block;margin-top:var(--gap-2)">Credits (attribution)
@@ -9733,14 +9747,35 @@ function editDescription(qualified) {
       <button type="button" class="ghost" data-describe-cancel="${h(qualified)}">Cancel</button>
     </div>`;
 
-  $("describeText").focus();
+  $("describeTitle").focus();
 }
 
 /** Whether a save of the description, credits and tags is under way — so a second click sends nothing. */
 let describeSaving = false;
 
+/**
+ * Puts the service's name among the facts while a title other than the name heads the page, and takes it away when
+ * the title is the name again (ADR-260's review: a renamed item hid its address until a reload).
+ */
+function sayServiceName(item) {
+  const facts = $("svcFacts");
+  if (!facts || !item) return;
+  const said = [...facts.querySelectorAll("dt")].find(dt => dt.textContent === "Service name");
+  if (said) { said.nextElementSibling?.remove(); said.remove(); }
+  if (!item.title || item.title === bareOf(item)) return;
+  const usage = [...facts.querySelectorAll("dt")].find(dt => dt.textContent === "Usage");
+  const dt = document.createElement("dt");
+  dt.textContent = "Service name";
+  const dd = document.createElement("dd");
+  dd.innerHTML = `<code>${h(bareOf(item))}</code>`;
+  facts.insertBefore(dt, usage || null);
+  facts.insertBefore(dd, usage || null);
+}
+
 /** Redraws the description and puts focus back on its button, which the redraw replaced. */
 function redrawDescription(item) {
+  const heading = $("serviceDescription")?.closest(".itemhead")?.querySelector("h4");
+  if (heading) heading.textContent = "Description";
   $("serviceDescription").innerHTML = describedAs(item);
   document.querySelector("#serviceDescription [data-describe]")?.focus();
 }
@@ -9755,7 +9790,28 @@ async function saveDescription(qualified) {
   // A copy: serviceItem is updated in place below, before the two are compared.
   const before = serviceItem && serviceItem.name === qualified ? { ...serviceItem } : {};
 
+  // ADR-260: what the title was and is, outside the try, so a failure after the title's save can say it was saved.
+  const wasTitled = before.title || bareOf(before.name ? before : { name: qualified });
+  let titled = wasTitled;
+
   try {
+    // Sent only when it changed, and an empty one is the service's name again.
+    const title = ($("describeTitle")?.value || "").trim();
+    if ($("describeTitle") && title !== titled) {
+      const said = await api(`/admin/services/${encodeURIComponent(name)}/title`
+        + `?folder=${encodeURIComponent(folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      titled = said?.title || title || name;
+      if (serviceItem && serviceItem.name === qualified) {
+        serviceItem.title = titled;
+        $("serviceTitle").innerHTML = nameWithBreaks(titled);
+        sayServiceName(serviceItem);
+      }
+    }
+
     await api(`/admin/services/${encodeURIComponent(name)}/description`
       + `?folder=${encodeURIComponent(folder || "")}`, {
       method: "PUT",
@@ -9801,6 +9857,7 @@ async function saveDescription(qualified) {
 
     // Says what changed: "Description removed." followed adding credits to a service with no description (ux review).
     const changed = [
+      ["Title", wasTitled, titled],
       ["Description", before.description || "", text],
       ["Credits", before.credits || "", credits],
       ["Tags", (before.tags || []).join(","), (saved?.tags || tags).join(",")],
@@ -9810,7 +9867,9 @@ async function saveDescription(qualified) {
       : changed.length === 1 ? `${changed[0][0]} ${changed[0][2] ? "saved" : "removed"}.`
       : `${changed.map(c => c[0]).join(", ").replace(/, ([^,]*)$/, " and $1")} saved.`, true);
   } catch (e) {
-    toast(e.message || String(e));
+    // A title already saved is said as saved: the parts after it are what failed.
+    const kept = titled !== wasTitled ? " The title was saved; the rest was not." : "";
+    toast((e.message || String(e)) + kept);
   } finally {
     describeSaving = false;
   }

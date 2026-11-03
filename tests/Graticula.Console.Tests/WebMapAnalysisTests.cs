@@ -25,6 +25,8 @@ public sealed class WebMapAnalysisTests : ConsoleTest
         await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(Service())}", token, cookie);
 
         await WaitForAsync("wmAnalysable().length > 0", "The map's hosted layer never became readable.");
+        // Focused first, as a keyboard or a pointer leaves it: the harness's click is a script's, which focuses nothing.
+        await Browser.EvaluateAsync<bool>("(document.getElementById('tool-analysis').focus(), true)");
         await ClickAsync("#tool-analysis");
         await WaitForAsync(Shown("#pane-analysis"), "The Analysis tool showed no panel.");
         await WaitForAsync("document.querySelectorAll('#azLayer option').length > 0", "The panel offers none of the map's layers.");

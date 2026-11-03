@@ -193,7 +193,8 @@ where `Graticula:PublishFromPro` is on, as `addItem` and `publish` always have.
 4. **A geodatabase import still running after three minutes** answers its job, with the source item's id standing in
    for the service item that does not yet exist; a client that opens that id opens the document.
 5. **The published service carries the item's description and tags**, not its title: the service's title is its name
-   (ADR-214 §5 item 4).
+   (ADR-214 §5 item 4). *(Changed 2026-11-03 by [ADR-260](ADR-260-a-service-items-title-is-its-own.md): the published
+   layer's item takes the data item's title as well; the service's name is still the one it was published under.)*
 6. **A `.json` file is GeoJSON only when added as GeoJson**; `.geojson` always is.
 7. **An empty service asked for as a view is an ordinary empty service until its `addToDefinition`** names the source
    (§11.2); the source is not in the `createService` request.

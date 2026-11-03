@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Net.Http.Headers;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -53,6 +54,19 @@ internal static class FeatureExportEndpoints
     /// <param name="Format">This server's token or ArcGIS Online's spelling of one of the eight formats.</param>
     /// <param name="Layers">The layer ids, or none for every layer of the service.</param>
     internal sealed record Ask(string? Format, IReadOnlyList<int>? Layers);
+
+    /// <summary>The request item a caller inside this request sets to name the service's folder (ADR-263).</summary>
+    internal const string FolderItem = "graticula.export.folder";
+
+    /// <summary>Studio's Start, its collaborators taken from the request — the portal's <c>export</c> door (ADR-263).</summary>
+    internal static Task StartRequestAsync(HttpContext context, string name, string? folder, Ask request, CancellationToken cancellation)
+    {
+        IServiceProvider s = context.RequestServices;
+        context.Items[FolderItem] = folder ?? string.Empty;
+        return StartAsync(context, name, request, s.GetRequiredService<CatalogFallback>(), s.GetRequiredService<ServiceContexts>(),
+            s.GetRequiredService<IFeatureExportStore>(), s.GetRequiredService<JobSignal>(), s.GetRequiredService<IAuditLog>(),
+            s.GetRequiredService<HostSettings>(), cancellation);
+    }
 
     private static readonly string[] Formats =
         ["gpkg", "shapefile", "xlsx", "fgdb", "kml", "csv", "geojson", "esrijson"];
@@ -545,7 +559,9 @@ internal static class FeatureExportEndpoints
     private static async Task<Opened?> OpenAsync(
         HttpContext context, string name, CatalogFallback catalog, CancellationToken cancellation)
     {
-        string? folder = context.Request.Query["folder"].ToString() is { Length: > 0 } f ? f : null;
+        // The portal's export door names the folder in the request's items, since its own address has none (ADR-263).
+        string? folder = context.Items[FolderItem] as string
+            ?? (context.Request.Query["folder"].ToString() is { Length: > 0 } f ? f : null);
 
         if (await ServiceLookup.ServiceAsync(context, catalog, name, cancellation, folder ?? string.Empty).ConfigureAwait(false)
             is not { } service)

@@ -195,6 +195,11 @@ public sealed class PortalContentAddsTests : ArcGisClient
             published = true;
             string service = answer.GetProperty("services")[0].GetProperty("serviceItemId").GetString()!;
 
+            // ADR-260: the layer is called what its data is called, and keeps the name it was published under.
+            JsonElement layerItem = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{service}?f=json");
+            Assert.Equal($"zz over {tag}", layerItem.GetProperty("title").GetString());
+            Assert.Equal(name, layerItem.GetProperty("name").GetString());
+
             JsonElement forward = await SendAsync(HttpMethod.Get,
                 $"/sharing/rest/content/items/{service}/relatedItems?relationshipType=Service2Data&direction=forward&f=json");
             Assert.Equal(item, Assert.Single(forward.GetProperty("relatedItems").EnumerateArray()).GetProperty("id").GetString());

@@ -84,6 +84,12 @@ public static class Documents
     private static readonly DocumentKind FileGeodatabase = new("filegdb", "application/zip", "File Geodatabase", ".zip");
     private static readonly DocumentKind GeoJson = new("geojson", "application/geo+json", "GeoJson", ".geojson");
 
+    // ADR-263: what a layer's export becomes when the portal's export makes it an item — ADR-106's packaging, by its name.
+    private static readonly DocumentKind GeoPackage = new("geopackage", "application/geopackage+sqlite3", "GeoPackage", ".gpkg");
+    private static readonly DocumentKind Kml = new("kml", "application/vnd.google-earth.kml+xml", "KML", ".kml");
+    private static readonly DocumentKind CsvCollection = new("csvcollection", "application/zip", "CSV Collection", ".zip");
+    private static readonly DocumentKind FeatureCollection = new("featurecollection", "application/json", "Feature Collection", ".json");
+
     /// <summary>The largest picture a document keeps as its thumbnail: 1 MB, ArcGIS's limit on an item's.</summary>
     public const int MaximumThumbnailBytes = 1 << 20;
 
@@ -112,12 +118,15 @@ public static class Documents
     /// </summary>
     public static IReadOnlyList<DocumentKind> Data { get; } = [Shapefile, FileGeodatabase, GeoJson];
 
+    /// <summary>The kinds an export's file is kept as when the portal's export makes it an item (ADR-263): not uploaded.</summary>
+    public static IReadOnlyList<DocumentKind> Exports { get; } = [GeoPackage, Kml, CsvCollection, FeatureCollection];
+
     /// <summary>The kind stored under a name, or null for a name this build does not know.</summary>
     /// <param name="name">The stored name.</param>
     /// <returns>The kind.</returns>
     public static DocumentKind? Named(string? name)
     {
-        foreach (DocumentKind kind in Accepted.Concat(Data))
+        foreach (DocumentKind kind in Accepted.Concat(Data).Concat(Exports))
         {
             if (string.Equals(kind.Name, name, StringComparison.Ordinal))
             {

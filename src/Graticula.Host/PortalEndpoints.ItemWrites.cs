@@ -97,7 +97,7 @@ internal static partial class PortalEndpoints
 
         public Guid? Owner => Service is not null ? Service.Owner : Map is not null ? Map.Owner : Document!.Owner;
 
-        public string Title => Service?.Name ?? Map?.Title ?? Document!.Title;
+        public string Title => Service?.Title ?? Map?.Title ?? Document!.Title;
 
         public string Kind => Service is not null ? "service" : Map is not null ? "web map" : "document";
     }
@@ -301,12 +301,15 @@ internal static partial class PortalEndpoints
         }
         else if (item.Service is { } service)
         {
-            // A service's title is its name, which an update does not rename; the same title echoed back is no change.
-            if (Given("title") is { Length: > 0 } title && !string.Equals(title, service.Name, StringComparison.Ordinal))
+            // <b>ADR-260: the title is the item's, and an update writes it</b>; the service's name, its address, is not
+            // touched. ADR-214 §5.4 refused another title, which left the Python API's item.update(title=…) and Pro's
+            // item details with no way to say what a person calls a service.
+            string? newTitle = Given("title") is { Length: > 0 } title && !string.Equals(title, service.Title, StringComparison.Ordinal)
+                ? title : null;
+
+            if (newTitle is { Length: > WebMaps.MaximumTitleLength })
             {
-                return PortalError(400,
-                    $"'{service.Name}' was not changed: a service item's title is its service's name here, and renaming a "
-                    + "service is not something an item update does.");
+                return PortalError(400, $"'{service.Title}' was not changed: a title is at most {WebMaps.MaximumTitleLength} characters.");
             }
 
             // One text is both the summary and the description of a service here (Item: snippet = description).
@@ -340,6 +343,11 @@ internal static partial class PortalEndpoints
 
                 // The folder is shown as a tag (Item); it is not one of the service's own.
                 tags = [.. tags.Where(t => service.Folder is null || !string.Equals(t, service.Folder, StringComparison.OrdinalIgnoreCase))];
+            }
+
+            if (newTitle is not null)
+            {
+                await catalog.SetServiceTitleAsync(service.Name, service.Folder, newTitle, cancellation).ConfigureAwait(false);
             }
 
             if (text is not null)

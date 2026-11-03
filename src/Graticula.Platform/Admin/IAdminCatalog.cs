@@ -1432,6 +1432,22 @@ public interface IAdminCatalog
         string? description,
         CancellationToken cancellationToken);
 
+    /// <summary>Replaces a service item's title, addressed by folder and name (ADR-260).</summary>
+    /// <param name="serviceName">The service.</param>
+    /// <param name="folder">Its folder, or null for the root.</param>
+    /// <param name="title">The new title, already checked: not blank, at most a web map title's length.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>True when the service exists and was changed.</returns>
+    /// <remarks>
+    /// <b>The item's, never the service's name.</b> The name is the service's address — every URL, every web map and
+    /// every client that saved one holds it — and a Portal item's title was never that address.
+    /// </remarks>
+    Task<bool> SetServiceTitleAsync(
+        string serviceName,
+        string? folder,
+        string title,
+        CancellationToken cancellationToken);
+
     /// <summary>Replaces a service's credits — ArcGIS's <c>copyrightText</c> — addressed by folder and name.</summary>
     /// <param name="serviceName">The service.</param>
     /// <param name="folder">Its folder, or null for the root.</param>

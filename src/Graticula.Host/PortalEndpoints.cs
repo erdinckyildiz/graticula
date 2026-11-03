@@ -278,6 +278,8 @@ internal static partial class PortalEndpoints
         MapGroupWrites(app);
         MapGroupMembers(app);      // ADR-256 §5a — PortalEndpoints.GroupMembers.cs
         MapContentAdds(app); // ADR-257: analyze and createService, beside addItem and publish
+        MapUsers(app);       // ADR-262: the organization's users — PortalEndpoints.Users.cs
+        MapItemExport(app);  // ADR-263: item.export — PortalEndpoints.ItemExport.cs
     }
 
     /// <summary>
@@ -2867,7 +2869,8 @@ internal static partial class PortalEndpoints
             // add — matched nothing here, because the field was not on the item, so an organisation-scoped
             // search answered an empty portal. This portal is one organisation, and its id is portals/self's.
             orgId = PortalId(context),
-            title = service.Name,
+            // ADR-260: the item's title, which its owner may change; the name stays the service's.
+            title = service.Title,
             name = service.Name,
             type = face switch
             {

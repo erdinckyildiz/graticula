@@ -142,6 +142,15 @@ public sealed class PublishedService
     /// <summary>Its name within its folder.</summary>
     public string Name { get; }
 
+    /// <summary>Its item's title: what a person calls it, which its name — its address — need not be (ADR-260).</summary>
+    /// <remarks>
+    /// <b>The name until somebody gives it another</b>, which every service published before ADR-260 still is: an item
+    /// has always been created with its service's name as its title. A reader that does not say one gets the name.
+    /// </remarks>
+    public string Title { get => _title ?? Name; init => _title = string.IsNullOrWhiteSpace(value) ? null : value; }
+
+    private readonly string? _title;
+
     /// <summary>Its folder, or null for the root.</summary>
     public string? Folder { get; }
 

@@ -537,6 +537,13 @@ internal static partial class PortalEndpoints
                 new ItemDetails(null, document.Description ?? document.Snippet, document.Tags is { Count: > 0 } t ? string.Join(",", t) : null),
                 done.Name, catalog, cancellation).ConfigureAwait(false);
 
+            // ADR-260: the layer's item is called what the data's item is called; the service keeps the name it was given.
+            if (document.Title.Trim() is { Length: > 0 and <= WebMaps.MaximumTitleLength } titled && titled != done.Name)
+            {
+                await catalog.SetServiceTitleAsync(done.Name, FeatureServerMetadataWriter.HostedFolder, titled, cancellation)
+                    .ConfigureAwait(false);
+            }
+
             // ADR-257 §12: the service remembers the item it was published from, as ArcGIS's Service2Data.
             await services.GetRequiredService<IItemAnnotationStore>()
                 .RelateAsync(done.Id, Guid.Parse(document.Id), Service2Data, cancellation).ConfigureAwait(false);

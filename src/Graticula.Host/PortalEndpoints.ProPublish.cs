@@ -354,6 +354,12 @@ internal static partial class PortalEndpoints
             return Unknown("User");
         }
 
+        // ADR-263: an export's item, whose status is its job's until the file is in it.
+        if (await ExportStatusAsync(context, id, current, cancellation).ConfigureAwait(false) is { } exported)
+        {
+            return exported;
+        }
+
         string askedJob = context.Request.Query["jobId"].ToString();
 
         // The ArcGIS API for Python posts it, as `jobid` (ADR-257).
@@ -579,6 +585,14 @@ internal static partial class PortalEndpoints
             }
 
             await ApplyDetailsAsync(definition.Item, service, catalog, cancellation).ConfigureAwait(false);
+
+            // <b>ADR-260: the name Pro's pane was given is the item's title</b>, spaces and all, where the service is
+            // named by what a URL may hold. Only on a first publish: an overwrite keeps a title changed since.
+            if (definition.Item.Title?.Trim() is { Length: > 0 and <= WebMaps.MaximumTitleLength } titled)
+            {
+                await catalog.SetServiceTitleAsync(service, FeatureServerMetadataWriter.HostedFolder, titled, cancellation)
+                    .ConfigureAwait(false);
+            }
         }
 
         staged.ServiceItemId = made is { } done ? done.Id.ToString("N") : staged.Id;

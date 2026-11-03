@@ -336,6 +336,9 @@ internal sealed record SharingRequest(string? Sharing);
 /// <summary>A service's description, as the item page writes it. Empty or null clears it.</summary>
 internal sealed record DescriptionRequest(string? Description);
 
+/// <summary>A service item's title, as the item page writes it (ADR-260). Empty or null returns it to the service's name.</summary>
+internal sealed record TitleRequest(string? Title);
+
 /// <summary>A service's credits, as the item page writes them — ArcGIS's <c>copyrightText</c>. Empty or null clears them.</summary>
 internal sealed record CreditsRequest(string? Credits);
 
@@ -687,6 +690,7 @@ internal static partial class AdminEndpoints
         app.MapGet("/admin/services", ListSystemServicesAsync);
         app.MapPut("/admin/services/{name}/sharing", SetServiceSharingAsync);
         app.MapPut("/admin/services/{name}/description", SetServiceDescriptionAsync);
+        app.MapPut("/admin/services/{name}/title", SetServiceTitleAsync);
         app.MapPut("/admin/services/{name}/credits", SetServiceCreditsAsync);
         app.MapGet("/admin/services/{name}/stewardship", GetStewardshipAsync);
         app.MapPut("/admin/services/{name}/ogc", SetOgcOffAsync);
@@ -1266,6 +1270,8 @@ internal static partial class AdminEndpoints
                         string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase)
                             ? "VectorTileServer" : "FeatureServer"),
                 bare = service.Name,
+                // ADR-260: what a person calls it; the name stays its address.
+                title = service.Title,
                 folder = service.Folder,
                 kind = service.Kind,
                 description = service.Description,
@@ -5354,6 +5360,60 @@ internal static partial class AdminEndpoints
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new { name, folder = at, description = text })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Replaces a service item's title — its owner's act, or an administrator's, as its description is (ADR-260).
+    /// </summary>
+    /// <remarks>
+    /// <b>The title, not the name.</b> The name stays the service's address. An empty title is the name again, which is
+    /// what every service's title was until this door existed.
+    /// </remarks>
+    private static async Task SetServiceTitleAsync(
+        HttpContext context,
+        string name,
+        string? folder,
+        TitleRequest request,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        PostgresLayerCatalog owners,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        string title = string.IsNullOrWhiteSpace(request.Title) ? name.Trim() : request.Title.Trim();
+
+        if (title.Length > WebMaps.MaximumTitleLength)
+        {
+            await Refuse(context, 400,
+                $"A title may be at most {WebMaps.MaximumTitleLength} characters; this one is {title.Length}.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (!await ManagesServiceAsync(context, owners, at, name, "retitle", cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (!await catalog.SetServiceTitleAsync(name, at, title, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 404,
+                $"No service '{name}'" + (at is null ? " at the root." : $" in folder '{at}'."))
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(
+            context, audit, "service.title", name,
+            Detail(new { folder = at, title }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(new { name, folder = at, title })
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -10656,7 +10716,7 @@ internal static partial class AdminEndpoints
     /// decision made by whoever wrote the default. Naming it is one field.
     /// </para>
     /// </remarks>
-    private static async Task CreateMemberAsync(
+    internal static async Task CreateMemberAsync(
         HttpContext context,
         MemberRequest request,
         IMemberDirectory directory,
@@ -10845,7 +10905,7 @@ internal static partial class AdminEndpoints
     /// store — the same class of unrecoverable state the first-run setup is careful about at the
     /// other end of the account's life.
     /// </remarks>
-    private static async Task SetMemberRoleAsync(
+    internal static async Task SetMemberRoleAsync(
         HttpContext context,
         string name,
         MemberRoleRequest request,
@@ -11211,7 +11271,7 @@ internal static partial class AdminEndpoints
     /// opposite of what an administrator revoking access believes they have done.
     /// </para>
     /// </remarks>
-    private static async Task SetMemberDisabledAsync(
+    internal static async Task SetMemberDisabledAsync(
         HttpContext context,
         string name,
         bool disabled,
@@ -11415,6 +11475,17 @@ internal static partial class AdminEndpoints
     /// does (D-46).
     /// </para>
     /// </remarks>
+    /// <summary>Studio's Remove member, its collaborators taken from the request — the portal's delete door (ADR-262).</summary>
+    internal static Task RemoveMemberRequestAsync(HttpContext context, string name, CancellationToken cancellation)
+    {
+        IServiceProvider s = context.RequestServices;
+        return RemoveMemberAsync(context, name, s.GetRequiredService<IMemberDirectory>(), s.GetRequiredService<IAdminCatalog>(),
+            s.GetRequiredService<PostgresLayerCatalog>(), s.GetRequiredService<ICoverageCatalog>(), s.GetRequiredService<ServiceContexts>(),
+            s.GetRequiredService<ITileCache>(), s.GetRequiredService<SourceQuiesce>(), s.GetRequiredService<RecycleBinService>(),
+            s.GetRequiredService<HostSettings>(), s.GetRequiredService<IAuditLog>(), s.GetRequiredService<IIdentityStore>(),
+            s.GetRequiredService<LayerConnections>(), cancellation);
+    }
+
     private static async Task RemoveMemberAsync(
         HttpContext context,
         string name,
