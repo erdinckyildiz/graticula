@@ -42,7 +42,8 @@ What a member's e-mail and last sign-in are is the administrator's to know, not 
    their public profile — username and full name — through `community/users?q=`, as a Portal member finds a colleague
    to share with. Whoever may manage members sees everything through `portals/self/users` and its `search`: role, role
    id, user type, e-mail, whether disabled, last sign-in. **INFERRED, for the owner to confirm:** that a member may find
-   other members by name at all, which a Portal allows and this portal did not.
+   other members by name at all, which a Portal allows and this portal did not. *(Confirmed by the owner 2026-11-04:
+   "Kalsın".)*
 2. **Roles are said as ArcGIS says them.** `administrator` is `org_admin`, `publisher` `org_publisher`, `user` `org_user`,
    `viewer` the Viewer role's id `iAAAAAAAAAAAAAAA`, and a role of this server's own is `org_user` with its name as the role
    id. The same names are read back the other way.

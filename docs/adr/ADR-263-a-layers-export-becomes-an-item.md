@@ -50,7 +50,8 @@ A large layer's export takes minutes; ADR-106 made it a job for that reason. Not
 4. **The item's kind is the file's**: GeoPackage, File Geodatabase, Shapefile, Microsoft Excel, KML, CSV, a CSV Collection
    (several layers' CSVs zipped), GeoJson or Feature Collection.
 5. **GeoJSON and Feature Collection are one layer.** Several layers in either are a zip no item type names, so the export
-   is refused and the answer says which formats hold several. *(INFERRED, for the owner to confirm.)*
+   is refused and the answer says which formats hold several. *(INFERRED, and confirmed by the owner 2026-11-04:
+   "Reddetsin".)*
 6. **Which export an item waits for is held in the process**, at most 256 at once, the oldest forgotten first; a restart
    before the job finishes leaves the item empty, and its status no longer says *processing*.
 

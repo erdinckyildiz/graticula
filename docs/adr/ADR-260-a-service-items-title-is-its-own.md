@@ -55,7 +55,8 @@ The column is there. Writing it touches nothing a URL holds.
 5. **A layer published from a data item takes that item's title** (a CSV, a GeoJSON, a geodatabase added to the portal
    and published — [ADR-257](ADR-257-portal-content-adds-are-doors-onto-import.md) §5.5, which it amends). **INFERRED, for
    the owner to confirm:** that ArcGIS's published layer is called what its source item is called was read from how the
-   Python API's `publish()` names its result by default, not from a statement the owner made.
+   Python API's `publish()` names its result by default, not from a statement the owner made. *(Confirmed by the owner
+   2026-11-04: "Evet".)*
 6. **The name does not change through any of these.** Renaming a service stays the server's own act.
 
 ## 4. Consequences
