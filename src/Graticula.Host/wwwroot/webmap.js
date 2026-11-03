@@ -1262,8 +1262,16 @@ function wmBuildLayer(layer, run, index) {
           f: "json",
         });
 
+        (run.extents = run.extents || []).push(extent);
         wmFetch(url).then(payload => {
           const features = WM_ESRI.readFeatures(payload, { featureProjection: WM_MERCATOR });
+          // Asked again after a move: what the last view drew goes in the same task as the new answer comes, so no
+          // frame is drawn between them with the layer empty (2026-11-03, a GeoParquet layer blinked on every pan).
+          if (run.replace) {
+            run.replace = false;
+            const old = source.getFeatures();
+            if (old.length) source.removeFeatures(old);
+          }
           source.addFeatures(features);
           const truncated = !!payload.exceededTransferLimit;
           const wasError = !!run.error;
@@ -1280,6 +1288,7 @@ function wmBuildLayer(layer, run, index) {
         }).catch(e => {
           run.error = e.message || String(e);
           wmDrawLayerList();
+          run.extents = (run.extents || []).filter(one => one !== extent);
           source.removeLoadedExtent(extent);
           failure();
         });
@@ -4498,9 +4507,16 @@ wmMap.on("moveend", () => {
       run.inRange = inside;
     }
 
-    if (run.truncated && inside && run.ol.getSource && run.ol.getSource().refresh) {
+    // Not `refresh()`: that empties the layer at once and leaves it empty until the answer comes, so every pan over a
+    // large layer blinked. The extents are let go instead, the source asks for the view again on the next frame, and
+    // the loader swaps the old features for the new ones when they arrive.
+    const source = run.ol.getSource && run.ol.getSource();
+    if (run.truncated && inside && source && source.removeLoadedExtent) {
       run.truncated = false;
-      run.ol.getSource().refresh();
+      for (const extent of run.extents || []) source.removeLoadedExtent(extent);
+      run.extents = [];
+      run.replace = true;
+      source.changed();
     }
   }
   if (crossed) wmDrawLayerList();
