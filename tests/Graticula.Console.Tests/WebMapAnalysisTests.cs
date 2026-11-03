@@ -29,6 +29,9 @@ public sealed class WebMapAnalysisTests : ConsoleTest
         await WaitForAsync(Shown("#pane-analysis"), "The Analysis tool showed no panel.");
         await WaitForAsync("document.querySelectorAll('#azLayer option').length > 0", "The panel offers none of the map's layers.");
         await WaitForAsync("!!document.querySelector('#pane-analysis #azTool option')", "The panel offers no tools.");
+        // A panel beside the map, not a dialog: the keyboard stays on the tool, as Search and Measure leave it (UX review
+        // of ADR-259). Studio's dialog still moves it to the first field.
+        Assert.Equal("tool-analysis", await Browser.EvaluateAsync<string>("document.activeElement?.id || ''"));
 
         // The same tools as the item's dialog, for the same kind of layer.
         Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#azTool option[value=DissolveBoundaries]')"),

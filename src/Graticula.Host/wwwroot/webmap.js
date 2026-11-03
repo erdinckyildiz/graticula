@@ -2590,14 +2590,30 @@ function wmDrawAddList(sayCount = true) {
     return;
   }
 
-  wmRedraw(list, shown.slice(0, 200).map(name => {
-    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t) && (!kind || t === kind));
+  // <b>A folder is said once</b> (UX review of ADR-259): every row began with hosted/, so the names that differ were the
+  // part a reader had to look past. The rows sit under their folder's name, root services first.
+  const folders = new Map();
+  for (const name of shown.slice(0, 200)) {
+    const cut = name.lastIndexOf("/");
+    const folder = cut < 0 ? "" : name.slice(0, cut);
+    if (!folders.has(folder)) folders.set(folder, []);
+    folders.get(folder).push(name);
+  }
 
+  const row = name => {
+    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t) && (!kind || t === kind));
     return `<li>
-      <div class="svcrow"><span class="name">${wmEscape(name)}</span></div>
+      <div class="svcrow"><span class="name">${wmEscape(name.slice(name.lastIndexOf("/") + 1))}</span></div>
       <div class="kinds" role="group" aria-label="Add ${wmEscape(name)} as">${types.map(type => wmAddControl(name, type)).join("")}</div>
     </li>`;
-  }).join(""));
+  };
+
+  const order = [...folders.keys()].sort((a, b) => a === "" ? -1 : b === "" ? 1 : 0);
+  // Root services come first with no heading; a folder's name is data, so it is shown as written, not in capitals.
+  wmRedraw(list, order.map((folder, i) => folder === ""
+    ? folders.get(folder).map(row).join("")
+    : `<li class="folder"><h3 class="lgroup" id="addFolder-${i}">${wmEscape(folder)}</h3>
+        <ul aria-labelledby="addFolder-${i}">${folders.get(folder).map(row).join("")}</ul></li>`).join(""));
 }
 
 
@@ -3309,6 +3325,8 @@ function wmOpenAnalysis() {
     body: wm$("analyzeBody"),
     foot: wm$("analyzeFoot"),
     lead: name => `Runs on <b>${name}</b>. The result is a new hosted layer of yours, private until you share it, and is added to this map.`,
+    // A panel beside the map, not a dialog: opening it leaves the keyboard where it was, as the other tools do.
+    focus: false,
     close: () => { wmCloseTool(); wm$("tool-analysis").focus(); },
     succeeded: async (run, value, open) => {
       let added = 0;
@@ -3341,6 +3359,10 @@ const WM_TABS = ["add", "layers", "basemap", "bookmarks", "print", "map"];
 /** The tool whose panel is shown, or would be when its panel opens. */
 let wmTabShown = "layers";
 
+/** What the left panel is called while a tool has it: the tool's own name, as ArcGIS Map Viewer heads its panels. */
+const WM_TAB_TITLES = { add: "Add layers", layers: "Layers", basemap: "Basemap", bookmarks: "Bookmarks", print: "Print",
+  map: "Map properties" };
+
 function wmShowTab(name, focus = false) {
   wmTabShown = name;
   for (const tab of WM_TABS) {
@@ -3352,6 +3374,7 @@ function wmShowTab(name, focus = false) {
     if (on && focus) button.focus();
   }
 
+  wm$("panelTitle").textContent = WM_TAB_TITLES[name];
   if (name === "map") wmDrawMapForm();
   if (name === "add") wmOpenAdd();
   if (name === "print" && !wm$("printTitle").value) wm$("printTitle").value = wmState.meta.title || "";
