@@ -35,7 +35,7 @@ internal sealed record ServiceDefinition(
 /// <c>commit</c> (only <c>title</c> and <c>type</c>) and <c>publish</c> carried none, and no item update followed — so
 /// they are read where Pro writes them, the service definition's <c>esriinfo/iteminfo.xml</c> (ADR-191 condition 4).
 /// </summary>
-internal sealed record ItemDetails(string? Snippet, string? Description, string? Tags)
+internal sealed record ItemDetails(string? Snippet, string? Description, string? Tags, string? Title = null)
 {
     /// <summary>Nothing at all: an archive without the file, or a pane left empty.</summary>
     public static readonly ItemDetails None = new(null, null, null);
@@ -298,7 +298,7 @@ internal static class ServiceDefinitionArchive
                 // ReadElementContentAsString moves past the element itself, so it is not followed by a Read: that
                 // skipped the next sibling — <description> straight after <snippet> — in the first version.
                 if (reader.NodeType == XmlNodeType.Element && reader.Depth == root + 1
-                    && reader.LocalName is "snippet" or "summary" or "description" or "tags")
+                    && reader.LocalName is "snippet" or "summary" or "description" or "tags" or "title")
                 {
                     string name = reader.LocalName;
                     if (reader.ReadElementContentAsString().Trim() is { Length: > 0 } text)
@@ -319,7 +319,7 @@ internal static class ServiceDefinitionArchive
 
         return new ItemDetails(
             said.GetValueOrDefault("snippet") ?? said.GetValueOrDefault("summary"),
-            said.GetValueOrDefault("description"), said.GetValueOrDefault("tags"));
+            said.GetValueOrDefault("description"), said.GetValueOrDefault("tags"), said.GetValueOrDefault("title"));
     }
 
     /// <summary>Whether <paramref name="key"/> is a file under <c>cd/&lt;name&gt;.gdb/</c>, the only data read.</summary>

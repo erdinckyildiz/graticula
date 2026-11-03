@@ -142,7 +142,7 @@
     host.foot.innerHTML = `<p class="hint fill" id="analyzeSays" role="status" aria-live="polite"></p><span id="analyzeButtons"></span>`;
     drawFoot(false);
     drawOptions();
-    $("azTool").focus();
+    if (host.focus !== false) $("azTool").focus();
   }
 
   /** The footer: Cancel and Run, or, while a job runs, Stop and Close — closing lets it finish and says so. */

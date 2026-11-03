@@ -104,6 +104,61 @@ public sealed class PortalItemWritesTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-260, from the ArcGIS veteran's review of v1.0.499 (#9): a service item's title is the item's. An update
+    /// writes it and leaves the service's name — its address — alone; search finds it by the title; Studio's door
+    /// returns it to the name. ADR-214 §5.4 refused any other title.
+    /// </summary>
+    [Fact]
+    public async Task A_service_items_title_is_its_own_and_its_name_stays_its_address()
+    {
+        const string Service = "hosted/ci_buildings";
+        JsonElement listing = await SendAsync(HttpMethod.Get, "/content/items");
+        string id = listing.GetProperty("items").EnumerateArray()
+            .First(i => i.TryGetProperty("name", out JsonElement n) && n.GetString() == Service).GetProperty("itemId").GetString()!;
+        string title = $"Buildings of the test city {Guid.NewGuid():N}"[..40];
+
+        try
+        {
+            JsonElement updated = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{id}/update?f=json",
+                new Dictionary<string, string> { ["title"] = title });
+            Assert.True(updated.GetProperty("success").GetBoolean(), updated.GetRawText());
+
+            JsonElement item = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
+            Assert.Equal(title, item.GetProperty("title").GetString());
+            Assert.Equal("ci_buildings", item.GetProperty("name").GetString());
+            Assert.EndsWith("/rest/services/hosted/ci_buildings/FeatureServer", item.GetProperty("url").GetString());
+
+            JsonElement found = await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/search?f=json&q={Uri.EscapeDataString($"title:\"{title}\"")}");
+            Assert.Contains(found.GetProperty("results").EnumerateArray(), r => r.GetProperty("id").GetString() == id);
+
+            JsonElement tooLong = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{id}/update?f=json",
+                new Dictionary<string, string> { ["title"] = new string('t', 251) });
+            Assert.True(tooLong.TryGetProperty("error", out _), tooLong.GetRawText());
+
+            // Studio's door: an empty title is the service's name again.
+            Assert.Equal("ci_buildings", (await RetitleAsync(string.Empty)).GetProperty("title").GetString());
+        }
+        finally
+        {
+            await RetitleAsync(string.Empty);
+        }
+    }
+
+    private async Task<JsonElement> RetitleAsync(string title)
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        using HttpRequestMessage request = new(HttpMethod.Put, $"{root}/admin/services/ci_buildings/title?folder=hosted")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { title }), System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage answer = await Http.SendAsync(request);
+        return JsonDocument.Parse(await answer.Content.ReadAsStringAsync()).RootElement.Clone();
+    }
+
     [Fact]
     public async Task An_id_that_names_nothing_is_not_answered_with_success()
     {

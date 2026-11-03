@@ -163,6 +163,12 @@ internal static partial class PortalEndpoints
             return Results.Ok(new { success = true, id, folder = folder?.ToString("N") });
         }
 
+        // ADR-264: an app or a link is added with its text, its address, or both, and no file.
+        if (Documents.AppOfType(type) is { } app && form.Files.GetFile("file") is null)
+        {
+            return await AddAppItemAsync(context, current, form, app, folder, cancellation).ConfigureAwait(false);
+        }
+
         if (form.Files.GetFile("file") is not { Length: > 0 } file)
         {
             return PortalError(400, $"A {type} item is added with its 'file', or with multipart=true and its parts.");
@@ -536,6 +542,13 @@ internal static partial class PortalEndpoints
             await ApplyDetailsAsync(
                 new ItemDetails(null, document.Description ?? document.Snippet, document.Tags is { Count: > 0 } t ? string.Join(",", t) : null),
                 done.Name, catalog, cancellation).ConfigureAwait(false);
+
+            // ADR-260: the layer's item is called what the data's item is called; the service keeps the name it was given.
+            if (document.Title.Trim() is { Length: > 0 and <= WebMaps.MaximumTitleLength } titled && titled != done.Name)
+            {
+                await catalog.SetServiceTitleAsync(done.Name, FeatureServerMetadataWriter.HostedFolder, titled, cancellation)
+                    .ConfigureAwait(false);
+            }
 
             // ADR-257 §12: the service remembers the item it was published from, as ArcGIS's Service2Data.
             await services.GetRequiredService<IItemAnnotationStore>()

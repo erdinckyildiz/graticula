@@ -415,7 +415,8 @@ out (§5.10).
 
 **Negative.**
 - Nothing that reads these files has read one (conditions 2 and 3).
-- `item.export()` and ArcGIS Online's *Export Data* through the portal do not work here, and say 404.
+- ~~`item.export()` and ArcGIS Online's *Export Data* through the portal do not work here, and say 404.~~ *(They do since
+  2026-11-03 — [ADR-263](ADR-263-a-layers-export-becomes-an-item.md).)*
 - Every row is written twice and the disk holds both while it runs.
 - Readers now share the exports budget with owners; one reader's large export can refuse another's until it expires.
 - Excel drops non-point geometry; Shapefile renames and cuts; KML and GeoJSON drop M — each named by the dry run.
@@ -462,6 +463,8 @@ the export becomes an item.)
 
 - **ADR-056's item table is built** — then `content/users/{u}/export` can make an item from this job's file, and
   `item.export()` works; that item may be the first kind with nothing behind it (ADR-056 condition 2).
+  *(Met, and acted on 2026-11-03 by [ADR-263](ADR-263-a-layers-export-becomes-an-item.md): the portal's `export` makes a
+  document of the caller's at once and fills it with this job's file.)*
 - **Somebody asks for attachments** in an export — File Geodatabase and GeoPackage can carry them (owner decision 4).
 - An ArcGIS client, shown `Extract`, calls `createReplica` and fails where it did not before (§3).
 - Somebody asks to export a filtered subset, or from the map's extent in Studio.

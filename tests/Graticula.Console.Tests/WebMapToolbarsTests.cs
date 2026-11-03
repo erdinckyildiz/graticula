@@ -118,6 +118,14 @@ public sealed class WebMapToolbarsTests : ConsoleTest
         await WaitForAsync($"[...document.querySelectorAll('{Tiles}')].some(b => b.getClientRects().length > 0)",
             "Add offered no service's vector tiles where they can be seen.");
 
+        // The panel says which tool has it, and a folder is said once over its services rather than on every row (UX
+        // review of ADR-259).
+        Assert.Equal("Add layers", await Browser.EvaluateAsync<string>("document.getElementById('panelTitle').textContent"));
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "[...document.querySelectorAll('#addList li.folder > h3')].filter(h => h.textContent === 'hosted').length === 1"
+            + " && [...document.querySelectorAll('#addList .name')].every(n => !n.textContent.includes('/'))"),
+            "Add did not put the hosted services under one hosted heading.");
+
         await Browser.EvaluateAsync<bool>(
             "(() => { const s = document.getElementById('addType'); s.value = 'VectorTileServer'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
         await WaitForAsync("document.querySelectorAll('#addList > li').length > 0"

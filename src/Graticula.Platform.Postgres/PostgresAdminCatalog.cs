@@ -2755,6 +2755,33 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetServiceTitleAsync(
+        string serviceName,
+        string? folder,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        // The service's updated_at moves, as a description's change moves it: it is what tells the catalogue to read again.
+        const string Sql = """
+            with touched as (update service set updated_at = now()
+                               where lower(name) = lower(@name)
+                                 and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                             returning id)
+            update item set title = @title where id in (select id from touched)
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("title", title);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetServiceCreditsAsync(
         string serviceName,
         string? folder,

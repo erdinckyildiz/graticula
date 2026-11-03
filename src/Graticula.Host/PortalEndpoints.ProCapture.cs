@@ -41,6 +41,9 @@ namespace Graticula.Host;
 internal static partial class PortalEndpoints
 {
     /// <summary>The resources an ArcGIS Server admin root lists.</summary>
+    /// <summary>The logs' resources this server answers (ADR-261).</summary>
+    private static readonly string[] LogResources = ["query"];
+
     private static readonly string[] AdminResources = ["machines", "clusters", "system", "services", "security", "data", "uploads", "logs", "mode"];
 
     /// <summary>A recorded call is read by a person, so it is indented.</summary>
@@ -156,8 +159,8 @@ internal static partial class PortalEndpoints
             });
         }
 
-        // The root's services and folders, and one folder's services — never a service's own document or an operation,
-        // which keep the refusal below (a name with a dot is a service: `services/{folder}/{name}.{type}`).
+        // The root's services and folders, and one folder's services. A name with a dot is a service —
+        // `services/{folder}/{name}.{type}` — and its document, status, start and stop are ADR-261's doors.
         if (what == "services"
             || (what.StartsWith("services/", StringComparison.Ordinal) && what.Count(c => c == '/') == 1
                 && !what.Contains('.', StringComparison.Ordinal)))
@@ -165,6 +168,23 @@ internal static partial class PortalEndpoints
             return await AdminServicesAsync(
                     context, catalog, system, coverages, what == "services" ? null : what["services/".Length..], cancellation)
                 .ConfigureAwait(false);
+        }
+
+        if (what.StartsWith("services/", StringComparison.Ordinal) && what.Contains('.', StringComparison.Ordinal))
+        {
+            return await AdminServiceDoorAsync(context, catalog, system, coverages, what["services/".Length..], cancellation)
+                .ConfigureAwait(false);
+        }
+
+        // ADR-261: the logs' one door an administrator's script uses.
+        if (what == "logs")
+        {
+            return Results.Ok(new { resources = LogResources });
+        }
+
+        if (what == "logs/query")
+        {
+            return await AdminLogsQueryAsync(context, cancellation).ConfigureAwait(false);
         }
 
         return Results.Json(new { status = "error", messages = new[] { $"'{what}' is not answered by this server." }, code = 404 });

@@ -165,7 +165,10 @@
            border-right: 1px solid var(--rule); }
   /* Placed, not flowed: a map that is not there hides the rail, and the panel must not slide into its column. */
   #tabs { grid-column: 1; grid-row: 1; } #panel { grid-column: 2; grid-row: 1; } #mapWrap { grid-column: 3; grid-row: 1; }
-  #sheetClose { display: none; }
+  /* The left panel names its tool, as the right one does (UX review of ADR-259: a phone sheet had no title). */
+  #panel .panelhead { display: flex; align-items: center; gap: 8px; padding: 10px 10px 0 16px; }
+  #panel .panelhead h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+  #sheetClose { width: 32px; height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 20px; flex: none; }
   #notFound { overflow-wrap: anywhere; }
   .tabpanel { padding: 14px 16px 18px; overflow: auto; flex: 1; min-height: 0; }
   .tabpanel[hidden] { display: none; }
@@ -318,6 +321,9 @@
   #addList li { padding: 4px 0;
                 border-top: 1px solid var(--rule); }
   #addList li:first-child { border-top: 0; }
+  #addList li.folder { padding: 0; border-top: 0; }
+  #addList li.folder ul { list-style: none; margin: 0 0 8px; padding: 0; }
+  #addList li.folder h3 { margin: 8px 0 2px; }
   #addList .svcrow { display: flex; gap: 8px; align-items: center; }
   #addList .kinds button::before { content: "+ "; }
   #addList .kinds button { min-height: 24px; }
@@ -548,9 +554,8 @@
     .lhead .lmore { width: 44px; height: 44px; margin: -8px -6px -8px 0; }
     .lmenu button { min-height: 44px; }
     .lhead .lname { min-height: 32px; }
-    #sheetClose { display: inline-flex; align-self: flex-end; align-items: center; justify-content: center;
-                  margin: 6px 8px -6px 0; width: 44px; height: 44px; padding: 0; border: 0; background: none;
-                  color: var(--muted); font-size: 22px; flex: none; }
+    #sheetClose { width: 44px; height: 44px; font-size: 22px; }
+    #panel .panelhead h2, #side .sidehead h2 { font-size: 16px; }
     #timeBar { left: 8px; right: 8px; transform: none; bottom: 36px; gap: 4px; padding: 4px 6px; }
     #timeBar .timetrack, #timeBar .timetrack input[type="range"] { height: 44px; }
     #timeBar button { min-width: 44px; min-height: 44px; }
@@ -628,8 +633,11 @@
       <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span class="tl">Map</span></button>
     </div>
 
-    <aside id="panel" aria-label="Map panel">
-      <button type="button" id="sheetClose" aria-label="Close the panel">&times;</button>
+    <aside id="panel" aria-labelledby="panelTitle">
+      <div class="panelhead">
+        <h2 id="panelTitle">Layers</h2>
+        <button type="button" id="sheetClose" aria-label="Close the panel">&times;</button>
+      </div>
       <div class="tabpanel" id="notFound" hidden></div>
 
       <section class="tabpanel" id="pane-add" role="tabpanel" aria-labelledby="tab-add" hidden>

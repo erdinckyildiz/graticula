@@ -149,6 +149,12 @@ public sealed class ContentListTests : ConsoleTest
         await Browser.EvaluateAsync<bool>(
             "(document.getElementById('describeCredits').value = '© ContentListTests', true)");
 
+        // ADR-260: the title is the item's, written by the same Save, and heads the page; the name stays its address.
+        Assert.True(await Browser.EvaluateAsync<bool>("document.activeElement?.id === 'describeTitle'"),
+            "Edit details did not start at its first field, the title.");
+        await Browser.EvaluateAsync<bool>(
+            "(document.getElementById('describeTitle').value = 'Buildings, titled by ContentListTests', true)");
+
         await ClickAsync("#serviceDescription [data-describe-save]");
 
         await WaitForAsync(
@@ -161,6 +167,14 @@ public sealed class ContentListTests : ConsoleTest
             && w.Contains("/description", StringComparison.Ordinal));
         Assert.Contains(writes, w => w.StartsWith("PUT ", StringComparison.Ordinal)
             && w.Contains("/credits", StringComparison.Ordinal));
+        Assert.Contains(writes, w => w.StartsWith("PUT ", StringComparison.Ordinal)
+            && w.Contains("/title", StringComparison.Ordinal));
+        Assert.Equal("Buildings, titled by ContentListTests",
+            await Browser.EvaluateAsync<string>("document.getElementById('serviceTitle').textContent"));
+        // The address is said among the facts as soon as the title replaces it in the head, not after a reload.
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "[...document.querySelectorAll('#svcFacts dt')].some(dt => dt.textContent === 'Service name')"),
+            "After a new title the page no longer said the service's name anywhere.");
         Assert.Contains("Credits © ContentListTests",
             await Browser.EvaluateAsync<string>("document.getElementById('serviceDescription').textContent") ?? "",
             StringComparison.Ordinal);

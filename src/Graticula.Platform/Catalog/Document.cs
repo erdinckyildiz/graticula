@@ -30,6 +30,8 @@ namespace Graticula.Platform.Catalog;
 /// <param name="ContentFolder">The owner's content folder it is in, or null for the root.</param>
 /// <param name="Description">What it is about at length, or null.</param>
 /// <param name="HasThumbnail">Whether its owner gave it a picture — D-321, migration 121.</param>
+/// <param name="Url">An app's or a link's address (ADR-264), or null.</param>
+/// <param name="TypeKeywords">An app's or a link's type keywords (ADR-264), or null for its kind's own.</param>
 public sealed record Document(
     string Id,
     string Title,
@@ -48,7 +50,9 @@ public sealed record Document(
     IReadOnlyList<string>? Tags = null,
     Guid? ContentFolder = null,
     string? Description = null,
-    bool HasThumbnail = false);
+    bool HasThumbnail = false,
+    string? Url = null,
+    IReadOnlyList<string>? TypeKeywords = null);
 
 /// <summary>What a document is, decided by this server from its first bytes and its name — ADR-188 §5.3.</summary>
 /// <param name="Name">The short name stored with it: <c>pdf</c>, <c>xlsx</c> and so on.</param>
@@ -84,6 +88,24 @@ public static class Documents
     private static readonly DocumentKind FileGeodatabase = new("filegdb", "application/zip", "File Geodatabase", ".zip");
     private static readonly DocumentKind GeoJson = new("geojson", "application/geo+json", "GeoJson", ".geojson");
 
+    // ADR-263: what a layer's export becomes when the portal's export makes it an item — ADR-106's packaging, by its name.
+    private static readonly DocumentKind GeoPackage = new("geopackage", "application/geopackage+sqlite3", "GeoPackage", ".gpkg");
+    private static readonly DocumentKind Kml = new("kml", "application/vnd.google-earth.kml+xml", "KML", ".kml");
+    private static readonly DocumentKind CsvCollection = new("csvcollection", "application/zip", "CSV Collection", ".zip");
+    private static readonly DocumentKind FeatureCollection = new("featurecollection", "application/json", "Feature Collection", ".json");
+
+    // ADR-264: an app or a link is a document whose content is its JSON and which may carry a URL.
+    private static readonly DocumentKind Dashboard = new("dashboard", "application/json", "Dashboard", ".json");
+    private static readonly DocumentKind WebExperience = new("webexperience", "application/json", "Web Experience", ".json");
+    private static readonly DocumentKind WebMappingApplication = new("webmappingapplication", "application/json", "Web Mapping Application", ".json");
+    private static readonly DocumentKind Form = new("form", "application/json", "Form", ".json");
+    private static readonly DocumentKind StoryMap = new("storymap", "application/json", "StoryMap", ".json");
+    private static readonly DocumentKind FeatureServiceLink = new("featureservicelink", "application/json", "Feature Service", ".json");
+    private static readonly DocumentKind MapServiceLink = new("mapservicelink", "application/json", "Map Service", ".json");
+    private static readonly DocumentKind VectorTileServiceLink = new("vectortileservicelink", "application/json", "Vector Tile Service", ".json");
+    private static readonly DocumentKind ImageServiceLink = new("imageservicelink", "application/json", "Image Service", ".json");
+    private static readonly DocumentKind DocumentLink = new("documentlink", "application/json", "Document Link", ".json");
+
     /// <summary>The largest picture a document keeps as its thumbnail: 1 MB, ArcGIS's limit on an item's.</summary>
     public const int MaximumThumbnailBytes = 1 << 20;
 
@@ -112,12 +134,44 @@ public static class Documents
     /// </summary>
     public static IReadOnlyList<DocumentKind> Data { get; } = [Shapefile, FileGeodatabase, GeoJson];
 
+    /// <summary>The kinds an export's file is kept as when the portal's export makes it an item (ADR-263): not uploaded.</summary>
+    public static IReadOnlyList<DocumentKind> Exports { get; } = [GeoPackage, Kml, CsvCollection, FeatureCollection];
+
+    /// <summary>
+    /// The kinds a portal client adds with a <c>text</c> or a <c>url</c> rather than a file (ADR-264): apps, and services
+    /// and documents elsewhere, registered by their address.
+    /// </summary>
+    public static IReadOnlyList<DocumentKind> Apps { get; } =
+        [Dashboard, WebExperience, WebMappingApplication, Form, StoryMap, FeatureServiceLink, MapServiceLink,
+         VectorTileServiceLink, ImageServiceLink, DocumentLink];
+
+    /// <summary>The app or link kind an ArcGIS item type names, or null for one that is not (ADR-264).</summary>
+    /// <param name="arcGisType">The item type as a portal client sends it.</param>
+    /// <returns>The kind, or null.</returns>
+    public static DocumentKind? AppOfType(string? arcGisType) =>
+        Apps.FirstOrDefault(kind => string.Equals(kind.ArcGisType, arcGisType?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether a kind is an app or a link — content that is its JSON, kept without a file of its own (ADR-264).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for an app or a link.</returns>
+    public static bool IsApp(DocumentKind kind) => Apps.Contains(kind);
+
+    /// <summary>
+    /// Whether a kind is a link — a service or a document elsewhere, registered by its address — rather than an app whose
+    /// item may also carry the address it launches at (ADR-264's review).
+    /// </summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for a link.</returns>
+    public static bool IsLink(DocumentKind kind) =>
+        kind == FeatureServiceLink || kind == MapServiceLink || kind == VectorTileServiceLink || kind == ImageServiceLink
+        || kind == DocumentLink;
+
     /// <summary>The kind stored under a name, or null for a name this build does not know.</summary>
     /// <param name="name">The stored name.</param>
     /// <returns>The kind.</returns>
     public static DocumentKind? Named(string? name)
     {
-        foreach (DocumentKind kind in Accepted.Concat(Data))
+        foreach (DocumentKind kind in Accepted.Concat(Data).Concat(Exports).Concat(Apps))
         {
             if (string.Equals(kind.Name, name, StringComparison.Ordinal))
             {
@@ -407,6 +461,14 @@ public interface IDocumentStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether the document exists.</returns>
     Task<bool> SetTagsAsync(string id, IReadOnlyList<string> tags, CancellationToken cancellationToken);
+
+    /// <summary>Replaces an app's or a link's URL and type keywords (ADR-264); false when there is no such document.</summary>
+    /// <param name="id">Its id.</param>
+    /// <param name="url">The address, or null for none.</param>
+    /// <param name="typeKeywords">The type keywords, or null for its kind's own.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether there was such a document.</returns>
+    Task<bool> SetLinkAsync(string id, string? url, IReadOnlyList<string>? typeKeywords, CancellationToken cancellationToken);
 
     /// <summary>Replaces a document's description.</summary>
     /// <param name="id">The document.</param>

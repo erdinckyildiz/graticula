@@ -622,6 +622,10 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IDocumentStore>(services =>
             new PostgresDocumentStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-264: the files any item keeps beside itself, as Portal's item resources.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemResourceStore>(services =>
+            new PostgresItemResourceStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // ADR-135: what each service answers, counted in memory and written once a minute.
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IServiceUsageStore>(services =>
             new PostgresServiceUsageStore(services.GetRequiredService<NpgsqlDataSource>()));

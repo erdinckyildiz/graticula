@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(127);
+    public static SchemaVersion ComponentSchemaVersion => new(128);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -156,6 +156,7 @@ public static class PlatformMigrations
         ANodeSaysWhichSchemaItReadsV125,
         AnItemIsRelatedToTheItemItWasPublishedFromV126,
         ALayerKnowsWhenItLastChangedV127,
+        AnAppIsAnItemAndAnItemKeepsResourcesV128,
     ]);
 
     /// <summary>
@@ -175,6 +176,62 @@ public static class PlatformMigrations
     /// it holds. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: a table nothing older reads.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// An app or a link is an item — a document whose content is its JSON and which may carry a URL — and any item keeps
+    /// resources, the files an app stores beside itself (ADR-264, the ArcGIS veteran's review of v1.0.499, #1).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A document, not a fourth kind of item.</b> A Dashboard, an Experience Builder app, a Survey123 form or a service
+    /// registered by its URL is listed, shared, owned, moved, deleted and recycled as a document already is; what it adds
+    /// is a URL and the type keywords an app's client reads, so those are the two columns.
+    /// </para>
+    /// <para>
+    /// <b>Resources are any item's</b>, keyed by the item and a path, with the item's tenant, and go with the item: the
+    /// cascade removes them when it is deleted for good, and the recycle bin keeps them as it keeps every row it reaches.
+    /// </para>
+    /// <para><b>Expand.</b> Two nullable columns and a new table; a build before this one reads neither.</para>
+    /// </remarks>
+    private static Migration AnAppIsAnItemAndAnItemKeepsResourcesV128 => Migration.Expand(
+        new SchemaVersion(128),
+        "An app or a link is an item with a URL and type keywords, and any item keeps resources (ADR-264).",
+
+        "alter table document add column if not exists url text",
+
+        "alter table document add column if not exists type_keywords text[]",
+
+        """
+        create table if not exists item_resource (
+            item_id     uuid        not null references item (id) on delete cascade,
+            path        text        not null,
+            media_type  text        not null,
+            size        bigint      not null,
+            content     bytea       not null,
+            access      text        not null default 'inherit',
+            created_at  timestamptz not null default now(),
+            modified_at timestamptz not null default now(),
+            tenant_id   uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint item_resource_pk primary key (item_id, path),
+            constraint item_resource_size_matches check (size = octet_length(content)),
+            constraint item_resource_path_present check (length(btrim(path)) > 0),
+            constraint item_resource_access_known check (access in ('inherit', 'private'))
+        )
+        """,
+
+        "create index if not exists item_resource_tenant on item_resource (tenant_id)",
+
+        "alter table item_resource enable row level security",
+
+        "alter table item_resource force row level security",
+
+        "drop policy if exists tenant_floor on item_resource",
+
+        """
+        create policy tenant_floor on item_resource
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
     private static Migration AnItemIsRelatedToTheItemItWasPublishedFromV126 => Migration.Expand(
         new SchemaVersion(126),
         "An item is related to the item it was published from, as ArcGIS's Service2Data (ADR-257 §12).",
