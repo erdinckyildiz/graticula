@@ -1439,6 +1439,17 @@ public abstract class ConsoleTest : IAsyncLifetime
         await ClickAsync($"[data-secpage-go={key}]");
     }
 
+    /// <summary>
+    /// The Map Viewer's way to a layer's settings (ADR-259): the layer selected by its name in Layers, then the right
+    /// toolbar's tool, pressed only if it is not already open — a second press closes it.
+    /// </summary>
+    protected async Task OpenLayerToolAsync(string tool, string? layer = null)
+    {
+        await ClickAsync("#layerList button[data-act=select]" + (layer is null ? "" : $"[data-layer={layer}]"));
+        await Browser.EvaluateAsync<bool>(
+            $"(() => {{ const b = document.getElementById('tool-{tool}'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); return true; }})()");
+    }
+
     protected async Task ClickAsync(string selector)
     {
         string quoted = JsonSerializer.Serialize(selector);

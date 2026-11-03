@@ -25,8 +25,8 @@ public sealed class WebMapAnalysisTests : ConsoleTest
         await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(Service())}", token, cookie);
 
         await WaitForAsync("wmAnalysable().length > 0", "The map's hosted layer never became readable.");
-        await ClickAsync("#tab-analysis");
-        await WaitForAsync(Shown("#pane-analysis"), "The Analysis tab showed no panel.");
+        await ClickAsync("#tool-analysis");
+        await WaitForAsync(Shown("#pane-analysis"), "The Analysis tool showed no panel.");
         await WaitForAsync("document.querySelectorAll('#azLayer option').length > 0", "The panel offers none of the map's layers.");
         await WaitForAsync("!!document.querySelector('#pane-analysis #azTool option')", "The panel offers no tools.");
 

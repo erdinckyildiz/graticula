@@ -13,6 +13,8 @@
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
 
 
+> **Amended 2026-11-03 by [ADR-259](ADR-259-the-map-viewer-takes-arcgis-map-viewers-shape.md), by owner decision.** The viewer takes ArcGIS Map Viewer's shape: the map's tools in a toolbar at the left, the selected layer's settings and the map tools at the right, a layer as a row with ⋯. §5.4's layout sentence and §10a's first deferred recommendation are answered there; the document and what writes it are unchanged.
+
 > **2026-10-01: a web map may be protected from deletion** (migration 69), as a service may be (ADR-102 condition 2) — `PUT /content/webmaps/{id}/protection`, a 409 on delete while it is on, and *Protect from deletion* on the map's page.
 
 > **2026-10-01, the ArcGIS review's fifth item: a web map has an item page in Studio** (`#/map/{id}`) — its summary, its layers with the way to each one's item, *Open in Map Viewer*, *Share* with the map's three scopes, and *Delete*; My content's row opens it. The map's sharing is no longer set only inside the viewer.

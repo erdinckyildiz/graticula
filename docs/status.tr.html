@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>43d4b5a9</code> · 2026-11-03 01:32</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a088b1e8</code> · 2026-11-03 02:10</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">256</div><div class="kpi-l">ADR</div><div class="kpi-n">86 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">637/670</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">23 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">257</div><div class="kpi-l">ADR</div><div class="kpi-n">86 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">637/672</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">25 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık borç</div><div class="kpi-n">326 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5923</div><div class="kpi-l">test</div><div class="kpi-n">634 kaynak dosya, 284,046 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5927</div><div class="kpi-l">test</div><div class="kpi-n">634 kaynak dosya, 284,046 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">28 madde</span></div><p><b>23 ADR conditions</b> outstanding across 19 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">30 madde</span></div><p><b>25 ADR conditions</b> outstanding across 20 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -134,6 +134,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -424,6 +425,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">256</td><td>Portal group writes go through Studio&#x27;s privilege</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — an owner decision, built as doors onto acts that already existed and measured…</td><td class="num"></td></tr>
 <tr><td class="id">257</td><td>Portal content adds are doors onto import</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the doors run Studio&#x27;s own handlers and the ArcGIS API for Python 2.4.3 drove…</td><td class="num"></td></tr>
 <tr><td class="id">258</td><td>An optional Photon adapter behind GeocodeServer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the engine is measured, the wire format is tested against a stub of it, a live…</td><td class="num"></td></tr>
+<tr><td class="id">259</td><td>The Map Viewer takes ArcGIS Map Viewer&#x27;s shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — an owner decision on a described layout, not on a drawn one; condition 1 is the…</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -561,7 +563,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.3%"></div></div><div class="bar-n">937</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.1%"></div></div><div class="bar-n">571</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">439</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.0%"></div></div><div class="bar-n">431</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.2%"></div></div><div class="bar-n">435</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:14.1%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.6%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.2%"></div></div><div class="bar-n">124</div></div>
@@ -618,20 +620,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>43d4b5a9</code><time>2026-11-03</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>838e774c</code><time>2026-11-03</time><span>Status page regenerated after the portal doors of v1.0.499&#x27;s review</span></li>
-<li><code>2a207c66</code><time>2026-11-03</time><span>Where a group&#x27;s members are read now, said where the group read says it carries none (ADR-040, PortalGroup; ADR-256 §5a)</span></li>
-<li><code>b6f90c44</code><time>2026-11-03</time><span>A service remembers the data item it was published from, and the Python API&#x27;s overwrite reaches Studio&#x27;s Overwrite (ADR-257 §12, migration 126)</span></li>
-<li><code>7aab1b05</code><time>2026-11-03</time><span>A group&#x27;s members are read through the portal&#x27;s users and userList, as Studio shows them (ADR-256 §5a)</span></li>
-<li><code>c4810697</code><time>2026-11-03</time><span>The recycle bin through the portal: portals/self says it is on, a member&#x27;s bin is listed and restored from, and a permanent delete empties it (ADR-214 §5c)</span></li>
-<li><code>f3df5362</code><time>2026-11-03</time><span>A portal search answers created and modified ranges, and refuses a range it cannot read (ADR-214 §5b)</span></li>
-<li><code>d6344b2d</code><time>2026-11-03</time><span>Status page regenerated after the Join group and geocoder merges</span></li>
-<li><code>5d1ac83b</code><time>2026-11-03</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>fb084405</code><time>2026-11-03</time><span>ADR-258: the batch, the filters and the portal&#x27;s locator driven against the live Photon (2026-11-03)</span></li>
-<li><code>4a74ad57</code><time>2026-11-03</time><span>The probes that drove the geocoder through the Maps SDK and the Python API (ADR-258 §6)</span></li>
-<li><code>5f7d5aaf</code><time>2026-11-03</time><span>The portal names the geocoder as its locator, and the GeocodeServer takes batches, categories, countries and distance (ADR-258 §5.8)</span></li>
-<li><code>cc876c4f</code><time>2026-11-03</time><span>A group&#x27;s Members tab gives no count to a reader outside it; the unreachable second Leave handler is gone</span></li>
-<li><code>945921cc</code><time>2026-11-03</time><span>Studio offers Join group: a scope for groups you can join, Join and Leave on a group&#x27;s page (ADR-256 §5.7)</span></li>
+<li><code>a088b1e8</code><time>2026-11-03</time><span>What an ArcGIS veteran&#x27;s review of v1.0.499 found, fixed; the portal names its geocoder; Studio offers Join group</span></li>
+<li><code>da0c1356</code><time>2026-11-02</time><span>An empty hosted service and a service&#x27;s addToDefinition, so the Python API&#x27;s create_service and create_view work; owner decisions of 2026-11-02 evening; CI in four parallel parts</span></li>
+<li><code>7960b2f7</code><time>2026-11-02</time><span>Portal group writes, portal content adds and an optional Photon geocoder (ADR-256, ADR-257, ADR-258)</span></li>
+<li><code>211b788f</code><time>2026-11-02</time><span>The interface follows ArcGIS Enterprise&#x27;s structure, on a phone and on a desk (ADR-255)</span></li>
+<li><code>ab1afe50</code><time>2026-11-02</time><span>Four more portal doors onto what Studio already does, and a migration plan that outlives one unreadable layer (ADR-214 §5a)</span></li>
+<li><code>de72e3b4</code><time>2026-11-02</time><span>The portal answers an ArcGIS client as ArcGIS does, a KML reads in Google Earth as written, and Pro is followed at a second organisation (ADR-079, 106, 164, 191, 204, 214)</span></li>
+<li><code>e374a6d5</code><time>2026-11-01</time><span>Postgres test classes migrate one at a time across the cluster, so main&#x27;s suite is green again after v1.0.493&#x27;s test deadlock</span></li>
+<li><code>8caafb80</code><time>2026-11-01</time><span>A refused node says why, the imagery chain passes against the built image, and grapy&#x27;s last debts are repaid inside the Linux fence (ADR-254, D-333, D-357)</span></li>
+<li><code>872ec1f2</code><time>2026-11-01</time><span>The admission gate bounds a standing queue, organisations share one pool, a rolling upgrade runs without a failed request, and no GPL library is linked into our code (ADR-012, ADR-046, ADR-204, ADR-254)</span></li>
+<li><code>d0061420</code><time>2026-11-01</time><span>Clustering&#x27;s phases 0 to 2, the tenancy floor&#x27;s measured defects, nested AD groups, encrypted SAML assertions and real-client checks, with live ADR conditions down from 71 to 36 (ADR-012, ADR-204, ADR-089, ADR-090, ADR-250-253)</span></li>
+<li><code>75d2398e</code><time>2026-10-31</time><span>Service accounts sign in with OAuth client credentials, SQL Server layers keep a history and follow relationships, and twenty-one ADR conditions are closed with evidence (ADR-200, ADR-210, ADR-212, ADR-023, ADR-106, ADR-203, ADR-228, ADR-229, ADR-230, ADR-248)</span></li>
+<li><code>ec4f6ee7</code><time>2026-10-31</time><span>grapy carries deep learning on PyTorch, answers as ArcGIS Pro 3.7 does where fourteen comparisons pinned a rule down, and writes GeoPackages Pro can open (ADR-248, ADR-249)</span></li>
+<li><code>adebdee9</code><time>2026-10-31</time><span>grapy&#x27;s / divides as floats, optional rasters count as given, and custom evaluators, traversals, solver properties, full-text indexes, random generators and Python toolboxes are built (ADR-246, ADR-247)</span></li>
+<li><code>cbae6475</code><time>2026-10-31</time><span>grapy looks again at its refusals: path distance, Topo to Raster, segmentation, the image classifiers, solar radiation and pages found at new addresses (ADR-241 to ADR-245)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
