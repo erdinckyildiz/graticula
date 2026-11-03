@@ -2513,9 +2513,6 @@ const WM_TYPE_LABEL = { FeatureServer: "Features", MapServer: "Map image", Vecto
 /** The kinds a service is added as, the one a person almost always wants first. */
 const WM_TYPE_ORDER = ["FeatureServer", "ImageServer", "VectorTileServer", "MapServer"];
 
-/** Services whose *other ways to draw it* the reader opened, so a redraw does not close it on them. */
-const wmOpenedKinds = new Set();
-
 /** Whether the map already holds this service in this form. */
 function wmOnMap(name, type) {
   const needle = `/rest/services/${name}/${type}`.toLowerCase();
@@ -2534,21 +2531,23 @@ function wmOnMap(name, type) {
  */
 function wmAddControl(name, type) {
   const key = `add:${type}:${name}`;
+  const kind = WM_TYPE_LABEL[type] || type;
   return wmOnMap(name, type)
-    ? `<span class="onmap" tabindex="-1" data-focus="${wmEscape(key)}">On map</span>`
+    ? `<span class="onmap" tabindex="-1" data-focus="${wmEscape(key)}"><svg class="i" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>${wmEscape(kind)} on map</span>`
     : `<button class="tiny" data-add="${wmEscape(name)}" data-type="${wmEscape(type)}" data-focus="${wmEscape(key)}"
-        aria-label="Add ${wmEscape(name)} as ${WM_TYPE_LABEL[type] || type}">Add</button>`;
+        aria-label="Add ${wmEscape(name)} as ${wmEscape(kind)}">${wmEscape(kind)}</button>`;
 }
 
 /**
- * The services list: one row per service, added as features by default.
+ * The services list: one row per service, with an Add for each kind it can be drawn as.
  *
  * <b>One row, not one per face.</b> The directory lists a service once for each face it answers, so the
  * first version offered `wm_buildings` three times and left the reader to guess which *Add* they meant.
- * Features is what an ArcGIS map viewer adds; the map image and the vector tiles are there for whoever
- * wants them, one disclosure away.
+ * <b>Every kind on the row, named</b> — 2026-11-03: the vector tiles sat one closed disclosure away under
+ * *Other ways to draw it*, and the owner could not find the vector tile services the portal lists as items of
+ * their own. A kind can also be chosen, as ArcGIS Map Viewer's Add filters by type.
  */
-function wmDrawAddList() {
+function wmDrawAddList(sayCount = true) {
   const list = wm$("addList");
   if (!wmServices) return;
 
@@ -2560,12 +2559,14 @@ function wmDrawAddList() {
 
   const names = [...byName.keys()];
   const needle = wm$("addFilter").value.trim().toLowerCase();
-  const shown = needle ? names.filter(n => n.toLowerCase().includes(needle)) : names;
+  const kind = wm$("addType").value;
+  const shown = names.filter(n => (!needle || n.toLowerCase().includes(needle)) && (!kind || byName.get(n).has(kind)));
 
   // <b>Nothing to filter, and the way out is a link</b> (ADR-079 condition 2's review, 2026-10-14): a first run put the
   // keyboard in a filter with nothing under it and named *My content* without a way to reach it.
   const none = names.length === 0;
   wm$("addFilter").hidden = none;
+  wm$("addType").hidden = none;
 
   if (none) {
     wmRedraw(list, "");
@@ -2579,33 +2580,26 @@ function wmDrawAddList() {
     return;
   }
 
-  wmSayIn("addStatus", needle ? `${shown.length} of ${names.length} services match.`
-    : `${names.length} service${names.length === 1 ? "" : "s"}.`);
+  if (sayCount) {
+    wmSayIn("addStatus", needle || kind ? `${shown.length} of ${names.length} services match.`
+      : `${names.length} service${names.length === 1 ? "" : "s"}.`);
+  }
+
+  if (!shown.length) {
+    wmRedraw(list, `<li><button type="button" class="tiny" id="addClear" data-focus="addClear">Clear the filter</button></li>`);
+    return;
+  }
 
   wmRedraw(list, shown.slice(0, 200).map(name => {
-    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t));
-    const [first, ...rest] = types;
+    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t) && (!kind || t === kind));
 
     return `<li>
-      <div class="svcrow">
-        <span class="name">${wmEscape(name)}</span>
-        <span class="type">${WM_TYPE_LABEL[first]}</span>
-        ${wmAddControl(name, first)}
-      </div>
-      ${rest.length ? `<details class="kinds" data-kinds="${wmEscape(name)}"${wmOpenedKinds.has(name) ? " open" : ""}>
-        <summary>Other ways to draw it</summary>
-        ${rest.map(type => `<div class="svcrow"><span class="name">${WM_TYPE_LABEL[type]}</span>
-          ${wmAddControl(name, type)}</div>`).join("")}
-      </details>` : ""}
+      <div class="svcrow"><span class="name">${wmEscape(name)}</span></div>
+      <div class="kinds" role="group" aria-label="Add ${wmEscape(name)} as">${types.map(type => wmAddControl(name, type)).join("")}</div>
     </li>`;
   }).join(""));
 }
 
-wm$("addList").addEventListener("toggle", event => {
-  const box = event.target;
-  if (!(box instanceof HTMLDetailsElement) || !box.dataset.kinds) return;
-  if (box.open) wmOpenedKinds.add(box.dataset.kinds); else wmOpenedKinds.delete(box.dataset.kinds);
-}, true);
 
 // Layers' own way to Add. The keyboard goes to the filter, unless Add has already said there is nothing to filter and
 // given it to that sentence (ADR-079's review).
@@ -2617,7 +2611,15 @@ wm$("addLayer").addEventListener("click", () => {
   else if (wm$("addStatus").hasAttribute("tabindex")) wm$("addStatus").focus();
 });
 
-wm$("addFilter").addEventListener("input", wmDrawAddList);
+wm$("addFilter").addEventListener("input", () => wmDrawAddList());
+wm$("addType").addEventListener("change", () => wmDrawAddList());
+wm$("addList").addEventListener("click", event => {
+  if (!event.target.closest("#addClear")) return;
+  wm$("addFilter").value = "";
+  wm$("addType").value = "";
+  wmDrawAddList();
+  wm$("addFilter").focus();
+});
 
 /*
   <b>Busy, not disabled.</b> Disabling the pressed button dropped the keyboard to `<body>` — a disabled
@@ -2643,7 +2645,9 @@ wm$("addList").addEventListener("click", async event => {
     wmSayIn("addStatus", e.tablesOnly ? e.message : `${name} could not be added: ${e.message}`, !e.tablesOnly);
   } finally {
     t.removeAttribute("aria-disabled");
-    wmDrawAddList();
+    // Not the count: it wrote over what the Add did, failures included, before anybody could read it (UX review
+    // 2026-11-03).
+    wmDrawAddList(false);
   }
 });
 

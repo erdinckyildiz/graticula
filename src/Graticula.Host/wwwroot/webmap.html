@@ -319,11 +319,16 @@
                 border-top: 1px solid var(--rule); }
   #addList li:first-child { border-top: 0; }
   #addList .svcrow { display: flex; gap: 8px; align-items: center; }
+  #addList .kinds button::before { content: "+ "; }
+  #addList .kinds button { min-height: 24px; }
   #addList .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  #addList .onmap { font-size: 12px; color: var(--accent-ink); white-space: nowrap; padding: 1px 4px; }
-  #addList details.kinds { margin: 2px 0 2px 12px; font-size: 12.5px; }
-  #addList details.kinds summary { color: var(--muted); cursor: pointer; }
-  #addList details.kinds .svcrow { padding: 2px 0; }
+  #addList .onmap { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted);
+                    white-space: nowrap; padding: 1px 4px; }
+  #addList .onmap svg.i { width: 14px; height: 14px; }
+  .addfind { display: flex; gap: 6px; }
+  .addfind input { flex: 1 1 auto; min-width: 0; width: auto; }
+  .addfind select { flex: 0 0 auto; width: auto; }
+  #addList .kinds { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
   #addList .type { font-size: 11px; color: var(--faint); white-space: nowrap; }
 
   #searchResults, #measureList { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -630,7 +635,17 @@
       <section class="tabpanel" id="pane-add" role="tabpanel" aria-labelledby="tab-add" hidden>
         <div id="addBox">
           <label class="field" for="addFilter" style="margin-top:0">Services you can read</label>
-          <input type="search" id="addFilter" placeholder="Filter by name&hellip;" autocomplete="off">
+          <div class="addfind">
+            <input type="search" id="addFilter" placeholder="Filter by name&hellip;" autocomplete="off">
+            <!-- What ArcGIS Map Viewer's Add filters by: the kind of layer (2026-11-03, the vector tiles were not found). -->
+            <select id="addType" aria-label="Kind of layer">
+              <option value="">All kinds</option>
+              <option value="FeatureServer">Features</option>
+              <option value="ImageServer">Imagery</option>
+              <option value="VectorTileServer">Vector tiles</option>
+              <option value="MapServer">Map image</option>
+            </select>
+          </div>
           <p class="said" id="addStatus" role="status" aria-live="polite"></p>
           <ul id="addList"></ul>
         </div>

@@ -100,6 +100,43 @@ public sealed class WebMapToolbarsTests : ConsoleTest
     }
 
     /// <summary>
+    /// A service's vector tiles are offered on its own row, in sight, and Add can be narrowed to vector tiles.
+    /// </summary>
+    /// <remarks>
+    /// 2026-11-03: the owner could not add the server's vector tile services — Add put them under a closed <i>Other ways
+    /// to draw it</i> on each service's row, while the portal lists them as items of their own.
+    /// </remarks>
+    [Fact]
+    public async Task Add_offers_a_services_vector_tiles_in_sight_and_filters_by_kind()
+    {
+        (string token, string cookie) = await SignInAsync();
+        await OpenAsync("/studio/webmap.html", token, cookie);
+        await WaitForAsync("!!wmState.doc", "The new map never started.");
+
+        await ClickAsync("#tab-add");
+        const string Tiles = "#addList button[data-type=VectorTileServer]";
+        await WaitForAsync($"[...document.querySelectorAll('{Tiles}')].some(b => b.getClientRects().length > 0)",
+            "Add offered no service's vector tiles where they can be seen.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const s = document.getElementById('addType'); s.value = 'VectorTileServer'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await WaitForAsync("document.querySelectorAll('#addList > li').length > 0"
+            + " && [...document.querySelectorAll('#addList [data-type]')].every(b => b.dataset.type === 'VectorTileServer')",
+            "Choosing Vector tiles did not narrow Add to vector tiles.");
+
+        await ClickAsync(Tiles);
+        await WaitForAsync("wmLayers().some(l => l.layerType === 'VectorTileLayer')",
+            "A service's vector tiles were not added to the map as a vector tile layer.");
+
+        // What the Add did stays said: the list's redraw after it wrote the service count over it, errors included
+        // (UX review 2026-11-03).
+        await WaitForAsync("!document.querySelector('#addList [aria-disabled=true]')", "The Add never finished.");
+        Assert.StartsWith("Added 1 layer", await Browser.EvaluateAsync<string>("document.getElementById('addStatus').textContent") ?? "");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// On a phone the right toolbar is a column at the map's edge and both toolbars open the same sheet, one at a time.
     /// </summary>
     [Fact]
