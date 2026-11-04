@@ -23310,7 +23310,10 @@ function askServerConfirm(asked) {
       if (back instanceof HTMLElement && back.isConnected) back.focus();
       resolve(yes);
     };
-    const onClose = () => end(false);
+    // `close` is dispatched after `dialog.close()` returns, as a task of its own. A question asked again at once — Cancel,
+    // then the same Delete — used to catch the first one's late `close` and shut itself before it was seen. A `close`
+    // that finds the dialog open again belongs to the question before, and is not this one's answer.
+    const onClose = () => { if (!dialog.open) end(false); };
 
     go.onclick = () => end(true);
     $("serverConfirmCancel").onclick = () => end(false);

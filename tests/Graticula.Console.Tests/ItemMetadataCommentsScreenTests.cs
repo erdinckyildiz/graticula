@@ -130,8 +130,17 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
             await WaitForAsync($"document.activeElement?.matches('#docImc [data-imc-delete=\"{comment}\"]') === true",
                 "Cancel did not give the cursor back to Delete.");
 
-            await ClickAsync($"#docImc [data-imc-delete=\"{comment}\"]");
+            // Pressed again where the cursor now is, as a keyboard reader does: the Delete Cancel gave the cursor back to.
+            Assert.True(await Browser.EvaluateAsync<bool>("(document.activeElement.click(), true)"));
             await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask a second time.");
+
+            // Cancel and the same Delete at once: the first question's `close` arrives after the second has opened, and
+            // used to shut it before anybody saw it.
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                $"(document.getElementById('serverConfirmCancel').click(), document.querySelector('#docImc [data-imc-delete=\"{comment}\"]').click(), true)"));
+            await Task.Delay(500);
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('serverConfirm').open"),
+                "A question asked again at once was shut by the one before's close.");
             await ClickAsync("#serverConfirmGo");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/comments/{comment}/delete'))",
                 "Delete did not delete the comment.");
