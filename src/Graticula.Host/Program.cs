@@ -840,7 +840,25 @@ public static class Program
             new PostgresWebhookStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton<WebhookSignal>();
         builder.Services.AddSingleton<WebhookRaiser>();
-        builder.Services.AddHostedService<WebhookDeliverer>();
+        // <b>The sender is a poller, so it claims on a pool of its own</b> — D-110's rule, which PollerPoolTests holds: a
+        // claim on the shared pool touches its connections round-robin and the request pool never shrinks to zero. Two
+        // connections: the claim, and the record of what a send did.
+        builder.Services.AddKeyedSingleton(
+            WebhookPool,
+            (_, _) => new NpgsqlDataSourceBuilder(
+                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                {
+                    MaxPoolSize = 2,
+                    ApplicationName = PoolNames.Of(PoolNames.Webhooks),
+                }.ConnectionString).Build());
+        builder.Services.AddHostedService(services => new WebhookDeliverer(
+            new PostgresWebhookStore(services.GetRequiredKeyedService<NpgsqlDataSource>(WebhookPool)),
+            services.GetRequiredService<WebhookSignal>(),
+            services.GetRequiredService<SecretProtector>(),
+            services.GetRequiredService<IRoleGrants>(),
+            services.GetRequiredService<HostSettings>(),
+            services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<ILogger<WebhookDeliverer>>()));
 
         builder.Services.AddSingleton<IAuditLog>(services => new WebhookAuditLog(
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()),
@@ -6457,6 +6475,7 @@ public static class Program
     /// construction rather than by luck*. This is the key that separates them.
     /// </remarks>
     private const string JobPool = "jobs";
+    private const string WebhookPool = "webhooks";
 
     /// <summary>
     /// The datastore connection, derived from the platform store's.

@@ -224,7 +224,9 @@ that was raised while it was off.
 
 - **State.** Two tables in the platform store (migration 130): `webhook` and `webhook_delivery`, both floored per
   organisation; the outbox is bounded per webhook (1,000 waiting) and pruned (seven days, 200 finished per webhook).
-  At runtime: one sender per node, holding an `HttpClient` and a semaphore; no cache.
+  At runtime: one sender per node, holding an `HttpClient`, a semaphore and a pool of two connections of its own,
+  `graticula-jobs-webhooks` — a poller claims on its own pool, not the request pool (D-110, `PollerPoolTests`, which
+  the first CI run of this branch failed on); no cache.
 - This server now makes outbound HTTP requests when, and only when, an administrator has made a webhook and an event it
   listens for happens. An air-gapped deployment that makes none sends nothing; `tools/registers-check.py` names the two
   files that may.
