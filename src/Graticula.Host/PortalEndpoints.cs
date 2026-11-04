@@ -831,6 +831,10 @@ internal static partial class PortalEndpoints
 
         helpers["analysis"] = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" };
 
+        // ADR-265: the print service, which Map Viewer, Experience Builder's Print widget, the Maps SDK and the ArcGIS API
+        // for Python find here.
+        helpers["printTask"] = new { url = PrintEndpoints.TaskUrl(Origin(context)) };
+
         if (Geocoding.GeocodeServerEndpoints.PortalLocator(
                 context.RequestServices.GetService<Geocoding.GeocoderSettings>(), current, Origin(context)) is { } locator)
         {

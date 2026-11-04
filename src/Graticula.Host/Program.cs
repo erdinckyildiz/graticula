@@ -3004,6 +3004,9 @@ public static class Program
         AnalysisEndpoints.Map(app);
         ToolboxEndpoints.Map(app);
 
+        // ADR-265: the print service, where a portal's helperServices.printTask says it is.
+        PrintEndpoints.Map(app);
+
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
         // with a different discovery document, and a client pastes one address for
@@ -3326,6 +3329,9 @@ public static class Program
             Add(Graticula.Host.Geocoding.GeocoderSettings.Folder, Graticula.Host.Geocoding.GeocoderSettings.Name);
         }
 
+        // ADR-265: the print service, which every caller may use and which draws only what each may read.
+        Add("Utilities", "Utilities/PrintingTools");
+
         foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
         {
             if ((seesStopped || coverage.Status == ServiceStatus.Started)
@@ -3497,6 +3503,12 @@ public static class Program
                 context.RequestServices.GetService<Graticula.Host.Geocoding.GeocoderSettings>(), folder, current))
         {
             systemServices.Add(($"{folder}/{Graticula.Host.Geocoding.GeocoderSettings.Name}", "GeocodeServer"));
+        }
+
+        // <b>The print service, ADR-265</b> — always there and open to every caller, so listed while blind too.
+        if (string.Equals(folder, "Utilities", StringComparison.OrdinalIgnoreCase))
+        {
+            systemServices.Add(("Utilities/PrintingTools", "GPServer"));
         }
 
         // <b>Which services have tile services is `ServiceFaces.Tileable`, below</b> —
