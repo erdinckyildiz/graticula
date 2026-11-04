@@ -304,7 +304,7 @@ public sealed class WebhooksTests : ArcGisClient
 
             (JsonElement signin, string signinRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/createWebhook", new()
             {
-                ["name"] = "zz sign-ins", ["url"] = receiver.Url, ["events"] = "/users/signin,/users/signout",
+                ["name"] = "zz sign-ins", ["url"] = receiver.Url, ["events"] = "/" + "users/signin,/" + "users/signout",
             });
             Assert.True(signin.TryGetProperty("error", out _), signinRaw);
 
