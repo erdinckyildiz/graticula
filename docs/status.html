@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>6d1879ba</code> · 2026-11-04 19:21</p>
+<p class="stamp">Generated from commit <code>1b710de4</code> · 2026-11-05 01:50</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">266</div><div class="kpi-l">ADRs</div><div class="kpi-n">91 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">650/685</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">25 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">651/685</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">24 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">234 answered</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open debts</div><div class="kpi-n">328 repaid · 22 waiting on a trigger</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">6020</div><div class="kpi-l">tests</div><div class="kpi-n">662 source files, 293,519 lines</div></div>
+<div class="kpi good"><div class="kpi-v">6026</div><div class="kpi-l">tests</div><div class="kpi-n">662 source files, 293,519 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">29 items</span></div><p><b>25 ADR conditions</b> outstanding across 21 decisions — the largest commitment on this page.</p><p><b>0 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">28 items</span></div><p><b>24 ADR conditions</b> outstanding across 20 decisions — the largest commitment on this page.</p><p><b>0 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -151,7 +151,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-268 · A PDF&#x27;s first page is its picture,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -435,7 +434,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">265</td><td>The server prints a web map, as ArcGIS&#x27;s print service does</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are the public reference&#x27;s and were driven by the ArcGIS API for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">266</td><td>A webhook tells another system what changed</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the two surfaces follow ArcGIS&#x27;s public REST documentation, and the delivery…</td><td class="num">5/5</td></tr>
 <tr><td class="id">267</td><td>An item carries metadata and comments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are Esri&#x27;s public REST reference and the ArcGIS API for Python,…</td><td class="num">3/3</td></tr>
-<tr><td class="id">268</td><td>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the payload and the isolation, measured, and for the width, which the owner…</td><td class="num">1/2</td></tr>
+<tr><td class="id">268</td><td>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the payload and the isolation, measured, and for the width, which the owner…</td><td class="num">2/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -571,7 +570,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.1%"></div></div><div class="bar-n">962</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">960</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.1%"></div></div><div class="bar-n">578</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">451</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">457</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.9%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.5%"></div></div><div class="bar-n">131</div></div>
@@ -629,20 +628,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>6d1879ba</code><time>2026-11-04</time><span>Merge branch &#x27;ui-webhooks&#x27; into day-1104</span></li>
-<li><code>61297aad</code><time>2026-11-04</time><span>Merge branch &#x27;ui-service-meta&#x27; into day-1104</span></li>
-<li><code>a53d203f</code><time>2026-11-04</time><span>The sign-in webhook test builds its event names, which the register check read as a machine&#x27;s home folder</span></li>
-<li><code>f8345416</code><time>2026-11-04</time><span>Attachments, a layer&#x27;s fields, a service&#x27;s definition and comments are raised; a webhook that could never fire is refused; the Maps SDK prints (ADR-266 condition 1, ADR-265 condition 1)</span></li>
-<li><code>7483475d</code><time>2026-11-04</time><span>Studio lists webhooks: Organization › Settings › Webhooks and a feature service&#x27;s Settings › Webhooks (ADR-266 condition 2)</span></li>
-<li><code>30777de8</code><time>2026-11-04</time><span>A service&#x27;s item page has the metadata and comments panel a document&#x27;s has (ADR-267 condition 1 partly)</span></li>
-<li><code>c1d36f0a</code><time>2026-11-04</time><span>The ArcGIS API for Python manages this server&#x27;s webhooks end to end (ADR-266 condition 4)</span></li>
-<li><code>b901d03a</code><time>2026-11-04</time><span>An edit asks once per service whether it has a webhook, not once per edit (ADR-266 condition 5)</span></li>
-<li><code>80d5c4a1</code><time>2026-11-04</time><span>An edit pays about 3 ms for the webhook hook on a server without webhooks, over the tenth ADR-266 allowed (condition 5 partly)</span></li>
-<li><code>654a905d</code><time>2026-11-04</time><span>The large-layer viewer test compares envelopes, read with the pan in one evaluation</span></li>
-<li><code>ae809ccd</code><time>2026-11-04</time><span>Add browses layer items with one Add each, as Map Viewer&#x27;s Browse layers does (ADR-259 amended, UX review 2026-11-04)</span></li>
-<li><code>b1bb95a4</code><time>2026-11-04</time><span>An A3 page at 300 dpi over 1.27 million buildings costs 6.7 s and 162 MiB, so the print deadline and bound stand (ADR-265 condition 2)</span></li>
-<li><code>3b5982f6</code><time>2026-11-04</time><span>Listings say numComments and Metadata before they filter and sort, addItem takes metadata, and the arm64 image draws a PDF (ADR-267 conditions 2 and 3, ADR-268 condition 2, condition 1 partly)</span></li>
+<li><code>1b710de4</code><time>2026-11-05</time><span>The shared confirmation is not shut by the question before it</span></li>
+<li><code>84b29274</code><time>2026-11-05</time><span>The comment test waits for Add to end before it deletes</span></li>
+<li><code>55e0c684</code><time>2026-11-05</time><span>A webhook&#x27;s row says its last delivery failed, every comment Delete asks first, and a phone&#x27;s Organization menus come before the page&#x27;s action</span></li>
+<li><code>44e270fa</code><time>2026-11-04</time><span>The day of 2026-11-04: Add browses layer items, webhooks get a Studio screen and every event, items take comments everywhere, and the Map Viewer keeps what it drew (ADR-259, 265, 266, 267, 268)</span></li>
 <li><code>9fe1611f</code><time>2026-11-04</time><span>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader (ADR-268, D-321 closed, migration 132)</span></li>
+<li><code>c7f88c05</code><time>2026-11-04</time><span>The night of 2026-11-04: the server prints a web map, webhooks tell other systems what changed, items carry metadata and comments, and the Map Viewer passes its review (ADR-265, 266, 267, ADR-259 condition 2, D-384, D-339)</span></li>
+<li><code>218d1d76</code><time>2026-11-04</time><span>The ArcGIS veteran&#x27;s four open items: a service item&#x27;s own title, the Administrator API&#x27;s start, stop and logs, the portal&#x27;s users, item.export, and apps, links and item resources (ADR-260 to ADR-264)</span></li>
+<li><code>4ed23495</code><time>2026-11-03</time><span>The Map Viewer takes ArcGIS Map Viewer&#x27;s shape, offers vector tiles in sight, and stops blinking on pan</span></li>
+<li><code>a088b1e8</code><time>2026-11-03</time><span>What an ArcGIS veteran&#x27;s review of v1.0.499 found, fixed; the portal names its geocoder; Studio offers Join group</span></li>
+<li><code>da0c1356</code><time>2026-11-02</time><span>An empty hosted service and a service&#x27;s addToDefinition, so the Python API&#x27;s create_service and create_view work; owner decisions of 2026-11-02 evening; CI in four parallel parts</span></li>
+<li><code>7960b2f7</code><time>2026-11-02</time><span>Portal group writes, portal content adds and an optional Photon geocoder (ADR-256, ADR-257, ADR-258)</span></li>
+<li><code>211b788f</code><time>2026-11-02</time><span>The interface follows ArcGIS Enterprise&#x27;s structure, on a phone and on a desk (ADR-255)</span></li>
+<li><code>ab1afe50</code><time>2026-11-02</time><span>Four more portal doors onto what Studio already does, and a migration plan that outlives one unreadable layer (ADR-214 §5a)</span></li>
+<li><code>de72e3b4</code><time>2026-11-02</time><span>The portal answers an ArcGIS client as ArcGIS does, a KML reads in Google Earth as written, and Pro is followed at a second organisation (ADR-079, 106, 164, 191, 204, 214)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

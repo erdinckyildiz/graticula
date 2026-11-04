@@ -122,12 +122,15 @@ PNG bytes, and no PDFium type crosses it.
 ## 10. Conditions
 
 1. **The images draw a page.** A release's linux-arm64 image draws page 1 of a PDF uploaded to the showcase, and its
-   size is recorded beside 1.0.503's. **PARTLY DISCHARGED 2026-11-04.** *Size:* the linux-arm64 server image is
+   size is recorded beside 1.0.503's. **DISCHARGED 2026-11-05**, partly on 2026-11-04. *Size:* the linux-arm64 server image is
    752,177,959 bytes compressed at 1.0.504 against 748,418,658 at 1.0.503, 3.76 MB more; `libpdfium.so` is 8,127,624
    bytes in `/app/importer/pdfium/linux-arm64/`. *Drawing:* the showcase's own 1.0.504 container, asked `pdfpage` of a
    one-page A4 PDF through its import reader, answered a 600 × 849 PNG of 15,499 bytes showing the page, in 545 ms with
-   the reader's start. *Not yet:* the upload itself on the showcase. Its administrator account now asks for a second
-   factor, which this session does not hold, so a PDF filed in Studio on demo.graticula.com is the owner's check.
+   the reader's start. *The upload, 2026-11-05, on dev.graticula.com rather than the showcase, by owner decision:*
+   the showcase's administrator now asks for a second factor, and the owner allowed the check on dev, which runs the
+   same linux-arm64 image on the same VPS. A one-page A4 PDF filed through `POST /content/documents`, the request
+   Studio's Add sends, answered 201 in 1.53 s. The item carried its thumbnail 0.4 s later: a 600 × 849 PNG of 14,632
+   bytes showing the page's text and its filled rectangle. The probe item was deleted afterwards.
 2. **The width is confirmed by the owner, or changed** (§5.3, `INFERRED`). **DISCHARGED 2026-11-04:** asked whether
    page 1 should stay 600 px wide, the owner answered *"600 px kalsın"*.
 
