@@ -507,6 +507,10 @@ public sealed class BrowsingConformanceTests : ArcGisClient
 
         Assert.DoesNotContain("GeometryServer", html, StringComparison.Ordinal);
 
+        // ADR-265: the print service is open to everyone and listed here, so this folder is never empty to a stranger;
+        // the sign-in hint is still said in it, under the list.
+        Assert.Contains("PrintingTools", html, StringComparison.Ordinal);
+
         // A geocoder an operator shared with everyone (ADR-258, Graticula:Geocoding:Sharing=public) is in this folder,
         // and then the folder is not empty to anybody — which is what this test is not about.
         if (html.Contains("GeocodeServer", StringComparison.Ordinal))

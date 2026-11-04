@@ -486,6 +486,20 @@ internal static class RestDirectory
             }
 
             body.Append(Html.Markup("</ul>"));
+
+            // <b>Utilities says it to a stranger even when it lists something — ADR-265.</b> The print service is open to
+            // everyone, so this folder is never empty to anybody now, and the sentence the owner needed when the geometry
+            // service seemed missing would never be shown. It is the folder whose services are shared with the
+            // organisation by default, and the hint still depends only on the caller being anonymous, not on anything
+            // being hidden.
+            if (Current.Value is not { Length: > 0 }
+                && string.Equals(folder, "Utilities", StringComparison.OrdinalIgnoreCase))
+            {
+                body.Append(
+                    $"<p class=\"hint\">You are not signed in. Services shared with the "
+                    + $"organization are not listed to a stranger — "
+                    + $"<a href=\"/rest/login?return={U(path)}\">sign in</a> and look again.</p>");
+            }
         }
 
         return Page(path, body.ToHtml(), close: true, formats);

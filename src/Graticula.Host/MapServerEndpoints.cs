@@ -368,7 +368,7 @@ internal static class MapServerEndpoints
     }
 
     /// <summary>The layers beneath a group, at any depth, or none when the id is not a group's — D-296.</summary>
-    private static List<int> LayersBeneath(PublishedService service, int id)
+    internal static List<int> LayersBeneath(PublishedService service, int id)
     {
         if (service.Group(id) is null)
         {
