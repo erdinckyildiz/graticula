@@ -77,11 +77,13 @@ public sealed class ViewerReadsALargeLayerForTheViewTests : ConsoleTest
             "A query for a layer over the ceiling went out without the view's envelope — that is the "
             + "read of the first 50,000 rows that drew the same blocks wherever the map was.");
 
-        int before = await Browser.EvaluateAsync<int>("window.__queries.length");
-        string first = await Browser.EvaluateAsync<string>("window.__queries[window.__queries.length - 1]") ?? "";
-
+        // <b>The envelopes asked for so far, and the pan, in one evaluation</b>: read apart, a query landing between them
+        // made the "first" one a query of the pan's own, and comparing whole query strings counted a first view's second
+        // page as a new envelope. Both failed this test with nothing wrong (2026-11-03, 04 and 04 again in CI).
         await Browser.EvaluateAsync<string>("""
             (() => {
+              window.__envelope = q => new URLSearchParams(q).get('geometry');
+              window.__seen = new Set(window.__queries.map(window.__envelope));
               const view = map.getView();
               const [x, y] = view.getCenter();
               view.setCenter([x + view.getResolution() * 400, y]);
@@ -89,17 +91,14 @@ public sealed class ViewerReadsALargeLayerForTheViewTests : ConsoleTest
             })()
             """);
 
-        // Any query after the pan that asks for another envelope: the last one alone can be a late answer to the first
-        // view still on the wire, which failed this test three times on 2026-11-03 and 04 with nothing wrong.
         await WaitForAsync(
-            $"window.__queries.slice({before}).some(q => q !== window.__queries[{before} - 1])",
-            "Panning asked for nothing new. The picture stays what the first view read, which is the "
-            + "defect this test exists for.");
+            "window.__queries.some(q => !window.__seen.has(window.__envelope(q)))",
+            "Panning asked for no envelope the first view had not. The picture stays what the first view read, which is "
+            + "the defect this test exists for.");
 
-        string after = await Browser.EvaluateAsync<string>(
-            $"window.__queries.slice({before}).find(q => q !== window.__queries[{before} - 1])") ?? "";
-
-        Assert.NotEqual(first, after);
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "window.__queries.filter(q => !window.__seen.has(window.__envelope(q))).every(q => !!window.__envelope(q))"),
+            "A query after the pan went out without the view's envelope.");
     }
 
     [Fact]
