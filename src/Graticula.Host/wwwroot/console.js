@@ -41053,7 +41053,7 @@ function imcDraw() {
         <div class="imcwho"><b>${h(c.owner || "—")}</b> <time class="hint" datetime="${h(imcIso(c.created))}">${
           h(imcWhen(c.created))}</time>
           ${canDelete(c) ? `<button type="button" class="tiny danger" data-imc-delete="${h(c.id)}"
-            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${h(c.owner || "")}'s comment of ${h(imcWhen(c.created))}"
+            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${h(c.owner || "")}'s comment ${h(imcOpening(c.comment))}, ${h(imcWhen(c.created))}"
             >Delete</button>` : ""}</div>
         <p class="imctext" id="imcText-${h(c.id)}">${h(c.comment)}</p>
         <button type="button" class="tiny ghost imcmore" data-imc-more="${h(c.id)}" data-imc-focus="more-${h(c.id)}"
@@ -41087,6 +41087,12 @@ function imcDraw() {
 function imcWhen(value) {
   const at = new Date(value);
   return Number.isNaN(at.getTime()) ? "" : at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** A comment's first words, quoted, so two left in one minute are told apart by their Delete and its question. */
+function imcOpening(text) {
+  const words = String(text || "").replace(/\s+/g, " ").trim();
+  return `“${words.length > 40 ? `${words.slice(0, 40)}…` : words}”`;
 }
 
 /** A comment's time as `<time datetime>` wants it. */
@@ -41165,6 +41171,9 @@ async function imcAdd() {
     await imcLoad(open.item, open.box);
     imcSay("talk", "Your comment is added.");
     imcOpen?.box.querySelector("[data-imc-text]")?.focus();
+    // The line that says so sits under the heading, above the view by now: the new comment is brought into it, and the
+    // field stays where it is (ADR-267's re-check, 2026-11-04).
+    imcOpen?.box.querySelector(".imclist li:last-child")?.scrollIntoView({ block: "nearest" });
   } catch (e) {
     imcSay("talk", `Not added: ${imcReason(e)}`, true);
     if (button) button.disabled = false;
@@ -41176,7 +41185,7 @@ async function imcDelete(commentId) {
   if (!open) return;
   const comment = open.comments.find(c => c.id === commentId);
   if (comment && comment.owner !== signedInAs
-    && !confirm(`Delete ${comment.owner}'s comment of ${imcWhen(comment.created)}? It cannot be restored.`)) return;
+    && !confirm(`Delete ${comment.owner}'s comment ${imcOpening(comment.comment)} of ${imcWhen(comment.created)}? It cannot be restored.`)) return;
   try {
     const answer = await api(`/sharing/rest/content/items/${encodeURIComponent(open.id)}/comments/${
       encodeURIComponent(commentId)}/delete`, {
