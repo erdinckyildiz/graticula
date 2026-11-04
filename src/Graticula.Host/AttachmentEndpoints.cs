@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Net.Http.Headers;
 
 namespace Graticula.Host;
@@ -466,6 +467,7 @@ internal static class AttachmentEndpoints
                 await AuditAsync(
                     context, audit, $"{serviceName}/{layerId}", objectId, name, sniffed, cancellation)
                     .ConfigureAwait(false);
+                await RaiseAsync(context, "AttachmentsUpdated", objectId, [id], cancellation).ConfigureAwait(false);
 
                 await Results.Json(new
                 {
@@ -709,6 +711,7 @@ internal static class AttachmentEndpoints
                     context, audit, $"{serviceName}/{layerId}", objectId, name, sniffed,
                     cancellation)
                     .ConfigureAwait(false);
+                await RaiseAsync(context, "AttachmentsCreated", objectId, [id], cancellation).ConfigureAwait(false);
 
                 await Results.Json(new
                 {
@@ -804,6 +807,11 @@ internal static class AttachmentEndpoints
             context, audit, $"{serviceName}/{layerId}", objectId,
             string.Join(",", removed), "delete", cancellation).ConfigureAwait(false);
 
+        if (removed.Count > 0)
+        {
+            await RaiseAsync(context, "AttachmentsDeleted", objectId, removed, cancellation).ConfigureAwait(false);
+        }
+
         await Results.Json(new
         {
             // <b>A failure says why — 2026-09-15.</b> It said `success: false` and nothing else, so a
@@ -831,6 +839,28 @@ internal static class AttachmentEndpoints
     /// anybody who may read the feature may read what is attached to it — and
     /// adding one is an edit, because it changes what the layer holds.
     /// </remarks>
+    /// <summary>Where <see cref="ResolveAsync"/> leaves the layer it resolved, for <see cref="RaiseAsync"/>.</summary>
+    private static readonly object ResolvedLayer = new();
+
+    /// <summary>
+    /// Raises the attachment event a write was (ADR-266 condition 1): <c>AttachmentsCreated</c>, <c>AttachmentsUpdated</c>
+    /// or <c>AttachmentsDeleted</c>, with the feature and the attachments it touched.
+    /// </summary>
+    private static Task RaiseAsync(HttpContext context, string changeType, long objectId, IEnumerable<int> attachmentIds, CancellationToken cancellation) =>
+        context.Items[ResolvedLayer] is PublishedLayer layer && context.RequestServices.GetService<WebhookRaiser>() is { } raiser
+            ? raiser.RaiseChangeAsync(
+                layer.ServiceId, layer.ServiceName, layer.Folder, layer.LayerIndex, changeType,
+                new System.Text.Json.Nodes.JsonObject
+                {
+                    ["attachments"] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["parentObjectId"] = objectId,
+                        ["attachmentIds"] = new System.Text.Json.Nodes.JsonArray([.. attachmentIds.Select(id => (System.Text.Json.Nodes.JsonNode?)id)]),
+                    },
+                },
+                cancellation)
+            : Task.CompletedTask;
+
     private static async Task<IAttachmentStore?> ResolveAsync(
         HttpContext context,
         string serviceName,
@@ -858,6 +888,9 @@ internal static class AttachmentEndpoints
         {
             return null;
         }
+
+        // Kept for the write's webhook event (ADR-266 condition 1), which needs the layer's service and index.
+        context.Items[ResolvedLayer] = layer;
 
         // <b>Both halves of the question, because this endpoint runs DDL.</b>
         // `PostGisAttachmentStore.EnsureTableAsync` issues `create table if not

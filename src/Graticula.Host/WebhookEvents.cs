@@ -58,6 +58,11 @@ internal static class WebhookEvents
             ["service.protection"] = ("item", "protect"),
             ["webmap.protection"] = ("item", "protect"),
 
+            // Comments, since ADR-267 gave items them (ADR-266 condition 1).
+            ["item.comment.add"] = ("item", "addComment"),
+            ["item.comment.update"] = ("item", "updateComment"),
+            ["item.comment.delete"] = ("item", "deleteComment"),
+
             // Groups.
             ["group.create"] = ("group", "add"),
             ["group.settings"] = ("group", "update"),
@@ -109,8 +114,15 @@ internal static class WebhookEvents
         "FeatureServiceDefinitionChanged",
     ];
 
-    /// <summary>The change types this server raises today; the rest are accepted and never fire (ADR-266 §2).</summary>
-    internal static readonly string[] ChangeTypesRaised = ["FeaturesCreated", "FeaturesUpdated", "FeaturesDeleted", "FeaturesEdited"];
+    /// <summary>
+    /// The change types this server raises — every one ArcGIS lists but <c>LayerDefinitionChanged</c>, since ADR-266
+    /// condition 1: there is no layer-level <c>updateDefinition</c> here to change one.
+    /// </summary>
+    internal static readonly string[] ChangeTypesRaised =
+    [
+        "FeaturesCreated", "FeaturesUpdated", "FeaturesDeleted", "FeaturesEdited", "AttachmentsCreated", "AttachmentsUpdated",
+        "AttachmentsDeleted", "LayerSchemaChanged", "FeatureServiceDefinitionChanged",
+    ];
 
     /// <summary>The most object ids of each kind one feature-service event carries.</summary>
     internal const int ObjectIdLimit = 1000;
@@ -308,6 +320,37 @@ internal static class WebhookEvents
         };
 
         return new ServiceEvent(string.Join(",", events), ["*", "FeaturesEdited", .. events], body);
+    }
+
+    /// <summary>
+    /// A feature-service change that is not an edit of rows (ADR-266 condition 1): its one change type, the layer when it
+    /// has one, and what it touched under <paramref name="detail"/>'s keys — the attachment's parent and id, the fields.
+    /// </summary>
+    /// <param name="serviceName">The service's name.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <param name="layerId">The layer's index, or null for the service.</param>
+    /// <param name="changeType">The change type.</param>
+    /// <param name="detail">What it touched, or null.</param>
+    /// <param name="when">When.</param>
+    /// <returns>The event.</returns>
+    internal static ServiceEvent FromChange(
+        string serviceName, string? folder, int? layerId, string changeType, JsonObject? detail, DateTimeOffset when)
+    {
+        JsonObject body = new()
+        {
+            ["layerId"] = layerId,
+            ["serviceName"] = serviceName,
+            ["folder"] = folder,
+            ["lastUpdatedTime"] = when.ToUnixTimeMilliseconds(),
+            ["events"] = new JsonArray(JsonValue.Create(changeType)),
+        };
+
+        foreach ((string key, JsonNode? value) in detail ?? [])
+        {
+            body[key] = value?.DeepClone();
+        }
+
+        return new ServiceEvent(changeType, ["*", changeType], body);
     }
 
     private static long[] Kept(IReadOnlyList<EditResult> results) =>

@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>print probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body,#v{margin:0;height:100%;width:100%}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div>
+<script>
+// ADR-265 condition 1: the Maps SDK's own print — esri/rest/print with a PrintTemplate, the call its Print widget makes —
+// sends this server's Export Web Map Task the view, and the file that comes back is opened and checked to be a PDF.
+// ?portal=<server root>&layer=<…/FeatureServer/0>&layout=<A4 Landscape|MAP_ONLY>&format=<PDF|PNG32>.
+var q = new URLSearchParams(location.search);
+var portal = q.get("portal");
+var task = portal + "/rest/services/Utilities/PrintingTools/GPServer/Export%20Web%20Map%20Task";
+require(["esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer", "esri/rest/print", "esri/rest/support/PrintTemplate",
+         "esri/rest/support/PrintParameters"], function (Map, MapView, FeatureLayer, print, PrintTemplate, PrintParameters) {
+  var layer = new FeatureLayer({ url: q.get("layer") });
+  var view = new MapView({ container: "v", map: new Map({ layers: [layer] }) });
+  var out = { task: task };
+  layer.load().then(function () {
+    return view.when();
+  }).then(function () {
+    return view.goTo(layer.fullExtent, { animate: false });
+  }).then(function () {
+    return view.whenLayerView(layer);
+  }).then(function () {
+    var template = new PrintTemplate({
+      format: q.get("format") || "PDF",
+      layout: q.get("layout") || "A4 Landscape",
+      layoutOptions: { titleText: "Graticula print probe" },
+    });
+    var started = Date.now();
+    return print.execute(task, new PrintParameters({ view: view, template: template })).then(function (answer) {
+      out.ms = Date.now() - started;
+      out.url = answer.url;
+      return fetch(answer.url);
+    });
+  }).then(function (response) {
+    out.status = response.status;
+    out.contentType = response.headers.get("Content-Type");
+    return response.arrayBuffer();
+  }).then(function (bytes) {
+    var head = new Uint8Array(bytes.slice(0, 8));
+    out.bytes = bytes.byteLength;
+    out.magic = String.fromCharCode.apply(null, head.slice(0, 4));
+    window.__result = JSON.stringify(out);
+  }).catch(function (e) {
+    out.error = String(e && (e.details && JSON.stringify(e.details)) || e && e.message || e);
+    window.__result = JSON.stringify(out);
+  });
+});
+</script></body></html>

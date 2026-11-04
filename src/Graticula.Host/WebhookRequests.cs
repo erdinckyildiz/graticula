@@ -82,9 +82,42 @@ internal static partial class WebhookRequests
             return false;
         }
 
+        // ADR-266 condition 1: a webhook that could never fire is refused at its creation, with the reason, rather than
+        // accepted and left silent — sign-in and sign-out, an invitation, a join request, a move.
+        if (read.All(NeverRaised))
+        {
+            error = $"This server never raises {string.Join(", ", read)}, so a webhook on only "
+                + (read.Count == 1 ? "that event" : "those events")
+                + " would never be called. Sign-in and sign-out are not raised: they are an authentication log, not an act "
+                + "on content (ADR-266 §5.2).";
+            return false;
+        }
+
         events = [.. read];
         error = null;
         return true;
+    }
+
+    /// <summary>Whether a normalised event names only an operation no audited act raises.</summary>
+    private static bool NeverRaised(string uri)
+    {
+        string[] parts = uri.Split('/');
+
+        // "/", "/items" and "/items/<id>" are raised by every operation under them.
+        string? operation = parts.Length switch
+        {
+            3 when WebhookEvents.PortalOperations.TryGetValue(parts[1], out string[]? ops) && ops.Contains(parts[2], StringComparer.Ordinal) => parts[2],
+            4 => parts[3],
+            _ => null,
+        };
+
+        if (operation is null)
+        {
+            return false;
+        }
+
+        string source = parts[1].TrimEnd('s');
+        return !WebhookEvents.PortalActs.Values.Any(act => act.Source == source && act.Operation == operation);
     }
 
     private static string? Normalised(string uri)
@@ -171,6 +204,15 @@ internal static partial class WebhookRequests
             {
                 read.Add(known);
             }
+        }
+
+        // ADR-266 condition 1: only change types this server never raises would make a webhook that is never called.
+        if (read.Count > 0 && read.All(type => type != "*" && !WebhookEvents.ChangeTypesRaised.Contains(type, StringComparer.Ordinal)))
+        {
+            error = $"This server never raises {string.Join(", ", read)}: a layer's definition is changed here only through "
+                + "its fields (LayerSchemaChanged) or the service's (FeatureServiceDefinitionChanged), so a webhook on only "
+                + "that would never be called (ADR-266).";
+            return false;
         }
 
         types = read.Count == 0 ? ["*"] : [.. read];

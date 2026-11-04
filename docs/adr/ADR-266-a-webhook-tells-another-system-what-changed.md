@@ -120,9 +120,11 @@ owner (`on delete cascade`) and with the service.
   `webmap.create`), publish (`toolbox.publish`), update, delete, share, reassign, protect/unprotect. Groups: add, update,
   delete, addUsers (`group.member`, `group.join`), removeUsers (`group.member.remove`, `group.leave`), itemShare,
   itemUnshare. Users: add, delete, disable, enable, update, updateUserRole, updateUserLicenseType. Roles: add, update,
-  delete. **Not raised:** sign-in and sign-out (not audited as acts; a webhook on every sign-in is a second
-  authentication log), comments (this server has none), `requestJoin`, `invite`, `updateUsers`, `move`, `bulkEnable`,
-  `bulkDisable`. Each is accepted in `events`, and never fires.
+  delete. Comments, since condition 1: `addComment`, `updateComment`, `deleteComment` (ADR-267's comments, audited).
+  **Not raised:** sign-in and sign-out (not audited as acts; a webhook on every sign-in is a second authentication log),
+  `requestJoin`, `invite`, `updateUsers`, `move`, `bulkEnable`, `bulkDisable`. ~~Each is accepted in `events`, and never
+  fires.~~ Since condition 1, a webhook naming only these is refused at its creation with the reason; one naming any
+  raised event as well is kept, and these in it never fire.
 - **An event's id** is ArcGIS's: an item's id (a service's own id, a document's, a web map's) and a group's id in 32
   hexadecimal digits, a user's username, a role's name. A service and a group are named by name in their audit rows and
   are looked up in the act's organisation; a deleted one has no id left, and its event fires under `/items/delete` but
@@ -130,8 +132,13 @@ owner (`on delete cascade`) and with the service.
 - **Feature-service events are edits that kept something**, told by every writer `LayerConnections.WriterFor` hands out
   (`EditTellingWriter`) and by the multi-layer transaction (`ApplyTogetherAsync`), after commit — so applyEdits,
   addFeatures, updateFeatures, deleteFeatures, OGC API Features writes and WFS-T all raise them, on hosted and
-  registered layers alike. **Raised:** FeaturesCreated, FeaturesUpdated, FeaturesDeleted, FeaturesEdited. **Accepted
-  and not raised:** the attachment, schema and definition types; a webhook's document lists `changeTypesRaised`.
+  registered layers alike. **Raised:** FeaturesCreated, FeaturesUpdated, FeaturesDeleted, FeaturesEdited; and, since
+  condition 1, AttachmentsCreated, AttachmentsUpdated, AttachmentsDeleted (the attachment endpoints, with
+  `attachments: {parentObjectId, attachmentIds}`), LayerSchemaChanged (wherever a layer's fields change — the admin API,
+  Studio, an overwrite, editor tracking — from the one place every such change passes) and
+  FeatureServiceDefinitionChanged (the service's `updateDefinition` and `addToDefinition`, with `layerId` null and the
+  service's address). **Not raised:** LayerDefinitionChanged — this server has no layer-level `updateDefinition` — and a
+  webhook naming only it is refused at creation; a webhook's document lists `changeTypesRaised`.
 
 ### 5.3 What a feature-service payload carries instead of `changesUrl`
 
@@ -245,7 +252,12 @@ that was raised while it was off.
 
 1. **The events §5.2 accepts and does not raise** — attachments, layer schema and definition, sign-in, comments — are
    raised, or a webhook naming only those is refused at creation with the reason. Until then the document's
-   `changeTypesRaised` is the only place a caller learns it.
+   `changeTypesRaised` is the only place a caller learns it. **DISCHARGED 2026-11-04,** both ways. Raised: the three
+   attachment types, LayerSchemaChanged, FeatureServiceDefinitionChanged and the portal's three comment operations (§5.2).
+   Refused at creation, in words: a webhook whose every event is one never raised — sign-in, sign-out, an invitation,
+   a join request, a move, the bulk operations, LayerDefinitionChanged. `WebhooksTests.Schema_definition_and_comment_
+   changes_are_raised_and_a_webhook_that_could_never_fire_is_refused` adds a field, changes the service's definition,
+   adds and deletes an attachment and comments on a map, and receives each; and is refused both webhooks.
 2. **A Studio screen under Organization** lists the organisation's webhooks with create, activate, deactivate, delete
    and the recent deliveries, and a feature service's page lists its own. Not built this night; the REST API came first.
 3. **The five `INFERRED` choices of §5.10** are put to the owner and either confirmed or changed. **DISCHARGED

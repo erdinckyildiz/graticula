@@ -134,6 +134,12 @@ internal static partial class ArcGisAdminEndpoints
             return;
         }
 
+        // ADR-266 condition 1: new layers change the service's definition.
+        await context.RequestServices.GetRequiredService<WebhookRaiser>().RaiseChangeAsync(
+            service.Id, service.Name, service.Folder ?? folder, null, "FeatureServiceDefinitionChanged",
+            new System.Text.Json.Nodes.JsonObject { ["layersAdded"] = new System.Text.Json.Nodes.JsonArray([.. added.Select(l => (System.Text.Json.Nodes.JsonNode?)l.Id)]) },
+            cancellation).ConfigureAwait(false);
+
         await Results.Json(new
         {
             success = true,

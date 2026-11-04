@@ -2251,7 +2251,7 @@ internal static class HostedDataEndpoints
             return null;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, webhooks: context.RequestServices.GetService<WebhookRaiser>())
             .ConfigureAwait(false);
 
         await RecordAsync(
@@ -2341,7 +2341,7 @@ internal static class HostedDataEndpoints
             return null;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, webhooks: context.RequestServices.GetService<WebhookRaiser>())
             .ConfigureAwait(false);
 
         await RecordAsync(
@@ -2695,7 +2695,7 @@ internal static class HostedDataEndpoints
             return null;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, schema: replace).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, schema: replace, webhooks: context.RequestServices.GetService<WebhookRaiser>()).ConfigureAwait(false);
 
         // The kept picture is of the rows that were there; it is drawn again from the rows that are.
         warmer.Redraw(found.Id);
@@ -2805,7 +2805,7 @@ internal static class HostedDataEndpoints
             return false;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, schema: false)
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, schema: false, webhooks: context.RequestServices.GetService<WebhookRaiser>())
             .ConfigureAwait(false);
 
         await RecordAsync(
@@ -3154,6 +3154,7 @@ internal static class HostedDataEndpoints
     /// <param name="cancellation">The caller's.</param>
     /// <param name="data">Whether the layer's rows changed too — an append, an overwrite, a truncate.</param>
     /// <param name="schema">Whether its fields changed; false for a change of rows alone.</param>
+    /// <param name="webhooks">The raiser of its LayerSchemaChanged event (ADR-266 condition 1), or null to raise none.</param>
     /// <returns>The work.</returns>
     /// <remarks>
     /// <para>
@@ -3177,9 +3178,19 @@ internal static class HostedDataEndpoints
         IAdminCatalog catalog,
         CancellationToken cancellation,
         bool data = false,
-        bool schema = true)
+        bool schema = true,
+        WebhookRaiser? webhooks = null)
     {
         contexts.Forget(layer);
+
+        // ADR-266 condition 1: a layer whose fields changed is a feature service's LayerSchemaChanged, wherever it was
+        // changed from — the admin API, Studio, an overwrite, editor tracking. Never the reason the change fails.
+        if (schema && webhooks is not null)
+        {
+            await webhooks.RaiseChangeAsync(
+                layer.ServiceId, layer.ServiceName, layer.Folder, layer.LayerIndex, "LayerSchemaChanged", null, cancellation)
+                .ConfigureAwait(false);
+        }
 
         // What the layer's editingInfo says (migration 127): its rows, its fields or both changed now, here and under
         // its views.
@@ -3313,7 +3324,7 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, data: true, webhooks: context.RequestServices.GetService<WebhookRaiser>()).ConfigureAwait(false);
 
         await RecordAsync(
             context, audit, "layer.globalIds", found.Definition.Name, new { added }, cancellation)
@@ -3377,7 +3388,8 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        TrackingOutcome done = await TrackEditsOfAsync(found, importer, contexts, tiles, catalog, connections, cancellation)
+        TrackingOutcome done = await TrackEditsOfAsync(found, importer, contexts, tiles, catalog, connections, cancellation,
+            context.RequestServices.GetService<WebhookRaiser>())
             .ConfigureAwait(false);
 
         if (done.Code != 0)
@@ -3428,7 +3440,7 @@ internal static class HostedDataEndpoints
         ITileCache tiles,
         IAdminCatalog catalog,
         LayerConnections connections,
-        CancellationToken cancellation)
+        CancellationToken cancellation, WebhookRaiser? webhooks = null)
     {
         (_, LayerDescription table) = await contexts.TableAsync(found, cancellation)
             .ConfigureAwait(false);
@@ -3526,7 +3538,7 @@ internal static class HostedDataEndpoints
         await catalog.SetFieldOverridesAsync(
             found.Id, [.. overrides.Where(o => o.SaysSomething)], cancellation).ConfigureAwait(false);
 
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation)
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, webhooks: webhooks)
             .ConfigureAwait(false);
 
         return new(0, null, added);
@@ -3552,7 +3564,8 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (await StopTrackingOfAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false) is { } refused)
+        if (await StopTrackingOfAsync(found, contexts, tiles, catalog, cancellation, webhooks: context.RequestServices.GetService<WebhookRaiser>())
+                .ConfigureAwait(false) is { } refused)
         {
             await Fail(context, 409, refused).ConfigureAwait(false);
             return;
@@ -3576,7 +3589,7 @@ internal static class HostedDataEndpoints
     /// </summary>
     internal static async Task<string?> StopTrackingOfAsync(
         PublishedLayer found, ServiceContexts contexts, ITileCache tiles, IAdminCatalog catalog, CancellationToken cancellation,
-        bool ownershipCleared = false)
+        bool ownershipCleared = false, WebhookRaiser? webhooks = null)
     {
         if (found.EditOwnOnly && !ownershipCleared)
         {
@@ -3589,7 +3602,7 @@ internal static class HostedDataEndpoints
             .Where(o => o.SaysSomething)];
 
         await catalog.SetFieldOverridesAsync(found.Id, overrides, cancellation).ConfigureAwait(false);
-        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation).ConfigureAwait(false);
+        await AfterSchemaChangeAsync(found, contexts, tiles, catalog, cancellation, webhooks: webhooks).ConfigureAwait(false);
         return null;
     }
 

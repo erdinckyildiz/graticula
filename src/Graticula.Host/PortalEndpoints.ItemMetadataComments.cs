@@ -374,9 +374,16 @@ internal static partial class PortalEndpoints
             .AddAsync(item.Item, current.Principal.Id, current.Principal.Name, text!, MaximumCommentsPerItem, cancellation)
             .ConfigureAwait(false);
 
-        return made is null
-            ? PortalError(400, $"An item holds at most {MaximumCommentsPerItem:N0} comments.")
-            : Results.Ok(new { success = true, commentId = made.Id.ToString("N") });
+        if (made is null)
+        {
+            return PortalError(400, $"An item holds at most {MaximumCommentsPerItem:N0} comments.");
+        }
+
+        // Audited, as its deletion was, so that it is the portal's /items/addComment event (ADR-266 condition 1).
+        await AdminEndpoints.AuditAsync(context, context.RequestServices.GetRequiredService<IAuditLog>(), "item.comment.add",
+            item.Item.ToString("N"), AdminEndpoints.Detail(new { comment = made.Id.ToString("N") }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+        return Results.Ok(new { success = true, commentId = made.Id.ToString("N") });
     }
 
     /// <summary><c>comments/{commentId}/update</c>: its author changes its text.</summary>
@@ -409,6 +416,9 @@ internal static partial class PortalEndpoints
 
         await context.RequestServices.GetRequiredService<IItemCommentStore>()
             .UpdateAsync(found.Item.Item, found.Comment.Id, text!, cancellation).ConfigureAwait(false);
+        await AdminEndpoints.AuditAsync(context, context.RequestServices.GetRequiredService<IAuditLog>(), "item.comment.update",
+            found.Item.Item.ToString("N"), AdminEndpoints.Detail(new { comment = found.Comment.Id.ToString("N") }),
+            succeeded: true, cancellation).ConfigureAwait(false);
         return Results.Ok(new { success = true, commentId = found.Comment.Id.ToString("N") });
     }
 

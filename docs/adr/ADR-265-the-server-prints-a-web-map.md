@@ -130,7 +130,13 @@ reference is read as metres for the frame (the printed scale bar is still measur
 ## 7. Conditions
 
 1. **A browser client prints through it**: the Maps SDK's `print` or Map Viewer's / Experience Builder's Print widget
-   against a fixture, the PDF opened. Only the ArcGIS API for Python has been run (§4).
+   against a fixture, the PDF opened. Only the ArcGIS API for Python has been run (§4). **DISCHARGED 2026-11-04** with the Maps
+   SDK for JavaScript 4.30, headless Brave against the local fixture: `tools/sdk-probe/print.html` draws a feature layer
+   in a `MapView` and calls `esri/rest/print`'s `execute` with a `PrintTemplate` (A4 Landscape, PDF, a title), the call
+   the SDK's Print widget makes. The task answered in 184 ms with an `arcgisoutput` URL, the file came back
+   `application/pdf`, 26,169 bytes, starting `%PDF`, and opened: the title, the layer's six buildings in the SDK's own
+   symbol, a legend naming the layer, both scale bars, *Scale 1:29,582* and a north arrow. Map Viewer's and Experience
+   Builder's widgets were not driven; they need an ArcGIS Online or Enterprise organisation this session does not hold.
 2. **The cost is measured**: an A3 page at 300 dpi over the fixture's largest layer — time, peak memory, file size —
    against the sixty-second deadline and the two-print bound, which are this session's guesses. **DISCHARGED 2026-11-04,**
    measured on the showcase (1.0.504, arm64, 6 cores, 7.9 GB) rather than the fixture, over its largest layer: `istanbul_buildings_postgis`,
