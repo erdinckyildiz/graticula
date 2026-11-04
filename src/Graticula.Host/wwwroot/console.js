@@ -3426,7 +3426,7 @@ const SUBPAGES = {
   // Utility services left on 2026-10-26 (ADR-221 §5.3): its one setting, the geometry service clients use, is the
   // server's, and it is System's Utility services page now.
   members: [["members", "Members"], ["general", "General"], ["orgsettings", "Map"], ["roles", "Member roles"],
-    ["signin", "Security"], ["collaborations", "Collaborations"], ["apps", "Apps"]],
+    ["signin", "Security"], ["collaborations", "Collaborations"], ["apps", "Apps"], ["webhooks", "Webhooks"]],
 };
 
 /**
@@ -3436,8 +3436,9 @@ const SUBPAGES = {
  * <b>General first since ADR-221 §5.5</b>: the organization's name and description, where ArcGIS Online's
  * Organization › Settings › General has them, and the one page here every member reads.
  */
+// Webhooks last (ADR-266 condition 2), as Portal for ArcGIS lists them after its other settings.
 const ORG_SETTINGS = [["general", "General"], ["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
-  ["collaborations", "Collaborations"]];
+  ["collaborations", "Collaborations"], ["webhooks", "Webhooks"]];
 
 /**
  * Whether this reader administers anything in Organization — the reader the tab was for until ADR-221 gave every
@@ -3533,6 +3534,7 @@ const SCREEN_SURFACE = {
   general: "studio",
   orgsettings: "studio",
   collaborations: "studio",
+  webhooks: "studio",
   search: "studio",
 
   // <b>Both were missing, and the failure was silent.</b> A screen absent from this table falls
@@ -4253,7 +4255,9 @@ function drawOrgNav(view, screen) {
   // Collaborations (ADR-219) are between organizations, so only where there are several, and only their administrator's.
   // A member who administers nothing here has General alone.
   side.innerHTML = ORG_SETTINGS.filter(([name]) => (name === "general" || orgAdminReader())
-    && !(name === "collaborations" && !isOrgAdministrator())).map(([name, label]) =>
+    && !(name === "collaborations" && !isOrgAdministrator())
+    // Webhooks only for whoever the portal's webhooks API answers (ADR-266 §7).
+    && !(name === "webhooks" && !mayManageWebhooks())).map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
 
   // On a phone the column is a strip that scrolls sideways, and the page being read may be past its right edge.
@@ -4370,6 +4374,7 @@ function openScreen(surface, screen, folder) {
     section("settings", loadGeometryService);
   }
   if (screen === "collaborations") loadPartnerships();
+  if (screen === "webhooks") section("webhooks", loadOrgWebhooks);
   if (screen === "backups") section("backups", loadBackups, "bkRows");
   if (screen === "machines") section("machines", loadMachines, "mcRows");
   if (screen === "sources") section("data sources", loadSources, "sources");
@@ -10750,6 +10755,7 @@ function drawServiceSettings(name, folder) {
   const imagery = serviceOpenKind === "ImageServer";
   const shownPages = mine.filter(p => (p !== "tiles" || tiled)
     && (p !== "imagery" || imagery) && (p !== "images" || imagery) && (p !== "feature" || !imagery)
+    && (p !== "webhooks" || !imagery)
     // ADR-154: classes name the values of one band of whole numbers — a land cover, not a height or a photograph.
     && (p !== "classes" || (imagery && (serviceDoc?.bandCount || 1) === 1 && /^[US](8|16|32)$/.test(serviceDoc?.pixelType || ""))));
   const open = shownPages.includes(page) ? page : shownPages[0];
@@ -10773,6 +10779,7 @@ function drawServiceSettings(name, folder) {
     + (mine.includes("layers") ? `<section class="page" id="page-layers">${serverLayersMarkup()}</section>` : "")
     + (mine.includes("about") ? `<section class="page" id="page-about">${serverAboutMarkup()}</section>` : "")
     + (open === "about" || open === "general" || open === "feature" || open === "tiles" || open === "layers" || open === "images" || open === "classes"
+      || open === "webhooks"
       ? ""
       : `<div class="row" style="margin-top:22px">
            <button class="primary" data-service-save="${h(name)}"
@@ -10815,6 +10822,7 @@ function drawServiceSettings(name, folder) {
   // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
   if (open === "layers") showAskedLayer();
   if (open === "feature") section("editing", () => drawFeatureFacts(name, folder));
+  if (open === "webhooks") section("webhooks", () => loadServiceWebhooks(name, folder));
 
   if (open === "tiles" && tiled) {
     section("the tile cache", () => loadSeed(tiled.name));
@@ -10824,7 +10832,7 @@ function drawServiceSettings(name, folder) {
 }
 
 /** The labels the Settings list shows, where a page's key is not already its name. */
-const SERVICE_PAGE_LABELS = { about: "General", limits: "Parameters", general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers", imagery: "Display", images: "Images", classes: "Classes" };
+const SERVICE_PAGE_LABELS = { about: "General", limits: "Parameters", general: "General", feature: "Feature layer", tiles: "Tile layer", webhooks: "Webhooks", layers: "Layers", imagery: "Display", images: "Images", classes: "Classes" };
 
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
@@ -11794,6 +11802,18 @@ function serviceSettingsMarkup(name, folder) {
       <div id="generalElevation"></div>
       <div id="generalOgc"></div>
       <div id="generalDangerSlot"></div>
+    </section>
+
+    <section class="page" id="page-webhooks">
+      <h4>Webhooks</h4>
+      <p class="hint">Tell another system when this service's features are created, updated or deleted. Each webhook
+        posts a JSON message, signed if it has a secret, naming the layer and the object IDs that changed.</p>
+      <div class="whhead">
+        <span class="val" id="svcWhCount"></span>
+        <button type="button" class="primary" id="svcWhNew" data-wh-new="svc">Create webhook</button>
+      </div>
+      <p class="hint" id="svcWhSays" role="status" aria-live="polite"></p>
+      <div id="svcWhList" aria-busy="true"><p class="hint">Reading this service's webhooks&hellip;</p></div>
     </section>
 
     <section class="page" id="page-feature">
@@ -18153,6 +18173,10 @@ const SERVICE_PAGES = {
   // layers, reached by knowing to click a layer name. Portal's *Tile layer (hosted)* is a section of the
   // item's Settings, and so is this.
   tiles: "studio",
+
+  // <b>Webhooks — ADR-266 condition 2.</b> A feature service's own, as ArcGIS Online's item Settings has a Webhooks
+  // section for a hosted feature layer; through its administration's `webhooks`, for its owner or an administrator.
+  webhooks: "studio",
 
   // <b>Sharing is a service's setting and was the one D-61's repair missed.</b> D-61 moved
   // Capabilities and Limits off the layer pages because their columns are on `service`;
@@ -39689,6 +39713,461 @@ $("pcAccept")?.addEventListener("close", () => {
 });
 $("pcDialog")?.addEventListener("close", () => {
   if (document.activeElement === document.body) $("pcNew")?.focus();
+});
+
+// ---------------------------------------------------------------- webhooks (ADR-266 condition 2)
+
+/**
+ * The events an organization's webhook may be told of, as Portal's Create webhook offers its triggers: by source, each
+ * operation this server raises (ADR-266 §5.2). An operation Portal names and this server never raises is not offered,
+ * so a box ticked here is a message that can come.
+ */
+const WEBHOOK_PORTAL_EVENTS = [
+  ["items", "Items", [["add", "Added"], ["update", "Updated"], ["delete", "Deleted"], ["share", "Shared"],
+    ["reassign", "Given to another owner"], ["protect", "Protected from deletion"], ["publish", "Published"]]],
+  ["groups", "Groups", [["add", "Created"], ["update", "Updated"], ["delete", "Deleted"], ["addUsers", "Members added"],
+    ["removeUsers", "Members removed"], ["itemShare", "Item shared with it"], ["itemUnshare", "Item unshared from it"]]],
+  ["users", "Members", [["add", "Added"], ["update", "Profile updated"], ["delete", "Removed"], ["disable", "Disabled"],
+    ["enable", "Enabled"], ["updateUserRole", "Role changed"], ["updateUserLicenseType", "User type changed"]]],
+  ["roles", "Roles", [["add", "Created"], ["update", "Privileges changed"], ["delete", "Deleted"]]],
+];
+
+/** A feature service webhook's change types that this server raises (ADR-266 §2), in ArcGIS's names. */
+const WEBHOOK_CHANGE_TYPES = [["FeaturesCreated", "Features created"], ["FeaturesUpdated", "Features updated"],
+  ["FeaturesDeleted", "Features deleted"], ["FeaturesEdited", "Features edited (any of the three)"]];
+
+/**
+ * The two lists this page draws: the organization's (Organization › Settings › Webhooks) and the open feature service's
+ * (its Settings › Webhooks). Each keeps what it last read, which row's deliveries are open — one at a time — and the
+ * ids of the elements it draws into.
+ */
+const webhookLists = {
+  org: { hooks: [], failed: null, open: null, deliveries: null, list: "whList", says: "whSays", count: "whCount", add: "whNew" },
+  svc: { hooks: [], failed: null, open: null, deliveries: null, list: "svcWhList", says: "svcWhSays", count: "svcWhCount",
+    add: "svcWhNew", service: null },
+};
+
+/** Which list the Create webhook dialog is making one for. */
+let webhookCreating = null;
+
+/** Whether this reader manages the organization's webhooks — the two privileges the portal API asks (ADR-266 §7). */
+function mayManageWebhooks() {
+  return may("admin:manageSecurity") && may("admin:viewAllContent");
+}
+
+/** Where a list's webhooks are, in the ArcGIS-shaped API. */
+function webhookBase(scope) {
+  if (scope === "org") return "/sharing/rest/portals/self/webhooks";
+  const s = webhookLists.svc.service || {};
+  return `/rest/admin/services/${s.folder ? encodeURIComponent(s.folder) + "/" : ""}${encodeURIComponent(s.name || "")}`
+    + "/FeatureServer/webhooks";
+}
+
+/** One webhook in the words both lists draw, from either API's document. */
+function webhookOf(scope, w) {
+  return scope === "org"
+    ? { id: String(w.id), name: w.name, url: w.payloadUrl || "", events: w.events || [], active: !!w.isActive,
+      reason: w.deactivatedReason || "", signed: !!w.hasSecret, created: w.created }
+    : { id: String(w.id), name: w.name, url: w.hookUrl || "", events: w.changeTypes || [], active: !!w.active,
+      reason: w.deactivatedReason || "", signed: !!w.hasSignatureKey, created: w.createdTime,
+      raised: w.changeTypesRaised || [] };
+}
+
+/** A webhook's events as a sentence: Portal's URIs and a service's change types, by the labels Create offers. */
+function webhookEventWords(scope, events) {
+  if (scope === "svc") {
+    if (events.includes("*")) return "All changes";
+    return events.map(e => (WEBHOOK_CHANGE_TYPES.find(([k]) => k === e) || [e, e])[1]).join(", ");
+  }
+  if (events.includes("/")) return "All events";
+  return events.map(e => {
+    const [, source, operation, more] = e.split("/");
+    const known = WEBHOOK_PORTAL_EVENTS.find(([k]) => k === source);
+    if (!known) return e;
+    if (!operation) return `${known[1]}: all`;
+    const label = known[2].find(([k]) => k === operation);
+    return label && !more ? `${known[1]}: ${label[1].toLowerCase()}` : e;
+  }).join(", ");
+}
+
+/** A line under the list, read out when it changes; `bad` marks a refusal. */
+function webhookSay(scope, message, bad = false) {
+  const line = $(webhookLists[scope].says);
+  if (!line) return;
+  line.textContent = message || "";
+  line.classList.toggle("bad-inline", !!bad);
+}
+
+/** A write to either API: a form post, and the portal's refusal, which comes as 200 with an error, thrown. */
+async function webhookPost(path, fields) {
+  const answer = await api(path, {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...fields, f: "json" }),
+  });
+  if (answer?.error) throw new Error(answer.error.message || "The server refused it.");
+  return answer;
+}
+
+/**
+ * One delivery, from the webhook's `notificationStatus`. Read field by field with the names ArcGIS's documentation and
+ * this server's first answer use, so either shape draws: the time, the receiver's HTTP status, and what came of it.
+ */
+function webhookDeliveryOf(d) {
+  const numeric = typeof d.status === "number";
+  const code = d.statusCode ?? d.responseCode ?? d.httpStatus ?? (numeric ? d.status : null);
+  let state = String(numeric ? "" : d.status ?? d.state ?? d.result ?? "").toLowerCase();
+  if (!state && d.success !== undefined) state = d.success ? "delivered" : "failed";
+  if (!state && code !== null && code !== undefined) state = code >= 200 && code < 300 ? "delivered" : "failed";
+  return {
+    at: d.created ?? d.timestamp ?? d.time ?? d.when ?? d.notificationTime ?? d.lastAttemptTime ?? null,
+    code, state, event: d.event ?? d.eventName ?? "", attempts: d.attempts ?? d.numberOfAttempts ?? null,
+    error: d.error ?? d.errorMessage ?? d.message ?? null,
+  };
+}
+
+/** Reads one webhook's recent deliveries into its list's state. */
+async function webhookReadDeliveries(scope, id) {
+  const s = webhookLists[scope];
+  try {
+    const a = await api(`${webhookBase(scope)}/${encodeURIComponent(id)}/notificationStatus?f=json`);
+    if (a?.error) throw new Error(a.error.message);
+    const rows = Array.isArray(a) ? a
+      : a?.notifications || a?.notificationStatus || a?.webhookStatus || a?.statuses || a?.results || [];
+    s.deliveries = { id, rows: rows.map(webhookDeliveryOf), failed: null };
+  } catch (e) {
+    s.deliveries = { id, rows: [], failed: e.message };
+  }
+}
+
+/** Reads a list and draws it; the open row's deliveries are read again with it. */
+async function webhookRead(scope, focus) {
+  const s = webhookLists[scope];
+  if (!$(s.list)) return;
+  try {
+    const answer = await api(scope === "org" ? `${webhookBase("org")}?f=json&num=100` : `${webhookBase("svc")}?f=json`);
+    if (answer?.error) throw new Error(answer.error.message);
+    // The portal's answer is `{webhooks}`, paged or not; a service's is the array itself, as ArcGIS's.
+    const raw = Array.isArray(answer) ? answer : answer?.webhooks || [];
+    s.hooks = raw.map(w => webhookOf(scope, w));
+    s.failed = null;
+  } catch (e) {
+    s.hooks = [];
+    s.failed = e.message;
+  }
+  if (s.open && !s.hooks.some(w => w.id === s.open)) s.open = null;
+  if (s.open) await webhookReadDeliveries(scope, s.open);
+  webhookDraw(scope, focus);
+}
+
+/** A delivery's result in words, and the pill that says it. */
+function webhookResult(d) {
+  const [cls, label] = {
+    delivered: ["p-active", "Delivered"],
+    failed: ["p-stopped", "Failed"],
+    pending: ["p-private", d.attempts ? "Retrying" : "Waiting to be sent"],
+    dropped: ["p-off", "Dropped"],
+  }[d.state] || ["p-private", d.state || "Unknown"];
+  return `<span class="pill ${cls}">${h(label)}</span>`;
+}
+
+/** The open row's region: its recent deliveries, newest first, with a Refresh, since they arrive after the event. */
+function webhookDeliveriesMarkup(scope, w) {
+  const s = webhookLists[scope];
+  const d = s.deliveries && s.deliveries.id === w.id ? s.deliveries : { rows: [], failed: null };
+  const refresh = `<button type="button" class="tiny ghost" data-wh-act="refresh" data-wh-scope="${scope}"
+    data-wh-id="${h(w.id)}">Refresh</button>`;
+  const body = d.failed
+    ? `<p class="bad-inline">Could not read its deliveries: ${h(d.failed)}</p>`
+    : d.rows.length === 0
+    ? `<p class="hint">No deliveries yet. A message is sent when one of its events happens${
+      w.active ? "" : "; while the webhook is inactive, none is"}.</p>`
+    : `<table class="rowblocks whsent">
+        <thead><tr><th>Time</th><th>Event</th><th>Result</th><th>Status code</th></tr></thead>
+        <tbody>${d.rows.map(r => `<tr>
+          <td class="name nowrap whtime">${r.at ? historyWhen(new Date(r.at).toISOString()) : "—"}</td>
+          <td data-l="Event"><span>${r.event ? `<code>${h(r.event)}</code>` : "—"}</span></td>
+          <td data-l="Result"><span>${webhookResult(r)}${r.attempts > 1 ? ` <span class="hint">after ${num(r.attempts)} attempts</span>` : ""}${
+            r.error ? `<span class="rowmeta whwhy">${h(r.error)}</span>` : ""}</span></td>
+          <td data-l="Status code"><span>${r.code === null || r.code === undefined ? "—" : h(String(r.code))}</span></td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+  return `<div class="whsenthead"><h5 id="whSentTitle-${scope}">Recent deliveries</h5>${refresh}</div>${body}`;
+}
+
+/** Draws a list from what it last read, and puts the focus where `focus` (a selector) says. */
+function webhookDraw(scope, focus) {
+  const s = webhookLists[scope];
+  const list = $(s.list);
+  if (!list) return;
+  list.removeAttribute("aria-busy");
+
+  const n = s.hooks.length;
+  const full = scope === "svc" && n >= 10;
+  if ($(s.count)) {
+    $(s.count).textContent = s.failed ? "" : scope === "svc" ? `${num(n)} of 10 webhooks` : `${num(n)} webhook${n === 1 ? "" : "s"}`;
+  }
+  if ($(s.add)) {
+    $(s.add).disabled = full;
+    $(s.add).title = full ? "A feature service has at most ten webhooks. Delete one to create another." : "";
+  }
+
+  const what = scope === "org" ? "this organization's" : "this service's";
+  if (s.failed) {
+    list.innerHTML = `<div class="panel pad settingcard"><p class="bad-inline">Could not read ${what} webhooks:
+      ${h(s.failed)}</p><p class="hint">This is not an empty list: the request was refused.</p></div>`;
+  } else if (n === 0) {
+    // A card on Organization's page; on a service's Settings, which is already a card, the empty state is plain text.
+    list.innerHTML = `<div class="${scope === "org" ? "panel pad " : ""}whempty">
+        <h3>No webhooks yet</h3>
+        <p>${scope === "org"
+          ? "A webhook posts a message to another system whenever an item, group, member or role of this organization changes, so an integration can act on it instead of asking again and again."
+          : "A webhook posts a message to another system whenever features of this service are created, updated or deleted, naming the layer and the object IDs."}</p>
+        <p class="hint">Create one with its payload URL and the events it is for. ${scope === "svc" ? "A service may have ten." : ""}</p>
+      </div>`;
+  } else {
+    list.innerHTML = `<div class="panel widetable">
+      <table class="rowblocks whtable">
+        <thead><tr><th>Name</th><th>Payload URL</th><th>Events</th><th>Status</th>
+          <th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>${s.hooks.map(w => {
+          const open = s.open === w.id;
+          const unraised = scope === "svc" && !w.events.includes("*") && w.events.some(e => !w.raised.includes(e))
+            ? `<div class="rowmeta">Some of these are not raised by this server yet.</div>` : "";
+          const named = h(w.name);
+          return `<tr data-wh-row="${h(w.id)}"${open ? ' class="on"' : ""}>
+            <td class="name"><b>${named}</b><div class="rowmeta">${w.signed ? "Signed with a secret" : "Not signed"}${
+              w.created ? ` · made ${h(day(w.created))}` : ""}</div></td>
+            <td data-l="Payload URL"><span><code class="whurl">${h(w.url)}</code></span></td>
+            <td data-l="Events"><span>${h(webhookEventWords(scope, w.events))}${unraised}</span></td>
+            <td data-l="Status"><span><span class="pill ${w.active ? "p-active" : "p-off"}">${w.active ? "Active" : "Inactive"}</span>${
+              !w.active && w.reason ? `<span class="rowmeta whwhy">${h(w.reason)}</span>` : ""}</span></td>
+            <td class="act whacts">
+              <button type="button" class="tiny" data-wh-act="deliveries" data-wh-scope="${scope}" data-wh-id="${h(w.id)}"
+                aria-expanded="${open}" aria-controls="whSent-${scope}" aria-label="Recent deliveries of ${named}">Deliveries</button>
+              <button type="button" class="tiny ghost" data-wh-act="toggle" data-wh-scope="${scope}" data-wh-id="${h(w.id)}"
+                aria-label="${w.active ? "Deactivate" : "Activate"} ${named}">${w.active ? "Deactivate" : "Activate"}</button>
+              <button type="button" class="tiny danger" data-wh-act="delete" data-wh-scope="${scope}" data-wh-id="${h(w.id)}"
+                aria-label="Delete ${named}">Delete&hellip;</button>
+            </td>
+          </tr>${open ? `<tr class="whsentrow"><td colspan="5" id="whSent-${scope}" role="region"
+            aria-label="Recent deliveries of ${named}">${webhookDeliveriesMarkup(scope, w)}</td></tr>` : ""}`;
+        }).join("")}</tbody>
+      </table></div>`;
+  }
+
+  if (focus) {
+    const next = document.querySelector(focus);
+    (next && !next.disabled ? next : $(s.add) && !$(s.add).disabled ? $(s.add) : list)?.focus?.();
+  }
+}
+
+/** The selector of one row's button, for putting the focus back on it after a redraw. */
+const webhookButton = (scope, act, id) =>
+  `[data-wh-act="${act}"][data-wh-scope="${scope}"][data-wh-id="${CSS.escape(String(id))}"]`;
+
+/**
+ * Organization › Settings › Webhooks — ADR-266 condition 2. Only for whoever the portal API answers; anybody else who
+ * types the address is told why, rather than shown a refusal.
+ */
+async function loadOrgWebhooks() {
+  const list = $("whList");
+  if (!list) return;
+  if (!mayManageWebhooks()) {
+    $("whHeadActs").hidden = true;
+    list.removeAttribute("aria-busy");
+    list.innerHTML = `<div class="panel pad settingcard"><p>An organization's webhooks are managed by an administrator
+      who may manage its security and view all of its content.</p></div>`;
+    return;
+  }
+  $("whHeadActs").hidden = false;
+  await webhookRead("org");
+}
+
+/** A feature service's Settings › Webhooks — its own list, through its administration's `webhooks`. */
+async function loadServiceWebhooks(name, folder) {
+  const s = webhookLists.svc;
+  const same = s.service && s.service.name === name && (s.service.folder || "") === (folder || "");
+  if (!same) { s.open = null; s.deliveries = null; s.hooks = []; }
+  s.service = { name, folder: folder || "" };
+  webhookSay("svc", "");
+  await webhookRead("svc");
+}
+
+async function webhookToggle(scope, id) {
+  const w = webhookLists[scope].hooks.find(x => x.id === id);
+  if (!w) return;
+  const active = !w.active;
+  try {
+    if (scope === "org") await webhookPost(`${webhookBase(scope)}/${encodeURIComponent(id)}/${active ? "activate" : "deactivate"}`, {});
+    else await webhookPost(`${webhookBase(scope)}/${encodeURIComponent(id)}/edit`, { active: String(active) });
+    await webhookRead(scope, webhookButton(scope, "toggle", id));
+    webhookSay(scope, active ? `${w.name} is active: its events are sent from now on.`
+      : `${w.name} is inactive: nothing is sent until it is activated again. Events in between are not kept for it.`);
+  } catch (e) {
+    webhookSay(scope, `${w.name} was not changed: ${e.message}`, true);
+  }
+}
+
+async function webhookDelete(scope, id) {
+  const s = webhookLists[scope];
+  const at = s.hooks.findIndex(x => x.id === id);
+  const w = s.hooks[at];
+  if (!w) return;
+  const yes = await askServerConfirm({
+    title: "Delete webhook",
+    body: `Delete the webhook ${w.name}? Nothing more is sent to ${w.url}, and its delivery history goes with it. It cannot be restored.`,
+    action: "Delete webhook",
+  });
+  if (!yes) return;
+  try {
+    await webhookPost(`${webhookBase(scope)}/${encodeURIComponent(id)}/delete`, {});
+    // The pressed button goes with its row: the focus moves to the next row's, else the previous one's, else Create.
+    const neighbour = s.hooks[at + 1] || s.hooks[at - 1];
+    if (s.open === id) s.open = null;
+    await webhookRead(scope, neighbour ? webhookButton(scope, "deliveries", neighbour.id) : `#${s.add}`);
+    webhookSay(scope, `${w.name} is deleted.`);
+  } catch (e) {
+    webhookSay(scope, `${w.name} was not deleted: ${e.message}`, true);
+  }
+}
+
+async function webhookShowDeliveries(scope, id, again = false) {
+  const s = webhookLists[scope];
+  if (!again && s.open === id) {
+    s.open = null;
+    webhookDraw(scope, webhookButton(scope, "deliveries", id));
+    return;
+  }
+  s.open = id;
+  await webhookReadDeliveries(scope, id);
+  webhookDraw(scope, webhookButton(scope, again ? "refresh" : "deliveries", id));
+  if (again) {
+    const n = s.deliveries?.rows.length || 0;
+    webhookSay(scope, s.deliveries?.failed ? "" : `${num(n)} recent deliver${n === 1 ? "y" : "ies"}.`);
+  }
+}
+
+/** Opens Create webhook for a list, with that kind's events. */
+function openWebhookCreate(scope) {
+  webhookCreating = scope;
+  for (const id of ["whName", "whUrl", "whSecret"]) { $(id).value = ""; $(id).removeAttribute("aria-invalid"); }
+  $("whDialogTitle").textContent = scope === "org" ? "Create webhook"
+    : `Create webhook for ${webhookLists.svc.service?.name || "this service"}`;
+  $("whEvents").innerHTML = scope === "org"
+    ? `<legend>Events</legend>
+      <label class="pickrow"><input type="radio" name="whWhich" value="all" checked>
+        <span><b>All events</b><span class="lede">Every change this server reports to items, groups, members and
+          roles.</span></span></label>
+      <label class="pickrow"><input type="radio" name="whWhich" value="some">
+        <span><b>Selected events</b><span class="lede">Only those ticked below.</span></span></label>
+      <div class="whpicks">${WEBHOOK_PORTAL_EVENTS.map(([source, label, ops]) => `
+        <fieldset class="whgroup"><legend>${h(label)}</legend>${ops.map(([op, words]) => `
+          <label class="check"><input type="checkbox" data-wh-event="/${source}/${op}"> ${h(words)}</label>`).join("")}
+        </fieldset>`).join("")}</div>`
+    : `<legend>Events</legend>
+      <div class="whpicks">${WEBHOOK_CHANGE_TYPES.map(([type, words]) => `
+        <label class="check"><input type="checkbox" data-wh-event="${type}"${type === "FeaturesEdited" ? "" : " checked"}>
+          ${h(words)}</label>`).join("")}</div>
+      <p class="hint">Each message names the layer and the object IDs that changed.</p>`;
+  $("whActiveRow").hidden = scope === "org";
+  $("whActive").checked = true;
+  dialogSay("whFormSays", "");
+  $("whDialog").showModal();
+  $("whName").focus();
+}
+
+function closeWebhookCreate() {
+  if ($("whDialog").open) $("whDialog").close();
+}
+
+async function createWebhook() {
+  const scope = webhookCreating;
+  if (!scope) return;
+  const name = $("whName").value.trim();
+  const url = $("whUrl").value.trim();
+  const secret = $("whSecret").value;
+  const ticked = [...document.querySelectorAll("#whEvents input[data-wh-event]:checked")].map(i => i.dataset.whEvent);
+  const all = scope === "org" && document.querySelector('input[name="whWhich"]:checked')?.value !== "some";
+
+  const refuse = (field, message) => {
+    if (field) { field.setAttribute("aria-invalid", "true"); field.focus(); }
+    dialogSay("whFormSays", message);
+  };
+  for (const id of ["whName", "whUrl"]) $(id).removeAttribute("aria-invalid");
+  if (!name) return refuse($("whName"), "Give the webhook a name.");
+  if (!url) return refuse($("whUrl"), "Give the payload URL its messages are posted to.");
+  if (!all && ticked.length === 0) {
+    return refuse(document.querySelector("#whEvents input[data-wh-event]"), "Tick at least one event.");
+  }
+
+  const button = $("whCreate");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  dialogSay("whFormSays", "");
+  try {
+    let made;
+    if (scope === "org") {
+      const fields = { name, url, changes: all ? "allChanges" : "manualChanges" };
+      if (!all) fields.events = ticked.join(",");
+      if (secret) fields.secret = secret;
+      made = (await webhookPost(`${webhookBase("org")}/createWebhook`, fields))?.webhook?.id;
+    } else {
+      const fields = { name, hookUrl: url, changeTypes: JSON.stringify(ticked), active: String($("whActive").checked) };
+      if (secret) fields.signatureKey = secret;
+      made = (await webhookPost(`${webhookBase("svc")}/create`, fields))?.id;
+    }
+    $("whSecret").value = "";
+    closeWebhookCreate();
+    await webhookRead(scope, made !== undefined ? webhookButton(scope, "deliveries", made) : `#${webhookLists[scope].add}`);
+    const active = scope === "org" || $("whActive").checked;
+    webhookSay(scope, `${name} is created${active ? " and active" : ", inactive until it is activated"}.`);
+  } catch (e) {
+    refuse(/url|address|https?|host/i.test(e.message) ? $("whUrl") : null, e.message);
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest?.("button");
+  if (!t) return;
+  if (t.id === "whCreate") { await createWebhook(); return; }
+  if (t.id === "whCancel" || t.id === "whDialogClose") { closeWebhookCreate(); return; }
+  if (t.dataset.whNew) { openWebhookCreate(t.dataset.whNew); return; }
+
+  const scope = t.dataset.whScope;
+  const id = t.dataset.whId;
+  if (!scope || id === undefined || !webhookLists[scope]) return;
+  if (t.dataset.whAct === "deliveries") await webhookShowDeliveries(scope, id);
+  else if (t.dataset.whAct === "refresh") await webhookShowDeliveries(scope, id, true);
+  else if (t.dataset.whAct === "toggle") await webhookToggle(scope, id);
+  else if (t.dataset.whAct === "delete") await webhookDelete(scope, id);
+});
+
+// Ticking an organization's event chooses *Selected events*, as a reader who ticked one means.
+document.addEventListener("change", event => {
+  if (event.target.dataset?.whEvent === undefined || !event.target.checked) return;
+  const some = document.querySelector('#whEvents input[name="whWhich"][value="some"]');
+  if (some) some.checked = true;
+});
+
+// Enter in the dialog's text fields creates, as a form would.
+document.addEventListener("keydown", event => {
+  if (event.key === "Enter" && ["whName", "whUrl", "whSecret"].includes(event.target.id)) {
+    event.preventDefault();
+    createWebhook();
+  }
+});
+
+// Closed by Escape, Cancel or Create: the focus goes back to the Create webhook that opened it, unless it was put
+// somewhere already.
+$("whDialog")?.addEventListener("close", () => {
+  $("whSecret").value = "";
+  if (document.activeElement === document.body || $("whDialog").contains(document.activeElement)) {
+    const add = webhookCreating && $(webhookLists[webhookCreating].add);
+    if (add && add.getClientRects().length) add.focus();
+  }
 });
 
 /**

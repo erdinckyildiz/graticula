@@ -48,7 +48,7 @@ public sealed class EveryScreenTests : ConsoleTest
 
     /// <summary>The Studio surface's screens.</summary>
     // Organization's pages are Studio's since ADR-189, and Anonymous view is gone.
-    private static readonly string[] StudioScreens = ["content", "groups", "members", "orgsettings", "roles", "signin", "general", "collaborations"];
+    private static readonly string[] StudioScreens = ["content", "groups", "members", "orgsettings", "roles", "signin", "general", "collaborations", "webhooks"];
 
     /// <summary>
     /// Every Server screen opens, paints its own heading, and throws nothing.

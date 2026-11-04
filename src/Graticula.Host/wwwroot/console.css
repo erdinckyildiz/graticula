@@ -7778,3 +7778,53 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .imctext.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .imcmore { margin-top: 4px; }
 .imcbox { font-family: inherit; }
+
+/* Webhooks — Organization › Settings › Webhooks and a feature service's Settings › Webhooks (ADR-266 condition 2).
+   One table for both: name, payload URL, events, status and three buttons, and the open row's recent deliveries in a
+   row of their own under it. A URL is one long word and wraps anywhere rather than widening the page. */
+:is(#view-webhooks, #page-webhooks) .whtable { table-layout: fixed; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(1) { width: 19%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(2) { width: 22%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(3) { width: 20%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(4) { width: 12%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(5) { width: 27%; }
+/* A delivery's time leads its row, at the table's own weight rather than a name's. */
+:is(#view-webhooks, #page-webhooks) table.whsent td.whtime { font-weight: 400; font-size: inherit; }
+:is(#view-webhooks, #page-webhooks) table.whsent td { background: transparent; }
+:is(#view-webhooks, #page-webhooks) code.whurl { overflow-wrap: anywhere; word-break: break-all; }
+:is(#view-webhooks, #page-webhooks) td.whacts { text-align: right; white-space: normal; }
+:is(#view-webhooks, #page-webhooks) td.whacts button { margin: 2px 0 2px var(--gap-2); }
+:is(#view-webhooks, #page-webhooks) .whwhy { display: block; margin-top: var(--gap-1); }
+:is(#view-webhooks, #page-webhooks) tr.whsentrow > td { background: var(--surface-2); padding: var(--gap-3) var(--gap-4); }
+:is(#view-webhooks, #page-webhooks) .whsenthead { display: flex; align-items: center; justify-content: space-between;
+                                                  gap: var(--gap-3); margin-bottom: var(--gap-2); }
+:is(#view-webhooks, #page-webhooks) .whsenthead h5 { margin: 0; }
+:is(#view-webhooks, #page-webhooks) table.whsent { width: 100%; }
+:is(#view-webhooks, #page-webhooks) .whempty { max-width: 760px; }
+:is(#view-webhooks, #page-webhooks) .whempty h3 { margin: 0 0 var(--gap-2); font-size: var(--t-head); }
+:is(#view-webhooks, #page-webhooks) .whempty p { margin: 0 0 var(--gap-2); }
+:is(#view-webhooks, #page-webhooks) .whempty p:last-child { margin-bottom: 0; }
+#view-webhooks .settingcard p { margin: 0; }
+#page-webhooks .whhead { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-3);
+                         margin: var(--gap-3) 0 var(--gap-2); }
+#whDialog .picker input[type="text"], #whDialog .picker input[type="url"], #whDialog .picker input[type="password"] { width: 100%; }
+#whDialog .pickset { margin-top: var(--gap-3); }
+#whDialog .picker label.pickrow { display: grid; margin-top: var(--gap-2); }
+#whDialog .picker label.pickrow:first-of-type { margin-top: 0; }
+#whDialog .picker .whgroup label.check { margin-top: 0; }
+#whDialog .whpicks { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--gap-2) var(--gap-4);
+                     margin-top: var(--gap-3); }
+#whDialog .whgroup { border: 0; margin: 0; padding: 0; min-width: 0; }
+#whDialog .whgroup legend { font-weight: 600; padding: 0; margin-bottom: var(--gap-1); }
+#whDialog label.check { display: flex; gap: var(--gap-2); align-items: center; margin: 2px 0; min-height: 32px; }
+#whDialog #whActiveRow { margin-top: var(--gap-3); }
+@media (max-width: 719px) {
+  /* Three buttons do not fit beside the name: they take their own line under the row, at a finger's size. */
+  :is(#view-webhooks, #page-webhooks) table.whtable td.whacts { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  :is(#view-webhooks, #page-webhooks) td.whacts button { margin: var(--gap-1) var(--gap-2) 0 0; }
+  :is(#view-webhooks, #page-webhooks) .whtable > thead th { width: auto; }
+  :is(#view-webhooks, #page-webhooks) tr.whsentrow { display: block; padding: 0; }
+  :is(#view-webhooks, #page-webhooks) tr.whsentrow > td { display: block; }
+  :is(#view-webhooks, #page-webhooks) button.tiny, #page-webhooks #svcWhNew, #view-webhooks #whNew { min-height: 44px; }
+  #whDialog label.check { min-height: 44px; }
+}

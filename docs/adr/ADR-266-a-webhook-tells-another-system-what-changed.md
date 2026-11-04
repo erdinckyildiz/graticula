@@ -248,6 +248,19 @@ that was raised while it was off.
    `changeTypesRaised` is the only place a caller learns it.
 2. **A Studio screen under Organization** lists the organisation's webhooks with create, activate, deactivate, delete
    and the recent deliveries, and a feature service's page lists its own. Not built this night; the REST API came first.
+   **DISCHARGED 2026-11-04.** Studio › Organization › Settings › Webhooks, after Portal's *Create and manage webhooks*:
+   a table of name, payload URL, events and status; *Create webhook* (name, payload URL, optional secret, all events or
+   the ticked ones of the operations this server raises); Activate or Deactivate, Delete (confirmed) and *Deliveries* on
+   each row, which opens the webhook's recent deliveries under it — time, event, result and the receiver's status code,
+   with Refresh. Offered only to a reader holding the two privileges the portal API asks; anybody else who types the
+   address is told why. A feature service's Settings has a Webhooks section with the same table and actions, made with
+   the four change types this server raises and an *Active* box, through its administration's `webhooks` (`edit` with
+   `active` is Activate and Deactivate there). Built on the existing APIs alone, no endpoint added: both kinds already
+   answer `notificationStatus`. `WebhooksScreenTests` drives both against a receiver in the test process, from the empty
+   first run to a delivery the receiver answered 200, and a reader without `admin:manageSecurity` is offered neither the
+   page nor a write. The deliveries are read field by field with this branch's names and ArcGIS's documented ones, so the
+   portal `notificationStatus` being reshaped on `day-1104` the same day is drawn too; that pairing is unproven until the
+   two branches meet and the test runs on the merge.
 3. **The five `INFERRED` choices of §5.10** are put to the owner and either confirmed or changed. **DISCHARGED
    2026-11-04, by owner decision** (*"Hepsi önerildiği gibi"*): all five confirmed as built — the two privileges for an
    organisation's webhook, objectIds in place of `changesUrl`, the private-network setting with plain HTTP only to a
