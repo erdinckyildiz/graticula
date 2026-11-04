@@ -203,6 +203,20 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
             "Download metadata is offered for a service with none.");
         Assert.True(await Browser.EvaluateAsync<bool>(Shown("#serviceImc [data-imc-text]")), "The service's page offers no comment box.");
 
+        // The panel is as far below the card above it as the cards above are from each other (UX review 2026-11-04, m10):
+        // each gap between the main column's shown cards, the Layers card's head and list counted as one card.
+        string gaps = await Browser.EvaluateAsync<string>("""
+            (() => {
+              const cards = [...document.querySelectorAll('#serviceOverview > .itemmain > *')]
+                .filter(e => e.getClientRects().length && e.id !== 'serviceLayersPanel');
+              const bottomOf = e => (e.id === 'serviceLayersHead' ? document.getElementById('serviceLayersPanel') : e).getBoundingClientRect().bottom;
+              const out = [];
+              for (let i = 1; i < cards.length; i++) out.push(Math.round(cards[i].getBoundingClientRect().top - bottomOf(cards[i - 1])));
+              return out.join(',');
+            })()
+            """) ?? string.Empty;
+        Assert.True(gaps.Split(',').Distinct().Count() == 1, $"The service's main column spaces its cards unevenly: {gaps}.");
+
         // A comment left through the API, as a client would, keyed on the service's portal item.
         JsonElement left = await PortalAsync($"/sharing/rest/content/items/{id}/addComment",
             Form(("comment", "<img src=x onerror=\"window.__pwned=1\"> service checked")));
