@@ -19,6 +19,26 @@ const WM_WORLD = [-20037508.342789244, -20037508.342789244, 20037508.342789244, 
 /** Features drawn per request for a feature layer, per view; more than this is said, not drawn. */
 const WM_DRAW_LIMIT = 2000;
 
+/**
+ * The most features one layer keeps once it has been moved over: past this the farthest from the view go first. A cut
+ * layer is asked again for every view, and what earlier views drew stays until then — ArcGIS Map Viewer keeps what it
+ * read in the same way — so panning back finds the map already drawn, and memory has a bound (owner, 2026-11-04).
+ */
+const WM_KEEP_LIMIT = 50000;
+
+/** Lets go of the features farthest from a view's centre until the source holds at most WM_KEEP_LIMIT. */
+function wmKeepNearest(source, extent) {
+  const all = source.getFeatures();
+  if (all.length <= WM_KEEP_LIMIT) return;
+  const [cx, cy] = ol.extent.getCenter(extent);
+  const away = feature => {
+    const [x, y] = ol.extent.getCenter(feature.getGeometry().getExtent());
+    return (x - cx) * (x - cx) + (y - cy) * (y - cy);
+  };
+  const farthest = all.map(feature => [away(feature), feature]).sort((a, b) => b[0] - a[0]);
+  source.removeFeatures(farthest.slice(0, all.length - WM_KEEP_LIMIT).map(([, feature]) => feature));
+}
+
 /** How far past a visible range's bound still counts as inside it — rounding, not a wider range. */
 const WM_RANGE_SLACK = 1.001;
 
@@ -1268,14 +1288,18 @@ function wmBuildLayer(layer, run, index) {
         (run.extents = run.extents || []).push(extent);
         wmFetch(url).then(payload => {
           const features = WM_ESRI.readFeatures(payload, { featureProjection: WM_MERCATOR });
-          // Asked again after a move: what the last view drew goes in the same task as the new answer comes, so no
-          // frame is drawn between them with the layer empty (2026-11-03, a GeoParquet layer blinked on every pan).
-          if (run.replace) {
-            run.replace = false;
-            const old = source.getFeatures();
-            if (old.length) source.removeFeatures(old);
+          // <b>By their object ids</b>, so a feature that an earlier view drew and this one answers again is drawn once:
+          // a source skips a feature whose id it already holds.
+          for (const feature of features) {
+            const id = feature.get(idField);
+            if (id !== undefined && id !== null) feature.setId(id);
           }
+          // <b>Asked again after a move, and what earlier views drew stays</b> (owner, 2026-11-04: panning a cut layer
+          // emptied what had just been on screen). Until then the last view's features were swapped out for the new
+          // answer — no blink, but nothing kept — and panning back read the same ground again. Now they stay, up to
+          // WM_KEEP_LIMIT, the farthest from this view going first.
           source.addFeatures(features);
+          wmKeepNearest(source, extent);
           const truncated = !!payload.exceededTransferLimit;
           const wasError = !!run.error;
           run.error = null;
@@ -2484,7 +2508,9 @@ wm$("frameAll").addEventListener("click", async () => {
 
 // ----------------------------------------------------------------------------- Add layer
 
-let wmServices = null;   // [{ name, type }] once read
+let wmServices = null;   // [{ name, type }] once read: every face the directory lists
+let wmAddItems = null;   // [{ id, title, kind, name, type, owner, modified }] once read: the layer items
+let wmAddShown = 50;     // how many entries the list draws before "Show more"
 
 /** Every service this reader can see, walking the directory's folders. */
 async function wmReadServices() {
@@ -2512,10 +2538,54 @@ async function wmReadServices() {
   return found.sort((a, b) => a.name.localeCompare(b.name) || a.type.localeCompare(b.type));
 }
 
+/** The portal item types Add lists, and the face each is drawn through. */
+const WM_ITEM_FACE = {
+  "Feature Service": "FeatureServer",
+  "Vector Tile Service": "VectorTileServer",
+  "Image Service": "ImageServer",
+  "Map Service": "MapServer",
+};
+
 const WM_TYPE_LABEL = { FeatureServer: "Features", MapServer: "Map image", VectorTileServer: "Vector tiles", ImageServer: "Imagery" };
+
+/** What an entry's meta line calls its kind, as ArcGIS Map Viewer's Browse layers does. */
+const WM_KIND_NAME = { FeatureServer: "Feature layer", MapServer: "Map image layer", VectorTileServer: "Vector tile layer", ImageServer: "Imagery layer" };
 
 /** The kinds a service is added as, the one a person almost always wants first. */
 const WM_TYPE_ORDER = ["FeatureServer", "ImageServer", "VectorTileServer", "MapServer"];
+
+/**
+ * The layer items this reader may see, from the portal's search, page by page.
+ *
+ * <b>Items, not the directory</b> (UX review 2026-11-04): the directory knows a service's name and its protocols, so the
+ * list was 29 identifiers with 70 equal buttons under them. An item has a title, a kind, an owner and a date, and is one
+ * thing to add, as in ArcGIS Map Viewer's Browse layers. Its service and face come from its URL.
+ */
+async function wmReadAddItems() {
+  const items = [];
+  let start = 1;
+
+  for (let page = 0; page < 20 && start > 0; page++) {
+    const found = await wmFetch(`/sharing/rest/search?f=json&q=&num=100&start=${start}&sortField=title&sortOrder=asc`);
+
+    for (const item of found.results || []) {
+      const face = WM_ITEM_FACE[item.type];
+      const at = /\/rest\/services\/(.+)\/(FeatureServer|MapServer|VectorTileServer|ImageServer)\/?$/i.exec(String(item.url || ""));
+      if (!face || !at) continue;
+
+      let name = at[1];
+      try { name = decodeURIComponent(name); } catch { /* an address with a stray % is kept as written */ }
+      items.push({
+        id: item.id, title: item.title || name.split("/").pop(), type: face, name,
+        owner: item.owner || "", modified: item.modified || item.created || 0,
+      });
+    }
+
+    start = found.nextStart;
+  }
+
+  return items;
+}
 
 /** Whether the map already holds this service in this form. */
 function wmOnMap(name, type) {
@@ -2528,55 +2598,80 @@ function wmOnMap(name, type) {
 }
 
 /**
- * One kind's control: *Add*, or *On map* where the map already has it.
+ * An entry's control: *Add*, or *On map* where the map already has it.
  *
  * <b>*On map* carries the Add button's focus key and can take focus</b>, so the keyboard lands on the
  * sentence that replaced the button it pressed, rather than falling to the page.
  */
-function wmAddControl(name, type) {
+function wmAddControl(name, type, title) {
   const key = `add:${type}:${name}`;
   const kind = WM_TYPE_LABEL[type] || type;
   return wmOnMap(name, type)
-    ? `<span class="onmap" tabindex="-1" data-focus="${wmEscape(key)}"><svg class="i" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>${wmEscape(kind)} on map</span>`
-    : `<button class="tiny" data-add="${wmEscape(name)}" data-type="${wmEscape(type)}" data-focus="${wmEscape(key)}"
-        aria-label="Add ${wmEscape(name)} as ${wmEscape(kind)}">${wmEscape(kind)}</button>`;
+    ? `<span class="onmap" tabindex="-1" data-focus="${wmEscape(key)}"><svg class="i" aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>On map</span>`
+    : `<button class="addone" data-add="${wmEscape(name)}" data-type="${wmEscape(type)}" data-focus="${wmEscape(key)}"
+        data-title="${wmEscape(title)}" aria-label="Add ${wmEscape(title)} as ${wmEscape(kind)}"><svg class="i" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add</button>`;
+}
+
+/** A kind's small picture, so the kind is said by shape as well as by the words beside it. */
+function wmKindIcon(type) {
+  const path = {
+    FeatureServer: "M5 6h.01M4 20l5-6 4 3 6-7M13 4h7v6h-7z",
+    VectorTileServer: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+    ImageServer: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4",
+    MapServer: "M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14",
+  }[type] || "M4 4h16v16H4z";
+  return `<span class="kindicon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${path}"/></svg></span>`;
+}
+
+/** A date as an entry's meta line says it: Updated 3 Oct 2026. */
+function wmShortDate(ms) {
+  if (!ms) return "";
+  try {
+    return `Updated ${new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
+  } catch {
+    return "";
+  }
 }
 
 /**
- * The services list: one row per service, with an Add for each kind it can be drawn as.
+ * The list: one entry per layer item, one Add each.
  *
- * <b>One row, not one per face.</b> The directory lists a service once for each face it answers, so the
- * first version offered `wm_buildings` three times and left the reader to guess which *Add* they meant.
- * <b>Every kind on the row, named</b> — 2026-11-03: the vector tiles sat one closed disclosure away under
- * *Other ways to draw it*, and the owner could not find the vector tile services the portal lists as items of
- * their own. A kind can also be chosen, as ArcGIS Map Viewer's Add filters by type.
+ * <b>One choice per entry</b> (UX review 2026-11-04): each service offered every protocol as an equal button, 70 of them
+ * for 29 services, and nothing said which to press. An item is already one kind — a feature layer, a vector tile layer —
+ * so its Add needs no question. A feature layer that can also be drawn as one map image offers that behind its ⋯, as
+ * ArcGIS keeps other ways to add a layer out of the list.
+ * <b>No folder headings</b>: Browse layers does not group by folder. The folder is said only where it tells two entries of
+ * the same title apart.
  */
 function wmDrawAddList(sayCount = true) {
   const list = wm$("addList");
-  if (!wmServices) return;
+  if (!wmAddItems) return;
 
-  const byName = new Map();
-  for (const s of wmServices) {
-    if (!byName.has(s.name)) byName.set(s.name, new Set());
-    byName.get(s.name).add(s.type);
-  }
-
-  const names = [...byName.keys()];
+  const faces = new Set((wmServices || []).map(s => `${s.name}\n${s.type}`));
   const needle = wm$("addFilter").value.trim().toLowerCase();
-  const kind = wm$("addType").value;
-  const shown = names.filter(n => (!needle || n.toLowerCase().includes(needle)) && (!kind || byName.get(n).has(kind)));
+  const kind = wm$("addKinds").querySelector("[aria-pressed=true]")?.dataset.kind || "";
+  const mine = wm$("addSource").querySelector("[aria-pressed=true]")?.dataset.source === "mine";
+  const all = wmAddItems;
+
+  const shown = all.filter(item =>
+    (!needle || item.title.toLowerCase().includes(needle) || item.name.toLowerCase().includes(needle))
+    && (!kind || item.type === kind)
+    && (!mine || (wmMe.name && item.owner.toLowerCase() === String(wmMe.name).toLowerCase())));
 
   // <b>Nothing to filter, and the way out is a link</b> (ADR-079 condition 2's review, 2026-10-14): a first run put the
   // keyboard in a filter with nothing under it and named *My content* without a way to reach it.
-  const none = names.length === 0;
-  wm$("addFilter").hidden = none;
-  wm$("addType").hidden = none;
+  const none = all.length === 0;
+  wm$("addFind").hidden = none;
+  wm$("addSource").hidden = !wmMe.authenticated;
+  for (const chip of wm$("addKinds").querySelectorAll("button[data-kind]")) {
+    if (chip.dataset.kind) chip.hidden = !all.some(item => item.type === chip.dataset.kind) && chip.getAttribute("aria-pressed") !== "true";
+  }
 
   if (none) {
     wmRedraw(list, "");
     const said = wm$("addStatus");
     said.classList.remove("bad");
-    said.innerHTML = `There are no services you can read yet. Publish one from
+    said.innerHTML = `There are no layers you can read yet. Publish one from
       <a href="/studio/content">My content</a> in Studio, or ask for one to be shared with you; then press
       <b>Add layer</b> again.`;
     said.tabIndex = -1;
@@ -2585,39 +2680,45 @@ function wmDrawAddList(sayCount = true) {
   }
 
   if (sayCount) {
-    wmSayIn("addStatus", needle || kind ? `${shown.length} of ${names.length} services match.`
-      : `${names.length} service${names.length === 1 ? "" : "s"}.`);
+    wmSayIn("addStatus", needle || kind || mine ? `${shown.length} of ${all.length} layers match.`
+      : `${all.length} layer${all.length === 1 ? "" : "s"}.`);
   }
 
   if (!shown.length) {
-    wmRedraw(list, `<li><button type="button" class="tiny" id="addClear" data-focus="addClear">Clear the filter</button></li>`);
+    wmRedraw(list, `<li class="empty"><button type="button" class="tiny" id="addClear" data-focus="addClear">Clear the filters</button></li>`);
     return;
   }
 
-  // <b>A folder is said once</b> (UX review of ADR-259): every row began with hosted/, so the names that differ were the
-  // part a reader had to look past. The rows sit under their folder's name, root services first.
-  const folders = new Map();
-  for (const name of shown.slice(0, 200)) {
-    const cut = name.lastIndexOf("/");
-    const folder = cut < 0 ? "" : name.slice(0, cut);
-    if (!folders.has(folder)) folders.set(folder, []);
-    folders.get(folder).push(name);
-  }
+  // The folder only where two entries of one kind share a title (the root `deneme` and `deneme/deneme`).
+  const same = item => `${item.type}:${item.title.toLowerCase()}`;
+  const titles = new Map();
+  for (const item of shown) titles.set(same(item), (titles.get(same(item)) || 0) + 1);
 
-  const row = name => {
-    const types = WM_TYPE_ORDER.filter(t => byName.get(name).has(t) && (!kind || t === kind));
+  const entry = item => {
+    const cut = item.name.lastIndexOf("/");
+    const where = titles.get(same(item)) > 1 ? (cut < 0 ? "Top folder" : `Folder: ${item.name.slice(0, cut)}`) : "";
+    const meta = [WM_KIND_NAME[item.type], item.owner, wmShortDate(item.modified), where].filter(Boolean);
+    const asImage = item.type === "FeatureServer" && faces.has(`${item.name}\nMapServer`) && !wmOnMap(item.name, "MapServer");
     return `<li>
-      <div class="svcrow"><span class="name">${wmEscape(name.slice(name.lastIndexOf("/") + 1))}</span></div>
-      <div class="kinds" role="group" aria-label="Add ${wmEscape(name)} as">${types.map(type => wmAddControl(name, type)).join("")}</div>
+      ${wmKindIcon(item.type)}
+      <div class="addtext">
+        <span class="name" title="${wmEscape(item.title)}">${wmEscape(item.title)}</span>
+        <span class="meta">${meta.map(part => `<span>${wmEscape(part)}</span>`).join(" · ")}</span>
+      </div>
+      <div class="addact">
+        ${wmAddControl(item.name, item.type, item.title)}
+        ${asImage ? `<details class="addmore"><summary aria-label="More ways to add ${wmEscape(item.title)}" title="More ways to add">
+            <svg class="i" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01"/></svg></summary>
+            <button type="button" data-add="${wmEscape(item.name)}" data-type="MapServer" data-title="${wmEscape(item.title)}"
+              data-focus="add:MapServer:${wmEscape(item.name)}" data-focus-fallback="add:FeatureServer:${wmEscape(item.name)}">Add as one map image</button>
+          </details>` : `<span class="addslot" aria-hidden="true"></span>`}
+      </div>
     </li>`;
   };
 
-  const order = [...folders.keys()].sort((a, b) => a === "" ? -1 : b === "" ? 1 : 0);
-  // Root services come first with no heading; a folder's name is data, so it is shown as written, not in capitals.
-  wmRedraw(list, order.map((folder, i) => folder === ""
-    ? folders.get(folder).map(row).join("")
-    : `<li class="folder"><h3 class="lgroup" id="addFolder-${i}">${wmEscape(folder)}</h3>
-        <ul aria-labelledby="addFolder-${i}">${folders.get(folder).map(row).join("")}</ul></li>`).join(""));
+  const more = shown.length - wmAddShown;
+  wmRedraw(list, shown.slice(0, wmAddShown).map(entry).join("")
+    + (more > 0 ? `<li class="empty"><button type="button" class="tiny" id="addMore" data-focus="addMore">Show ${Math.min(more, 50)} more</button></li>` : ""));
 }
 
 
@@ -2631,14 +2732,66 @@ wm$("addLayer").addEventListener("click", () => {
   else if (wm$("addStatus").hasAttribute("tabindex")) wm$("addStatus").focus();
 });
 
-wm$("addFilter").addEventListener("input", () => wmDrawAddList());
-wm$("addType").addEventListener("change", () => wmDrawAddList());
+wm$("addFilter").addEventListener("input", () => { wmAddShown = 50; wmDrawAddList(); });
+
+/** Closes every open ⋯ menu in Add but one. */
+function wmCloseAddMenus(except = null) {
+  for (const open of wm$("addList").querySelectorAll(".addmore[open]")) if (open !== except) open.open = false;
+}
+
+wm$("addList").addEventListener("toggle", event => {
+  const menu = event.target;
+  if (!menu.classList?.contains("addmore") || !menu.open) return;
+  wmCloseAddMenus(menu);
+  menu.querySelector("button")?.scrollIntoView({ block: "nearest" });
+}, true);
+
+// Escape closes the menu and gives the keyboard back to its ⋯, and nothing else: the sheet's own Escape skips a handled one.
+wm$("addList").addEventListener("keydown", event => {
+  const menu = event.key === "Escape" && event.target.closest(".addmore[open]");
+  if (!menu) return;
+  event.preventDefault();
+  menu.open = false;
+  menu.querySelector("summary").focus();
+});
+
+document.addEventListener("pointerdown", event => {
+  if (!event.target.closest?.(".addmore")) wmCloseAddMenus();
+});
+
+/** One pressed button in a group of choices: the source, or the kind. */
+function wmPressOne(group, pressed) {
+  for (const b of group.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === pressed));
+}
+
+for (const id of ["addSource", "addKinds"]) {
+  wm$(id).addEventListener("click", event => {
+    const b = event.target.closest("button");
+    if (!b || b.getAttribute("aria-pressed") === "true") return;
+    wmPressOne(wm$(id), b);
+    wmAddShown = 50;
+    wmDrawAddList();
+  });
+}
+
 wm$("addList").addEventListener("click", event => {
-  if (!event.target.closest("#addClear")) return;
-  wm$("addFilter").value = "";
-  wm$("addType").value = "";
-  wmDrawAddList();
-  wm$("addFilter").focus();
+  if (event.target.closest("#addClear")) {
+    wm$("addFilter").value = "";
+    wmPressOne(wm$("addKinds"), wm$("addKinds").querySelector("button"));
+    wmPressOne(wm$("addSource"), wm$("addSource").querySelector("button"));
+    wmAddShown = 50;
+    wmDrawAddList();
+    wm$("addFilter").focus();
+    return;
+  }
+
+  // Show more: the keyboard goes to the first entry it drew, not back to the top of the list.
+  if (event.target.closest("#addMore")) {
+    const first = wmAddShown;
+    wmAddShown += 50;
+    wmDrawAddList(false);
+    wm$("addList").children[first]?.querySelector("button, [tabindex]")?.focus();
+  }
 });
 
 /*
@@ -2653,16 +2806,18 @@ wm$("addList").addEventListener("click", async event => {
   t.setAttribute("aria-disabled", "true");
 
   const name = t.dataset.add;
+  const title = t.dataset.title || name;
+  const kind = (WM_KIND_NAME[t.dataset.type] || "").toLowerCase();
 
   try {
     const added = await wmAddService(name, t.dataset.type);
     wmSayIn("addStatus", added === 0
-      ? `${name} has no layer to add.`
-      : `Added ${added} layer${added === 1 ? "" : "s"} from ${name}.`);
+      ? `${title} has no layer to add.`
+      : added === 1 ? `Added ${title} as ${/^[aeiou]/.test(kind) ? "an" : "a"} ${kind}.` : `Added ${added} layers from ${title}.`);
     if (added > 0) wmMarkDirty();
   } catch (e) {
     // A service of tables alone is not a failure to add; it is a service with nothing to draw (ADR-213).
-    wmSayIn("addStatus", e.tablesOnly ? e.message : `${name} could not be added: ${e.message}`, !e.tablesOnly);
+    wmSayIn("addStatus", e.tablesOnly ? e.message : `${title} could not be added: ${e.message}`, !e.tablesOnly);
   } finally {
     t.removeAttribute("aria-disabled");
     // Not the count: it wrote over what the Add did, failures included, before anybody could read it (UX review
@@ -3684,16 +3839,20 @@ function wmPropertiesMarkup(layer, run, key, title, kind, readable) {
 
 /** Add is a tool of its own (ADR-259 §3.4): the services are read the first time it opens. */
 async function wmOpenAdd() {
-  if (wmServices) {
+  if (wmAddItems) {
     wmDrawAddList();
     return;
   }
-  wmSayIn("addStatus", "Reading the services you can see…");
+  wmSayIn("addStatus", "Reading the layers you can see…");
   try {
-    wmServices = await wmReadServices();
+    // The items are the list; the directory only says which feature layers can also be drawn as one map image, so a
+    // directory that will not read costs that and nothing else.
+    const [services, items] = await Promise.all([wmReadServices().catch(() => []), wmReadAddItems()]);
+    wmServices = services;
+    wmAddItems = items;
     wmDrawAddList();
   } catch (e) {
-    wmSayIn("addStatus", `The services directory could not be read: ${e.message}`, true);
+    wmSayIn("addStatus", `The layers you can see could not be read: ${e.message}`, true);
   }
 }
 
@@ -4327,7 +4486,7 @@ async function wmStart() {
     // On a phone the Layers sheet is closed, so the sentence names the way to it (design review 2026-10-31).
     : WM_PHONE.matches
     ? "A new, empty map. Use Add to put a layer on it."
-    : "A new, empty map. Add layer lists the services you can read.");
+    : "A new, empty map. Add layer lists the layers you can read.");
 }
 
 wmStart().catch(e => wmSay(`The map could not start: ${e.message || e}`, true));
@@ -4547,13 +4706,12 @@ wmMap.on("moveend", () => {
 
     // Not `refresh()`: that empties the layer at once and leaves it empty until the answer comes, so every pan over a
     // large layer blinked. The extents are let go instead, the source asks for the view again on the next frame, and
-    // the loader swaps the old features for the new ones when they arrive.
+    // the loader adds the new answer to what is drawn, keeping the nearest WM_KEEP_LIMIT (2026-11-04).
     const source = run.ol.getSource && run.ol.getSource();
     if (run.truncated && inside && source && source.removeLoadedExtent) {
       run.truncated = false;
       for (const extent of run.extents || []) source.removeLoadedExtent(extent);
       run.extents = [];
-      run.replace = true;
       source.changed();
     }
   }

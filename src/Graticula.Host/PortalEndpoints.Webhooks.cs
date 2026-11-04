@@ -48,7 +48,43 @@ internal static partial class PortalEndpoints
         app.MapPost($"{root}/{{webhookId}}/deactivate", (HttpContext c, string webhookId, CancellationToken t) =>
             SetWebhookActiveAsync(c, webhookId, false, t)).Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
         Discoverable(app, $"{root}/{{webhookId}}/notificationStatus", NotificationStatusAsync).Governed(SharingGovernedExtensions.ByPrivilege);
+        Discoverable(app, $"{root}/settings", WebhookSettings).Governed(SharingGovernedExtensions.ByPrivilege);
+        app.MapPost($"{root}/settings/update", UpdateWebhookSettings).Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
     }
+
+    /// <summary>
+    /// <c>webhooks/settings</c>: how this server delivers, in the three numbers Portal's settings carry — ADR-266 condition
+    /// 4. The ArcGIS API for Python's <c>gis.admin.webhooks.settings</c> reads them, and was answered 404.
+    /// </summary>
+    /// <remarks>
+    /// <b>What the sender does, not what was configured</b>: a portal webhook is retried <c>MaxRetries</c> (3) times, so
+    /// four attempts; each waits <see cref="WebhookTargets.RequestTimeout"/> for an answer; the first retry follows ten
+    /// seconds after a failure and the later ones further apart (<see cref="WebhookDeliverer.Backoff"/>), which one number
+    /// can only begin to say.
+    /// </remarks>
+    private static IResult WebhookSettings(HttpContext context) =>
+        !ManagesWebhooks(context.Features.Get<RequestPrincipal>()!)
+            ? PortalError(403, WebhooksRefused)
+            : Results.Ok(new
+            {
+                notificationAttempts = PortalWebhookRetries + 1,
+                notificationTimeOutInSeconds = (int)WebhookTargets.RequestTimeout.TotalSeconds,
+                notificationElapsedTimeInSeconds = (int)WebhookDeliverer.Backoff[0].TotalSeconds,
+            });
+
+    /// <summary>
+    /// <c>webhooks/settings/update</c>: refused in words. <b>INFERRED</b> (ADR-266 condition 4): the delivery policy is
+    /// this server's, one retry ladder for every webhook, and making it an organisation's setting is a decision of its own.
+    /// </summary>
+    private static IResult UpdateWebhookSettings(HttpContext context) =>
+        !ManagesWebhooks(context.Features.Get<RequestPrincipal>()!)
+            ? PortalError(403, WebhooksRefused)
+            : PortalError(400,
+                "Webhook delivery settings are fixed on this server: four attempts, a 15-second wait for each answer, and "
+                + "retries 10 seconds, 1 minute and 5 minutes after the failures before them (ADR-266).");
+
+    /// <summary>How many times a portal webhook's delivery is retried after its first attempt.</summary>
+    private const int PortalWebhookRetries = 3;
 
     /// <summary>Whether the caller may manage the organisation's webhooks — ADR-266 §7.</summary>
     internal static bool ManagesWebhooks(RequestPrincipal current) =>
@@ -91,7 +127,21 @@ internal static partial class PortalEndpoints
         }
 
         IReadOnlyList<WebhookDefinition> all = await store.ListAsync(WebhookKind.Portal, null, cancellation).ConfigureAwait(false);
-        return Results.Ok(new { webhooks = all.Select(h => PortalWebhook(context, h)).ToArray() });
+
+        // <b>Paged as Portal pages it</b> (ADR-266 condition 4): the ArcGIS API for Python's `gis.admin.webhooks.list()`
+        // reads `nextStart` and asks again until it is -1, and failed with a KeyError on the bare array this answered.
+        PortalPage.Page page = PortalPage.Of(
+            [.. all.Select(h => PortalWebhook(context, h))], context,
+            context.Request.HasFormContentType ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false) : null);
+
+        return Results.Ok(new
+        {
+            total = page.Total,
+            start = page.Start,
+            num = page.Num,
+            nextStart = page.NextStart,
+            webhooks = page.Results,
+        });
     }
 
     private static async Task<WebhookDefinition?> PortalWebhookAsync(IWebhookStore store, string webhookId, CancellationToken cancellation) =>
@@ -181,7 +231,7 @@ internal static partial class PortalEndpoints
                 WebhookKind.Portal, null, name, url!.AbsoluteUri, events,
                 secret.Length > 0 ? protector.Protect(secret) : null, secret.Length > 0 ? protector.KeyVersion : null,
                 Active: true, current.Principal.Id, TileFaces.Origin(context), contentType, format,
-                MaxRetries: 3, failures ?? 5, days ?? 5, properties ?? "{}"),
+                MaxRetries: PortalWebhookRetries, failures ?? 5, days ?? 5, properties ?? "{}"),
             cancellation).ConfigureAwait(false);
 
         await AdminEndpoints.AuditAsync(context, audit, "webhook.create", made!.Id.ToString("N"),
@@ -341,16 +391,35 @@ internal static partial class PortalEndpoints
             return PortalError(404, $"There is no webhook '{webhookId}'.");
         }
 
-        int num = int.TryParse(context.Request.Query["num"], out int n) ? Math.Clamp(n, 1, 100) : 25;
-        IReadOnlyList<WebhookDeliveryRecord> recent = await store.RecentAsync(hook.Id, num, cancellation).ConfigureAwait(false);
+        // <b>Paged, and the rows under `WebhookStatus` as well</b> (ADR-266 condition 4): the ArcGIS API for Python's
+        // `Webhook.notifications` posts `start` and `num` and reads `WebhookStatus` and `nextStart`, and raised a KeyError
+        // on this answer's own name for them. The row's fields stay this server's; `notifications` stays for the callers
+        // that read it.
+        IFormCollection? form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false) : null;
+        string? Asked(string key) => form?[key].ToString() is { Length: > 0 } posted ? posted : context.Request.Query[key].ToString();
 
-        return Results.Ok(new
+        int num = int.TryParse(Asked("num"), out int n) ? Math.Clamp(n, 1, 100) : 25;
+        int start = int.TryParse(Asked("start"), out int s) ? Math.Clamp(s, 1, 1000) : 1;
+
+        // One more than the page, to know whether another follows; the store keeps at most 200 finished per webhook.
+        IReadOnlyList<WebhookDeliveryRecord> recent = await store.RecentAsync(hook.Id, Math.Min(start - 1 + num + 1, 1000), cancellation)
+            .ConfigureAwait(false);
+        WebhookDeliveryRecord[] page = [.. recent.Skip(start - 1).Take(num)];
+        object[] rows = [.. WebhookRequests.Deliveries(page)];
+
+        // A dictionary, because the web serializer would write an anonymous `WebhookStatus` as `webhookStatus`.
+        return Results.Ok(new Dictionary<string, object?>
         {
-            webhookId = hook.Id.ToString("N"),
-            isActive = hook.Active,
-            deactivatedReason = hook.DeactivatedReason,
-            total = recent.Count,
-            notifications = WebhookRequests.Deliveries(recent),
+            ["webhookId"] = hook.Id.ToString("N"),
+            ["isActive"] = hook.Active,
+            ["deactivatedReason"] = hook.DeactivatedReason,
+            ["total"] = recent.Count,
+            ["start"] = start,
+            ["num"] = page.Length,
+            ["nextStart"] = recent.Count > start - 1 + num ? start + num : -1,
+            ["WebhookStatus"] = rows,
+            ["notifications"] = rows,
         });
     }
 }

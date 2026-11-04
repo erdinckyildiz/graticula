@@ -1311,6 +1311,32 @@
     </dialog>
   </section>
 
+  <!--
+    Organization › Settings › Webhooks — ADR-266 condition 2, after Portal for ArcGIS's *Create and manage webhooks*:
+    a table of the organization's webhooks (name, payload URL, events, status), Create webhook, and on each row
+    Activate or Deactivate, Delete and its recent deliveries. Read and written through the ArcGIS-shaped portal API,
+    `portals/self/webhooks`, which answers only a reader holding admin:manageSecurity and admin:viewAllContent; the
+    column offers the page to that reader alone. Drawn by `loadOrgWebhooks` into #whList; the Create dialog is
+    #whDialog, outside the views, because a feature service's Webhooks section uses it too.
+  -->
+  <section class="view" id="view-webhooks">
+    <div class="pagehead">
+      <div>
+        <h1>Webhooks</h1>
+        <p>Tell another system — an integration server, Power Automate, Make, FME — when items, groups, members or roles
+          of this organization change. Each webhook posts a JSON message to its payload URL, signed if it has a secret.</p>
+      </div>
+      <div class="right" id="whHeadActs" hidden>
+        <span class="val" id="whCount"></span>
+        <button class="primary" id="whNew" type="button" data-wh-new="org">Create webhook</button>
+      </div>
+    </div>
+
+    <p class="hint" id="whSays" role="status" aria-live="polite"></p>
+
+    <div id="whList" aria-busy="true"><p class="hint">Reading this organization's webhooks&hellip;</p></div>
+  </section>
+
   <section class="view" id="view-settings">
     <!--
       <b>V-70, the owner's decision of 2026-09-23 (ADR-084):</b> "server tarafında genel ayarlar gibi bir
@@ -3054,6 +3080,13 @@
         <div class="panel pad" id="serviceOps"></div>
         <div class="panel pad" id="serviceSpend"></div>
       </div>
+
+      <!--
+        ADR-267 condition 1: the item's metadata and the comments members leave on it, drawn by imcMount — the panel a
+        document's and a web map's page have, last in the main column below the description and the layers, where
+        Portal's item page keeps its comments. Hidden for a service whose listing names no portal item (an image service).
+      -->
+      <div class="panel imcpanel" id="serviceImc" data-imc hidden></div>
       </div>
 
       <aside class="panel pad" id="serviceDetails" role="region" aria-label="Item information"></aside>
@@ -3631,6 +3664,63 @@
   <footer class="dialogfoot">
     <button class="ghost" id="serverConfirmCancel">Cancel</button>
     <button class="danger" id="serverConfirmGo">Go on</button>
+  </footer>
+</dialog>
+
+<!--
+  Create webhook — ADR-266 condition 2, one dialog for both kinds, after Portal's and ArcGIS Online's: a name, the
+  payload URL, an optional secret that signs each message, and the events. An organization's events are Portal's
+  triggers (items, groups, members, roles); a feature service's are its change types. `openWebhookCreate` fills
+  #whEvents for the kind it is opened for, and shows *Active* only for a feature service, whose webhooks ArcGIS makes
+  inactive unless told.
+-->
+<dialog id="whDialog" class="formdialog" aria-labelledby="whDialogTitle">
+  <header class="dialoghead">
+    <h3 id="whDialogTitle">Create webhook</h3>
+    <button type="button" class="tiny ghost" id="whDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+  <div class="dialogbody">
+    <div class="picker">
+      <!--
+        Each field's refusal sits directly under it, wired to it with aria-describedby (UX review of the webhook screens,
+        M1): the dialog's one line at the foot was under a long list of events, below the window's edge.
+      -->
+      <label for="whName">Name</label>
+      <input id="whName" type="text" maxlength="256" autocomplete="off" spellcheck="false" aria-describedby="whNameSays">
+      <p class="bad-inline whsays" id="whNameSays" hidden></p>
+
+      <label for="whUrl">Payload URL</label>
+      <input id="whUrl" type="url" autocomplete="off" autocapitalize="off" spellcheck="false"
+        placeholder="https://hooks.example.com/graticula" aria-describedby="whUrlSays whUrlHint">
+      <p class="bad-inline whsays" id="whUrlSays" hidden></p>
+      <!-- WebhookTargets' rule, as it is: HTTPS to the internet; the deployment's own network only when the
+           administrator set Graticula:WebhooksAllowPrivate, and plain HTTP only to such an address. -->
+      <p class="hint" id="whUrlHint">Where each message is posted: the full address, starting with <code>https://</code>,
+        of a receiver on the internet. An address on this server's own network (private, loopback or link-local) is
+        refused unless the administrator allows such addresses with <code>Graticula:WebhooksAllowPrivate</code>; plain
+        <code>http://</code> is then accepted too, but only for those addresses. No user name or password in the
+        address, and a redirect is not followed.</p>
+
+      <label for="whSecret">Secret <span class="hint">(optional)</span></label>
+      <input id="whSecret" type="password" autocomplete="new-password" maxlength="256" aria-describedby="whSecretSays whSecretHint">
+      <p class="bad-inline whsays" id="whSecretSays" hidden></p>
+      <p class="hint" id="whSecretHint"><span id="whSecretKeep" hidden>Leave empty to keep the current secret. </span>Signs
+        every message: the receiver checks the <code>x-esriHook-Signature</code> header, an HMAC-SHA256 of the body under
+        this secret. It is never shown again.</p>
+
+      <fieldset class="pickset whevents" id="whEvents">
+        <legend>Events</legend>
+      </fieldset>
+
+      <label class="check" id="whActiveRow"><input type="checkbox" id="whActive" checked> Active: send messages from
+        now on</label>
+    </div>
+  </div>
+  <footer class="dialogfoot">
+    <p class="bad-inline" id="whFormSays" role="alert" hidden></p>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="whCancel">Cancel</button>
+    <button type="button" class="primary" id="whCreate">Create webhook</button>
   </footer>
 </dialog>
 

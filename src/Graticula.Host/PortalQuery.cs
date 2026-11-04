@@ -495,6 +495,23 @@ internal static class PortalQuery
     /// <returns>Its value, or null.</returns>
     internal static object? Field(object item, string name)
     {
+        // An item a listing has added to (ADR-267 condition 2: numComments and the Metadata keyword) is a JSON object by
+        // then, and is read as the anonymous one it was made from would be: strings, whole numbers, lists of strings.
+        if (item is System.Text.Json.Nodes.JsonObject node)
+        {
+            return node.FirstOrDefault(p => string.Equals(p.Key, name, StringComparison.OrdinalIgnoreCase)).Value switch
+            {
+                null => null,
+                System.Text.Json.Nodes.JsonArray list => list.Select(e => e?.ToString()).OfType<string>().ToArray(),
+                System.Text.Json.Nodes.JsonValue value when value.TryGetValue(out string? text) => text,
+                System.Text.Json.Nodes.JsonValue value when value.TryGetValue(out int whole) => whole,
+                System.Text.Json.Nodes.JsonValue value when value.TryGetValue(out long large) => large,
+                System.Text.Json.Nodes.JsonValue value when value.TryGetValue(out double real) => real,
+                System.Text.Json.Nodes.JsonValue value when value.TryGetValue(out bool flag) => flag,
+                System.Text.Json.Nodes.JsonNode other => other.ToJsonString(),
+            };
+        }
+
         PropertyInfo? property = item.GetType().GetProperty(
             name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
 

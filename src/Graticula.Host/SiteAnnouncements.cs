@@ -59,6 +59,9 @@ internal sealed partial class SiteAnnouncements : BackgroundService
     /// <summary>An administrator set a machine's state: the detail is its name, and that machine takes it up now.</summary>
     public const string Machine = "machine";
 
+    /// <summary>A webhook was made, changed or removed: every node forgets which services have one (ADR-266).</summary>
+    public const string Webhooks = "webhooks";
+
     private static readonly TimeSpan Heartbeat = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(5);
 

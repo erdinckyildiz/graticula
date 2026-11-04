@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `HIGH` for the payload and the isolation, measured; `MEDIUM` for the default width |
+| **Confidence** | `HIGH` for the payload and the isolation, measured, and for the width, which the owner confirmed |
 | **Decided** | 2026-11-04, by owner decision on [D-321](../architecture-debt.md): asked whether a PDF's first page should become its picture with PDFium, *"Evet, PDFium ekle"*, and, when the session's permission check refused to run the downloaded library, *"sen çalıştır"*. |
 | **Supersedes** | — ([ADR-254](ADR-254-gdal-without-poppler.md)'s revisit trigger *"a product feature needs a PDF reader … it is PDFium or nothing, and it is a separate decision"* — this is that decision) |
 | **Superseded by** | — |
@@ -78,7 +78,7 @@ project that publishes its build arguments. One file per platform.
    document from memory. The host never loads it. GDAL still has no PDF driver, and `gdal-natives.py` still refuses a
    PDFium inside GDAL's closure. The image's name check allows `pdfium` only under `/app/importer/pdfium/`.
 3. **A PDF's page 1 is drawn 600 px wide**, the width of ArcGIS's own thumbnails, and at most twice that tall, on
-   white, with its annotations, as a PNG. **`INFERRED`: the width.**
+   white, with its annotations, as a PNG. The width was `INFERRED` and is confirmed by the owner (condition 2).
 4. **Drawn after a document is filed or its file replaced**, through Studio, the portal's `addItem` (which uses Studio's
    handler) or the portal's `update`, **into an empty slot or over a picture this server drew, never over an owner's.**
    Migration 132's `document.thumbnail_drawn` keeps the two apart. A file that is no longer a PDF takes a drawn picture
@@ -122,8 +122,14 @@ PNG bytes, and no PDFium type crosses it.
 ## 10. Conditions
 
 1. **The images draw a page.** A release's linux-arm64 image draws page 1 of a PDF uploaded to the showcase, and its
-   size is recorded beside 1.0.503's.
-2. **The width is confirmed by the owner, or changed** (§5.3, `INFERRED`).
+   size is recorded beside 1.0.503's. **PARTLY DISCHARGED 2026-11-04.** *Size:* the linux-arm64 server image is
+   752,177,959 bytes compressed at 1.0.504 against 748,418,658 at 1.0.503, 3.76 MB more; `libpdfium.so` is 8,127,624
+   bytes in `/app/importer/pdfium/linux-arm64/`. *Drawing:* the showcase's own 1.0.504 container, asked `pdfpage` of a
+   one-page A4 PDF through its import reader, answered a 600 × 849 PNG of 15,499 bytes showing the page, in 545 ms with
+   the reader's start. *Not yet:* the upload itself on the showcase. Its administrator account now asks for a second
+   factor, which this session does not hold, so a PDF filed in Studio on demo.graticula.com is the owner's check.
+2. **The width is confirmed by the owner, or changed** (§5.3, `INFERRED`). **DISCHARGED 2026-11-04:** asked whether
+   page 1 should stay 600 px wide, the owner answered *"600 px kalsın"*.
 
 ## 11. Dissent
 

@@ -25,7 +25,8 @@ namespace Graticula.Host;
 /// Raises webhook events into the outbox — ADR-266 §2. <b>Never fails the act that raised them</b>: the act has already
 /// happened and been audited, and a webhook that cannot be queued is logged, not turned into the caller's error.
 /// </summary>
-internal sealed partial class WebhookRaiser(IWebhookStore store, WebhookSignal signal, TimeProvider clock, ILogger<WebhookRaiser> log)
+internal sealed partial class WebhookRaiser(
+    IWebhookStore store, WebhookSignal signal, WebhookedServices webhooked, TimeProvider clock, ILogger<WebhookRaiser> log)
 {
     [LoggerMessage(EventId = 2600, Level = LogLevel.Warning, Message = "A webhook event {Event} could not be queued: {Reason}")]
     private partial void NotQueued(string @event, string reason);
@@ -77,16 +78,46 @@ internal sealed partial class WebhookRaiser(IWebhookStore store, WebhookSignal s
     /// <param name="outcome">What the edit did.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>A task.</returns>
-    public async Task RaiseAsync(PublishedLayer layer, EditOutcome outcome, CancellationToken cancellation)
-    {
-        if (WebhookEvents.FromEdit(layer.ServiceName, layer.Folder, layer.LayerIndex, outcome, clock.GetUtcNow()) is not { } raised)
-        {
-            return;
-        }
+    public Task RaiseAsync(PublishedLayer layer, EditOutcome outcome, CancellationToken cancellation) =>
+        WebhookEvents.FromEdit(layer.ServiceName, layer.Folder, layer.LayerIndex, outcome, clock.GetUtcNow()) is { } raised
+            ? QueueAsync(layer.ServiceId, raised, cancellation)
+            : Task.CompletedTask;
 
+    /// <summary>
+    /// Raises a feature-service change that is not an edit of rows — an attachment, a layer's schema, the service's
+    /// definition (ADR-266 condition 1).
+    /// </summary>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="serviceName">Its name.</param>
+    /// <param name="folder">Its folder, or null.</param>
+    /// <param name="layerId">The layer's index, or null for the service as a whole.</param>
+    /// <param name="changeType">ArcGIS's change type: <c>AttachmentsCreated</c>, <c>LayerSchemaChanged</c> and the like.</param>
+    /// <param name="detail">What the change touched, under the body's own keys, or null.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A task.</returns>
+    public Task RaiseChangeAsync(
+        Guid serviceId, string serviceName, string? folder, int? layerId, string changeType, JsonObject? detail,
+        CancellationToken cancellation) =>
+        QueueAsync(serviceId, WebhookEvents.FromChange(serviceName, folder, layerId, changeType, detail, clock.GetUtcNow()), cancellation);
+
+    private async Task QueueAsync(Guid serviceId, WebhookEvents.ServiceEvent raised, CancellationToken cancellation)
+    {
         try
         {
-            if (await store.EnqueueServiceAsync(layer.ServiceId, raised.ChangeTypes, raised.Name, raised.Body.ToJsonString(), cancellation)
+            // ADR-266 condition 5: a service with no webhook costs this node one question, not one statement per edit.
+            if (webhooked.Known(serviceId) is not { } has)
+            {
+                long generation = webhooked.Generation;
+                has = await store.ServiceHasWebhooksAsync(serviceId, cancellation).ConfigureAwait(false);
+                webhooked.Remember(serviceId, has, generation);
+            }
+
+            if (!has)
+            {
+                return;
+            }
+
+            if (await store.EnqueueServiceAsync(serviceId, raised.ChangeTypes, raised.Name, raised.Body.ToJsonString(), cancellation)
                     .ConfigureAwait(false) > 0)
             {
                 signal.Wake();
@@ -192,7 +223,9 @@ internal static class WebhookPayload
         {
             JsonObject edit = stored as JsonObject ?? [];
             string folder = edit["folder"]?.GetValue<string>() is { Length: > 0 } f ? f + "/" : string.Empty;
-            string layerUrl = $"{baseUrl}/rest/services/{folder}{edit["serviceName"]?.GetValue<string>()}/FeatureServer/{edit["layerId"]}";
+            // A service's own change (its definition) has no layer, and its address is the service's.
+            string serviceUrl = $"{baseUrl}/rest/services/{folder}{edit["serviceName"]?.GetValue<string>()}/FeatureServer";
+            string layerUrl = edit["layerId"] is JsonValue layer ? $"{serviceUrl}/{layer}" : serviceUrl;
             long[] keys = [.. Ids(edit, "adds"), .. Ids(edit, "updates")];
 
             JsonObject one = new()
@@ -210,6 +243,15 @@ internal static class WebhookPayload
                 ["truncated"] = edit["truncated"]?.DeepClone(),
                 ["deliveryId"] = deliveryId.ToString("N"),
             };
+
+            // What a change that is not an edit touched (ADR-266 condition 1) — `attachment`, `fields` — as it was raised.
+            foreach ((string key, JsonNode? value) in edit)
+            {
+                if (!one.ContainsKey(key) && key != "folder")
+                {
+                    one[key] = value?.DeepClone();
+                }
+            }
 
             payload = new JsonArray(one);
         }

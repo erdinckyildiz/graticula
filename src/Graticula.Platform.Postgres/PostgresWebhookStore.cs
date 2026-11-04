@@ -224,6 +224,21 @@ public sealed class PostgresWebhookStore : IWebhookStore
         return await EnqueueAsync(command, eventName, body, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
+    public async Task<bool> ServiceHasWebhooksAsync(Guid serviceId, CancellationToken cancellationToken)
+    {
+        // The enqueue's own organisation clause, so an answer is never another organisation's.
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            select exists (
+                select 1 from webhook w
+                 where w.kind = 'featureService' and w.service_id = @service and w.active
+                   and w.tenant_id = coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'))
+            """);
+        command.Parameters.AddWithValue("service", serviceId);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
+    }
+
     /// <summary>
     /// One row per active webhook of the organisation that listens for the event — <b>pending, or dropped when the
     /// webhook already holds <see cref="IWebhookStore.PendingBound"/> undelivered</b>, so a receiver that is down while

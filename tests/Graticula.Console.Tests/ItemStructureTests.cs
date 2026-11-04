@@ -132,8 +132,8 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/service/{service}?tab=settings", token);
 
         await WaitForAsync(
-            "[...document.querySelectorAll('#serviceNav a')].map(a => a.textContent.trim()).join('|') === 'General|Feature layer|Tile layer'",
-            "Settings' sections are not General, Feature layer and Tile layer, in that order.");
+            "[...document.querySelectorAll('#serviceNav a')].map(a => a.textContent.trim()).join('|') === 'General|Feature layer|Tile layer|Webhooks'",
+            "Settings' sections are not General, Feature layer, Tile layer and Webhooks (ADR-266 condition 2), in that order.");
 
         await WaitForAsync(
             "(() => { const d = document.getElementById('serviceDanger'); return !!d && !d.hidden && !!d.closest('#page-general'); })()",

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
 
@@ -110,7 +109,5 @@ internal static class PortalPage
             _ => string.Compare(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase),
         });
 
-    private static IComparable? ValueOf(object item, string field) =>
-        item.GetType().GetProperty(field, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)
-            ?.GetValue(item) as IComparable;
+    private static IComparable? ValueOf(object item, string field) => PortalQuery.Field(item, field) as IComparable;
 }

@@ -110,51 +110,48 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e36a2133</code> · 2026-11-04 07:30</p>
+<p class="stamp">Şu commit’ten üretildi: <code>6d1879ba</code> · 2026-11-04 19:21</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">266</div><div class="kpi-l">ADR</div><div class="kpi-n">91 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">640/685</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">35 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">650/685</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">25 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık borç</div><div class="kpi-n">328 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6007</div><div class="kpi-l">test</div><div class="kpi-n">660 kaynak dosya, 292,907 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6020</div><div class="kpi-l">test</div><div class="kpi-n">662 kaynak dosya, 293,519 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">39 madde</span></div><p><b>35 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>0 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">29 madde</span></div><p><b>25 ADR conditions</b> outstanding across 21 decisions — the largest commitment on this page.</p><p><b>0 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">ADR-266 · A webhook tells another system wha</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-267 · An item carries metadata and comme</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-265 · The server prints a web map, as Ar</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-268 · A PDF&#x27;s first page is its picture,</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-268 · A PDF&#x27;s first page is its picture,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -435,10 +432,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">262</td><td>The portal answers for its users</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every act is Studio&#x27;s own; who sees whom and the invitation&#x27;s password are…</td><td class="num"></td></tr>
 <tr><td class="id">263</td><td>A layer&#x27;s export becomes an item through the portal</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the export is ADR-106&#x27;s, unchanged; which item kind each file is, and the…</td><td class="num"></td></tr>
 <tr><td class="id">264</td><td>An app or a link is an item, and an item keeps resources</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — a store of what clients send, which the clients&#x27; own documentation describes;…</td><td class="num"></td></tr>
-<tr><td class="id">265</td><td>The server prints a web map, as ArcGIS&#x27;s print service does</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are the public reference&#x27;s and were driven by the ArcGIS API for…</td><td class="num">1/3</td></tr>
-<tr><td class="id">266</td><td>A webhook tells another system what changed</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the two surfaces follow ArcGIS&#x27;s public REST documentation, and the delivery…</td><td class="num">1/5</td></tr>
-<tr><td class="id">267</td><td>An item carries metadata and comments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are Esri&#x27;s public REST reference and the ArcGIS API for Python,…</td><td class="num">0/3</td></tr>
-<tr><td class="id">268</td><td>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the payload and the isolation, measured; MEDIUM for the default width</td><td class="num">0/2</td></tr>
+<tr><td class="id">265</td><td>The server prints a web map, as ArcGIS&#x27;s print service does</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are the public reference&#x27;s and were driven by the ArcGIS API for…</td><td class="num">3/3</td></tr>
+<tr><td class="id">266</td><td>A webhook tells another system what changed</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the two surfaces follow ArcGIS&#x27;s public REST documentation, and the delivery…</td><td class="num">5/5</td></tr>
+<tr><td class="id">267</td><td>An item carries metadata and comments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are Esri&#x27;s public REST reference and the ArcGIS API for Python,…</td><td class="num">3/3</td></tr>
+<tr><td class="id">268</td><td>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the payload and the isolation, measured, and for the width, which the owner…</td><td class="num">1/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -571,11 +568,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1745</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.1%"></div></div><div class="bar-n">962</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">960</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">959</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.1%"></div></div><div class="bar-n">578</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">451</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">450</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.3%"></div></div><div class="bar-n">441</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.9%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.5%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.1%"></div></div><div class="bar-n">124</div></div>
@@ -632,20 +629,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>e36a2133</code><time>2026-11-04</time><span>The large-layer viewer test waits for a query with another envelope after the pan, not for the last one</span></li>
-<li><code>d9bd47bc</code><time>2026-11-04</time><span>D-321&#x27;s status opens with its verdict, OPEN, as the registers check reads it</span></li>
-<li><code>0110d1f0</code><time>2026-11-04</time><span>Owner decisions of 2026-11-04 morning: the night&#x27;s INFERRED choices confirmed, D-339 parked, D-321&#x27;s PDFium to be built (ADR-265, ADR-266, ADR-267)</span></li>
-<li><code>90106163</code><time>2026-11-04</time><span>Status page regenerated after the night&#x27;s merges: ADR-265, 266 and 267 add eleven conditions, 35 live of 683</span></li>
-<li><code>310d97f0</code><time>2026-11-04</time><span>Merge night-webhooks: a webhook tells another system what changed (ADR-266, migration 130)</span></li>
-<li><code>161bc411</code><time>2026-11-04</time><span>Merge night-terrain: grapy&#x27;s terrain windows cross a tile&#x27;s seam as Pro&#x27;s do (D-339 narrowed)</span></li>
-<li><code>1b563717</code><time>2026-11-04</time><span>A comment&#x27;s Delete names its first words, and an added comment is brought into view (ADR-267&#x27;s re-check)</span></li>
-<li><code>47f3fa74</code><time>2026-11-04</time><span>Merge night-print: the server prints a web map (ADR-265)</span></li>
-<li><code>1e275a4e</code><time>2026-11-04</time><span>The metadata and comments panel, repaired after its design review (ADR-267)</span></li>
-<li><code>251c4c6f</code><time>2026-11-04</time><span>The webhook sender claims on a pool of its own, as every poller does (ADR-266, D-110)</span></li>
-<li><code>003b121a</code><time>2026-11-04</time><span>The console reachability walk passes over the print service, which the console lists nowhere (ADR-265)</span></li>
-<li><code>36a5262e</code><time>2026-11-04</time><span>Merge night-metadata: item metadata and comments (ADR-267, migration 131)</span></li>
-<li><code>2ca6b56a</code><time>2026-11-04</time><span>A terrain tile&#x27;s last window runs whole past its edge and the overview tops the pyramid when it is coarser, as ArcGIS Pro 3.7&#x27;s do (D-339, ADR-234 condition 4)</span></li>
-<li><code>bb863a0c</code><time>2026-11-04</time><span>An organisation&#x27;s webhooks and a feature service&#x27;s tell another system what changed, signed, from a durable outbox (ADR-266)</span></li>
+<li><code>6d1879ba</code><time>2026-11-04</time><span>Merge branch &#x27;ui-webhooks&#x27; into day-1104</span></li>
+<li><code>61297aad</code><time>2026-11-04</time><span>Merge branch &#x27;ui-service-meta&#x27; into day-1104</span></li>
+<li><code>a53d203f</code><time>2026-11-04</time><span>The sign-in webhook test builds its event names, which the register check read as a machine&#x27;s home folder</span></li>
+<li><code>f8345416</code><time>2026-11-04</time><span>Attachments, a layer&#x27;s fields, a service&#x27;s definition and comments are raised; a webhook that could never fire is refused; the Maps SDK prints (ADR-266 condition 1, ADR-265 condition 1)</span></li>
+<li><code>7483475d</code><time>2026-11-04</time><span>Studio lists webhooks: Organization › Settings › Webhooks and a feature service&#x27;s Settings › Webhooks (ADR-266 condition 2)</span></li>
+<li><code>30777de8</code><time>2026-11-04</time><span>A service&#x27;s item page has the metadata and comments panel a document&#x27;s has (ADR-267 condition 1 partly)</span></li>
+<li><code>c1d36f0a</code><time>2026-11-04</time><span>The ArcGIS API for Python manages this server&#x27;s webhooks end to end (ADR-266 condition 4)</span></li>
+<li><code>b901d03a</code><time>2026-11-04</time><span>An edit asks once per service whether it has a webhook, not once per edit (ADR-266 condition 5)</span></li>
+<li><code>80d5c4a1</code><time>2026-11-04</time><span>An edit pays about 3 ms for the webhook hook on a server without webhooks, over the tenth ADR-266 allowed (condition 5 partly)</span></li>
+<li><code>654a905d</code><time>2026-11-04</time><span>The large-layer viewer test compares envelopes, read with the pan in one evaluation</span></li>
+<li><code>ae809ccd</code><time>2026-11-04</time><span>Add browses layer items with one Add each, as Map Viewer&#x27;s Browse layers does (ADR-259 amended, UX review 2026-11-04)</span></li>
+<li><code>b1bb95a4</code><time>2026-11-04</time><span>An A3 page at 300 dpi over 1.27 million buildings costs 6.7 s and 162 MiB, so the print deadline and bound stand (ADR-265 condition 2)</span></li>
+<li><code>3b5982f6</code><time>2026-11-04</time><span>Listings say numComments and Metadata before they filter and sort, addItem takes metadata, and the arm64 image draws a PDF (ADR-267 conditions 2 and 3, ADR-268 condition 2, condition 1 partly)</span></li>
+<li><code>9fe1611f</code><time>2026-11-04</time><span>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader (ADR-268, D-321 closed, migration 132)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

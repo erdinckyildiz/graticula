@@ -100,7 +100,7 @@ public sealed class WebMapToolbarsTests : ConsoleTest
     }
 
     /// <summary>
-    /// A service's vector tiles are offered on its own row, in sight, and Add can be narrowed to vector tiles.
+    /// A service's vector tiles are offered as an entry of their own, in sight, and Add can be narrowed to vector tiles.
     /// </summary>
     /// <remarks>
     /// 2026-11-03: the owner could not add the server's vector tile services — Add put them under a closed <i>Other ways
@@ -118,16 +118,16 @@ public sealed class WebMapToolbarsTests : ConsoleTest
         await WaitForAsync($"[...document.querySelectorAll('{Tiles}')].some(b => b.getClientRects().length > 0)",
             "Add offered no service's vector tiles where they can be seen.");
 
-        // The panel says which tool has it, and a folder is said once over its services rather than on every row (UX
-        // review of ADR-259).
+        // The panel says which tool has it, and lists layer items, each with one Add in sight and its kind in words (UX
+        // review 2026-11-04: 29 services had offered 70 equal buttons and no title, kind or owner).
         Assert.Equal("Add layers", await Browser.EvaluateAsync<string>("document.getElementById('panelTitle').textContent"));
         Assert.True(await Browser.EvaluateAsync<bool>(
-            "[...document.querySelectorAll('#addList li.folder > h3')].filter(h => h.textContent === 'hosted').length === 1"
-            + " && [...document.querySelectorAll('#addList .name')].every(n => !n.textContent.includes('/'))"),
-            "Add did not put the hosted services under one hosted heading.");
+            "[...document.querySelectorAll('#addList > li:not(.empty)')].every(li =>"
+            + " li.querySelectorAll('[data-add]').length - li.querySelectorAll('details [data-add]').length <= 1"
+            + " && /layer/.test(li.querySelector('.meta').textContent))"),
+            "An Add entry offered more than one Add in sight, or did not say its kind.");
 
-        await Browser.EvaluateAsync<bool>(
-            "(() => { const s = document.getElementById('addType'); s.value = 'VectorTileServer'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await ClickAsync("#addKinds button[data-kind=VectorTileServer]");
         await WaitForAsync("document.querySelectorAll('#addList > li').length > 0"
             + " && [...document.querySelectorAll('#addList [data-type]')].every(b => b.dataset.type === 'VectorTileServer')",
             "Choosing Vector tiles did not narrow Add to vector tiles.");
@@ -139,7 +139,7 @@ public sealed class WebMapToolbarsTests : ConsoleTest
         // What the Add did stays said: the list's redraw after it wrote the service count over it, errors included
         // (UX review 2026-11-03).
         await WaitForAsync("!document.querySelector('#addList [aria-disabled=true]')", "The Add never finished.");
-        Assert.StartsWith("Added 1 layer", await Browser.EvaluateAsync<string>("document.getElementById('addStatus').textContent") ?? "");
+        Assert.Matches(@"^Added .+ as a vector tile layer\.$", await Browser.EvaluateAsync<string>("document.getElementById('addStatus').textContent") ?? "");
 
         NothingWentWrong(await PageErrorsAsync());
     }

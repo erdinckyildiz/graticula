@@ -40,11 +40,13 @@ public sealed class OrganizationTests : ConsoleTest
     [Theory]
     // Utility services went to System and General came first — ADR-221 §5.3 and §5.5.
     [InlineData("members", "view-members", "*Members Settings", "")]
-    [InlineData("general", "view-general", "Members *Settings", "*General|Map|Member roles|Security")]
-    [InlineData("orgsettings", "view-orgsettings", "Members *Settings", "General|*Map|Member roles|Security")]
-    [InlineData("roles", "view-roles", "Members *Settings", "General|Map|*Member roles|Security")]
-    [InlineData("signin", "view-signin", "Members *Settings", "General|Map|Member roles|*Security")]
-    [InlineData("apps", "view-signin", "Members *Settings", "General|Map|Member roles|*Security")]
+    [InlineData("general", "view-general", "Members *Settings", "*General|Map|Member roles|Security|Webhooks")]
+    [InlineData("orgsettings", "view-orgsettings", "Members *Settings", "General|*Map|Member roles|Security|Webhooks")]
+    [InlineData("roles", "view-roles", "Members *Settings", "General|Map|*Member roles|Security|Webhooks")]
+    [InlineData("signin", "view-signin", "Members *Settings", "General|Map|Member roles|*Security|Webhooks")]
+    [InlineData("apps", "view-signin", "Members *Settings", "General|Map|Member roles|*Security|Webhooks")]
+    // ADR-266 condition 2: Webhooks last, for the administrator the portal's webhooks API answers.
+    [InlineData("webhooks", "view-webhooks", "Members *Settings", "General|Map|Member roles|Security|*Webhooks")]
     public async Task Each_page_marks_its_place_in_the_strip_and_the_column(string screen, string view, string top, string side)
     {
         (string token, _) = await SignInAsync();
@@ -84,8 +86,8 @@ public sealed class OrganizationTests : ConsoleTest
         await OpenAsync("/studio/#/orgsettings", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('.view.on > nav.subpages a').length === 4",
-            "Settings drew no column of four pages.");
+            "document.querySelectorAll('.view.on > nav.subpages a').length === 5",
+            "Settings drew no column of five pages.");
 
         await ClickAsync(".view.on > nav.subpages a[href$='/roles']");
 

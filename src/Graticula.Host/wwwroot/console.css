@@ -7629,6 +7629,15 @@ html[data-session="none"]:root #main > header { display: none; }
 @media (max-width: 720px) {
   #serviceOverview > .itemmain, #serviceOverview > #serviceDetails { grid-column: 1; grid-row: auto; }
 }
+/* ADR-267 condition 1: on a phone a service's comments are the page's last part, after the item's information, as a
+   document's and a web map's are. The main column lets its parts into the page's one column, at its own 16-pixel gap,
+   so the panel can follow the aside. */
+@media (max-width: 720px) {
+  #serviceOverview.itemgrid:has(> .itemmain > #serviceImc:not([hidden])) { gap: 16px; }
+  #serviceOverview > .itemmain:has(> #serviceImc:not([hidden])) { display: contents; }
+  #serviceOverview > #serviceDetails { order: 3; }
+  #serviceOverview > .itemmain > #serviceImc { order: 4; }
+}
 
 /* ── (1) Phone: every control is 44 pixels tall; a checkbox's label is its target; a card's title link is the card ── */
 @media (max-width: 720px) {
@@ -7767,6 +7776,12 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 
 /* ADR-267: an item's metadata and comments, under its description on a document's or a web map's page. */
 .imcpanel { padding: var(--gap-3) var(--gap-4); }
+/* On a service's page the panel is inset as the description and the layers above it are (`.pad`). */
+#serviceOverview .imcpanel { padding: var(--gap-4) var(--gap-5); }
+/* As far below the Layers card as the Layers card is below the description (UX review 2026-11-04, m10): the main column's
+   gap plus a panel's own bottom margin, which the Layers list sets to nothing. On a phone the column is the page's grid,
+   where the panel follows the aside and its margin already makes the gap. */
+@media (min-width: 721px) { #serviceOverview > .itemmain > #serviceImc { margin-top: var(--gap-4); } }
 .imclist { list-style: none; margin: 0 0 var(--gap-3); padding: 0; }
 .imclist li { padding: 8px 0; border-top: 1px solid var(--rule); }
 .imclist li:first-child { border-top: 0; }
@@ -7778,3 +7793,65 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .imctext.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .imcmore { margin-top: 4px; }
 .imcbox { font-family: inherit; }
+
+/* Webhooks — Organization › Settings › Webhooks and a feature service's Settings › Webhooks (ADR-266 condition 2).
+   One table for both: name, payload URL, events, status, Deliveries and a ⋯, and the open row's recent deliveries in a
+   row of their own under it. A URL is one long word and wraps anywhere rather than widening the page. */
+:is(#view-webhooks, #page-webhooks) .whtable { table-layout: fixed; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(1) { width: 19%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(2) { width: 22%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(3) { width: 20%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(4) { width: 12%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(5) { width: 27%; }
+/* A delivery's time leads its row, at the table's own weight rather than a name's. */
+:is(#view-webhooks, #page-webhooks) table.whsent td.whtime { font-weight: 400; font-size: inherit; }
+:is(#view-webhooks, #page-webhooks) table.whsent td { background: transparent; }
+:is(#view-webhooks, #page-webhooks) code.whurl { overflow-wrap: anywhere; }
+:is(#view-webhooks, #page-webhooks) td.whacts { text-align: right; white-space: nowrap; }
+:is(#view-webhooks, #page-webhooks) td.whacts > button { margin: 2px 0 2px var(--gap-2); }
+/* Deliveries stays in the row, as its disclosure; Edit, Activate or Deactivate and Delete are behind the row's ⋯, the
+   menu a member's and a data store's rows use (UX review, m1). */
+:is(#view-webhooks, #page-webhooks) td.whacts details.rowmenu { margin-left: var(--gap-1); vertical-align: middle; }
+:is(#view-webhooks, #page-webhooks) td.whacts details.rowmenu > summary { display: inline-flex; align-items: center;
+                                                    justify-content: center; min-width: 32px; min-height: 30px; box-sizing: border-box; }
+:is(#view-webhooks, #page-webhooks) .whwhy { display: block; margin-top: var(--gap-1); }
+:is(#view-webhooks, #page-webhooks) tr.whsentrow > td { background: var(--surface-2); padding: var(--gap-3) var(--gap-4); }
+:is(#view-webhooks, #page-webhooks) .whsenthead { display: flex; align-items: center; justify-content: space-between;
+                                                  gap: var(--gap-3); margin-bottom: var(--gap-2); }
+:is(#view-webhooks, #page-webhooks) .whsenthead h5 { margin: 0; }
+:is(#view-webhooks, #page-webhooks) table.whsent { width: 100%; }
+:is(#view-webhooks, #page-webhooks) .whempty { max-width: 760px; }
+:is(#view-webhooks, #page-webhooks) .whempty h3 { margin: 0 0 var(--gap-2); font-size: var(--t-head); }
+:is(#view-webhooks, #page-webhooks) .whempty p { margin: 0 0 var(--gap-2); }
+:is(#view-webhooks, #page-webhooks) .whempty p:last-child { margin-bottom: 0; }
+#view-webhooks .settingcard p { margin: 0; }
+#page-webhooks .whhead { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-3);
+                         margin: var(--gap-3) 0 var(--gap-2); }
+#whDialog .picker input[type="text"], #whDialog .picker input[type="url"], #whDialog .picker input[type="password"] { width: 100%; }
+#whDialog .pickset { margin-top: var(--gap-3); }
+#whDialog .picker label.pickrow { display: grid; margin-top: var(--gap-2); }
+#whDialog .picker label.pickrow:first-of-type { margin-top: 0; }
+#whDialog .picker .whgroup label.check { margin-top: 0; }
+#whDialog .whpicks { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--gap-2) var(--gap-4);
+                     margin-top: var(--gap-3); }
+#whDialog .whgroup { border: 0; margin: 0; padding: 0; min-width: 0; }
+#whDialog .whgroup legend { font-weight: 600; padding: 0; margin-bottom: var(--gap-1); }
+#whDialog label.check { display: flex; gap: var(--gap-2); align-items: center; margin: 2px 0; min-height: 32px; }
+#whDialog #whActiveRow { margin-top: var(--gap-3); }
+/* A field's refusal under it, close to the field it is about (M1); the Events group's under its legend. */
+#whDialog .whsays { margin: var(--gap-1) 0 0; }
+#whDialog #whEventsSays { margin: 0 0 var(--gap-2); }
+#whDialog .dialogfoot #whFormSays { flex: 1 1 14em; min-width: 0; margin: 0; }
+#whDialog .dialogfoot { flex-wrap: wrap; }
+@media (max-width: 719px) {
+  /* Deliveries and the ⋯ do not fit beside the name: they take their own line under the row, at a finger's size. */
+  :is(#view-webhooks, #page-webhooks) table.whtable td.whacts { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  :is(#view-webhooks, #page-webhooks) td.whacts > button { margin: var(--gap-1) var(--gap-2) 0 0; }
+  :is(#view-webhooks, #page-webhooks) td.whacts details.rowmenu { margin: var(--gap-1) 0 0; }
+  :is(#view-webhooks, #page-webhooks) td.whacts details.rowmenu > summary { min-width: 44px; min-height: 44px; font-size: 20px; }
+  :is(#view-webhooks, #page-webhooks) .whtable > thead th { width: auto; }
+  :is(#view-webhooks, #page-webhooks) tr.whsentrow { display: block; padding: 0; }
+  :is(#view-webhooks, #page-webhooks) tr.whsentrow > td { display: block; }
+  :is(#view-webhooks, #page-webhooks) button.tiny, #page-webhooks #svcWhNew, #view-webhooks #whNew { min-height: 44px; }
+  #whDialog label.check { min-height: 44px; }
+}

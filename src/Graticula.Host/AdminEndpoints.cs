@@ -1207,6 +1207,13 @@ internal static partial class AdminEndpoints
             ["administrative"] = 0,
         };
 
+        // An image service's portal item belongs to its coverage (ADR-267 condition 1): its item page addresses it by its
+        // service address, as before, and the item panel by this id.
+        Dictionary<Guid, string> imageItems = context.RequestServices.GetService(typeof(ICoverageCatalog)) is ICoverageCatalog coverages
+            ? (await coverages.ListAsync(cancellation).ConfigureAwait(false))
+                .GroupBy(c => c.ServiceId).ToDictionary(g => g.Key, g => PortalEndpoints.CoverageItemId(g.First()))
+            : [];
+
         foreach (PublishedService service in served)
         {
             LayerAccess.Reason reason = LayerAccess.Evaluate(
@@ -1269,6 +1276,7 @@ internal static partial class AdminEndpoints
                     : PortalEndpoints.ItemIdOf(service,
                         string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase)
                             ? "VectorTileServer" : "FeatureServer"),
+                imageItemId = imageItems.GetValueOrDefault(service.Id),
                 bare = service.Name,
                 // ADR-260: what a person calls it; the name stays its address.
                 title = service.Title,

@@ -319,25 +319,50 @@
   .lfilter .active { font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink);
                      overflow-wrap: anywhere; }
 
-  #addList { list-style: none; margin: 8px 0 0; padding: 0; }
-  #addList li { padding: 4px 0;
-                border-top: 1px solid var(--rule); }
-  #addList li:first-child { border-top: 0; }
-  #addList li.folder { padding: 0; border-top: 0; }
-  #addList li.folder ul { list-style: none; margin: 0 0 8px; padding: 0; }
-  #addList li.folder h3 { margin: 8px 0 2px; }
-  #addList .svcrow { display: flex; gap: 8px; align-items: center; }
-  #addList .kinds button::before { content: "+ "; }
-  #addList .kinds button { min-height: 24px; }
-  #addList .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  /* Add: one entry per layer item, one Add each (UX review 2026-11-04). */
+  #addFind { display: grid; gap: 8px; }
+  #addFind .segs { display: flex; border: 1px solid var(--control-edge); border-radius: var(--round); overflow: hidden; }
+  #addFind .segs button { flex: 1 1 0; border: 0; border-radius: 0; background: var(--surface); min-height: 32px;
+                          font-size: 13px; }
+  #addFind .segs button + button { border-left: 1px solid var(--control-edge); }
+  /* The segments clip what overflows them, so their focus ring is drawn inside (as #tabs does). */
+  #addFind .segs button:focus-visible { outline-offset: -3px; }
+  #addFind .segs button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+  #addFind .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px; }
+  #addFind .chips button { flex: none; border: 1px solid var(--control-edge); border-radius: 999px; padding: 3px 10px;
+                           min-height: 28px; font-size: 12.5px; background: var(--surface); white-space: nowrap; }
+  #addFind .chips button[aria-pressed="true"] { border-color: var(--accent-ink); color: var(--accent-ink);
+                                                 background: var(--surface-2); font-weight: 600; }
+  #addList { list-style: none; margin: 4px 0 0; padding: 0; }
+  #addList > li { display: grid; grid-template-columns: 32px 1fr auto; gap: 10px; align-items: center;
+                  padding: 8px 0; border-top: 1px solid var(--rule); }
+  #addList > li:first-child { border-top: 0; }
+  #addList > li.empty { display: block; }
+  #addList .kindicon { width: 32px; height: 32px; border-radius: 4px; background: var(--surface-2);
+                       display: grid; place-items: center; color: var(--muted); }
+  #addList .kindicon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6;
+                           stroke-linejoin: round; }
+  #addList .addtext { min-width: 0; display: grid; gap: 2px; }
+  #addList .name { font-size: 14px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere;
+                   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  #addList .meta { font-size: 12px; color: var(--muted); }
+  #addList .meta > span { white-space: nowrap; }
+  #addList .addact { display: grid; grid-template-columns: auto 32px; align-items: center; gap: 2px; }
+  #addList .addone { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 4px 10px;
+                     border: 1px solid var(--control-edge); }
+  #addList .addone svg.i, #addList .addmore svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor;
+                                                    stroke-width: 2; stroke-linecap: round; }
+  #addList .addmore { position: relative; }
+  #addList .addmore summary { list-style: none; cursor: pointer; display: grid; place-items: center;
+                              width: 32px; height: 32px; border-radius: var(--round); }
+  #addList .addmore summary::-webkit-details-marker { display: none; }
+  #addList .addmore summary:hover { background: var(--surface-2); }
+  #addList .addmore[open] > button { position: absolute; right: 0; top: 34px; z-index: 2; white-space: nowrap;
+                                     background: var(--surface); border: 1px solid var(--rule-strong);
+                                     box-shadow: 0 2px 8px rgba(0,0,0,.12); padding: 8px 12px; }
   #addList .onmap { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted);
                     white-space: nowrap; padding: 1px 4px; }
-  #addList .onmap svg.i { width: 14px; height: 14px; }
-  .addfind { display: flex; gap: 6px; }
-  .addfind input { flex: 1 1 auto; min-width: 0; width: auto; }
-  .addfind select { flex: 0 0 auto; width: auto; }
-  #addList .kinds { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
-  #addList .type { font-size: 11px; color: var(--faint); white-space: nowrap; }
+  #addList .onmap svg.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
 
   #searchResults, #measureList { list-style: none; margin: 8px 0 0; padding: 0; }
   #searchResults li.group { font-size: 12px; color: var(--muted); font-weight: 650;
@@ -584,9 +609,14 @@
       min-height: 44px; min-width: 44px; }
     .ol-zoom button { width: 44px; }
     .lctl input[type="range"] { min-height: 44px; }
-    /* Add's kinds outrank button.tiny by their id: 24 px on the first-run path (ADR-259's re-check, 2026-11-04). */
-    #addList .kinds { display: flex; flex-wrap: wrap; gap: 8px; }
-    #addList .kinds button { min-height: 44px; padding-inline: 12px; }
+    /* Add's controls outrank button.tiny by their id: 24 px on the first-run path (ADR-259's re-check, 2026-11-04). */
+    #addList .addone, #addFind .segs button, #addFind .chips button { min-height: 44px; }
+    #addList .addmore summary { width: 44px; height: 44px; }
+    #addList .addact { grid-template-columns: auto 44px; }
+    /* Add's sheet is taller than the others: four entries in sight rather than two (UX re-check, 2026-11-04). */
+    #panel:has(#pane-add:not([hidden])) { max-height: calc(100% - 64px); }
+    #addList .addmore[open] > button { top: 46px; min-height: 44px; }
+    #addFilter { font-size: 16px; min-height: 44px; }
   }
 </style>
 </head>
@@ -654,17 +684,20 @@
 
       <section class="tabpanel" id="pane-add" role="tabpanel" aria-labelledby="tab-add" hidden>
         <div id="addBox">
-          <label class="field" for="addFilter" style="margin-top:0">Services you can read</label>
-          <div class="addfind">
-            <input type="search" id="addFilter" placeholder="Filter by name&hellip;" autocomplete="off">
-            <!-- What ArcGIS Map Viewer's Add filters by: the kind of layer (2026-11-03, the vector tiles were not found). -->
-            <select id="addType" aria-label="Kind of layer">
-              <option value="">All kinds</option>
-              <option value="FeatureServer">Features</option>
-              <option value="ImageServer">Imagery</option>
-              <option value="VectorTileServer">Vector tiles</option>
-              <option value="MapServer">Map image</option>
-            </select>
+          <!-- ArcGIS Map Viewer's Browse layers (UX review 2026-11-04): whose layers, a search, the kind as chips. -->
+          <div id="addFind">
+            <div class="segs" id="addSource" role="group" aria-label="Whose layers">
+              <button type="button" data-source="" aria-pressed="true">All you can read</button>
+              <button type="button" data-source="mine" aria-pressed="false">My content</button>
+            </div>
+            <input type="search" id="addFilter" aria-label="Search layers" placeholder="Search layers&hellip;" autocomplete="off">
+            <div class="chips" id="addKinds" role="group" aria-label="Kind of layer">
+              <button type="button" data-kind="" aria-pressed="true">All</button>
+              <button type="button" data-kind="FeatureServer" aria-pressed="false">Features</button>
+              <button type="button" data-kind="VectorTileServer" aria-pressed="false">Vector tiles</button>
+              <button type="button" data-kind="ImageServer" aria-pressed="false">Imagery</button>
+              <button type="button" data-kind="MapServer" aria-pressed="false">Map image</button>
+            </div>
           </div>
           <p class="said" id="addStatus" role="status" aria-live="polite"></p>
           <ul id="addList"></ul>

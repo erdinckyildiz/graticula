@@ -216,6 +216,90 @@ public sealed class PortalItemMetadataCommentsTests : ArcGisClient
     }
 
     [Fact]
+    public async Task AddItem_takes_metadata_and_listings_filter_and_sort_by_what_the_item_page_says()
+    {
+        // ADR-267 condition 3: addItem's metadata part, checked as update checks it.
+        MultipartFormDataContent add = MetadataPart(ArcGisMetadata.Replace("MARKER", "added"));
+        add.Add(new StringContent("Web Map"), "type");
+        add.Add(new StringContent($"zz described {Guid.NewGuid():N}"[..24]), "title");
+        add.Add(new StringContent("""{"operationalLayers":[],"version":"2.31"}"""), "text");
+        var (_, added, addedRaw, _) = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/addItem", add);
+        string described = added.TryGetProperty("id", out JsonElement id) ? id.GetString()! : throw new InvalidOperationException(addedRaw);
+        string plain = await AddMapAsync($"zz plain {Guid.NewGuid():N}"[..22]);
+
+        try
+        {
+            Assert.Contains("<idPurp>added</idPurp>",
+                (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{described}/info/metadata/metadata.xml")).Text, StringComparison.Ordinal);
+
+            // A DTD is refused before anything is added.
+            MultipartFormDataContent hostile = MetadataPart("""<?xml version="1.0"?><!DOCTYPE m [<!ENTITY x "y">]><m>&x;</m>""");
+            hostile.Add(new StringContent("Web Map"), "type");
+            hostile.Add(new StringContent("zz refused"), "title");
+            hostile.Add(new StringContent("""{"operationalLayers":[],"version":"2.31"}"""), "text");
+            var (_, refused, refusedRaw, _) = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/addItem", hostile);
+            Assert.True(refused.TryGetProperty("error", out _) && !refused.TryGetProperty("id", out _), refusedRaw);
+
+            for (int i = 0; i < 2; i++)
+            {
+                Assert.True((await SendAsync(HttpMethod.Post, $"/sharing/rest/content/items/{described}/addComment", Form(("comment", $"c{i}")))).Json
+                    .TryGetProperty("commentId", out _));
+            }
+
+            // ADR-267 condition 2: the search filters by the Metadata keyword and says numComments, as the item's page does.
+            async Task<JsonElement> SearchAsync(string q) =>
+                (await SendAsync(HttpMethod.Get, $"/sharing/rest/search?f=json&num=100&q={Uri.EscapeDataString(q)}")).Json;
+
+            JsonElement found = await SearchAsync($"id:{described} AND typekeywords:Metadata");
+            Assert.Equal(1, found.GetProperty("total").GetInt32());
+            Assert.Equal(2, found.GetProperty("results")[0].GetProperty("numComments").GetInt32());
+            Assert.Equal(0, (await SearchAsync($"id:{plain} AND typekeywords:Metadata")).GetProperty("total").GetInt32());
+
+            // My Content carries them too, and sorts by the comment count it says.
+            JsonElement mine = (await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/content/users/{User}?f=json&num=100&sortField=numComments&sortOrder=desc")).Json;
+            int[] counts = [.. mine.GetProperty("items").EnumerateArray().Select(item => item.TryGetProperty("numComments", out JsonElement n) ? n.GetInt32() : 0)];
+            Assert.Equal(counts.OrderByDescending(c => c), counts);
+            Assert.Contains(mine.GetProperty("items").EnumerateArray(), item =>
+                item.GetProperty("id").GetString() == described && item.GetProperty("numComments").GetInt32() == 2
+                && item.GetProperty("typeKeywords").EnumerateArray().Any(k => k.GetString() == "Metadata"));
+        }
+        finally
+        {
+            await DeleteAsync(described);
+            await DeleteAsync(plain);
+        }
+    }
+
+    [Fact]
+    public async Task An_image_services_item_takes_comments_and_metadata_as_a_feature_services_does()
+    {
+        // ADR-267 condition 1: an image service's item is its coverage's, and its comments and metadata are kept under
+        // the service, as a listing counts them.
+        JsonElement found = (await SendAsync(HttpMethod.Get,
+            $"/sharing/rest/search?f=json&num=100&q={Uri.EscapeDataString("type:\"Image Service\"")}")).Json;
+        string? image = found.GetProperty("results").EnumerateArray()
+            .Select(r => r.GetProperty("id").GetString()).FirstOrDefault();
+        Assert.False(image is null, "The fixture lists no image service to comment on.");
+
+        var (_, made, madeRaw, _) = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/items/{image}/addComment", Form(("comment", "zz on an image")));
+        string comment = made.TryGetProperty("commentId", out JsonElement id) ? id.GetString()! : throw new InvalidOperationException(madeRaw);
+
+        try
+        {
+            Assert.Equal(1, (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{image}/comments?f=json")).Json
+                .GetProperty("comments").EnumerateArray().Count(c => c.GetProperty("id").GetString() == comment));
+            JsonElement listed = (await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/search?f=json&num=100&q={Uri.EscapeDataString($"id:{image}")}")).Json;
+            Assert.True(listed.GetProperty("results")[0].GetProperty("numComments").GetInt32() >= 1, "The search does not count the image's comment.");
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Post, $"/sharing/rest/content/items/{image}/comments/{comment}/delete", Form());
+        }
+    }
+
+    [Fact]
     public async Task An_organization_that_turns_comments_off_takes_none_and_says_so()
     {
         string map = await AddMapAsync($"zz quiet {Guid.NewGuid():N}"[..22]);

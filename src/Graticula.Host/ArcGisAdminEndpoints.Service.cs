@@ -13,6 +13,7 @@ using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -414,7 +415,8 @@ internal static partial class ArcGisAdminEndpoints
             }
 
             if (track is false && about.Tracking.Any
-                && await HostedDataEndpoints.StopTrackingOfAsync(layer, contexts, tiles, catalog, cancellation, ownershipCleared: own is false)
+                && await HostedDataEndpoints.StopTrackingOfAsync(layer, contexts, tiles, catalog, cancellation, ownershipCleared: own is false,
+                    webhooks: context.RequestServices.GetService<WebhookRaiser>())
                     .ConfigureAwait(false) is { } stopRefused)
             {
                 await RefuseAsync(context, 409, Partly(done, stopRefused)).ConfigureAwait(false);
@@ -424,7 +426,8 @@ internal static partial class ArcGisAdminEndpoints
             if (track is true && !about.Tracking.Any)
             {
                 HostedDataEndpoints.TrackingOutcome outcome = await HostedDataEndpoints
-                    .TrackEditsOfAsync(layer, importer, contexts, tiles, catalog, connections, cancellation).ConfigureAwait(false);
+                    .TrackEditsOfAsync(layer, importer, contexts, tiles, catalog, connections, cancellation,
+                        context.RequestServices.GetService<WebhookRaiser>()).ConfigureAwait(false);
 
                 if (outcome.Code != 0)
                 {
@@ -449,6 +452,15 @@ internal static partial class ArcGisAdminEndpoints
         await AdminEndpoints.AuditAsync(context, audit, "service.updateDefinition", service.Name,
             AdminEndpoints.Detail(new { folder, keys = definition.EnumerateObject().Select(p => p.Name).ToArray() }),
             succeeded: true, cancellation).ConfigureAwait(false);
+
+        // ADR-266 condition 1: the service's own definition changed.
+        await context.RequestServices.GetRequiredService<WebhookRaiser>().RaiseChangeAsync(
+            service.Id, service.Name, folder, null, "FeatureServiceDefinitionChanged",
+            new System.Text.Json.Nodes.JsonObject
+            {
+                ["keys"] = new System.Text.Json.Nodes.JsonArray([.. definition.EnumerateObject().Select(p => (System.Text.Json.Nodes.JsonNode?)p.Name)]),
+            },
+            cancellation).ConfigureAwait(false);
 
         await Results.Ok(new { success = true }).ExecuteAsync(context).ConfigureAwait(false);
     }

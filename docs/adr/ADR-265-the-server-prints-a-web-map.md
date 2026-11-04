@@ -130,9 +130,24 @@ reference is read as metres for the frame (the printed scale bar is still measur
 ## 7. Conditions
 
 1. **A browser client prints through it**: the Maps SDK's `print` or Map Viewer's / Experience Builder's Print widget
-   against a fixture, the PDF opened. Only the ArcGIS API for Python has been run (§4).
+   against a fixture, the PDF opened. Only the ArcGIS API for Python has been run (§4). **DISCHARGED 2026-11-04** with the Maps
+   SDK for JavaScript 4.30, headless Brave against the local fixture: `tools/sdk-probe/print.html` draws a feature layer
+   in a `MapView` and calls `esri/rest/print`'s `execute` with a `PrintTemplate` (A4 Landscape, PDF, a title), the call
+   the SDK's Print widget makes. The task answered in 184 ms with an `arcgisoutput` URL, the file came back
+   `application/pdf`, 26,169 bytes, starting `%PDF`, and opened: the title, the layer's six buildings in the SDK's own
+   symbol, a legend naming the layer, both scale bars, *Scale 1:29,582* and a north arrow. Map Viewer's and Experience
+   Builder's widgets were not driven; they need an ArcGIS Online or Enterprise organisation this session does not hold.
 2. **The cost is measured**: an A3 page at 300 dpi over the fixture's largest layer — time, peak memory, file size —
-   against the sixty-second deadline and the two-print bound, which are this session's guesses.
+   against the sixty-second deadline and the two-print bound, which are this session's guesses. **DISCHARGED 2026-11-04,**
+   measured on the showcase (1.0.504, arm64, 6 cores, 7.9 GB) rather than the fixture, over its largest layer: `istanbul_buildings_postgis`,
+   1,270,971 polygons. The layer's own `minScale` (1:72,224) bounds what a page can hold: a view 0.24° wide draws nothing,
+   as ArcGIS would not, and the widest view that draws is 0.20° (28.88–29.08 E). A3 Landscape at 300 dpi there: PDF 6.7 s
+   and 3,771,308 bytes, PNG 8.3 s and 6,074,477 bytes; a district (0.10°): PDF 2.5 s and 3.4 MB, PNG 3.9 s and 5.7 MB.
+   Two at once took 7.3 s and 8.8 s; a third beside them waited 5.3 s and was answered 503 with `Retry-After: 5`, which is
+   the bound working. The server's memory, read from its cgroup every 0.2 s, rose from 1,207 MiB to 1,369 MiB at the
+   peak (+162 MiB) with two prints running. The deadline is about seven times the slowest print, and the two-print bound
+   costs about a tenth of the 1,527 MiB the host had free at the time (the container has no limit of its own), so both stand. `scratchpad/print_cost.py`, not kept: a measurement of one
+   day's showcase.
 3. **The owner confirms the INFERRED choices**: that a layer at another address is left out rather than fetched through
    an allowlist (§5.3), that a token inside the web map is ignored (§5.4), and that the service is open to anonymous
    callers (§5.4). **DISCHARGED 2026-11-04, by owner decision** (*"Dışarıda kalsın"* and *"Hepsi önerildiği gibi"*): all three confirmed as built, and the

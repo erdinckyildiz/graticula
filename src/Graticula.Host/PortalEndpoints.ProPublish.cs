@@ -191,18 +191,47 @@ internal static partial class PortalEndpoints
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         string type = First(form, context, "type");
 
-        // Share As Web Map: the layers first, then this (PortalEndpoints.ProWebMap).
-        if (string.Equals(type, "Web Map", StringComparison.OrdinalIgnoreCase))
+        bool webMap = string.Equals(type, "Web Map", StringComparison.OrdinalIgnoreCase);
+        bool kept = IsFileItemType(type) || Documents.AppOfType(type) is not null;
+
+        // ADR-267 condition 3: `metadata` as `update` takes it, checked before anything is added, for the items addItem
+        // makes there and then. A file sent in parts is an item only at `commit`, so its metadata is refused here in
+        // words rather than dropped; a service definition's item is the service `publish` makes, and is unchanged.
+        byte[]? metadata = null;
+
+        if (webMap || kept)
         {
-            return await AddWebMapAsync(context, form, username, maps, folders, audit, cancellation).ConfigureAwait(false);
+            (metadata, string? badMetadata) = await MetadataSentAsync(form, cancellation).ConfigureAwait(false);
+
+            if (badMetadata is not null)
+            {
+                return PortalError(400, $"The item was not added: {badMetadata}");
+            }
+
+            if (metadata is not null && string.Equals(First(form, context, "multipart"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return PortalError(400,
+                    "The item was not added: a file sent in parts becomes an item at commit, so its metadata is sent with "
+                    + "update after commit (ADR-267).");
+            }
+        }
+
+        // Share As Web Map: the layers first, then this (PortalEndpoints.ProWebMap).
+        if (webMap)
+        {
+            return await WithMetadataAsync(context, metadata,
+                await AddWebMapAsync(context, form, username, maps, folders, audit, cancellation).ConfigureAwait(false),
+                cancellation).ConfigureAwait(false);
         }
 
         // ADR-257: a file — a CSV, a zipped shapefile or file geodatabase, GeoJSON, a workbook, or any document Studio
         // keeps — is a door onto Studio's own document upload, so the privilege, the store and the audit line are Studio's.
         // ADR-264: an app or a link goes through the same door, which adds it with its text or its address.
-        if (IsFileItemType(type) || Documents.AppOfType(type) is not null)
+        if (kept)
         {
-            return await AddDataItemAsync(context, form, type, username, scratch, folders, cancellation).ConfigureAwait(false);
+            return await WithMetadataAsync(context, metadata,
+                await AddDataItemAsync(context, form, type, username, scratch, folders, cancellation).ConfigureAwait(false),
+                cancellation).ConfigureAwait(false);
         }
 
         if (Publisher(context, username) is not { } current)
@@ -239,6 +268,26 @@ internal static partial class PortalEndpoints
 
         Stage(staged);
         return Results.Ok(new { success = true, id, folder = (string?)null });
+    }
+
+    /// <summary>
+    /// An added item's metadata, written once the item exists — ADR-267 condition 3. The answer is the add's own; an add
+    /// that failed, or that made no item a reader can open, writes nothing.
+    /// </summary>
+    private static async Task<IResult> WithMetadataAsync(HttpContext context, byte[]? metadata, IResult added, CancellationToken cancellation)
+    {
+        if (metadata is null
+            || added is not IValueHttpResult { Value: { } answer } || added is not IStatusCodeHttpResult { StatusCode: 200 or null }
+            || PortalQuery.Field(answer, "id") is not string id
+            || await ReadableItemAsync(context, id, cancellation).ConfigureAwait(false) is not { } item)
+        {
+            return added;
+        }
+
+        await Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<IItemMetadataStore>(context.RequestServices).WriteAsync(item.Item, metadata, cancellation)
+            .ConfigureAwait(false);
+
+        return added;
     }
 
     /// <summary>Where an upload <paramref name="id"/> is staged: on a site, where the site's other nodes read it.</summary>

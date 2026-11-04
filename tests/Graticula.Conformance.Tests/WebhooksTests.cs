@@ -95,6 +95,22 @@ public sealed class WebhooksTests : ArcGisClient
 
             (JsonElement status, _) = await PortalAsync($"/sharing/rest/portals/self/webhooks/{hook}/notificationStatus?f=json", null);
             Assert.Contains(status.GetProperty("notifications").EnumerateArray(), n => n.GetProperty("status").GetString() == "delivered");
+
+            // ADR-266 condition 4: what the ArcGIS API for Python reads. Its `list()` and `notifications` follow `nextStart`
+            // to -1, and `notifications` reads the rows under `WebhookStatus`, the name in that case; `settings` reads
+            // three numbers. Each was a KeyError or a 404 until 2026-11-04.
+            Assert.Equal(-1, listed.GetProperty("nextStart").GetInt32());
+            Assert.True(status.TryGetProperty("WebhookStatus", out JsonElement rows) && rows.GetArrayLength() > 0, "notificationStatus has no WebhookStatus rows.");
+            Assert.Equal(-1, status.GetProperty("nextStart").GetInt32());
+
+            (JsonElement settings, string settingsRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/settings?f=json", null);
+            Assert.True(settings.TryGetProperty("notificationAttempts", out JsonElement attempts) && attempts.GetInt32() == 4, settingsRaw);
+            Assert.Equal(15, settings.GetProperty("notificationTimeOutInSeconds").GetInt32());
+            Assert.Equal(10, settings.GetProperty("notificationElapsedTimeInSeconds").GetInt32());
+
+            (JsonElement changed, string changedRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/settings/update",
+                new() { ["notificationAttempts"] = "2" });
+            Assert.True(changed.TryGetProperty("error", out _), $"Changing the delivery settings was not refused: {changedRaw}");
         }
         finally
         {
@@ -124,6 +140,15 @@ public sealed class WebhooksTests : ArcGisClient
 
         try
         {
+            // ADR-266 condition 5: an edit before the webhook exists makes this node remember the service has none. Making
+            // the webhook must make it forget, or the edit below would be the one an unannounced cache swallowed.
+            (int earlyCode, string earlyBody) = await AdminAsync(HttpMethod.Post,
+                $"/rest/services/{qualified}/FeatureServer/0/addFeatures?f=json&features="
+                + Uri.EscapeDataString("[{\"attributes\":{},\"geometry\":{\"x\":29.02,\"y\":41.02,\"spatialReference\":{\"wkid\":4326}}}]"));
+            Assert.True(earlyCode == 200, $"addFeatures answered {earlyCode}: {earlyBody}");
+            long early = JsonDocument.Parse(earlyBody).RootElement.GetProperty("addResults")[0].GetProperty("objectId").GetInt64();
+            await AdminAsync(HttpMethod.Post, $"/rest/services/{qualified}/FeatureServer/0/deleteFeatures?f=json&objectIds={early}");
+
             (JsonElement made, string raw) = await PortalAsync($"{admin}/create", new()
             {
                 ["name"] = "zz features created",
@@ -245,6 +270,165 @@ public sealed class WebhooksTests : ArcGisClient
             if (item is not null)
             {
                 await PortalAsync($"/sharing/rest/content/users/{User}/items/{item}/delete", new() { ["permanentDelete"] = "true" });
+            }
+        }
+    }
+
+    /// <summary>
+    /// ADR-266 condition 1: a layer's fields and a service's definition changing are raised, as are an item's comments, and a
+    /// webhook naming only events this server never raises is refused at its creation with the reason.
+    /// </summary>
+    [Fact]
+    public async Task Schema_definition_and_comment_changes_are_raised_and_a_webhook_that_could_never_fire_is_refused()
+    {
+        string qualified = Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE") ?? string.Empty;
+        Assert.False(string.IsNullOrWhiteSpace(qualified), "GRATICULA_TEST_EDITABLE is not set, so there is no hosted layer to change.");
+
+        using Receiver receiver = new(HttpStatusCode.OK);
+        string admin = $"/rest/admin/services/{qualified}/FeatureServer";
+        string column = "zz_hook_" + Guid.NewGuid().ToString("N")[..6];
+        int? hook = null;
+        string? portalHook = null, map = null;
+        bool added = false;
+        long? feature = null;
+
+        try
+        {
+            // Refused: only what this server never raises.
+            (JsonElement never, string neverRaw) = await PortalAsync($"{admin}/webhooks/create", new()
+            {
+                ["name"] = "zz never", ["hookUrl"] = receiver.Url, ["changeTypes"] = """["LayerDefinitionChanged"]""", ["active"] = "true",
+            });
+            Assert.True(never.TryGetProperty("error", out JsonElement neverWhy), neverRaw);
+            Assert.Contains("never raises", neverWhy.GetProperty("message").GetString(), StringComparison.Ordinal);
+
+            (JsonElement signin, string signinRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/createWebhook", new()
+            {
+                ["name"] = "zz sign-ins", ["url"] = receiver.Url, ["events"] = "/" + "users/signin,/" + "users/signout",
+            });
+            Assert.True(signin.TryGetProperty("error", out _), signinRaw);
+
+            (JsonElement made, string raw) = await PortalAsync($"{admin}/webhooks/create", new()
+            {
+                ["name"] = "zz schema", ["hookUrl"] = receiver.Url,
+                ["changeTypes"] = """["LayerSchemaChanged","FeatureServiceDefinitionChanged","AttachmentsCreated","AttachmentsDeleted"]""",
+                ["active"] = "true",
+            });
+            Assert.True(made.TryGetProperty("id", out JsonElement number), raw);
+            hook = number.GetInt32();
+
+            (JsonElement field, string fieldRaw) = await PortalAsync($"{admin}/0/addToDefinition", new()
+            {
+                ["addToDefinition"] = $$"""{"fields":[{"name":"{{column}}","type":"esriFieldTypeInteger","nullable":true}]}""",
+            });
+            Assert.True(field.TryGetProperty("success", out JsonElement ok) && ok.GetBoolean(), fieldRaw);
+            added = true;
+
+            Delivery schema = await receiver.WaitForAsync(
+                d => d.Json.ValueKind == JsonValueKind.Array
+                     && d.Json[0].GetProperty("events").EnumerateArray().Any(e => e.GetString() == "LayerSchemaChanged"),
+                Patience);
+            Assert.Equal(0, schema.Json[0].GetProperty("layerId").GetInt32());
+            Assert.EndsWith("/FeatureServer/0", schema.Json[0].GetProperty("layerUrl").GetString(), StringComparison.Ordinal);
+
+            (JsonElement described, string describedRaw) = await PortalAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"description":"zz changed by the webhook test"}""",
+            });
+            Assert.True(described.TryGetProperty("success", out _), describedRaw);
+
+            Delivery definition = await receiver.WaitForAsync(
+                d => d.Json.ValueKind == JsonValueKind.Array
+                     && d.Json[0].GetProperty("events").EnumerateArray().Any(e => e.GetString() == "FeatureServiceDefinitionChanged"),
+                Patience);
+            Assert.Equal(JsonValueKind.Null, definition.Json[0].GetProperty("layerId").ValueKind);
+            Assert.EndsWith("/FeatureServer", definition.Json[0].GetProperty("layerUrl").GetString(), StringComparison.Ordinal);
+
+            // An attachment added and removed: AttachmentsCreated and AttachmentsDeleted, naming the feature and the attachment.
+            (int featureCode, string featureBody) = await AdminAsync(HttpMethod.Post,
+                $"/rest/services/{qualified}/FeatureServer/0/addFeatures?f=json&features="
+                + Uri.EscapeDataString("[{\"attributes\":{},\"geometry\":{\"x\":29.03,\"y\":41.03,\"spatialReference\":{\"wkid\":4326}}}]"));
+            Assert.True(featureCode == 200, featureBody);
+            feature = JsonDocument.Parse(featureBody).RootElement.GetProperty("addResults")[0].GetProperty("objectId").GetInt64();
+
+            string root = await RequireServerAsync();
+            string token = await TokenAsync(root) ?? throw new InvalidOperationException("No token.");
+            using MultipartFormDataContent upload = new();
+            ByteArrayContent png = new(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="));
+            png.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            upload.Add(png, "attachment", "hook.png");
+            upload.Add(new StringContent("json"), "f");
+            using HttpRequestMessage attach = new(HttpMethod.Post, $"{root}/rest/services/{qualified}/FeatureServer/0/{feature}/addAttachment") { Content = upload };
+            attach.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage attached = await Http.SendAsync(attach);
+            string attachedBody = await attached.Content.ReadAsStringAsync();
+            int attachment = JsonDocument.Parse(attachedBody).RootElement.GetProperty("addAttachmentResult").GetProperty("objectId").GetInt32();
+
+            Delivery created = await receiver.WaitForAsync(
+                d => d.Json.ValueKind == JsonValueKind.Array
+                     && d.Json[0].GetProperty("events").EnumerateArray().Any(e => e.GetString() == "AttachmentsCreated"),
+                Patience);
+            JsonElement touched = created.Json[0].GetProperty("attachments");
+            Assert.Equal(feature, touched.GetProperty("parentObjectId").GetInt64());
+            Assert.Contains(attachment, touched.GetProperty("attachmentIds").EnumerateArray().Select(a => a.GetInt32()));
+
+            (int removedCode, string removedBody) = await AdminAsync(HttpMethod.Post,
+                $"/rest/services/{qualified}/FeatureServer/0/{feature}/deleteAttachments?f=json&attachmentIds={attachment}");
+            Assert.True(removedCode == 200, removedBody);
+            await receiver.WaitForAsync(
+                d => d.Json.ValueKind == JsonValueKind.Array
+                     && d.Json[0].GetProperty("events").EnumerateArray().Any(e => e.GetString() == "AttachmentsDeleted"),
+                Patience);
+
+            // A comment on an item is the portal's addComment.
+            (JsonElement portal, string portalRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/createWebhook", new()
+            {
+                ["name"] = "zz comments", ["url"] = receiver.Url, ["events"] = "/items/addComment",
+            });
+            Assert.True(portal.TryGetProperty("webhook", out JsonElement ph), portalRaw);
+            portalHook = ph.GetProperty("id").GetString();
+
+            (JsonElement item, string itemRaw) = await PortalAsync($"/sharing/rest/content/users/{User}/addItem", new()
+            {
+                ["type"] = "Web Map", ["title"] = "zz commented", ["text"] = """{"operationalLayers":[],"version":"2.31"}""",
+            });
+            Assert.True(item.TryGetProperty("id", out JsonElement mapId), itemRaw);
+            map = mapId.GetString();
+            Assert.True((await PortalAsync($"/sharing/rest/content/items/{map}/addComment", new() { ["comment"] = "zz hello" })).Json
+                .TryGetProperty("commentId", out _));
+
+            Delivery comment = await receiver.WaitForAsync(
+                d => d.Json.ValueKind == JsonValueKind.Object && d.Json.TryGetProperty("events", out JsonElement events)
+                     && events.EnumerateArray().Any(e => e.GetProperty("operation").GetString() == "addComment"
+                                                         && e.GetProperty("id").GetString() == map),
+                Patience);
+            Assert.NotNull(comment);
+        }
+        finally
+        {
+            if (feature is { } left)
+            {
+                await AdminAsync(HttpMethod.Post, $"/rest/services/{qualified}/FeatureServer/0/deleteFeatures?f=json&objectIds={left}");
+            }
+
+            if (added)
+            {
+                await PortalAsync($"{admin}/0/deleteFromDefinition", new() { ["deleteFromDefinition"] = $$"""{"fields":[{"name":"{{column}}"}]}""" });
+            }
+
+            if (hook is not null)
+            {
+                await PortalAsync($"{admin}/webhooks/{hook}/delete", new());
+            }
+
+            if (portalHook is not null)
+            {
+                await PortalAsync($"/sharing/rest/portals/self/webhooks/{portalHook}/delete", new());
+            }
+
+            if (map is not null)
+            {
+                await PortalAsync($"/sharing/rest/content/users/{User}/items/{map}/delete", new() { ["permanentDelete"] = "true" });
             }
         }
     }
