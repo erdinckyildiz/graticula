@@ -66,6 +66,13 @@ public sealed class ReachabilityTests : ConsoleTest
                     continue;
                 }
 
+                // ADR-265: the print service has no catalogue row and nothing an operator sets, so the console lists it
+                // nowhere — the same reason as an image service above.
+                if (service == "Utilities/PrintingTools")
+                {
+                    continue;
+                }
+
                 work.Add((service, folder, services));
             }
         }
