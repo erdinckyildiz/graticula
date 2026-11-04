@@ -253,7 +253,14 @@ that was raised while it was off.
    `gis.admin.webhooks` — is pointed at this server and its result recorded.
 5. **The edit path's extra statement (§6) is measured**: `applyEdits` of one feature, p50 and p95, with and without
    the webhook hook, on the fixture; if it adds more than a tenth to p50, the services that have webhooks are cached per
-   node and the cache told when one is made or removed.
+   node and the cache told when one is made or removed. **PARTLY DISCHARGED 2026-11-04: measured, and the tenth is crossed.**
+   On the local fixture (Windows, PostgreSQL 16 on the same machine), 500 sequential `applyEdits` updating one feature of
+   `ci_editable` after 50 to warm up, three runs each. With the hook: p50 14.8–29.8 ms, p95 35.8–37.9 ms, mean
+   20.9–23.9 ms over six runs. Without it (`RaiseAsync` returning at once, a build made for the measurement and never
+   committed): p50 13.0–15.1 ms, p95 34.7–35.9 ms, mean 18.8–19.6 ms. The p50 is bimodal on this machine, about 14 or
+   about 30 ms from run to run, so the means carry the comparison: about 3 ms, some 15 %, on a deployment with **no**
+   webhooks. That is over the tenth this condition set, so its remedy is owed: which services have webhooks, cached per
+   node and told across nodes when one is made or removed. Not built yet; this condition stays open on it.
 
 ## 8. Dependencies
 
