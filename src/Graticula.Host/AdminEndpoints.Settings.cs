@@ -30,6 +30,10 @@ internal sealed record StyleOriginsRequest(IReadOnlyList<string>? Origins);
 /// <param name="Url">Its address, ending in <c>/GeometryServer</c>.</param>
 internal sealed record GeometryServiceRequest(string? Url);
 
+/// <summary>Whether members may comment on items — ADR-267, Portal's <c>commentsEnabled</c>.</summary>
+/// <param name="Enabled">True to let them; false to turn comments off.</param>
+internal sealed record ItemCommentsRequest(bool Enabled);
+
 /// <summary>
 /// The server's own settings — V-70, ADR-084: set for the whole server from the console, not per service.
 /// </summary>
@@ -48,6 +52,41 @@ internal static partial class AdminEndpoints
         app.MapGet("/admin/settings/geometry-service", GeometryServiceAsync);
         app.MapPut("/admin/settings/geometry-service", SetGeometryServiceAsync);
         MapBasemapGallery(app);
+        app.MapGet("/admin/settings/item-comments", ItemCommentsSettingAsync);
+        app.MapPut("/admin/settings/item-comments", SetItemCommentsSettingAsync);
+    }
+
+    /// <summary>Whether this organisation's members may comment on items — ADR-267; on until an administrator turns it off.</summary>
+    private static async Task ItemCommentsSettingAsync(HttpContext context, IServerSettingStore store, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        StoredSetting? stored = await store.ReadAsync(PortalEndpoints.CommentsSetting, cancellation).ConfigureAwait(false);
+        await Results.Json(new { enabled = stored?.Value is not "off", changedAt = stored?.ChangedAt })
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Turns comments on items on or off for this organisation — ADR-267. Comments already left are kept either way.</summary>
+    private static async Task SetItemCommentsSettingAsync(
+        HttpContext context, ItemCommentsRequest request, IServerSettingStore store, IAuditLog audit, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+        StoredSetting? before = await store.WriteAsync(
+            PortalEndpoints.CommentsSetting, request.Enabled ? null : "off", current?.Principal.Id, cancellation).ConfigureAwait(false);
+        await AuditAsync(context, audit, "server.settings", PortalEndpoints.CommentsSetting,
+            Detail(new { from = before?.Value ?? "on", to = request.Enabled ? "on" : "off" }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+        await Results.Json(new { enabled = request.Enabled }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>The setting's name in the store — ADR-149.</summary>

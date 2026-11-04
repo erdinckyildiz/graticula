@@ -470,6 +470,23 @@ public interface IDocumentStore
     /// <returns>Whether there was such a document.</returns>
     Task<bool> SetLinkAsync(string id, string? url, IReadOnlyList<string>? typeKeywords, CancellationToken cancellationToken);
 
+    /// <summary>The export job an item is waiting for (ADR-263, D-384), or null when it waits for none.</summary>
+    /// <param name="id">The document.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The job, or null.</returns>
+    Task<Guid?> ExportJobAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Names the export job an item waits for, or, with <paramref name="job"/> null, says it waits no longer — only when it
+    /// is still waiting for <paramref name="expected"/>, so two nodes finishing the same export clear it once.
+    /// </summary>
+    /// <param name="id">The document.</param>
+    /// <param name="job">The job, or null.</param>
+    /// <param name="expected">The job it must be waiting for now, or null to set it whatever it waits for.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the document was changed.</returns>
+    Task<bool> SetExportJobAsync(string id, Guid? job, Guid? expected, CancellationToken cancellationToken);
+
     /// <summary>Replaces a document's description.</summary>
     /// <param name="id">The document.</param>
     /// <param name="description">The description, or null.</param>

@@ -664,9 +664,10 @@ public sealed class WebMapViewerTests : ConsoleTest
             await WaitForAsync("document.querySelectorAll('#labField-labs option').length > 0",
                 "The Labels panel offers none of the layer's fields.");
 
-            // Show labels starts ticked, and a change takes effect at once.
-            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('labOn-labs').checked"),
-                "A layer with no labels opens the panel with Show labels off.");
+            // Show labels starts unticked on a layer with none — it said labels were drawn when they were not (ADR-259's
+            // desktop review, 2026-11-04) — and a change still takes effect at once, ticking it.
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('labOn-labs').checked"),
+                "A layer with no labels opens the panel with Show labels ticked, though nothing is labelled.");
 
             string field = await Browser.EvaluateAsync<string>("""
                 (() => {

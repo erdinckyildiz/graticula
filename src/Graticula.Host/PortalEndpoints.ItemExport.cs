@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,19 +26,13 @@ namespace Graticula.Host;
 /// open it and ask its status, and filled with the file when the job has written it.
 /// </para>
 /// <para>
-/// <b>Which export an item is waiting for is held in this process.</b> A restart before the job finishes leaves the item
-/// empty and says so when asked; the file itself is still in Studio's exports for its retention.
+/// <b>Which export an item is waiting for is the store's</b> (migration 129, D-384): the job and its file already were —
+/// ADR-011's jobs and the site's shared exports path — so any node answers the item's status, and a restart before the
+/// job finishes leaves the item waiting rather than empty, since the job is run again.
 /// </para>
 /// </remarks>
 internal static partial class PortalEndpoints
 {
-    /// <summary>The exports whose items are waiting for their file: item id → the job, who started it, and when.</summary>
-    private static readonly ConcurrentDictionary<string, (Guid Job, Guid Owner, DateTimeOffset At)> WaitingExports =
-        new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>How many exports may wait for their file at once; past it the oldest is forgotten, its item left empty.</summary>
-    private const int MaximumWaitingExports = 256;
-
     private static void MapItemExport(WebApplication app)
     {
         foreach (string user in new[] { $"{Path}/content/users/{{username}}", $"{Path}/content/users/{{username}}/{{folderId:length(32)}}" })
@@ -118,13 +111,7 @@ internal static partial class PortalEndpoints
         IDocumentStore documents = context.RequestServices.GetRequiredService<IDocumentStore>();
         Document item = await documents.CreateAsync(title, form["snippet"].ToString() is { Length: > 0 } snippet ? snippet : null,
             current.Principal.Id, SharingScope.Private, fileName, KindOfExport(fileName), [], cancellation).ConfigureAwait(false);
-        while (WaitingExports.Count >= MaximumWaitingExports
-            && WaitingExports.OrderBy(w => w.Value.At).FirstOrDefault() is { Key: { } oldest })
-        {
-            WaitingExports.TryRemove(oldest, out _);
-        }
-
-        WaitingExports[item.Id] = (job, current.Principal.Id, DateTimeOffset.UtcNow);
+        await documents.SetExportJobAsync(item.Id, job, expected: null, cancellation).ConfigureAwait(false);
 
         return Results.Ok(new
         {
@@ -143,25 +130,29 @@ internal static partial class PortalEndpoints
     /// </summary>
     private static async Task<IResult?> ExportStatusAsync(HttpContext context, string id, RequestPrincipal current, CancellationToken cancellation)
     {
-        if (!WaitingExports.TryGetValue(id, out (Guid Job, Guid Owner, DateTimeOffset At) waiting) || waiting.Owner != current.Principal.Id)
+        IServiceProvider services = context.RequestServices;
+        IDocumentStore documents = services.GetRequiredService<IDocumentStore>();
+
+        if (await documents.ExportJobAsync(id, cancellation).ConfigureAwait(false) is not { } job
+            || await documents.FindAsync(id, cancellation).ConfigureAwait(false) is not { } item
+            || item.Owner != current.Principal.Id)
         {
             return null;
         }
 
-        IServiceProvider services = context.RequestServices;
-        FeatureExportState? export = await services.GetRequiredService<IFeatureExportStore>().FindAsync(waiting.Job, cancellation)
+        FeatureExportState? export = await services.GetRequiredService<IFeatureExportStore>().FindAsync(job, cancellation)
             .ConfigureAwait(false);
 
         if (export is null || export.Job.Status is JobStatus.Failed or JobStatus.Cancelled)
         {
-            WaitingExports.TryRemove(id, out _);
-            return Results.Ok(new { status = "failed", itemId = id, jobId = waiting.Job.ToString(), jobType = "export",
+            await documents.SetExportJobAsync(id, null, job, cancellation).ConfigureAwait(false);
+            return Results.Ok(new { status = "failed", itemId = id, jobId = job.ToString(), jobType = "export",
                 statusMessage = export?.Job.Failure ?? "The export's job is gone." });
         }
 
         if (export.Job.Status != JobStatus.Done)
         {
-            return Results.Ok(new { status = "processing", itemId = id, jobId = waiting.Job.ToString(), jobType = "export",
+            return Results.Ok(new { status = "processing", itemId = id, jobId = job.ToString(), jobType = "export",
                 statusMessage = $"{export.Job.Progress}%" });
         }
 
@@ -170,19 +161,18 @@ internal static partial class PortalEndpoints
 
         if (path is null || !File.Exists(path) || new FileInfo(path).Length > settings.DocumentMaximumBytes)
         {
-            WaitingExports.TryRemove(id, out _);
-            return Results.Ok(new { status = "failed", itemId = id, jobId = waiting.Job.ToString(), jobType = "export",
+            await documents.SetExportJobAsync(id, null, job, cancellation).ConfigureAwait(false);
+            return Results.Ok(new { status = "failed", itemId = id, jobId = job.ToString(), jobType = "export",
                 statusMessage = path is not null && File.Exists(path)
                     ? $"The file is larger than an item may hold here ({settings.DocumentMaximumBytes / 1048576} MB); download it from the layer's Export data in Studio."
                     : "The export's file is gone." });
         }
 
         byte[] content = await File.ReadAllBytesAsync(path, cancellation).ConfigureAwait(false);
-        await services.GetRequiredService<IDocumentStore>().ReplaceAsync(id, export.FileName, KindOfExport(export.FileName), content, cancellation)
-            .ConfigureAwait(false);
-        WaitingExports.TryRemove(id, out _);
+        await documents.ReplaceAsync(id, export.FileName, KindOfExport(export.FileName), content, cancellation).ConfigureAwait(false);
+        await documents.SetExportJobAsync(id, null, job, cancellation).ConfigureAwait(false);
 
-        return Results.Ok(new { status = "completed", itemId = id, jobId = waiting.Job.ToString(), jobType = "export" });
+        return Results.Ok(new { status = "completed", itemId = id, jobId = job.ToString(), jobType = "export" });
     }
 
     /// <summary>The item kind an export's file is, by the name ADR-106's packaging gave it.</summary>

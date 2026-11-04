@@ -16,6 +16,9 @@
 # window; no window holds a point Pro kept instead. b = 1.5 m explains 44 of the 48 and no b, and no extension before
 # the seam, explains all: a lost window with no lower point within 2 m across, and a kept one with a lower point 0.6 m
 # across, remain.
+# 2026-11-04: explained (D-339) - a tile's last window runs whole past its edge and keeps only its own tile's choice,
+# and the overview tops the pyramid when it is coarser than every level: adr234-terrain-seam-probe.py and
+# adr234-terrain-seam-predict.py, which reproduce every ZMIN level of both runs above.
 import csv
 import math
 import os

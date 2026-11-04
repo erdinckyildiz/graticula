@@ -1182,6 +1182,16 @@
       <p class="hint" id="orgProfileSays" role="status" aria-live="polite"></p>
     </div>
 
+    <!-- ADR-267: Portal's commentsEnabled, for whoever may change the organization's settings. -->
+    <div class="panel pad settingcard" id="orgCommentsCard" hidden>
+      <h4>Comments on items</h4>
+      <label class="check"><input type="checkbox" id="orgComments" aria-describedby="orgCommentsHint"> Members can comment
+        on items they can open</label>
+      <p class="hint" id="orgCommentsHint">Signed-in members leave comments on an item's page. Turning this off keeps
+        the comments already left; nobody can add one until it is on again. Changes save at once.</p>
+      <p class="hint" id="orgCommentsSays" role="status" aria-live="polite"></p>
+    </div>
+
     <div class="panel pad settingcard" id="orgAddressCard">
       <h4>Where its people sign in</h4>
       <ul class="orghosts" id="orgHosts"></ul>
@@ -1939,6 +1949,8 @@
       <div class="mapmain">
         <div class="panel" id="mapAbout"></div>
         <div class="panel" id="mapLayers"></div>
+        <!-- ADR-267: the item's metadata and the comments members leave on it, drawn by imcLoad. -->
+        <div class="panel imcpanel" id="mapImc" data-imc></div>
       </div>
     </div>
     <div class="panel pad" id="mapSettings" hidden></div>
@@ -1967,6 +1979,8 @@
       <aside class="panel" id="docSide" role="region" aria-label="Item information"></aside>
       <div class="mapmain">
         <div class="panel" id="docAbout"></div>
+        <!-- ADR-267: the item's metadata and the comments members leave on it, drawn by imcLoad. -->
+        <div class="panel imcpanel" id="docImc" data-imc></div>
       </div>
     </div>
     <div class="panel pad" id="docSettings" hidden></div>

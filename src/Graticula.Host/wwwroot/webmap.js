@@ -761,6 +761,9 @@ function wmKind(layer) {
 }
 
 const WM_KIND_LABEL = { feature: "Features", image: "Map image", imagery: "Imagery", tiles: "Vector tiles" };
+/** The same kinds inside a sentence: "… is an imagery layer". */
+const WM_KIND_ARTICLED = { feature: "a feature layer", image: "a map image layer", imagery: "an imagery layer",
+  tiles: "a vector tile layer" };
 
 /** A vector tile layer's service address, from whichever of its two fields it carries. */
 function wmTileService(layer) {
@@ -2289,7 +2292,7 @@ function wmLayerOnChange(event) {
   }
 
   if (t.dataset.act === "opacity") {
-    layer.opacity = Math.max(0, Math.min(1, Number(t.value) / 100));
+    layer.opacity = Math.max(0, Math.min(1, (100 - Number(t.value)) / 100));
     wmApply(layer, wmLayers().indexOf(layer));
     wmMarkDirty();
   }
@@ -2318,8 +2321,9 @@ function wmLayerOnInput(event) {
   if (t.dataset.act !== "opacity") return;
   const layer = wmLayerById(t.dataset.layer);
   if (!layer) return;
-  layer.opacity = Math.max(0, Math.min(1, Number(t.value) / 100));
-  t.setAttribute("aria-valuetext", `${t.value}% opaque`);
+  // The slider is transparency, as its label says: right is more see-through (ADR-259's desktop review, 2026-11-04).
+  layer.opacity = Math.max(0, Math.min(1, (100 - Number(t.value)) / 100));
+  t.setAttribute("aria-valuetext", `${t.value}% transparent`);
   const said = wm$(`opSaid-${layer.id}`);
   if (said) said.textContent = `${t.value}%`;
   wmApply(layer, wmLayers().indexOf(layer));
@@ -3038,6 +3042,8 @@ document.addEventListener("keydown", event => {
   }
   if (event.key !== "Escape" || wm$("identify").hidden) return;
   // In the form, Escape goes back to the card — asking first when something has been typed (ADR-134).
+  // One Escape closes one thing: the panel's handler leaves a handled key alone.
+  event.preventDefault();
   if (wmEditing.key) {
     if (wmMayLeaveEdit()) wmCancelEdit();
     return;
@@ -3242,8 +3248,8 @@ function wmStartMeasuring(type) {
   wmMeasuring = draw;
   wm$(type === "Polygon" ? "measureArea" : "measureLine").setAttribute("aria-pressed", "true");
   wmSayIn("measureStatus", type === "Polygon"
-    ? "Click the corners of the area; double-click the last one."
-    : "Click along the line; double-click the last point.");
+    ? "Tap or click the corners of the area; double-tap or double-click the last one."
+    : "Tap or click along the line; double-tap or double-click the last point.");
 }
 
 wm$("measureLine").addEventListener("click", () => wmStartMeasuring("LineString"));
@@ -3374,7 +3380,7 @@ function wmShowTab(name, focus = false) {
     if (on && focus) button.focus();
   }
 
-  wm$("panelTitle").textContent = WM_TAB_TITLES[name];
+  wm$("panelTitle").textContent = name === "map" && document.body.classList.contains("reader") ? "About this map" : WM_TAB_TITLES[name];
   if (name === "map") wmDrawMapForm();
   if (name === "add") wmOpenAdd();
   if (name === "print" && !wm$("printTitle").value) wm$("printTitle").value = wmState.meta.title || "";
@@ -3567,7 +3573,8 @@ wm$("layerSwitch").addEventListener("click", event => {
 wm$("sideClose").addEventListener("click", () => {
   const from = wmSide.tool;
   wmCloseTool();
-  if (from) wm$(`tool-${from}`).focus();
+  // On a phone Properties stands for every layer tool, and the others' buttons are not shown to take the focus.
+  if (from) wm$(`tool-${WM_PHONE.matches && WM_LAYER_TOOLS.includes(from) ? "properties" : from}`).focus();
 });
 
 /**
@@ -3580,7 +3587,8 @@ function wmDrawSide() {
     const button = wm$(`tool-${tool}`);
     button.setAttribute("aria-expanded", String(wmSide.tool === tool));
     if (WM_LAYER_TOOLS.includes(tool)) {
-      const applies = wmToolApplies(tool, layer || wmLayers()[wmLayers().length - 1]);
+      // Properties always opens: on an empty map it says how to add a layer, so it is not announced as dimmed.
+      const applies = tool === "properties" || wmToolApplies(tool, layer || wmLayers()[wmLayers().length - 1]);
       button.setAttribute("aria-disabled", String(!applies));
     }
   }
@@ -3602,7 +3610,10 @@ function wmDrawSide() {
     || stops.find(b => b.tabIndex === 0 && b.getClientRects().length) || stops[0];
   for (const b of stops) b.tabIndex = b === stop ? 0 : -1;
   const switcher = wm$("layerSwitch");
-  switcher.hidden = !(WM_PHONE.matches && WM_LAYER_TOOLS.includes(wmSide.tool));
+  // A reader has Properties alone, and an empty map has no layer to set: the switch would open empty sheets (ADR-259's
+  // phone review, 2026-11-04).
+  switcher.hidden = !(WM_PHONE.matches && WM_LAYER_TOOLS.includes(wmSide.tool) && layer
+    && !document.body.classList.contains("reader"));
   for (const b of switcher.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.tool === wmSide.tool));
 
   const tool = wmSide.tool;
@@ -3628,8 +3639,8 @@ function wmLayerToolMarkup(tool, layer) {
   if (tool === "properties") return wmPropertiesMarkup(layer, run, key, title, kind, readable);
 
   if (!wmToolApplies(tool, layer)) {
-    return `<p class="lnone">${wmEscape(WM_TOOL_NAMES[tool])} are set on a feature layer's fields. ${wmEscape(title)} is ${
-      readable ? `a ${wmEscape((kind ? WM_KIND_LABEL[kind] : layer.layerType || "layer").toLowerCase())}` : "not loaded"}, so it has none here.</p>`;
+    return `<p class="lnone">This setting needs a feature layer's fields. ${wmEscape(title)} is ${
+      readable ? wmEscape(kind ? WM_KIND_ARTICLED[kind] : `a ${layer.layerType || "layer"}`) : "not loaded"}, so it has none here.</p>`;
   }
   if (tool === "style") return wmStyleMarkup(layer, run, key, title);
   if (tool === "popup") return wmPopupPanel(layer, run, key, title);
@@ -3649,8 +3660,8 @@ function wmPropertiesMarkup(layer, run, key, title, kind, readable) {
     ${state.text ? `<div class="lstate ${state.tone}">${wmEscape(state.text)}</div>` : ""}
     <div>
       <label class="field" for="op-${k}">Transparency: <span id="opSaid-${k}">${100 - opacity}%</span></label>
-      <input type="range" id="op-${k}" min="0" max="100" step="5" value="${opacity}"
-        data-act="opacity" data-layer="${k}" data-focus="op:${k}" aria-valuetext="${opacity}% opaque">
+      <input type="range" id="op-${k}" min="0" max="100" step="5" value="${100 - opacity}"
+        data-act="opacity" data-layer="${k}" data-focus="op:${k}" aria-valuetext="${100 - opacity}% transparent">
     </div>
     ${readable && kind === "imagery" && wmFunctionsOffered(run.info) ? `<div class="lrule">
       <label class="lkind" for="rule-${k}">Shown as</label>
@@ -4625,7 +4636,8 @@ function wmLabelPanel(layer, run, key) {
   const unread = layer.showLabels && raw && !label;
   const display = (run.info && run.info.displayField) || (fields.find(f => /String/.test(f.type || "")) || fields[0] || {}).name;
   const chosen = label ? label.field : display;
-  const on = raw ? !!layer.showLabels : true;
+  // A layer without labels is shown unticked: ticking it is what labels it (ADR-259's desktop review, 2026-11-04).
+  const on = raw ? !!layer.showLabels : false;
 
   return `<div class="lstyle" id="lab-${k}">
     <label class="check"><input type="checkbox" id="labOn-${k}" data-act="labelsApply" data-layer="${k}"
@@ -4688,6 +4700,9 @@ function wmApplyLabels(layer, reset = false) {
   } else {
     const field = wm$(`labField-${k}`).value;
     if (!field) return;
+    // A layer with no labels yet is shown unticked, and its first change labels it, as ticking does: the change takes
+    // effect at once (ADR-117) without the box saying labels are drawn before they are.
+    if (!drawing.labelingInfo) wm$(`labOn-${k}`).checked = true;
     const size = Math.max(6, Math.min(36, Number(wm$(`labSize-${k}`).value) || 10));
     const hex = wm$(`labColour-${k}`).value || "#1f2933";
     const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
@@ -5542,6 +5557,8 @@ function wmOpenTable(layer) {
   wmTable.page = 0;
   wmTable.chosen = -1;
   wmTable.editing = false;
+  // On a phone the sheet would cover all but the table's first row.
+  if (WM_PHONE.matches) wmOpenSheet(false);
   wm$("tablePanel").hidden = false;
   wm$("mapWrap").classList.add("withtable");
   wmMap.updateSize();
@@ -6456,7 +6473,7 @@ function wmDrawBookmarks() {
   list.innerHTML = marks.length
     ? marks.map((mark, i) => `<li><button type="button" class="linkbtn" data-bookmark="${i}">${wmEscape(mark.name || "Bookmark")}</button>
         <button type="button" class="tiny ghost" data-unbookmark="${i}" aria-label="Remove the bookmark ${wmEscape(mark.name || "")}">Remove</button></li>`).join("")
-    : `<li class="hint">No bookmarks yet. Move the map to a place, name it below and add it. Saving the map keeps its bookmarks.</li>`;
+    : `<li class="hint">No bookmarks yet. Move the map to a place, name it below and add it.${document.body.classList.contains("reader") ? "" : " Saving the map keeps its bookmarks."}</li>`;
 }
 
 wm$("bookmarkName").addEventListener("keydown", event => {

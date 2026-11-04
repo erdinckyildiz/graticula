@@ -626,6 +626,12 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemResourceStore>(services =>
             new PostgresItemResourceStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-267: an item's metadata document and the comments members leave on it.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemMetadataStore>(services =>
+            new PostgresItemMetadataStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemCommentStore>(services =>
+            new PostgresItemCommentStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // ADR-135: what each service answers, counted in memory and written once a minute.
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IServiceUsageStore>(services =>
             new PostgresServiceUsageStore(services.GetRequiredService<NpgsqlDataSource>()));
@@ -834,8 +840,35 @@ public static class Program
             new PostgresDataSourceProbe(),
             services.GetRequiredService<GeoParquetSources>()));
 
-        builder.Services.AddSingleton<IAuditLog>(services =>
-            new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));
+        // ADR-266: webhooks. The audit log raises the portal event each audited act is, after its row is written; the
+        // sender claims the outbox on every node.
+        builder.Services.AddSingleton<Graticula.Platform.Webhooks.IWebhookStore>(services =>
+            new PostgresWebhookStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<WebhookSignal>();
+        builder.Services.AddSingleton<WebhookRaiser>();
+        // <b>The sender is a poller, so it claims on a pool of its own</b> — D-110's rule, which PollerPoolTests holds: a
+        // claim on the shared pool touches its connections round-robin and the request pool never shrinks to zero. Two
+        // connections: the claim, and the record of what a send did.
+        builder.Services.AddKeyedSingleton(
+            WebhookPool,
+            (_, _) => new NpgsqlDataSourceBuilder(
+                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                {
+                    MaxPoolSize = 2,
+                    ApplicationName = PoolNames.Of(PoolNames.Webhooks),
+                }.ConnectionString).Build());
+        builder.Services.AddHostedService(services => new WebhookDeliverer(
+            new PostgresWebhookStore(services.GetRequiredKeyedService<NpgsqlDataSource>(WebhookPool)),
+            services.GetRequiredService<WebhookSignal>(),
+            services.GetRequiredService<SecretProtector>(),
+            services.GetRequiredService<IRoleGrants>(),
+            services.GetRequiredService<HostSettings>(),
+            services.GetRequiredService<TimeProvider>(),
+            services.GetRequiredService<ILogger<WebhookDeliverer>>()));
+
+        builder.Services.AddSingleton<IAuditLog>(services => new WebhookAuditLog(
+            new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()),
+            services.GetRequiredService<WebhookRaiser>()));
 
         /*
           <b>The request log is a singleton because it owns a queue and a background
@@ -1120,6 +1153,10 @@ public static class Program
             IAdminCatalog changes = app.Services.GetRequiredService<IAdminCatalog>();
             app.Services.GetRequiredService<LayerConnections>().DataChanged = (ids, cancellation) =>
                 changes.MarkLayersChangedAsync(ids, data: true, schema: false, cancellation);
+
+            // ADR-266: an edit that kept something tells the service's webhooks.
+            WebhookRaiser webhooks = app.Services.GetRequiredService<WebhookRaiser>();
+            app.Services.GetRequiredService<LayerConnections>().Edited = webhooks.RaiseAsync;
 
             // ADR-207: where the attachments registered layers keep in the datastore are.
             app.Services.GetRequiredService<LayerConnections>().DatastoreConnection = DatastoreConnection(settings.PlatformStore);
@@ -3004,6 +3041,9 @@ public static class Program
         AnalysisEndpoints.Map(app);
         ToolboxEndpoints.Map(app);
 
+        // ADR-265: the print service, where a portal's helperServices.printTask says it is.
+        PrintEndpoints.Map(app);
+
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
         // with a different discovery document, and a client pastes one address for
@@ -3326,6 +3366,9 @@ public static class Program
             Add(Graticula.Host.Geocoding.GeocoderSettings.Folder, Graticula.Host.Geocoding.GeocoderSettings.Name);
         }
 
+        // ADR-265: the print service, which every caller may use and which draws only what each may read.
+        Add("Utilities", "Utilities/PrintingTools");
+
         foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
         {
             if ((seesStopped || coverage.Status == ServiceStatus.Started)
@@ -3497,6 +3540,12 @@ public static class Program
                 context.RequestServices.GetService<Graticula.Host.Geocoding.GeocoderSettings>(), folder, current))
         {
             systemServices.Add(($"{folder}/{Graticula.Host.Geocoding.GeocoderSettings.Name}", "GeocodeServer"));
+        }
+
+        // <b>The print service, ADR-265</b> — always there and open to every caller, so listed while blind too.
+        if (string.Equals(folder, "Utilities", StringComparison.OrdinalIgnoreCase))
+        {
+            systemServices.Add(("Utilities/PrintingTools", "GPServer"));
         }
 
         // <b>Which services have tile services is `ServiceFaces.Tileable`, below</b> —
@@ -6444,6 +6493,7 @@ public static class Program
     /// construction rather than by luck*. This is the key that separates them.
     /// </remarks>
     private const string JobPool = "jobs";
+    private const string WebhookPool = "webhooks";
 
     /// <summary>
     /// The datastore connection, derived from the platform store's.

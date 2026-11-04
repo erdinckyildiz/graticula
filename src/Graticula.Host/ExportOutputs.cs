@@ -56,6 +56,7 @@ internal static class ExportOutputs
                 "image/png" => ".png",
                 "image/jpeg" => ".jpg",
                 "image/tiff" => ".tif",
+                "application/pdf" => ".pdf",
                 _ => ".bin",
             };
         Picture kept = new(image, contentType, DateTimeOffset.UtcNow + Lifetime);

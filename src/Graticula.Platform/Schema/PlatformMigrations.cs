@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(128);
+    public static SchemaVersion ComponentSchemaVersion => new(131);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -157,25 +157,224 @@ public static class PlatformMigrations
         AnItemIsRelatedToTheItemItWasPublishedFromV126,
         ALayerKnowsWhenItLastChangedV127,
         AnAppIsAnItemAndAnItemKeepsResourcesV128,
+        AnExportsItemNamesItsJobV129,
+        AWebhookTellsAnotherSystemWhatChangedV130,
+        AnItemCarriesMetadataAndCommentsV131,
     ]);
 
     /// <summary>
-    /// An item is related to the item it was published from — ArcGIS's <c>Service2Data</c>, ADR-257 §12.
+    /// An item carries a metadata document and members' comments, as Portal's items do (ADR-267, the ArcGIS veteran's
+    /// review of v1.0.499, #18).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Found by the ArcGIS veteran's review of v1.0.499.</b> The ArcGIS API for Python overwrites a hosted layer by
-    /// finding the data item it was published from through <c>relatedItems</c>, and this portal kept no such link: the
-    /// portal's publish made a service from a document and forgot which, so <c>manager.overwrite(csv)</c> answered
-    /// <i>Cannot find related data item used to publish this Feature Layer</i>.
+    /// <b>Two tables keyed by the item</b>, each with a cascading key to it, so the recycle bin — which follows the store's
+    /// foreign keys (ADR-203) — keeps both with a deleted item and puts them back with it, and a permanent delete removes
+    /// them. <b>A comment's author is named, not referenced</b>: a key to <c>principal</c> would make restoring an item
+    /// fail once the comment's author was removed, so the comment keeps their id and the name they had.
+    /// </para>
+    /// <para><b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: two tables nothing older reads.</para>
+    /// </remarks>
+    private static Migration AnItemCarriesMetadataAndCommentsV131 => Migration.Expand(
+        new SchemaVersion(131),
+        "An item carries a metadata document and members' comments (ADR-267).",
+
+        """
+        create table if not exists item_metadata (
+            item_id     uuid        not null primary key references item (id) on delete cascade,
+            content     bytea       not null,
+            size        bigint      not null,
+            modified_at timestamptz not null default now(),
+            tenant_id   uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint item_metadata_size_matches check (size = octet_length(content)),
+            constraint item_metadata_bounded check (size between 1 and 4194304)
+        )
+        """,
+
+        "create index if not exists item_metadata_tenant on item_metadata (tenant_id)",
+
+        "alter table item_metadata enable row level security",
+
+        "alter table item_metadata force row level security",
+
+        "drop policy if exists tenant_floor on item_metadata",
+
+        """
+        create policy tenant_floor on item_metadata
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        create table if not exists item_comment (
+            id                  uuid        not null primary key,
+            item_id             uuid        not null references item (id) on delete cascade,
+            author_principal_id uuid        null,
+            author_name         text        not null,
+            comment             text        not null,
+            created_at          timestamptz not null default now(),
+            tenant_id           uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint item_comment_text_bounded check (length(btrim(comment)) > 0 and length(comment) <= 2048)
+        )
+        """,
+
+        "create index if not exists item_comment_by_item on item_comment (item_id, created_at)",
+
+        "create index if not exists item_comment_tenant on item_comment (tenant_id)",
+
+        "alter table item_comment enable row level security",
+
+        "alter table item_comment force row level security",
+
+        "drop policy if exists tenant_floor on item_comment",
+
+        """
+        create policy tenant_floor on item_comment
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
+    /// <summary>
+    /// A webhook tells another system what changed — an organisation's, on item, group, user and role events, and a feature
+    /// service's, on its edits — through a delivery outbox that survives a restart (ADR-266, the ArcGIS veteran's review
+    /// of v1.0.499, #15).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The definition and its deliveries are two tables</b>, because a delivery outlives the request that raised it
+    /// and is claimed by whichever node is free: <c>for update skip locked</c> with a lease, as a job is (ADR-011 §3.2).
+    /// A delivery carries the event and not the body, so the envelope, the time it was sent and the signature are made
+    /// when it is sent.
     /// </para>
     /// <para>
-    /// <b>A table of relationships rather than a column on the document</b>, because ArcGIS's relationships are typed
-    /// and go both ways between any two items, and a column would hold one type in one direction. Both ends are items
-    /// and go with them; the recycle bin, which follows the store's foreign keys, keeps a relationship with whichever end
-    /// it holds. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: a table nothing older reads.
+    /// <b>The secret is sealed</b> with the deployment's key, as an identity provider's client secret is, and is never
+    /// read back to anybody; only the sender unseals it to sign.
+    /// </para>
+    /// <para>
+    /// <b>Floored</b>, both, as every organisation table is (ADR-204), and they go with the principal that owns the
+    /// webhook and with the service a feature-service webhook watches. <b>Expand</b>: two tables nothing older reads.
     /// </para>
     /// </remarks>
+    private static Migration AWebhookTellsAnotherSystemWhatChangedV130 => Migration.Expand(
+        new SchemaVersion(130),
+        "A webhook tells another system what changed, through a delivery outbox (ADR-266).",
+
+        """
+        create table if not exists webhook (
+            id                 uuid        not null primary key,
+            kind               text        not null,
+            service_id         uuid        null references service (id) on delete cascade,
+            number             int         null,
+            name               text        not null,
+            url                text        not null,
+            events             text[]      not null,
+            secret             bytea       null,
+            secret_key_version int         null,
+            active             boolean     not null default true,
+            owner_principal_id uuid        not null references principal (id) on delete cascade,
+            modified_by        uuid        null references principal (id) on delete set null,
+            base_url           text        not null,
+            content_type       text        not null default 'application/json',
+            payload_format     text        not null default 'json',
+            max_retries        int         not null default 3,
+            failures_allowed   int         not null default 5,
+            failure_days       int         not null default 5,
+            properties         jsonb       not null default '{}',
+            deactivated_reason text        null,
+            created_at         timestamptz not null default now(),
+            modified_at        timestamptz not null default now(),
+            tenant_id          uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint webhook_kind_known check (kind in ('portal', 'featureService')),
+            constraint webhook_service_matches_kind check ((kind = 'featureService') = (service_id is not null)),
+            constraint webhook_name_present check (length(btrim(name)) between 1 and 256),
+            constraint webhook_url_shape check (url ~ '^https?://' and length(url) <= 2048),
+            constraint webhook_events_present check (cardinality(events) between 1 and 64),
+            constraint webhook_retries_bounded check (max_retries between 0 and 5),
+            constraint webhook_policy_bounded check (failures_allowed between 1 and 1000 and failure_days between 1 and 365),
+            constraint webhook_content_type_known check (content_type in ('application/json', 'application/x-www-form-urlencoded')),
+            constraint webhook_format_known check (payload_format in ('json', 'pjson'))
+        )
+        """,
+
+        "create unique index if not exists webhook_service_number on webhook (service_id, number) where service_id is not null",
+
+        "create index if not exists webhook_tenant_kind on webhook (tenant_id, kind) where active",
+
+        """
+        create table if not exists webhook_delivery (
+            id              uuid        not null primary key,
+            webhook_id      uuid        not null references webhook (id) on delete cascade,
+            event           text        not null,
+            body            jsonb       not null,
+            status          text        not null default 'pending',
+            attempts        int         not null default 0,
+            next_attempt_at timestamptz not null default now(),
+            claimed_by      text        null,
+            lease_until     timestamptz null,
+            last_status     int         null,
+            last_error      text        null,
+            created_at      timestamptz not null default now(),
+            finished_at     timestamptz null,
+            tenant_id       uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint webhook_delivery_status_known check (status in ('pending', 'delivered', 'failed', 'dropped')),
+            constraint webhook_delivery_error_bounded check (last_error is null or length(last_error) <= 1024)
+        )
+        """,
+
+        "create index if not exists webhook_delivery_due on webhook_delivery (next_attempt_at) where status = 'pending'",
+
+        "create index if not exists webhook_delivery_recent on webhook_delivery (webhook_id, created_at desc)",
+
+        "create index if not exists webhook_delivery_tenant on webhook_delivery (tenant_id)",
+
+        "alter table webhook enable row level security",
+
+        "alter table webhook force row level security",
+
+        "drop policy if exists tenant_floor on webhook",
+
+        """
+        create policy tenant_floor on webhook
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        "alter table webhook_delivery enable row level security",
+
+        "alter table webhook_delivery force row level security",
+
+        "drop policy if exists tenant_floor on webhook_delivery",
+
+        """
+        create policy tenant_floor on webhook_delivery
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
+    /// <summary>
+    /// An export's item names the job that fills it, in the store rather than in the process that started it — D-384,
+    /// ADR-263 §5.3.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Which job an item waits for was held in one process</b>, so on a site of several nodes a status asked of another
+    /// node answered as for any document — <i>completed</i>, with the item still empty — and a restart before the job
+    /// finished left the item empty for good. The job is already the store's (ADR-011) and its file is already on the
+    /// site's shared exports path (D-282); the link between them was the one thing that was not.
+    /// </para>
+    /// <para>
+    /// <b>A column on the document, not a table</b>: an item waits for at most one export, and the column is cleared when
+    /// the file is in. No foreign key to the job, because a job's row may be swept before a client asks again, and that is
+    /// answered as a failure rather than refused by the store. <b>Expand</b>: a nullable column a build before this one
+    /// does not read.
+    /// </para>
+    /// </remarks>
+    private static Migration AnExportsItemNamesItsJobV129 => Migration.Expand(
+        new SchemaVersion(129),
+        "An export's item names the job that fills it (D-384, ADR-263).",
+
+        "alter table document add column if not exists export_job uuid");
+
     /// <summary>
     /// An app or a link is an item — a document whose content is its JSON and which may carry a URL — and any item keeps
     /// resources, the files an app stores beside itself (ADR-264, the ArcGIS veteran's review of v1.0.499, #1).
@@ -232,6 +431,23 @@ public static class PlatformMigrations
             with check (graticula_tenant() is null or tenant_id = graticula_tenant())
         """);
 
+    /// <summary>
+    /// An item is related to the item it was published from — ArcGIS's <c>Service2Data</c>, ADR-257 §12.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by the ArcGIS veteran's review of v1.0.499.</b> The ArcGIS API for Python overwrites a hosted layer by
+    /// finding the data item it was published from through <c>relatedItems</c>, and this portal kept no such link: the
+    /// portal's publish made a service from a document and forgot which, so <c>manager.overwrite(csv)</c> answered
+    /// <i>Cannot find related data item used to publish this Feature Layer</i>.
+    /// </para>
+    /// <para>
+    /// <b>A table of relationships rather than a column on the document</b>, because ArcGIS's relationships are typed
+    /// and go both ways between any two items, and a column would hold one type in one direction. Both ends are items
+    /// and go with them; the recycle bin, which follows the store's foreign keys, keeps a relationship with whichever end
+    /// it holds. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: a table nothing older reads.
+    /// </para>
+    /// </remarks>
     private static Migration AnItemIsRelatedToTheItemItWasPublishedFromV126 => Migration.Expand(
         new SchemaVersion(126),
         "An item is related to the item it was published from, as ArcGIS's Service2Data (ADR-257 §12).",

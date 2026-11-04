@@ -325,6 +325,33 @@ internal static class ServiceLookup
         return layer;
     }
 
+    /// <summary>
+    /// The service at a folder and name when this caller may read it and it is running — or null, with nothing written.
+    /// </summary>
+    /// <remarks>
+    /// <b>For a request that names other services inside its own parameters</b> — a print's <c>Web_Map_as_JSON</c>
+    /// (ADR-265) — where one unreadable layer is left out of the answer rather than refusing it. The same three checks the
+    /// face doors make, blind then sharing then status, through the same method; absent and unshared are one answer.
+    /// </remarks>
+    /// <param name="context">The request, whose principal decides.</param>
+    /// <param name="catalog">The catalogue.</param>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service's name.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The service, or null.</returns>
+    public static async Task<PublishedService?> ReadableQuietlyAsync(
+        HttpContext context, CatalogFallback catalog, string? folder, string serviceName, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        CatalogAnswer answer = await catalog.FindServiceAsync(folder, serviceName, cancellation).ConfigureAwait(false);
+
+        return answer.Service is { } service && await VisibleAsync(context, service, answer, quiet: true).ConfigureAwait(false)
+            ? service
+            : null;
+    }
+
     /// <summary>Blind, then sharing, then status. Writes the refusal unless asked not to.</summary>
     /// <remarks>
     /// <b>Blind goes first, and it has to.</b> The sharing check below is a

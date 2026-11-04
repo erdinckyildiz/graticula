@@ -256,18 +256,21 @@ internal static partial class PortalEndpoints
             kept.UnionWith(["text", "url", "typeKeywords"]);
         }
 
+        // ADR-267: any item keeps a metadata document, sent as a file part or a field named `metadata`.
+        kept.Add("metadata");
+
         string[] refused = [.. sent.Keys.Where(k => !kept.Contains(k) && !EchoedFields.Contains(k)).Order(StringComparer.Ordinal)];
 
         // A picture is a file, not a field; for a service it is drawn from its layers, never kept. A document keeps its
         // file and, since D-321, a picture of its own.
         if (item.Service is not null && form.Files.Count > 0)
         {
-            refused = [.. refused, .. form.Files.Select(f => f.Name)];
+            refused = [.. refused, .. form.Files.Where(f => f.Name != "metadata").Select(f => f.Name)];
         }
         else if (item.Document is not null)
         {
             refused = [.. refused, .. form.Files
-                .Where(f => f.Name != "file" && !f.Name.StartsWith("thumbnail", StringComparison.OrdinalIgnoreCase))
+                .Where(f => f.Name is not ("file" or "metadata") && !f.Name.StartsWith("thumbnail", StringComparison.OrdinalIgnoreCase))
                 .Select(f => f.Name)];
         }
 
@@ -294,6 +297,14 @@ internal static partial class PortalEndpoints
         if (sent.TryGetValue("licenseInfo", out string? license) && license.Length > AdminEndpoints.MaximumLicenseLength)
         {
             return PortalError(400, $"'{item.Title}' was not changed: terms of use are at most {AdminEndpoints.MaximumLicenseLength:N0} characters.");
+        }
+
+        // ADR-267: the metadata is checked — DTDs off, no resolver, its size capped — before anything is written.
+        (byte[]? metadata, string? badMetadata) = await MetadataSentAsync(form, cancellation).ConfigureAwait(false);
+
+        if (badMetadata is not null)
+        {
+            return PortalError(400, $"'{item.Title}' was not changed: {badMetadata}");
         }
 
         string? Given(string key) => sent.TryGetValue(key, out string? value) ? value.Trim() : null;
@@ -453,6 +464,12 @@ internal static partial class PortalEndpoints
         if (license is not null || categories is not null)
         {
             await held.RefreshAsync(cancellation).ConfigureAwait(false);
+        }
+
+        if (metadata is not null)
+        {
+            await context.RequestServices.GetRequiredService<IItemMetadataStore>().WriteAsync(item.ItemGuid, metadata, cancellation)
+                .ConfigureAwait(false);
         }
 
         await AdminEndpoints.AuditAsync(

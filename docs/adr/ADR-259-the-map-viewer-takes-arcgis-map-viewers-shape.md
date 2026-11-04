@@ -81,7 +81,20 @@ in memory, and forgets both when it closes.
 
 1. **The owner uses it** on dev before it reaches main, as with every interface change since 2026-10-17.
 2. **Every screen passes the ux-designer review**, at 1,280 and 390 pixels, first-run state included — a new map with no
-   layers, where the right toolbar's layer tools have nothing to act on.
+   layers, where the right toolbar's layer tools have nothing to act on. **DISCHARGED 2026-11-04**, on a re-check rather
+   than on the first pass. Two ux-designer reviews drove the live page — 1,280 × 800, and 390 × 844 with touch
+   emulation — signed in on an empty map and on one with a layer, and signed out on a public map; both returned
+   *rework*, with no blocker and nine major findings between them. At 1,280: Show labels ticked on a layer with no
+   labels, a Transparency slider whose label read the opacity once it moved, one Escape closing a pop-up and the panel
+   under it, an open dimmed tool at 2:1, and a Measure hint promising what a click did not do. At 390: a reader's
+   Properties offering four empty sheets, × dropping the keyboard on the page, the table opened under the sheet, and
+   13 px fields 24–31 px tall. All were repaired on `night-1104`; a third review re-measured each, passed 1,280, and
+   failed 390 on one item the repair had missed — Add's kinds buttons, 24 px on the first-run path, because
+   `#addList .kinds button` outranked the phone's `button.tiny` rule — then passed 390 once that was fixed. axe-core
+   4.10.2 found 0 violations in all 26 states run. **Left as minor, recorded rather than chased:** the inline *Add a
+   layer* link (70 × 20, exempt as text), extra space above *Show labels* in the phone's Labels sheet, the map at 468 px
+   with both desktop panels open, the time bar's wrap at that width, a stale coordinate readout, Remove without undo,
+   and 11.5 against 12 px toolbar labels.
 
 ## 6. Dependencies
 

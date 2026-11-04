@@ -7,6 +7,7 @@
 | **Decided** | 2026-10-01, under the owner's standing instruction to make Studio usable as Portal is |
 | **Supersedes** | — |
 | **Superseded by** | — |
+| **Amended by** | [ADR-265](ADR-265-the-server-prints-a-web-map.md) (2026-11-04: Alternative B built beside this choice) |
 | **Amends** | [ADR-079](ADR-079-a-web-map-is-a-saved-document.md) (what the Map Viewer offers) |
 
 ---
@@ -36,6 +37,11 @@ geodesic ground distance agreeing to within a tenth of a percent.
 **For:** what ArcGIS clients call, and vector output. **Against:** a renderer of every layer kind on the server, a
 second drawing of what the browser has already drawn; [build-vs-adopt](../build-vs-adopt-policy.md) Tier 1 would make
 it ours to write. Revisit if a client asks the server to print.
+
+**Built on 2026-11-04 by [ADR-265](ADR-265-the-server-prints-a-web-map.md), beside this choice rather than instead of
+it.** The revisit trigger below fired as the ArcGIS veteran's #13: every ArcGIS client prints through the server. The
+server's print draws only this server's own layers, through the renderer MapServer `export` uses, as a raster page like
+this one; the Map Viewer's Print tab still composes in the browser, which draws what the view already holds.
 
 ## 3. Counterarguments to the preferred option
 

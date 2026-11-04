@@ -34,7 +34,7 @@ public sealed class PostgresServerSettingStore : IServerSettingStore
     /// </summary>
     private static readonly HashSet<string> Organisational = new(StringComparer.Ordinal)
     {
-        "basemap_gallery", "default_basemap", "secondFactor.required",
+        "basemap_gallery", "default_basemap", "secondFactor.required", "item_comments",
     };
 
     /// <summary>The name a setting is stored under for the tenant of the work in progress.</summary>
