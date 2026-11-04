@@ -112,6 +112,10 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
             await ClickAsync("#docImc [data-imc-add]");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/addComment'))",
                 "Add comment did not send the comment.");
+            // Add ends by putting the cursor in the text box once the list is read again; wait for it, or that read can
+            // land after Cancel below and take the cursor from Delete (CI, 2026-11-05).
+            await WaitForAsync("(document.getElementById('docImc')?.textContent || '').includes('Your comment is added.')",
+                "Add never said the comment was added.");
 
             await WaitForAsync(Shown($"#docImc [data-imc-delete=\"{comment}\"]"), "The owner is not offered Delete on a comment.");
             // Asked in the console's own dialog (UX review, m11), and Cancel sends nothing.
