@@ -108,17 +108,22 @@ the document is stored as sent and the item is untouched (`INFERRED`, §5.3).
 ## 7. Conditions
 
 1. A service's item page in Studio shows the same panel. *(Only documents and web maps have it; the service page's
-   structure is the larger one and was left for the ux review.)* **PARTLY DISCHARGED 2026-11-04:** a feature, map image
+   structure is the larger one and was left for the ux review.)* **DISCHARGED 2026-11-04** (*partly* earlier the same day): a feature, map image
    or vector tile service's page — hosted or registered, whatever its item id — has the panel, last in Overview's main
    column below the description and the layers, where Portal's item page keeps its comments; on a phone after the item
    information, as a document's is. It is the same code: `imcMount` mounts one panel on all three pages from the page's
    own record, addressing a service by the portal item id its page is addressed by, and the server keys it on the
    service whichever face's id is sent. Upload, Replace and Download, the comments with Delete where the reader may, the
    add box, *Comments are turned off*, and a member who does not manage the service all behave as on a document's page.
-   **Not met for an image service:** its listing carries no item id (its item is its coverage's) and the item routes do
+   ~~**Not met for an image service:** its listing carries no item id (its item is its coverage's) and the item routes do
    not resolve a coverage's id, so its page has no panel rather than one whose every request answers 404 — what remains
-   is the server reading an image service's item by that id, and the listing saying it.
-   `ItemMetadataCommentsScreenTests`, the six service facts.
+   is the server reading an image service's item by that id, and the listing saying it.~~ **Met the same evening:** the
+   item routes resolve an image service's coverage item id and keep its comments and metadata under the service, as a
+   listing counts them; Studio's listing says that id as `imageItemId`, beside the `itemId` its page is still addressed
+   by; and the panel reads it. `ItemMetadataCommentsScreenTests`, the six service facts — the image service's found
+   signed in, since the anonymous directory does not list the fixture's and the test passed without looking when it
+   found none (with the panel's id removed it fails) — and
+   `PortalItemMetadataCommentsTests.An_image_services_item_takes_comments_and_metadata_as_a_feature_services_does`.
 2. Search and content listings carry `numComments` and the `Metadata` type keyword, read in one query per page, so a
    client that sorts or filters by them sees the truth. **DISCHARGED 2026-11-04:** the portal's search, a group's
    content and My Content read both for the whole listing in two statements — not per page, so that a filter and a sort

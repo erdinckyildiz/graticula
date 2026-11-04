@@ -398,17 +398,32 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
     }
 
     [Fact]
-    public async Task An_image_services_page_has_no_panel_rather_than_one_that_cannot_be_read()
+    public async Task An_image_services_page_has_the_panel_through_its_coverages_item()
     {
-        string? image = (await ImageServicesAsync()).Order(StringComparer.Ordinal).FirstOrDefault();
-        if (image is null) return;
-
         (string token, _) = await SignInAsync();
+
+        // Found signed in, through the portal's search: the fixture's image service is not in the anonymous directory, and
+        // a test that returned when it found none passed without looking (2026-11-04).
+        await OpenAsync("/studio/", token);
+        string image = await Browser.EvaluateAsync<string>("""
+            (async () => {
+              const found = await api('/sharing/rest/search?f=json&num=100&q=' + encodeURIComponent('type:"Image Service"'));
+              const url = ((found.results || [])[0] || {}).url || '';
+              const at = /\/rest\/services\/(.+)\/ImageServer/.exec(url);
+              return at ? at[1] : '';
+            })()
+            """) ?? string.Empty;
+        Assert.False(string.IsNullOrEmpty(image), "The fixture lists no image service to open, signed in.");
+
         await OpenAsync($"/studio/#/service/{image}", token);
         await WaitForAsync("typeof serviceItem !== 'undefined' && serviceItem?.name === " + JsonSerializer.Serialize(image),
             "The image service's page never read its listing.");
 
-        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#serviceImc")), "An image service's page shows a panel its server keys nothing for.");
+        // ADR-267 condition 1: its item is its coverage's, which the listing carries as imageItemId and the server accepts.
+        await WaitForAsync(Shown("#serviceImc"), "An image service's page has no metadata and comments panel.");
+        await WaitForAsync("!document.querySelector('#serviceImc .bad, #serviceImc .bad-inline')"
+            + " && !!document.querySelector('#serviceImc textarea, #serviceImc [role=status]')",
+            "The image service's panel did not load, or loaded with an error.");
         NothingWentWrong(await PageErrorsAsync());
     }
 

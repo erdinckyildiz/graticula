@@ -272,6 +272,34 @@ public sealed class PortalItemMetadataCommentsTests : ArcGisClient
     }
 
     [Fact]
+    public async Task An_image_services_item_takes_comments_and_metadata_as_a_feature_services_does()
+    {
+        // ADR-267 condition 1: an image service's item is its coverage's, and its comments and metadata are kept under
+        // the service, as a listing counts them.
+        JsonElement found = (await SendAsync(HttpMethod.Get,
+            $"/sharing/rest/search?f=json&num=100&q={Uri.EscapeDataString("type:\"Image Service\"")}")).Json;
+        string? image = found.GetProperty("results").EnumerateArray()
+            .Select(r => r.GetProperty("id").GetString()).FirstOrDefault();
+        Assert.False(image is null, "The fixture lists no image service to comment on.");
+
+        var (_, made, madeRaw, _) = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/items/{image}/addComment", Form(("comment", "zz on an image")));
+        string comment = made.TryGetProperty("commentId", out JsonElement id) ? id.GetString()! : throw new InvalidOperationException(madeRaw);
+
+        try
+        {
+            Assert.Equal(1, (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{image}/comments?f=json")).Json
+                .GetProperty("comments").EnumerateArray().Count(c => c.GetProperty("id").GetString() == comment));
+            JsonElement listed = (await SendAsync(HttpMethod.Get,
+                $"/sharing/rest/search?f=json&num=100&q={Uri.EscapeDataString($"id:{image}")}")).Json;
+            Assert.True(listed.GetProperty("results")[0].GetProperty("numComments").GetInt32() >= 1, "The search does not count the image's comment.");
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Post, $"/sharing/rest/content/items/{image}/comments/{comment}/delete", Form());
+        }
+    }
+
+    [Fact]
     public async Task An_organization_that_turns_comments_off_takes_none_and_says_so()
     {
         string map = await AddMapAsync($"zz quiet {Guid.NewGuid():N}"[..22]);

@@ -180,8 +180,19 @@ internal static partial class PortalEndpoints
         IReadOnlyList<Graticula.Platform.Catalog.PublishedService>? visible =
             await VisibleAsync(context, services.GetRequiredService<CatalogFallback>(), cancellation).ConfigureAwait(false);
 
-        return visible?.FirstOrDefault(s => ItemsOf(context, s).Any(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)))
-            is { } service ? (service.Id, service.Owner) : null;
+        if (visible?.FirstOrDefault(s => ItemsOf(context, s).Any(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)))
+            is { } service)
+        {
+            return (service.Id, service.Owner);
+        }
+
+        // An image service's item (ADR-267 condition 1): its comments and metadata are kept under its service id, as a
+        // listing reads them.
+        IReadOnlyList<Graticula.Platform.Catalog.PublishedCoverage>? images =
+            await VisibleCoveragesAsync(context, services.GetRequiredService<ICoverageCatalog>(), cancellation).ConfigureAwait(false);
+
+        return images?.FirstOrDefault(c => string.Equals(CoverageItemId(c), id, StringComparison.OrdinalIgnoreCase))
+            is { } image ? (image.ServiceId, image.Owner) : null;
     }
 
     /// <summary>Whether this caller may read an item's private resources: its owner, or whoever may manage all content.</summary>

@@ -39727,7 +39727,8 @@ $("pcDialog")?.addEventListener("close", () => {
  */
 const WEBHOOK_PORTAL_EVENTS = [
   ["items", "Items", [["add", "Added"], ["update", "Updated"], ["delete", "Deleted"], ["share", "Shared"],
-    ["reassign", "Given to another owner"], ["protect", "Protected from deletion"], ["publish", "Published"]]],
+    ["reassign", "Given to another owner"], ["protect", "Protected from deletion"], ["publish", "Published"],
+    ["addComment", "Commented on"], ["updateComment", "Comment edited"], ["deleteComment", "Comment deleted"]]],
   ["groups", "Groups", [["add", "Created"], ["update", "Updated"], ["delete", "Deleted"], ["addUsers", "Members added"],
     ["removeUsers", "Members removed"], ["itemShare", "Item shared with it"], ["itemUnshare", "Item unshared from it"]]],
   ["users", "Members", [["add", "Added"], ["update", "Profile updated"], ["delete", "Removed"], ["disable", "Disabled"],
@@ -39737,7 +39738,10 @@ const WEBHOOK_PORTAL_EVENTS = [
 
 /** A feature service webhook's change types that this server raises (ADR-266 §2), in ArcGIS's names. */
 const WEBHOOK_CHANGE_TYPES = [["FeaturesCreated", "Features created"], ["FeaturesUpdated", "Features updated"],
-  ["FeaturesDeleted", "Features deleted"], ["FeaturesEdited", "Features edited (any of the three)"]];
+  ["FeaturesDeleted", "Features deleted"], ["FeaturesEdited", "Features edited (any of the three)"],
+  ["AttachmentsCreated", "Attachments added"], ["AttachmentsUpdated", "Attachments replaced"],
+  ["AttachmentsDeleted", "Attachments deleted"], ["LayerSchemaChanged", "A layer's fields changed"],
+  ["FeatureServiceDefinitionChanged", "The service's definition changed"]];
 
 /**
  * The two lists this page draws: the organization's (Organization › Settings › Webhooks) and the open feature service's
@@ -40069,7 +40073,7 @@ function openWebhookCreate(scope) {
         </fieldset>`).join("")}</div>`
     : `<legend>Events</legend>
       <div class="whpicks">${WEBHOOK_CHANGE_TYPES.map(([type, words]) => `
-        <label class="check"><input type="checkbox" data-wh-event="${type}"${type === "FeaturesEdited" ? "" : " checked"}>
+        <label class="check"><input type="checkbox" data-wh-event="${type}"${["FeaturesCreated", "FeaturesUpdated", "FeaturesDeleted"].includes(type) ? " checked" : ""}>
           ${h(words)}</label>`).join("")}</div>
       <p class="hint">Each message names the layer and the object IDs that changed.</p>`;
   $("whActiveRow").hidden = scope === "org";
@@ -41481,14 +41485,15 @@ const IMC_BOXES = { doc: "docImc", map: "mapImc", service: "serviceImc" };
  *
  * <b>A service's record is drawn more than once per opening</b> — once the listing answers, again when its layers do —
  * so the panel is read once per service and not on every draw; a document's and a web map's are read on every draw, as
- * they were. <b>An image service's listing carries no item id</b> (its item is its coverage's, which the server does
- * not key comments on), so its page has no panel rather than one whose every request answers 404.
+ * they were. <b>An image service's item is its coverage's</b>, which its page is not addressed by: the listing carries it
+ * as <code>imageItemId</code>, and the server keys its comments and metadata on the service as it does a feature
+ * service's (ADR-267 condition 1).
  */
 function imcMount(which) {
   const box = $(IMC_BOXES[which]);
   if (!box) return;
   const item = itemOf(which);
-  const id = which === "service" ? item?.itemId : item?.id;
+  const id = which === "service" ? item?.itemId || item?.imageItemId : item?.id;
   if (!id) { imcUnmount(which); return; }
   box.hidden = false;
   // Utilities' services are the server's own, set in System and by nobody from here (as drawServiceDetails's Share).
