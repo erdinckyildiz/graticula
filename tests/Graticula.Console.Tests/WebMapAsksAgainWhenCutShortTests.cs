@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -94,9 +95,49 @@ public sealed class WebMapAsksAgainWhenCutShortTests : ConsoleTest
             "Zooming in over a layer whose answer was cut short asked for nothing. The view counts as loaded because "
             + "a wider one was, and the reader is left with the first page wherever they go — the defect of 2026-10-10.");
 
-        await WaitForAsync("!wmRuntime.get(wmLayers()[0]).replace && window.__frames > 0",
-            "The layer's second answer never replaced the first.");
+        await WaitForAsync("wmRuntime.get(wmLayers()[0]).ol.getSource().getFeatures().length > 0 && window.__frames > 0",
+            "The layer's second answer was never drawn.");
         Assert.Equal(0, await Browser.EvaluateAsync<int>("window.__emptyFrames"));
+    }
+
+    /// <summary>
+    /// Panning a cut layer keeps what the earlier view drew, each feature once — owner, 2026-11-04: what had just been on
+    /// screen was emptied on every pan, and panning back read the same ground again.
+    /// </summary>
+    [Fact]
+    public async Task A_cut_layer_keeps_what_the_last_view_drew_when_the_view_moves_and_draws_each_feature_once()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string service = QueryableService();
+
+        await Browser.PlantAsync(CutShort);
+        await OpenAsync($"/studio/webmap.html?service={Uri.EscapeDataString(service)}", token, cookie);
+
+        const string Source = "wmRuntime.get(wmLayers()[0]).ol.getSource()";
+        await WaitForAsync($"!!wmState.doc && wmLayers().length > 0 && !!wmRuntime.get(wmLayers()[0])?.ol && {Source}.getFeatures().length > 0",
+            "The layer's first answer drew no features.");
+
+        string[] first = await Browser.EvaluateAsync<string[]>($"{Source}.getFeatures().map(f => String(f.getId()))") ?? [];
+        Assert.All(first, id => Assert.NotEqual("undefined", id));
+        int before = await Browser.EvaluateAsync<int>("window.__queries.length");
+
+        await Browser.EvaluateAsync<string>("""
+            (() => {
+              const view = wmMap.getView();
+              const [x, y] = view.getCenter();
+              view.setCenter([x + view.getResolution() * wmMap.getSize()[0] * 3, y]);
+              return 'panned';
+            })()
+            """);
+
+        await WaitForAsync($"window.__queries.length > {before}", "Panning a cut layer asked for nothing.");
+        // Settled: the source is no longer loading what the pan asked for.
+        await WaitForAsync($"{Source}.loading === false || {Source}.getFeatures().length > 0", "The pan's answer never came.");
+        await Browser.EvaluateAsync<bool>("new Promise(done => setTimeout(() => done(true), 1500))");
+
+        string[] after = await Browser.EvaluateAsync<string[]>($"{Source}.getFeatures().map(f => String(f.getId()))") ?? [];
+        Assert.Empty(first.Except(after));
+        Assert.Equal(after.Length, after.Distinct().Count());
     }
 
     /// <summary>

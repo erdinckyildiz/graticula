@@ -19,6 +19,26 @@ const WM_WORLD = [-20037508.342789244, -20037508.342789244, 20037508.342789244, 
 /** Features drawn per request for a feature layer, per view; more than this is said, not drawn. */
 const WM_DRAW_LIMIT = 2000;
 
+/**
+ * The most features one layer keeps once it has been moved over: past this the farthest from the view go first. A cut
+ * layer is asked again for every view, and what earlier views drew stays until then — ArcGIS Map Viewer keeps what it
+ * read in the same way — so panning back finds the map already drawn, and memory has a bound (owner, 2026-11-04).
+ */
+const WM_KEEP_LIMIT = 50000;
+
+/** Lets go of the features farthest from a view's centre until the source holds at most WM_KEEP_LIMIT. */
+function wmKeepNearest(source, extent) {
+  const all = source.getFeatures();
+  if (all.length <= WM_KEEP_LIMIT) return;
+  const [cx, cy] = ol.extent.getCenter(extent);
+  const away = feature => {
+    const [x, y] = ol.extent.getCenter(feature.getGeometry().getExtent());
+    return (x - cx) * (x - cx) + (y - cy) * (y - cy);
+  };
+  const farthest = all.map(feature => [away(feature), feature]).sort((a, b) => b[0] - a[0]);
+  source.removeFeatures(farthest.slice(0, all.length - WM_KEEP_LIMIT).map(([, feature]) => feature));
+}
+
 /** How far past a visible range's bound still counts as inside it — rounding, not a wider range. */
 const WM_RANGE_SLACK = 1.001;
 
@@ -1268,14 +1288,18 @@ function wmBuildLayer(layer, run, index) {
         (run.extents = run.extents || []).push(extent);
         wmFetch(url).then(payload => {
           const features = WM_ESRI.readFeatures(payload, { featureProjection: WM_MERCATOR });
-          // Asked again after a move: what the last view drew goes in the same task as the new answer comes, so no
-          // frame is drawn between them with the layer empty (2026-11-03, a GeoParquet layer blinked on every pan).
-          if (run.replace) {
-            run.replace = false;
-            const old = source.getFeatures();
-            if (old.length) source.removeFeatures(old);
+          // <b>By their object ids</b>, so a feature that an earlier view drew and this one answers again is drawn once:
+          // a source skips a feature whose id it already holds.
+          for (const feature of features) {
+            const id = feature.get(idField);
+            if (id !== undefined && id !== null) feature.setId(id);
           }
+          // <b>Asked again after a move, and what earlier views drew stays</b> (owner, 2026-11-04: panning a cut layer
+          // emptied what had just been on screen). Until then the last view's features were swapped out for the new
+          // answer — no blink, but nothing kept — and panning back read the same ground again. Now they stay, up to
+          // WM_KEEP_LIMIT, the farthest from this view going first.
           source.addFeatures(features);
+          wmKeepNearest(source, extent);
           const truncated = !!payload.exceededTransferLimit;
           const wasError = !!run.error;
           run.error = null;
@@ -4682,13 +4706,12 @@ wmMap.on("moveend", () => {
 
     // Not `refresh()`: that empties the layer at once and leaves it empty until the answer comes, so every pan over a
     // large layer blinked. The extents are let go instead, the source asks for the view again on the next frame, and
-    // the loader swaps the old features for the new ones when they arrive.
+    // the loader adds the new answer to what is drawn, keeping the nearest WM_KEEP_LIMIT (2026-11-04).
     const source = run.ol.getSource && run.ol.getSource();
     if (run.truncated && inside && source && source.removeLoadedExtent) {
       run.truncated = false;
       for (const extent of run.extents || []) source.removeLoadedExtent(extent);
       run.extents = [];
-      run.replace = true;
       source.changed();
     }
   }
