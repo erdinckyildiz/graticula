@@ -3054,6 +3054,13 @@
         <div class="panel pad" id="serviceOps"></div>
         <div class="panel pad" id="serviceSpend"></div>
       </div>
+
+      <!--
+        ADR-267 condition 1: the item's metadata and the comments members leave on it, drawn by imcMount — the panel a
+        document's and a web map's page have, last in the main column below the description and the layers, where
+        Portal's item page keeps its comments. Hidden for a service whose listing names no portal item (an image service).
+      -->
+      <div class="panel imcpanel" id="serviceImc" data-imc hidden></div>
       </div>
 
       <aside class="panel pad" id="serviceDetails" role="region" aria-label="Item information"></aside>

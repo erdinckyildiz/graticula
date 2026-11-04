@@ -6411,7 +6411,7 @@ async function showWebMapItem(id) {
 
   drawMapAbout();
   loadMapExtras(map);
-  imcLoad(map, $("mapImc"));   // ADR-267: its metadata and comments
+  imcMount("map");   // ADR-267: its metadata and comments
 
   // Each layer with the way to its own item, when it is one of this server's services; top first, the basemap last.
   const row = layer => {
@@ -6997,6 +6997,8 @@ async function showService(qualified) {
   serviceCatalogue = null;
   if ($("itemNotice")) { $("itemNotice").innerHTML = ""; $("itemNotice").hidden = true; }
   systemServiceOpen = null;
+  // ADR-267: the previous service's comments are not this one's; the panel waits for this one's item id.
+  imcUnmount("service");
   if ($("serviceStoppedNote")) { $("serviceStoppedNote").hidden = true; $("serviceStoppedNote").innerHTML = ""; }
   // The previous service's layers are not this one's; Server's General page read them until these arrived.
   serviceLayers = [];
@@ -8548,6 +8550,7 @@ async function drawServiceDetails(qualified, knownKind) {
     }
     drawServiceHead(item);
     loadItemExtras(item);
+    imcMount("service");   // ADR-267 condition 1: its metadata and comments, as a document's page has them
     if (item.isView || item.hasViews) drawViewLinks(item);
     if (item.scope === "mine" && item.contentFolder && !myFolders.some(f => f.id === item.contentFolder)) {
       api("/content/folders").then(a => {
@@ -34935,7 +34938,7 @@ async function showDocumentItem(id) {
   drawDocSettings();
   drawDocTabs();
   loadDocExtras(doc);
-  imcLoad(doc, $("docImc"));   // ADR-267: its metadata and comments
+  imcMount("doc");   // ADR-267: its metadata and comments
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
   if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
   if (docSayNext) {
@@ -40973,8 +40976,9 @@ new MutationObserver(() => {
 // ---------------------------------------------------------------- an item's metadata and comments (ADR-267)
 
 /**
- * The item whose metadata and comments are on screen — a document's or a web map's page — and the panel they are in.
- * `item` is the page's own record (`id`, `owner`, `manages`); the rest is what the portal last said.
+ * The item whose metadata and comments are on screen — a document's, a web map's or a service's page — and the panel
+ * they are in. `item` is what `imcMount` read from the page's own record (`id`, `owner`, `manages`); the rest is what the
+ * portal last said.
  */
 let imcOpen = null;
 
@@ -40986,6 +40990,44 @@ const IMC_COMMENT_MAX = 2048;
 
 /** The largest metadata document the server keeps — 4 MB. */
 const IMC_METADATA_MAX = 4 * 1024 * 1024;
+
+/** The panel on each item page that has one: a document's, a web map's and a service's (ADR-267 condition 1). */
+const IMC_BOXES = { doc: "docImc", map: "mapImc", service: "serviceImc" };
+
+/**
+ * Mounts the panel on the open item's page — `doc`, `map` or `service` — from the record that page keeps (`itemOf`), so
+ * one panel serves all three: what is read is the portal item, and who may upload metadata and delete any comment is
+ * whoever manages it. A service is addressed by its portal item id, the one Studio's item page is addressed by; the
+ * server keys its metadata and comments on the service whichever of its faces' ids is sent.
+ *
+ * <b>A service's record is drawn more than once per opening</b> — once the listing answers, again when its layers do —
+ * so the panel is read once per service and not on every draw; a document's and a web map's are read on every draw, as
+ * they were. <b>An image service's listing carries no item id</b> (its item is its coverage's, which the server does
+ * not key comments on), so its page has no panel rather than one whose every request answers 404.
+ */
+function imcMount(which) {
+  const box = $(IMC_BOXES[which]);
+  if (!box) return;
+  const item = itemOf(which);
+  const id = which === "service" ? item?.itemId : item?.id;
+  if (!id) { imcUnmount(which); return; }
+  box.hidden = false;
+  // Utilities' services are the server's own, set in System and by nobody from here (as drawServiceDetails's Share).
+  const manages = which === "service"
+    ? item.manages !== false && !isOutsider() && !/^Utilities\//i.test(item.name || "")
+    : !!item.manages;
+  if (which === "service" && imcOpen?.box === box && imcOpen.id === bareId(id) && imcOpen.item.manages === manages) return;
+  imcLoad({ id, owner: item.owner, manages }, box);
+}
+
+/** Empties and hides a page's panel, and forgets it if it was the one on screen. */
+function imcUnmount(which) {
+  const box = $(IMC_BOXES[which]);
+  if (!box) return;
+  if (imcOpen?.box === box) imcOpen = null;
+  box.innerHTML = "";
+  if (which === "service") box.hidden = true;
+}
 
 /**
  * Reads and draws an item's metadata and comments into its page's panel. The panel's frame — the two headings, the file

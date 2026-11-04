@@ -7629,6 +7629,15 @@ html[data-session="none"]:root #main > header { display: none; }
 @media (max-width: 720px) {
   #serviceOverview > .itemmain, #serviceOverview > #serviceDetails { grid-column: 1; grid-row: auto; }
 }
+/* ADR-267 condition 1: on a phone a service's comments are the page's last part, after the item's information, as a
+   document's and a web map's are. The main column lets its parts into the page's one column, at its own 16-pixel gap,
+   so the panel can follow the aside. */
+@media (max-width: 720px) {
+  #serviceOverview.itemgrid:has(> .itemmain > #serviceImc:not([hidden])) { gap: 16px; }
+  #serviceOverview > .itemmain:has(> #serviceImc:not([hidden])) { display: contents; }
+  #serviceOverview > #serviceDetails { order: 3; }
+  #serviceOverview > .itemmain > #serviceImc { order: 4; }
+}
 
 /* ── (1) Phone: every control is 44 pixels tall; a checkbox's label is its target; a card's title link is the card ── */
 @media (max-width: 720px) {
@@ -7767,6 +7776,8 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 
 /* ADR-267: an item's metadata and comments, under its description on a document's or a web map's page. */
 .imcpanel { padding: var(--gap-3) var(--gap-4); }
+/* On a service's page the panel is inset as the description and the layers above it are (`.pad`). */
+#serviceOverview .imcpanel { padding: var(--gap-4) var(--gap-5); }
 .imclist { list-style: none; margin: 0 0 var(--gap-3); padding: 0; }
 .imclist li { padding: 8px 0; border-top: 1px solid var(--rule); }
 .imclist li:first-child { border-top: 0; }
