@@ -1565,6 +1565,11 @@ def a_serving_assembly_that_reaches_for_the_network():
         # ADR-258: the GeocodeServer asks the Photon geocoder an operator configured (Graticula:Geocoding:PhotonUrl),
         # and only then; unset, no client is built and no route exists. An air-gapped deployment points it at its own.
         "src/Graticula.Host/Geocoding/PhotonGeocoder.cs",
+        # ADR-266: a webhook posts to the URL an administrator gave it, and only when one is made and an event it listens
+        # for happens; with none made, nothing is sent. The connection is opened by WebhookTargets, which refuses a private,
+        # loopback or link-local address unless Graticula:WebhooksAllowPrivate is set.
+        "src/Graticula.Host/WebhookDeliverer.cs",
+        "src/Graticula.Host/WebhookTargets.cs",
     }
 
     # **Target-typed `new(` too** -- found 2026-09-24 writing that file: `HttpClient Http = new(...)` is the

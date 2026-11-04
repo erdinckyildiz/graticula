@@ -281,6 +281,7 @@ internal static partial class PortalEndpoints
         MapUsers(app);       // ADR-262: the organization's users — PortalEndpoints.Users.cs
         MapItemExport(app);  // ADR-263: item.export — PortalEndpoints.ItemExport.cs
         MapAppItems(app);    // ADR-264: apps, links and item resources — PortalEndpoints.AppItems.cs
+        MapWebhooks(app);    // ADR-266: the organization's webhooks — PortalEndpoints.Webhooks.cs
     }
 
     /// <summary>

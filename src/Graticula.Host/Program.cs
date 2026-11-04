@@ -834,8 +834,17 @@ public static class Program
             new PostgresDataSourceProbe(),
             services.GetRequiredService<GeoParquetSources>()));
 
-        builder.Services.AddSingleton<IAuditLog>(services =>
-            new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));
+        // ADR-266: webhooks. The audit log raises the portal event each audited act is, after its row is written; the
+        // sender claims the outbox on every node.
+        builder.Services.AddSingleton<Graticula.Platform.Webhooks.IWebhookStore>(services =>
+            new PostgresWebhookStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<WebhookSignal>();
+        builder.Services.AddSingleton<WebhookRaiser>();
+        builder.Services.AddHostedService<WebhookDeliverer>();
+
+        builder.Services.AddSingleton<IAuditLog>(services => new WebhookAuditLog(
+            new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()),
+            services.GetRequiredService<WebhookRaiser>()));
 
         /*
           <b>The request log is a singleton because it owns a queue and a background
@@ -1120,6 +1129,10 @@ public static class Program
             IAdminCatalog changes = app.Services.GetRequiredService<IAdminCatalog>();
             app.Services.GetRequiredService<LayerConnections>().DataChanged = (ids, cancellation) =>
                 changes.MarkLayersChangedAsync(ids, data: true, schema: false, cancellation);
+
+            // ADR-266: an edit that kept something tells the service's webhooks.
+            WebhookRaiser webhooks = app.Services.GetRequiredService<WebhookRaiser>();
+            app.Services.GetRequiredService<LayerConnections>().Edited = webhooks.RaiseAsync;
 
             // ADR-207: where the attachments registered layers keep in the datastore are.
             app.Services.GetRequiredService<LayerConnections>().DatastoreConnection = DatastoreConnection(settings.PlatformStore);
