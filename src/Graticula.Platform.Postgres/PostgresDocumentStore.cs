@@ -281,8 +281,28 @@ public sealed class PostgresDocumentStore : IDocumentStore
 
         // The item's modified time moves with it, as a file's replacement moves it: a portal client caches a picture by it.
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update document set thumbnail = @picture, modified_at = now() "
+            "update document set thumbnail = @picture, thumbnail_drawn = false, modified_at = now() "
             + "where item_id = @id::uuid and exists (select 1 from item i where i.id = item_id and i.kind = 'document')");
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.Add(new NpgsqlParameter("picture", NpgsqlTypes.NpgsqlDbType.Bytea) { Value = (object?)picture ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetDrawnThumbnailAsync(string id, byte[]? picture, CancellationToken cancellationToken)
+    {
+        if (!WebMaps.IsId(id))
+        {
+            return false;
+        }
+
+        // An owner's picture is never replaced or removed here: only an empty slot or one this server drew is written.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update document set thumbnail = @picture, thumbnail_drawn = @picture is not null, modified_at = now() "
+            + "where item_id = @id::uuid and (thumbnail is null or thumbnail_drawn) "
+            + "and (@picture is not null or thumbnail is not null) "
+            + "and exists (select 1 from item i where i.id = item_id and i.kind = 'document')");
         command.Parameters.AddWithValue("id", id);
         command.Parameters.Add(new NpgsqlParameter("picture", NpgsqlTypes.NpgsqlDbType.Bytea) { Value = (object?)picture ?? DBNull.Value });
 

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(131);
+    public static SchemaVersion ComponentSchemaVersion => new(132);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -160,7 +160,23 @@ public static class PlatformMigrations
         AnExportsItemNamesItsJobV129,
         AWebhookTellsAnotherSystemWhatChangedV130,
         AnItemCarriesMetadataAndCommentsV131,
+        ADocumentsPictureMayBeDrawnFromItsFirstPageV132,
     ]);
+
+    /// <summary>
+    /// A document's picture may be drawn from its first page, and says so — ADR-268, D-321.
+    /// </summary>
+    /// <remarks>
+    /// <b>A picture its owner gave and one this server drew are kept apart</b>, because only the second may be drawn again:
+    /// a PDF replaced by another is given the new first page, and one replaced by a spreadsheet loses the old one, while
+    /// an owner's picture outlives both. One boolean beside migration 121's <c>thumbnail</c>, false for every picture
+    /// already kept, because every one of them was an owner's. <b>Expand</b>: a column with a default nothing older reads.
+    /// </remarks>
+    private static Migration ADocumentsPictureMayBeDrawnFromItsFirstPageV132 => Migration.Expand(
+        new SchemaVersion(132),
+        "A document's picture may be drawn from its first page (ADR-268).",
+
+        "alter table document add column if not exists thumbnail_drawn boolean not null default false");
 
     /// <summary>
     /// An item carries a metadata document and members' comments, as Portal's items do (ADR-267, the ArcGIS veteran's

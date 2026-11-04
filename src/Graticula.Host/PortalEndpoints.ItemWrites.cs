@@ -311,7 +311,7 @@ internal static partial class PortalEndpoints
 
         if (item.Document is { } file)
         {
-            if (await UpdateDocumentAsync(file, Given, form, documentLimit, documents, cancellation).ConfigureAwait(false) is { } why)
+            if (await UpdateDocumentAsync(file, Given, form, documentLimit, documents, context.RequestServices, cancellation).ConfigureAwait(false) is { } why)
             {
                 return why;
             }
@@ -486,7 +486,7 @@ internal static partial class PortalEndpoints
     /// </summary>
     private static async Task<IResult?> UpdateDocumentAsync(
         Document document, Func<string, string?> given, IFormCollection form, long limit, IDocumentStore documents,
-        CancellationToken cancellation)
+        IServiceProvider services, CancellationToken cancellation)
     {
         string title = given("title") is { Length: > 0 } named ? named : document.Title;
         string? snippet = given("snippet") is { } said ? (said.Length == 0 ? null : said) : document.Snippet;
@@ -616,6 +616,10 @@ internal static partial class PortalEndpoints
         {
             await documents.ReplaceAsync(document.Id, replaced.FileName, replaced.Kind, replaced.Content, cancellation)
                 .ConfigureAwait(false);
+
+            // ADR-268, before the owner's own picture below, which then takes the slot as an owner's.
+            await DocumentPictures.DrawAsync(services, document with { Kind = replaced.Kind }, replaced.Content,
+                cancellation).ConfigureAwait(false);
         }
 
         if (picture is not null)

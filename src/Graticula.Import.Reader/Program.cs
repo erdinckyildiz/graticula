@@ -252,9 +252,15 @@ internal static class Program
             // serving every other layer.
             "pyramid" => Pyramid(Text(request, "path")),
 
+            // <b>ADR-268: a PDF's first page, drawn by PDFium, as the picture of a document its owner gave none.</b> Here
+            // for the same reason as `tiff`: the PDF is a stranger's, and its parser's failure is this process's.
+            "pdfpage" => PdfFirstPage.Draw(Text(request, "path"),
+                request.TryGetProperty("width", out JsonElement across) ? across.GetInt32() : 600,
+                request.TryGetProperty("maximumBytes", out JsonElement most) ? most.GetInt64() : 64L << 20),
+
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'features', 'fixture', 'export', 'tabular', 'raster', 'tiff' and 'pyramid'."),
+                + "'features', 'fixture', 'export', 'tabular', 'raster', 'tiff', 'pyramid' and 'pdfpage'."),
         };
     }
 

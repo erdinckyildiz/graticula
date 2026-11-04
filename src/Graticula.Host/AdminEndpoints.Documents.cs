@@ -266,6 +266,10 @@ internal static partial class AdminEndpoints
             upload.Title, upload.Snippet, current.Principal.Id, upload.Sharing, upload.FileName, upload.Kind, upload.Content,
             cancellation).ConfigureAwait(false);
 
+        // ADR-268: a PDF is given its first page as its picture; a failure leaves it without one and the upload kept.
+        await DocumentPictures.DrawAsync(context.RequestServices, made, upload.Content, cancellation).ConfigureAwait(false);
+        made = await documents.FindAsync(made.Id, cancellation).ConfigureAwait(false) ?? made;
+
         await AuditAsync(
             context, audit, "document.create", made.Id,
             Detail(new { title = made.Title, file = made.FileName, kind = made.Kind.Name, bytes = made.Size, sharing = PostgresSharing(made.Sharing) }),
@@ -298,6 +302,10 @@ internal static partial class AdminEndpoints
             await Refuse(context, 404, NoDocument(id)).ConfigureAwait(false);
             return;
         }
+
+        // ADR-268: the new file's first page, if it is a PDF and the picture was not its owner's; else a drawn one goes.
+        await DocumentPictures.DrawAsync(context.RequestServices, after, upload.Content, cancellation).ConfigureAwait(false);
+        after = await documents.FindAsync(id, cancellation).ConfigureAwait(false) ?? after;
 
         await AuditAsync(
             context, audit, "document.replace", id,

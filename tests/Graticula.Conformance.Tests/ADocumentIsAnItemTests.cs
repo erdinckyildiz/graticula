@@ -359,4 +359,104 @@ public sealed class ADocumentIsAnItemTests : ArcGisClient
             }
         }
     }
+
+    /// <summary>
+    /// A one-page PDF of a black square on white, written with its cross-reference table so a strict reader opens it.
+    /// </summary>
+    private static byte[] OnePagePdf()
+    {
+        string[] objects =
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Contents 4 0 R >>",
+            "<< /Length 28 >>\nstream\n0 0 0 rg 50 100 100 100 re f\nendstream",
+        ];
+
+        StringBuilder pdf = new("%PDF-1.4\n");
+        System.Collections.Generic.List<int> offsets = [];
+
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(pdf.Length);
+            pdf.Append(System.Globalization.CultureInfo.InvariantCulture, $"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+
+        int table = pdf.Length;
+        pdf.Append(System.Globalization.CultureInfo.InvariantCulture, $"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets)
+        {
+            pdf.Append(System.Globalization.CultureInfo.InvariantCulture, $"{offset:D10} 00000 n \n");
+        }
+
+        pdf.Append(System.Globalization.CultureInfo.InvariantCulture,
+            $"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n");
+        return Encoding.ASCII.GetBytes(pdf.ToString());
+    }
+
+    /// <summary>
+    /// ADR-268, D-321: a PDF is given its first page as its picture, drawn by PDFium in the import reader; a picture its
+    /// owner chose is never replaced by one drawn; and a file that is no longer a PDF takes the drawn picture with it.
+    /// </summary>
+    [Fact]
+    public async Task A_pdfs_first_page_is_its_picture_until_its_owner_gives_one()
+    {
+        string root = await RequireServerAsync();
+        string? admin = await TokenAsync(root);
+        Assert.False(admin is null, "No administrator credential; set the suite's user and password.");
+
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string? id = null;
+
+        try
+        {
+            (HttpStatusCode made, string madeBody, _) = await SendAsync(
+                root, admin, HttpMethod.Post, "/content/documents", Upload(OnePagePdf(), $"plan-{tag}.pdf", $"zz plan {tag}"));
+            Assert.True(made == HttpStatusCode.Created, $"Filing a PDF answered {(int)made}: {madeBody}");
+            JsonElement document = JsonDocument.Parse(madeBody).RootElement;
+            id = document.GetProperty("id").GetString()!;
+            Assert.Equal($"/content/documents/{id}/thumbnail", document.GetProperty("thumbnail").GetString());
+
+            (HttpStatusCode got, _, HttpResponseMessage shown) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail");
+            Assert.Equal(HttpStatusCode.OK, got);
+            byte[] drawn = await shown.Content.ReadAsByteArrayAsync();
+            Assert.Equal([0x89, 0x50, 0x4E, 0x47], drawn[..4]);
+
+            // 200 × 300 points drawn 600 wide is 600 × 900, inside the twice-the-width bound on height
+            // — the picture's own header says so.
+            Assert.Equal(600, System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(drawn.AsSpan(16, 4)));
+            Assert.Equal(900, System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(drawn.AsSpan(20, 4)));
+
+            // The owner's picture wins, and a new PDF does not take it away.
+            byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 9, 9, 9];
+            MultipartFormDataContent picture = new();
+            ByteArrayContent part = new(png);
+            part.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            picture.Add(part, "file", "cover.png");
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(root, admin, HttpMethod.Put, $"/content/documents/{id}/thumbnail", picture)).Status);
+
+            (HttpStatusCode replaced, string replacedBody, _) = await SendAsync(
+                root, admin, HttpMethod.Put, $"/content/documents/{id}/data", Upload(OnePagePdf(), $"plan-{tag}-b.pdf"));
+            Assert.True(replaced == HttpStatusCode.OK, $"Replacing the PDF answered {(int)replaced}: {replacedBody}");
+            (_, _, HttpResponseMessage kept) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail");
+            Assert.Equal(png, await kept.Content.ReadAsByteArrayAsync());
+
+            // Removed by its owner, the slot is the server's again: the next PDF is drawn, and a CSV takes that away.
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(root, admin, HttpMethod.Delete, $"/content/documents/{id}/thumbnail")).Status);
+            await SendAsync(root, admin, HttpMethod.Put, $"/content/documents/{id}/data", Upload(OnePagePdf(), $"plan-{tag}-c.pdf"));
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail")).Status);
+
+            (HttpStatusCode toCsv, string csvBody, _) = await SendAsync(
+                root, admin, HttpMethod.Put, $"/content/documents/{id}/data", Upload(Encoding.ASCII.GetBytes("a,b\n1,2\n"), $"plan-{tag}.csv"));
+            Assert.True(toCsv == HttpStatusCode.OK, $"Replacing it with a CSV answered {(int)toCsv}: {csvBody}");
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/thumbnail")).Status);
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await SendAsync(root, admin, HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
 }

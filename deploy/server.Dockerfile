@@ -32,6 +32,12 @@ COPY tools/gdal-natives.py tools/gdal-natives.py
 COPY deploy/gdal/gdal-natives.lock.json deploy/gdal/gdal-natives.lock.json
 RUN python -I tools/gdal-natives.py fetch linux-x64 /gdal/linux-x64 \
  && python -I tools/gdal-natives.py fetch linux-arm64 /gdal/linux-arm64
+# <b>PDFium, for a PDF's first page as its picture — ADR-268.</b> Its own lock and its own folder: it is
+# not GDAL's PDF driver, which stays out, and gdal-natives.py still refuses it inside GDAL's closure.
+COPY tools/pdfium-natives.py tools/pdfium-natives.py
+COPY deploy/pdfium/pdfium-natives.lock.json deploy/pdfium/pdfium-natives.lock.json
+RUN python -I tools/pdfium-natives.py fetch linux-x64 /pdfium/linux-x64 \
+ && python -I tools/pdfium-natives.py fetch linux-arm64 /pdfium/linux-arm64
 
 # ---------------------------------------------------------------------------
 # <b>`$BUILDPLATFORM`, so a two-architecture build compiles once — D-262.</b> The publish
@@ -83,6 +89,7 @@ COPY tools/fonts/ tools/fonts/
 # fetching it (`GdalFetch=false`), for both architectures (`GdalRuntimes`, from the environment because
 # MSBuild's `/p:` splits a value at a comma as well as at a semicolon) — ADR-254.
 COPY --from=gdal /gdal/ .gdal/
+COPY --from=gdal /pdfium/ .pdfium/
 
 # Only the host, and only what it references. Building the solution here would
 # pull the test projects and their packages into the image layer cache for no
@@ -116,6 +123,7 @@ RUN set -eu; \
       --output /app \
       /p:UseAppHost=false \
       /p:GdalFetch=false \
+      /p:PdfiumFetch=false \
       "$@"
 
 # <b>Both siblings have to be startable from this image, and for every release so far neither
@@ -140,12 +148,20 @@ RUN test -f /app/importer/gdal/linux-x64/lib/libgdal.so.39 \
  && test -f /app/importer/gdal/linux-arm64/lib/libgdal.so.39 \
  && test -f /app/importer/gdal/linux-x64/lib/libgdal_wrap.so \
  && test -s /app/importer/gdal/linux-x64/licenses/PACKAGES.txt \
- && test -z "$(find /app -iname '*poppler*' -o -iname '*pdfium*' -o -iname '*rttopo*')" \
+ && test -z "$(find /app -iname '*poppler*' -o -iname '*rttopo*')" \
+ && test -z "$(find /app -iname '*pdfium*' -not -path '/app/importer/pdfium/*' -not -path '/app/importer/pdfium')" \
  && test ! -e /app/importer/runtimes \
  && mkdir -p /gdal-out/amd64 /gdal-out/arm64 \
  && mv /app/importer/gdal/linux-x64 /gdal-out/amd64/ \
  && mv /app/importer/gdal/linux-arm64 /gdal-out/arm64/ \
- && rmdir /app/importer/gdal
+ && rmdir /app/importer/gdal \
+ && test -f /app/importer/pdfium/linux-x64/libpdfium.so \
+ && test -f /app/importer/pdfium/linux-arm64/libpdfium.so \
+ && test -s /app/importer/pdfium/linux-x64/licenses/PDFIUM-LICENSE \
+ && mkdir -p /pdfium-out/amd64 /pdfium-out/arm64 \
+ && mv /app/importer/pdfium/linux-x64 /pdfium-out/amd64/ \
+ && mv /app/importer/pdfium/linux-arm64 /pdfium-out/arm64/ \
+ && rmdir /app/importer/pdfium
 
 # <b>DuckDB's native library for the two architectures this image is built for, and not the
 # other three — ADR-066.</b> The package carries it for linux-x64, linux-arm64, win-x64,
@@ -315,6 +331,9 @@ COPY --from=build /duckdb-extensions/linux_${TARGETARCH}/ ./duckdb-extensions/li
 
 # ADR-254: this architecture's GDAL for the import reader, with the licences of every package it came from.
 COPY --from=build /gdal-out/${TARGETARCH}/ ./importer/gdal/
+
+# ADR-268: this architecture's PDFium for the reader's PDF thumbnails, with its licences.
+COPY --from=build /pdfium-out/${TARGETARCH}/ ./importer/pdfium/
 
 # <b>The font is redistributed by this image, so its notice travels with it.</b>
 # DejaVu Sans is compiled into `Graticula.Render.Skia.dll` rather than sitting beside

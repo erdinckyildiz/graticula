@@ -89,12 +89,15 @@ public sealed class ViewerReadsALargeLayerForTheViewTests : ConsoleTest
             })()
             """);
 
+        // Any query after the pan that asks for another envelope: the last one alone can be a late answer to the first
+        // view still on the wire, which failed this test three times on 2026-11-03 and 04 with nothing wrong.
         await WaitForAsync(
-            $"window.__queries.length > {before}",
-            "Panning asked for nothing. The picture stays what the first view read, which is the "
+            $"window.__queries.slice({before}).some(q => q !== window.__queries[{before} - 1])",
+            "Panning asked for nothing new. The picture stays what the first view read, which is the "
             + "defect this test exists for.");
 
-        string after = await Browser.EvaluateAsync<string>("window.__queries[window.__queries.length - 1]") ?? "";
+        string after = await Browser.EvaluateAsync<string>(
+            $"window.__queries.slice({before}).find(q => q !== window.__queries[{before} - 1])") ?? "";
 
         Assert.NotEqual(first, after);
     }

@@ -515,6 +515,16 @@ public interface IDocumentStore
     /// <returns>Whether the document exists.</returns>
     Task<bool> SetThumbnailAsync(string id, byte[]? picture, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Keeps a picture this server drew from the document's first page (ADR-268), or with <paramref name="picture"/> null
+    /// removes one it drew — and changes nothing when the document holds a picture its owner gave.
+    /// </summary>
+    /// <param name="id">The document.</param>
+    /// <param name="picture">The PNG, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the document's picture changed.</returns>
+    Task<bool> SetDrawnThumbnailAsync(string id, byte[]? picture, CancellationToken cancellationToken);
+
     /// <summary>A document's thumbnail, or null when it has none or there is no such document.</summary>
     /// <param name="id">The document.</param>
     /// <param name="cancellationToken">Cancellation.</param>

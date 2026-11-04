@@ -151,7 +151,9 @@ formats), [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) (w
 ## 9. Revisit triggers
 
 - A product feature needs a PDF reader (D-321's PDF thumbnail): it is PDFium (BSD-3-Clause/Apache-2.0) or nothing,
-  and it is a separate decision.
+  and it is a separate decision. **Fired 2026-11-04:** the owner chose PDFium ([ADR-268](ADR-268-a-pdfs-first-page-is-its-picture.md)),
+  as its own library in the reader and not as GDAL's PDF driver. This decision is unchanged by that: GDAL still carries
+  no PDF driver, and the image's name check now allows `pdfium` only under `/app/importer/pdfium/`.
 - GeoParquet output is asked for again: it is the Arrow plugin and its closure, measured, or DuckDB, which the server
   already carries.
 - conda-forge's `libgdal-core` gains a dependency on a GPL package: `lock` fails, and this ADR is reopened.
