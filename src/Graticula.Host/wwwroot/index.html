@@ -1324,7 +1324,7 @@
       <div>
         <h1>Webhooks</h1>
         <p>Tell another system — an integration server, Power Automate, Make, FME — when items, groups, members or roles
-          of this organization change. Each webhook posts a signed JSON message to its payload URL.</p>
+          of this organization change. Each webhook posts a JSON message to its payload URL, signed if it has a secret.</p>
       </div>
       <div class="right" id="whHeadActs" hidden>
         <span class="val" id="whCount"></span>
@@ -3681,19 +3681,32 @@
   </header>
   <div class="dialogbody">
     <div class="picker">
+      <!--
+        Each field's refusal sits directly under it, wired to it with aria-describedby (UX review of the webhook screens,
+        M1): the dialog's one line at the foot was under a long list of events, below the window's edge.
+      -->
       <label for="whName">Name</label>
-      <input id="whName" type="text" maxlength="256" autocomplete="off" spellcheck="false">
+      <input id="whName" type="text" maxlength="256" autocomplete="off" spellcheck="false" aria-describedby="whNameSays">
+      <p class="bad-inline whsays" id="whNameSays" hidden></p>
 
       <label for="whUrl">Payload URL</label>
       <input id="whUrl" type="url" autocomplete="off" autocapitalize="off" spellcheck="false"
-        placeholder="https://hooks.example.com/graticula" aria-describedby="whUrlHint">
-      <p class="hint" id="whUrlHint">Where each message is posted. HTTPS, on an address the internet can reach;
-        this server refuses an address inside its own network unless its administrator allowed that.</p>
+        placeholder="https://hooks.example.com/graticula" aria-describedby="whUrlSays whUrlHint">
+      <p class="bad-inline whsays" id="whUrlSays" hidden></p>
+      <!-- WebhookTargets' rule, as it is: HTTPS to the internet; the deployment's own network only when the
+           administrator set Graticula:WebhooksAllowPrivate, and plain HTTP only to such an address. -->
+      <p class="hint" id="whUrlHint">Where each message is posted: the full address, starting with <code>https://</code>,
+        of a receiver on the internet. An address on this server's own network (private, loopback or link-local) is
+        refused unless the administrator allows such addresses with <code>Graticula:WebhooksAllowPrivate</code>; plain
+        <code>http://</code> is then accepted too, but only for those addresses. No user name or password in the
+        address, and a redirect is not followed.</p>
 
       <label for="whSecret">Secret <span class="hint">(optional)</span></label>
-      <input id="whSecret" type="password" autocomplete="new-password" maxlength="1024" aria-describedby="whSecretHint">
-      <p class="hint" id="whSecretHint">Signs every message: the receiver checks the <code>x-esriHook-Signature</code>
-        header, an HMAC-SHA256 of the body under this secret. It is never shown again.</p>
+      <input id="whSecret" type="password" autocomplete="new-password" maxlength="256" aria-describedby="whSecretSays whSecretHint">
+      <p class="bad-inline whsays" id="whSecretSays" hidden></p>
+      <p class="hint" id="whSecretHint"><span id="whSecretKeep" hidden>Leave empty to keep the current secret. </span>Signs
+        every message: the receiver checks the <code>x-esriHook-Signature</code> header, an HMAC-SHA256 of the body under
+        this secret. It is never shown again.</p>
 
       <fieldset class="pickset whevents" id="whEvents">
         <legend>Events</legend>
@@ -3701,11 +3714,10 @@
 
       <label class="check" id="whActiveRow"><input type="checkbox" id="whActive" checked> Active: send messages from
         now on</label>
-
-      <p class="bad-inline" id="whFormSays" role="alert" hidden></p>
     </div>
   </div>
   <footer class="dialogfoot">
+    <p class="bad-inline" id="whFormSays" role="alert" hidden></p>
     <span class="fill"></span>
     <button type="button" class="ghost" id="whCancel">Cancel</button>
     <button type="button" class="primary" id="whCreate">Create webhook</button>
