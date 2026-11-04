@@ -113,9 +113,9 @@ internal static partial class DocumentPictures
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Document {Document} was given no picture of its first page: {Why}")]
+    [LoggerMessage(EventId = 2610, Level = LogLevel.Information, Message = "Document {Document} was given no picture of its first page: {Why}")]
     private static partial void LogNotDrawn(ILogger log, string document, string why);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Document {Document} was given no picture of its first page: it drew to {Bytes} bytes, above an item picture's limit")]
+    [LoggerMessage(EventId = 2611, Level = LogLevel.Information, Message = "Document {Document} was given no picture of its first page: it drew to {Bytes} bytes, above an item picture's limit")]
     private static partial void LogTooLarge(ILogger log, string document, int bytes);
 }

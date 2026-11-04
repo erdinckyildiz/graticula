@@ -178,6 +178,9 @@ public sealed class GeodatabaseReaderTests
 
                 // `pyramid` joined on 2026-10-31: an image's overviews built here, out of the serving process (D-295).
                 "pyramid",
+
+                // `pdfpage` joined on 2026-11-04: a PDF's first page drawn by PDFium, as its picture (ADR-268).
+                "pdfpage",
             },
             named);
 
