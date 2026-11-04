@@ -3,6 +3,7 @@
 Most tests use the plane z = x + 2y sampled on the integer grid 0–10: every level of any pyramid of it lies on that
 plane, so heights, slopes, lengths, areas and volumes can be computed by hand.
 """
+import hashlib
 import math
 import os
 import sys
@@ -184,6 +185,93 @@ class Terrain(unittest.TestCase):
         out = arcpy.ddd.TerrainToPoints(t, os.path.join(self.gpkg, "ul"), 16, None, "POINT")[0]
         with da.SearchCursor(out, ["SHAPE@Z"]) as rows:
             self.assertEqual(sorted(r[0] for r in rows), [3.0, 4.0])   # windows [4399994, 4400010) and [4400010, ...)
+
+    def test_a_tiles_last_window_runs_past_its_edge_and_keeps_only_its_own_point(self):
+        # ArcGIS Pro 3.7, measured 2026-11-04 (D-339, tools/pro-compare/adr234-terrain-seam-probe.py, design "grid"):
+        # tiles of 1,789 (spacing 4) leave a tile's last 8 m window 5 m wide, and Pro lays it whole, 3 m into the next
+        # tile. p in that window is lost to a lower q across the seam at 0.1 to 2 m and kept at 3 m or more, wherever
+        # p lies in the window; a higher q never takes it; and q is kept by its own tile's window, not for p's.
+        tile, seam = 1789.0, 1789.0 * 3
+        for d, dz, lost in [(0.1, -5, True), (2.0, -5, True), (2.9, -5, True), (3.0, -5, False), (6.0, -5, False),
+                            (0.1, 5, False), (1.0, 5, False)]:
+            for a in (0.25, 2.0, 4.75):
+                pts = np.array([[seam - a, 4.0, 50.0], [seam + d, 4.0, 50.0 + dz], [seam - 9, 4.0, 90.0],
+                                [seam + 12, 4.0, 90.0]])
+                starts = tuple(np.floor(pts[:, k] / tile) * tile for k in (0, 1))
+                kept = _terrain.window_thin(pts, np.zeros(4, bool), 8, starts, "ZMIN", tile).tolist()
+                self.assertEqual(0 not in kept, lost, (d, dz, a))
+                self.assertIn(1, kept)
+                # without the tile, the rule before 2026-11-04: windows cut short at the edge keep p
+                self.assertIn(0, _terrain.window_thin(pts, np.zeros(4, bool), 8, starts, "ZMIN").tolist())
+        # A corner window reaches into the tiles to its right, above and diagonally across.
+        pts = np.array([[seam - 1, seam - 1, 50.0], [seam + 1, seam + 1, 40.0]])
+        starts = tuple(np.floor(pts[:, k] / tile) * tile for k in (0, 1))
+        self.assertEqual(_terrain.window_thin(pts, np.zeros(2, bool), 8, starts, "ZMIN", tile).tolist(), [1])
+
+    def test_build_terrain_loses_a_cut_windows_point_as_pro_does(self):
+        # UTM 35N's default domain, spacing 4: a seam at x 500138 (-5120900 + 3142 x 1789), tile rows from 4399772.
+        # ArcGIS Pro 3.7 on these five points, levels 8 and 32 (2026-11-04, D-339): level 8 has no 50 — the window
+        # [500133, 500141) holds the 45 across the seam — and level 32, the top under an overview of 11.25, keeps the 30.
+        utm = arcpy.management.CreateFeatureDataset(self.gpkg, "seam_utm", 32635)[0]
+        xyz = [(500136, 4399776, 50.0), (500139, 4399776, 45.0), (500118, 4399776, 30.0), (500100, 4399800, 70.0),
+               (500170, 4399810, 72.0)]
+        p = self.points("s", xyz, dataset=utm)
+        t = arcpy.ddd.CreateTerrain(utm, "st", 4, None, None, "WINDOWSIZE", "ZMIN")[0]
+        arcpy.ddd.AddTerrainPyramidLevel(t, "", ["8 1000", "32 2000"])
+        arcpy.ddd.AddFeatureClassToTerrain(t, [[p, "Shape.Z", "masspoints", 1, "", "", False, False, "", "", False]])
+        arcpy.ddd.BuildTerrain(t)
+        for resolution in (8, 32):
+            out = arcpy.ddd.TerrainToPoints(t, os.path.join(self.gpkg, f"sl{resolution}"), resolution, None, "POINT")[0]
+            with da.SearchCursor(out, ["SHAPE@Z"]) as rows:
+                self.assertEqual(sorted(r[0] for r in rows), [30.0, 45.0, 70.0, 72.0], resolution)
+
+    def test_the_overview_tops_the_pyramid_only_when_it_is_coarser(self):
+        # The overview's window: the tile cut into ceil(sqrt(max overview size / tiles)) a side — 1,789 / 112 on 2 x 2
+        # tiles at Pro's default 50,000, 1,789 / 159 on 2 x 1, 1,789 / 500 at 1,000,000 (D-339, measured 2026-11-04).
+        self.assertAlmostEqual(_terrain.overview_window(1789, 2, 2), 1789 / 112)
+        self.assertAlmostEqual(_terrain.overview_window(1789, 2, 1), 1789 / 159)
+        self.assertAlmostEqual(_terrain.overview_window(1789, 1, 1), 1789 / 224)
+        self.assertAlmostEqual(_terrain.overview_window(1789, 2, 2, 1000000), 1789 / 500)
+        self.assertAlmostEqual(_terrain.overview_window(1789, 2, 2, 10), 1789 / 2)
+        # ArcGIS Pro 3.7 on 6,400 points of a jittered 1 m lattice with heights 10-60 (adr234-terrain-seam.py's
+        # `make`, seed 339) at 500011-500091, 4400011-4400091, across the seams x 500051 and y 4400051 of spacing 4's
+        # tiles from a domain origin (-500000, 3400000): every level of these runs is Pro's, point for point — the
+        # coarsest level's last windows reach past the seam only under a coarser overview, whose points it then keeps
+        # (adr234-terrain-seam-predict.py; Pro's sets are pinned by the count and a digest of the
+        # lattice points they hold).
+        rng = np.random.default_rng(339)
+        x, y = np.meshgrid(np.arange(500011.25, 500091, 1.0), np.arange(4400011.25, 4400091, 1.0))
+        z = rng.uniform(10, 60, x.shape).round(3)
+        x = (x + rng.uniform(-0.3, 0.3, x.shape)).round(3)
+        y = (y + rng.uniform(-0.3, 0.3, y.shape)).round(3)
+        lattice = np.column_stack([x.ravel(), y.ravel(), z.ravel()])
+
+        def digest(kept):   # the lattice indexes kept, in the order `make` writes the points
+            return len(kept), hashlib.sha256(",".join(str(int(i)) for i in sorted(kept)).encode()).hexdigest()[:16]
+
+        def levels(pts, spacing, resolutions, method="ZMIN", overview=None):
+            tile = float(round(spacing * math.sqrt(200000)))
+            origin = (-500000.0, 3400000.0)
+            starts = tuple(origin[k] + np.floor((pts[:, k] - origin[k]) / tile) * tile for k in (0, 1))
+            out = _terrain.window_levels(pts, np.zeros(len(pts), bool), starts, tile, resolutions, method, overview)
+            return {r: digest(kept) for r, kept in out.items()}
+
+        shifted = lattice + [0, 100, 0]   # one seam, x 500051: 2 x 1 tiles
+        across = lattice + [335, 335, 0]  # spacing 2: tiles of 894, seams x 500386 and y 4400386
+        for pts, spacing, resolutions, method, overview, pro in [
+                (lattice, 4, [8, 16, 32], "ZMIN", None, {8: (113, "9e36201b64f2beaa"), 16: (35, "281fb240b908a972"),
+                                                         32: (16, "3845f76974fc9e51")}),
+                (lattice, 4, [8], "ZMIN", None, {8: (116, "ed985d1b303b8d92")}),       # overview 15.97 above 8
+                (lattice, 4, [8], "ZMIN", 1000000, {8: (121, "3a71eb40e5fa510e")}),    # overview 3.58: 8 is the top
+                (lattice, 4, [12], "ZMIN", None, {12: (75, "3ac274b72335ee18")}),
+                (shifted, 4, [10], "ZMIN", None, {10: (99, "45a0b9de558e3911")}),     # overview 11.25 above 10
+                (shifted, 4, [12], "ZMIN", None, {12: (70, "18a3e03358f6661d")}),     # ... and below 12
+                (across, 2, [4, 6], "ZMIN", None, {4: (457, "d1bcf552828c37bb"), 6: (229, "2b6a417833bf9eef")}),
+                (lattice, 4, [8, 12], "ZMAX", None, {12: (74, "aca64cf66303bd60")}),
+                (lattice, 4, [8, 12], "ZMINMAX", None, {8: (258, "728b402842554537")})]:
+            built = levels(pts, spacing, resolutions, method, overview)
+            for resolution, expected in pro.items():
+                self.assertEqual(built[resolution], expected, (spacing, resolutions, method, overview, resolution))
 
     def test_each_level_chooses_from_full_resolution_and_keeps_the_coarser_levels_points(self):
         # ArcGIS Pro 3.7, measured 2026-10-31 (ADR-234 condition 4): a ZMEAN level's windows choose the point closest to
