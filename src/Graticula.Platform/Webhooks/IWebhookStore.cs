@@ -254,6 +254,15 @@ public interface IWebhookStore
     Task<int> EnqueueServiceAsync(
         Guid serviceId, IReadOnlyList<string> changeTypes, string eventName, string body, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Whether the service has an active feature-service webhook in the caller's organisation — the edit path's question,
+    /// asked once per service and remembered by the host until a webhook is written (ADR-266 condition 5).
+    /// </summary>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether an edit of it may raise anything.</returns>
+    Task<bool> ServiceHasWebhooksAsync(Guid serviceId, CancellationToken cancellationToken);
+
     /// <summary>Takes up to <paramref name="count"/> due deliveries for this sender, across every organisation.</summary>
     /// <param name="worker">Who is sending.</param>
     /// <param name="count">The most to take.</param>

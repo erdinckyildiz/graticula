@@ -842,8 +842,12 @@ public static class Program
 
         // ADR-266: webhooks. The audit log raises the portal event each audited act is, after its row is written; the
         // sender claims the outbox on every node.
-        builder.Services.AddSingleton<Graticula.Platform.Webhooks.IWebhookStore>(services =>
-            new PostgresWebhookStore(services.GetRequiredService<NpgsqlDataSource>()));
+        // Every write of a webhook goes through this store, so it is where the edit path's memory of which services have
+        // one is forgotten (ADR-266 condition 5).
+        builder.Services.AddSingleton<WebhookedServices>();
+        builder.Services.AddSingleton<Graticula.Platform.Webhooks.IWebhookStore>(services => new ForgettingWebhookStore(
+            new PostgresWebhookStore(services.GetRequiredService<NpgsqlDataSource>()),
+            services.GetRequiredService<WebhookedServices>()));
         builder.Services.AddSingleton<WebhookSignal>();
         builder.Services.AddSingleton<WebhookRaiser>();
         // <b>The sender is a poller, so it claims on a pool of its own</b> — D-110's rule, which PollerPoolTests holds: a
@@ -1052,8 +1056,11 @@ public static class Program
             TenantDirectory tenantDirectory = app.Services.GetRequiredService<TenantDirectory>();
             ItemAnnotations itemAnnotations = app.Services.GetRequiredService<ItemAnnotations>();
             CoveragePyramids pyramids = app.Services.GetRequiredService<CoveragePyramids>();
+            WebhookedServices webhooked = app.Services.GetRequiredService<WebhookedServices>();
 
             shapes.Announcer = site;
+            webhooked.Announcer = site;
+            site.On(SiteAnnouncements.Webhooks, _ => { webhooked.ForgetHere(); return Task.CompletedTask; });
             pins.Announcer = site;
             site.On(SiteAnnouncements.Tenants, _ => tenantDirectory.ReloadAsync(CancellationToken.None));
             site.On(SiteAnnouncements.Shape, detail => { shapes.ForgetAnnounced(detail); return Task.CompletedTask; });

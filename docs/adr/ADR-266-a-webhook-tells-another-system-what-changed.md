@@ -226,7 +226,8 @@ that was raised while it was off.
   organisation; the outbox is bounded per webhook (1,000 waiting) and pruned (seven days, 200 finished per webhook).
   At runtime: one sender per node, holding an `HttpClient`, a semaphore and a pool of two connections of its own,
   `graticula-jobs-webhooks` — a poller claims on its own pool, not the request pool (D-110, `PollerPoolTests`, which
-  the first CI run of this branch failed on); no cache.
+  the first CI run of this branch failed on); and, since condition 5, a per-node memory of which services have a
+  webhook (`WebhookedServices`, at most 10,000 entries, forgotten on every webhook write and announced).
 - This server now makes outbound HTTP requests when, and only when, an administrator has made a webhook and an event it
   listens for happens. An air-gapped deployment that makes none sends nothing; `tools/registers-check.py` names the two
   files that may.
@@ -235,8 +236,10 @@ that was raised while it was off.
 - A portal event costs one more statement per audited act — an insert that selects the organisation's matching active
   webhooks, which is none on a deployment without any — and a service's or a group's act one more, to find its id. **An
   edit that kept something costs one more statement on the platform store per layer edited**, after the edit's own
-  commit, on every deployment, webhooks or none. Not measured; a cache of which services have webhooks would remove it
-  and would need to be told across nodes when one is made, which is why it was not built the first night.
+  commit, on every deployment, webhooks or none. ~~Not measured; a cache of which services have webhooks would remove it
+  and would need to be told across nodes when one is made, which is why it was not built the first night.~~ Measured on
+  2026-11-04 at about 3 ms, and removed by condition 5's cache: one question per service per node, not one statement per
+  edit.
 
 ## 7. Conditions
 
@@ -253,14 +256,22 @@ that was raised while it was off.
    `gis.admin.webhooks` — is pointed at this server and its result recorded.
 5. **The edit path's extra statement (§6) is measured**: `applyEdits` of one feature, p50 and p95, with and without
    the webhook hook, on the fixture; if it adds more than a tenth to p50, the services that have webhooks are cached per
-   node and the cache told when one is made or removed. **PARTLY DISCHARGED 2026-11-04: measured, and the tenth is crossed.**
+   node and the cache told when one is made or removed. **DISCHARGED 2026-11-04: measured, the tenth crossed, and the remedy built.**
    On the local fixture (Windows, PostgreSQL 16 on the same machine), 500 sequential `applyEdits` updating one feature of
    `ci_editable` after 50 to warm up, three runs each. With the hook: p50 14.8–29.8 ms, p95 35.8–37.9 ms, mean
    20.9–23.9 ms over six runs. Without it (`RaiseAsync` returning at once, a build made for the measurement and never
    committed): p50 13.0–15.1 ms, p95 34.7–35.9 ms, mean 18.8–19.6 ms. The p50 is bimodal on this machine, about 14 or
    about 30 ms from run to run, so the means carry the comparison: about 3 ms, some 15 %, on a deployment with **no**
    webhooks. That is over the tenth this condition set, so its remedy is owed: which services have webhooks, cached per
-   node and told across nodes when one is made or removed. Not built yet; this condition stays open on it.
+   node and told across nodes when one is made or removed. **Built the same day:** `WebhookedServices` remembers, per
+   node and per service, whether it has an active feature-service webhook (one `exists` with the enqueue's organisation
+   clause, asked on the service's first edit); `ForgettingWebhookStore`, the store every endpoint writes webhooks
+   through, forgets it all on a create, update or delete, and `SiteAnnouncements.Webhooks` tells the site's other nodes;
+   an answer is trusted five minutes at most, the backstop for a missed announcement. Counted from PostgreSQL's own
+   statistics, 100 edits of a service with no webhook read the `webhook` table 94 times before (the collector lagged by
+   six) and 0 times after. Timing the two again was not possible that evening: the same build gave means from 25.8 to
+   37.6 ms run to run while the machine was busy, so the count is the evidence. `WebhooksTests` edits the layer before
+   its webhook exists and then expects the webhook's delivery; with `Forget` disabled it failed, as it should.
 
 ## 8. Dependencies
 

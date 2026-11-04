@@ -25,7 +25,8 @@ namespace Graticula.Host;
 /// Raises webhook events into the outbox — ADR-266 §2. <b>Never fails the act that raised them</b>: the act has already
 /// happened and been audited, and a webhook that cannot be queued is logged, not turned into the caller's error.
 /// </summary>
-internal sealed partial class WebhookRaiser(IWebhookStore store, WebhookSignal signal, TimeProvider clock, ILogger<WebhookRaiser> log)
+internal sealed partial class WebhookRaiser(
+    IWebhookStore store, WebhookSignal signal, WebhookedServices webhooked, TimeProvider clock, ILogger<WebhookRaiser> log)
 {
     [LoggerMessage(EventId = 2600, Level = LogLevel.Warning, Message = "A webhook event {Event} could not be queued: {Reason}")]
     private partial void NotQueued(string @event, string reason);
@@ -86,6 +87,19 @@ internal sealed partial class WebhookRaiser(IWebhookStore store, WebhookSignal s
 
         try
         {
+            // ADR-266 condition 5: a service with no webhook costs this node one question, not one statement per edit.
+            if (webhooked.Known(layer.ServiceId) is not { } has)
+            {
+                long generation = webhooked.Generation;
+                has = await store.ServiceHasWebhooksAsync(layer.ServiceId, cancellation).ConfigureAwait(false);
+                webhooked.Remember(layer.ServiceId, has, generation);
+            }
+
+            if (!has)
+            {
+                return;
+            }
+
             if (await store.EnqueueServiceAsync(layer.ServiceId, raised.ChangeTypes, raised.Name, raised.Body.ToJsonString(), cancellation)
                     .ConfigureAwait(false) > 0)
             {

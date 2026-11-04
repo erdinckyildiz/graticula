@@ -124,6 +124,15 @@ public sealed class WebhooksTests : ArcGisClient
 
         try
         {
+            // ADR-266 condition 5: an edit before the webhook exists makes this node remember the service has none. Making
+            // the webhook must make it forget, or the edit below would be the one an unannounced cache swallowed.
+            (int earlyCode, string earlyBody) = await AdminAsync(HttpMethod.Post,
+                $"/rest/services/{qualified}/FeatureServer/0/addFeatures?f=json&features="
+                + Uri.EscapeDataString("[{\"attributes\":{},\"geometry\":{\"x\":29.02,\"y\":41.02,\"spatialReference\":{\"wkid\":4326}}}]"));
+            Assert.True(earlyCode == 200, $"addFeatures answered {earlyCode}: {earlyBody}");
+            long early = JsonDocument.Parse(earlyBody).RootElement.GetProperty("addResults")[0].GetProperty("objectId").GetInt64();
+            await AdminAsync(HttpMethod.Post, $"/rest/services/{qualified}/FeatureServer/0/deleteFeatures?f=json&objectIds={early}");
+
             (JsonElement made, string raw) = await PortalAsync($"{admin}/create", new()
             {
                 ["name"] = "zz features created",
