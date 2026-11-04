@@ -158,6 +158,7 @@ public static class PlatformMigrations
         ALayerKnowsWhenItLastChangedV127,
         AnAppIsAnItemAndAnItemKeepsResourcesV128,
         AnExportsItemNamesItsJobV129,
+        AWebhookTellsAnotherSystemWhatChangedV130,
         AnItemCarriesMetadataAndCommentsV131,
     ]);
 
@@ -229,6 +230,123 @@ public static class PlatformMigrations
 
         """
         create policy tenant_floor on item_comment
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
+    /// <summary>
+    /// A webhook tells another system what changed — an organisation's, on item, group, user and role events, and a feature
+    /// service's, on its edits — through a delivery outbox that survives a restart (ADR-266, the ArcGIS veteran's review
+    /// of v1.0.499, #15).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The definition and its deliveries are two tables</b>, because a delivery outlives the request that raised it
+    /// and is claimed by whichever node is free: <c>for update skip locked</c> with a lease, as a job is (ADR-011 §3.2).
+    /// A delivery carries the event and not the body, so the envelope, the time it was sent and the signature are made
+    /// when it is sent.
+    /// </para>
+    /// <para>
+    /// <b>The secret is sealed</b> with the deployment's key, as an identity provider's client secret is, and is never
+    /// read back to anybody; only the sender unseals it to sign.
+    /// </para>
+    /// <para>
+    /// <b>Floored</b>, both, as every organisation table is (ADR-204), and they go with the principal that owns the
+    /// webhook and with the service a feature-service webhook watches. <b>Expand</b>: two tables nothing older reads.
+    /// </para>
+    /// </remarks>
+    private static Migration AWebhookTellsAnotherSystemWhatChangedV130 => Migration.Expand(
+        new SchemaVersion(130),
+        "A webhook tells another system what changed, through a delivery outbox (ADR-266).",
+
+        """
+        create table if not exists webhook (
+            id                 uuid        not null primary key,
+            kind               text        not null,
+            service_id         uuid        null references service (id) on delete cascade,
+            number             int         null,
+            name               text        not null,
+            url                text        not null,
+            events             text[]      not null,
+            secret             bytea       null,
+            secret_key_version int         null,
+            active             boolean     not null default true,
+            owner_principal_id uuid        not null references principal (id) on delete cascade,
+            modified_by        uuid        null references principal (id) on delete set null,
+            base_url           text        not null,
+            content_type       text        not null default 'application/json',
+            payload_format     text        not null default 'json',
+            max_retries        int         not null default 3,
+            failures_allowed   int         not null default 5,
+            failure_days       int         not null default 5,
+            properties         jsonb       not null default '{}',
+            deactivated_reason text        null,
+            created_at         timestamptz not null default now(),
+            modified_at        timestamptz not null default now(),
+            tenant_id          uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint webhook_kind_known check (kind in ('portal', 'featureService')),
+            constraint webhook_service_matches_kind check ((kind = 'featureService') = (service_id is not null)),
+            constraint webhook_name_present check (length(btrim(name)) between 1 and 256),
+            constraint webhook_url_shape check (url ~ '^https?://' and length(url) <= 2048),
+            constraint webhook_events_present check (cardinality(events) between 1 and 64),
+            constraint webhook_retries_bounded check (max_retries between 0 and 5),
+            constraint webhook_policy_bounded check (failures_allowed between 1 and 1000 and failure_days between 1 and 365),
+            constraint webhook_content_type_known check (content_type in ('application/json', 'application/x-www-form-urlencoded')),
+            constraint webhook_format_known check (payload_format in ('json', 'pjson'))
+        )
+        """,
+
+        "create unique index if not exists webhook_service_number on webhook (service_id, number) where service_id is not null",
+
+        "create index if not exists webhook_tenant_kind on webhook (tenant_id, kind) where active",
+
+        """
+        create table if not exists webhook_delivery (
+            id              uuid        not null primary key,
+            webhook_id      uuid        not null references webhook (id) on delete cascade,
+            event           text        not null,
+            body            jsonb       not null,
+            status          text        not null default 'pending',
+            attempts        int         not null default 0,
+            next_attempt_at timestamptz not null default now(),
+            claimed_by      text        null,
+            lease_until     timestamptz null,
+            last_status     int         null,
+            last_error      text        null,
+            created_at      timestamptz not null default now(),
+            finished_at     timestamptz null,
+            tenant_id       uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint webhook_delivery_status_known check (status in ('pending', 'delivered', 'failed', 'dropped')),
+            constraint webhook_delivery_error_bounded check (last_error is null or length(last_error) <= 1024)
+        )
+        """,
+
+        "create index if not exists webhook_delivery_due on webhook_delivery (next_attempt_at) where status = 'pending'",
+
+        "create index if not exists webhook_delivery_recent on webhook_delivery (webhook_id, created_at desc)",
+
+        "create index if not exists webhook_delivery_tenant on webhook_delivery (tenant_id)",
+
+        "alter table webhook enable row level security",
+
+        "alter table webhook force row level security",
+
+        "drop policy if exists tenant_floor on webhook",
+
+        """
+        create policy tenant_floor on webhook
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        "alter table webhook_delivery enable row level security",
+
+        "alter table webhook_delivery force row level security",
+
+        "drop policy if exists tenant_floor on webhook_delivery",
+
+        """
+        create policy tenant_floor on webhook_delivery
             using (graticula_tenant() is null or tenant_id = graticula_tenant())
             with check (graticula_tenant() is null or tenant_id = graticula_tenant())
         """);

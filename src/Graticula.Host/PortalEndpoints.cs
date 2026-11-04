@@ -282,6 +282,7 @@ internal static partial class PortalEndpoints
         MapItemExport(app);  // ADR-263: item.export — PortalEndpoints.ItemExport.cs
         MapAppItems(app);    // ADR-264: apps, links and item resources — PortalEndpoints.AppItems.cs
         MapItemMetadataAndComments(app); // ADR-267: metadata and comments — PortalEndpoints.ItemMetadataComments.cs
+        MapWebhooks(app);    // ADR-266: the organization's webhooks — PortalEndpoints.Webhooks.cs
     }
 
     /// <summary>

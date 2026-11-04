@@ -288,7 +288,13 @@ internal sealed record HostSettings(
     // <b>The most services kept warm at once — ADR-218.</b> Fifty: a pin costs a description every twenty seconds and
     // keeps a connection of its data source's pool open, which is cheap for one and is not for everything, and
     // ADR-007 §4.12's rule is that if everything is pinned nothing is.
-    int PinnedServiceLimit = 50)
+    int PinnedServiceLimit = 50,
+
+    // <b>Whether a webhook may post to a private, loopback or link-local address — ADR-266 §4.</b> Off, because a
+    // webhook is a URL this server fetches from inside the deployment's network on an administrator's word, and pointed
+    // inward it reaches what the deployment did not publish. An integration server beside this one is the case for
+    // turning it on; with it on, plain HTTP is allowed to such an address and only to one.
+    bool WebhooksAllowPrivate = false)
 {
     /// <summary>What may be built from one uploaded file: the defaults with this deployment's counts.</summary>
     public ImportLimits Import => ImportLimits.Default with
@@ -763,7 +769,8 @@ internal sealed record HostSettings(
             Math.Max(1, keys.Value("ImportMaxFeatures", ImportLimits.Default.Features)),
             Math.Max(1L, keys.Value("ImportMaxVertices", ImportLimits.Default.Vertices)),
             Math.Max(1L, keys.Value("DocumentMaxMB", Graticula.Platform.Catalog.Documents.DefaultMaximumBytes / 1048576)) * 1048576,
-            Math.Max(0, keys.Value("PinnedServiceLimit", 50)))
+            Math.Max(0, keys.Value("PinnedServiceLimit", 50)),
+            keys.Value("WebhooksAllowPrivate", false))
         {
             ServerDirectories = serverDirectories,
         };

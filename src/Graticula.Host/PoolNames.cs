@@ -44,6 +44,14 @@ public static class PoolNames
     /// </remarks>
     public const string Jobs = "graticula-jobs";
 
+    /// <summary>What the webhook sender's pool calls itself — ADR-266.</summary>
+    /// <remarks>
+    /// <b>A poller's pool, and named under <see cref="Jobs"/> on purpose</b>: it claims with <c>for update skip locked</c>
+    /// as the job workers do, so <see cref="JobsPattern"/> finds it and D-110's check that nothing claims on the shared pool
+    /// holds for it too; its own name keeps its two connections apart from the job pool's one per kind.
+    /// </remarks>
+    public const string Webhooks = Jobs + "-webhooks";
+
     /// <summary>What the pool serving a layer's own data calls itself.</summary>
     /// <remarks>
     /// <para>

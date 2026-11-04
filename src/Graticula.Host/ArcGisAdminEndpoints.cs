@@ -66,6 +66,7 @@ internal static partial class ArcGisAdminEndpoints
         }
 
         MapService(app);
+        MapWebhooks(app); // ADR-266: a feature service's webhooks — ArcGisAdminEndpoints.Webhooks.cs
     }
 
     /// <summary>ArcGIS field types this server can add a column for, as the hosted field types.</summary>

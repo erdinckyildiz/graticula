@@ -121,6 +121,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// </summary>
     public Func<Guid[], CancellationToken, Task>? DataChanged { get; set; }
 
+    /// <summary>
+    /// Told each edit that committed, with what it kept, for the feature-service webhooks that listen (ADR-266) — set at
+    /// start, as <see cref="DataChanged"/> is; null tells nothing.
+    /// </summary>
+    public Func<PublishedLayer, EditOutcome, CancellationToken, Task>? Edited { get; set; }
+
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
 
@@ -489,6 +495,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         Graticula.Catalog.EditorTracking? tracking = null,
         Graticula.Catalog.LayerSubtypes? subtypes = null)
     {
+        IFeatureWriter writer = EngineWriterFor(layer, fields, tracking, subtypes);
+
+        // ADR-266: every face's edit, whatever its engine, tells the service's webhooks once it has committed.
+        return Edited is { } edited ? new EditTellingWriter(writer, layer, edited) : writer;
+    }
+
+    private IFeatureWriter EngineWriterFor(
+        PublishedLayer layer,
+        IReadOnlyList<FieldDescription> fields,
+        Graticula.Catalog.EditorTracking? tracking,
+        Graticula.Catalog.LayerSubtypes? subtypes)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
@@ -722,6 +740,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 .ConfigureAwait(false);
 
             await RemoveAttachmentsOfDeletedAsync(edits, together, cancellation).ConfigureAwait(false);
+            await TellEditedAsync(edits, together, cancellation).ConfigureAwait(false);
             return together;
         }
 
@@ -788,7 +807,23 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             }
         }
 
+        await TellEditedAsync(edits, outcomes, cancellation).ConfigureAwait(false);
         return outcomes;
+    }
+
+    /// <summary>After a transaction across layers commits, each layer's edit to the webhooks that listen (ADR-266).</summary>
+    private async Task TellEditedAsync(
+        IReadOnlyList<LayerEdit> edits, IReadOnlyList<EditOutcome> outcomes, CancellationToken cancellation)
+    {
+        if (Edited is not { } edited)
+        {
+            return;
+        }
+
+        for (int i = 0; i < edits.Count && i < outcomes.Count; i++)
+        {
+            await edited(edits[i].Layer, outcomes[i], cancellation).ConfigureAwait(false);
+        }
     }
 
     /// <summary>After a transaction across layers commits, the attachments its deletes left in the datastore (ADR-207).</summary>
@@ -1264,5 +1299,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         }
 
         _pools.Clear();
+    }
+}
+
+/// <summary>A layer's writer that tells the webhooks what each batch kept, after it was kept — ADR-266.</summary>
+internal sealed class EditTellingWriter(
+    IFeatureWriter inner, PublishedLayer layer, Func<PublishedLayer, EditOutcome, CancellationToken, Task> edited) : IFeatureWriter
+{
+    /// <inheritdoc/>
+    public async Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken)
+    {
+        EditOutcome outcome = await inner.ApplyAsync(batch, cancellationToken).ConfigureAwait(false);
+        await edited(layer, outcome, cancellationToken).ConfigureAwait(false);
+        return outcome;
     }
 }
