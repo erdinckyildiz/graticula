@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(128);
+    public static SchemaVersion ComponentSchemaVersion => new(131);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -157,7 +157,80 @@ public static class PlatformMigrations
         AnItemIsRelatedToTheItemItWasPublishedFromV126,
         ALayerKnowsWhenItLastChangedV127,
         AnAppIsAnItemAndAnItemKeepsResourcesV128,
+        AnItemCarriesMetadataAndCommentsV131,
     ]);
+
+    /// <summary>
+    /// An item carries a metadata document and members' comments, as Portal's items do (ADR-267, the ArcGIS veteran's
+    /// review of v1.0.499, #18).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two tables keyed by the item</b>, each with a cascading key to it, so the recycle bin — which follows the store's
+    /// foreign keys (ADR-203) — keeps both with a deleted item and puts them back with it, and a permanent delete removes
+    /// them. <b>A comment's author is named, not referenced</b>: a key to <c>principal</c> would make restoring an item
+    /// fail once the comment's author was removed, so the comment keeps their id and the name they had.
+    /// </para>
+    /// <para><b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: two tables nothing older reads.</para>
+    /// </remarks>
+    private static Migration AnItemCarriesMetadataAndCommentsV131 => Migration.Expand(
+        new SchemaVersion(131),
+        "An item carries a metadata document and members' comments (ADR-267).",
+
+        """
+        create table if not exists item_metadata (
+            item_id     uuid        not null primary key references item (id) on delete cascade,
+            content     bytea       not null,
+            size        bigint      not null,
+            modified_at timestamptz not null default now(),
+            tenant_id   uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint item_metadata_size_matches check (size = octet_length(content)),
+            constraint item_metadata_bounded check (size between 1 and 4194304)
+        )
+        """,
+
+        "create index if not exists item_metadata_tenant on item_metadata (tenant_id)",
+
+        "alter table item_metadata enable row level security",
+
+        "alter table item_metadata force row level security",
+
+        "drop policy if exists tenant_floor on item_metadata",
+
+        """
+        create policy tenant_floor on item_metadata
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        create table if not exists item_comment (
+            id                  uuid        not null primary key,
+            item_id             uuid        not null references item (id) on delete cascade,
+            author_principal_id uuid        null,
+            author_name         text        not null,
+            comment             text        not null,
+            created_at          timestamptz not null default now(),
+            tenant_id           uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint item_comment_text_bounded check (length(btrim(comment)) > 0 and length(comment) <= 2048)
+        )
+        """,
+
+        "create index if not exists item_comment_by_item on item_comment (item_id, created_at)",
+
+        "create index if not exists item_comment_tenant on item_comment (tenant_id)",
+
+        "alter table item_comment enable row level security",
+
+        "alter table item_comment force row level security",
+
+        "drop policy if exists tenant_floor on item_comment",
+
+        """
+        create policy tenant_floor on item_comment
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
 
     /// <summary>
     /// An item is related to the item it was published from — ArcGIS's <c>Service2Data</c>, ADR-257 §12.

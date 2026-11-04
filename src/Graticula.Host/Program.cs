@@ -626,6 +626,12 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemResourceStore>(services =>
             new PostgresItemResourceStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-267: an item's metadata document and the comments members leave on it.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemMetadataStore>(services =>
+            new PostgresItemMetadataStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IItemCommentStore>(services =>
+            new PostgresItemCommentStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // ADR-135: what each service answers, counted in memory and written once a minute.
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IServiceUsageStore>(services =>
             new PostgresServiceUsageStore(services.GetRequiredService<NpgsqlDataSource>()));

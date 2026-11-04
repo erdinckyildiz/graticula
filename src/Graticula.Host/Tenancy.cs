@@ -234,7 +234,7 @@ internal static class TenantRouting
         "/admin/publish", "/admin/datasources", "/admin/groups", "/admin/members", "/admin/member-categories",
         "/admin/item-categories", "/admin/service-accounts", "/admin/identity-providers", "/admin/oauth",
         "/admin/security/second-factor", "/admin/domains", "/admin/relationships", "/admin/folders",
-        "/admin/recycle-bin", "/admin/roles", "/admin/logs", "/admin/jobs", "/admin/settings/basemaps",
+        "/admin/recycle-bin", "/admin/roles", "/admin/logs", "/admin/jobs", "/admin/settings/basemaps", "/admin/settings/item-comments",
         "/admin/references", "/admin/tiling-schemes", "/admin/thumbnail", "/admin/generateToken", "/admin/partnerships", "/admin/organization",
         "/admin/search",
     ];

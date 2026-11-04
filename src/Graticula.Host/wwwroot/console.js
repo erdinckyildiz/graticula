@@ -4363,7 +4363,7 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "settings") section("settings", loadSettings);
   if (screen === "organizations") section("organizations", loadTenants, "tnRows");
-  if (screen === "general") section("organization", loadOrganizationProfile);
+  if (screen === "general") { section("organization", loadOrganizationProfile); loadOrgComments(); }
   if (screen === "orgsettings") section("settings", loadOrgSettings);
   if (screen === "utilities") {
     section("utility services", loadSystemServices, "sysRows");
@@ -6358,7 +6358,7 @@ async function showWebMapItem(id) {
     map = await api(`/content/webmaps/${encodeURIComponent(id)}`);
   } catch (e) {
     $("mapAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to Content</a></p>`;
-    for (const one of ["mapLayers", "mapSide", "mapActions", "mapTabs", "mapThumb", "mapSettings"]) $(one).innerHTML = "";
+    for (const one of ["mapLayers", "mapSide", "mapActions", "mapTabs", "mapThumb", "mapSettings", "mapImc"]) $(one).innerHTML = "";
     $("mapSettings").hidden = true;
     $("mapOverview").hidden = false;
     return;
@@ -6411,6 +6411,7 @@ async function showWebMapItem(id) {
 
   drawMapAbout();
   loadMapExtras(map);
+  imcLoad(map, $("mapImc"));   // ADR-267: its metadata and comments
 
   // Each layer with the way to its own item, when it is one of this server's services; top first, the basemap last.
   const row = layer => {
@@ -34874,7 +34875,7 @@ async function showDocumentItem(id) {
     doc = await api(`/content/documents/${encodeURIComponent(id)}`);
   } catch (e) {
     $("docAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to Content</a></p>`;
-    for (const one of ["docSide", "docActions", "docTabs", "docThumb", "docSettings"]) $(one).innerHTML = "";
+    for (const one of ["docSide", "docActions", "docTabs", "docThumb", "docSettings", "docImc"]) $(one).innerHTML = "";
     $("docSettings").hidden = true;
     $("docOverview").hidden = false;
     return;
@@ -34934,6 +34935,7 @@ async function showDocumentItem(id) {
   drawDocSettings();
   drawDocTabs();
   loadDocExtras(doc);
+  imcLoad(doc, $("docImc"));   // ADR-267: its metadata and comments
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
   if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
   if (docSayNext) {
@@ -40967,3 +40969,253 @@ new MutationObserver(() => {
   phoneLooking = true;
   requestAnimationFrame(() => { phoneLooking = false; phoneNavMenus(); });
 }).observe($("app"), { childList: true, subtree: true });
+
+// ---------------------------------------------------------------- an item's metadata and comments (ADR-267)
+
+/**
+ * The item whose metadata and comments are on screen — a document's or a web map's page — and the panel they are in.
+ * `item` is the page's own record (`id`, `owner`, `manages`); the rest is what the portal last said.
+ */
+let imcOpen = null;
+
+/** Whether the organization has comments on, as `portals/self` said it; read once per sign-in. */
+let imcCommentsOn = null;
+
+/** The longest comment the server keeps — migration 131's check. */
+const IMC_COMMENT_MAX = 2048;
+
+/** The largest metadata document the server keeps — 4 MB. */
+const IMC_METADATA_MAX = 4 * 1024 * 1024;
+
+/**
+ * Reads and draws an item's metadata and comments into its page's panel. The panel's frame — the two headings, the file
+ * input and the two status lines — is drawn once per item, so a redraw of the list never drops the status line or the
+ * focus (the two faults every new screen had).
+ */
+async function imcLoad(item, box) {
+  if (!item || !box) return;
+  const id = bareId(item.id);
+  const fresh = imcOpen?.id !== id || imcOpen.box !== box;
+  imcOpen = { id, item, box, metadata: false, comments: [], total: 0 };
+
+  if (fresh || !box.querySelector("[data-imc-body]")) {
+    box.innerHTML = `
+      <h4 id="${box.id}MetaHead">Metadata</h4>
+      <div data-imc-meta></div>
+      <input type="file" data-imc-file accept=".xml,application/xml,text/xml" hidden>
+      <p class="hint" data-imc-meta-says role="status" aria-live="polite"></p>
+      <h4 id="${box.id}TalkHead">Comments</h4>
+      <div data-imc-body><p class="hint">Reading the comments…</p></div>
+      <p class="hint" data-imc-says role="status" aria-live="polite"></p>`;
+  }
+
+  const portal = `/sharing/rest/content/items/${encodeURIComponent(id)}`;
+  const [portalItem, listed, self] = await Promise.all([
+    api(`${portal}?f=json`).catch(() => null),
+    api(`${portal}/comments?f=json&num=100`).catch(() => null),
+    imcCommentsOn === null ? api("/sharing/rest/portals/self?f=json").catch(() => null) : null,
+  ]);
+  if (imcOpen?.id !== id || imcOpen.box !== box) return;
+  if (self) imcCommentsOn = self.commentsEnabled !== false;
+
+  imcOpen.metadata = (portalItem?.typeKeywords || []).includes("Metadata");
+  imcOpen.comments = listed?.comments || [];
+  imcOpen.total = listed?.total ?? imcOpen.comments.length;
+  imcOpen.unread = !listed || !!listed.error;
+  imcDraw();
+}
+
+/** Draws the metadata line and the comment list from `imcOpen`, keeping the focus on the control that had it. */
+function imcDraw() {
+  const open = imcOpen;
+  if (!open) return;
+  const box = open.box;
+  const had = document.activeElement && box.contains(document.activeElement)
+    ? document.activeElement.dataset.imcFocus || null : null;
+  const draft = box.querySelector("[data-imc-text]")?.value || "";
+
+  box.querySelector("[data-imc-meta]").innerHTML = `
+    <p class="hint">${open.metadata
+      ? "This item has a metadata document — ArcGIS, ISO 19139 or FGDC XML — that ArcGIS Pro and other clients read."
+      : open.item.manages
+      ? "No metadata yet. Upload an ArcGIS, ISO 19139 or FGDC XML document, such as one exported from ArcGIS Pro."
+      : "No metadata yet."}</p>
+    ${open.metadata || open.item.manages ? `<div class="row">
+      ${open.metadata ? `<button type="button" data-imc-download data-imc-focus="download">Download metadata</button>` : ""}
+      ${open.item.manages ? `<button type="button" data-imc-upload data-imc-focus="upload">${
+        open.metadata ? "Replace metadata…" : "Upload metadata…"}</button>` : ""}
+    </div>` : ""}`;
+
+  const signedIn = !!token || !!signedInAs;
+  const canDelete = c => open.item.manages || (signedInAs && c.owner === signedInAs);
+  const list = open.comments.length
+    ? `<ul class="imclist">${open.comments.map(c => `<li>
+        <div class="imcwho"><b>${h(c.owner || "—")}</b> <span class="hint">${h(day(c.created))}</span>
+          ${canDelete(c) ? `<button type="button" class="tiny ghost" data-imc-delete="${h(c.id)}"
+            data-imc-focus="delete-${h(c.id)}" aria-label="Delete the comment by ${h(c.owner || "")}">Delete</button>` : ""}</div>
+        <p class="imctext">${h(c.comment)}</p></li>`).join("")}</ul>
+       ${open.total > open.comments.length ? `<p class="hint">Showing the first ${num(open.comments.length)} of
+         ${num(open.total)}.</p>` : ""}`
+    : `<p class="hint">${open.unread ? "The comments could not be read." : "No comments yet."}</p>`;
+
+  const add = !signedIn ? ""
+    : imcCommentsOn === false ? `<p class="hint">Comments are turned off in this organization.</p>`
+    : `<label class="q" for="${box.id}Text">Add a comment</label>
+       <textarea id="${box.id}Text" class="imcbox" rows="3" maxlength="${IMC_COMMENT_MAX}" data-imc-text data-imc-focus="text"
+         aria-describedby="${box.id}TextHint"></textarea>
+       <p class="hint" id="${box.id}TextHint">Everyone who can open this item reads it. Up to ${num(IMC_COMMENT_MAX)} characters.</p>
+       <div class="row"><button type="button" class="primary" data-imc-add data-imc-focus="add">Add comment</button></div>`;
+
+  const head = box.querySelector(`#${box.id}TalkHead`);
+  if (head) head.innerHTML = `Comments${open.total ? ` <span class="val">${num(open.total)}</span>` : ""}`;
+  box.querySelector("[data-imc-body]").innerHTML = list + add;
+  const text = box.querySelector("[data-imc-text]");
+  if (text) text.value = draft;
+  if (had) box.querySelector(`[data-imc-focus="${CSS.escape(had)}"]`)?.focus();
+}
+
+/** Says a line in one of the panel's two status paragraphs; emptied first so the same sentence twice is announced. */
+function imcSay(which, line) {
+  const says = imcOpen?.box.querySelector(which === "meta" ? "[data-imc-meta-says]" : "[data-imc-says]");
+  if (!says) return;
+  says.textContent = "";
+  if (line) setTimeout(() => { says.textContent = line; }, 30);
+}
+
+/** Sends a metadata file as the item's, through the portal's own `update`, as ArcGIS Pro and the Python API do. */
+async function imcUpload(file) {
+  const open = imcOpen;
+  if (!open || !file) return;
+  if (file.size > IMC_METADATA_MAX) {
+    imcSay("meta", `Not uploaded: ${file.name} is ${fileSize(file.size)}, and an item's metadata is at most 4 MB.`);
+    return;
+  }
+  const owner = open.item.owner || signedInAs;
+  const form = new FormData();
+  form.append("metadata", file, "metadata.xml");
+  form.append("f", "json");
+  imcSay("meta", "Uploading…");
+  try {
+    const answer = await api(`/sharing/rest/content/users/${encodeURIComponent(owner)}/items/${encodeURIComponent(open.id)}/update`,
+      { method: "POST", body: form });
+    if (answer?.error) throw new Error(answer.error.message);
+    open.metadata = true;
+    imcDraw();
+    imcSay("meta", `${file.name} is this item's metadata now.`);
+    open.box.querySelector("[data-imc-upload]")?.focus();
+  } catch (e) {
+    imcSay("meta", `Not uploaded: ${lowerFirst(e.message || e)}`);
+  }
+}
+
+async function imcAdd() {
+  const open = imcOpen;
+  const box = open?.box.querySelector("[data-imc-text]");
+  if (!open || !box) return;
+  const comment = box.value;
+  if (!comment.trim()) {
+    box.setAttribute("aria-invalid", "true");
+    imcSay("talk", "Write the comment first.");
+    box.focus();
+    return;
+  }
+  box.removeAttribute("aria-invalid");
+  const button = open.box.querySelector("[data-imc-add]");
+  if (button) button.disabled = true;
+  try {
+    const answer = await api(`/sharing/rest/content/items/${encodeURIComponent(open.id)}/addComment`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ comment, f: "json" }),
+    });
+    if (answer?.error) throw new Error(answer.error.message);
+    box.value = "";
+    await imcLoad(open.item, open.box);
+    imcSay("talk", "Your comment is added.");
+    imcOpen?.box.querySelector("[data-imc-text]")?.focus();
+  } catch (e) {
+    imcSay("talk", `Not added: ${lowerFirst(e.message || e)}`);
+    if (button) button.disabled = false;
+  }
+}
+
+async function imcDelete(commentId) {
+  const open = imcOpen;
+  if (!open) return;
+  try {
+    const answer = await api(`/sharing/rest/content/items/${encodeURIComponent(open.id)}/comments/${
+      encodeURIComponent(commentId)}/delete`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ f: "json" }),
+    });
+    if (answer?.error) throw new Error(answer.error.message);
+    await imcLoad(open.item, open.box);
+    imcSay("talk", "The comment is deleted.");
+    // The button that was pressed is gone with its comment; the cursor goes to the heading of the list it was in.
+    const head = imcOpen?.box.querySelector(`#${imcOpen.box.id}TalkHead`);
+    if (head) { head.setAttribute("tabindex", "-1"); head.focus(); }
+  } catch (e) {
+    imcSay("talk", `Not deleted: ${lowerFirst(e.message || e)}`);
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target : null;
+  const box = t?.closest("[data-imc]");
+  if (!box || !imcOpen || imcOpen.box !== box) return;
+
+  if (t.closest("[data-imc-download]")) {
+    const file = await browserDownload(`/sharing/rest/content/items/${encodeURIComponent(imcOpen.id)}/info/metadata/metadata.xml`)
+      .catch(() => ({ refused: "the connection to the server was lost. Try again." }));
+    imcSay("meta", file.refused ? `Not downloaded: ${lowerFirst(file.refused)}`
+      : `metadata.xml (${fileSize(file.bytes)}) is downloading — your browser shows its progress.`);
+    return;
+  }
+  if (t.closest("[data-imc-upload]")) { box.querySelector("[data-imc-file]")?.click(); return; }
+  if (t.closest("[data-imc-add]")) { await imcAdd(); return; }
+  const gone = t.closest("[data-imc-delete]");
+  if (gone) await imcDelete(gone.dataset.imcDelete);
+});
+
+document.addEventListener("change", event => {
+  const input = event.target instanceof HTMLInputElement && event.target.matches("[data-imc-file]") ? event.target : null;
+  if (!input || !imcOpen || !imcOpen.box.contains(input)) return;
+  const file = input.files?.[0];
+  input.value = "";
+  imcUpload(file);
+});
+
+// ---------------------------------------------------------------- Organization › General › Comments on items (ADR-267)
+
+/** Draws the comments card for whoever may change the organization's settings; nobody else is offered it. */
+async function loadOrgComments() {
+  const card = $("orgCommentsCard");
+  if (!card) return;
+  card.hidden = !may("admin:manageServer");
+  if (card.hidden) return;
+  const answer = await api("/admin/settings/item-comments").catch(() => null);
+  if (!answer) { card.hidden = true; return; }
+  $("orgComments").checked = !!answer.enabled;
+}
+
+$("orgComments")?.addEventListener("change", async () => {
+  const box = $("orgComments");
+  const enabled = box.checked;
+  const says = $("orgCommentsSays");
+  says.textContent = "";
+  box.disabled = true;
+  try {
+    const answer = await api("/admin/settings/item-comments", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }),
+    });
+    box.checked = !!answer?.enabled;
+    imcCommentsOn = box.checked;
+    setTimeout(() => {
+      says.textContent = box.checked ? "Saved. Members can comment on items." : "Saved. Nobody can add a comment now; those already left stay.";
+    }, 30);
+  } catch (e) {
+    box.checked = !enabled;
+    setTimeout(() => { says.textContent = `Not saved: ${lowerFirst(e.message || e)}`; }, 30);
+  } finally {
+    box.disabled = false;
+    box.focus();
+  }
+});

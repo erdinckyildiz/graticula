@@ -7758,3 +7758,14 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
   :root #view-group #groupActions:not([hidden]) { display: flex; gap: var(--gap-2); margin: var(--gap-3) 0 0; }
   :root #view-group #groupActions > button { min-height: 44px; flex: 1 1 0; justify-content: center; }
 }
+
+/* ADR-267: an item's metadata and comments, under its description on a document's or a web map's page. */
+.imcpanel { padding: var(--gap-3) var(--gap-4); }
+.imclist { list-style: none; margin: 0 0 var(--gap-3); padding: 0; }
+.imclist li { padding: 8px 0; border-top: 1px solid var(--rule); }
+.imclist li:first-child { border-top: 0; }
+.imcwho { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.imcwho .hint { margin: 0; }
+.imcwho button { margin-left: auto; }
+.imctext { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.imcbox { font-family: inherit; }

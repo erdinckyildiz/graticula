@@ -281,6 +281,7 @@ internal static partial class PortalEndpoints
         MapUsers(app);       // ADR-262: the organization's users — PortalEndpoints.Users.cs
         MapItemExport(app);  // ADR-263: item.export — PortalEndpoints.ItemExport.cs
         MapAppItems(app);    // ADR-264: apps, links and item resources — PortalEndpoints.AppItems.cs
+        MapItemMetadataAndComments(app); // ADR-267: metadata and comments — PortalEndpoints.ItemMetadataComments.cs
     }
 
     /// <summary>
@@ -760,7 +761,11 @@ internal static partial class PortalEndpoints
             hasClassificationSchema = false,
             isReadOnly = false,
             disableSignup = true,
-            commentsEnabled = false,
+            // ADR-267: comments are on unless the organisation turned them off; metadata is kept and editable, and the
+            // style named is the documented default — this server stores a document in any of the three and renders none.
+            commentsEnabled = await CommentsEnabledAsync(context, cancellation).ConfigureAwait(false),
+            metadataEditable = true,
+            metadataFormats = "iso19139",
             // ADR-214 §5c: the recycle bin (ADR-203) is always on, and a client that is not told so sends no
             // permanentDelete and deletes into it believing the item gone (the Python API warns and drops the flag).
             recycleBinSupported = true,
@@ -2006,13 +2011,16 @@ internal static partial class PortalEndpoints
         // that names nothing.
         if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
         {
-            return Results.Ok(MapItem(context, map, MapExtent(map.Document)));
+            // ADR-267: with its comments counted and its metadata said, as Portal's item is.
+            return Results.Ok(await WithCommentsAndMetadataAsync(
+                context, MapItem(context, map, MapExtent(map.Document)), Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
         }
 
         // A document, as a map: it needs no catalogue either (ADR-188).
         if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is { } document)
         {
-            return Results.Ok(DocumentItem(context, document));
+            return Results.Ok(await WithCommentsAndMetadataAsync(
+                context, DocumentItem(context, document), Guid.Parse(document.Id), cancellation).ConfigureAwait(false));
         }
 
         // A service definition added and not yet published, to its owner: needs no catalogue either (StagedItem).
@@ -2038,10 +2046,10 @@ internal static partial class PortalEndpoints
                     double[][] extent = await ExtentAsync(service, contexts, projector, cancellation)
                         .ConfigureAwait(false);
 
-                    return Results.Ok(await WithProtectionAsync(
+                    return Results.Ok(await WithCommentsAndMetadataAsync(context, await WithProtectionAsync(
                         ItemsOf(context, service, extent)
                             .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item,
-                        service, admin, cancellation).ConfigureAwait(false));
+                        service, admin, cancellation).ConfigureAwait(false), service.Id, cancellation).ConfigureAwait(false));
                 }
             }
         }
