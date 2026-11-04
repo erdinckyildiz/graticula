@@ -118,3 +118,5 @@ tools/fonts/*.otf
 
 # GDAL for the import reader, laid out by tools/gdal-natives.py from deploy/gdal/gdal-natives.lock.json (ADR-254)
 .gdal/
+# PDFium for the import reader's PDF thumbnails, laid out by tools/pdfium-natives.py (ADR-268)
+.pdfium/

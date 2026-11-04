@@ -362,6 +362,29 @@ attribution obligations on the artefact that ships it.
 
 ---
 
+## PDFium — the import reader's PDF thumbnails, added 2026-11-04
+
+[ADR-268](docs/adr/ADR-268-a-pdfs-first-page-is-its-picture.md), by owner decision on
+[D-321](docs/architecture-debt.md): a PDF's first page becomes its picture. **PDFium, BSD-3-Clause**, as
+[bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) `chromium/8125` builds it, with V8 and XFA
+off. One library per platform, pinned by SHA-256 in
+[`deploy/pdfium/pdfium-natives.lock.json`](deploy/pdfium/pdfium-natives.lock.json). It is laid out by
+`tools/pdfium-natives.py` in `importer/pdfium/<rid>/`, and its notices go in `licenses/` beside it.
+
+| Component | Licence | Notes |
+|---|---|---|
+| PDFium | BSD-3-Clause | `PDFIUM-LICENSE` |
+| abseil, dragonbox, fast_float, highway, llvm-libc | Apache-2.0 (abseil, highway); Apache-2.0 with LLVM exception or Boost (dragonbox); Apache-2.0/MIT/BSL (fast_float); Apache-2.0 with LLVM exception (llvm-libc) | The GPL is mentioned only in the LLVM exception's text, which is about combining with GPL-2.0 code |
+| AGG 2.3 | AGG's permissive notice | |
+| FreeType | FreeType Licence (FTL), offered beside GPL-2.0 | **The FTL is the one taken** |
+| HarfBuzz | MIT ("Old MIT") | |
+| ICU | Unicode-3.0 / ICU | The GPL texts inside are the autoconf scripts' exceptions, and those scripts are not shipped |
+| lcms, libjpeg-turbo, OpenJPEG, libpng, simdutf, zlib | MIT; IJG and BSD-3-Clause; BSD-2-Clause; libpng; Apache-2.0/MIT; zlib | |
+
+**Nothing here is copyleft.** The library needs only glibc's own libraries. `pdfium-natives.py` refuses a build that
+needs more, and refuses an archive whose checksum differs from the lock. `tools/gdal-natives.py` still refuses a PDFium
+inside GDAL's closure: GDAL has no PDF driver, and this is not one.
+
 ## ⚠ Verification status
 
 Every entry below is marked `UNVERIFIED`. The licences are recorded from general

@@ -167,6 +167,29 @@ public sealed class DocumentStoreTests : PostgresFixture
     }
 
     [Fact]
+    public async Task A_drawn_picture_fills_an_empty_slot_and_never_an_owners()
+    {
+        // ADR-268: the server's picture of a PDF's first page and an owner's picture are kept apart, and only the first
+        // is ever drawn over or taken away by the server.
+        (PostgresDocumentStore store, Guid owner, _) = await ReadyAsync();
+        Document made = await store.CreateAsync(
+            "Plan", null, owner, SharingScope.Private, "plan.pdf", Pdf, "%PDF-1.4"u8.ToArray(), CancellationToken.None);
+        byte[] drawn = [1, 2, 3];
+        byte[] chosen = [4, 5, 6];
+
+        Assert.True(await store.SetDrawnThumbnailAsync(made.Id, drawn, CancellationToken.None));
+        Assert.Equal(drawn, await store.ThumbnailAsync(made.Id, CancellationToken.None));
+        Assert.True(await store.SetDrawnThumbnailAsync(made.Id, null, CancellationToken.None));
+        Assert.Null(await store.ThumbnailAsync(made.Id, CancellationToken.None));
+        Assert.False(await store.SetDrawnThumbnailAsync(made.Id, null, CancellationToken.None));
+
+        Assert.True(await store.SetThumbnailAsync(made.Id, chosen, CancellationToken.None));
+        Assert.False(await store.SetDrawnThumbnailAsync(made.Id, drawn, CancellationToken.None));
+        Assert.False(await store.SetDrawnThumbnailAsync(made.Id, null, CancellationToken.None));
+        Assert.Equal(chosen, await store.ThumbnailAsync(made.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task The_store_refuses_a_size_that_is_not_the_files()
     {
         await MigrateAsync();

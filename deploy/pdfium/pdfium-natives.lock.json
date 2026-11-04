@@ -1,0 +1,24 @@
+{
+  "comment": "PDFium for the import reader's PDF thumbnails (ADR-268). Pinned by SHA-256; tools/pdfium-natives.py fetch checks every byte. V8 and XFA are off in these builds (args.gn).",
+  "release": "chromium/8125",
+  "source": "https://github.com/bblanchon/pdfium-binaries",
+  "published": "2026-10-26",
+  "license": "BSD-3-Clause (PDFium) and its bundled third parties, listed in the archive's licenses/",
+  "platforms": {
+    "linux-x64": {
+      "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8125/pdfium-linux-x64.tgz",
+      "sha256": "e1c3ce6e270cb5e0c20816b379ad9f2c1309972697c505f508de92bf5e7d6659",
+      "library": "lib/libpdfium.so"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8125/pdfium-linux-arm64.tgz",
+      "sha256": "8b8818f2ec57d1b213d952ca6d7f0ffeca9d0110487d0e20ad83ba918bc92efa",
+      "library": "lib/libpdfium.so"
+    },
+    "win-x64": {
+      "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8125/pdfium-win-x64.tgz",
+      "sha256": "9a964261760cff52570aabf038ab346d3a5034dd8b30d0d5fe8861235d356b8b",
+      "library": "bin/pdfium.dll"
+    }
+  }
+}

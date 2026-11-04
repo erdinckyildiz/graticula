@@ -54,7 +54,10 @@ Six ArcGIS service types, plus the portal surface Pro, the Maps SDK and the API 
 | **ArcGIS Maps SDK for JavaScript** | complete | An app whose portal is this server, on this origin or another ([ADR-072](docs/adr/ADR-072-cross-origin-reads-without-credentials.md) §5a), signs people in, opens saved web maps, and offers the basemap gallery and its default ([ADR-184](docs/adr/ADR-184-the-basemap-gallery-is-a-group.md)) |
 
 Around them: members, roles with editable privileges, groups and item sharing, with every
-mutation audited and the log queryable; import from GeoJSON, a zipped shapefile or a File
+mutation audited and the log queryable; **webhooks**, an organisation's and a feature service's, posted signed to an
+HTTPS address ([ADR-266](docs/adr/ADR-266-a-webhook-tells-another-system-what-changed.md)); an item's **metadata and
+comments** ([ADR-267](docs/adr/ADR-267-an-item-carries-metadata-and-comments.md)); a PDF's **first page as its picture**
+([ADR-268](docs/adr/ADR-268-a-pdfs-first-page-is-its-picture.md)); import from GeoJSON, a zipped shapefile or a File
 Geodatabase, or define an empty schema and fill it through `applyEdits`. **A basemap gallery** is a group whose
 vector tile services and web maps every map offers as basemaps, one of them the default
 ([ADR-184](docs/adr/ADR-184-the-basemap-gallery-is-a-group.md)). **`graticula tools manifest`** writes a server's

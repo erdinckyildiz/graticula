@@ -83,6 +83,30 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    <b>PDFium, for a PDF's first page as its picture — ADR-268, owner decision 2026-11-04 on D-321 ("Evet, PDFium
+    ekle").</b> One library per platform from bblanchon/pdfium-binaries, pinned by SHA-256 in
+    deploy/pdfium/pdfium-natives.lock.json and laid out by tools/pdfium-natives.py in .pdfium/<rid>/ with its licences.
+    It is not GDAL's PDF driver, which stays out (ADR-254); it is loaded by full path from pdfium/<rid>/ beside the
+    reader, and only this process loads it. PdfiumFetch=false when the directory was laid out beforehand (the Docker
+    stage that has Python). The platforms are GdalRuntimes', so the two payloads always travel together.
+  -->
+  <PropertyGroup>
+    <PdfiumNatives Condition="'$(PdfiumNatives)' == ''">$(MSBuildThisFileDirectory)../../.pdfium/</PdfiumNatives>
+    <PdfiumFetch Condition="'$(PdfiumFetch)' == ''">$(GdalFetch)</PdfiumFetch>
+  </PropertyGroup>
+  <Target Name="PdfiumNatives" BeforeTargets="BeforeBuild;CoreCompile">
+    <Exec Condition="'$(PdfiumFetch)' == 'true'"
+          Command="&quot;$(GdalPython)&quot; -I &quot;$(MSBuildThisFileDirectory)../../tools/pdfium-natives.py&quot; fetch %(GdalRuntime.Identity) &quot;$(PdfiumNatives)%(GdalRuntime.Identity)&quot;" />
+    <Error Condition="!Exists('$(PdfiumNatives)%(GdalRuntime.Identity)/.complete')"
+           Text="PDFium for %(GdalRuntime.Identity) is not laid out in $(PdfiumNatives)%(GdalRuntime.Identity). Run tools/pdfium-natives.py fetch (ADR-268)." />
+    <ItemGroup>
+      <_PdfiumPayload Include="$(PdfiumNatives)%(GdalRuntime.Identity)/**/*" Exclude="$(PdfiumNatives)%(GdalRuntime.Identity)/.complete">
+        <Runtime>%(GdalRuntime.Identity)</Runtime>
+      </_PdfiumPayload>
+      <None Include="@(_PdfiumPayload)" Link="pdfium/%(_PdfiumPayload.Runtime)/%(_PdfiumPayload.RecursiveDir)%(_PdfiumPayload.Filename)%(_PdfiumPayload.Extension)" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
   <ItemGroup>
     <!--
       ADR-009 condition 1: a GeoTIFF the server is about to catalogue is opened here first, by the reader the server
