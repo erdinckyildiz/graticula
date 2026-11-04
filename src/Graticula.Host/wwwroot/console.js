@@ -41005,8 +41005,8 @@ async function imcLoad(item, box) {
       <input type="file" data-imc-file accept=".xml,application/xml,text/xml" hidden>
       <p class="hint" data-imc-meta-says role="status" aria-live="polite"></p>
       <h4 id="${box.id}TalkHead">Comments</h4>
-      <div data-imc-body><p class="hint">Reading the comments…</p></div>
-      <p class="hint" data-imc-says role="status" aria-live="polite"></p>`;
+      <p class="hint" id="${box.id}Says" data-imc-says role="status" aria-live="polite"></p>
+      <div data-imc-body><p class="hint">Reading the comments…</p></div>`;
   }
 
   const portal = `/sharing/rest/content/items/${encodeURIComponent(id)}`;
@@ -41050,19 +41050,23 @@ function imcDraw() {
   const canDelete = c => open.item.manages || (signedInAs && c.owner === signedInAs);
   const list = open.comments.length
     ? `<ul class="imclist">${open.comments.map(c => `<li>
-        <div class="imcwho"><b>${h(c.owner || "—")}</b> <span class="hint">${h(day(c.created))}</span>
-          ${canDelete(c) ? `<button type="button" class="tiny ghost" data-imc-delete="${h(c.id)}"
-            data-imc-focus="delete-${h(c.id)}" aria-label="Delete the comment by ${h(c.owner || "")}">Delete</button>` : ""}</div>
-        <p class="imctext">${h(c.comment)}</p></li>`).join("")}</ul>
+        <div class="imcwho"><b>${h(c.owner || "—")}</b> <time class="hint" datetime="${h(imcIso(c.created))}">${
+          h(imcWhen(c.created))}</time>
+          ${canDelete(c) ? `<button type="button" class="tiny danger" data-imc-delete="${h(c.id)}"
+            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${h(c.owner || "")}'s comment of ${h(imcWhen(c.created))}"
+            >Delete</button>` : ""}</div>
+        <p class="imctext" id="imcText-${h(c.id)}">${h(c.comment)}</p>
+        <button type="button" class="tiny ghost imcmore" data-imc-more="${h(c.id)}" data-imc-focus="more-${h(c.id)}"
+          aria-controls="imcText-${h(c.id)}" aria-expanded="false" hidden>Show all</button></li>`).join("")}</ul>
        ${open.total > open.comments.length ? `<p class="hint">Showing the first ${num(open.comments.length)} of
-         ${num(open.total)}.</p>` : ""}`
+         ${num(open.total)}; the rest are read through the portal's comments.</p>` : ""}`
     : `<p class="hint">${open.unread ? "The comments could not be read." : "No comments yet."}</p>`;
 
   const add = !signedIn ? ""
     : imcCommentsOn === false ? `<p class="hint">Comments are turned off in this organization.</p>`
     : `<label class="q" for="${box.id}Text">Add a comment</label>
        <textarea id="${box.id}Text" class="imcbox" rows="3" maxlength="${IMC_COMMENT_MAX}" data-imc-text data-imc-focus="text"
-         aria-describedby="${box.id}TextHint"></textarea>
+         aria-describedby="${box.id}TextHint ${box.id}Says"></textarea>
        <p class="hint" id="${box.id}TextHint">Everyone who can open this item reads it. Up to ${num(IMC_COMMENT_MAX)} characters.</p>
        <div class="row"><button type="button" class="primary" data-imc-add data-imc-focus="add">Add comment</button></div>`;
 
@@ -41071,15 +41075,38 @@ function imcDraw() {
   box.querySelector("[data-imc-body]").innerHTML = list + add;
   const text = box.querySelector("[data-imc-text]");
   if (text) text.value = draft;
+  // M4 of the design review: a long comment is clamped to six lines, with Show all only where it was cut.
+  for (const more of box.querySelectorAll("[data-imc-more]")) {
+    const text = box.querySelector(`#imcText-${CSS.escape(more.dataset.imcMore)}`);
+    more.hidden = !text || text.scrollHeight <= text.clientHeight + 1;
+  }
   if (had) box.querySelector(`[data-imc-focus="${CSS.escape(had)}"]`)?.focus();
 }
 
+/** A comment's time as a reader reads it — the day and the minute, so two of one day are told apart. */
+function imcWhen(value) {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? "" : at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** A comment's time as `<time datetime>` wants it. */
+function imcIso(value) {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? "" : at.toISOString();
+}
+
 /** Says a line in one of the panel's two status paragraphs; emptied first so the same sentence twice is announced. */
-function imcSay(which, line) {
+function imcSay(which, line, bad = false) {
   const says = imcOpen?.box.querySelector(which === "meta" ? "[data-imc-meta-says]" : "[data-imc-says]");
   if (!says) return;
   says.textContent = "";
+  says.classList.toggle("bad-inline", bad);
   if (line) setTimeout(() => { says.textContent = line; }, 30);
+}
+
+/** A portal refusal without its "'title' was not changed:" lead, which the line's own "Not uploaded" already says. */
+function imcReason(e) {
+  return lowerFirst(String(e?.message || e).replace(/^'.*?' was not changed: /, ""));
 }
 
 /** Sends a metadata file as the item's, through the portal's own `update`, as ArcGIS Pro and the Python API do. */
@@ -41087,9 +41114,13 @@ async function imcUpload(file) {
   const open = imcOpen;
   if (!open || !file) return;
   if (file.size > IMC_METADATA_MAX) {
-    imcSay("meta", `Not uploaded: ${file.name} is ${fileSize(file.size)}, and an item's metadata is at most 4 MB.`);
+    imcSay("meta", `Not uploaded: ${file.name} is ${fileSize(file.size)}, and an item's metadata is at most 4 MB.`, true);
     return;
   }
+  // m5: one upload at a time; a second pick while the first is sent would race it.
+  const upload = open.box.querySelector("[data-imc-upload]");
+  if (upload?.getAttribute("aria-busy") === "true") return;
+  upload?.setAttribute("aria-busy", "true");
   const owner = open.item.owner || signedInAs;
   const form = new FormData();
   form.append("metadata", file, "metadata.xml");
@@ -41104,7 +41135,9 @@ async function imcUpload(file) {
     imcSay("meta", `${file.name} is this item's metadata now.`);
     open.box.querySelector("[data-imc-upload]")?.focus();
   } catch (e) {
-    imcSay("meta", `Not uploaded: ${lowerFirst(e.message || e)}`);
+    imcSay("meta", `Not uploaded: ${file.name}: ${imcReason(e)}`, true);
+  } finally {
+    open.box.querySelector("[data-imc-upload]")?.removeAttribute("aria-busy");
   }
 }
 
@@ -41115,7 +41148,7 @@ async function imcAdd() {
   const comment = box.value;
   if (!comment.trim()) {
     box.setAttribute("aria-invalid", "true");
-    imcSay("talk", "Write the comment first.");
+    imcSay("talk", "Write the comment first.", true);
     box.focus();
     return;
   }
@@ -41133,7 +41166,7 @@ async function imcAdd() {
     imcSay("talk", "Your comment is added.");
     imcOpen?.box.querySelector("[data-imc-text]")?.focus();
   } catch (e) {
-    imcSay("talk", `Not added: ${lowerFirst(e.message || e)}`);
+    imcSay("talk", `Not added: ${imcReason(e)}`, true);
     if (button) button.disabled = false;
   }
 }
@@ -41141,6 +41174,9 @@ async function imcAdd() {
 async function imcDelete(commentId) {
   const open = imcOpen;
   if (!open) return;
+  const comment = open.comments.find(c => c.id === commentId);
+  if (comment && comment.owner !== signedInAs
+    && !confirm(`Delete ${comment.owner}'s comment of ${imcWhen(comment.created)}? It cannot be restored.`)) return;
   try {
     const answer = await api(`/sharing/rest/content/items/${encodeURIComponent(open.id)}/comments/${
       encodeURIComponent(commentId)}/delete`, {
@@ -41153,7 +41189,7 @@ async function imcDelete(commentId) {
     const head = imcOpen?.box.querySelector(`#${imcOpen.box.id}TalkHead`);
     if (head) { head.setAttribute("tabindex", "-1"); head.focus(); }
   } catch (e) {
-    imcSay("talk", `Not deleted: ${lowerFirst(e.message || e)}`);
+    imcSay("talk", `Not deleted: ${imcReason(e)}`, true);
   }
 }
 
@@ -41169,7 +41205,18 @@ document.addEventListener("click", async event => {
       : `metadata.xml (${fileSize(file.bytes)}) is downloading — your browser shows its progress.`);
     return;
   }
-  if (t.closest("[data-imc-upload]")) { box.querySelector("[data-imc-file]")?.click(); return; }
+  if (t.closest("[data-imc-upload]")) {
+    if (t.closest("[data-imc-upload]").getAttribute("aria-busy") !== "true") box.querySelector("[data-imc-file]")?.click();
+    return;
+  }
+  const more = t.closest("[data-imc-more]");
+  if (more) {
+    const open = more.getAttribute("aria-expanded") !== "true";
+    more.setAttribute("aria-expanded", String(open));
+    more.textContent = open ? "Show less" : "Show all";
+    box.querySelector(`#imcText-${CSS.escape(more.dataset.imcMore)}`)?.classList.toggle("open", open);
+    return;
+  }
   if (t.closest("[data-imc-add]")) { await imcAdd(); return; }
   const gone = t.closest("[data-imc-delete]");
   if (gone) await imcDelete(gone.dataset.imcDelete);
@@ -41189,11 +41236,12 @@ document.addEventListener("change", event => {
 async function loadOrgComments() {
   const card = $("orgCommentsCard");
   if (!card) return;
-  card.hidden = !may("admin:manageServer");
-  if (card.hidden) return;
+  card.hidden = true;
+  if (!may("admin:manageServer")) return;
   const answer = await api("/admin/settings/item-comments").catch(() => null);
-  if (!answer) { card.hidden = true; return; }
+  if (!answer) return;
   $("orgComments").checked = !!answer.enabled;
+  card.hidden = false;
 }
 
 $("orgComments")?.addEventListener("change", async () => {

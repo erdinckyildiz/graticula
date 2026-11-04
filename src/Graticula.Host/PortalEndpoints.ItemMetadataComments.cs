@@ -118,7 +118,17 @@ internal static partial class PortalEndpoints
         }
         catch (XmlException e)
         {
-            return $"the metadata is not well-formed XML, or declares a DTD, which is not accepted ({e.Message})";
+            // One sentence per cause, and none of the parser's own text: it named settings only this server can reach
+            // (ADR-267's design review, 2026-11-04).
+            string text = System.Text.Encoding.UTF8.GetString(content, 0, Math.Min(content.Length, 4096));
+            if (text.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
+            {
+                return "it declares a DTD (a <!DOCTYPE …> line), which is not accepted. Remove that line and upload it again.";
+            }
+
+            return text.TrimStart((char)0xFEFF).TrimStart().StartsWith('<')
+                ? $"it is not well-formed XML: line {e.LineNumber}, column {e.LinePosition}."
+                : "it is not an XML file. Choose the .xml file ArcGIS Pro exports for the item.";
         }
     }
 

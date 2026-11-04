@@ -6979,6 +6979,12 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
   .menu .sheet button { min-height: 44px; }
   .mapitem > .mapmain { order: 1; }
   .mapitem > aside { order: 2; }
+  /* ADR-267's design review: the comments are the page's last part, after the item's information. */
+  .mapitem > .mapmain:has(> .imcpanel) { display: contents; }
+  .mapitem > .mapmain > #mapAbout, .mapitem > .mapmain > #docAbout { order: 1; }
+  .mapitem > .mapmain > #mapLayers { order: 2; }
+  .mapitem > .mapmain > .imcpanel { order: 4; }
+  .mapitem > aside { order: 3; }
   .widewords { display: none; }
 
   @media (prefers-reduced-motion: reduce) {
@@ -7767,5 +7773,8 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .imcwho { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .imcwho .hint { margin: 0; }
 .imcwho button { margin-left: auto; }
-.imctext { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.imctext { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere;
+            display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.imctext.open { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.imcmore { margin-top: 4px; }
 .imcbox { font-family: inherit; }
