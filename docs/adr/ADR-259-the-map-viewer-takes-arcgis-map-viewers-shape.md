@@ -60,7 +60,12 @@ its own decision if a measurement ever asks for it (§3 of CLAUDE.md).
 3. **The basemap is its own tool**: the gallery's choice, moved from the Map form, and the basemap's own layers, moved
    from under the operational ones.
 4. **Add is its own tool**: the list of services the viewer may read, which was a box that opened inside Layers.
-   Layers keeps an *Add layer* button that opens it.
+   Layers keeps an *Add layer* button that opens it. **Amended 2026-11-04, after the owner found it unpleasant to look at and a UX review
+   returned *rework*:** Add browses the portal's layer **items**, as Map Viewer's *Browse layers* does, not the services
+   directory. One entry per item — a kind icon, the title, a line saying *Feature layer · owner · Updated date* — and one
+   *Add*; a feature layer whose service also draws as one map image offers that behind its ⋯. *All you can read* or *My
+   content*, a search, and the kinds as chips. The directory listed 29 services with 70 equal buttons and no title,
+   kind or owner. Folder headings went with it: the folder is said only where two entries of one kind share a title.
 5. **On a phone** the left toolbar is the bottom bar it already was, the right one is a column of icon buttons at the
    map's right edge, and both open the same bottom sheet — one panel at a time.
 6. **Nothing the viewer saves changes.** The Web Map document, its fields and every handler that writes them are the

@@ -876,7 +876,10 @@ public sealed class WebMapViewerTests : ConsoleTest
                 "Adding a bookmark did not keep it in the map's document as a change.");
             Assert.Contains("Here", await Browser.EvaluateAsync<string>("document.getElementById('bookmarkList').innerText") ?? "", StringComparison.Ordinal);
 
-            Assert.Empty(await WritesAsync());
+            // The picture a map without one is given when it is opened (ADR-196's fallback) lands whenever its capture
+            // finishes, and that may be now; it is the opening's write, not the bookmark's (2026-11-04, one run in three).
+            Assert.DoesNotContain(await WritesAsync(),
+                w => !(w.StartsWith("PUT", StringComparison.Ordinal) && w.Contains("/thumbnail", StringComparison.Ordinal)));
             await ClickAsync("#bookmarkList [data-unbookmark]");
             await WaitForAsync("(wmState.doc.bookmarks || []).length === 0", "Removing the bookmark left it in the document.");
 
@@ -1277,7 +1280,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
         await OpenAsync("/studio/webmap.html", token, cookie);
         await WaitForAsync(Shown("#addLayer"), "A new map offers no Add layer.");
-        await Browser.EvaluateAsync<bool>("(wmServices = [], true)");
+        await Browser.EvaluateAsync<bool>("(wmAddItems = [], true)");
         await Browser.EvaluateAsync<bool>("(document.getElementById('addLayer').focus(), true)");
         await ClickAsync("#addLayer");
 
@@ -1305,7 +1308,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
         await OpenAsync("/studio/webmap.html", token, cookie);
         await WaitForAsync(Shown("#addLayer"), "A new map offers no Add layer.");
-        await Browser.EvaluateAsync<bool>("(wmState.doc = null, wmServices = [], true)");
+        await Browser.EvaluateAsync<bool>("(wmState.doc = null, wmAddItems = [], true)");
         await ClickAsync("#addLayer");
 
         await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/content\"]')",
