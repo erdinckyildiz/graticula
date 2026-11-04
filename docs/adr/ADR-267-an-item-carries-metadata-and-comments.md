@@ -110,8 +110,14 @@ the document is stored as sent and the item is untouched (`INFERRED`, §5.3).
 1. A service's item page in Studio shows the same panel. *(Only documents and web maps have it; the service page's
    structure is the larger one and was left for the ux review.)*
 2. Search and content listings carry `numComments` and the `Metadata` type keyword, read in one query per page, so a
-   client that sorts or filters by them sees the truth.
-3. `addItem` takes a `metadata` part as `update` does.
+   client that sorts or filters by them sees the truth. **DISCHARGED 2026-11-04:** the portal's search, a group's
+   content and My Content read both for the whole listing in two statements — not per page, so that a filter and a sort
+   see them before paging — and `typekeywords:Metadata` and `sortField=numComments` answer by them.
+   `PortalItemMetadataCommentsTests.AddItem_takes_metadata_and_listings_filter_and_sort_by_what_the_item_page_says`.
+3. `addItem` takes a `metadata` part as `update` does. **DISCHARGED 2026-11-04** for the items `addItem` makes there and
+   then — a web map, a file kept as a document, an app or a link — checked before anything is added. A file sent in
+   parts is an item only at `commit`, so metadata with `multipart=true` is refused in words; a service definition's
+   item is the service `publish` makes, and its metadata goes through `update` as before. Same test.
 
 ## 8. Dependencies
 

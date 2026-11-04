@@ -1378,30 +1378,35 @@ internal static partial class PortalEndpoints
         // is the whole difference between *My Content* and *the catalogue*.
         //
         // <b>And in the folder asked for — ADR-114</b>: the root lists what is in no folder, as Portal's does.
-        List<object> items =
+        //
+        // <b>Each with the id its comments are kept under</b> (ADR-267 condition 2), so the page says what the item's own
+        // page says about its comments and metadata, read in two statements for the whole listing before it is sorted.
+        List<(object Item, Guid? Id)> owned =
         [
             .. visible
                 .Where(service => service.Owner is { } owner && owner == current.Principal.Id
                     && service.ContentFolder == folderId)
-                .SelectMany(service => ListedFacesOf(service).Select(face => Item(context, service, face))),
+                .SelectMany(service => ListedFacesOf(service).Select(face => (Item(context, service, face), (Guid?)service.Id))),
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
             .. (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
                 .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId)
-                .Select(map => MapItem(context, map)),
+                .Select(map => (MapItem(context, map), ItemGuidOf(map.Id))),
 
             // And their documents — ADR-188.
             .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
                 .Where(document => document.Owner == current.Principal.Id && document.ContentFolder == folderId)
-                .Select(document => DocumentItem(context, document)),
+                .Select(document => (DocumentItem(context, document), ItemGuidOf(document.Id))),
 
             // And the image services they registered — V-80 — in the content folder they were moved to (ADR-114).
             .. images
                 .Where(coverage => coverage.Owner is { } owner && owner == current.Principal.Id
                     && coverage.ContentFolder == folderId)
-                .Select(coverage => CoverageItem(context, coverage)),
+                .Select(coverage => (CoverageItem(context, coverage), (Guid?)coverage.ServiceId)),
         ];
+
+        List<object> items = [.. await WithCommentsAndMetadataAsync(context, owned, cancellation).ConfigureAwait(false)];
 
         PortalPage.Page page = PortalPage.Of(items, context);
 
@@ -1777,8 +1782,6 @@ internal static partial class PortalEndpoints
             return null;
         }
 
-        List<PortalListed> results = [];
-
         // ADR-202 condition 3: the caller's favourites answer `group:<favGroupId>`. Only among what this search already
         // lists, and only for this caller, so the favourites "group" lets nobody read anything — the reason a real group
         // was not used for them.
@@ -1787,21 +1790,22 @@ internal static partial class PortalEndpoints
         IReadOnlyCollection<Guid>? With(IReadOnlyCollection<Guid>? shared, Guid item) =>
             favored.Contains(item) ? [.. shared ?? [], favorites] : shared;
 
+        // <b>Every candidate first, then the query</b> (ADR-267 condition 2): an item's comment count and its `Metadata`
+        // keyword are read for all of them in two statements before matching, so `typekeywords:Metadata` finds what the
+        // item's own page says and `sortField=numComments` orders by the truth. Each candidate carries the id its
+        // comments are kept under — a service's own, whatever the face; an image service's, which holds none, so it says 0.
+        List<(object Item, Guid? Comments, IReadOnlyCollection<Guid>? Shared, Func<object, PortalListed> Listed)> candidates = [];
+
         foreach (PublishedService service in visible)
         {
             foreach (string face in ListedFacesOf(service))
             {
-                object item = Item(context, service, face);
-
-                if (PortalQuery.Matches(item, query, With(service.SharedWith, service.Id)))
-                {
-                    results.Add(new PortalListed(ItemIdOf(service, face), item, Service: service, Face: face));
-                }
+                candidates.Add((Item(context, service, face), service.Id, With(service.SharedWith, service.Id),
+                    item => new PortalListed(ItemIdOf(service, face), item, Service: service, Face: face)));
             }
         }
 
-        // ADR-184: the gallery's vector tile services as its Web Maps, to a search that looks in the gallery.
-        results.AddRange(await BasemapsListedAsync(context, visible, query, cancellation).ConfigureAwait(false));
+        int services = candidates.Count;
 
         // Saved web maps, under the same query and the same sharing rule (ADR-079 §5.3).
         //
@@ -1810,33 +1814,49 @@ internal static partial class PortalEndpoints
         // group member looking for a map shared with the group found nothing.
         foreach (WebMap map in await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
         {
-            object item = MapItem(context, map);
-
-            if (PortalQuery.Matches(item, query, With(map.SharedWith, Guid.Parse(map.Id))))
-            {
-                results.Add(new PortalListed(map.Id, item, Map: map));
-            }
+            candidates.Add((MapItem(context, map), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
+                item => new PortalListed(map.Id, item, Map: map)));
         }
 
         // Documents, under the same query and the same rule as maps (ADR-188).
         foreach (Document document in await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
         {
-            object item = DocumentItem(context, document);
-
-            if (PortalQuery.Matches(item, query, With(document.SharedWith, Guid.Parse(document.Id))))
-            {
-                results.Add(new PortalListed(document.Id, item, Document: document));
-            }
+            candidates.Add((DocumentItem(context, document), Guid.Parse(document.Id), With(document.SharedWith, Guid.Parse(document.Id)),
+                item => new PortalListed(document.Id, item, Document: document)));
         }
 
         // Image services, under the same query and the rule their own face reads by — V-80.
         foreach (PublishedCoverage coverage in images)
         {
-            object item = CoverageItem(context, coverage);
+            candidates.Add((CoverageItem(context, coverage), coverage.ServiceId, With(coverage.SharedWith, coverage.ServiceId),
+                item => new PortalListed(CoverageItemId(coverage), item, Coverage: coverage)));
+        }
 
-            if (PortalQuery.Matches(item, query, With(coverage.SharedWith, coverage.ServiceId)))
+        IReadOnlyList<object> described = await WithCommentsAndMetadataAsync(
+            context, [.. candidates.Select(c => (c.Item, c.Comments))], cancellation).ConfigureAwait(false);
+
+        List<PortalListed> results = [];
+        int at = 0;
+
+        // Services first, then the gallery's basemaps, then maps, documents and image services, as the search has always
+        // listed them.
+
+        for (; at < services; at++)
+        {
+            if (PortalQuery.Matches(described[at], query, candidates[at].Shared))
             {
-                results.Add(new PortalListed(CoverageItemId(coverage), item, Coverage: coverage));
+                results.Add(candidates[at].Listed(described[at]));
+            }
+        }
+
+        // ADR-184: the gallery's vector tile services as its Web Maps, to a search that looks in the gallery.
+        results.AddRange(await BasemapsListedAsync(context, visible, query, cancellation).ConfigureAwait(false));
+
+        for (; at < candidates.Count; at++)
+        {
+            if (PortalQuery.Matches(described[at], query, candidates[at].Shared))
+            {
+                results.Add(candidates[at].Listed(described[at]));
             }
         }
 

@@ -165,23 +165,53 @@ internal static partial class PortalEndpoints
     /// carries metadata, as Portal says it. The item as it was when the stores are not here or not reachable.
     /// </summary>
     internal static async Task<object> WithCommentsAndMetadataAsync(
-        HttpContext context, object item, Guid itemGuid, CancellationToken cancellation)
+        HttpContext context, object item, Guid itemGuid, CancellationToken cancellation) =>
+        (await WithCommentsAndMetadataAsync(context, [(item, itemGuid)], cancellation).ConfigureAwait(false))[0];
+
+    /// <summary>
+    /// Many item documents with what this file adds, read in two queries whatever their number — ADR-267 condition 2. A
+    /// listing calls this before it filters and sorts, so <c>typekeywords:Metadata</c> and <c>sortField=numComments</c>
+    /// see what the item's own page says. An entry without an id is returned as it was.
+    /// </summary>
+    internal static async Task<IReadOnlyList<object>> WithCommentsAndMetadataAsync(
+        HttpContext context, IReadOnlyList<(object Item, Guid? Id)> items, CancellationToken cancellation)
     {
-        if (context.RequestServices.GetService<IItemCommentStore>() is not { } comments
+        if (items.Count == 0
+            || context.RequestServices.GetService<IItemCommentStore>() is not { } comments
             || context.RequestServices.GetService<IItemMetadataStore>() is not { } metadata)
         {
-            return item;
+            return [.. items.Select(entry => entry.Item)];
         }
+
+        Guid[] ids = [.. items.Where(entry => entry.Id is not null).Select(entry => entry.Id!.Value).Distinct()];
+
+        IReadOnlyDictionary<Guid, int> counted;
+        IReadOnlySet<Guid> described;
 
         try
         {
-            IReadOnlyDictionary<Guid, int> counted = await comments.CountAsync([itemGuid], cancellation).ConfigureAwait(false);
-            bool described = (await metadata.WhichHaveAsync([itemGuid], cancellation).ConfigureAwait(false)).Contains(itemGuid);
+            counted = await comments.CountAsync(ids, cancellation).ConfigureAwait(false);
+            described = await metadata.WhichHaveAsync(ids, cancellation).ConfigureAwait(false);
+        }
+        catch (System.Data.Common.DbException)
+        {
+            return [.. items.Select(entry => entry.Item)];
+        }
+
+        List<object> result = new(items.Count);
+
+        foreach ((object item, Guid? id) in items)
+        {
+            if (id is not { } itemGuid)
+            {
+                result.Add(item);
+                continue;
+            }
 
             JsonObject node = item as JsonObject ?? System.Text.Json.JsonSerializer.SerializeToNode(item, ItemJson)!.AsObject();
             node["numComments"] = counted.GetValueOrDefault(itemGuid);
 
-            if (described)
+            if (described.Contains(itemGuid))
             {
                 JsonArray keywords = node["typeKeywords"] as JsonArray ?? [];
                 if (!keywords.Any(k => string.Equals(k?.GetValue<string>(), "Metadata", StringComparison.Ordinal)))
@@ -192,13 +222,14 @@ internal static partial class PortalEndpoints
                 node["typeKeywords"] = keywords.DeepClone();
             }
 
-            return node;
+            result.Add(node);
         }
-        catch (System.Data.Common.DbException)
-        {
-            return item;
-        }
+
+        return result;
     }
+
+    /// <summary>An item id as a listing carries it, or null for one that is not a stored item's (a gallery basemap).</summary>
+    internal static Guid? ItemGuidOf(string? id) => Guid.TryParse(id, out Guid parsed) ? parsed : null;
 
     /// <summary><c>info/metadata/metadata.xml</c>: the item's metadata as it was written, to whoever may read the item.</summary>
     private static async Task<IResult> ItemMetadataAsync(HttpContext context, string id, CancellationToken cancellation)
