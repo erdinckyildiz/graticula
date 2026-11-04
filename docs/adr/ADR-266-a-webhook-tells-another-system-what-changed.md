@@ -253,7 +253,17 @@ that was raised while it was off.
    organisation's webhook, objectIds in place of `changesUrl`, the private-network setting with plain HTTP only to a
    private address, `scheduleInfo` kept but not honoured, and failures counted per attempt.
 4. **A real integration** — Power Automate's or Make's ArcGIS connector, or the ArcGIS API for Python's
-   `gis.admin.webhooks` — is pointed at this server and its result recorded.
+   `gis.admin.webhooks` — is pointed at this server and its result recorded. **DISCHARGED 2026-11-04** with the ArcGIS API
+   for Python 2.4.3 against the local fixture, signed in by name and password. It found three gaps, each fixed the same
+   day: `list()` follows `nextStart` and raised a KeyError on the bare array the list answered (now paged as Portal pages
+   it); `Webhook.notifications` reads its rows under `WebhookStatus` and follows `nextStart` (now there, beside this
+   server's `notifications`); and `settings` read `webhooks/settings`, a 404 (now the three numbers the sender actually
+   uses: 4 attempts, 15 s, 10 s to the first retry). After them, every member of its `WebhookManager` and `Webhook` ran:
+   `create` with a secret, `list`, `get`, an item added through `gis.content` delivered to a receiver with its
+   `x-esriHook-Signature`, `deactivate`, `activate`, `update` of name and events, `notifications`, `settings`, `delete`.
+   `settings` assigned is refused in words — **INFERRED**: the retry ladder is the server's, and making it an
+   organisation's setting is a decision of its own. Power Automate and Make were not tried; they need accounts this
+   session does not hold. The shapes are in `WebhooksTests`.
 5. **The edit path's extra statement (§6) is measured**: `applyEdits` of one feature, p50 and p95, with and without
    the webhook hook, on the fixture; if it adds more than a tenth to p50, the services that have webhooks are cached per
    node and the cache told when one is made or removed. **DISCHARGED 2026-11-04: measured, the tenth crossed, and the remedy built.**

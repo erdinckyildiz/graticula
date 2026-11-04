@@ -95,6 +95,22 @@ public sealed class WebhooksTests : ArcGisClient
 
             (JsonElement status, _) = await PortalAsync($"/sharing/rest/portals/self/webhooks/{hook}/notificationStatus?f=json", null);
             Assert.Contains(status.GetProperty("notifications").EnumerateArray(), n => n.GetProperty("status").GetString() == "delivered");
+
+            // ADR-266 condition 4: what the ArcGIS API for Python reads. Its `list()` and `notifications` follow `nextStart`
+            // to -1, and `notifications` reads the rows under `WebhookStatus`, the name in that case; `settings` reads
+            // three numbers. Each was a KeyError or a 404 until 2026-11-04.
+            Assert.Equal(-1, listed.GetProperty("nextStart").GetInt32());
+            Assert.True(status.TryGetProperty("WebhookStatus", out JsonElement rows) && rows.GetArrayLength() > 0, "notificationStatus has no WebhookStatus rows.");
+            Assert.Equal(-1, status.GetProperty("nextStart").GetInt32());
+
+            (JsonElement settings, string settingsRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/settings?f=json", null);
+            Assert.True(settings.TryGetProperty("notificationAttempts", out JsonElement attempts) && attempts.GetInt32() == 4, settingsRaw);
+            Assert.Equal(15, settings.GetProperty("notificationTimeOutInSeconds").GetInt32());
+            Assert.Equal(10, settings.GetProperty("notificationElapsedTimeInSeconds").GetInt32());
+
+            (JsonElement changed, string changedRaw) = await PortalAsync("/sharing/rest/portals/self/webhooks/settings/update",
+                new() { ["notificationAttempts"] = "2" });
+            Assert.True(changed.TryGetProperty("error", out _), $"Changing the delivery settings was not refused: {changedRaw}");
         }
         finally
         {
