@@ -191,8 +191,9 @@ def CreateTerrain(in_feature_dataset, out_terrain_name, average_point_spacing, m
     suits, not which points they remove. ``CONSTRAINED_DELAUNAY`` triangulates every pyramid level as CreateTin's
     option does (ADR-229 condition 6). ``config_keyword`` is an enterprise geodatabase's and is ignored.
 
-    INFERRED (ADR-234 §5.9): ``max_overview_size`` is kept and reported, and grapy builds no overview of its own — the
-    overview is a display level, not one a tool reads by resolution."""
+    ``max_overview_size`` is kept and reported. grapy stores no overview a tool could read — no tool reads one by
+    resolution — but builds the pyramid under it as ArcGIS Pro 3.7 does (``window_levels``, measured 2026-11-04,
+    D-339): when the overview is coarser than the coarsest level, its points are kept at every level."""
     tool = "CreateTerrain"
     path = _text(in_feature_dataset).replace("\\", "/").rstrip("/")
     try:
@@ -543,11 +544,38 @@ def window_anchors(points, spacing, srid, corner):
     return out[0], out[1]
 
 
-def window_thin(points, anchors, size, origin, method):
+def tile_size(spacing, srid):
+    """The side of the tiles Pro cuts a terrain into, ``round(spacing * √200000)`` (Describe's ``tileSize``, D-339), or
+    None where grapy does not know the XY domain and the windows run from one corner (``window_anchors``)."""
+    return None if default_xy_origin(srid) is None else float(round(float(spacing) * math.sqrt(200000.0)))
+
+
+#: Pro's default maximum overview size, measured 2026-11-04: a terrain built with 50,000 keeps the points of one built
+#: with none, and 6,401 or 1,000,000 do not (D-339).
+DEFAULT_OVERVIEW_SIZE = 50000
+
+
+def overview_window(tile, columns, rows, max_overview_size=None):
+    """The window of the terrain's overview: the tile cut into ``k`` equal windows a side, ``k`` the smallest whole
+    number with ``k² * columns * rows`` at least ``max_overview_size`` — the ``columns`` x ``rows`` tiles the data
+    spans shared out among about that many points. ArcGIS Pro 3.7, measured 2026-11-04 (D-339): on 2 x 2 tiles of
+    1,789 at the default size the window is 1,789 / 112 (15.97), on 2 x 1 tiles 1,789 / 159 (11.25) — the only
+    windows, of every size swept from 6 to 40 and every anchoring tried, that give exactly the points Pro added."""
+    size = float(max_overview_size or DEFAULT_OVERVIEW_SIZE)
+    return tile / max(1, math.ceil(math.sqrt(size / (columns * rows)) - 1e-9))
+
+
+def window_thin(points, anchors, size, origin, method, tile=None):
     """Indexes kept by window size thinning: the area cut into ``size`` squares from ``origin`` — a pair of per-point
     arrays (``window_anchors``), or one corner — and in each the point the window size method selects; of ties, the
     earlier point, ZMEAN's distances to the mean equal within 1e-9 (as ArcGIS Pro 3.7 breaks them, measured
-    2026-10-31). Anchor points are always kept."""
+    2026-10-31). Anchor points are always kept.
+
+    With ``tile`` (the per-point origins being tile corners ``tile`` apart), a tile's last window on each axis is
+    a whole window that runs past the tile's far edge, as ArcGIS Pro 3.7's do (measured 2026-11-04, D-339): it chooses
+    among every point inside it, the next tile's included, and what it chooses is kept only when it lies in the tile.
+    So a window the tile's edge cuts short loses its point to a lower one (ZMIN) just across the seam, and nothing in
+    the next tile is kept for it."""
     keep = set(np.nonzero(anchors)[0].tolist())
     candidates = np.nonzero(~anchors)[0]
     if not len(candidates):
@@ -558,17 +586,69 @@ def window_thin(points, anchors, size, origin, method):
     iy = np.floor((points[candidates, 1] - oy) / size + 1e-12).astype(np.int64)
     windows: dict = {}
     for k, a, b, i, j in zip(candidates, ox, oy, ix, iy):
-        windows.setdefault((float(a), float(b), int(i), int(j)), []).append(int(k))
-    for members in windows.values():
+        windows.setdefault((round(float(a), 6), round(float(b), 6), int(i), int(j)), []).append(int(k))
+    if tile:
+        last = math.ceil(tile / size - 1e-12)
+        reach = last * size - tile   # how far the last window runs into the next tile
+        if reach > 1e-9:
+            near_x = points[candidates, 0] - ox < reach - 1e-12
+            near_y = points[candidates, 1] - oy < reach - 1e-12
+            near = np.nonzero(near_x | near_y)[0]   # only points this close to a tile's start join another's window
+            for k, a, b, i, j, left, below in zip(candidates[near], ox[near], oy[near], ix[near], iy[near],
+                                                   near_x[near], near_y[near]):
+                a, b = round(float(a), 6), round(float(b), 6)
+                before, under = round(a - tile, 6), round(b - tile, 6)   # the tiles whose last windows reach here
+                if left:
+                    windows.setdefault((before, b, last - 1, int(j)), []).append(int(k))
+                if below:
+                    windows.setdefault((a, under, int(i), last - 1), []).append(int(k))
+                if left and below:
+                    windows.setdefault((before, under, last - 1, last - 1), []).append(int(k))
+            for members in windows.values():
+                members.sort()
+    own = {int(k): (round(float(a), 6), round(float(b), 6)) for k, a, b in zip(candidates, ox, oy)}
+
+    def add(key, k):
+        if not tile or own[k] == key[:2]:
+            keep.add(k)
+
+    for key, members in windows.items():
         zs = points[members, 2]
         if method in ("ZMIN", "ZMINMAX"):
-            keep.add(members[int(np.argmin(zs))])
+            add(key, members[int(np.argmin(zs))])
         if method in ("ZMAX", "ZMINMAX"):
-            keep.add(members[int(np.argmax(zs))])
+            add(key, members[int(np.argmax(zs))])
         if method == "ZMEAN":
             distance = np.abs(zs - zs.mean())
-            keep.add(members[int(np.nonzero(distance <= distance.min() + 1e-9)[0][0])])
+            add(key, members[int(np.nonzero(distance <= distance.min() + 1e-9)[0][0])])
     return np.array(sorted(keep), np.int64)
+
+
+def window_levels(points, anchors, starts, tile, resolutions, method, max_overview_size=None):
+    """Each window size level's kept indexes, coarsest first, every level keeping the coarser levels' points:
+    ArcGIS Pro 3.7's pyramid as measured on 2026-11-04 (D-339). Where the tiles are known (``tile``), the terrain's
+    overview (``overview_window``) is a level above the pyramid when its window is coarser than the coarsest level:
+    its points are then kept at every level, and every level's last windows run past their tile's edge
+    (``window_thin``). When the overview's window is not coarser, the coarsest level is the top: it keeps nothing of the
+    overview and keeps what both its windows choose, the whole one past the edge and the one the edge cuts short (they
+    differ only for ZMEAN; for the others the top keeps the cut window's point), while every finer level's run past
+    it."""
+    out, coarser = {}, np.zeros(0, np.int64)
+    top = 0.0
+    if tile and len(points):
+        columns, rows = (int(round((float(np.max(s)) - float(np.min(s))) / tile)) + 1 for s in starts)
+        top = overview_window(tile, columns, rows, max_overview_size)
+        if top > max(resolutions) + 1e-9:
+            coarser = window_thin(points, anchors, top, starts, method, tile)
+    for resolution in sorted(resolutions, reverse=True):
+        chosen = window_thin(points, anchors, resolution, starts, method, tile)
+        if not tile or top <= resolution + 1e-9:
+            # the top: its windows stop at the tile's edge as well (only ZMEAN can choose differently in both)
+            chosen = np.union1d(chosen, window_thin(points, anchors, resolution, starts, method))
+        top = max(top, resolution)
+        coarser = np.union1d(chosen, coarser)
+        out[resolution] = coarser
+    return out
 
 
 def _interpolate(kept_xyz, xy):
@@ -636,9 +716,9 @@ def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
 
     Windows start where Pro 3.7's do (``window_anchors``, measured 2026-10-31): at the corner of each tile of
     ``round(spacing * √200000)`` from the XY domain's origin, which grapy knows for every EPSG code ArcGIS Pro knows; elsewhere,
-    INFERRED (ADR-234 §5.9 (d)), from the extent's lower-left corner. At a seam between two tiles Pro keeps a few
-    points fewer than grapy (5 of 193 at one level, measured, D-339). INFERRED: of two points at one x,y the later
-    source's is kept; z-tolerance levels each start from full resolution,
+    INFERRED (ADR-234 §5.9 (d)), from the extent's lower-left corner. A tile's last windows run past its edge and the
+    overview tops the pyramid when it is coarser (``window_levels``, measured 2026-11-04, D-339). INFERRED: of two
+    points at one x,y the later source's is kept; z-tolerance levels each start from full resolution,
     so the bound holds at every level."""
     tool = "BuildTerrain"
     mode = str(update_extent or "NO_UPDATE_EXTENT").upper()
@@ -691,12 +771,11 @@ def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
 
         store(0.0, range(len(points)))
         if terrain.pyramid_type == "WINDOWSIZE":
-            coarser = np.zeros(0, np.int64)
             starts = window_anchors(points, terrain.point_spacing, terrain.srid, box[:2] if box else (0, 0))
-            for resolution, _ in sorted(terrain.levels, reverse=True):
-                chosen = window_thin(points, anchor, resolution, starts, terrain.window_method)
-                coarser = np.union1d(chosen, coarser)
-                store(resolution, coarser)
+            levels = window_levels(points, anchor, starts, tile_size(terrain.point_spacing, terrain.srid),
+                                   [r for r, _ in terrain.levels], terrain.window_method, terrain.max_overview_size)
+            for resolution, kept in levels.items():
+                store(resolution, kept)
         else:
             for resolution, _ in terrain.levels:
                 store(resolution, ztolerance_thin(points, anchor, resolution))

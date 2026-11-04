@@ -41,7 +41,9 @@ with open(os.path.join(work, "points.csv")) as f, open(shifted, "w", newline="")
 pts = arcpy.management.XYTableToPoint(shifted, os.path.join(fds, "pts"), "X", "Y", "Z", sr)[0]
 d = arcpy.Describe(fds).spatialReference
 res = [float(v) for v in levels.split(";")]
-t = arcpy.ddd.CreateTerrain(fds, "t", spacing, None, None, "WINDOWSIZE", "ZMIN")[0]
+# OVERVIEW: the maximum overview size; METHOD: the window size method (D-339, 2026-11-04)
+t = arcpy.ddd.CreateTerrain(fds, "t", spacing, os.environ.get("OVERVIEW") or None, None, "WINDOWSIZE",
+                            os.environ.get("METHOD", "ZMIN"))[0]
 arcpy.ddd.AddTerrainPyramidLevel(t, "", [f"{r:g} {1000 * (i + 1)}" for i, r in enumerate(res)])
 arcpy.ddd.AddFeatureClassToTerrain(t, [[pts, "Shape", "masspoints", 1, 0, f"{res[-1]:g}", True, False, "", "", False]])
 arcpy.ddd.BuildTerrain(t)
