@@ -135,7 +135,8 @@ reference is read as metres for the frame (the printed scale bar is still measur
    against the sixty-second deadline and the two-print bound, which are this session's guesses.
 3. **The owner confirms the INFERRED choices**: that a layer at another address is left out rather than fetched through
    an allowlist (§5.3), that a token inside the web map is ignored (§5.4), and that the service is open to anonymous
-   callers (§5.4).
+   callers (§5.4). **DISCHARGED 2026-11-04, by owner decision** (*"Dışarıda kalsın"* and *"Hepsi önerildiği gibi"*): all three confirmed as built, and the
+   Utilities folder's sign-in hint for an anonymous reader with them.
 
 ## 8. Dependencies
 

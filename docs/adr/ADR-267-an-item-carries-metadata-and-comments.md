@@ -80,13 +80,13 @@ the document is stored as sent and the item is untouched (`INFERRED`, §5.3).
    as `application/xml` with `nosniff` and `Content-Security-Policy: sandbox; default-src 'none'`; an item without one is
    answered 400 *Metadata for item not found.* The item read by id carries `Metadata` in `typeKeywords` when it has one.
    `portals/self` says `metadataEditable: true` and `metadataFormats: "iso19139"`.
-3. **`INFERRED`:** metadata is **not generated** from the item's facts and an upload is **not merged back** into them
+3. **`INFERRED`, confirmed by the owner 2026-11-04** (*"Hepsi önerildiği gibi"*): metadata is **not generated** from the item's facts and an upload is **not merged back** into them
    (§2 B and C).
 4. **Comments.** `comments` (a page, oldest first), `comments/{id}`, `addComment` (`comment`), `comments/{id}/update`
    (its author only) and `comments/{id}/delete` (its author, the item's owner, or whoever may manage all content). Read
    by whoever may read the item; added by a signed-in caller who may read it. The item read by id carries `numComments`.
    Text is stored as given and escaped wherever Studio shows it. Replies (`parentId`) are not kept.
-5. **`INFERRED`:** **anonymous callers cannot comment**, even on a public item; **comments are on by default**, as
+5. **`INFERRED`, confirmed by the owner 2026-11-04** (*"Hepsi önerildiği gibi"*): **anonymous callers cannot comment**, even on a public item; **comments are on by default**, as
    Portal's are; an administrator with `admin:manageServer` turns them off for the organisation
    (`/admin/settings/item-comments`, an organisational setting), which `portals/self`'s `commentsEnabled` then says and
    `addComment` refuses. Comments already left are kept and still listed.

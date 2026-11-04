@@ -245,7 +245,10 @@ that was raised while it was off.
    `changeTypesRaised` is the only place a caller learns it.
 2. **A Studio screen under Organization** lists the organisation's webhooks with create, activate, deactivate, delete
    and the recent deliveries, and a feature service's page lists its own. Not built this night; the REST API came first.
-3. **The five `INFERRED` choices of §5.10** are put to the owner and either confirmed or changed.
+3. **The five `INFERRED` choices of §5.10** are put to the owner and either confirmed or changed. **DISCHARGED
+   2026-11-04, by owner decision** (*"Hepsi önerildiği gibi"*): all five confirmed as built — the two privileges for an
+   organisation's webhook, objectIds in place of `changesUrl`, the private-network setting with plain HTTP only to a
+   private address, `scheduleInfo` kept but not honoured, and failures counted per attempt.
 4. **A real integration** — Power Automate's or Make's ArcGIS connector, or the ArcGIS API for Python's
    `gis.admin.webhooks` — is pointed at this server and its result recorded.
 5. **The edit path's extra statement (§6) is measured**: `applyEdits` of one feature, p50 and p95, with and without
