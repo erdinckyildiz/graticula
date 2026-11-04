@@ -584,6 +584,9 @@
       min-height: 44px; min-width: 44px; }
     .ol-zoom button { width: 44px; }
     .lctl input[type="range"] { min-height: 44px; }
+    /* Add's kinds outrank button.tiny by their id: 24 px on the first-run path (ADR-259's re-check, 2026-11-04). */
+    #addList .kinds { display: flex; flex-wrap: wrap; gap: 8px; }
+    #addList .kinds button { min-height: 44px; padding-inline: 12px; }
   }
 </style>
 </head>

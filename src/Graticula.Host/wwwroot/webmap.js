@@ -3248,8 +3248,8 @@ function wmStartMeasuring(type) {
   wmMeasuring = draw;
   wm$(type === "Polygon" ? "measureArea" : "measureLine").setAttribute("aria-pressed", "true");
   wmSayIn("measureStatus", type === "Polygon"
-    ? "Click the corners of the area; double-click the last one."
-    : "Click along the line; double-click the last point.");
+    ? "Tap or click the corners of the area; double-tap or double-click the last one."
+    : "Tap or click along the line; double-tap or double-click the last point.");
 }
 
 wm$("measureLine").addEventListener("click", () => wmStartMeasuring("LineString"));
@@ -3639,7 +3639,7 @@ function wmLayerToolMarkup(tool, layer) {
   if (tool === "properties") return wmPropertiesMarkup(layer, run, key, title, kind, readable);
 
   if (!wmToolApplies(tool, layer)) {
-    return `<p class="lnone">${wmEscape(WM_TOOL_NAMES[tool])} are set on a feature layer's fields. ${wmEscape(title)} is ${
+    return `<p class="lnone">This setting needs a feature layer's fields. ${wmEscape(title)} is ${
       readable ? wmEscape(kind ? WM_KIND_ARTICLED[kind] : `a ${layer.layerType || "layer"}`) : "not loaded"}, so it has none here.</p>`;
   }
   if (tool === "style") return wmStyleMarkup(layer, run, key, title);
