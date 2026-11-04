@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -388,6 +389,54 @@ public sealed class PhoneLayoutTests : ConsoleTest
         {
             await WidenAsync();
             await AdminAsync(HttpMethod.Delete, $"/admin/groups/{Probe}");
+        }
+    }
+
+    /// <summary>
+    /// On a phone an Organization settings page's menus come before its action, in reading and in tab order, and the
+    /// settings menu names the page being read: the UX review of 2026-11-04 found <i>Settings</i> and <i>Webhooks</i>
+    /// after <i>Create webhook</i>, and Collaborations' menu saying <i>General</i>.
+    /// </summary>
+    [Fact]
+    public async Task An_organization_settings_pages_menus_come_before_its_action_and_name_the_page()
+    {
+        (string token, _) = await SignInAsync();
+        await PhoneAsync();
+
+        try
+        {
+            foreach ((string page, string view, string action, string label) in new[]
+            {
+                ("webhooks", "view-webhooks", "#whNew", "Webhooks"),
+                ("collaborations", "view-collaborations", "#pcNew", "Collaborations"),
+            })
+            {
+                await OpenAsync($"/studio/#/{page}", token);
+                await WaitForAsync(
+                    $"[...document.querySelectorAll('#{view} .navmenubtn')].filter(b => !b.hidden).length >= 2 && !!document.querySelector('{action}')",
+                    $"{page}: its menus or its action are not drawn.");
+
+                string order = await Browser.EvaluateAsync<string>($$"""
+                    (() => {
+                      const go = document.querySelector('{{action}}');
+                      const menus = [...document.querySelectorAll('#{{view}} .navmenubtn')].filter(b => !b.hidden);
+                      const late = menus.filter(b => b.compareDocumentPosition(go) & Node.DOCUMENT_POSITION_PRECEDING);
+                      return late.map(b => b.textContent.trim()).join(', ');
+                    })()
+                    """) ?? string.Empty;
+                Assert.True(order.Length == 0, $"{page}: these menus come after its action at 390: {order}.");
+
+                string named = await Browser.EvaluateAsync<string>(
+                    $"[...document.querySelectorAll('#{view} .navmenubtn')].filter(b => !b.hidden).map(b => b.textContent.trim()).join('|')") ?? string.Empty;
+                Assert.True(named.Split('|').Any(n => n.Contains(label, StringComparison.OrdinalIgnoreCase)),
+                    $"{page}: no menu names the page; they say {named}.");
+            }
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await WidenAsync();
         }
     }
 

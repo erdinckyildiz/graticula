@@ -114,7 +114,21 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
                 "Add comment did not send the comment.");
 
             await WaitForAsync(Shown($"#docImc [data-imc-delete=\"{comment}\"]"), "The owner is not offered Delete on a comment.");
+            // Asked in the console's own dialog (UX review, m11), and Cancel sends nothing.
             await ClickAsync($"#docImc [data-imc-delete=\"{comment}\"]");
+            await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask in the console's dialog.");
+            Assert.Contains("comment", await Browser.EvaluateAsync<string>("document.getElementById('serverConfirmTitle').textContent"),
+                StringComparison.Ordinal);
+            await ClickAsync("#serverConfirmCancel");
+            await WaitForAsync("!document.getElementById('serverConfirm').open", "Cancel did not close the dialog.");
+            Assert.False(await Browser.EvaluateAsync<bool>($"window.__writes.some(w => w.includes('/comments/{comment}/delete'))"),
+                "Cancel deleted the comment.");
+            await WaitForAsync($"document.activeElement?.matches('#docImc [data-imc-delete=\"{comment}\"]') === true",
+                "Cancel did not give the cursor back to Delete.");
+
+            await ClickAsync($"#docImc [data-imc-delete=\"{comment}\"]");
+            await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask a second time.");
+            await ClickAsync("#serverConfirmGo");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/comments/{comment}/delete'))",
                 "Delete did not delete the comment.");
 
@@ -256,6 +270,8 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
 
             await WaitForAsync(Shown($"#serviceImc [data-imc-delete=\"{comment}\"]"), "The owner is not offered Delete on the service's comment.");
             await ClickAsync($"#serviceImc [data-imc-delete=\"{comment}\"]");
+            await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask in the console's dialog.");
+            await ClickAsync("#serverConfirmGo");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/comments/{comment}/delete'))",
                 "Delete did not delete the service's comment.");
 

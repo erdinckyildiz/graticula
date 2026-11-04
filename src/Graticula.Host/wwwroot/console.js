@@ -39865,6 +39865,43 @@ async function webhookReadDeliveries(scope, id) {
   }
 }
 
+/**
+ * Each webhook's newest delivery, so a row can say its last one failed without the Deliveries panel being opened: a
+ * webhook that stays Active while every message bounces looked healthy in the list. Read side by side; a webhook whose
+ * deliveries cannot be read simply says nothing, since the list itself was read.
+ */
+async function webhookReadLast(scope, hooks) {
+  await Promise.all(hooks.map(async w => {
+    try {
+      const a = await api(`${webhookBase(scope)}/${encodeURIComponent(w.id)}/notificationStatus?f=json&num=1`);
+      const rows = a?.error ? [] : Array.isArray(a) ? a : a?.notifications || a?.WebhookStatus || [];
+      w.last = rows.length ? webhookDeliveryOf(rows[0]) : null;
+    } catch {
+      w.last = null;
+    }
+  }));
+}
+
+/**
+ * A row's note on its newest delivery when that failed: amber while the server is still trying it again, as the
+ * Deliveries panel's *Failed, retrying* is, and the alert colour once it has given up (UX review, 2026-11-05).
+ */
+function webhookLastMarkup(last) {
+  const retrying = last.state === "pending";
+  const at = last.at ? new Date(last.at) : null;
+  const when = at && !Number.isNaN(at.getTime())
+    ? ` · <time datetime="${h(at.toISOString())}">${h(at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</time>`
+    : "";
+  const code = last.code ? ` · receiver answered ${h(String(last.code))}` : "";
+  return `<span class="rowmeta whwhy ${retrying ? "whlastretry" : "whlastbad"}">${
+    retrying ? "Last delivery failed, retrying" : "Last delivery failed"}${when}${code}</span>`;
+}
+
+/** Whether a webhook's newest delivery failed, or is being tried again after failing. */
+function webhookLastFailed(w) {
+  return !!w.last && (w.last.state === "failed" || (w.last.state === "pending" && w.last.attempts > 0));
+}
+
 /** Reads a list and draws it; the open row's deliveries are read again with it. */
 async function webhookRead(scope, focus) {
   const s = webhookLists[scope];
@@ -39883,6 +39920,23 @@ async function webhookRead(scope, focus) {
   if (s.open && !s.hooks.some(w => w.id === s.open)) s.open = null;
   if (s.open) await webhookReadDeliveries(scope, s.open);
   webhookDraw(scope, focus);
+  // The rows' last-delivery notes come after the list, so it is drawn as fast as it is read rather than as fast as the
+  // slowest of one question per webhook (UX review, 2026-11-05); drawn again once, with the cursor kept where it is.
+  // Not awaited: whoever read the list goes on — says *is created*, moves the cursor — without waiting for the notes.
+  const hooks = s.hooks;
+  if (!s.failed && hooks.length) {
+    webhookReadLast(scope, hooks).then(() => {
+      if (s.hooks === hooks && hooks.some(webhookLastFailed)) webhookRedrawKeepingFocus(scope);
+    });
+  }
+}
+
+/** Draws a list again and puts the cursor back on the control it was on, found again by what it does and for which row. */
+function webhookRedrawKeepingFocus(scope) {
+  const was = document.activeElement;
+  const act = was instanceof HTMLElement && was.closest(`#${webhookLists[scope].list}`) ? was.dataset.whAct : null;
+  const id = act ? was.dataset.whId : null;
+  webhookDraw(scope, act && id ? webhookButton(scope, act, id) : null);
 }
 
 /**
@@ -39978,7 +40032,8 @@ function webhookDraw(scope, focus) {
             <td data-l="Payload URL"><span><code class="whurl">${webhookUrlMarkup(w.url)}</code></span></td>
             <td data-l="Events"><span>${h(webhookEventWords(scope, w.events))}${unraised}</span></td>
             <td data-l="Status"><span><span class="pill ${pillClass}">${pillWords}</span>${
-              !w.active && w.reason ? `<span class="rowmeta whwhy">${h(w.reason)}</span>` : ""}</span></td>
+              !w.active && w.reason ? `<span class="rowmeta whwhy">${h(w.reason)}</span>` : ""}${
+              webhookLastFailed(w) ? webhookLastMarkup(w.last) : ""}</span></td>
             <td class="act whacts">
               <button type="button" class="tiny" data-wh-act="deliveries" ${here}
                 aria-expanded="${open}" aria-controls="whSent-${scope}" aria-label="Recent deliveries of ${named}">Deliveries</button>
@@ -40067,8 +40122,8 @@ async function webhookDelete(scope, id) {
   const w = s.hooks[at];
   if (!w) return;
   const yes = await askServerConfirm({
-    title: "Delete webhook",
-    body: `Delete the webhook ${w.name}? Nothing more is sent to ${w.url}, and its delivery history goes with it. It cannot be restored.`,
+    title: `Delete the webhook ${w.name}?`,
+    body: `Nothing more is sent to ${w.url}, and its delivery history goes with it. It cannot be restored.`,
     action: "Delete webhook",
   });
   if (!yes) {
@@ -41374,12 +41429,18 @@ function phoneNavMenus() {
       focusable="false"><path d="M6 9l6 6 6-6"/></svg>`;
 
     // In the page head where there is one (the title and this, side by side); in front of the strip where the strip
-    // is already in a head.
+    // is already in a head. Before the head's actions, so a phone reads and tabs to where it is before what it may do:
+    // appended, Organization's menus came after *Create webhook* and *Start a collaboration* (UX review, 2026-11-04).
     const head = nav.parentElement?.classList.contains("pagehead") ? null : nav.closest(".view")?.querySelector(".pagehead");
-    if (head) head.append(button); else nav.before(button);
+    const acts = head?.querySelector(":scope > .right");
+    if (acts) acts.before(button); else if (head) head.append(button); else nav.before(button);
 
     const label = () => {
-      const here = nav.querySelector("[aria-current]") || nav.querySelector("a");
+      // A page the strip does not list — Collaborations reached by its address on a server of one organization — is
+      // named by its own title; the strip's first page would say the reader is somewhere they are not (UX review,
+      // 2026-11-04: Collaborations' menu said *General*).
+      const here = nav.querySelector("[aria-current]")
+        || nav.closest(".view")?.querySelector(".pagehead h1") || nav.querySelector("a");
       const text = (here?.textContent || "").replace(/\s+/g, " ").trim();
       button.querySelector(".navmenulabel").textContent = text;
       button.setAttribute("aria-label", `${nav.getAttribute("aria-label") || "Pages"}: ${text}`);
@@ -41764,7 +41825,7 @@ function imcDraw() {
         <div class="imcwho"><b>${h(c.owner || "—")}</b> <time class="hint" datetime="${h(imcIso(c.created))}">${
           h(imcWhen(c.created))}</time>
           ${canDelete(c) ? `<button type="button" class="tiny danger" data-imc-delete="${h(c.id)}"
-            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${h(c.owner || "")}'s comment ${h(imcOpening(c.comment))}, ${h(imcWhen(c.created))}"
+            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${signedInAs && c.owner === signedInAs ? "your" : `${h(c.owner || "")}'s`} comment ${h(imcOpening(c.comment))}, ${h(imcWhen(c.created))}"
             >Delete</button>` : ""}</div>
         <p class="imctext" id="imcText-${h(c.id)}">${h(c.comment)}</p>
         <button type="button" class="tiny ghost imcmore" data-imc-more="${h(c.id)}" data-imc-focus="more-${h(c.id)}"
@@ -41803,7 +41864,10 @@ function imcWhen(value) {
 /** A comment's first words, quoted, so two left in one minute are told apart by their Delete and its question. */
 function imcOpening(text) {
   const words = String(text || "").replace(/\s+/g, " ").trim();
-  return `“${words.length > 40 ? `${words.slice(0, 40)}…` : words}”`;
+  if (words.length <= 40) return `“${words}”`;
+  // Cut at the last space before the fortieth character, so the quotation does not stop mid-word (UX review, 2026-11-05).
+  const space = words.lastIndexOf(" ", 40);
+  return `“${words.slice(0, space > 20 ? space : 40)}…”`;
 }
 
 /** A comment's time as `<time datetime>` wants it. */
@@ -41895,8 +41959,22 @@ async function imcDelete(commentId) {
   const open = imcOpen;
   if (!open) return;
   const comment = open.comments.find(c => c.id === commentId);
-  if (comment && comment.owner !== signedInAs
-    && !confirm(`Delete ${comment.owner}'s comment ${imcOpening(comment.comment)} of ${imcWhen(comment.created)}? It cannot be restored.`)) return;
+  // Asked in the console's own dialog for every comment, one's own included (UX review, m11): one's own went with no
+  // question and no undo, and somebody else's asked in the browser's `confirm`, unlike every other Delete here. Asked
+  // too when the comment is not in hand — the list is read again after every Add, and a Delete pressed in that moment
+  // used to find nothing and so delete without a question.
+  const mine = comment?.owner === signedInAs;
+  if (!await askServerConfirm({
+    title: !comment ? "Delete this comment?" : mine ? "Delete your comment?" : `Delete ${comment.owner}'s comment?`,
+    body: `${comment ? `${mine ? "Your" : `${comment.owner}'s`} comment ${imcOpening(comment.comment)}, left ${imcWhen(comment.created)},`
+      : "The comment"} will be removed for everyone who can open this item. This cannot be undone.`,
+    action: "Delete comment",
+  })) {
+    // Cancel gives the cursor back to this comment's Delete — the one drawn now, if the list was read again behind the
+    // dialog and the pressed button went with the old drawing.
+    imcOpen?.box.querySelector(`[data-imc-delete="${CSS.escape(commentId)}"]`)?.focus();
+    return;
+  }
   try {
     const answer = await api(`/sharing/rest/content/items/${encodeURIComponent(open.id)}/comments/${
       encodeURIComponent(commentId)}/delete`, {

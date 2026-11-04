@@ -6676,7 +6676,10 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
   #view-content .pagehead .right { display: none; }
   /* Any page with a sub-page menu button: its title and the button or buttons share the row, wrapping when they cannot. */
   .pagehead:has(> .navmenubtn) { flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .pagehead:has(> .navmenubtn) > div:first-child { flex: 1 1 12rem; }
+  .pagehead:has(> .navmenubtn) > div:first-child { flex: 1 1 100%; }
+  /* The menus lead the row and the action keeps to its right end, or to a row of its own where they cannot fit
+     (UX review, 2026-11-05: Settings and its page were two rows apart, around a lede). */
+  .pagehead:has(> .navmenubtn) > .right { margin-left: auto; }
   #view-content .pagehead .phonebtn, #view-members .pagehead > .phonebtn, #view-group .pagehead > .phonebtn,
   #view-groups .pagehead > .phonebtn { flex: none; }
 
@@ -7801,8 +7804,8 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 :is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(1) { width: 19%; }
 :is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(2) { width: 22%; }
 :is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(3) { width: 20%; }
-:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(4) { width: 12%; }
-:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(5) { width: 27%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(4) { width: 22%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(5) { width: 17%; }
 /* A delivery's time leads its row, at the table's own weight rather than a name's. */
 :is(#view-webhooks, #page-webhooks) table.whsent td.whtime { font-weight: 400; font-size: inherit; }
 :is(#view-webhooks, #page-webhooks) table.whsent td { background: transparent; }
@@ -7815,6 +7818,10 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 :is(#view-webhooks, #page-webhooks) td.whacts details.rowmenu > summary { display: inline-flex; align-items: center;
                                                     justify-content: center; min-width: 32px; min-height: 30px; box-sizing: border-box; }
 :is(#view-webhooks, #page-webhooks) .whwhy { display: block; margin-top: var(--gap-1); }
+/* A row whose newest delivery failed says so in the list, in the alert colour, before Deliveries is opened. */
+:is(#view-webhooks, #page-webhooks) .whlastbad { color: var(--alert); }
+/* Still being tried again: amber, as the Deliveries panel's Failed, retrying pill. */
+:is(#view-webhooks, #page-webhooks) .whlastretry { color: var(--warn); }
 :is(#view-webhooks, #page-webhooks) tr.whsentrow > td { background: var(--surface-2); padding: var(--gap-3) var(--gap-4); }
 :is(#view-webhooks, #page-webhooks) .whsenthead { display: flex; align-items: center; justify-content: space-between;
                                                   gap: var(--gap-3); margin-bottom: var(--gap-2); }
@@ -7855,3 +7862,7 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
   :is(#view-webhooks, #page-webhooks) button.tiny, #page-webhooks #svcWhNew, #view-webhooks #whNew { min-height: 44px; }
   #whDialog label.check { min-height: 44px; }
 }
+
+/* The console's one confirmation (askServerConfirm) has a reading width; it grew to its sentence, 1,146 px at 1,440
+   (UX review, 2026-11-05). */
+#serverConfirm { width: min(480px, calc(100vw - 32px)); }
