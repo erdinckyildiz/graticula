@@ -115,4 +115,49 @@ public sealed class SceneViewerTests : ConsoleTest
             }
         }
     }
+
+    /// <summary>D-386: a point layer is offered the same way, its points standing on the ground without a height.</summary>
+    [Fact]
+    public async Task A_point_layer_is_made_a_point_scene_layer_and_drawn()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await DrawInSoftwareAsync();
+            await OpenAsync("/studio/#/service/hosted/ci_EarlyAlert", token, cookie);
+            await WaitForAsync("!!document.getElementById('createSceneOpen')", "A point layer's page offers no Create scene layer.");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('createSceneOpen').click(), true)");
+            await WaitForAsync("document.getElementById('createScene').open && /placed in the scene/.test(document.getElementById('csSays').textContent)",
+                "The dialog did not say what a point layer becomes.");
+            await WaitForAsync("document.getElementById('csHeight').options.length > 1", "The dialog did not offer the layer's number fields.");
+            Assert.Equal("On the ground", await Browser.EvaluateAsync<string>("document.getElementById('csHeight').options[0].textContent"));
+            Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('csHeight').value"));
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('csScaleRow').hidden"), "Metres per unit was offered with no field to scale.");
+
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/content/scenes'], true)");
+            await ClickAsync("#createSceneGo");
+            await WaitForAsync("!!document.getElementById('createSceneOpenViewer')", "Creating the point scene layer did not offer to open it.");
+            Assert.Matches(@"was created with \d+\s+points?\.", await Browser.EvaluateAsync<string>("document.getElementById('createSceneDone').textContent") ?? string.Empty);
+            string href = await Browser.EvaluateAsync<string>("document.getElementById('createSceneOpenViewer').getAttribute('href')") ?? string.Empty;
+            id = System.Text.RegularExpressions.Regex.Match(System.Uri.UnescapeDataString(href), "hosted/([0-9a-f]{32})/SceneServer").Groups[1].Value;
+
+            await OpenAsync(href, token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true && scState.scene.layers.length === 1",
+                "The point scene layer did not open in the viewer.");
+            await WaitForAsync("scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "The point scene layer did not load.");
+            Assert.Equal("point", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).geometryType"));
+            await WaitForAsync("/Points/.test(document.getElementById('layerList').textContent)", "The layer list did not call the point scene layer Points.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(id))
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
 }

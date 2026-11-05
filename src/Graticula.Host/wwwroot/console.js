@@ -8375,8 +8375,8 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
       ${!knownKind && may("content:publishFeatures") && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="analyzeOpen">Analyze…</button>` : ""}
-      ${!knownKind && may("content:create") && serviceLayers.some(l => l.geometryType === "esriGeometryPolygon")
-        // ADR-269: footprints extruded into a scene layer of the reader's own.
+      ${!knownKind && may("content:create") && serviceLayers.some(sceneSource)
+        // ADR-269: footprints extruded, or points placed (D-386), into a scene layer of the reader's own.
         ? `<button type="button" id="createSceneOpen">Create scene layer…</button>` : ""}
       ${serviceOpenKind === "ImageServer" && manages
         // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
@@ -35919,64 +35919,125 @@ const VIEW_ALLOWS = {
 
 // ---------------------------------------------------------------- scene layers (ADR-269)
 
-/** The polygon layers a scene layer can be made from, as the service document lists them. */
-const scenePolygons = () => serviceLayers.filter(one => one.geometryType === "esriGeometryPolygon");
+/** Whether a layer can be made a scene layer: footprints become buildings, points become points (ADR-269, D-386). */
+const sceneSource = one => one.geometryType === "esriGeometryPolygon" || one.geometryType === "esriGeometryPoint";
+
+/** The layers a scene layer can be made from, as the service document lists them. */
+const sceneSources = () => serviceLayers.filter(sceneSource);
+
+/** The layer the dialog has chosen. */
+const sceneChosen = () => {
+  const id = $("csLayer")?.value;
+  const all = sceneSources();
+  return all.find(one => String(one.id) === String(id)) || all[0];
+};
 
 function openCreateScene() {
   const item = serviceItem;
-  const polygons = scenePolygons();
-  if (!item || polygons.length === 0) return;
+  const sources = sceneSources();
+  if (!item || sources.length === 0) return;
 
   $("createSceneBody").innerHTML = `
-    <p class="hint">Each footprint becomes a building, raised by the height field you choose. This makes a copy: later
-      edits to <b>${h(item.bare)}</b> do not appear until you create the scene layer again.</p>
-    ${polygons.length > 1 ? `<div class="stacked"><label for="csLayer">Layer</label>
-      <select id="csLayer">${polygons.map(one => `<option value="${one.id}">${h(one.shown || one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>` : ""}
+    <p class="hint" id="csSays"></p>
+    ${sources.length > 1 ? `<div class="stacked"><label for="csLayer">Layer</label>
+      <select id="csLayer">${sources.map(one => `<option value="${one.id}">${h(sceneLayerName(one))}</option>`).join("")}</select></div>` : ""}
     <div class="stacked"><label for="csHeight">Height</label>
-      <select id="csHeight" aria-describedby="csHeightHint"><option value="">Flat — no height</option></select>
-      <span class="hint" id="csHeightHint">A number field. Only number fields are listed.</span></div>
-    <div class="stacked"><label for="csScale">Metres per unit</label>
+      <select id="csHeight" aria-describedby="csHeightHint"></select>
+      <span class="hint" id="csHeightHint"></span></div>
+    <div class="stacked" id="csScaleRow"><label for="csScale">Metres per unit</label>
       <input type="number" id="csScale" min="0.01" max="1000" step="any" value="1" aria-describedby="csScaleHint">
-      <span class="hint" id="csScaleHint">1 when the field is in metres; 3 when it counts floors.</span></div>
+      <span class="hint" id="csScaleHint"></span></div>
     <div class="stacked"><label for="csTitle">Title</label>
-      <input type="text" id="csTitle" maxlength="250" value="${h(`${item.bare} (3D)`)}" autocomplete="off"></div>`;
+      <input type="text" id="csTitle" maxlength="250" autocomplete="off"></div>`;
   $("createSceneFoot").innerHTML = `<p class="hint fill" id="createSceneSays" role="status" aria-live="polite"></p>
-    <button type="button" class="ghost" id="createSceneCancel">Cancel</button>
-    <button type="button" class="primary" id="createSceneGo">Create scene layer</button>`;
+    <span class="sr-only" id="createSceneDone" role="status" aria-live="polite"></span>
+    <span id="createSceneButtons" style="display:contents"><button type="button" class="ghost" id="createSceneCancel">Cancel</button>
+    <button type="button" class="primary" id="createSceneGo">Create scene layer</button></span>`;
+  $("createScene").setAttribute("aria-describedby", "csSays");
   $("createScene").showModal();
+  // The title follows the chosen layer until it is typed in (design review 2026-11-05).
+  $("csTitle").addEventListener("input", () => { $("csTitle").dataset.typed = "1"; });
   $("csLayer")?.addEventListener("change", offerSceneHeights);
+  $("csHeight").addEventListener("change", sceneScaleApplies);
   offerSceneHeights();
   ($("csLayer") || $("csHeight")).focus();
 }
 
-/** The chosen layer's number fields, as the height to raise its footprints by; one that sounds like a height first. */
+/** A layer as the dialog names it: its own name when the service has more than one to choose from. */
+const sceneLayerName = one => one.shown || one.name || `layer ${one.id}`;
+
+/** Metres per unit scales a field, so it is shown only when a field is chosen. */
+function sceneScaleApplies() {
+  const field = $("csHeight")?.value || "";
+  $("csScaleRow").hidden = !field || field.startsWith("@");
+}
+
+/**
+ * The chosen layer's number fields, as the height to raise its footprints by or to stand its points at; one that
+ * sounds like a height first. A point layer's first choice is where its points stand without a field: at their own
+ * z when the layer has one (or on the ground, if asked), on the ground when it has not.
+ */
 async function offerSceneHeights() {
   const select = $("csHeight");
   if (!select || !serviceOpen) return;
-  const layerId = $("csLayer")?.value ?? scenePolygons()[0]?.id;
+  const chosen = sceneChosen();
+  const points = chosen?.geometryType === "esriGeometryPoint";
+  const item = serviceItem;
+  $("csSays").innerHTML = points
+    ? `Each point is placed in the scene as a symbol, at the height you choose. This makes a copy: later edits to
+       <b>${h(item?.bare || "")}</b> do not appear until you create the scene layer again.`
+    : `Each footprint becomes a building, raised by the height field you choose. This makes a copy: later edits to
+       <b>${h(item?.bare || "")}</b> do not appear until you create the scene layer again.`;
+  const fieldsHint = points
+    ? "A number field is read as the height above the ground. Only number fields are listed."
+    : "The field to raise each footprint by. Only number fields are listed.";
+  const scaleHint = points
+    ? "1 when the field is in metres; 0.3048 when it is in feet."
+    : "1 when the field is in metres; 3 when it counts floors.";
+  if (!$("csTitle").dataset.typed) {
+    $("csTitle").value = `${sceneSources().length > 1 ? sceneLayerName(chosen) : item?.bare || ""} (3D)`;
+  }
+  // Reset before the read, so nothing of the previous layer stands if it fails.
+  $("csHeightHint").textContent = fieldsHint;
+  $("csScale").value = "1";
+  $("csScaleHint").textContent = scaleHint;
+  select.innerHTML = `<option value="">${points ? "On the ground" : "Flat — no height"}</option>`;
+  sceneScaleApplies();
   try {
     const doc = await api(`/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
-      + `/FeatureServer/${encodeURIComponent(String(layerId))}?f=json`);
+      + `/FeatureServer/${encodeURIComponent(String(chosen.id))}?f=json`);
+    if (sceneChosen() !== chosen) return; // another layer was chosen while this one was read
     const numbers = (doc.fields || []).filter(f => /Integer|SmallInteger|Double|Single|BigInteger/.test(f.type || "")
       && !/OID/.test(f.type || ""));
-    const likely = numbers.find(f => /height|yukseklik|yükseklik|floors|kat/i.test(f.name));
-    select.innerHTML = `<option value="">Flat — no height</option>` + numbers.map(f =>
-      `<option value="${h(f.name)}"${f === likely ? " selected" : ""}>${h(f.alias || f.name)}</option>`).join("");
+    const z = points && doc.hasZ === true;
+    // A point layer with z stands its points there unless told otherwise; only footprints guess a field.
+    const likely = points ? null : numbers.find(f => /height|yukseklik|yükseklik|floors|kat/i.test(f.name));
+    select.innerHTML = (z
+      ? `<option value="">Z-values (absolute height)</option><option value="@ground">On the ground</option>`
+      : `<option value="">${points ? "On the ground" : "Flat — no height"}</option>`)
+      + numbers.map(f => `<option value="${h(f.name)}"${f === likely ? " selected" : ""}>${h(f.alias || f.name)}</option>`).join("");
     if (likely && /floors|kat/i.test(likely.name)) {
       $("csScale").value = "3";
       $("csScaleHint").textContent = `Set to 3 because ${likely.alias || likely.name} counts floors. 1 when the field is in metres.`;
     }
+    sceneScaleApplies();
   } catch {
-    select.innerHTML = `<option value="">Flat — no height</option>`;
+    if (points) select.options[0].textContent = "Own z if present, otherwise on the ground";
+    $("csHeightHint").textContent = points
+      ? "The layer's fields could not be read; points stand at their own z if they have one."
+      : "The layer's fields could not be read; the footprints are drawn flat.";
   }
 }
 
 async function createScene() {
   const says = $("createSceneSays");
   const title = ($("csTitle")?.value || "").trim();
+  const field = $("csHeight").value || "";
   const scale = Number($("csScale")?.value);
   if (!title) { says.textContent = "Give the scene layer a title."; $("csTitle").focus(); return; }
-  if (!(scale > 0 && scale <= 1000)) { says.textContent = "Metres per unit is a number above 0, at most 1000."; $("csScale").focus(); return; }
+  if (field && !field.startsWith("@") && !(scale > 0 && scale <= 1000)) {
+    says.textContent = "Metres per unit is a number above 0, at most 1000."; $("csScale").focus(); return;
+  }
 
   const go = $("createSceneGo");
   go.disabled = true;
@@ -35988,17 +36049,22 @@ async function createScene() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        service: bare, folder: parts.join("/"), layer: Number($("csLayer")?.value ?? scenePolygons()[0].id),
-        heightField: $("csHeight").value || null, heightScale: scale, title,
+        service: bare, folder: parts.join("/"), layer: Number(sceneChosen().id),
+        heightField: field && !field.startsWith("@") ? field : null, heightScale: field && !field.startsWith("@") ? scale : 1,
+        onTheGround: field === "@ground", title,
       }),
     });
     const open = `/studio/scene.html?layer=${encodeURIComponent(made.url)}&title=${encodeURIComponent(made.title)}`;
-    // Done: the form goes, so the same layer cannot be made twice by a second press (design review).
-    $("createSceneBody").innerHTML = `<p>“${h(made.title)}” was created with ${Number(made.buildings).toLocaleString()}
-      buildings. It is in Content, private until you share it.</p>`;
-    $("createSceneFoot").innerHTML = `<p class="hint fill" id="createSceneSays" role="status" aria-live="polite">The scene layer was created.</p>
-      <button type="button" class="ghost" id="createSceneCancel">Close</button>
+    const count = Number(made.features ?? made.buildings);
+    const noun = made.of === "points" ? (count === 1 ? "point" : "points") : (count === 1 ? "building" : "buildings");
+    // Done: the form goes, so the same layer cannot be made twice by a second press (design review). The sentence
+    // goes into the live region that is already there, so a screen reader announces it (design review 2026-11-05).
+    const done = `“${made.title}” was created with ${count.toLocaleString()} ${noun}.`;
+    $("createSceneBody").innerHTML = `<p id="createSceneMade">${h(done)} It is in Content, private until you share it.</p>`;
+    $("createSceneButtons").innerHTML = `<button type="button" class="ghost" id="createSceneCancel">Close</button>
       <a class="btn primary" href="${h(open)}" id="createSceneOpenViewer">Open in Scene Viewer</a>`;
+    says.textContent = "";
+    $("createSceneDone").textContent = done;
     $("createSceneOpenViewer").focus();
   } catch (e) {
     says.textContent = `Not created: ${e.message}`;

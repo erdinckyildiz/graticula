@@ -53,7 +53,7 @@ public sealed record SceneBuilding(
 /// ArcGIS Pro writes for a root node (measured: its quaternion at 29°E 41°N matches this one to four places).
 /// </para>
 /// </remarks>
-public static class SceneLayerPackageWriter
+public static partial class SceneLayerPackageWriter
 {
     /// <summary>The most buildings one node holds before it is split.</summary>
     public const int MaximumPerNode = 512;
@@ -126,14 +126,7 @@ public static class SceneLayerPackageWriter
             {
                 (byte[] geometry, int vertices) = Geometry(node.Meshes, box, colour);
                 zip.Add($"nodes/{i}/geometries/0.bin.gz", Gzip(geometry));
-
-                for (int k = 0; k <= stored.Count; k++)
-                {
-                    byte[] attribute = k == 0
-                        ? Oids(node.Meshes)
-                        : Attribute(node.Meshes, stored[k - 1].Field, stored[k - 1].Index);
-                    zip.Add($"nodes/{i}/attributes/f_{k}/0.bin.gz", Gzip(attribute));
-                }
+                AddAttributes(zip, i, [.. node.Meshes.Select(m => m.Building.Id)], [.. node.Meshes.Select(m => m.Building.Values)], stored);
 
                 json["lodThreshold"] = 20_000_000.0;
                 json["mesh"] = new JsonObject
@@ -160,11 +153,11 @@ public static class SceneLayerPackageWriter
         // Statistics for every field after the object id.
         for (int k = 1; k <= stored.Count; k++)
         {
-            zip.Add($"statistics/f_{k}/0.json.gz", Gzip(Utf8(Statistics(meshes, stored[k - 1]))));
+            zip.Add($"statistics/f_{k}/0.json.gz", Gzip(Utf8(Statistics([.. meshes.Select(m => m.Building.Values)], stored[k - 1]))));
         }
 
         Box all = BoxOf(meshes);
-        zip.Add("3dSceneLayer.json.gz", Gzip(Utf8(Layer(name, stored, meshes, all, colour, updated))));
+        zip.Add("3dSceneLayer.json.gz", Gzip(Utf8(Layer(name, stored, all, colour, updated))));
         zip.Add("metadata.json", Utf8(new JsonObject { ["I3SVersion"] = "1.7", ["nodeCount"] = nodes.Count }));
         zip.Finish();
         return package.ToArray();
@@ -320,12 +313,14 @@ public static class SceneLayerPackageWriter
         }
     }
 
-    private static Box BoxOf(IReadOnlyList<Mesh> meshes)
+    private static Box BoxOf(IReadOnlyList<Mesh> meshes) => BoxOf(meshes.SelectMany(m => m.Points));
+
+    private static Box BoxOf(IEnumerable<(double Lon, double Lat, double Z)> points)
     {
         double minLon = double.MaxValue, minLat = double.MaxValue, maxLon = double.MinValue, maxLat = double.MinValue;
         double minZ = double.MaxValue, maxZ = double.MinValue;
 
-        foreach ((double pointLon, double pointLat, double pointZ) in meshes.SelectMany(m => m.Points))
+        foreach ((double pointLon, double pointLat, double pointZ) in points)
         {
             minLon = Math.Min(minLon, pointLon); maxLon = Math.Max(maxLon, pointLon);
             minLat = Math.Min(minLat, pointLat); maxLat = Math.Max(maxLat, pointLat);
@@ -422,21 +417,32 @@ public static class SceneLayerPackageWriter
         return (buffer, v);
     }
 
-    private static byte[] Oids(IReadOnlyList<Mesh> meshes)
+    /// <summary>A node's attribute buffers: the object ids, then each stored field, in the order of its features.</summary>
+    private static void AddAttributes(
+        PackageWriter zip, int node, IReadOnlyList<long> ids, IReadOnlyList<IReadOnlyList<object?>> rows, List<(SceneField Field, int Index)> stored)
     {
-        byte[] buffer = new byte[4 + (4 * meshes.Count)];
-        BinaryPrimitives.WriteUInt32LittleEndian(buffer, (uint)meshes.Count);
-        for (int i = 0; i < meshes.Count; i++)
+        for (int k = 0; k <= stored.Count; k++)
         {
-            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(4 + (4 * i)), (uint)meshes[i].Building.Id);
+            byte[] attribute = k == 0 ? Oids(ids) : Attribute(rows, stored[k - 1].Field, stored[k - 1].Index);
+            zip.Add($"nodes/{node}/attributes/f_{k}/0.bin.gz", Gzip(attribute));
+        }
+    }
+
+    private static byte[] Oids(IReadOnlyList<long> ids)
+    {
+        byte[] buffer = new byte[4 + (4 * ids.Count)];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer, (uint)ids.Count);
+        for (int i = 0; i < ids.Count; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(4 + (4 * i)), (uint)ids[i]);
         }
 
         return buffer;
     }
 
-    private static byte[] Attribute(IReadOnlyList<Mesh> meshes, SceneField field, int index)
+    private static byte[] Attribute(IReadOnlyList<IReadOnlyList<object?>> rows, SceneField field, int index)
     {
-        object?[] values = [.. meshes.Select(m => index < m.Building.Values.Count ? m.Building.Values[index] : null)];
+        object?[] values = [.. rows.Select(r => index < r.Count ? r[index] : null)];
         using MemoryStream stream = new();
         using BinaryWriter writer = new(stream);
         writer.Write((uint)values.Length);
@@ -490,8 +496,8 @@ public static class SceneLayerPackageWriter
         _ => ("esriFieldTypeString", "String"),
     };
 
-    private static JsonObject Layer(
-        string name, List<(SceneField Field, int Index)> stored, List<Mesh> meshes, Box all, int[] colour, DateTimeOffset updated)
+    /// <summary>The layer's fields, how each is stored and where its statistics are — the same for every profile.</summary>
+    private static (JsonArray Fields, JsonArray Storage, JsonArray Statistics) Schema(List<(SceneField Field, int Index)> stored)
     {
         JsonArray fields = [new JsonObject { ["name"] = "OBJECTID", ["type"] = "esriFieldTypeOID", ["alias"] = "OBJECTID" }];
         JsonArray storage =
@@ -539,7 +545,31 @@ public static class SceneLayerPackageWriter
             statistics.Add(new JsonObject { ["key"] = $"f_{k}", ["name"] = field.Name, ["href"] = $"./statistics/f_{k}/0" });
         }
 
-        JsonObject reference() => new() { ["wkid"] = 4326, ["latestWkid"] = 4326 };
+        return (fields, storage, statistics);
+    }
+
+    private static JsonObject Reference() => new() { ["wkid"] = 4326, ["latestWkid"] = 4326 };
+
+    private static JsonObject Popup(string name, List<(SceneField Field, int Index)> stored, JsonArray fields) => new()
+    {
+        ["title"] = stored.Count > 0 && stored[0].Field.Type == FieldType.Text ? $"{{{stored[0].Field.Name}}}" : name,
+        ["popupElements"] = new JsonArray(new JsonObject { ["type"] = "fields" }),
+        ["fieldInfos"] = new JsonArray([.. fields.Select(f => (JsonNode)new JsonObject
+        {
+            ["fieldName"] = f!["name"]!.GetValue<string>(), ["label"] = f["alias"]!.GetValue<string>(), ["visible"] = true,
+        })]),
+    };
+
+    private static JsonObject FullExtent(Box all) => new()
+    {
+        ["xmin"] = all.MinLon, ["ymin"] = all.MinLat, ["xmax"] = all.MaxLon, ["ymax"] = all.MaxLat,
+        ["zmin"] = all.MinZ, ["zmax"] = all.MaxZ, ["spatialReference"] = Reference(),
+    };
+
+    private static JsonObject Layer(
+        string name, List<(SceneField Field, int Index)> stored, Box all, int[] colour, DateTimeOffset updated)
+    {
+        (JsonArray fields, JsonArray storage, JsonArray statistics) = Schema(stored);
 
         return new JsonObject
         {
@@ -550,7 +580,7 @@ public static class SceneLayerPackageWriter
             ["layerType"] = "3DObject",
             ["serviceUpdateTimeStamp"] = new JsonObject { ["lastUpdate"] = updated.ToUnixTimeMilliseconds() },
             ["capabilities"] = new JsonArray("View", "Query"),
-            ["spatialReference"] = reference(),
+            ["spatialReference"] = Reference(),
             ["heightModelInfo"] = new JsonObject { ["heightModel"] = "gravity_related_height", ["vertCRS"] = "EGM96_height", ["heightUnit"] = "meter" },
             ["store"] = new JsonObject
             {
@@ -622,26 +652,14 @@ public static class SceneLayerPackageWriter
                     },
                 },
             },
-            ["popupInfo"] = new JsonObject
-            {
-                ["title"] = stored.Count > 0 && stored[0].Field.Type == FieldType.Text ? $"{{{stored[0].Field.Name}}}" : name,
-                ["popupElements"] = new JsonArray(new JsonObject { ["type"] = "fields" }),
-                ["fieldInfos"] = new JsonArray([.. fields.Select(f => (JsonNode)new JsonObject
-                {
-                    ["fieldName"] = f!["name"]!.GetValue<string>(), ["label"] = f["alias"]!.GetValue<string>(), ["visible"] = true,
-                })]),
-            },
-            ["fullExtent"] = new JsonObject
-            {
-                ["xmin"] = all.MinLon, ["ymin"] = all.MinLat, ["xmax"] = all.MaxLon, ["ymax"] = all.MaxLat,
-                ["zmin"] = all.MinZ, ["zmax"] = all.MaxZ, ["spatialReference"] = reference(),
-            },
+            ["popupInfo"] = Popup(name, stored, fields),
+            ["fullExtent"] = FullExtent(all),
         };
     }
 
-    private static JsonObject Statistics(List<Mesh> meshes, (SceneField Field, int Index) stored)
+    private static JsonObject Statistics(IReadOnlyList<IReadOnlyList<object?>> rows, (SceneField Field, int Index) stored)
     {
-        object?[] values = [.. meshes.Select(m => stored.Index < m.Building.Values.Count ? m.Building.Values[stored.Index] : null)];
+        object?[] values = [.. rows.Select(r => stored.Index < r.Count ? r[stored.Index] : null)];
         JsonObject stats = new() { ["totalValuesCount"] = values.Length };
 
         if (stored.Field.Type is FieldType.SmallInteger or FieldType.Integer or FieldType.Single or FieldType.Double or FieldType.BigInteger)

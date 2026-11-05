@@ -78,6 +78,8 @@ accepted that for scenes already).
 | A layer the server writes is drawn | eight footprints of the fixture's `ci_buildings`, floors × 3 m: 8 features loaded by the SDK, drawn as raised blocks | `SceneViewerTests.A_polygon_layer_is_made_a_scene_layer_and_opened_in_the_viewer`, `AScenePackageIsServedAndMadeTests` |
 | The writer's buffers and package are what the specification and Pro write | geometry header and face ranges, string and Float64 buffers (the 4-byte pad measured in Pro's package), the hash table's offsets, the root box's rotation against Pro's | `SceneLayerPackageWriterTests` |
 | WebAssembly is needed for Draco | without `'wasm-unsafe-eval'` every node of Pro's packages was fetched and none drawn; the browser console named the policy | measured 2026-11-05 |
+| The Draco this server writes is read by Google's decoder and by the Maps SDK | every node of a 5,000-point package decoded by Google's reference decoder (its Python binding, used as a test oracle outside the repository), positions and ids back to the input; the Maps SDK drew the 5,000 points at full extent and loaded one leaf of 1,253 when zoomed in; the fixture's `ci_EarlyAlert` made into a point scene layer and drawn | measured 2026-11-05; `PointSceneLayerTests`, `A_point_layer_becomes_a_point_scene_layer_of_draco_geometry`, `SceneViewerTests.A_point_layer_is_made_a_point_scene_layer_and_drawn` |
+| Pro's point layer layout | Draco bitstream 2.3, a kd-tree point cloud; POSITION as metres from the node's centre with `i3s-scale_x`/`i3s-scale_y` in its metadata; a UINT32 GENERIC attribute with `i3s-attribute-type = feature-index` and the ids as `i3s-feature-ids`; `pointNodePages` with `maxScreenThreshold`; the plural `geometryDefinitions` | read from Pro's package with Google's decoder, 2026-11-05 |
 
 ## 5. Decision
 
@@ -102,9 +104,19 @@ accepted that for scenes already).
    More menu. The writer (`Graticula.Core/Scenes`) is a quadtree of at most 512 buildings a node, the root without
    geometry as I3S requires, boxes aligned to east, north and up at their centres, and the uncompressed 1.7 geometry
    buffer Pro writes first — positions, colours, feature ids, face ranges, no normals. Footprints are triangulated by
-   ear clipping with holes bridged in. **Point layers are not written**: I3S 1.7+ allows a point layer's geometry only
-   Draco-compressed, which needs an encoder ([D-386](../architecture-debt.md)). A layer is read in pages up to 200,000
-   footprints and must fit the document limit.)*
+   ear clipping with holes bridged in. A layer is read in pages up to 200,000 footprints and must fit the document
+   limit.)*
+   *(Point layers too, from 2026-11-05 ([D-386](../architecture-debt.md)): I3S 1.7+ allows a point layer's geometry only
+   Draco-compressed, so the server writes Draco — **its own encoder, written from Google's public bitstream
+   specification, not a library**. It writes the one encoding every decoder must read, a sequential point cloud whose
+   attributes are raw values, and none of Draco's compression; gzip, which every package entry has, takes back much of
+   the difference. That is Tier 2 work done in-house rather than adopted, and it is chosen because the subset is about
+   a hundred lines against a native library on every platform the server runs on; a layer that needs real compression
+   is the trigger to adopt one behind a port. A point is placed at its height above the ground from a field, at its own
+   z, or at zero above the ground — never `onTheGround`, in which the Maps SDK drapes an icon flat on the terrain. The
+   tree is `AutoThinning`: nodes above the leaves carry one point per cell of a 32 × 32 grid of what is below them, so
+   points thin out with distance instead of every leaf in view being loaded. Ids are 32-bit, as the point profile's
+   `i3s-feature-ids` are; a layer with wider ids is refused, not renumbered.)*
 
 ## 6. Consequences
 
@@ -138,7 +150,8 @@ viewer needs `js.arcgis.com`.
 2. **A package Pro wrote is served and drawn** by the Maps SDK and by Pro. *(2026-11-05: by the Maps SDK — Pro's point and
    3D object packages, 20 and 12 features loaded. By Pro: owed, the desktop locked.)*
 3. **A layer the server generated is drawn** by the Maps SDK and by Pro, and its package opens in Pro. *(2026-11-05: by
-   the Maps SDK, measured and tested. One was made on dev from `look_buildings` for Pro to add; Pro is owed.)*
+   the Maps SDK, measured and tested, buildings and points both. One was made on dev from `look_buildings` for Pro to
+   add; Pro is owed, and for a point layer as well.)*
 4. **Every new screen passes the ux-designer review**, first-run state included. *(Open.)*
 
 ## 10. Revisit triggers

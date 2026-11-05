@@ -22,28 +22,37 @@ namespace Graticula.Host;
 /// <param name="Service">The feature service's name.</param>
 /// <param name="Folder">Its folder.</param>
 /// <param name="Layer">The layer's index in it.</param>
-/// <param name="HeightField">The field holding each building's height in metres; none draws the footprints flat.</param>
-/// <param name="BaseField">The field holding the height its floor stands at, or none for the ground (0).</param>
+/// <param name="HeightField">The field holding each building's height in metres, none drawing the footprints flat; for
+/// a point layer, each point's height above the ground, none standing the points at their own z, or on the ground.</param>
+/// <param name="BaseField">The field holding the height a building's floor stands at, or none for the ground (0). A point
+/// layer has none.</param>
 /// <param name="Title">The scene layer's title; the layer's otherwise.</param>
-/// <param name="Colour">The buildings' colour as "#rrggbb"; a light grey otherwise.</param>
+/// <param name="Colour">The colour as "#rrggbb"; a light grey for buildings and a blue for points otherwise.</param>
 /// <param name="HeightScale">Metres per unit of the height field — 3 for a field of floors; 1 otherwise.</param>
+/// <param name="OnTheGround">A point layer with z placed on the ground instead of at its z.</param>
 internal sealed record SceneFromLayerRequest(
     string? Service, string? Folder, int? Layer, string? HeightField, string? BaseField, string? Title, string? Colour,
-    double? HeightScale = null);
+    double? HeightScale = null, bool? OnTheGround = null);
 
 internal static partial class AdminEndpoints
 {
     /// <summary>The most buildings one request turns into a scene layer — the rest wait for ADR-269's revisit.</summary>
     internal const int MaximumSceneBuildings = 200_000;
 
+    /// <summary>The most points one request turns into a scene layer: sixteen bytes each before gzip, a node of a
+    /// few thousand at a time.</summary>
+    internal const int MaximumScenePoints = 1_000_000;
+
     private static void MapScenes(WebApplication app)
     {
-        // ADR-269 §5.3: a polygon layer's footprints, extruded, written as a scene layer package the caller owns.
+        // ADR-269 §5.3: a polygon layer's footprints, extruded, or a point layer's points, written as a scene layer
+        // package the caller owns.
         app.MapPost("/content/scenes", CreateSceneFromLayerAsync);
     }
 
     /// <summary>
-    /// Makes a 3D object scene layer from a polygon layer the caller can read, and keeps it as a package they own.
+    /// Makes a 3D object scene layer from a polygon layer the caller can read, or a point scene layer from a point
+    /// layer (D-386), and keeps it as a package they own.
     /// </summary>
     /// <remarks>
     /// <b>Synchronous, and bounded.</b> A district's buildings take a second; the request reads at most
@@ -76,9 +85,15 @@ internal static partial class AdminEndpoints
             return Refuse(404, $"'{service.QualifiedName}' has no layer {index}.");
         }
 
-        if (layer.GeometryType is not (GeometryKind.Polygon or GeometryKind.MultiPolygon))
+        bool points = layer.GeometryType is GeometryKind.Point;
+        if (!points && layer.GeometryType is not (GeometryKind.Polygon or GeometryKind.MultiPolygon))
         {
-            return Refuse(400, $"'{layer.Definition.Name}' is not a polygon layer. A scene layer of buildings is made from footprints.");
+            return Refuse(400, $"'{layer.Definition.Name}' is neither a polygon nor a point layer. A scene layer is made from footprints or from points.");
+        }
+
+        if (points && !string.IsNullOrWhiteSpace(request.BaseField))
+        {
+            return Refuse(400, "A point layer has no base: its height field is the point's height above the ground.");
         }
 
         double scale = request.HeightScale ?? 1;
@@ -87,7 +102,7 @@ internal static partial class AdminEndpoints
             return Refuse(400, "heightScale is the metres one unit of the height field stands for: a number above 0, at most 1000.");
         }
 
-        int[] colour = [220, 220, 215];
+        int[] colour = points ? [0, 112, 192] : [220, 220, 215];
         if (!string.IsNullOrWhiteSpace(request.Colour))
         {
             string hex = request.Colour.Trim().TrimStart('#');
@@ -100,6 +115,12 @@ internal static partial class AdminEndpoints
         }
 
         (IFeatureSource source, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        if (points)
+        {
+            return await CreatePointSceneAsync(
+                context, request, service, layer, index, source, described, scale, colour, documents, audit, cancellation).ConfigureAwait(false);
+        }
 
         FieldDescription? height = null, floor = null;
         if (!string.IsNullOrWhiteSpace(request.HeightField))
@@ -120,11 +141,7 @@ internal static partial class AdminEndpoints
             }
         }
 
-        // The fields carried into the scene: every one but the geometry and the object id.
-        List<FieldDescription> carried = [.. described.Fields.Where(f =>
-            !f.Name.Equals(layer.Definition.GeometryColumn, StringComparison.OrdinalIgnoreCase)
-            && !f.Name.Equals(layer.Definition.IdentityColumn, StringComparison.OrdinalIgnoreCase)
-            && f.Type is not (FieldType.Binary or FieldType.Unknown or FieldType.Boolean))];
+        List<FieldDescription> carried = Carried(layer, described);
 
         List<SceneBuilding> buildings = [];
         int page = FeatureQuery.MaximumLimit;
@@ -181,6 +198,104 @@ internal static partial class AdminEndpoints
         byte[] package = SceneLayerPackageWriter.Write(
             title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))], buildings, colour, DateTimeOffset.UtcNow);
 
+        return await KeepSceneAsync(
+            context, service, index, title, $"{buildings.Count:N0} buildings", "buildings", buildings.Count, package, documents, audit, cancellation)
+            .ConfigureAwait(false);
+
+    }
+
+    private static IResult Refuse(int status, string message) =>
+        Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status);
+
+    /// <summary>The fields a scene layer carries: every one but the geometry and the object id.</summary>
+    private static List<FieldDescription> Carried(PublishedLayer layer, LayerDescription described) =>
+        [.. described.Fields.Where(f =>
+            !f.Name.Equals(layer.Definition.GeometryColumn, StringComparison.OrdinalIgnoreCase)
+            && !f.Name.Equals(layer.Definition.IdentityColumn, StringComparison.OrdinalIgnoreCase)
+            && f.Type is not (FieldType.Binary or FieldType.Unknown or FieldType.Boolean))];
+
+    /// <summary>
+    /// A point layer as a point scene layer (D-386): each point at its height above the ground when a field gives one,
+    /// at its own z when it has one, and on the ground otherwise.
+    /// </summary>
+    private static async Task<IResult> CreatePointSceneAsync(
+        HttpContext context, SceneFromLayerRequest request, PublishedService service, PublishedLayer layer, int index, IFeatureSource source,
+        LayerDescription described, double scale, int[] colour, IDocumentStore documents, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        FieldDescription? height = null;
+        if (!string.IsNullOrWhiteSpace(request.HeightField))
+        {
+            height = described.Fields.FirstOrDefault(f => f.Name.Equals(request.HeightField, StringComparison.OrdinalIgnoreCase));
+            if (height is null || !Numeric(height.Value.Type))
+            {
+                return Refuse(400, $"'{request.HeightField}' is not a number field of '{layer.Definition.Name}'.");
+            }
+        }
+
+        List<FieldDescription> carried = Carried(layer, described);
+        string[] asked = [.. carried.Select(f => f.Name).Concat(new[] { height?.Name }.OfType<string>()).Distinct(StringComparer.OrdinalIgnoreCase)];
+        List<ScenePoint> made = [];
+        bool anyZ = false;
+        int page = FeatureQuery.MaximumLimit;
+
+        for (int offset = 0; ; offset += page)
+        {
+            int read = 0;
+            await foreach (Feature feature in source.ReadAsync(new FeatureQuery(page, fields: asked, offset: offset, outSrid: 4326), cancellation).ConfigureAwait(false))
+            {
+                read++;
+                if (feature.Geometry is not Point { IsEmpty: false } point)
+                {
+                    continue;
+                }
+
+                if (!long.TryParse(feature.Id, NumberStyles.Integer, CultureInfo.InvariantCulture, out long id))
+                {
+                    id = made.Count + 1;
+                }
+
+                if (id is < int.MinValue or > int.MaxValue)
+                {
+                    return Refuse(400, $"'{layer.Definition.Name}' has object id {id}; a point scene layer holds 32-bit ids only.");
+                }
+
+                bool ground = request.OnTheGround == true;
+                anyZ |= point.Z is not null && !ground;
+                double z = height is { } hf ? Number(feature[hf.Name]) * scale : ground ? 0 : point.Z ?? 0;
+                made.Add(new ScenePoint(id, point.X, point.Y, double.IsFinite(z) ? z : 0, [.. carried.Select(f => feature[f.Name])]));
+            }
+
+            if (read < page || made.Count > MaximumScenePoints)
+            {
+                break;
+            }
+        }
+
+        if (made.Count == 0)
+        {
+            return Refuse(400, $"'{layer.Definition.Name}' has no points to place.");
+        }
+
+        if (made.Count > MaximumScenePoints)
+        {
+            return Refuse(413, $"'{layer.Definition.Name}' has more than {MaximumScenePoints:N0} points, more than one scene layer is made from here.");
+        }
+
+        SceneElevation elevation = height is null && anyZ ? SceneElevation.AbsoluteHeight : SceneElevation.RelativeToGround;
+        string title = string.IsNullOrWhiteSpace(request.Title) ? $"{layer.Definition.Name} (3D)" : request.Title.Trim();
+        byte[] package = SceneLayerPackageWriter.WritePoints(
+            title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))], made, colour, 8, elevation, DateTimeOffset.UtcNow);
+
+        return await KeepSceneAsync(context, service, index, title, $"{made.Count:N0} points", "points", made.Count, package, documents, audit, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Keeps a generated package as a private document of the caller's and answers with where it is served.</summary>
+    private static async Task<IResult> KeepSceneAsync(
+        HttpContext context, PublishedService service, int index, string title, string counted, string noun, int count, byte[] package,
+        IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    {
         if (package.Length > MaximumDocumentBytes(context))
         {
             return Refuse(413, $"The scene layer came to {package.Length / (1 << 20)} MB, more than the {MaximumDocumentBytes(context) / (1 << 20)} MB a package may be here.");
@@ -188,21 +303,22 @@ internal static partial class AdminEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         Document made = await documents.CreateAsync(
-            title, $"{buildings.Count:N0} buildings from {service.QualifiedName}, layer {index}.", current.Principal.Id, SharingScope.Private,
+            title, $"{counted} from {service.QualifiedName}, layer {index}.", current.Principal.Id, SharingScope.Private,
             SafeFileName(title) + ".slpk", Documents.Named("slpk")!, package, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
             context, audit, "document.create", made.Id,
-            Detail(new { title = made.Title, kind = made.Kind.Name, bytes = made.Size, from = service.QualifiedName, layer = index, buildings = buildings.Count }),
+            Detail(new { title = made.Title, kind = made.Kind.Name, bytes = made.Size, from = service.QualifiedName, layer = index, features = count, of = noun }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         context.Response.Headers.Location = $"/content/documents/{made.Id}";
         return Results.Json(
-            new { id = made.Id, title = made.Title, buildings = buildings.Count, bytes = made.Size, url = SceneServerEndpoints.AddressOf(context.Request, made.Id) },
+            new
+            {
+                id = made.Id, title = made.Title, features = count, of = noun,
+                buildings = noun == "buildings" ? count : 0, bytes = made.Size, url = SceneServerEndpoints.AddressOf(context.Request, made.Id),
+            },
             statusCode: StatusCodes.Status201Created);
-
-        static IResult Refuse(int status, string message) =>
-            Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status);
     }
 
     private static bool Numeric(FieldType type) =>

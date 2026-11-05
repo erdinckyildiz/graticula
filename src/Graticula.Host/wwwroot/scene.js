@@ -80,6 +80,8 @@ function scLoadSdk() {
 
 /** What a layer is, said as Studio says it. */
 function scKind(layer) {
+  // A scene layer is 3D objects or points (D-386); the SDK gives both the type "scene".
+  if (layer.type === "scene" && layer.geometryType === "point") return "Points";
   return ({ "feature": "Features", "scene": "3D objects", "point-cloud": "Point cloud", "building-scene": "Buildings",
     "integrated-mesh": "Mesh", "imagery": "Imagery", "imagery-tile": "Imagery", "map-image": "Map image",
     "vector-tile": "Vector tiles", "elevation": "Elevation" })[layer.type] || layer.type;

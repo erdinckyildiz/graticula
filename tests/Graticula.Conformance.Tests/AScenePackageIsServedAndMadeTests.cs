@@ -83,6 +83,55 @@ public sealed class AScenePackageIsServedAndMadeTests : ArcGisClient
         }
     }
 
+    /// <summary>D-386: a point layer becomes a point scene layer, its geometry Draco as I3S requires.</summary>
+    [Fact]
+    public async Task A_point_layer_becomes_a_point_scene_layer_of_draco_geometry()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential.");
+
+        JsonElement layer = await GetJsonAsync("/rest/services/hosted/ci_EarlyAlert/FeatureServer/0/query?where=1%3D1&returnCountOnly=true");
+        int count = layer.GetProperty("count").GetInt32();
+
+        (HttpStatusCode refused, _) = await RequestAsync(HttpMethod.Post, $"{root}/content/scenes", token!,
+            JsonSerializer.Serialize(new { service = "ci_EarlyAlert", folder = "hosted", layer = 0, baseField = "objectid" }));
+        Assert.Equal(HttpStatusCode.BadRequest, refused);
+
+        (HttpStatusCode made, string body) = await RequestAsync(HttpMethod.Post, $"{root}/content/scenes", token!,
+            JsonSerializer.Serialize(new { service = "ci_EarlyAlert", folder = "hosted", layer = 0, title = "zz point scene conformance" }));
+        Assert.True(made == HttpStatusCode.Created, $"Making a point scene layer answered {(int)made}: {body}");
+
+        JsonElement answer = JsonDocument.Parse(body).RootElement;
+        string id = answer.GetProperty("id").GetString()!;
+        string service = answer.GetProperty("url").GetString()!;
+
+        try
+        {
+            Assert.Equal(count, answer.GetProperty("features").GetInt32());
+            Assert.Equal("points", answer.GetProperty("of").GetString());
+
+            JsonElement layerDocument = await AuthenticatedJsonAsync(service + "/layers/0?f=json", token!);
+            Assert.Equal("Point", layerDocument.GetProperty("layerType").GetString());
+
+            JsonElement node = (await AuthenticatedJsonAsync(service + "/layers/0/nodepages/0", token!)).GetProperty("nodes")[0];
+            Assert.Equal(count, node.GetProperty("mesh").GetProperty("geometry").GetProperty("featureCount").GetInt32());
+
+            using HttpRequestMessage ask = new(HttpMethod.Get, $"{service}/layers/0/nodes/0/geometries/0");
+            ask.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage geometry = await Http.SendAsync(ask);
+            Assert.Equal(HttpStatusCode.OK, geometry.StatusCode);
+            byte[] stored = await geometry.Content.ReadAsByteArrayAsync();
+            byte[] draco = stored.Length > 1 && stored[0] == 0x1f && stored[1] == 0x8b ? Gunzip(stored) : stored;
+            Assert.Equal("DRACO", System.Text.Encoding.ASCII.GetString(draco, 0, 5));
+            Assert.Equal(0, draco[7]); // a point cloud
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{id}", token!, json: null);
+        }
+    }
+
     private async Task<JsonElement> AuthenticatedJsonAsync(string url, string token)
     {
         (HttpStatusCode status, string body) = await RequestAsync(HttpMethod.Get, url, token, json: null);
