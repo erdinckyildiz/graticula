@@ -442,6 +442,33 @@ internal static partial class WfsEndpoints
             layers.AddRange(service.Layers);
         }
 
+        // <b>A service's own address asks an anonymous caller who it is, when it has nothing to show them — ADR-178,
+        // 2026-11-05.</b> ArcGIS Pro, given a name and password in *New WFS Server*, sends them only after a 401: measured
+        // through a relay, its GetCapabilities carried no Authorization until the relay answered 401 with a Basic
+        // challenge, and then it did, listed the private type and drew it. This server answered 200 to everything, so
+        // Pro's credentials were never sent. `/wfs` itself still answers anonymously — it is every service's document,
+        // and challenging there would put a password prompt in front of every public reader. At one service's address
+        // the caller asked for that service, and an empty answer is the one thing that cannot be what they wanted. The
+        // challenge does not say whether the service exists: an address naming none is challenged the same way. Over
+        // HTTPS only, because Basic over plain HTTP is refused anyway (BasicCredentials).
+        if (layers.Count == 0
+            && context.Items.ContainsKey(ScopeKey)
+            && current.Principal.IsAnonymous
+            && context.Request.IsHttps)
+        {
+            context.Response.Headers.WWWAuthenticate = "Basic realm=\"Graticula\", charset=\"UTF-8\"";
+            await RefuseAsync(
+                    context,
+                    new WfsFault(
+                        WfsFaultCode.OperationProcessingFailed,
+                        null,
+                        "Sign in to read this service: send a user name and password (HTTP Basic) or a token."),
+                    cancellation,
+                    StatusCodes.Status401Unauthorized)
+                .ConfigureAwait(false);
+            return null;
+        }
+
         return layers;
     }
 

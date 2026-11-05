@@ -1432,8 +1432,13 @@ public static class Program
                 context.Request.Path = new PathString("/sharing").Add(studioSharing);
             }
             // An item's URL is built on the portal's base; under /studio the services answer at the server's root.
+            // <b>With /studio as their base, since 2026-11-05</b> (ADR-178 condition 1's Pro run): Pro, signed in to
+            // https://host/studio and adding a private hosted layer from its portal, asks /studio/rest/info which
+            // portal owns the server. Without the base it was told the root's, a portal Pro is not signed in to, and
+            // Pro opened its own sign-in dialog. /portal already answered with its base; /studio now does the same.
             else if (context.Request.Path.StartsWithSegments("/studio/rest", out PathString studioRest))
             {
+                context.Request.PathBase = context.Request.PathBase.Add("/studio");
                 context.Request.Path = new PathString("/rest").Add(studioRest);
             }
             else if (context.Request.Path.Equals("/studio/arcgisuris.xml", StringComparison.OrdinalIgnoreCase))

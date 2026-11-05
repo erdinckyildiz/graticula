@@ -219,7 +219,15 @@ None recorded.
    `currentVersion "2025.1"` with `enterpriseVersion "11.5.0"` — measured against a public 11.5 portal. Both were
    behind the capture setting until §5.8 made publishing the default.)*
    **DISCHARGED 2026-10-17** — the run recorded above, through Pro's own pane; the marker was added 2026-10-31, when
-   it was found met and unmarked. The condition asks for the pane working, not for a particular server.
+   it was found met and unmarked. The condition asks for the pane working, not for a particular server. *(2026-11-05, a defect of the `/studio` address found in Pro's
+   window: a private hosted layer added from Pro's portal pane, with Pro signed in to `https://<host>/studio`, opened
+   Pro's own **Portal for ArcGIS Sign In** dialog. Pro asked `/studio/rest/info` which portal owns the server and was
+   told the root, because `/studio/rest` was rewritten to `/rest` without `/studio` as its base while `/portal` kept
+   its; Pro then went to the root portal, which it was not signed in to. `/studio/rest` now carries `/studio` as its
+   base, so the server asked through it names `https://<host>/studio`. On dev, Pro then exchanged its portal token
+   (`generateToken`) and drew the layer without a prompt; on the showcase, still on the old build, the same step
+   prompted, which is the control. `APortalTokenOpensItsServerTests.The_server_asked_through_a_portals_address_names_that_portal_as_its_owner`
+   fails without the change (measured) and passes with it.)*
 3. **The archive is bounded**: an over-size, over-member or path-escaping service definition is refused before
    anything is written, with a test for each.
    **DISCHARGED 2026-10-31.** `ServiceDefinitionArchiveTests` opens 7z archives written by 7-Zip
