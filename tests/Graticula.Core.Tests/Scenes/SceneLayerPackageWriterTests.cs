@@ -145,11 +145,58 @@ public sealed class SceneLayerPackageWriterTests
         using ZipArchive zip = new(new MemoryStream(package), ZipArchiveMode.Read);
         JsonElement nodes = Json(zip, "nodepages/0.json.gz").GetProperty("nodes");
 
-        int carried = nodes.EnumerateArray().Where(n => n.TryGetProperty("mesh", out _))
+        // Every building once among the leaves; the inner nodes' coarse city is counted by the test below (D-386).
+        int carried = nodes.EnumerateArray().Where(n => n.TryGetProperty("mesh", out _) && !n.TryGetProperty("children", out _))
             .Sum(n => n.GetProperty("mesh").GetProperty("geometry").GetProperty("featureCount").GetInt32());
         Assert.Equal(buildings.Count, carried);
         Assert.All(nodes.EnumerateArray().Where(n => n.TryGetProperty("mesh", out _)),
             n => Assert.True(n.GetProperty("mesh").GetProperty("geometry").GetProperty("featureCount").GetInt32() <= SceneLayerPackageWriter.MaximumPerNode));
+    }
+
+    /// <summary>
+    /// D-386: an inner node carries the largest of its buildings as simpler blocks, so a client far away draws it and
+    /// loads no leaf; its threshold gives way to its children, and a leaf's never does.
+    /// </summary>
+    [Fact]
+    public void An_inner_node_carries_the_largest_buildings_as_simpler_blocks()
+    {
+        List<SceneBuilding> buildings = [];
+        int count = SceneLayerPackageWriter.MaximumPerNode + 88;
+        for (int i = 0; i < count; i++)
+        {
+            // An L of eight corners, its height growing with its id, so the largest are the last.
+            double lon = 29.0 + (i % 30 * 0.0004), lat = 41.0 + (i / 30 * 0.0004), d = 0.0001;
+            buildings.Add(new(i + 1, [[[(lon, lat), (lon + 2 * d, lat), (lon + 2 * d, lat + d), (lon + d, lat + d),
+                (lon + d, lat + 2 * d), (lon, lat + 2 * d), (lon, lat)]]], 0, 3 + i, [(long)i]));
+        }
+
+        byte[] package = SceneLayerPackageWriter.Write(
+            "City", [new SceneField("n", FieldType.BigInteger)], buildings, [255, 255, 255], DateTimeOffset.UnixEpoch);
+        using ZipArchive zip = new(new MemoryStream(package), ZipArchiveMode.Read);
+        JsonElement[] nodes = [.. Json(zip, "nodepages/0.json.gz").GetProperty("nodes").EnumerateArray()];
+
+        // The root has no geometry and one child, which holds the coarse city and splits into the leaves.
+        Assert.False(nodes[0].TryGetProperty("mesh", out _));
+        Assert.Equal(1, nodes[0].GetProperty("children").GetArrayLength());
+        JsonElement coarse = nodes[1];
+        Assert.True(coarse.GetProperty("children").GetArrayLength() > 1);
+        Assert.Equal(SceneLayerPackageWriter.MaximumPerNode, coarse.GetProperty("mesh").GetProperty("geometry").GetProperty("featureCount").GetInt32());
+        Assert.Equal(SceneLayerPackageWriter.CoarseThreshold, coarse.GetProperty("lodThreshold").GetDouble());
+        Assert.All(nodes.Where(n => n.TryGetProperty("mesh", out _) && !n.TryGetProperty("children", out _)),
+            n => Assert.True(n.GetProperty("lodThreshold").GetDouble() > SceneLayerPackageWriter.CoarseThreshold));
+
+        // The largest by volume — the tallest here — and each a block of its hull: an L's eight corners become five.
+        byte[] geometry = Plain(zip, "nodes/1/geometries/0.bin.gz");
+        int vertices = BinaryPrimitives.ReadInt32LittleEndian(geometry);
+        int features = BinaryPrimitives.ReadInt32LittleEndian(geometry.AsSpan(4));
+        Assert.Equal(SceneLayerPackageWriter.MaximumPerNode, features);
+        // A hull of five corners: a roof and a floor of three triangles each, five walls of two — 16 triangles, 48 points,
+        // where the L itself is 4 + 4 + 12 = 20 triangles.
+        Assert.Equal(SceneLayerPackageWriter.MaximumPerNode * 48, vertices);
+
+        byte[] ids = Plain(zip, "nodes/1/attributes/f_0/0.bin.gz");
+        long smallest = Enumerable.Range(0, features).Select(k => (long)BinaryPrimitives.ReadUInt32LittleEndian(ids.AsSpan(4 + (k * 4)))).Min();
+        Assert.Equal(count - SceneLayerPackageWriter.MaximumPerNode + 1, smallest);
     }
 
     private static byte[] Read(ZipArchive zip, string name)

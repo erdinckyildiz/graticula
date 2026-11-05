@@ -41,11 +41,13 @@ public sealed record SceneBuilding(
 /// height, which is the I3S rule for a global layer.
 /// </para>
 /// <para>
-/// <b>A quadtree whose leaves carry every building at full detail.</b> The root carries no geometry, as I3S requires
-/// of a 3D object layer; a node is split into four by the centres of its buildings until it holds at most
-/// <see cref="MaximumPerNode"/>. There is no coarser level: a client loads the leaves in view. That is what Pro wrote
-/// for the same twelve buildings (one root, one leaf) and is enough for a district; a city of a hundred thousand
-/// buildings would want simplified parents, which is a revisit trigger of ADR-269.
+/// <b>A quadtree whose leaves carry every building at full detail, and whose inner nodes carry a coarser city</b> —
+/// D-386, 2026-11-05. The root carries no geometry, as I3S requires of a 3D object layer, and has one child holding
+/// every building; a node of more than <see cref="MaximumPerNode"/> is split into four by the centres of its buildings,
+/// and keeps for itself the <see cref="MaximumPerNode"/> largest of them by volume, each as the prism of its footprint's
+/// convex hull. A client far away draws that node and loads no leaf; closer, the node's projected size passes its
+/// <see cref="CoarseThreshold"/> and its children replace it (I3S's mesh pyramid, by <c>maxScreenThresholdSQ</c>). The
+/// small buildings come in with the leaves — at the distance a node is drawn, they are a few pixels.
 /// </para>
 /// <para>
 /// <b>Each node's box is aligned to east, north and up at its centre</b>, its half sizes in metres and its rotation the
@@ -57,6 +59,12 @@ public static partial class SceneLayerPackageWriter
 {
     /// <summary>The most buildings one node holds before it is split.</summary>
     public const int MaximumPerNode = 512;
+
+    /// <summary>
+    /// The projected area, in square pixels, past which an inner node gives way to its children: a box about 300 pixels
+    /// across. Leaves never give way, so theirs is far above anything a screen draws.
+    /// </summary>
+    public const double CoarseThreshold = 90_000.0;
 
     private const double EarthRadius = 6_378_137.0;
     private const int NodesPerPage = 64;
@@ -78,14 +86,15 @@ public static partial class SceneLayerPackageWriter
         List<(SceneField Field, int Index)> stored = [.. fields.Select((f, i) => (f, i)).Where(p => Buffered(p.f.Type))];
         List<Mesh> meshes = [.. buildings.Select(Build).Where(m => m.Points.Count > 0)];
 
-        // The tree: the root, then each split's four quarters, breadth first, so a node's index is its order here.
+        // The tree: the root, its one child holding everything, then each split's four quarters, breadth first, so a node's
+        // index is its order here.
         List<Node> nodes = [new Node(meshes, null)];
         for (int i = 0; i < nodes.Count; i++)
         {
             Node node = nodes[i];
             if (node.Meshes.Count > MaximumPerNode || (i == 0 && node.Meshes.Count > 0))
             {
-                foreach (List<Mesh> quarter in i == 0 && node.Meshes.Count <= MaximumPerNode ? [node.Meshes] : Split(node.Meshes))
+                foreach (List<Mesh> quarter in i == 0 ? [node.Meshes] : Split(node.Meshes))
                 {
                     if (quarter.Count == 0)
                     {
@@ -122,23 +131,29 @@ public static partial class SceneLayerPackageWriter
             {
                 json["children"] = new JsonArray([.. node.Children.Select(c => (JsonNode)c)]);
             }
-            else if (node.Meshes.Count > 0)
-            {
-                (byte[] geometry, int vertices) = Geometry(node.Meshes, box, colour);
-                zip.Add($"nodes/{i}/geometries/0.bin.gz", Gzip(geometry));
-                AddAttributes(zip, i, [.. node.Meshes.Select(m => m.Building.Id)], [.. node.Meshes.Select(m => m.Building.Values)], stored);
 
-                json["lodThreshold"] = 20_000_000.0;
+            // A leaf draws its buildings; an inner node below the root draws the coarse city of its largest ones.
+            List<Mesh> drawn = i == 0 || node.Meshes.Count == 0 ? []
+                : node.Children.Count == 0 ? node.Meshes
+                : Coarse(node.Meshes);
+
+            if (drawn.Count > 0)
+            {
+                (byte[] geometry, int vertices) = Geometry(drawn, box, colour);
+                zip.Add($"nodes/{i}/geometries/0.bin.gz", Gzip(geometry));
+                AddAttributes(zip, i, [.. drawn.Select(m => m.Building.Id)], [.. drawn.Select(m => m.Building.Values)], stored);
+
+                json["lodThreshold"] = node.Children.Count == 0 ? 20_000_000.0 : CoarseThreshold;
                 json["mesh"] = new JsonObject
                 {
                     ["material"] = new JsonObject { ["definition"] = 0 },
                     ["geometry"] = new JsonObject
                     {
-                        ["definition"] = 0, ["resource"] = i, ["vertexCount"] = vertices, ["featureCount"] = node.Meshes.Count,
+                        ["definition"] = 0, ["resource"] = i, ["vertexCount"] = vertices, ["featureCount"] = drawn.Count,
                     },
                     ["attribute"] = new JsonObject { ["resource"] = i },
                 };
-                leafCount++;
+                leafCount += node.Children.Count == 0 ? 1 : 0;
             }
 
             pageNodes.Add(json);
@@ -261,6 +276,89 @@ public static partial class SceneLayerPackageWriter
         }
 
         return new Mesh(building, points, lon0, lat0);
+    }
+
+    /// <summary>
+    /// The coarse city of an inner node (D-386): its <see cref="MaximumPerNode"/> largest buildings by volume, each as the
+    /// prism of its footprint's convex hull — a few walls instead of every corner, the same ids and values, so a feature
+    /// picked far away is the feature picked close by.
+    /// </summary>
+    private static List<Mesh> Coarse(List<Mesh> meshes) =>
+        [.. meshes
+            .OrderByDescending(m => Volume(m.Building))
+            .ThenBy(m => m.Building.Id)
+            .Take(MaximumPerNode)
+            .Select(m => Build(m.Building with { Polygons = [[Hull(m.Building)]] }))
+            .Where(m => m.Points.Count > 0)];
+
+    private static double Volume(SceneBuilding building)
+    {
+        double area = 0;
+        foreach (IReadOnlyList<IReadOnlyList<(double Lon, double Lat)>> rings in building.Polygons)
+        {
+            if (rings.Count == 0)
+            {
+                continue;
+            }
+
+            IReadOnlyList<(double Lon, double Lat)> outer = rings[0];
+            double lat = outer.Count > 0 ? outer[0].Lat : 0;
+            double kx = Math.PI / 180 * EarthRadius * Math.Cos(lat * Math.PI / 180), ky = Math.PI / 180 * EarthRadius;
+            double twice = 0;
+            for (int i = 0; i < outer.Count; i++)
+            {
+                (double Lon, double Lat) a = outer[i], b = outer[(i + 1) % outer.Count];
+                twice += (a.Lon * kx * b.Lat * ky) - (b.Lon * kx * a.Lat * ky);
+            }
+
+            area += Math.Abs(twice) / 2;
+        }
+
+        return area * Math.Max(1, building.Height);
+    }
+
+    /// <summary>The convex hull of a building's outer rings, counter-clockwise, by Andrew's monotone chain.</summary>
+    private static IReadOnlyList<(double Lon, double Lat)> Hull(SceneBuilding building)
+    {
+        (double Lon, double Lat)[] points = [.. building.Polygons
+            .Where(rings => rings.Count > 0)
+            .SelectMany(rings => rings[0])
+            .Distinct()
+            .OrderBy(p => p.Lon).ThenBy(p => p.Lat)];
+
+        if (points.Length < 3)
+        {
+            return points;
+        }
+
+        static double Cross((double Lon, double Lat) o, (double Lon, double Lat) a, (double Lon, double Lat) b) =>
+            ((a.Lon - o.Lon) * (b.Lat - o.Lat)) - ((a.Lat - o.Lat) * (b.Lon - o.Lon));
+
+        List<(double Lon, double Lat)> hull = [];
+        foreach ((double Lon, double Lat) p in points)
+        {
+            while (hull.Count >= 2 && Cross(hull[^2], hull[^1], p) <= 0)
+            {
+                hull.RemoveAt(hull.Count - 1);
+            }
+
+            hull.Add(p);
+        }
+
+        int lower = hull.Count + 1;
+        for (int i = points.Length - 2; i >= 0; i--)
+        {
+            (double Lon, double Lat) p = points[i];
+            while (hull.Count >= lower && Cross(hull[^2], hull[^1], p) <= 0)
+            {
+                hull.RemoveAt(hull.Count - 1);
+            }
+
+            hull.Add(p);
+        }
+
+        hull.RemoveAt(hull.Count - 1);
+        return hull;
     }
 
     private static List<Mesh>[] Split(List<Mesh> meshes)

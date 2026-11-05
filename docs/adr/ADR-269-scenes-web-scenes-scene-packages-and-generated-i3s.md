@@ -105,7 +105,9 @@ accepted that for scenes already).
    geometry as I3S requires, boxes aligned to east, north and up at their centres, and the uncompressed 1.7 geometry
    buffer Pro writes first — positions, colours, feature ids, face ranges, no normals. Footprints are triangulated by
    ear clipping with holes bridged in. A layer is read in pages up to 200,000 footprints and must fit the document
-   limit.)*
+   limit.)* *(Since the same night's [ADR-270](ADR-270-scene-viewer-to-arcgis-enterprise-parity.md) and D-386: the root's one
+   child holds every building, and a node of more than 512 keeps the 512 largest as the prisms of their convex hulls —
+   a coarse level a client draws from far away instead of loading every leaf.)*
    *(Point layers too, from 2026-11-05 ([D-386](../architecture-debt.md)): I3S 1.7+ allows a point layer's geometry only
    Draco-compressed, so the server writes Draco — **its own encoder, written from Google's public bitstream
    specification, not a library**. It writes the one encoding every decoder must read, a sequential point cloud whose
