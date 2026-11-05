@@ -96,7 +96,8 @@ function scDrawSaved() {
   saved.className = scState.dirty ? "dirty" : "";
   const button = sc$("headSave");
   button.hidden = !scState.user || !scState.manages;
-  button.disabled = scState.saving;
+  button.disabled = scState.saving
+    || (!scState.id && !sc$("sceneTitle").value.trim() && (!scState.scene || scState.scene.layers.length === 0));
 }
 
 function scDrawLayers() {
@@ -148,8 +149,11 @@ async function scAddUrl(url, title) {
   try {
     const layer = await scState.sdk.Layer.fromArcGISServerUrl({ url });
     await layer.load();
-    // The item's title, when it was added from the list: a service's own name may be its item id (ADR-269).
+    // The item's title, when it was added from the list: a service's own name may be its item id (ADR-269); one
+    // added by its address here is called by its item's title too, read from the portal.
+    const hosted = /\/rest\/services\/hosted\/([0-9a-f]{32})\/SceneServer/i.exec(url);
     if (title) layer.title = title;
+    else if (hosted) layer.title = (await scPortal(`/content/items/${hosted[1]}`).catch(() => ({}))).title || layer.title;
     // A layer that carries its own heights is placed at them; a flat one is draped on the ground.
     if (layer.type === "feature" && layer.hasZ) layer.elevationInfo = { mode: "absolute-height" };
     scState.scene.add(layer);
@@ -168,7 +172,8 @@ async function scAddUrl(url, title) {
 /** The header's line about the scene as it now is: whether it is new, and how many layers it has. */
 function scSaySummary() {
   const count = scState.scene.layers.length;
-  scSay(`${scState.id ? "" : "A new scene. "}${count === 0 ? "No layers" : count === 1 ? "1 layer" : `${count} layers`}.`);
+  // A new, empty scene: nothing to say that the panel does not say already.
+  scSay(!scState.id && count === 0 ? "" : `${scState.id ? "" : "A new scene. "}${count === 0 ? "No layers" : count === 1 ? "1 layer" : `${count} layers`}.`);
 }
 
 sc$("addUrlButton").addEventListener("click", () => {
@@ -189,10 +194,8 @@ async function scDrawAddList() {
       list.innerHTML = `<li class="hint" style="border:0;padding:0">No layers are shared with you yet. Publish one in Content, or add one by its address.</li>`;
       return;
     }
-    list.innerHTML = items.map(item => `
-      <li><span class="lname">${scEscape(item.title)}<span class="lkind">${scEscape(item.type)}</span></span>
-        <button type="button" class="tiny" data-add="${scEscape(item.url)}" data-title="${scEscape(item.title)}"
-          aria-label="Add ${scEscape(item.title)}">Add</button></li>`).join("");
+    scState.addItems = items;
+    scDrawAddItems();
     // The ground offers the image services; the SDK says when one is not an elevation surface.
     const ground = sc$("groundSelect");
     for (const item of items.filter(i => i.type === "Image Service")) {
@@ -205,6 +208,36 @@ async function scDrawAddList() {
     list.innerHTML = `<li class="hint" style="border:0;padding:0">The list could not be read: ${scEscape(e.message)}</li>`;
   }
 }
+
+/** The add list, filtered by title, eight rows until the reader asks for all (design review). */
+function scDrawAddItems() {
+  const items = scState.addItems || [];
+  const words = sc$("addFilter").value.trim().toLowerCase();
+  const matched = words ? items.filter(i => (i.title || "").toLowerCase().includes(words)) : items;
+  const shown = scState.showAll || words ? matched : matched.slice(0, 8);
+  sc$("addList").innerHTML = matched.length === 0
+    ? `<li class="hint" style="border:0;padding:0">No layer's title has “${scEscape(words)}” in it.</li>`
+    : shown.map(item => `
+      <li><span class="lname">${scEscape(item.title)}<span class="lkind">${scEscape(scTypeLabel(item.type))}</span></span>
+        <button type="button" class="tiny" data-add="${scEscape(item.url)}" data-title="${scEscape(item.title)}"
+          aria-label="Add ${scEscape(item.title)}">Add</button></li>`).join("");
+  const more = sc$("addShowAll");
+  more.hidden = shown.length >= matched.length;
+  more.textContent = `Show all (${matched.length})`;
+}
+
+/** The portal's item types, as Studio's rows name them. */
+function scTypeLabel(type) {
+  return ({ "Scene Service": "Scene layer", "Feature Service": "Feature layer", "Image Service": "Imagery layer",
+    "Map Service": "Map image layer" })[type] || type;
+}
+
+sc$("addFilter").addEventListener("input", scDrawAddItems);
+sc$("addShowAll").addEventListener("click", () => {
+  scState.showAll = true;
+  scDrawAddItems();
+  sc$("addList").querySelectorAll("button")[8]?.focus();
+});
 
 sc$("addList").addEventListener("click", event => {
   const button = event.target.closest("[data-add]");
@@ -349,9 +382,13 @@ async function scStart() {
     sc$("groundSelect").disabled = !(scState.user && scState.manages);
 
     scState.view = new SceneView({ container: "viewDiv", map: scState.scene, qualityProfile: "medium" });
+    // A camera the reader moved is a change worth saving; one the view settled on its own — a resize, a phone's first
+    // layout — is not (design review: a reopened scene read "Not saved" on a phone with nothing done).
+    for (const kind of ["pointerdown", "wheel", "keydown"]) {
+      sc$("viewDiv").addEventListener(kind, () => { scState.moved = true; }, { passive: true });
+    }
     scState.view.watch("stationary", stationary => {
-      // A camera moved by the reader is a change worth saving, once the scene has finished opening.
-      if (stationary && scState.opened && scState.manages && scState.user) scMarkDirty();
+      if (stationary && scState.moved && scState.opened && scState.manages && scState.user) scMarkDirty();
     });
     try {
       await scState.view.when();

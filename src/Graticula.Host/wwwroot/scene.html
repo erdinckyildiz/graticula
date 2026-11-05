@@ -125,10 +125,12 @@
   .lnote { color: var(--warn); font-size: 12px; }
   #sceneTitleField { margin-top: 0; }
 
+  #backContent { display: none; align-items: center; min-height: 36px; padding: 0 10px; color: var(--accent-ink); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   @media (max-width: 900px) {
     #studioNav { display: none; }
+    #backContent { display: inline-flex; }
     #studioBar { padding: 0 12px; }
     #maphead { flex-wrap: wrap; padding: 8px 12px; }
     #status { order: 10; flex: 1 0 100%; text-align: left; white-space: normal; }
@@ -157,7 +159,8 @@
       <a href="/studio/groups">Groups</a>
       <a href="/studio/members" id="navOrganization" hidden>Organization</a>
     </nav>
-    <span class="end"><a id="studio" href="/studio/" hidden>Sign in</a></span>
+    <!-- On a narrow screen the sections are hidden; Content is the way back (design review). -->
+    <span class="end"><a id="backContent" href="/studio/content">Content</a><a id="studio" href="/studio/" hidden>Sign in</a></span>
   </header>
 
   <div id="maphead">
@@ -175,18 +178,21 @@
       </div>
       <h2 id="layersHead">Layers</h2>
       <ul id="layerList" aria-labelledby="layersHead"></ul>
+      <h2 id="groundHead">Ground</h2>
+      <label class="field" for="groundSelect">Elevation</label>
+      <select id="groundSelect"><option value="">Flat — no elevation</option></select>
+      <p class="hint">Elevation comes from an image service whose owner marked it as ground (Studio › the service › Settings).</p>
       <div id="addPart">
         <h2 id="addHead">Add a layer</h2>
+        <label class="field" for="addFilter">Find a layer</label>
+        <input type="search" id="addFilter" placeholder="Filter by title" autocomplete="off">
         <ul id="addList" aria-labelledby="addHead"></ul>
+        <div class="row"><button type="button" id="addShowAll" hidden></button></div>
         <label class="field" for="addUrl">Or a service address</label>
         <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
         <div class="row"><button type="button" id="addUrlButton">Add</button></div>
         <p class="said" id="addSaid" role="status" aria-live="polite"></p>
       </div>
-      <h2 id="groundHead">Ground</h2>
-      <label class="field" for="groundSelect">Elevation</label>
-      <select id="groundSelect"><option value="">Flat — no elevation</option></select>
-      <p class="hint">An elevation surface is an image service its owner made one (Studio › the service › Settings).</p>
     </section>
     <div id="viewDiv" aria-label="The scene"></div>
   </div>

@@ -73,7 +73,11 @@ accepted that for scenes already).
 | Claim | Evidence | Source |
 |---|---|---|
 | The I3S resources, their URLs and the package layout are public | the specification, versions 1.6 to 2.1 | `github.com/Esri/i3s-spec` (read 2026-11-05) |
-| A web scene saved here opens in the Maps SDK and a package served here draws | — | conditions 1–3, owed |
+| A web scene saved in Studio is a `Web Scene` item and opens again with its layers | saved, reopened by id, item type read back | `SceneViewerTests.A_scene_is_saved_and_opens_again_with_its_layer` |
+| Packages Pro wrote are served and drawn | ArcGIS Pro 3.7's `CreatePointSceneLayerPackage` and `Create3DObjectSceneLayerPackage` (both Draco): the Maps SDK 4.29 loaded 20 points and 12 objects through `/rest/services/hosted/{id}/SceneServer` | measured 2026-11-05, local fixture |
+| A layer the server writes is drawn | eight footprints of the fixture's `ci_buildings`, floors × 3 m: 8 features loaded by the SDK, drawn as raised blocks | `SceneViewerTests.A_polygon_layer_is_made_a_scene_layer_and_opened_in_the_viewer`, `AScenePackageIsServedAndMadeTests` |
+| The writer's buffers and package are what the specification and Pro write | geometry header and face ranges, string and Float64 buffers (the 4-byte pad measured in Pro's package), the hash table's offsets, the root box's rotation against Pro's | `SceneLayerPackageWriterTests` |
+| WebAssembly is needed for Draco | without `'wasm-unsafe-eval'` every node of Pro's packages was fetched and none drawn; the browser console named the policy | measured 2026-11-05 |
 
 ## 5. Decision
 
@@ -82,10 +86,25 @@ accepted that for scenes already).
    recycled as any item. Studio opens it in a scene viewer drawn by the Maps SDK, which saves through the portal.
 2. **A scene layer package is served as a `SceneServer`.** A `.slpk` added as an item and published becomes a hosted
    scene service; its resources are read from the package as the I3S REST paths ask for them.
-   *(INFERRED: packages are kept on the server's state volume beside documents, not in the database.)*
+   *(Built 2026-11-05, and not as first inferred: the package is a **document** (ADR-188) of a new kind, listed as the
+   `Scene Service` it serves at `/rest/services/hosted/{item id}/SceneServer`, so its owner, sharing, groups,
+   protection and recycle bin are a document's. Pro's `addItem` of a `Scene Package` lands there. Each node writes the
+   document's bytes once to `{StatePath}/scene-packages/` and answers I3S paths from that copy by seeking in the zip,
+   with its own reader of the central directory (ZIP64 included); a gzipped entry goes out as it is, with
+   `Content-Encoding: gzip`. The service document is this server's: I3S 1.7+ does not define it.)*
+   *(The console's content security policy gained `'wasm-unsafe-eval'`: the Maps SDK decodes Draco geometry — every
+   package Pro writes — in WebAssembly. It admits compiling WebAssembly and nothing else.)*
 3. **The server writes I3S from a hosted feature layer**: a point layer becomes a point scene layer, and a polygon layer
    with a height field becomes a 3D object layer of extruded footprints. What it writes is a package, served by 2.
    *(INFERRED: untextured, version 1.7+ node pages, WGS 84 global scene; rebuilt on request, not on every edit.)*
+   *(Built 2026-11-05: `POST /content/scenes` with the layer, a number field for the height and metres per unit of it
+   (3 for floors), an optional base field and a title; Studio offers it as **Create scene layer…** on a polygon layer's
+   More menu. The writer (`Graticula.Core/Scenes`) is a quadtree of at most 512 buildings a node, the root without
+   geometry as I3S requires, boxes aligned to east, north and up at their centres, and the uncompressed 1.7 geometry
+   buffer Pro writes first — positions, colours, feature ids, face ranges, no normals. Footprints are triangulated by
+   ear clipping with holes bridged in. **Point layers are not written**: I3S 1.7+ allows a point layer's geometry only
+   Draco-compressed, which needs an encoder ([D-386](../architecture-debt.md)). A layer is read in pages up to 200,000
+   footprints and must fit the document limit.)*
 
 ## 6. Consequences
 
@@ -113,9 +132,13 @@ viewer needs `js.arcgis.com`.
 
 ## 9. Conditions
 
-1. **A web scene saved in Studio opens in the Maps SDK, and one saved by Pro opens in Studio** — *(Open.)*
-2. **A package Pro wrote is served and drawn** by the Maps SDK and by Pro. *(Open.)*
-3. **A layer the server generated is drawn** by the Maps SDK and by Pro, and its package opens in Pro. *(Open.)*
+1. **A web scene saved in Studio opens in the Maps SDK, and one saved by Pro opens in Studio** — *(2026-11-05: the
+   first half by the Maps SDK, which is what Studio's viewer is — `SceneViewerTests`. Pro saving one and Studio opening
+   it is owed; the desktop was locked when it was to be run.)*
+2. **A package Pro wrote is served and drawn** by the Maps SDK and by Pro. *(2026-11-05: by the Maps SDK — Pro's point and
+   3D object packages, 20 and 12 features loaded. By Pro: owed, the desktop locked.)*
+3. **A layer the server generated is drawn** by the Maps SDK and by Pro, and its package opens in Pro. *(2026-11-05: by
+   the Maps SDK, measured and tested. One was made on dev from `look_buildings` for Pro to add; Pro is owed.)*
 4. **Every new screen passes the ux-designer review**, first-run state included. *(Open.)*
 
 ## 10. Revisit triggers

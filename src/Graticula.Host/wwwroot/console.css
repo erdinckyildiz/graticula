@@ -4641,7 +4641,9 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* The view dialog's own layout (design review 2026-10-01): a label over its control, an option's name over its hint. */
-#createView .stacked, #analyzeDialog .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#createView .stacked, #analyzeDialog .stacked, #createScene .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#createScene .dialogfoot .fill { flex: 1; margin: 0; }
+#createScene input[type=text], #createScene input[type=number], #createScene select { width: 100%; font: inherit; }
 #createView .check > span, #analyzeDialog .check > span { display: flex; flex-direction: column; }
 #createView .check .hint, #createView .dialogfoot .fill, #analyzeDialog .check .hint, #analyzeDialog .dialogfoot .fill { margin: 0; }
 #createView .dialogfoot .fill, #analyzeDialog .dialogfoot .fill { flex: 1; }
@@ -5513,7 +5515,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #serviceOverview h4 {
   text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--ink);
 }
-#newMap .plus { margin-right: 4px; }
+#newMap .plus, #newScene .plus { margin-right: 4px; }
 input[type="checkbox"] { accent-color: var(--accent); }
 .facets input[type="checkbox"] { width: 16px; height: 16px; }
 
@@ -6752,8 +6754,8 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
   #contentToolbar > #contentFilter { order: 1; flex: 1 1 0; min-width: 0; width: auto; min-height: 44px; margin-bottom: 8px; box-sizing: border-box; }
   #contentToolbar > #contentFilterBtn { order: 2; flex: none; margin-bottom: 8px; }
   #contentToolbar > #contentCount { order: 4; flex: 1 1 0; min-width: 0; font-size: 13px; color: var(--muted); }
-  #contentToolbar > #newMap { order: 5; flex: none; min-height: 44px; padding: 0 8px; }
-  #contentToolbar > #newMap[hidden] { display: none; }
+  #contentToolbar > #newMap, #contentToolbar > #newScene { order: 5; flex: none; min-height: 44px; padding: 0 8px; }
+  #contentToolbar > #newMap[hidden], #contentToolbar > #newScene[hidden] { display: none; }
   /* The order select is the native one, drawn as an icon with the choice beside it: the control is still a select
      (a phone's own picker, a name, a value) laid over a picture of it. */
   #contentToolbar > .sortwrap { order: 6; flex: none; display: grid; }

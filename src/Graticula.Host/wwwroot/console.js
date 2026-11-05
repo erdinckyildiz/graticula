@@ -34979,12 +34979,12 @@ async function showDocumentItem(id) {
   // neither an app nor a link has a file of its own to replace.
   $("docActions").innerHTML = `
     ${doc.kind === "webscene" ? `<a class="btn primary" id="docOpenScene" href="/studio/scene.html?id=${encodeURIComponent(doc.id)}">Open in Scene Viewer</a>` : ""}
-    ${doc.kind === "slpk" && doc.url ? `<a class="btn primary" id="docOpenScene"
-      href="/studio/scene.html?layer=${encodeURIComponent(doc.url)}&title=${encodeURIComponent(doc.title || "")}">Open in Scene Viewer</a>` : ""}
-    ${doc.url ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
+    ${doc.kind === "slpk" ? `<a class="btn primary" id="docOpenScene"
+      href="/studio/scene.html?layer=${encodeURIComponent(`${location.origin}/rest/services/hosted/${doc.id}/SceneServer`)}&title=${encodeURIComponent(doc.title || "")}">Open in Scene Viewer</a>` : ""}
+    ${doc.url && doc.kind !== "slpk" ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
-    ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url ? "" : "primary"}" id="docDownload">Download</button>`}
+    ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
     <button type="button" id="docFavorite" data-of="doc" hidden></button>
     ${doc.manages && !doc.app ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
@@ -35128,12 +35128,14 @@ function drawDocAbout(editing = false) {
   $("docAbout").innerHTML = `
     <h4>Summary</h4>
     <p>${doc.snippet ? h(doc.snippet) : `<span class="hint">No summary yet. ${doc.link
-      ? "A line on what this points to and who runs it" : doc.app ? "A line on what this app shows and who uses it"
+      ? "A line on what this points to and who runs it" : doc.kind === "webscene" ? "A line on what this scene shows and who uses it"
+      : doc.app ? "A line on what this app shows and who uses it"
       : "A line on what the file is"} makes it easier to find.</span>`}</p>
     ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet.<span class="widewords"> ${doc.link ? "What it is, who runs it and what it is for."
+        : doc.kind === "webscene" ? "What the scene is for, which layers it draws and where its data comes from."
         : doc.app ? "What the app is for, who uses it and what it reads." : "What the file is, where it came from and how current it is."}</span></p>`}
     ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
     ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
@@ -35926,8 +35928,8 @@ function openCreateScene() {
   if (!item || polygons.length === 0) return;
 
   $("createSceneBody").innerHTML = `
-    <p class="hint">Each footprint becomes a building, raised by a height you choose. The scene layer is a copy made now:
-      edits to <b>${h(item.bare)}</b> reach it when you create it again.</p>
+    <p class="hint">Each footprint becomes a building, raised by the height field you choose. This makes a copy: later
+      edits to <b>${h(item.bare)}</b> do not appear until you create the scene layer again.</p>
     ${polygons.length > 1 ? `<div class="stacked"><label for="csLayer">Layer</label>
       <select id="csLayer">${polygons.map(one => `<option value="${one.id}">${h(one.shown || one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>` : ""}
     <div class="stacked"><label for="csHeight">Height</label>
@@ -35960,7 +35962,10 @@ async function offerSceneHeights() {
     const likely = numbers.find(f => /height|yukseklik|yükseklik|floors|kat/i.test(f.name));
     select.innerHTML = `<option value="">Flat — no height</option>` + numbers.map(f =>
       `<option value="${h(f.name)}"${f === likely ? " selected" : ""}>${h(f.alias || f.name)}</option>`).join("");
-    if (likely && /floors|kat/i.test(likely.name)) $("csScale").value = "3";
+    if (likely && /floors|kat/i.test(likely.name)) {
+      $("csScale").value = "3";
+      $("csScaleHint").textContent = `Set to 3 because ${likely.alias || likely.name} counts floors. 1 when the field is in metres.`;
+    }
   } catch {
     select.innerHTML = `<option value="">Flat — no height</option>`;
   }
@@ -35988,12 +35993,15 @@ async function createScene() {
       }),
     });
     const open = `/studio/scene.html?layer=${encodeURIComponent(made.url)}&title=${encodeURIComponent(made.title)}`;
-    says.innerHTML = `“${h(made.title)}” was created with ${Number(made.buildings).toLocaleString()} buildings.
-      <a href="${h(open)}" id="createSceneOpenViewer">Open in Scene Viewer</a>`;
-    $("createSceneOpenViewer")?.focus();
+    // Done: the form goes, so the same layer cannot be made twice by a second press (design review).
+    $("createSceneBody").innerHTML = `<p>“${h(made.title)}” was created with ${Number(made.buildings).toLocaleString()}
+      buildings. It is in Content, private until you share it.</p>`;
+    $("createSceneFoot").innerHTML = `<p class="hint fill" id="createSceneSays" role="status" aria-live="polite">The scene layer was created.</p>
+      <button type="button" class="ghost" id="createSceneCancel">Close</button>
+      <a class="btn primary" href="${h(open)}" id="createSceneOpenViewer">Open in Scene Viewer</a>`;
+    $("createSceneOpenViewer").focus();
   } catch (e) {
     says.textContent = `Not created: ${e.message}`;
-  } finally {
     go.disabled = false;
   }
 }
