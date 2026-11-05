@@ -204,8 +204,16 @@ services directory), ADR-034 (Server and Studio).
    analyzer refused it first with 00230 (a basemap in a different projection than the map), Pro's own setting, fixed by
    its own quick fix. That run also found a defect: before it, adding the private layer from Pro's portal pane opened
    Pro's own sign-in dialog, because `/studio/rest/info` named the root as the owning portal and Pro was signed in to
-   `/studio`; fixed the same day, and recorded in ADR-191. **Still owed: the item opened in Studio's Map viewer**, which
-   is a look at `/studio/webmap.html?id=9e184685a65047d780a5503c3958268a` on dev.)*
+   `/studio`; fixed the same day, and recorded in ADR-191. **DISCHARGED 2026-11-05 — the second half, after one more
+   defect.** Opened in Studio's Map Viewer (headless Chrome, signed in on dev), the map Pro saved drew nothing: Pro's
+   *Share › Web Map* writes each hosted service as a `GroupLayer` holding its feature layers, and the viewer kept the
+   group as a row *not drawn here*. A top-level group with layers now opens as its layers, in order, with its
+   visibility and opacity folded in; an empty group stays a row that is not drawn. The document changes only if the map
+   is saved, and a note beside the layer list says until then that saving replaces the group with its layers (the
+   design review's copy: the status line alone is replaced by the next thing said). The same map then opened with its
+   layer loaded, 50 features, under that note. `WebMapViewerTests.A_group_layer_from_pro_is_drawn_as_its_layers` fails
+   without the change (measured) and passes with it. Both directions are now met: a map saved here opens in Pro
+   (2026-11-01) and a map saved by Pro opens here.)*
 2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services). *(2026-10-14: the review was
    run on both states — a server with no service and no map, and the fixture — and it did not pass: no blocker, six
    major and nine minor findings. **Repaired the same day:** My content's first run said *everything here belongs to

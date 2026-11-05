@@ -110,33 +110,33 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>64b8bb4b</code> · 2026-11-05 04:26</p>
+<p class="stamp">Generated from commit <code>b9d1b5a8</code> · 2026-11-05 11:38</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">266</div><div class="kpi-l">ADRs</div><div class="kpi-n">91 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">653/685</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">22 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">654/685</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">21 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">234 answered</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open debts</div><div class="kpi-n">328 repaid · 22 waiting on a trigger</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">6028</div><div class="kpi-l">tests</div><div class="kpi-n">662 source files, 293,551 lines</div></div>
+<div class="kpi good"><div class="kpi-v">6029</div><div class="kpi-l">tests</div><div class="kpi-n">662 source files, 293,551 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">27 items</span></div><p><b>22 ADR conditions</b> outstanding across 18 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">26 items</span></div><p><b>21 ADR conditions</b> outstanding across 18 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -245,7 +245,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">076</td><td>OAuth 2.0 authorization code with PKCE, for registered apps</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">077</td><td>Z and M ride beside x and y, and a flat geometry pays nothing for it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/5</td></tr>
 <tr><td class="id">078</td><td>A hosted layer can keep its history, and the database keeps it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH that the database keeps it · MEDIUM on the write cost, which is measured once on one…</td><td class="num">6/6</td></tr>
-<tr><td class="id">079</td><td>A web map is a saved document, and ArcGIS clients can open it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH on the format · MEDIUM on the viewer&#x27;s shape until the owner has used it</td><td class="num">2/4</td></tr>
+<tr><td class="id">079</td><td>A web map is a saved document, and ArcGIS clients can open it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH on the format · MEDIUM on the viewer&#x27;s shape until the owner has used it</td><td class="num">3/4</td></tr>
 <tr><td class="id">080</td><td>Hosted tables keep the Z and M their data carries</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">081</td><td>Migration publishes an ArcGIS Server&#x27;s layer definitions over the tables they already read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/1</td></tr>
 <tr><td class="id">082</td><td>Offline sync is not in v1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -569,7 +569,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.2%"></div></div><div class="bar-n">964</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">960</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.1%"></div></div><div class="bar-n">578</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">457</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:26.2%"></div></div><div class="bar-n">458</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.9%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.5%"></div></div><div class="bar-n">131</div></div>
@@ -627,6 +627,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b9d1b5a8</code><time>2026-11-05</time><span>A map saved from ArcGIS Pro draws in the Map Viewer: a group layer opens as its layers, and the list says saving replaces the group (ADR-079 c1)</span></li>
+<li><code>e3b09a38</code><time>2026-11-05</time><span>The web map item page test lets the map&#x27;s own picture settle before counting writes</span></li>
+<li><code>bec6d5e3</code><time>2026-11-05</time><span>Pro reads a private layer through WFS and from the /studio portal: a service&#x27;s own WFS address challenges a stranger, and /studio/rest names /studio as its owner (ADR-178 c1, ADR-079 c1 Pro half, ADR-191)</span></li>
 <li><code>64b8bb4b</code><time>2026-11-05</time><span>ADR-081 condition 1 measured on a real ArcGIS Server: 54% of layers match by name, and the manifest is the better rule (D-385); ADR-077 c5 re-run through arcpy</span></li>
 <li><code>d4bd8c02</code><time>2026-11-05</time><span>ADR-268 condition 1 is discharged: a PDF filed on dev draws its first page</span></li>
 <li><code>1b710de4</code><time>2026-11-05</time><span>The shared confirmation is not shut by the question before it</span></li>
@@ -638,9 +641,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>218d1d76</code><time>2026-11-04</time><span>The ArcGIS veteran&#x27;s four open items: a service item&#x27;s own title, the Administrator API&#x27;s start, stop and logs, the portal&#x27;s users, item.export, and apps, links and item resources (ADR-260 to ADR-264)</span></li>
 <li><code>4ed23495</code><time>2026-11-03</time><span>The Map Viewer takes ArcGIS Map Viewer&#x27;s shape, offers vector tiles in sight, and stops blinking on pan</span></li>
 <li><code>a088b1e8</code><time>2026-11-03</time><span>What an ArcGIS veteran&#x27;s review of v1.0.499 found, fixed; the portal names its geocoder; Studio offers Join group</span></li>
-<li><code>da0c1356</code><time>2026-11-02</time><span>An empty hosted service and a service&#x27;s addToDefinition, so the Python API&#x27;s create_service and create_view work; owner decisions of 2026-11-02 evening; CI in four parallel parts</span></li>
-<li><code>7960b2f7</code><time>2026-11-02</time><span>Portal group writes, portal content adds and an optional Photon geocoder (ADR-256, ADR-257, ADR-258)</span></li>
-<li><code>211b788f</code><time>2026-11-02</time><span>The interface follows ArcGIS Enterprise&#x27;s structure, on a phone and on a desk (ADR-255)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
