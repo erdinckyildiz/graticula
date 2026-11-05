@@ -100,6 +100,9 @@ public static class Documents
     private static readonly DocumentKind WebMappingApplication = new("webmappingapplication", "application/json", "Web Mapping Application", ".json");
     private static readonly DocumentKind Form = new("form", "application/json", "Form", ".json");
     private static readonly DocumentKind StoryMap = new("storymap", "application/json", "StoryMap", ".json");
+
+    // ADR-269: a web scene is the 3D twin of a web map, a JSON document the Maps SDK and Pro read and write as an item.
+    private static readonly DocumentKind WebScene = new("webscene", "application/json", "Web Scene", ".json");
     private static readonly DocumentKind FeatureServiceLink = new("featureservicelink", "application/json", "Feature Service", ".json");
     private static readonly DocumentKind MapServiceLink = new("mapservicelink", "application/json", "Map Service", ".json");
     private static readonly DocumentKind VectorTileServiceLink = new("vectortileservicelink", "application/json", "Vector Tile Service", ".json");
@@ -142,7 +145,7 @@ public static class Documents
     /// and documents elsewhere, registered by their address.
     /// </summary>
     public static IReadOnlyList<DocumentKind> Apps { get; } =
-        [Dashboard, WebExperience, WebMappingApplication, Form, StoryMap, FeatureServiceLink, MapServiceLink,
+        [Dashboard, WebExperience, WebMappingApplication, Form, StoryMap, WebScene, FeatureServiceLink, MapServiceLink,
          VectorTileServiceLink, ImageServiceLink, DocumentLink];
 
     /// <summary>The app or link kind an ArcGIS item type names, or null for one that is not (ADR-264).</summary>

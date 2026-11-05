@@ -1,0 +1,128 @@
+# ADR-269 — Scenes: web scenes are saved, scene layer packages are served, and the server writes I3S from hosted layers
+
+| | |
+|---|---|
+| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Confidence** | `MEDIUM` |
+| **Decided** | 2026-11-05. **The scope is the owner's**: asked *"3d maps için ilerleyebilir miyiz. Scenelayers?"*, and offered a web scene alone, a web scene with scene layer packages served, or both with the server writing its own I3S, they chose all three (*"1+2+3: I3S üretimi"*). **How each is built is this ADR's**, and the choices that are inference rather than the owner's words are marked `INFERRED` in §5. |
+| **Supersedes** | — |
+| **Superseded by** | — |
+
+> Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
+> `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
+> Confidence: `HIGH`, `MEDIUM`, `LOW`.
+
+---
+
+## 1. Context
+
+Until today the only 3D this product drew was an elevation surface ([ADR-182](ADR-182-an-image-service-can-be-an-elevation-surface.md)):
+an image service shown as the ground of a `SceneView` in `map.html`. There was no scene to save, no `SceneServer`, and
+the migration inventory said so of every scene service it met (*"Scene services are not served by this build"*).
+[v1-scope](../v1-scope.md) left the *"3D/terrain pipeline"* unbuilt and 3D Tiles out.
+
+ArcGIS users meet 3D in three places, and each needs a different part:
+
+1. **A web scene** — a saved document of layers, ground, camera and slides, the 3D twin of a web map. Pro, the Maps SDK
+   and Scene Viewer read and write it as a portal item of type `Web Scene`.
+2. **A scene layer** — a `SceneServer` serving I3S: a tree of nodes, each carrying meshes or points and their
+   attributes, which a client loads by level of detail. Pro writes one as a **scene layer package** (`.slpk`), a zip of
+   exactly the resources a service serves.
+3. **Making one** — a scene layer is normally built by Pro or Enterprise from 3D features. A server that only serves
+   packages leaves every user without Pro unable to have one.
+
+I3S is a published standard: OGC Community Standard 17-014r9, with Esri's specification public on GitHub
+(`Esri/i3s-spec`, CC BY-ND 3.0). Implementing a format from its published specification is what [§5 of the master
+prompt](../../MASTER_GIS_PLATFORM_PROMPT.md) permits; the specification's text is not copied into this repository.
+
+## 2. Alternatives considered
+
+### Alternative A — all three, with generation writing packages (chosen)
+
+**Argument for.** One serving path: a package Pro wrote and a package this server wrote are served by the same code,
+so what the server generates is checked by the same client that reads Pro's. The generator's output is a file that
+can be downloaded and opened in Pro, which is the strongest test of it there is.
+
+**Argument against.** The generator is a new engine — tree building, mesh building, attribute buffers — and the part
+the scope document said was not built.
+
+### Alternative B — generation served from the database, without a package
+
+**Argument for.** No second copy of the data; an edit could reach the scene without rebuilding.
+
+**Argument against.** Every node request becomes a query and a mesh build; the I3S tree is a cache by design, and a
+live tree is a server doing on every request what Pro does once. An edit making a scene stale is the ordinary I3S
+contract (a scene layer is rebuilt or *refreshed*), not a defect to design around in the first version.
+
+### Alternative C — web scenes only, and scene layers left to Enterprise
+
+**Argument for.** A day's work, no new engine.
+
+**Argument against.** The owner chose otherwise; and a web scene with nothing 3D to put in it but extruded features
+and a ground is half a feature.
+
+## 3. Counterarguments to the preferred option
+
+A package per scene layer is a second copy of the data that goes stale on the first edit. A generated scene layer will
+look worse than Pro's — no textures, simple level-of-detail — and a user comparing the two will notice. The Maps SDK
+draws the viewer, so scenes stay on Esri's CDN ([ADR-253](ADR-253-openlayers-draws-2d-and-the-maps-sdk-draws-scenes.md)
+accepted that for scenes already).
+
+## 4. Evidence
+
+| Claim | Evidence | Source |
+|---|---|---|
+| The I3S resources, their URLs and the package layout are public | the specification, versions 1.6 to 2.1 | `github.com/Esri/i3s-spec` (read 2026-11-05) |
+| A web scene saved here opens in the Maps SDK and a package served here draws | — | conditions 1–3, owed |
+
+## 5. Decision
+
+1. **A web scene is a portal item of type `Web Scene`**, kept as an app item is ([ADR-264](ADR-264-an-app-or-a-link-is-an-item-and-an-item-keeps-resources.md)):
+   its JSON is its content, `addItem`, `update` and `data` read and write it, and it is shared, moved, protected and
+   recycled as any item. Studio opens it in a scene viewer drawn by the Maps SDK, which saves through the portal.
+2. **A scene layer package is served as a `SceneServer`.** A `.slpk` added as an item and published becomes a hosted
+   scene service; its resources are read from the package as the I3S REST paths ask for them.
+   *(INFERRED: packages are kept on the server's state volume beside documents, not in the database.)*
+3. **The server writes I3S from a hosted feature layer**: a point layer becomes a point scene layer, and a polygon layer
+   with a height field becomes a 3D object layer of extruded footprints. What it writes is a package, served by 2.
+   *(INFERRED: untextured, version 1.7+ node pages, WGS 84 global scene; rebuilt on request, not on every edit.)*
+
+## 6. Consequences
+
+**Positive.** Scenes can be saved, shared and opened by ArcGIS clients; Pro's scene packages have a server; a user
+without Pro can turn their buildings into a 3D layer.
+
+**Negative.** A generated scene layer is a snapshot and goes stale on edit until rebuilt. Packages take disk. The
+viewer needs `js.arcgis.com`.
+
+**Ports created.** None planned: the package reader and writer are Tier 1 (the service model and the tiling pipeline).
+
+**State.** Packages on the state volume (2), a document per web scene (1), and a package per generated layer (3).
+
+## 7. Assumptions this decision rests on
+
+| ID | Assumption | Status |
+|---|---|---|
+| — | The Maps SDK draws an I3S 1.7+ package whose nodes carry uncompressed geometry and no textures | Unmeasured — condition 3 |
+
+## 8. Dependencies
+
+**Depends on:** ADR-182, ADR-253, ADR-264, ADR-188 (documents).
+
+**Depended on by:** —
+
+## 9. Conditions
+
+1. **A web scene saved in Studio opens in the Maps SDK, and one saved by Pro opens in Studio** — *(Open.)*
+2. **A package Pro wrote is served and drawn** by the Maps SDK and by Pro. *(Open.)*
+3. **A layer the server generated is drawn** by the Maps SDK and by Pro, and its package opens in Pro. *(Open.)*
+4. **Every new screen passes the ux-designer review**, first-run state included. *(Open.)*
+
+## 10. Revisit triggers
+
+- A request for textured or integrated-mesh layers.
+- A generated layer large enough that rebuilding it on request is too slow.
+
+## 11. Dissent
+
+None recorded.

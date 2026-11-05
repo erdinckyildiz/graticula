@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scene · Graticula</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<!--
+  The scene viewer — ADR-269.
+
+  <b>A web scene a user keeps</b>: the 3D twin of webmap.html. It opens a saved ArcGIS Web Scene item (`?id=`) or starts
+  a new one, draws it with the ArcGIS Maps SDK for JavaScript (ADR-253: OpenLayers draws 2D, the SDK draws scenes), and
+  saves it back through the portal. The SDK is loaded from `Graticula:MapSdkUrl`, which surface.js carries.
+
+  <b>No inline script</b>: the console's policy has no `'unsafe-inline'`. The style block is allowed.
+-->
+
+<script src="surface.js"></script>
+<!-- The remembered theme, set before the first paint exactly as the console sets it (ADR-187 step 4). -->
+<script src="session.js"></script>
+
+<style>
+  /* TOKENS-FROM: console.css. Every --name here that console.css also declares is a copy of its :root (light) and
+     :root[data-theme="dark"] value, made by hand because these pages are outside the console's stylesheet; the rest
+     (--veil, --map-bg, --float, --ol-*) are the map pages' own. The copies are
+     webmap.html, view.html, map.html and scene.html; this line, the same in each, is what a test finds them by. */
+  :root {
+    --paper: #f4f6f9; --surface: #ffffff; --surface-2: #f1f4f8; --surface-3: #e7ecf3;
+    --ink: #101826; --muted: #566275; --faint: #616b7a;
+    --rule: #e3e8ef; --rule-strong: #cfd7e3; --control-edge: #7e889a;
+    --accent: #1565d8; --accent-soft: #e8f0fe; --accent-ink: #1257c2; --accent-line: #bcd2fa; --on-accent: #ffffff;
+    --alert: #a5342a; --alert-soft: #fceceb; --alert-line: #edc4c0;
+    --warn: #8a5a08; --warn-soft: #fdf2e0; --warn-line: #e8d3a8;
+    --veil: rgba(255, 255, 255, .94); --map-bg: #dce7ec;
+    --lift: 0 1px 2px rgba(16, 24, 38, .05); --float: 0 8px 24px -12px rgba(16, 24, 38, .35);
+    --round: 5px; --round-lg: 8px;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --ol-background-color: var(--surface); --ol-accent-background-color: var(--surface-2);
+    --ol-partial-background-color: var(--veil); --ol-foreground-color: var(--ink);
+    --ol-subtle-foreground-color: var(--muted); --ol-subtle-background-color: transparent;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0a1120; --surface: #0f1828; --surface-2: #142034; --surface-3: #1b2840;
+    --ink: #e6ebf4; --muted: #9aa7bd; --faint: #8592aa;
+    --rule: #1f2b40; --rule-strong: #2b3a55; --control-edge: #62739a;
+    --accent: #2563eb; --accent-soft: #11264a; --accent-ink: #6aa6ff; --accent-line: #24497f;
+    --alert: #f58a7f; --alert-soft: #3a1714; --alert-line: #6a2a24;
+    --warn: #f0bd5c; --warn-soft: #33260c; --warn-line: #5a4416;
+    --veil: rgba(15, 24, 40, .94); --map-bg: #13233a;
+    --lift: 0 1px 2px rgba(0, 0, 0, .4); --float: 0 8px 24px -10px rgba(0, 0, 0, .7);
+  }
+  * { box-sizing: border-box; }
+  /* As the console has it: an element given `hidden` stays hidden whatever display its own rule gives it. */
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; font: 14px/1.45 var(--sans);
+               color: var(--ink); background: var(--paper); }
+  #frame { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+  #studioBar { display: flex; align-items: stretch; gap: 12px; padding: 0 20px; min-height: 52px; min-width: 0;
+               background: var(--surface); border-bottom: 1px solid var(--rule); }
+  #brand { display: flex; align-items: center; gap: 10px; flex: none; color: var(--ink); text-decoration: none; }
+  #brand .mark { width: 28px; height: 28px; flex: none; display: grid; place-items: center; }
+  :root[data-theme="dark"] #brand .mark .m-a { stroke: #dbe8ff; }
+  :root[data-theme="dark"] #brand .mark .m-b { stroke: #7ea6e6; }
+  #brand .mark svg { width: 28px; height: 28px; display: block; }
+  #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  #brand .surf { font-size: 14px; font-weight: 500; color: var(--muted); }
+  #studioNav { display: flex; gap: 2px; margin-left: 12px; min-width: 0; }
+  #studioNav a { display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 15px;
+                 font-weight: 500; text-decoration: none; white-space: nowrap;
+                 border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  #studioNav a:hover { color: var(--ink); }
+  #studioNav a[aria-current="page"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
+  #studioNav a:focus-visible { outline-offset: -4px; }
+  #studioBar .end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+
+  /* The map's own line: what it is, whether it is saved, and what the last action did. */
+  #maphead { display: flex; align-items: center; gap: 4px 12px; padding: 8px 20px; min-width: 0; min-height: 50px;
+             background: var(--surface); border-bottom: 1px solid var(--rule); }
+  #maphead h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  #saved { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #saved.dirty { color: var(--warn); }
+  #headSave { flex: none; padding: 5px 14px; }
+  a { color: var(--accent-ink); }
+  #status { font-size: 13px; color: var(--muted); flex: 1 1 0; min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  #studio { flex: none; display: inline-flex; align-items: center; min-height: 36px; font-size: 14px;
+            color: var(--ink); text-decoration: none; padding: 0 14px; border: 1px solid var(--rule-strong);
+            border-radius: var(--round); white-space: nowrap; background: var(--surface); }
+  #studio:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 10px; }
+  .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
+  .said.bad { color: var(--alert); }
+  button, select, input, textarea { font: inherit; font-size: 13px; }
+  button { padding: 4px 10px; cursor: pointer; border: 1px solid var(--rule); border-radius: 3px;
+           background: var(--surface); color: var(--ink); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.1); }
+  button.danger { color: var(--alert); }
+  button.tiny { padding: 1px 7px; font-size: 12px; }
+  input[type="text"], input[type="search"], textarea, select {
+    border: 1px solid var(--control-edge); border-radius: 3px; padding: 5px 7px; background: var(--surface);
+    color: var(--ink); width: 100%; }
+  label.field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  /* The scene's own layout: Studio's bar and the title row, then the panel and the scene side by side. */
+  #body { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 0; }
+  #panel { display: flex; flex-direction: column; min-height: 0; overflow: auto; background: var(--surface);
+           border-right: 1px solid var(--rule); padding: 12px 16px 18px; }
+  #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; }
+  #panel h2:first-child { margin-top: 2px; }
+  #viewDiv { min-height: 0; min-width: 0; background: var(--paper); }
+  #layerList, #addList { list-style: none; margin: 0; padding: 0; }
+  #layerList > li, #addList > li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule);
+           border-radius: 4px; padding: 7px 8px; margin-bottom: 6px; background: var(--surface); }
+  #layerList .lname, #addList .lname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #layerList .lkind, #addList .lkind { display: block; color: var(--muted); font-size: 12px; }
+  #layerList label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  #addUrl { margin-bottom: 6px; }
+  .lnote { color: var(--warn); font-size: 12px; }
+  #sceneTitleField { margin-top: 0; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 900px) {
+    #studioNav { display: none; }
+    #studioBar { padding: 0 12px; }
+    #maphead { flex-wrap: wrap; padding: 8px 12px; }
+    #status { order: 10; flex: 1 0 100%; text-align: left; white-space: normal; }
+  }
+  /* A phone: the scene first, the panel below it. Touch targets of at least 44 px (WCAG 2.5.5). */
+  @media (max-width: 760px) {
+    #body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 40%); }
+    #panel { border-right: 0; border-top: 1px solid var(--rule); order: 2; }
+    #viewDiv { order: 1; }
+    button, #headSave, #studio { min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+<div id="frame">
+  <header id="studioBar">
+    <a id="brand" href="/studio/content" aria-label="Graticula Studio, Content">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
+      <span class="name">Graticula</span>
+      <span class="surf">Studio</span>
+    </a>
+    <nav id="studioNav" aria-label="Studio">
+      <a href="/studio/content">Content</a>
+      <a href="/studio/webmap.html">Map</a>
+      <a href="/studio/scene.html" aria-current="page">Scene</a>
+      <a href="/studio/groups">Groups</a>
+      <a href="/studio/members" id="navOrganization" hidden>Organization</a>
+    </nav>
+    <span class="end"><a id="studio" href="/studio/" hidden>Sign in</a></span>
+  </header>
+
+  <div id="maphead">
+    <h1 id="title">New scene</h1>
+    <span id="saved"></span>
+    <button class="primary" id="headSave" hidden>Save</button>
+    <span id="status" role="status" aria-live="polite">Loading the scene&hellip;</span>
+  </div>
+
+  <div id="body">
+    <section id="panel" aria-label="Scene contents">
+      <div id="sceneDetails" hidden>
+        <label class="field" for="sceneTitle" id="sceneTitleField">Title</label>
+        <input type="text" id="sceneTitle" maxlength="250" autocomplete="off">
+      </div>
+      <h2 id="layersHead">Layers</h2>
+      <ul id="layerList" aria-labelledby="layersHead"></ul>
+      <div id="addPart">
+        <h2 id="addHead">Add a layer</h2>
+        <ul id="addList" aria-labelledby="addHead"></ul>
+        <label class="field" for="addUrl">Or a service address</label>
+        <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
+        <div class="row"><button type="button" id="addUrlButton">Add</button></div>
+        <p class="said" id="addSaid" role="status" aria-live="polite"></p>
+      </div>
+      <h2 id="groundHead">Ground</h2>
+      <label class="field" for="groundSelect">Elevation</label>
+      <select id="groundSelect"><option value="">Flat — no elevation</option></select>
+      <p class="hint">An elevation surface is an image service its owner made one (Studio › the service › Settings).</p>
+    </section>
+    <div id="viewDiv" aria-label="The scene"></div>
+  </div>
+</div>
+<script src="scene.js"></script>
+</body>
+</html>

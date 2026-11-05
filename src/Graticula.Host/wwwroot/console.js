@@ -3405,7 +3405,9 @@ const SURFACES = {
     // Map beside Content; here the map viewer was reachable only from a button under the content table or
     // a row's ⋯ menu. It is a link out of this app to the viewer (ADR-079), not a screen of it, so it is
     // not a tab: a tab is an address this app routes, and the surface table holds only those (D-115).
-    links: [{ after: "content", key: "map", label: "Map", href: "/studio/webmap.html" }],
+    // ADR-269: Scene beside Map, as Portal's top bar has them.
+    links: [{ after: "content", key: "map", label: "Map", href: "/studio/webmap.html" },
+      { after: "content", key: "scene", label: "Scene", href: "/studio/scene.html" }],
   },
 };
 
@@ -5582,6 +5584,13 @@ async function loadMyContent() {
   for (const i of answer.items || []) if (i.itemId) itemIds.set(i.name, i.itemId);
 
   const button = $("newMap");
+  // ADR-269: New scene follows New map's rules — a scene is saved content too.
+  const scene = $("newScene");
+  if (scene) {
+    scene.hidden = isOutsider();
+    scene.disabled = maps.mayCreate === false;
+    scene.title = maps.mayCreate === false ? "Your role cannot create content, so it cannot save a scene." : "";
+  }
 
   if (button) {
     // Not offered at all to a member of another organization, who can save nothing here; disabled for a member whose
@@ -6890,6 +6899,10 @@ document.addEventListener("click", async event => {
 
   if (target.closest("#newMap")) {
     location.href = "/studio/webmap.html";
+  }
+
+  if (target.closest("#newScene")) {
+    location.href = "/studio/scene.html";
   }
 
   // A map's Delete was a button on its row; it is on the map's Settings now, behind its lock, as a layer's is.
@@ -34796,7 +34809,9 @@ $("analyzeDialog")?.addEventListener("close", () => {
 const DOCUMENT_TYPES = new Set(["PDF", "Microsoft Word", "Microsoft Excel", "Microsoft Powerpoint", "CSV", "Image",
   // ADR-263, ADR-264: an export's file, and an app kept for the client that reads it.
   "Shapefile", "File Geodatabase", "GeoJson", "GeoPackage", "KML", "CSV Collection", "Feature Collection",
-  "Dashboard", "Web Experience", "Web Mapping Application", "Form", "StoryMap", "Document Link"]);
+  "Dashboard", "Web Experience", "Web Mapping Application", "Form", "StoryMap", "Document Link",
+  // ADR-269: a web scene is kept as an app is, and opens in the scene viewer.
+  "Web Scene"]);
 
 /** The document whose item page is open, as the server last described it. */
 let docOpen = null;
@@ -34820,10 +34835,11 @@ const DOC_KINDS = {
   // ADR-264's review: a registered service is named as Studio names a layer, with where it is said beside it.
   featureservicelink: "Feature layer (by URL)", mapservicelink: "Map image layer (by URL)",
   vectortileservicelink: "Vector tile layer (by URL)", imageservicelink: "Imagery layer (by URL)", documentlink: "Document link",
+  webscene: "Web scene",
 };
 
 /** The few letters a document's tile carries, so a PDF and a workbook differ at a glance. */
-const docBadge = d => d.link ? "LINK" : d.app ? "APP"
+const docBadge = d => d.link ? "LINK" : d.kind === "webscene" ? "3D" : d.app ? "APP"
   : ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
 
 /** Where a link points, as its host — what a reader needs to tell two links apart (ADR-264). */
@@ -34959,6 +34975,7 @@ async function showDocumentItem(id) {
   // ADR-264: an item with an address opens there first, as Portal's app page does; its JSON downloads from More, and
   // neither an app nor a link has a file of its own to replace.
   $("docActions").innerHTML = `
+    ${doc.kind === "webscene" ? `<a class="btn primary" id="docOpenScene" href="/studio/scene.html?id=${encodeURIComponent(doc.id)}">Open in Scene Viewer</a>` : ""}
     ${doc.url ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
@@ -35070,7 +35087,9 @@ function drawDocSide() {
       <dt>Created</dt><dd>${h(day(doc.created))}</dd>
       <dt>Updated</dt><dd>${h(day(doc.modified))}</dd>
     </dl>
-    ${doc.app ? `<p class="hint">${doc.link
+    ${doc.app ? `<p class="hint">${doc.kind === "webscene"
+      ? "A 3D scene: its layers, its ground and where the camera looks. Open it in Scene Viewer to look around or change it."
+      : doc.link
       ? `This item points to ${doc.type === "Document Link" ? "a document" : "a service"} on ${h(docHost(doc) || "another server")}. That server answers requests; this one keeps only the item.`
       : `Kept for the ${h(doc.type || "app")} client that opens it. This server stores the item and its resources; it does
         not run ${h(doc.type || "the app")} itself.`}</p>` : ""}
@@ -41645,6 +41664,7 @@ phonePark($("userMenu").querySelector(".sheet"), $("drawerAccount"));
 phonePark($("contentIdle").closest("label"), $("contentSheetIdle"));
 phonePark($("pageActionContent"), $("contentToolbar"));
 phonePark($("newMap"), $("contentToolbar"));
+phonePark($("newScene"), $("contentToolbar"));
 phonePark($("memberCount"), $("memberNarrowBar"));
 
 /**
