@@ -148,7 +148,8 @@ async function scAddUrl(url, title) {
   try {
     const layer = await scState.sdk.Layer.fromArcGISServerUrl({ url });
     await layer.load();
-    if (title && !layer.title) layer.title = title;
+    // The item's title, when it was added from the list: a service's own name may be its item id (ADR-269).
+    if (title) layer.title = title;
     // A layer that carries its own heights is placed at them; a flat one is draped on the ground.
     if (layer.type === "feature" && layer.hasZ) layer.elevationInfo = { mode: "absolute-height" };
     scState.scene.add(layer);

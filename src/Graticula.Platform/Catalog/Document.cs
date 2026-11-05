@@ -101,6 +101,18 @@ public static class Documents
     private static readonly DocumentKind Form = new("form", "application/json", "Form", ".json");
     private static readonly DocumentKind StoryMap = new("storymap", "application/json", "StoryMap", ".json");
 
+    // ADR-269: a scene layer package — a zip of I3S resources, Pro's or this server's own — kept as a file and served as
+    // a SceneServer from it. Listed as the scene service it serves; Pro adds it as a "Scene Package" (ScenePackageType).
+    private static readonly DocumentKind ScenePackage = new("slpk", "application/octet-stream", "Scene Service", ".slpk");
+
+    /// <summary>The item type Pro and the portal API add a scene layer package as (ADR-269).</summary>
+    public const string ScenePackageType = "Scene Package";
+
+    /// <summary>Whether a kind is a scene layer package, served as a SceneServer (ADR-269).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for a package.</returns>
+    public static bool IsScenePackage(DocumentKind kind) => kind == ScenePackage;
+
     // ADR-269: a web scene is the 3D twin of a web map, a JSON document the Maps SDK and Pro read and write as an item.
     private static readonly DocumentKind WebScene = new("webscene", "application/json", "Web Scene", ".json");
     private static readonly DocumentKind FeatureServiceLink = new("featureservicelink", "application/json", "Feature Service", ".json");
@@ -129,7 +141,7 @@ public static class Documents
         : null;
 
     /// <summary>Every kind accepted, by its stored name.</summary>
-    public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP];
+    public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP, ScenePackage];
 
     /// <summary>
     /// The data kinds kept only when the upload names its item type (ADR-257): a zipped shapefile, a zipped file
@@ -219,6 +231,12 @@ public static class Documents
         refusal = null;
         string extension = Path.GetExtension(fileName).ToLowerInvariant();
         string declared = (declaredType ?? string.Empty).Trim();
+
+        // ADR-269: a scene layer package is a zip named .slpk, whatever type it was added as.
+        if (head.StartsWith(ZipSignature) && extension == ".slpk")
+        {
+            return ScenePackage;
+        }
 
         if (head.StartsWith(ZipSignature) && extension == ".zip")
         {

@@ -174,7 +174,11 @@ internal static class SecurityHeaders
 
     private static string ConsolePolicyWith(string mapSdkOrigin, string extra) =>
         "default-src 'none'; "
-        + $"script-src 'self' {mapSdkOrigin}; "
+        // <b>'wasm-unsafe-eval', and not 'unsafe-eval' — ADR-269, 2026-11-05.</b> The map SDK decodes a scene layer's
+        // Draco geometry in WebAssembly, and without this source every Draco-compressed scene layer — Pro writes all of
+        // them so — loaded, fetched its nodes and drew nothing, the compile refused in the console. This source admits
+        // compiling WebAssembly and nothing else: `eval` and `new Function` stay refused.
+        + $"script-src 'self' {mapSdkOrigin} 'wasm-unsafe-eval'; "
         + $"style-src 'self' 'unsafe-inline' {mapSdkOrigin}; "
         + $"img-src 'self' data: blob: {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
         + $"connect-src 'self' {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "

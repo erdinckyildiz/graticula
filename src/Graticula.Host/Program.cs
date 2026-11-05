@@ -786,6 +786,8 @@ public static class Program
 
         // ADR-094: the external origins a style may fetch from, in the same store.
         builder.Services.AddSingleton<StyleOriginList>();
+        // ADR-269: each node's copy of the scene layer packages it serves.
+        builder.Services.AddSingleton(new ScenePackages(settings.StatePath));
 
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage
@@ -3061,6 +3063,8 @@ public static class Program
         // with a different discovery document, and a client pastes one address for
         // the whole server rather than one per service (ADR-039 §5).
         WfsEndpoints.Map(app);
+        // ADR-269: a scene layer package served as a SceneServer.
+        SceneServerEndpoints.Map(app);
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
         ExportOutputs.Map(app);

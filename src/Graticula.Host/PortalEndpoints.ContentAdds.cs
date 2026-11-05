@@ -61,7 +61,9 @@ internal static partial class PortalEndpoints
     /// </summary>
     internal static bool IsFileItemType(string? itemType) =>
         Documents.Accepted.Concat(Documents.Data)
-            .Any(kind => string.Equals(kind.ArcGisType, itemType?.Trim(), StringComparison.OrdinalIgnoreCase));
+            .Any(kind => string.Equals(kind.ArcGisType, itemType?.Trim(), StringComparison.OrdinalIgnoreCase))
+        // ADR-269: Pro adds a scene layer package as "Scene Package"; it is kept as the scene service it serves.
+        || string.Equals(itemType?.Trim(), Documents.ScenePackageType, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The <c>publish</c> file type for an ArcGIS item type a data file is added as, or null.</summary>
     internal static string? FileTypeOf(string? itemType) =>

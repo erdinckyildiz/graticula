@@ -84,7 +84,9 @@ public sealed class MapSdkSettingTests
 
         string policy = SecurityHeaders.ConsolePolicyFor(settings.MapSdkOrigin);
 
-        Assert.Contains("script-src 'self' https://js.arcgis.com;", policy, StringComparison.Ordinal);
+        Assert.Contains("script-src 'self' https://js.arcgis.com 'wasm-unsafe-eval';", policy, StringComparison.Ordinal);
+        // WebAssembly for the SDK's Draco decoder (ADR-269), and never script evaluation.
+        Assert.DoesNotContain("'unsafe-eval'", policy.Replace("'wasm-unsafe-eval'", "", StringComparison.Ordinal), StringComparison.Ordinal);
     }
 
     /// <summary>The origin is the origin, and a path in a policy source is not one.</summary>

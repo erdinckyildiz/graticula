@@ -771,7 +771,8 @@ internal static partial class PortalEndpoints
             // permanentDelete and deletes into it believing the item gone (the Python API warns and drops the flag).
             recycleBinSupported = true,
             recycleBinEnabled = true,
-            supportsSceneServices = false,
+            // ADR-269: a scene layer package is served as a SceneServer.
+            supportsSceneServices = true,
             supports3DTilesServices = false,
             supportsHostedNotebooks = false,
             featuredGroups = Array.Empty<object>(),
@@ -2615,14 +2616,17 @@ internal static partial class PortalEndpoints
             name = document.FileName,
             type = document.Kind.ArcGisType,
             // ADR-264: an app's or a link's own, which its client reads; a file's are what they always were.
-            typeKeywords = document.TypeKeywords ?? (Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
+            typeKeywords = document.TypeKeywords ?? (Documents.IsScenePackage(document.Kind)
+                ? new[] { "Hosted Service", "Scene", "Scene Service", "Scene Layer Package" }
+                : Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
             description = document.Description ?? document.Snippet,
             thumbnail = document.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = document.Snippet,
             tags = document.Tags ?? [],
             categories = Annotations(context).CategoriesOf(Guid.Parse(document.Id)),
             licenseInfo = Annotations(context).LicenseOf(Guid.Parse(document.Id)),
-            url = document.Url,
+            // ADR-269: a scene layer package is the scene service it serves, at its own address.
+            url = Documents.IsScenePackage(document.Kind) ? SceneServerEndpoints.AddressOf(context.Request, document.Id) : document.Url,
             access = Access(document.Sharing),
             @protected = document.DeleteProtected,
             spatialReference = (string?)null,
