@@ -450,6 +450,10 @@ public sealed class WebMapViewerTests : ConsoleTest
             // (asserted in A_layer_is_labelled_in_the_map_and_drawn_from_it).
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
             await WaitForAsync("typeof wmSendThumbnail === 'function' && !!wmMap.getSize()", "The Map Viewer did not open the map.");
+            // A map with no picture is given one when its manager opens it, and that send can take up to three seconds;
+            // it is let finish before the writes are counted, or it lands among this call's (CI, 2026-11-05).
+            await Browser.EvaluateAsync<bool>("(window.__opened = Date.now(), true)");
+            await WaitForAsync("wmState.meta.thumbnail || Date.now() - window.__opened > 3500", "The map's own picture never settled.");
             await Browser.EvaluateAsync<bool>($"(window.__writes = [], window.__thumb = null, wmSendThumbnail('{id}').then(r => window.__thumb = r), true)");
             await WaitForAsync("window.__thumb !== null", "Taking the map's picture never finished.");
             // It finishes even though this map holds a layer it cannot read, whose drawing never completes; and it
