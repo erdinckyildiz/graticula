@@ -103,12 +103,12 @@ public sealed class PhoneLayoutTests : ConsoleTest
                       return drawer.getAttribute('role') === 'dialog' && drawer.getAttribute('aria-modal') === 'true'
                         && drawer.contains(document.activeElement)
                         && document.getElementById('app').inert === true
-                        && words.join(',') === 'Content,Map,Groups,Organization'
+                        && words.join(',') === 'Content,Map,Scene,Groups,Organization'
                         && out.getClientRects().length > 0 && r.right <= window.innerWidth && r.bottom <= window.innerHeight
                         && getComputedStyle(drawer).visibility === 'visible';
                     })()
                     """),
-                "The open drawer is not a modal dialog holding Content, Map, Groups, Organization and a visible Sign out, "
+                "The open drawer is not a modal dialog holding Content, Map, Scene, Groups, Organization and a visible Sign out, "
                 + "with focus inside it and the page behind it inert.");
 
             await PressAsync("Escape", 27);
