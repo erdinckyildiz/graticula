@@ -28,6 +28,7 @@ internal static partial class AdminEndpoints
     {
         app.MapGet("/content/documents", ListDocumentsAsync);
         app.MapPost("/content/documents", CreateDocumentAsync).DisableAntiforgery();
+        MapScenes(app);
         app.MapGet("/content/documents/{id}", GetDocumentAsync);
         app.MapPut("/content/documents/{id}", UpdateDocumentAsync);
         app.MapDelete("/content/documents/{id}", DeleteDocumentAsync);
