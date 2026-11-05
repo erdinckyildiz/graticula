@@ -223,6 +223,77 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// A local scene is made, a feature layer projected into it, clipped to the view and saved; the web scene keeps its
+    /// type and its clip and opens again local and clipped. A WGS 84 scene layer is refused with the reason.
+    /// </summary>
+    [Fact]
+    public async Task A_local_scene_is_clipped_and_kept()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+        string? sceneLayer = null;
+
+        try
+        {
+            await DrawInSoftwareAsync();
+            await OpenAsync("/studio/scene.html", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The scene viewer did not open a new scene.");
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('sceneMode').disabled"), "A new scene could not choose its type.");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('sceneMode').value = 'local', document.getElementById('sceneMode').dispatchEvent(new Event('change')), true)");
+            await WaitForAsync("location.search === '?mode=local' && typeof scState !== 'undefined' && scState.opened === true", "Choosing Local did not start a local scene.");
+            Assert.Equal("local", await Browser.EvaluateAsync<string>("scState.view.viewingMode"));
+
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('sceneMode').disabled"), "The type could still change after a layer was added.");
+
+            // A WGS 84 scene layer: said, not left undrawn.
+            (int status, string made) = await AdminAsync(HttpMethod.Post, "/content/scenes",
+                """{"service":"ci_buildings","folder":"hosted","layer":0,"heightField":"floors","heightScale":3,"title":"zz console local refused"}""");
+            Assert.Equal(201, status);
+            sceneLayer = JsonDocument.Parse(made).RootElement.GetProperty("id").GetString();
+            await Browser.EvaluateAsync<bool>($"(document.getElementById('addUrl').value = {JsonSerializer.Serialize($"{Root}/rest/services/hosted/{sceneLayer}/SceneServer")}, document.getElementById('addUrlButton').click(), true)");
+            await WaitForAsync("/global scene only/.test(document.getElementById('addSaid').textContent)", "A WGS 84 scene layer was not refused with the reason in a local scene.");
+            Assert.Equal(1, await Browser.EvaluateAsync<int>("scState.scene.layers.length"));
+
+            await ClickAsync("#tab-ground");
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('clipPart').hidden"), "A local scene offered no clipping.");
+            await ClickAsync("#clipToView");
+            await WaitForAsync("!!scState.view.clippingArea && scState.scene.clippingEnabled === true", "Clip to the current view did not clip.");
+
+            id = await SaveAsAsync("zz console local scene");
+            JsonElement saved = await SavedSceneAsync(id);
+            Assert.Equal("local", saved.GetProperty("viewingMode").GetString());
+            Assert.True(saved.TryGetProperty("clippingArea", out JsonElement clip),
+                "The saved scene has no clippingArea; it has " + string.Join(", ", saved.EnumerateObject().Select(p => p.Name))
+                + (saved.TryGetProperty("initialState", out JsonElement state) ? "; initialState: " + state.ToString()[..System.Math.Min(600, state.ToString().Length)] : ""));
+            // The web scene specification's clippingArea: { clip, geometry }.
+            Assert.True(clip.TryGetProperty("clip", out JsonElement on) && on.GetBoolean(), "clippingArea was " + clip);
+            Assert.True(clip.GetProperty("geometry").TryGetProperty("xmin", out _), "clippingArea was " + clip);
+            (status, string item) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
+            Assert.Contains("ViewingMode-local", item);
+
+            await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The saved local scene did not open.");
+            Assert.Equal("local", await Browser.EvaluateAsync<string>("scState.view.viewingMode"));
+            Assert.True(await Browser.EvaluateAsync<bool>("!!scState.view.clippingArea"), "The reopened scene was not clipped.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+
+            if (sceneLayer is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{sceneLayer}");
+            }
+        }
+    }
+
     /// <summary>Every analysis tool opens its widget in the scene and closes again; the legend names a layer; the add list searches.</summary>
     [Fact]
     public async Task Every_analysis_tool_opens_and_the_legend_and_search_answer()

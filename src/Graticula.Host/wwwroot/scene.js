@@ -576,11 +576,18 @@ async function scAddUrl(url, title, itemId) {
     const hosted = /\/rest\/services\/hosted\/([0-9a-f]{32})\/SceneServer/i.exec(url);
     if (title) layer.title = title;
     else if (hosted) layer.title = (await scPortal(`/content/items/${hosted[1]}`).catch(() => ({}))).title || layer.title;
+    // I3S: a scene layer in a geographic system is for a global scene only, and the SDK would leave it undrawn in a local
+    // one without a word (ADR-270 §5.7) — so the reason is said instead.
+    if (scState.mode === "local" && ["scene", "building-scene", "point-cloud", "integrated-mesh", "voxel"].includes(layer.type)
+        && layer.spatialReference && layer.spatialReference.isGeographic) {
+      throw new Error(`${layer.title || "this scene layer"} is in a geographic system (WGS 84), which I3S shows in a global scene only. Make a global scene for it`);
+    }
     // A layer that carries its own heights is placed at them; a flat one is draped on the ground.
     if (layer.type === "feature" && layer.hasZ) layer.elevationInfo = { mode: "absolute-height" };
     scState.scene.add(layer);
     scMarkDirty();
     scDrawLayers();
+    scDrawMode();
     said.textContent = `${layer.title || "The layer"} was added.`;
     scSaySummary();
     scSay(`${layer.title || "The layer"} was added. ${sc$("status").textContent}`);
@@ -852,6 +859,48 @@ function scDrawGround() {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Global or local, and a local scene's clipping — ADR-270 §5.7.
+
+/** The scene type, which a new scene may still change (the page starts again in the other), and a local scene's clip. */
+function scDrawMode() {
+  const select = sc$("sceneMode");
+  select.value = scState.mode;
+  // Chosen when a scene is new and empty, as Scene Viewer asks it: a saved scene keeps its type.
+  const fresh = !scState.id && scState.scene.layers.length === 0;
+  select.disabled = !fresh;
+  sc$("sceneModeRow").hidden = !scCanEdit() || (!fresh && scState.mode === "global");
+  const local = scState.mode === "local";
+  sc$("clipPart").hidden = !local || !scCanEdit();
+  const clipped = local && scState.scene.clippingEnabled && scState.scene.clippingArea;
+  sc$("clipSays").textContent = clipped ? "The scene is clipped to an area." : "The scene is not clipped.";
+  sc$("clipNone").disabled = !clipped;
+}
+
+sc$("sceneMode").addEventListener("change", event => {
+  // A new view in the other mode: the page starts again, empty, as the type is chosen before anything is added.
+  location.search = event.target.value === "local" ? "?mode=local" : "";
+});
+
+sc$("clipToView").addEventListener("click", () => {
+  const area = scState.view.extent.clone();
+  scState.scene.clippingArea = area;
+  scState.scene.clippingEnabled = true;
+  scState.view.clippingArea = area;
+  scMarkDirty();
+  scDrawMode();
+  scSay("The scene is clipped to the current view.");
+});
+
+sc$("clipNone").addEventListener("click", () => {
+  scState.scene.clippingEnabled = false;
+  scState.view.clippingArea = null;
+  scMarkDirty();
+  scDrawMode();
+  scSay("The scene shows everything again.");
+  sc$("clipToView").focus();
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Slides: a camera and what was on, captured, renamed, reordered, removed and played — `presentation.slides`.
 
 function scSlides() {
@@ -1114,7 +1163,7 @@ async function scSave() {
       await scPortal(`/content/users/${owner}/items/${encodeURIComponent(scState.id)}/update`, { title, text });
     } else {
       const added = await scPortal(`/content/users/${encodeURIComponent(scState.user)}/addItem`,
-        { type: "Web Scene", title, text, tags: "scene", typeKeywords: "ViewingMode-global" });
+        { type: "Web Scene", title, text, tags: "scene", typeKeywords: `ViewingMode-${scState.mode}` });
       scState.id = added.id;
       scState.owner = scState.user;
       history.replaceState(null, "", `?id=${encodeURIComponent(added.id)}`);
@@ -1167,7 +1216,11 @@ async function scStart() {
     scState.scene = new WebScene({ portalItem: { id: scState.id, portal: { url: SC_PORTAL } } });
   } else {
     const basemap = self.defaultBasemap ? Basemap.fromJSON(self.defaultBasemap) : null;
-    scState.scene = new WebScene({ basemap, ground: {} });
+    // ADR-270 §5.7: a local scene is flat, in Web Mercator — the projection of every basemap this server offers, so the
+    // ground draws; feature layers are projected to it by the SDK. A global scene is the whole earth, as it was.
+    const local = scQuery.get("mode") === "local";
+    scState.scene = new WebScene({ basemap, ground: {},
+      initialViewProperties: local ? { viewingMode: "local", spatialReference: { wkid: 3857 } } : undefined });
   }
 
   try {
@@ -1196,7 +1249,10 @@ async function scStart() {
   sc$("addNotYours").hidden = scCanEdit();
   sc$("tab-add").hidden = !scState.user;
 
-  scState.view = new SceneView({ container: "viewDiv", map: scState.scene, qualityProfile: "medium" });
+  scState.mode = scState.scene.initialViewProperties.viewingMode === "local" ? "local" : "global";
+  scState.view = new SceneView({ container: "viewDiv", map: scState.scene, qualityProfile: "medium",
+    viewingMode: scState.mode,
+    clippingArea: scState.mode === "local" && scState.scene.clippingEnabled ? scState.scene.clippingArea : null });
   // A camera the reader moved is a change worth saving; one the view settled on its own — a resize, a phone's first
   // layout — is not (design review: a reopened scene read "Not saved" on a phone with nothing done).
   for (const kind of ["pointerdown", "wheel", "keydown"]) {
@@ -1221,6 +1277,7 @@ async function scStart() {
   scDrawSaved();
   scDrawBasemaps();
   scDrawGround();
+  scDrawMode();
   scDrawSlides();
   scSaySummary();
   if (scCanEdit()) { scSearchAdd(); scFillGroundChoices(); }

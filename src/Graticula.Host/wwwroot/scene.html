@@ -178,6 +178,7 @@
   #toolPanel { max-height: calc(100vh - 220px); overflow: auto; }
   #toolPanel .esri-widget { box-shadow: var(--float); }
 
+  h3.subhead { font-size: 12px; margin: 14px 0 2px; }
   #backContent { display: none; align-items: center; min-height: 36px; padding: 0 10px; color: var(--accent-ink); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -232,6 +233,14 @@
       <div id="sceneDetails" hidden>
         <label class="field" for="sceneTitle" id="sceneTitleField">Title</label>
         <input type="text" id="sceneTitle" maxlength="250" autocomplete="off" placeholder="Name this scene">
+        <!-- ADR-270 §5.7: global or local, chosen when a scene is new, as Scene Viewer asks it. -->
+        <div id="sceneModeRow">
+          <label class="field" for="sceneMode">Scene type</label>
+          <select id="sceneMode">
+            <option value="global">Global — the whole earth</option>
+            <option value="local">Local — a flat area, which can be clipped</option>
+          </select>
+        </div>
       </div>
       <div id="tabs" role="tablist" aria-label="Scene panel">
         <button type="button" role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true">Layers</button>
@@ -294,6 +303,12 @@
         <input type="range" id="groundOpacity" min="0" max="100" step="5" value="100">
         <label class="check"><input type="checkbox" id="groundUnder"> Let the camera go below the ground</label>
         <p class="hint">Lower the opacity to see what lies under the surface — pipes, basements, the bottom of a mesh.</p>
+        <div id="clipPart" hidden>
+          <h3 class="subhead">Clipping</h3>
+          <p class="hint" id="clipSays"></p>
+          <div class="row"><button type="button" id="clipToView">Clip to the current view</button>
+            <button type="button" id="clipNone">Show all</button></div>
+        </div>
         </div>
       </div>
 

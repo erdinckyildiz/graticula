@@ -72,6 +72,7 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 | A Scene Service item's data must be JSON | the SDK, adding a scene layer by its item, read the item's `data` and failed on the package's bytes: *Unexpected token 'P', "PK…" is not valid JSON* | measured 2026-11-05 |
 | Rebuild replaces the package in place | made from `ci_buildings`, rebuilt from Studio's page: *rebuilt with 8 buildings*, the item's `modified` later, its `SceneServer` still answering; a package without a source refused with 409 | `SceneLayerSourceTests.Rebuild_makes_the_scene_layer_again_in_place_from_studio`, `…A_package_not_made_here_has_no_source_to_rebuild_from` |
 | A building scene layer package is served and drawn | ArcGIS Pro's *Admin_Building_v18* — the building scene layer sample the I3S specification links to (Esri's item `3e6417f6544b422496a022f6e84aeaaa`, 31.7 MB, 22,129 entries, 37 sublayers), uploaded to a local fixture: the Maps SDK 4.29 loaded it as a `BuildingSceneLayer`, every sublayer document and node page answered 200, 52 Draco node geometries of its *Overview* sublayer were fetched, and once its view stopped updating (34 s in software WebGL) it held 509 features, drawn. The package has no licence stated and is not in this repository | measured 2026-11-06; `ScenePackagePathsTests` pins the paths |
+| A local scene keeps its type and its clip | made local, a feature layer projected into it, clipped to the view, saved: `viewingMode` `local`, `clippingArea.clip` true with an extent, the item's `ViewingMode-local`; reopened local and clipped; a WGS 84 scene layer refused with the reason | `SceneViewerToolsTests.A_local_scene_is_clipped_and_kept` |
 | ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
 
 ## 5. Decision
@@ -129,7 +130,14 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
    *(Measured for a building scene layer (§4). **Not measured** for integrated mesh and point cloud: the samples the
    specification links to are 286 MB and 578 MB, both over the document limit — D-386's open half — and too large to
    load beside the showcase on the machine the night ran on. Voxel: no sample found.)*
-7. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
+7. **A scene is global or local**, chosen while it is new and empty, as Scene Viewer asks it; a local scene is flat, in
+   Web Mercator — the projection of every basemap this server offers, so its ground draws, and feature layers are
+   projected to it by the SDK — and may be **clipped** to the current view or shown whole. The web scene keeps
+   `viewingMode` and `clippingArea` (`{ clip, geometry }`), and its item the `ViewingMode-local` keyword.
+   *(INFERRED: that local scenes are in the sentence. Not built: a local scene in another projected system, and
+   projected scene layers — the server writes I3S in WGS 84, which I3S shows in a global scene only, so a local scene
+   refuses such a layer and says why rather than leaving it undrawn.)*
+8. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
    *(Deferred.)*
 
