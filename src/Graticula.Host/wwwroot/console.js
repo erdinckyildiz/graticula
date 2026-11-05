@@ -8375,6 +8375,9 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
       ${!knownKind && may("content:publishFeatures") && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="analyzeOpen">Analyze…</button>` : ""}
+      ${!knownKind && may("content:create") && serviceLayers.some(l => l.geometryType === "esriGeometryPolygon")
+        // ADR-269: footprints extruded into a scene layer of the reader's own.
+        ? `<button type="button" id="createSceneOpen">Create scene layer…</button>` : ""}
       ${serviceOpenKind === "ImageServer" && manages
         // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
         // says the image was uploaded here, with the Download button.
@@ -34810,8 +34813,8 @@ const DOCUMENT_TYPES = new Set(["PDF", "Microsoft Word", "Microsoft Excel", "Mic
   // ADR-263, ADR-264: an export's file, and an app kept for the client that reads it.
   "Shapefile", "File Geodatabase", "GeoJson", "GeoPackage", "KML", "CSV Collection", "Feature Collection",
   "Dashboard", "Web Experience", "Web Mapping Application", "Form", "StoryMap", "Document Link",
-  // ADR-269: a web scene is kept as an app is, and opens in the scene viewer.
-  "Web Scene"]);
+  // ADR-269: a web scene is kept as an app is, and opens in the scene viewer; a scene layer package is the scene service.
+  "Web Scene", "Scene Service"]);
 
 /** The document whose item page is open, as the server last described it. */
 let docOpen = null;
@@ -34835,11 +34838,11 @@ const DOC_KINDS = {
   // ADR-264's review: a registered service is named as Studio names a layer, with where it is said beside it.
   featureservicelink: "Feature layer (by URL)", mapservicelink: "Map image layer (by URL)",
   vectortileservicelink: "Vector tile layer (by URL)", imageservicelink: "Imagery layer (by URL)", documentlink: "Document link",
-  webscene: "Web scene",
+  webscene: "Web scene", slpk: "Scene layer",
 };
 
 /** The few letters a document's tile carries, so a PDF and a workbook differ at a glance. */
-const docBadge = d => d.link ? "LINK" : d.kind === "webscene" ? "3D" : d.app ? "APP"
+const docBadge = d => d.link ? "LINK" : d.kind === "webscene" || d.kind === "slpk" ? "3D" : d.app ? "APP"
   : ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
 
 /** Where a link points, as its host — what a reader needs to tell two links apart (ADR-264). */
@@ -34976,6 +34979,8 @@ async function showDocumentItem(id) {
   // neither an app nor a link has a file of its own to replace.
   $("docActions").innerHTML = `
     ${doc.kind === "webscene" ? `<a class="btn primary" id="docOpenScene" href="/studio/scene.html?id=${encodeURIComponent(doc.id)}">Open in Scene Viewer</a>` : ""}
+    ${doc.kind === "slpk" && doc.url ? `<a class="btn primary" id="docOpenScene"
+      href="/studio/scene.html?layer=${encodeURIComponent(doc.url)}&title=${encodeURIComponent(doc.title || "")}">Open in Scene Viewer</a>` : ""}
     ${doc.url ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
@@ -35910,6 +35915,89 @@ const VIEW_ALLOWS = {
     capabilities: ["Create"] },
 };
 
+// ---------------------------------------------------------------- scene layers (ADR-269)
+
+/** The polygon layers a scene layer can be made from, as the service document lists them. */
+const scenePolygons = () => serviceLayers.filter(one => one.geometryType === "esriGeometryPolygon");
+
+function openCreateScene() {
+  const item = serviceItem;
+  const polygons = scenePolygons();
+  if (!item || polygons.length === 0) return;
+
+  $("createSceneBody").innerHTML = `
+    <p class="hint">Each footprint becomes a building, raised by a height you choose. The scene layer is a copy made now:
+      edits to <b>${h(item.bare)}</b> reach it when you create it again.</p>
+    ${polygons.length > 1 ? `<div class="stacked"><label for="csLayer">Layer</label>
+      <select id="csLayer">${polygons.map(one => `<option value="${one.id}">${h(one.shown || one.name || `layer ${one.id}`)}</option>`).join("")}</select></div>` : ""}
+    <div class="stacked"><label for="csHeight">Height</label>
+      <select id="csHeight" aria-describedby="csHeightHint"><option value="">Flat — no height</option></select>
+      <span class="hint" id="csHeightHint">A number field. Only number fields are listed.</span></div>
+    <div class="stacked"><label for="csScale">Metres per unit</label>
+      <input type="number" id="csScale" min="0.01" max="1000" step="any" value="1" aria-describedby="csScaleHint">
+      <span class="hint" id="csScaleHint">1 when the field is in metres; 3 when it counts floors.</span></div>
+    <div class="stacked"><label for="csTitle">Title</label>
+      <input type="text" id="csTitle" maxlength="250" value="${h(`${item.bare} (3D)`)}" autocomplete="off"></div>`;
+  $("createSceneFoot").innerHTML = `<p class="hint fill" id="createSceneSays" role="status" aria-live="polite"></p>
+    <button type="button" class="ghost" id="createSceneCancel">Cancel</button>
+    <button type="button" class="primary" id="createSceneGo">Create scene layer</button>`;
+  $("createScene").showModal();
+  $("csLayer")?.addEventListener("change", offerSceneHeights);
+  offerSceneHeights();
+  ($("csLayer") || $("csHeight")).focus();
+}
+
+/** The chosen layer's number fields, as the height to raise its footprints by; one that sounds like a height first. */
+async function offerSceneHeights() {
+  const select = $("csHeight");
+  if (!select || !serviceOpen) return;
+  const layerId = $("csLayer")?.value ?? scenePolygons()[0]?.id;
+  try {
+    const doc = await api(`/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+      + `/FeatureServer/${encodeURIComponent(String(layerId))}?f=json`);
+    const numbers = (doc.fields || []).filter(f => /Integer|SmallInteger|Double|Single|BigInteger/.test(f.type || "")
+      && !/OID/.test(f.type || ""));
+    const likely = numbers.find(f => /height|yukseklik|yükseklik|floors|kat/i.test(f.name));
+    select.innerHTML = `<option value="">Flat — no height</option>` + numbers.map(f =>
+      `<option value="${h(f.name)}"${f === likely ? " selected" : ""}>${h(f.alias || f.name)}</option>`).join("");
+    if (likely && /floors|kat/i.test(likely.name)) $("csScale").value = "3";
+  } catch {
+    select.innerHTML = `<option value="">Flat — no height</option>`;
+  }
+}
+
+async function createScene() {
+  const says = $("createSceneSays");
+  const title = ($("csTitle")?.value || "").trim();
+  const scale = Number($("csScale")?.value);
+  if (!title) { says.textContent = "Give the scene layer a title."; $("csTitle").focus(); return; }
+  if (!(scale > 0 && scale <= 1000)) { says.textContent = "Metres per unit is a number above 0, at most 1000."; $("csScale").focus(); return; }
+
+  const go = $("createSceneGo");
+  go.disabled = true;
+  says.textContent = "Creating the scene layer…";
+  try {
+    const parts = serviceOpen.qualified.split("/");
+    const bare = parts.pop();
+    const made = await api("/content/scenes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service: bare, folder: parts.join("/"), layer: Number($("csLayer")?.value ?? scenePolygons()[0].id),
+        heightField: $("csHeight").value || null, heightScale: scale, title,
+      }),
+    });
+    const open = `/studio/scene.html?layer=${encodeURIComponent(made.url)}&title=${encodeURIComponent(made.title)}`;
+    says.innerHTML = `“${h(made.title)}” was created with ${Number(made.buildings).toLocaleString()} buildings.
+      <a href="${h(open)}" id="createSceneOpenViewer">Open in Scene Viewer</a>`;
+    $("createSceneOpenViewer")?.focus();
+  } catch (e) {
+    says.textContent = `Not created: ${e.message}`;
+  } finally {
+    go.disabled = false;
+  }
+}
+
 function openCreateView() {
   const item = serviceItem;
   const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")
@@ -36058,6 +36146,9 @@ document.addEventListener("click", e => {
   const t = e.target instanceof Element ? e.target.closest("button") : null;
   if (!t) return;
   if (t.id === "createViewOpen") { $("createViewTitle").textContent = "Create view"; openCreateView(); return; }
+  if (t.id === "createSceneOpen") { t.closest("details")?.removeAttribute("open"); openCreateScene(); return; }
+  if (t.id === "createSceneGo") { createScene(); return; }
+  if (t.id === "createSceneClose" || t.id === "createSceneCancel") { $("createScene").close(); return; }
   if (t.id === "createViewGo") { createView(); return; }
   if (t.dataset.viewFilter !== undefined) {
     openViewFilter(t.dataset.viewFilter, t.dataset.viewFilterText || "", t.dataset.viewFilterName || "");

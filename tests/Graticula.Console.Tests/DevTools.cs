@@ -143,6 +143,11 @@ public sealed class DevTools : IAsyncDisposable
         {
             "--headless=new",
             "--disable-gpu",
+
+            // <b>WebGL in software — ADR-269, 2026-11-05.</b> With the GPU off, Chrome gives a page WebGL only through
+            // SwiftShader and, since version 125, only when asked: the scene viewer's SceneView never became ready, and
+            // its tests waited on a page that could not draw. Nothing 2D uses WebGL here (OpenLayers draws on canvas).
+            "--enable-unsafe-swiftshader",
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-extensions",

@@ -156,11 +156,19 @@ async function scAddUrl(url, title) {
     scMarkDirty();
     scDrawLayers();
     said.textContent = `${layer.title || "The layer"} was added.`;
-    if (layer.fullExtent) scState.view.goTo(layer.fullExtent).catch(() => {});
+    scSaySummary();
+    // Framed at an angle: a scene seen from straight above looks like a map (design: the point of a scene is height).
+    if (layer.fullExtent) scState.view.goTo({ target: layer.fullExtent, tilt: 55 }).catch(() => {});
   } catch (e) {
     said.className = "said bad";
     said.textContent = `Not added: ${e.message || "the service could not be read"}.`;
   }
+}
+
+/** The header's line about the scene as it now is: whether it is new, and how many layers it has. */
+function scSaySummary() {
+  const count = scState.scene.layers.length;
+  scSay(`${scState.id ? "" : "A new scene. "}${count === 0 ? "No layers" : count === 1 ? "1 layer" : `${count} layers`}.`);
 }
 
 sc$("addUrlButton").addEventListener("click", () => {
@@ -345,15 +353,30 @@ async function scStart() {
       // A camera moved by the reader is a change worth saving, once the scene has finished opening.
       if (stationary && scState.opened && scState.manages && scState.user) scMarkDirty();
     });
-    await scState.view.when();
+    try {
+      await scState.view.when();
+    } catch (e) {
+      // A browser without WebGL cannot draw a scene at all; said, rather than left on "Loading" (ADR-269).
+      scSay(`This browser cannot draw a 3D scene: ${e.message || "WebGL is not available"}. The scene itself is unharmed.`, true);
+      return;
+    }
     await Promise.all(scState.scene.layers.toArray().map(l => l.load().catch(() => null)));
     scState.opened = true;
 
     scDrawLayers();
     scDrawSaved();
-    const count = scState.scene.layers.length;
-    scSay(`${item ? "" : "A new scene. "}${count === 0 ? "No layers" : count === 1 ? "1 layer" : `${count} layers`}.`);
+    scSaySummary();
     if (scState.user && scState.manages) scDrawAddList();
+
+    // ADR-269: opened from a scene layer's page (`?layer=`), a new scene starts with that layer, framed.
+    const start = scQuery.get("layer");
+    if (start && !scState.id) {
+      if (!sc$("sceneTitle").value) {
+        sc$("sceneTitle").value = scQuery.get("title") || "";
+        sc$("title").textContent = sc$("sceneTitle").value || "New scene";
+      }
+      await scAddUrl(start, scQuery.get("title") || "");
+    }
   }
 }
 
