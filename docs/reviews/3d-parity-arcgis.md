@@ -18,3 +18,7 @@ has, the table below lists what was built tonight and nothing is claimed to be a
 | Scene Viewer: analysis | measurement, line of sight, slice, shadow cast, daylight, weather, elevation profile | the same eight, the SDK's | Built | — |
 | Hosted scene layer from a feature layer | 3D object and point scene layers, with an associated feature layer | the same two profiles; `Service2Service` relationship; Rebuild | Built | — |
 | Scene layer cache | rebuild, and update of edited nodes | rebuild only | Partly built | — |
+| Levels of detail for generated buildings | simplified parents | the 512 largest as hull prisms per inner node | Built | — |
+| Hosting a building scene layer package | yes | served, drawn by the SDK (Esri's sample) | Built | — |
+| Hosting integrated mesh / point cloud packages | yes | the paths are served; unmeasured — samples exceed the 64 MB document limit | Owed (D-386) | — |
+| Hosting voxel packages | yes | stem lookup only; no sample | Unmeasured | — |

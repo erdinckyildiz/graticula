@@ -71,6 +71,7 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 | A scene layer made here is found by the Maps SDK as the associated layer of its feature layer | the SDK 4.29, given the scene layer by its item, asked `relatedItems?relationshipType=Service2Service&direction=reverse` of the scene layer's item (read from the server's request log), then loaded the feature layer as `associatedLayer`; with the relationship kept the other way it found none | `SceneLayerSourceTests.A_made_scene_layer_names_its_feature_layer_and_the_sdk_finds_it`, measured 2026-11-05 |
 | A Scene Service item's data must be JSON | the SDK, adding a scene layer by its item, read the item's `data` and failed on the package's bytes: *Unexpected token 'P', "PK…" is not valid JSON* | measured 2026-11-05 |
 | Rebuild replaces the package in place | made from `ci_buildings`, rebuilt from Studio's page: *rebuilt with 8 buildings*, the item's `modified` later, its `SceneServer` still answering; a package without a source refused with 409 | `SceneLayerSourceTests.Rebuild_makes_the_scene_layer_again_in_place_from_studio`, `…A_package_not_made_here_has_no_source_to_rebuild_from` |
+| A building scene layer package is served and drawn | ArcGIS Pro's *Admin_Building_v18* — the building scene layer sample the I3S specification links to (Esri's item `3e6417f6544b422496a022f6e84aeaaa`, 31.7 MB, 22,129 entries, 37 sublayers), uploaded to a local fixture: the Maps SDK 4.29 loaded it as a `BuildingSceneLayer`, every sublayer document and node page answered 200, 52 Draco node geometries of its *Overview* sublayer were fetched, and once its view stopped updating (34 s in software WebGL) it held 509 features, drawn. The package has no licence stated and is not in this repository | measured 2026-11-06; `ScenePackagePathsTests` pins the paths |
 | ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
 
 ## 5. Decision
@@ -119,7 +120,16 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
      (the layer's own `editingInfo`), and offers **Rebuild**.
    - A scene layer package's portal `data` is now `{}` — a Scene Service item's data is its layer's settings, and the
      SDK reads it as JSON — and the package downloads from the document's own address, as Studio's Download always did.
-5. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
+6. **Every scene layer profile a package carries is served by one path rule** — *(INFERRED: that "the same as
+   Enterprise" takes in hosting Pro's building, integrated mesh, point cloud and voxel packages, not generating them.)*
+   A building scene layer's sublayers are scene layers under `sublayers/{id}` — their documents, node pages, node
+   documents and shared resources at any depth — the layer answers at its document's own id as well as 0 (I3S says a
+   client must not assume a building layer's id is 0), and a resource stored under an extension the rule does not name
+   (a point cloud's `.bin.pccxyz`, a voxel layer's) is found by its path without one.
+   *(Measured for a building scene layer (§4). **Not measured** for integrated mesh and point cloud: the samples the
+   specification links to are 286 MB and 578 MB, both over the document limit — D-386's open half — and too large to
+   load beside the showcase on the machine the night ran on. Voxel: no sample found.)*
+7. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
    *(Deferred.)*
 

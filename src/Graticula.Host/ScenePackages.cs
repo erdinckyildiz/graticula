@@ -218,6 +218,34 @@ internal sealed class ScenePackages
             return null;
         }
 
+        private Dictionary<string, string>? _stems;
+
+        /// <summary>
+        /// The entry whose path, without its last segment's extension, is <paramref name="stem"/> — a resource a profile
+        /// stores under an extension of its own (a point cloud's <c>.bin.pccxyz</c>, a voxel layer's), which the named
+        /// candidates do not list (ADR-270 §5.6). The first such entry in the directory.
+        /// </summary>
+        public string? FindStem(string stem)
+        {
+            if (_stems is null)
+            {
+                Dictionary<string, string> stems = new(StringComparer.Ordinal);
+                foreach (string name in Entries.Keys)
+                {
+                    int slash = name.LastIndexOf('/');
+                    int dot = name.IndexOf('.', slash + 1);
+                    if (dot > slash + 1)
+                    {
+                        stems.TryAdd(name[..dot], name);
+                    }
+                }
+
+                _stems = stems;
+            }
+
+            return _stems.TryGetValue(stem.ToLowerInvariant(), out string? found) ? found : null;
+        }
+
         /// <summary>An entry's stored bytes as they are in the zip after inflating a deflated one — a .gz is still gzip.</summary>
         public async Task<byte[]> ReadAsync(string name, CancellationToken cancellation)
         {

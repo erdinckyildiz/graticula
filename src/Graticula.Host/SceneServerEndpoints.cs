@@ -114,7 +114,7 @@ internal static class SceneServerEndpoints
             return Results.Json(new { error = new { code = 500, message = "The package has no layer document (3dSceneLayer.json.gz).", details = Array.Empty<string>() } }, statusCode: 500);
         }
 
-        layer["href"] = "./layers/0";
+        layer["href"] = $"./layers/{LayerId(layer)}";
         JsonObject service = new()
         {
             ["serviceItemId"] = document!.Id,
@@ -145,7 +145,7 @@ internal static class SceneServerEndpoints
             return NotFound();
         }
 
-        layer["href"] = "./0";
+        layer["href"] = $"./{LayerId(layer)}";
         return Results.Text(new JsonObject { ["layers"] = new JsonArray(layer) }.ToJsonString(), "application/json; charset=utf-8");
     }
 
@@ -157,9 +157,20 @@ internal static class SceneServerEndpoints
             return refusal;
         }
 
-        string? name = layer == 0 ? package!.Find("3dscenelayer.json.gz", "3dscenelayer.json") : null;
+        string? name = await IsTheLayerAsync(package!, layer, cancellation).ConfigureAwait(false)
+            ? package!.Find("3dscenelayer.json.gz", "3dscenelayer.json") : null;
         return name is null ? NotFound() : await EntryAsync(context, package!, name, cancellation).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The layer document's own id. I3S says a client must not assume a building scene layer's is 0 (its *layer.bld*),
+    /// and the service answers at the id the document gives; 0 is also answered, as it always was.
+    /// </summary>
+    private static int LayerId(JsonObject layer) =>
+        layer["id"] is JsonValue id && id.TryGetValue(out int value) ? value : 0;
+
+    private static async Task<bool> IsTheLayerAsync(ScenePackages.Package package, int layer, CancellationToken cancellation) =>
+        layer == 0 || (await LayerDocumentAsync(package, cancellation).ConfigureAwait(false) is { } document && LayerId(document) == layer);
 
     private static async Task<IResult> ResourceAsync(HttpContext context, string id, int layer, string path, CancellationToken cancellation)
     {
@@ -170,22 +181,44 @@ internal static class SceneServerEndpoints
         }
 
         string below = (path ?? string.Empty).Trim('/');
-        if (layer != 0 || below.Length == 0 || below.Contains("..", StringComparison.Ordinal))
+        if (below.Length == 0 || below.Contains("..", StringComparison.Ordinal)
+            || !await IsTheLayerAsync(package!, layer, cancellation).ConfigureAwait(false))
         {
             return NotFound();
         }
 
-        string[] parts = below.Split('/');
-
-        // The legacy 1.6 node document is nodes/{id} itself; every other resource is its path plus an extension.
-        string? name = parts.Length == 2 && parts[0].Equals("nodes", StringComparison.OrdinalIgnoreCase)
-            ? package!.Find($"{below}/3dnodeindexdocument.json.gz", $"{below}/3dnodeindexdocument.json")
-            : parts.Length == 3 && parts[0].Equals("nodes", StringComparison.OrdinalIgnoreCase) && parts[2].Equals("shared", StringComparison.OrdinalIgnoreCase)
-                ? package!.Find($"{below}/sharedresource.json.gz", $"{below}/sharedresource.json")
-                : package!.Find($"{below}.json.gz", $"{below}.bin.gz", $"{below}.json", $"{below}.bin", $"{below}.jpg", $"{below}.png",
-                    $"{below}.bin.dds.gz", $"{below}.bin.dds", $"{below}.ktx2", $"{below}.ktx", $"{below}.glb.gz", below);
+        string? name = EntryFor(below, package!.Find, package!.FindStem);
 
         return name is null ? NotFound() : await EntryAsync(context, package!, name, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The package entry an I3S REST path below <c>layers/{id}</c> names, or null — one rule for every profile.
+    /// </summary>
+    /// <remarks>
+    /// A building scene layer's sublayer is its own scene layer under <c>sublayers/{id}</c> (I3S layer.bld, ADR-270 §5.6):
+    /// its document is <c>sublayers/{id}/3dSceneLayer.json</c>, and its resources follow the same rules below it. The
+    /// legacy 1.6 node document is <c>nodes/{id}</c> itself, and a node's shared resource <c>nodes/{id}/shared</c>, at any
+    /// depth; every other resource is its path plus an extension — one of those named, or failing them, any (a point
+    /// cloud's <c>.bin.pccxyz</c>, a voxel layer's).
+    /// </remarks>
+    /// <param name="below">The path below the layer, without leading or trailing slashes.</param>
+    /// <param name="find">The package's lookup of exact names, first found wins.</param>
+    /// <param name="stem">The package's lookup by a path without its extension.</param>
+    internal static string? EntryFor(string below, Func<string[], string?> find, Func<string, string?> stem)
+    {
+        string[] parts = below.Split('/');
+        int n = parts.Length;
+
+        return n == 2 && parts[0].Equals("sublayers", StringComparison.OrdinalIgnoreCase)
+            ? find([$"{below}/3dscenelayer.json.gz", $"{below}/3dscenelayer.json"])
+            : n >= 2 && parts[n - 2].Equals("nodes", StringComparison.OrdinalIgnoreCase)
+                ? find([$"{below}/3dnodeindexdocument.json.gz", $"{below}/3dnodeindexdocument.json"])
+                : n >= 3 && parts[n - 3].Equals("nodes", StringComparison.OrdinalIgnoreCase) && parts[n - 1].Equals("shared", StringComparison.OrdinalIgnoreCase)
+                    ? find([$"{below}/sharedresource.json.gz", $"{below}/sharedresource.json"])
+                    : find([$"{below}.json.gz", $"{below}.bin.gz", $"{below}.json", $"{below}.bin", $"{below}.jpg", $"{below}.png",
+                        $"{below}.bin.dds.gz", $"{below}.bin.dds", $"{below}.ktx2", $"{below}.ktx", $"{below}.glb.gz", below])
+                      ?? stem(below);
     }
 
     /// <summary>One entry, as the client can take it: a gzipped one sent as it is when gzip is accepted.</summary>
