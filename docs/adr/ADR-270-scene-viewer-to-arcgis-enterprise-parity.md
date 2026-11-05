@@ -74,6 +74,7 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 | A building scene layer package is served and drawn | ArcGIS Pro's *Admin_Building_v18* — the building scene layer sample the I3S specification links to (Esri's item `3e6417f6544b422496a022f6e84aeaaa`, 31.7 MB, 22,129 entries, 37 sublayers), uploaded to a local fixture: the Maps SDK 4.29 loaded it as a `BuildingSceneLayer`, every sublayer document and node page answered 200, 52 Draco node geometries of its *Overview* sublayer were fetched, and once its view stopped updating (34 s in software WebGL) it held 509 features, drawn. The package has no licence stated and is not in this repository | measured 2026-11-06; `ScenePackagePathsTests` pins the paths |
 | A local scene keeps its type and its clip | made local, a feature layer projected into it, clipped to the view, saved: `viewingMode` `local`, `clippingArea.clip` true with an extent, the item's `ViewingMode-local`; reopened local and clipped; a WGS 84 scene layer refused with the reason | `SceneViewerToolsTests.A_local_scene_is_clipped_and_kept` |
 | Only an elevation surface is offered as the ground, and it is kept | the fixture's `ci_imagery` not offered; made a surface, offered, chosen, saved as an `ArcGISTiledElevationServiceLayer` naming it | `SceneViewerToolsTests.An_elevation_surface_is_offered_as_the_ground_and_kept` |
+| A layer's range and filter, a slide's description, a duplicate and `#n`, and Time are kept or offered | `minScale` 144448 and `definitionExpression` `floors >= 0` in the saved layer; a refused filter said and not kept; a description and a `(copy)` slide saved; `#2` opened at the second slide; Time offered only with `ci_observations` and opened | `SceneViewerToolsTests.Ranges_filters_slide_descriptions_and_the_time_tool_are_kept` |
 | ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
 
 ## 5. Decision
@@ -145,7 +146,17 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
    `ArcGISTiledElevationServiceLayer`. Enterprise builds an elevation layer's tile cache ahead; this server draws each
    tile on request — a difference of cost, not of what a client sees. *(INFERRED: that this is the comparison the night
    asked for — §6's task — and that building a cache ahead is not needed for parity.)*
-9. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
+9. **What the comparison with ArcGIS Online found missing, and was cheap** ([3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md)):
+   a layer's **visible range**, from Scene Viewer's named scales, and a feature layer's **filter**, tried against the
+   layer before it is kept so a condition it refuses is said; a slide's **description**, **Duplicate**, and Scene
+   Viewer's **`#n` address** of a slide; **Time**, offered while a time-aware layer is in the scene, and **Building
+   explorer**, while a building scene layer is.
+10. **Location, Search and drawing quality** — the SDK's coordinate widget; its search widget over the scene's own feature
+    layers, with no geocoder (this server has none); and the reader's quality, kept in their browser, not the scene.
+    *(INFERRED, as §5.1–5.9: that these are in the sentence. What the comparison left to the owner — an SDK upgrade for
+    volume, viewshed and dimensions; 3D tiles; editing in the scene; partial and scheduled rebuilds; where packages above
+    the document limit live — is listed at the end of the comparison with a recommendation each.)*
+11. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
    *(Deferred.)*
 
@@ -181,7 +192,9 @@ viewer authors lives in the web scene item ADR-269 keeps.
 2. **A web scene authored here — a styled layer, a pop-up, slides — opens in Pro as it was authored.** Owed by the owner:
    it needs the desktop.
 3. **The parity with ArcGIS Online and Enterprise is written down**, item by item, with what is built, what is not and
-   why, in [3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md). *(Open.)*
+   why, in [3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md). *(Discharged 2026-11-06: written from ArcGIS Online's
+   pages and Enterprise 11.4's Scene Viewer page, every row cited; the gaps it found are each built, owed, or listed for
+   the owner with a recommendation.)*
 
 ## 10. Revisit triggers
 

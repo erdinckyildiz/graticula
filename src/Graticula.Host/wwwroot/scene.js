@@ -236,8 +236,55 @@ function scLayerDetail(layer) {
     }
     html += `<h3>Pop-ups</h3><div data-part="popup"></div>`;
   }
+  html += scVisibilityForm(layer);
   return html + `</div>`;
 }
+
+// --- visibility: a scale range, and a filter (ADR-270 §5.9) -------------------------------------------------------------
+
+/** Scene Viewer's named scales, as the visible range is chosen from them. 0 is no limit. */
+const SC_SCALES = [[0, "No limit"], [147914382, "World"], [36978595, "Continent"], [9244649, "Country"],
+  [2311162, "State"], [577791, "County"], [144448, "City"], [36112, "Town"], [9028, "Neighbourhood"],
+  [2257, "Street"], [564, "Building"]];
+
+function scVisibilityForm(layer) {
+  const id = scEscape(layer.id);
+  const scales = (value, label, key) => `<label class="field" for="${key}-${id}">${label}</label>
+    <select id="${key}-${id}" data-vis="${key}">${SC_SCALES.map(([v, t]) =>
+      `<option value="${v}" ${Number(value || 0) === v ? "selected" : ""}>${scEscape(t)}${v ? ` (1:${v.toLocaleString("en-GB")})` : ""}</option>`).join("")}</select>`;
+  const custom = v => v && !SC_SCALES.some(([s]) => s === Number(v));
+  return `<h3>Visibility</h3>
+    ${custom(layer.minScale) || custom(layer.maxScale) ? `<p class="hint">This layer's range was set elsewhere (1:${Math.round(layer.minScale || 0)} to 1:${Math.round(layer.maxScale || 0)}); choosing here replaces it.</p>` : ""}
+    ${scales(layer.minScale, "Shown when zoomed in beyond", "minScale")}
+    ${scales(layer.maxScale, "Hidden when zoomed in beyond", "maxScale")}
+    ${layer.type === "feature" ? `<label class="field" for="flt-${id}">Filter — which features are shown</label>
+      <input type="text" id="flt-${id}" data-vis="filter" value="${scEscape(layer.definitionExpression || "")}" placeholder="e.g. floors >= 5" autocomplete="off">
+      <p class="hint">A condition on the layer's fields, as a query's <code>where</code> is written. Empty shows every feature.</p>` : ""}`;
+}
+
+sc$("layerList").addEventListener("change", async event => {
+  const key = event.target.dataset.vis;
+  if (!key) return;
+  const layer = scLayerOf(event.target);
+  if (!layer) return;
+  if (key === "minScale" || key === "maxScale") {
+    layer[key] = Number(event.target.value);
+    scMarkDirty();
+    scSay(`The visible range of ${layer.title || "the layer"} was set.`);
+    return;
+  }
+  // A filter is tried before it is kept: one the layer refuses is said, and the layer keeps the one it had.
+  const where = event.target.value.trim();
+  try {
+    if (where) await layer.queryFeatureCount({ where });
+    layer.definitionExpression = where || null;
+    scMarkDirty();
+    scSay(where ? `${layer.title || "The layer"} shows only features where ${where}.` : `${layer.title || "The layer"} shows every feature.`);
+  } catch (e) {
+    event.target.value = layer.definitionExpression || "";
+    scSay(`That filter was not accepted: ${(e.details && e.details.messages && e.details.messages[0]) || e.message}`, true);
+  }
+});
 
 /** Fills each open layer's style and pop-up parts, which need the layer's fields and current renderer. */
 function scFillLayerDetails() {
@@ -844,6 +891,13 @@ sc$("groundOpacity").addEventListener("input", event => {
   scMarkDirty();
 });
 
+// Scene Viewer's quality setting: this reader's, kept in this browser, not in the scene (ADR-270 §5.10).
+sc$("sceneQuality").addEventListener("change", event => {
+  scState.view.qualityProfile = event.target.value;
+  try { localStorage.setItem("graticula-scene-quality", event.target.value); } catch { /* private mode */ }
+  scSay(`Drawing quality is ${event.target.value}.`);
+});
+
 sc$("groundUnder").addEventListener("change", event => {
   // Below the ground only when asked: Scene Viewer's own default keeps the camera above it.
   scState.scene.ground.navigationConstraint = { type: event.target.checked ? "none" : "stay-above" };
@@ -927,12 +981,16 @@ function scDrawSlides() {
       <li data-slide="${scEscape(slide.id)}" class="${scState.currentSlide === slide.id ? "current" : ""}">
         <button type="button" class="noimg" data-act="go" aria-label="Go to ${scEscape(slide.title.text || `slide ${at + 1}`)}">${
           slide.thumbnail && slide.thumbnail.url ? `<img src="${scEscape(slide.thumbnail.url)}" alt="">` : ""}</button>
-        ${edit ? `<input type="text" data-act="rename" value="${scEscape(slide.title.text || "")}" aria-label="Title of slide ${at + 1}" maxlength="120">`
-          : `<button type="button" class="linkish" data-act="go">${scEscape(slide.title.text || `Slide ${at + 1}`)}</button>`}
+        ${edit ? `<input type="text" data-act="rename" value="${scEscape(slide.title.text || "")}" aria-label="Title of slide ${at + 1}" maxlength="120">
+          <textarea data-act="describe" rows="2" maxlength="1000" placeholder="Description (optional)" aria-label="Description of slide ${at + 1}"
+            style="grid-column:2">${scEscape((slide.description && slide.description.text) || "")}</textarea>`
+          : `<button type="button" class="linkish" data-act="go">${scEscape(slide.title.text || `Slide ${at + 1}`)}</button>${
+            slide.description && slide.description.text ? `<p class="hint" style="grid-column:2;margin:0">${scEscape(slide.description.text)}</p>` : ""}`}
         ${edit ? `<div class="row">
           <button type="button" class="tiny" data-act="up" ${at === 0 ? "disabled" : ""} aria-label="Move slide ${at + 1} earlier">▲</button>
           <button type="button" class="tiny" data-act="down" ${at === slides.length - 1 ? "disabled" : ""} aria-label="Move slide ${at + 1} later">▼</button>
           <button type="button" class="tiny" data-act="update" aria-label="Update slide ${at + 1} to the current view">Update</button>
+          <button type="button" class="tiny" data-act="duplicate" aria-label="Duplicate slide ${at + 1}">Duplicate</button>
           <button type="button" class="tiny danger" data-act="delete" aria-label="Delete slide ${at + 1}">Delete</button>
         </div>` : ""}
       </li>`).join("");
@@ -988,6 +1046,16 @@ sc$("slideList").addEventListener("click", async event => {
     scMarkDirty();
     scDrawSlides();
     scSay(`${slide.title.text || "The slide"} now keeps the current view.`);
+  } else if (act === "duplicate") {
+    // A copy of its own, placed after it — Scene Viewer's Duplicate slide.
+    const copy = slide.clone();
+    copy.id = `slide_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    copy.title.text = `${slide.title.text || "Slide"} (copy)`;
+    slides.add(copy, slides.indexOf(slide) + 1);
+    scMarkDirty();
+    scDrawSlides();
+    scSay(`${copy.title.text} was made.`);
+    sc$("slideList").querySelector(`[data-slide="${CSS.escape(copy.id)}"] [data-act=rename]`)?.focus();
   } else if (act === "delete") {
     slides.remove(slide);
     scMarkDirty();
@@ -998,10 +1066,12 @@ sc$("slideList").addEventListener("click", async event => {
 });
 
 sc$("slideList").addEventListener("change", event => {
-  if (event.target.dataset.act !== "rename") return;
+  const act = event.target.dataset.act;
+  if (act !== "rename" && act !== "describe") return;
   const slide = scSlides().find(s => s.id === event.target.closest("[data-slide]").dataset.slide);
   if (!slide) return;
-  slide.title.text = event.target.value.trim() || slide.title.text;
+  if (act === "rename") slide.title.text = event.target.value.trim() || slide.title.text;
+  else slide.description = { text: event.target.value.trim() };
   scMarkDirty();
 });
 
@@ -1048,7 +1118,26 @@ const SC_TOOLS = [
   { key: "daylight", label: "Daylight", module: "esri/widgets/Daylight" },
   { key: "weather", label: "Weather", module: "esri/widgets/Weather" },
   { key: "profile", label: "Elevation profile", module: "esri/widgets/ElevationProfile" },
+  // Scene Viewer's Location and feature search (ADR-270 §5.10): the SDK's coordinate widget, and its search widget over the
+  // scene's own feature layers — no geocoder, which this server does not have.
+  { key: "location", label: "Location", module: "esri/widgets/CoordinateConversion" },
+  { key: "search", label: "Search", module: "esri/widgets/Search", when: l => l.type === "feature" },
+  // Offered only when the scene has a layer they work on (scDrawConditionalTools).
+  { key: "building", label: "Building explorer", module: "esri/widgets/BuildingExplorer", when: l => l.type === "building-scene" },
+  { key: "time", label: "Time", module: "esri/widgets/TimeSlider", when: l => !!(l.timeInfo && l.timeInfo.fullTimeExtent) },
 ];
+
+/** Shows a conditional tool's button only while a layer it works on is in the scene, closing it when the last goes. */
+function scDrawConditionalTools() {
+  const layers = scState.scene ? scState.scene.layers.toArray() : [];
+  for (const tool of SC_TOOLS.filter(t => t.when)) {
+    const button = document.querySelector(`#tools [data-tool=${tool.key}]`);
+    if (!button) continue;
+    const offered = layers.some(tool.when);
+    button.hidden = !offered;
+    if (!offered && scState.tool === tool.key) scToggleTool(tool.key);
+  }
+}
 
 function scDrawToolbar() {
   const bar = document.createElement("div");
@@ -1114,6 +1203,28 @@ async function scToggleTool(key) {
     const options = { view: scState.view, container };
     if (key === "profile") {
       options.profiles = [{ type: "ground" }, { type: "input" }];
+    }
+    if (key === "search") {
+      const searchable = scState.scene.layers.filter(l => l.type === "feature");
+      options.includeDefaultSources = false;
+      options.sources = searchable.map(layer => {
+        const text = (layer.fields || []).filter(f => f.type === "string").map(f => f.name);
+        return { layer, searchFields: text.length ? text : [layer.displayField || layer.objectIdField],
+          displayField: layer.displayField || text[0] || layer.objectIdField, exactMatch: false, outFields: ["*"],
+          name: layer.title, placeholder: `Search ${layer.title || "the layer"}` };
+      }).toArray();
+    }
+    if (key === "building") {
+      options.layers = scState.scene.layers.filter(l => l.type === "building-scene");
+    }
+    if (key === "time") {
+      // The extent of every time-aware layer, stepped as the first one's own interval would be.
+      const timed = scState.scene.layers.filter(l => l.timeInfo && l.timeInfo.fullTimeExtent);
+      const start = Math.min(...timed.map(l => l.timeInfo.fullTimeExtent.start.getTime()));
+      const end = Math.max(...timed.map(l => l.timeInfo.fullTimeExtent.end.getTime()));
+      options.fullTimeExtent = { start: new Date(start), end: new Date(end) };
+      options.timeVisible = true;
+      options.mode = "time-window";
     }
     const close = document.createElement("button");
     close.type = "button";
@@ -1257,7 +1368,9 @@ async function scStart() {
   sc$("tab-add").hidden = !scState.user;
 
   scState.mode = scState.scene.initialViewProperties.viewingMode === "local" ? "local" : "global";
-  scState.view = new SceneView({ container: "viewDiv", map: scState.scene, qualityProfile: "medium",
+  const quality = (() => { try { return localStorage.getItem("graticula-scene-quality"); } catch { return null; } })();
+  sc$("sceneQuality").value = ["low", "medium", "high"].includes(quality) ? quality : "medium";
+  scState.view = new SceneView({ container: "viewDiv", map: scState.scene, qualityProfile: sc$("sceneQuality").value,
     viewingMode: scState.mode,
     clippingArea: scState.mode === "local" && scState.scene.clippingEnabled ? scState.scene.clippingArea : null });
   // A camera the reader moved is a change worth saving; one the view settled on its own — a resize, a phone's first
@@ -1277,6 +1390,7 @@ async function scStart() {
   }
   await Promise.all(scState.scene.layers.toArray().map(l => l.load().catch(() => null)));
   scDrawToolbar();
+  scDrawConditionalTools();
   await scLoadGallery(self);
   scState.opened = true;
 
@@ -1289,7 +1403,7 @@ async function scStart() {
   scSaySummary();
   if (scCanEdit()) { scSearchAdd(); scFillGroundChoices(); }
   // A layer's look or a slide applied elsewhere changes what the panel says; a removed layer leaves the list.
-  scState.scene.layers.on("change", () => { if (scState.opened) scDrawLayers(); });
+  scState.scene.layers.on("change", () => { if (scState.opened) { scDrawLayers(); scDrawConditionalTools(); } });
   scState.scene.watch("basemap", () => scDrawBasemaps());
 
   // ADR-269: opened from a scene layer's page (`?layer=`), a new scene starts with that layer, framed.
@@ -1302,6 +1416,11 @@ async function scStart() {
     const own = /\/rest\/services\/hosted\/([0-9a-f]{32})\/SceneServer/i.exec(start);
     await scAddUrl(start, scQuery.get("title") || "", own ? own[1] : undefined);
   }
+  // Scene Viewer's address of a slide: `#3` opens the scene at its third slide (ADR-270 §5.9).
+  const asked = /^#(\d+)$/.exec(location.hash);
+  const opening = asked ? scSlides().getItemAt(Number(asked[1]) - 1) : null;
+  if (opening) { scShowTab("slides"); await scGoToSlide(opening); }
+
   // A new scene with nothing in it starts on the Add tab: there is nothing else to do with it yet (first-run state).
   if (!scState.id && scState.scene.layers.length === 0 && scCanEdit()) scShowTab("add");
 }

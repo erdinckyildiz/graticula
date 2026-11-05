@@ -341,6 +341,76 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// ADR-270 §5.9, from the comparison with ArcGIS Online: a layer's visible range and filter, a slide's description, a
+    /// duplicated slide and a slide opened by its address; the Time tool offered only with a time-aware layer.
+    /// </summary>
+    [Fact]
+    public async Task Ranges_filters_slide_descriptions_and_the_time_tool_are_kept()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('#tools [data-tool=time]').hidden"), "Time was offered with no time-aware layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('#tools [data-tool=building]').hidden"), "Building explorer was offered with no building layer.");
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_observations/FeatureServer/0", 2);
+            await WaitForAsync("!document.querySelector('#tools [data-tool=time]').hidden", "Time was not offered with a time-aware layer.");
+            await ClickAsync("#tools [data-tool=time]");
+            await WaitForAsync("scState.tool === 'time' && !!document.querySelector('#toolPanel .esri-widget')", "The Time tool did not open.");
+            await ClickAsync("#tools [data-tool=time]");
+
+            // The buildings — second in the list, the observations being on top.
+            await ClickAsync("#tab-layers");
+            await ClickAsync("#layerList li:nth-child(2) [data-act=settings]");
+            await WaitForAsync("!!document.querySelector('[data-detail] [data-vis=filter]')", "A feature layer's settings offered no filter.");
+            await Browser.EvaluateAsync<bool>("(() => { const s = document.querySelector('[data-detail] [data-vis=minScale]'); s.value = '144448'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            Assert.Equal(144448, await Browser.EvaluateAsync<double>("scState.scene.layers.getItemAt(0).minScale"));
+
+            await Browser.EvaluateAsync<bool>("(() => { const f = document.querySelector('[data-detail] [data-vis=filter]'); f.value = 'no_such_field = 1'; f.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("/was not accepted/.test(document.getElementById('status').textContent)", "A filter the layer refuses was not said.");
+            Assert.Null(await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).definitionExpression"));
+            await Browser.EvaluateAsync<bool>("(() => { const f = document.querySelector('[data-detail] [data-vis=filter]'); f.value = 'floors >= 0'; f.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("scState.scene.layers.getItemAt(0).definitionExpression === 'floors >= 0'", "A filter the layer accepts was not kept.");
+
+            await ClickAsync("#tab-slides");
+            await ClickAsync("#slideAdd");
+            await WaitForAsync("scState.scene.presentation.slides.length === 1", "Capture slide did not add a slide.");
+            await Browser.EvaluateAsync<bool>("(() => { const d = document.querySelector('#slideList [data-act=describe]'); d.value = 'The district from the south.'; d.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await ClickAsync("#slideList [data-act=duplicate]");
+            await WaitForAsync("scState.scene.presentation.slides.length === 2", "Duplicate did not add a slide.");
+            Assert.NotEqual(await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(0).id"),
+                await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(1).id"));
+
+            id = await SaveAsAsync("zz console scene ranges");
+            JsonElement saved = await SavedSceneAsync(id);
+            JsonElement buildings = saved.GetProperty("operationalLayers")[0];
+            Assert.Equal(144448, buildings.GetProperty("layerDefinition").GetProperty("minScale").GetDouble());
+            Assert.Equal("floors >= 0", buildings.GetProperty("layerDefinition").GetProperty("definitionExpression").GetString());
+            JsonElement[] slides = saved.GetProperty("presentation").GetProperty("slides").EnumerateArray().ToArray();
+            Assert.Equal(2, slides.Length);
+            Assert.Equal("The district from the south.", slides[0].GetProperty("description").GetProperty("text").GetString());
+            Assert.EndsWith("(copy)", slides[1].GetProperty("title").GetProperty("text").GetString());
+
+            // Scene Viewer's address of a slide: #2 opens the scene at the second.
+            await OpenAsync($"/studio/scene.html?id={id}#2", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true && scState.currentSlide === scState.scene.presentation.slides.getItemAt(1).id",
+                "#2 did not open the scene at its second slide.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
+
     /// <summary>Every analysis tool opens its widget in the scene and closes again; the legend names a layer; the add list searches.</summary>
     [Fact]
     public async Task Every_analysis_tool_opens_and_the_legend_and_search_answer()
@@ -362,7 +432,9 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         await WaitForAsync("/was added/.test(document.getElementById('status').textContent) && !document.querySelector('#addList [data-add]')",
             "The header did not say the layer was added, or the list still offered it again.");
 
-        foreach (string tool in new[] { "distance", "area", "sight", "slice", "shadow", "daylight", "weather", "profile" })
+        // The SDK's tools, and since the comparison with ArcGIS Online (ADR-270 §5.10) Location, and Search over the
+        // scene's feature layers.
+        foreach (string tool in new[] { "distance", "area", "sight", "slice", "shadow", "daylight", "weather", "location", "search", "profile" })
         {
             await ClickAsync($"#tools [data-tool={tool}]");
             await WaitForAsync($"scState.tool === '{tool}' && !!document.querySelector('#toolPanel .esri-widget')", $"The {tool} tool did not open its widget.");

@@ -295,6 +295,14 @@
       <div class="tabpanel" role="tabpanel" id="pane-ground" aria-labelledby="tab-ground" hidden>
         <h2 id="groundHead" class="sr-only">Ground</h2>
         <p class="hint" id="groundReadOnly" hidden></p>
+        <!-- The reader's own, not the scene's: everyone may set it (ADR-270 §5.10). -->
+        <label class="field" for="sceneQuality">Drawing quality</label>
+        <select id="sceneQuality">
+          <option value="low">Low — for a slow computer</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High — sharper, heavier</option>
+        </select>
+
         <div id="groundControls">
         <label class="field" for="groundSelect">Elevation</label>
         <select id="groundSelect"><option value="">Flat — no elevation</option></select>
