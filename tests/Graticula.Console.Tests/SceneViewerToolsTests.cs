@@ -294,6 +294,53 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// ADR-182 and ADR-270 §5.8: an image service made an elevation surface is offered as the ground, one that is not is
+    /// not, and the chosen ground is kept in the web scene as a tiled elevation layer.
+    /// </summary>
+    [Fact]
+    public async Task An_elevation_surface_is_offered_as_the_ground_and_kept()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await ClickAsync("#tab-ground");
+            await WaitForAsync("!document.getElementById('groundNone').hidden || document.getElementById('groundSelect').options.length > 1",
+                "The ground's choices were never filled.");
+            Assert.False(await Browser.EvaluateAsync<bool>("[...document.getElementById('groundSelect').options].some(o => /ci_imagery/.test(o.value))"),
+                "An image service that is not an elevation surface was offered as the ground.");
+
+            (int status, string said) = await AdminAsync(HttpMethod.Put, "/admin/coverages/ci_imagery/elevation?folder=hosted", """{"elevation":true}""");
+            Assert.True(status == 200, $"Making ci_imagery an elevation surface answered {status}: {said}");
+
+            await OpenNewSceneAsync(token, cookie);
+            await ClickAsync("#tab-ground");
+            await WaitForAsync("[...document.getElementById('groundSelect').options].some(o => /ci_imagery/.test(o.value))",
+                "An elevation surface was not offered as the ground.");
+            await Browser.EvaluateAsync<bool>("(() => { const g = document.getElementById('groundSelect'); g.value = [...g.options].find(o => /ci_imagery/.test(o.value)).value; g.dispatchEvent(new Event('change')); return true; })()");
+            await WaitForAsync("scState.scene.ground.layers.length === 1", "Choosing the surface did not make it the ground.");
+
+            id = await SaveAsAsync("zz console scene ground");
+            JsonElement ground = (await SavedSceneAsync(id)).GetProperty("ground");
+            JsonElement layer = ground.GetProperty("layers")[0];
+            Assert.Equal("ArcGISTiledElevationServiceLayer", layer.GetProperty("layerType").GetString());
+            Assert.Contains("ci_imagery", layer.GetProperty("url").GetString());
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Put, "/admin/coverages/ci_imagery/elevation?folder=hosted", """{"elevation":false}""");
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
+
     /// <summary>Every analysis tool opens its widget in the scene and closes again; the legend names a layer; the add list searches.</summary>
     [Fact]
     public async Task Every_analysis_tool_opens_and_the_legend_and_search_answer()

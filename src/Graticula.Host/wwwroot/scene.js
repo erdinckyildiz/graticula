@@ -690,13 +690,20 @@ sc$("addList").addEventListener("click", event => {
   scAddUrl(button.dataset.add, button.dataset.title, button.dataset.item);
 });
 
-/** The elevation surfaces the ground can be: the image services shared with the reader. */
+/**
+ * The elevation surfaces the ground can be: the image services shared with the reader that are elevation layers — the
+ * "Elevation 3D Layer" keyword ADR-182's surfaces carry, as Esri's Terrain3D does, and the list Scene Viewer offers. An
+ * image service that is a picture, not heights, is not offered (ADR-270 §5.8).
+ */
 async function scFillGroundChoices() {
   try {
     const found = await scPortal(`/search?num=100&sortField=title&sortOrder=asc&q=${encodeURIComponent('type:"Image Service"')}`);
     const ground = sc$("groundSelect");
     const current = scState.scene.ground.layers.getItemAt(0);
-    for (const item of (found.results || []).filter(i => i.url && i.type === "Image Service")) {
+    const surfaces = (found.results || []).filter(i => i.url && i.type === "Image Service"
+      && (i.typeKeywords || []).includes("Elevation 3D Layer"));
+    sc$("groundNone").hidden = surfaces.length > 0;
+    for (const item of surfaces) {
       if ([...ground.options].some(o => o.value === item.url)) continue;
       const option = document.createElement("option");
       option.value = item.url;

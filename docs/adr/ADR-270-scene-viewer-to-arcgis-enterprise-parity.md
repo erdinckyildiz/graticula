@@ -73,6 +73,7 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 | Rebuild replaces the package in place | made from `ci_buildings`, rebuilt from Studio's page: *rebuilt with 8 buildings*, the item's `modified` later, its `SceneServer` still answering; a package without a source refused with 409 | `SceneLayerSourceTests.Rebuild_makes_the_scene_layer_again_in_place_from_studio`, `…A_package_not_made_here_has_no_source_to_rebuild_from` |
 | A building scene layer package is served and drawn | ArcGIS Pro's *Admin_Building_v18* — the building scene layer sample the I3S specification links to (Esri's item `3e6417f6544b422496a022f6e84aeaaa`, 31.7 MB, 22,129 entries, 37 sublayers), uploaded to a local fixture: the Maps SDK 4.29 loaded it as a `BuildingSceneLayer`, every sublayer document and node page answered 200, 52 Draco node geometries of its *Overview* sublayer were fetched, and once its view stopped updating (34 s in software WebGL) it held 509 features, drawn. The package has no licence stated and is not in this repository | measured 2026-11-06; `ScenePackagePathsTests` pins the paths |
 | A local scene keeps its type and its clip | made local, a feature layer projected into it, clipped to the view, saved: `viewingMode` `local`, `clippingArea.clip` true with an extent, the item's `ViewingMode-local`; reopened local and clipped; a WGS 84 scene layer refused with the reason | `SceneViewerToolsTests.A_local_scene_is_clipped_and_kept` |
+| Only an elevation surface is offered as the ground, and it is kept | the fixture's `ci_imagery` not offered; made a surface, offered, chosen, saved as an `ArcGISTiledElevationServiceLayer` naming it | `SceneViewerToolsTests.An_elevation_surface_is_offered_as_the_ground_and_kept` |
 | ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
 
 ## 5. Decision
@@ -137,7 +138,14 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
    *(INFERRED: that local scenes are in the sentence. Not built: a local scene in another projected system, and
    projected scene layers — the server writes I3S in WGS 84, which I3S shows in a global scene only, so a local scene
    refuses such a layer and says why rather than leaving it undrawn.)*
-8. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
+8. **The ground is an elevation layer, as Enterprise's tiled elevation layer is** — ADR-182 already serves a DEM as
+   Terrain3D does (LERC tiles in Web Mercator, the `Elevation 3D Layer` keyword). Compared with Enterprise, what was
+   missing was the viewer's: it offered every image service as the ground, a picture as readily as heights. It now
+   offers those with the keyword, says when there are none, and keeps the choice as an
+   `ArcGISTiledElevationServiceLayer`. Enterprise builds an elevation layer's tile cache ahead; this server draws each
+   tile on request — a difference of cost, not of what a client sees. *(INFERRED: that this is the comparison the night
+   asked for — §6's task — and that building a cache ahead is not needed for parity.)*
+9. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
    *(Deferred.)*
 

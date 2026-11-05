@@ -22,5 +22,6 @@ has, the table below lists what was built tonight and nothing is claimed to be a
 | Hosting a building scene layer package | yes | served, drawn by the SDK (Esri's sample) | Built | — |
 | Hosting integrated mesh / point cloud packages | yes | the paths are served; unmeasured — samples exceed the 64 MB document limit | Owed (D-386) | — |
 | Hosting voxel packages | yes | stem lookup only; no sample | Unmeasured | — |
+| Elevation layer from a DEM | a tiled elevation layer, its cache built ahead | an elevation image service (ADR-182), tiles drawn on request; offered as the ground by its keyword | Built | — |
 | Local scenes | global or local, any projected system, clipping | global or local in Web Mercator, clipping | Partly built | — |
 | Projected scene layers for local scenes | published in the data's projected system | written in WGS 84 only; refused in a local scene with the reason | Not built | — |
