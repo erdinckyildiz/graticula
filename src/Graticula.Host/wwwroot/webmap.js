@@ -1633,6 +1633,13 @@ function wmDrawLayerRows() {
   wm$("frameAll")?.setAttribute("aria-disabled", String(!wmFramable()));
   wmDrawBaseList();
   wmDrawSearchState();
+  // Said until the map is saved, beside the list it is about: the status line is replaced by the next thing said, and a
+  // warning about Save has to be there when Save is pressed (design review, 2026-11-05).
+  const groupNote = wm$("groupNote");
+  if (groupNote) {
+    groupNote.hidden = !wmState.liftedGroups;
+    groupNote.textContent = wmState.liftedGroups ? "Saving this map replaces its group layers with the layers inside them." : "";
+  }
   const opsHead = wm$("opsHead");
   if (opsHead) opsHead.innerHTML = `<span class="cap">Operational layers</span> <span class="count">${layers.length ? layers.length : "none"}</span>`;
 
@@ -4160,6 +4167,8 @@ async function wmSave(asNew, invoker = null) {
 
     wmAdopt(saved);
     wmState.dirty = false;
+    wmState.liftedGroups = 0;
+    if (wm$("groupNote")) wm$("groupNote").hidden = true;
     history.replaceState(null, "", `?id=${encodeURIComponent(saved.id)}`);
     // ADR-119: the map's picture, as it looks now — Portal's Map Viewer does the same on save.
     const picture = await wmSendThumbnail(saved.id);
@@ -4244,6 +4253,8 @@ wm$("mapDelete").addEventListener("click", async () => {
 /** Draws a document: basemap, layers, view. */
 async function wmOpen(doc) {
   wmState.doc = doc && typeof doc === "object" ? doc : wmEmptyDocument();
+  const lifted = wmLiftGroups(wmState.doc);
+  wmState.liftedGroups = lifted.count;
 
   for (const layer of wmLayers()) {
     if (!layer.id) layer.id = wmNewId();
@@ -4287,8 +4298,44 @@ async function wmOpen(doc) {
   // <b>Not over what was said meanwhile — 2026-10-15.</b> The list is drawn before the layers load, so a reader can
   // act while they do: a removal's "was removed." and identify's "Asking 1 layer…" were both replaced by this summary
   // when the loads finished, each caught once by CI. What was said since the loads began is newer than this.
-  if (wmSpoken === spoken) wmSaySummary();
+  if (wmSpoken === spoken) wmSaySummary(lifted.count === 0 ? ""
+    : lifted.count === 1
+      ? `Group layer “${lifted.title}” is shown as its ${lifted.children === 1 ? "layer" : `${lifted.children} layers`}, and saving the map replaces the group with ${lifted.children === 1 ? "it" : "them"}.`
+      : `${lifted.count} group layers are shown as their layers, and saving the map replaces each group with its layers.`);
   wmCheckSharing();
+}
+
+/**
+ * <b>A group layer is opened as the layers in it — ADR-079, 2026-11-05.</b> ArcGIS Pro's <i>Share › Web Map</i> writes
+ * every hosted service as a <c>GroupLayer</c> holding its feature layers, so a map saved from Pro opened here with
+ * nothing drawn and a note that a group is not a kind this viewer draws. Each child takes the group's place in order,
+ * with the group's visibility and opacity folded into its own; groups inside groups are opened the same way. The
+ * document changes only if the map is saved, and until then the layer list says what saving will do.
+ */
+function wmLiftGroups(doc) {
+  // Counted at the top only, as a reader saved them: a service's group holding two groups is one group to them
+  // (design review). An empty group is left as it was, a row that says it is not drawn, rather than vanishing.
+  const said = { count: 0, title: "", children: 0 };
+  const open = (layers, visible, opacity, top) => layers.flatMap(layer => {
+    if (layer && layer.layerType === "GroupLayer" && Array.isArray(layer.layers) && layer.layers.length) {
+      const inside = open(layer.layers,
+        visible && layer.visibility !== false,
+        opacity * (typeof layer.opacity === "number" ? layer.opacity : 1), false);
+      if (top) {
+        said.count++;
+        said.title = layer.title || "Untitled group";
+        said.children = inside.length;
+      }
+      return inside;
+    }
+    if (!layer || (visible && opacity === 1)) return [layer];
+    const child = { ...layer };
+    if (!visible) child.visibility = false;
+    if (opacity !== 1) child.opacity = (typeof child.opacity === "number" ? child.opacity : 1) * opacity;
+    return [child];
+  });
+  if (Array.isArray(doc.operationalLayers)) doc.operationalLayers = open(doc.operationalLayers, true, 1, true);
+  return said;
 }
 
 /** The header's line about the map as it now is, so it is never left describing an earlier state. */
