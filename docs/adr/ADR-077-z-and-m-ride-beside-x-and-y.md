@@ -130,7 +130,10 @@ the binding constraint (A-037). Times overlap the baseline's.
    z 555.25 and m 6.5. **What Pro sends**: `z` and `m` on the point itself, with **no `hasZ` or `hasM`**, and the x
    and y already snapped to its own grid (`29.60000000000008`). **The table holds what it sent**, read with `psql`:
    `ST_Z` 444.5 then 555.25, `ST_M` 5.5 then 6.5; and Pro's search cursor reads both back. The rows were deleted and
-   the layer unpublished. Before that could run:
+   the layer unpublished. **Run again 2026-11-05 on v1.0.505's code, with the same harness rebuilt, and unchanged**: Pro
+   sent a service-level `applyEdits` with `z` 444.125 and `m` 6.5 on the point and no `hasZ`, then an update to 555.5
+   and 8.25; `psql` read exactly those, and the row was deleted. Pro's active portal was put back where it was. **Only
+   Field Maps is still owed.** Before the first run could go through:
    - **Every text field without a declared length went out with none**, which Pro reads as zero: the insert was
      refused in Pro, before any request, with *Field length exceeded*. A string field with no declared length now
      says 1,073,741,822, the length ArcGIS gives unbounded text, on the FeatureServer and MapServer documents and in
