@@ -15,6 +15,7 @@ using Graticula.Platform.Identity;
 using Graticula.Scenes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -34,6 +35,25 @@ internal sealed record SceneFromLayerRequest(
     string? Service, string? Folder, int? Layer, string? HeightField, string? BaseField, string? Title, string? Colour,
     double? HeightScale = null, bool? OnTheGround = null);
 
+/// <summary>
+/// How a scene layer was made, kept with it so it can be made again — ADR-270 §5.4. The request that made it, the
+/// feature service it was read from, and when.
+/// </summary>
+internal sealed record SceneSource(
+    string Service, string? Folder, int Layer, string? HeightField, string? BaseField, string? Title, string? Colour,
+    double? HeightScale, bool? OnTheGround, Guid ServiceId, DateTimeOffset Built)
+{
+    /// <summary>The item resource it is kept as: private, so only the scene layer's owner and administrators read it.</summary>
+    internal const string Path = "graticula/scene-source.json";
+
+    internal SceneFromLayerRequest Request(string title) =>
+        new(Service, Folder, Layer, HeightField, BaseField, title, Colour, HeightScale, OnTheGround);
+}
+
+/// <summary>A package made from a layer, before it is kept.</summary>
+internal sealed record SceneMade(
+    byte[] Package, string Title, string Counted, string Noun, int Count, PublishedService Service, int Index);
+
 internal static partial class AdminEndpoints
 {
     /// <summary>The most buildings one request turns into a scene layer — the rest wait for ADR-269's revisit.</summary>
@@ -48,6 +68,11 @@ internal static partial class AdminEndpoints
         // ADR-269 §5.3: a polygon layer's footprints, extruded, or a point layer's points, written as a scene layer
         // package the caller owns.
         app.MapPost("/content/scenes", CreateSceneFromLayerAsync);
+
+        // ADR-270 §5.4: a scene layer made here is made again from the layer it was made from — Enterprise's
+        // *Rebuild cache* — and says where it came from.
+        app.MapPost("/content/scenes/{id}/rebuild", RebuildSceneAsync);
+        app.MapGet("/content/scenes/{id}/source", SceneSourceAsync);
     }
 
     /// <summary>
@@ -69,37 +94,53 @@ internal static partial class AdminEndpoints
             return Results.Empty;
         }
 
+        (SceneMade? made, IResult? refused) = await MakeSceneAsync(context, request, catalog, contexts, cancellation).ConfigureAwait(false);
+        if (made is null)
+        {
+            return refused!;
+        }
+
+        return await KeepSceneAsync(context, request, made, documents, audit, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the layer a request names and writes its scene layer package; a refusal says why it could not. Shared by
+    /// making a scene layer and making it again (ADR-270 §5.4), so the two cannot drift.
+    /// </summary>
+    private static async Task<(SceneMade? Made, IResult? Refused)> MakeSceneAsync(
+        HttpContext context, SceneFromLayerRequest request, CatalogFallback catalog, ServiceContexts contexts, CancellationToken cancellation)
+    {
         if (string.IsNullOrWhiteSpace(request.Service) || request.Layer is not { } index)
         {
-            return Refuse(400, "Name the layer: its service, its folder if it has one, and its layer index.");
+            return (null, Refuse(400, "Name the layer: its service, its folder if it has one, and its layer index."));
         }
 
         if (await ServiceLookup.ServiceAsync(context, catalog, request.Service, cancellation, request.Folder ?? string.Empty).ConfigureAwait(false)
             is not { } service)
         {
-            return Results.Empty;
+            return (null, Results.Empty);
         }
 
         if (service.LayerOrTable(index) is not { } layer)
         {
-            return Refuse(404, $"'{service.QualifiedName}' has no layer {index}.");
+            return (null, Refuse(404, $"'{service.QualifiedName}' has no layer {index}."));
         }
 
         bool points = layer.GeometryType is GeometryKind.Point;
         if (!points && layer.GeometryType is not (GeometryKind.Polygon or GeometryKind.MultiPolygon))
         {
-            return Refuse(400, $"'{layer.Definition.Name}' is neither a polygon nor a point layer. A scene layer is made from footprints or from points.");
+            return (null, Refuse(400, $"'{layer.Definition.Name}' is neither a polygon nor a point layer. A scene layer is made from footprints or from points."));
         }
 
         if (points && !string.IsNullOrWhiteSpace(request.BaseField))
         {
-            return Refuse(400, "A point layer has no base: its height field is the point's height above the ground.");
+            return (null, Refuse(400, "A point layer has no base: its height field is the point's height above the ground."));
         }
 
         double scale = request.HeightScale ?? 1;
         if (!double.IsFinite(scale) || scale <= 0 || scale > 1000)
         {
-            return Refuse(400, "heightScale is the metres one unit of the height field stands for: a number above 0, at most 1000.");
+            return (null, Refuse(400, "heightScale is the metres one unit of the height field stands for: a number above 0, at most 1000."));
         }
 
         int[] colour = points ? [0, 112, 192] : [220, 220, 215];
@@ -108,7 +149,7 @@ internal static partial class AdminEndpoints
             string hex = request.Colour.Trim().TrimStart('#');
             if (hex.Length != 6 || !int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int rgb))
             {
-                return Refuse(400, $"'{request.Colour}' is not a colour; send it as #rrggbb.");
+                return (null, Refuse(400, $"'{request.Colour}' is not a colour; send it as #rrggbb."));
             }
 
             colour = [(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff];
@@ -118,8 +159,7 @@ internal static partial class AdminEndpoints
 
         if (points)
         {
-            return await CreatePointSceneAsync(
-                context, request, service, layer, index, source, described, scale, colour, documents, audit, cancellation).ConfigureAwait(false);
+            return await MakePointSceneAsync(request, service, layer, index, source, described, scale, colour, cancellation).ConfigureAwait(false);
         }
 
         FieldDescription? height = null, floor = null;
@@ -128,7 +168,7 @@ internal static partial class AdminEndpoints
             height = described.Fields.FirstOrDefault(f => f.Name.Equals(request.HeightField, StringComparison.OrdinalIgnoreCase));
             if (height is null || !Numeric(height.Value.Type))
             {
-                return Refuse(400, $"'{request.HeightField}' is not a number field of '{layer.Definition.Name}'.");
+                return (null, Refuse(400, $"'{request.HeightField}' is not a number field of '{layer.Definition.Name}'."));
             }
         }
 
@@ -137,7 +177,7 @@ internal static partial class AdminEndpoints
             floor = described.Fields.FirstOrDefault(f => f.Name.Equals(request.BaseField, StringComparison.OrdinalIgnoreCase));
             if (floor is null || !Numeric(floor.Value.Type))
             {
-                return Refuse(400, $"'{request.BaseField}' is not a number field of '{layer.Definition.Name}'.");
+                return (null, Refuse(400, $"'{request.BaseField}' is not a number field of '{layer.Definition.Name}'."));
             }
         }
 
@@ -186,22 +226,19 @@ internal static partial class AdminEndpoints
 
         if (buildings.Count == 0)
         {
-            return Refuse(400, $"'{layer.Definition.Name}' has no footprints to build.");
+            return (null, Refuse(400, $"'{layer.Definition.Name}' has no footprints to build."));
         }
 
         if (buildings.Count > MaximumSceneBuildings)
         {
-            return Refuse(413, $"'{layer.Definition.Name}' has more than {MaximumSceneBuildings:N0} footprints, more than one scene layer is made from here.");
+            return (null, Refuse(413, $"'{layer.Definition.Name}' has more than {MaximumSceneBuildings:N0} footprints, more than one scene layer is made from here."));
         }
 
         string title = string.IsNullOrWhiteSpace(request.Title) ? $"{layer.Definition.Name} (3D)" : request.Title.Trim();
         byte[] package = SceneLayerPackageWriter.Write(
             title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))], buildings, colour, DateTimeOffset.UtcNow);
 
-        return await KeepSceneAsync(
-            context, service, index, title, $"{buildings.Count:N0} buildings", "buildings", buildings.Count, package, documents, audit, cancellation)
-            .ConfigureAwait(false);
-
+        return (new SceneMade(package, title, $"{buildings.Count:N0} buildings", "buildings", buildings.Count, service, index), null);
     }
 
     private static IResult Refuse(int status, string message) =>
@@ -218,10 +255,9 @@ internal static partial class AdminEndpoints
     /// A point layer as a point scene layer (D-386): each point at its height above the ground when a field gives one,
     /// at its own z when it has one, and on the ground otherwise.
     /// </summary>
-    private static async Task<IResult> CreatePointSceneAsync(
-        HttpContext context, SceneFromLayerRequest request, PublishedService service, PublishedLayer layer, int index, IFeatureSource source,
-        LayerDescription described, double scale, int[] colour, IDocumentStore documents, IAuditLog audit,
-        CancellationToken cancellation)
+    private static async Task<(SceneMade? Made, IResult? Refused)> MakePointSceneAsync(
+        SceneFromLayerRequest request, PublishedService service, PublishedLayer layer, int index, IFeatureSource source,
+        LayerDescription described, double scale, int[] colour, CancellationToken cancellation)
     {
         FieldDescription? height = null;
         if (!string.IsNullOrWhiteSpace(request.HeightField))
@@ -229,7 +265,7 @@ internal static partial class AdminEndpoints
             height = described.Fields.FirstOrDefault(f => f.Name.Equals(request.HeightField, StringComparison.OrdinalIgnoreCase));
             if (height is null || !Numeric(height.Value.Type))
             {
-                return Refuse(400, $"'{request.HeightField}' is not a number field of '{layer.Definition.Name}'.");
+                return (null, Refuse(400, $"'{request.HeightField}' is not a number field of '{layer.Definition.Name}'."));
             }
         }
 
@@ -257,7 +293,7 @@ internal static partial class AdminEndpoints
 
                 if (id is < int.MinValue or > int.MaxValue)
                 {
-                    return Refuse(400, $"'{layer.Definition.Name}' has object id {id}; a point scene layer holds 32-bit ids only.");
+                    return (null, Refuse(400, $"'{layer.Definition.Name}' has object id {id}; a point scene layer holds 32-bit ids only."));
                 }
 
                 bool ground = request.OnTheGround == true;
@@ -274,12 +310,12 @@ internal static partial class AdminEndpoints
 
         if (made.Count == 0)
         {
-            return Refuse(400, $"'{layer.Definition.Name}' has no points to place.");
+            return (null, Refuse(400, $"'{layer.Definition.Name}' has no points to place."));
         }
 
         if (made.Count > MaximumScenePoints)
         {
-            return Refuse(413, $"'{layer.Definition.Name}' has more than {MaximumScenePoints:N0} points, more than one scene layer is made from here.");
+            return (null, Refuse(413, $"'{layer.Definition.Name}' has more than {MaximumScenePoints:N0} points, more than one scene layer is made from here."));
         }
 
         SceneElevation elevation = height is null && anyZ ? SceneElevation.AbsoluteHeight : SceneElevation.RelativeToGround;
@@ -287,38 +323,174 @@ internal static partial class AdminEndpoints
         byte[] package = SceneLayerPackageWriter.WritePoints(
             title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))], made, colour, 8, elevation, DateTimeOffset.UtcNow);
 
-        return await KeepSceneAsync(context, service, index, title, $"{made.Count:N0} points", "points", made.Count, package, documents, audit, cancellation)
-            .ConfigureAwait(false);
+        return (new SceneMade(package, title, $"{made.Count:N0} points", "points", made.Count, service, index), null);
     }
 
-    /// <summary>Keeps a generated package as a private document of the caller's and answers with where it is served.</summary>
+    /// <summary>
+    /// Keeps a generated package as a private document of the caller's, with how it was made and the feature layer it was
+    /// made from (ADR-270 §5.4), and answers with where it is served.
+    /// </summary>
     private static async Task<IResult> KeepSceneAsync(
-        HttpContext context, PublishedService service, int index, string title, string counted, string noun, int count, byte[] package,
-        IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+        HttpContext context, SceneFromLayerRequest request, SceneMade made, IDocumentStore documents, IAuditLog audit,
+        CancellationToken cancellation)
     {
-        if (package.Length > MaximumDocumentBytes(context))
+        if (made.Package.Length > MaximumDocumentBytes(context))
         {
-            return Refuse(413, $"The scene layer came to {package.Length / (1 << 20)} MB, more than the {MaximumDocumentBytes(context) / (1 << 20)} MB a package may be here.");
+            return TooLarge(context, made);
         }
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
-        Document made = await documents.CreateAsync(
-            title, $"{counted} from {service.QualifiedName}, layer {index}.", current.Principal.Id, SharingScope.Private,
-            SafeFileName(title) + ".slpk", Documents.Named("slpk")!, package, cancellation).ConfigureAwait(false);
+        Document kept = await documents.CreateAsync(
+            made.Title, $"{made.Counted} from {made.Service.QualifiedName}, layer {made.Index}.", current.Principal.Id, SharingScope.Private,
+            SafeFileName(made.Title) + ".slpk", Documents.Named("slpk")!, made.Package, cancellation).ConfigureAwait(false);
+
+        await RememberSourceAsync(context, kept.Id, request, made, cancellation).ConfigureAwait(false);
 
         await AuditAsync(
-            context, audit, "document.create", made.Id,
-            Detail(new { title = made.Title, kind = made.Kind.Name, bytes = made.Size, from = service.QualifiedName, layer = index, features = count, of = noun }),
+            context, audit, "document.create", kept.Id,
+            Detail(new { title = kept.Title, kind = kept.Kind.Name, bytes = kept.Size, from = made.Service.QualifiedName, layer = made.Index, features = made.Count, of = made.Noun }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
-        context.Response.Headers.Location = $"/content/documents/{made.Id}";
-        return Results.Json(
-            new
-            {
-                id = made.Id, title = made.Title, features = count, of = noun,
-                buildings = noun == "buildings" ? count : 0, bytes = made.Size, url = SceneServerEndpoints.AddressOf(context.Request, made.Id),
-            },
-            statusCode: StatusCodes.Status201Created);
+        context.Response.Headers.Location = $"/content/documents/{kept.Id}";
+        return Results.Json(Answer(context, kept, made), statusCode: StatusCodes.Status201Created);
+    }
+
+    private static object Answer(HttpContext context, Document kept, SceneMade made) => new
+    {
+        id = kept.Id, title = kept.Title, features = made.Count, of = made.Noun,
+        buildings = made.Noun == "buildings" ? made.Count : 0, bytes = kept.Size, url = SceneServerEndpoints.AddressOf(context.Request, kept.Id),
+        source = new { service = made.Service.QualifiedName, layer = made.Index },
+    };
+
+    private static IResult TooLarge(HttpContext context, SceneMade made) =>
+        Refuse(413, $"The scene layer came to {made.Package.Length / (1 << 20)} MB, more than the {MaximumDocumentBytes(context) / (1 << 20)} MB a package may be here.");
+
+    /// <summary>
+    /// Keeps the request as the scene layer's private <see cref="SceneSource.Path"/> resource and relates it to its
+    /// feature service as ArcGIS's <c>Service2Service</c>, so a client that asks for the scene layer's associated
+    /// feature layer finds it, and so it can be made again.
+    /// </summary>
+    private static async Task RememberSourceAsync(
+        HttpContext context, string documentId, SceneFromLayerRequest request, SceneMade made, CancellationToken cancellation)
+    {
+        Guid item = Guid.Parse(documentId);
+        SceneSource source = new(
+            made.Service.Name, string.IsNullOrEmpty(made.Service.Folder) ? null : made.Service.Folder, made.Index, request.HeightField,
+            request.BaseField, request.Title, request.Colour, request.HeightScale, request.OnTheGround, made.Service.Id, DateTimeOffset.UtcNow);
+
+        // The store adds only where nothing is, or replaces only where something is: a first build adds, a rebuild replaces.
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        bool kept = await resources.FindAsync(item, SceneSource.Path, cancellation).ConfigureAwait(false) is not null;
+        await resources.WriteAsync(
+            item, SceneSource.Path, "application/json", JsonSerializer.SerializeToUtf8Bytes(source, SceneSourceJson), "private",
+            replace: kept, limit: long.MaxValue, cancellation).ConfigureAwait(false);
+
+        // From the feature layer to the scene layer: the Maps SDK 4.29 asks a scene layer's item for its Service2Service
+        // relationships going *reverse* (measured 2026-11-05, the request in the server's log), so the feature layer is
+        // the origin.
+        await context.RequestServices.GetRequiredService<IItemAnnotationStore>()
+            .RelateAsync(made.Service.Id, item, PortalEndpoints.Service2Service, cancellation).ConfigureAwait(false);
+    }
+
+    private static readonly JsonSerializerOptions SceneSourceJson = new(JsonSerializerDefaults.Web);
+
+    private static async Task<SceneSource?> ReadSourceAsync(HttpContext context, string documentId, CancellationToken cancellation)
+    {
+        if (!Guid.TryParse(documentId, out Guid item)
+            || await context.RequestServices.GetRequiredService<IItemResourceStore>()
+                .FindAsync(item, SceneSource.Path, cancellation).ConfigureAwait(false) is not { } found)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SceneSource>(found.Content, SceneSourceJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Where a scene layer made here came from — what Studio's page of the scene layer says beside <i>Rebuild</i>. Its
+    /// owner's and an administrator's only: the source's name is not the scene layer's readers' to learn. A package that
+    /// was uploaded, not made here, has no source: 404.
+    /// </summary>
+    private static async Task<IResult> SceneSourceAsync(
+        HttpContext context, string id, CatalogFallback catalog, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        if (await ManagedDocumentAsync(context, current, id, "read the source of", documents, audit, cancellation).ConfigureAwait(false)
+            is not { } document)
+        {
+            return Results.Empty;
+        }
+
+        if (await ReadSourceAsync(context, id, cancellation).ConfigureAwait(false) is not { } source)
+        {
+            return Refuse(404, $"'{document.Title}' was not made by this server from a layer, so it has nothing to be made again from.");
+        }
+
+        PublishedService? service = (await catalog.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
+            .FirstOrDefault(s => s.Id == source.ServiceId);
+        return Results.Json(new
+        {
+            service = service?.QualifiedName ?? (string.IsNullOrEmpty(source.Folder) ? source.Service : $"{source.Folder}/{source.Service}"),
+            layer = source.Layer, exists = service is not null, heightField = source.HeightField, baseField = source.BaseField,
+            heightScale = source.HeightScale, onTheGround = source.OnTheGround, built = source.Built.ToUnixTimeMilliseconds(),
+        });
+    }
+
+    /// <summary>
+    /// Makes a scene layer again from the layer it was made from — Enterprise's <i>Rebuild cache</i> (ADR-270 §5.4). The
+    /// package is replaced in place: its id, its address, its sharing and every scene that uses it stay; each node's copy
+    /// is keyed by the document's modified time, so none is read stale.
+    /// </summary>
+    private static async Task<IResult> RebuildSceneAsync(
+        HttpContext context, string id, CatalogFallback catalog, ServiceContexts contexts, IDocumentStore documents, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        if (await ManagedDocumentAsync(context, current, id, "rebuild", documents, audit, cancellation).ConfigureAwait(false)
+            is not { } document)
+        {
+            return Results.Empty;
+        }
+
+        if (await ReadSourceAsync(context, id, cancellation).ConfigureAwait(false) is not { } source)
+        {
+            return Refuse(409, $"'{document.Title}' was not made by this server from a layer, so it cannot be made again here. Upload a new package instead.");
+        }
+
+        // The layer as it is now, by the name it had: a service renamed or removed since is said, not guessed at.
+        SceneFromLayerRequest request = source.Request(document.Title);
+        (SceneMade? made, IResult? refused) = await MakeSceneAsync(context, request, catalog, contexts, cancellation).ConfigureAwait(false);
+        if (made is null)
+        {
+            return refused!;
+        }
+
+        if (made.Package.Length > MaximumDocumentBytes(context))
+        {
+            return TooLarge(context, made);
+        }
+
+        if (!await documents.ReplaceAsync(id, document.FileName, document.Kind, made.Package, cancellation).ConfigureAwait(false)
+            || await documents.FindAsync(id, cancellation).ConfigureAwait(false) is not { } after)
+        {
+            return Refuse(404, NoDocument(id));
+        }
+
+        await RememberSourceAsync(context, id, request with { Title = source.Title }, made, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(
+            context, audit, "document.replace", id,
+            Detail(new { rebuilt = true, from = made.Service.QualifiedName, layer = made.Index, features = made.Count, of = made.Noun, bytes = after.Size }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        return Results.Json(Answer(context, after, made));
     }
 
     private static bool Numeric(FieldType type) =>

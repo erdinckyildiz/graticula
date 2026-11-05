@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(132);
+    public static SchemaVersion ComponentSchemaVersion => new(133);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -161,7 +161,25 @@ public static class PlatformMigrations
         AWebhookTellsAnotherSystemWhatChangedV130,
         AnItemCarriesMetadataAndCommentsV131,
         ADocumentsPictureMayBeDrawnFromItsFirstPageV132,
+        AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
     ]);
+
+    /// <summary>
+    /// A scene layer this server made is related to the feature layer it was made from, as ArcGIS's
+    /// <c>Service2Service</c> relates a hosted scene layer to its hosted feature layer — ADR-270 §5.4.
+    /// </summary>
+    /// <remarks>
+    /// <b>One more relationship type admitted by migration 126's check</b>, and nothing else: the same table, the same
+    /// keys, the same floor. <b>Expand</b>: a node older than this never writes the new type, and reads relationships only
+    /// by the type it asks for, so it never meets one.
+    /// </remarks>
+    private static Migration AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133 => Migration.Expand(
+        new SchemaVersion(133),
+        "A scene layer made here is related to the feature layer it was made from, as ArcGIS's Service2Service (ADR-270).",
+
+        "alter table item_relationship drop constraint if exists item_relationship_type_known",
+
+        "alter table item_relationship add constraint item_relationship_type_known check (relationship_type in ('Service2Data', 'Service2Service'))");
 
     /// <summary>
     /// A document's picture may be drawn from its first page, and says so — ADR-268, D-321.

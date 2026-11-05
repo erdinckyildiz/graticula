@@ -7868,3 +7868,8 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 /* The console's one confirmation (askServerConfirm) has a reading width; it grew to its sentence, 1,146 px at 1,440
    (UX review, 2026-11-05). */
 #serverConfirm { width: min(480px, calc(100vw - 32px)); }
+
+/* ADR-270 §5.4: a scene layer made here — what it was made from, and Rebuild. */
+.scenesource { border: 1px solid var(--rule); border-radius: var(--round); padding: 10px 14px; margin: 0 0 14px; background: var(--surface); }
+.scenesource p { margin: 0 0 8px; }
+.scenesource code { font-family: var(--mono); font-size: .95em; }

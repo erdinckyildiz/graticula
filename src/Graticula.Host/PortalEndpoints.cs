@@ -2263,6 +2263,14 @@ internal static partial class PortalEndpoints
             && context.RequestServices.GetService(typeof(IDocumentStore)) is IDocumentStore documents
             && await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) is { } content)
         {
+            // ADR-270 §5.4: a scene layer package is listed as the Scene Service it serves, and a Scene Service item's data is
+            // its layer's settings, not a file — the Maps SDK reads it as JSON when a scene layer is added by its item, and
+            // refused the package's bytes ("PK…" is not valid JSON). The package downloads from the document's own address.
+            if (Documents.IsScenePackage(document.Kind))
+            {
+                return Results.Content("{}", "application/json; charset=utf-8");
+            }
+
             // ADR-264: an app's data is its JSON, read by its client as a web map's is; a link with none is an empty object.
             return Documents.IsApp(document.Kind)
                 ? Results.Content(content.Length == 0 ? "{}" : System.Text.Encoding.UTF8.GetString(content), "application/json; charset=utf-8")

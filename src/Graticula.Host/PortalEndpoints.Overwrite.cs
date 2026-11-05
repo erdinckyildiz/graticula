@@ -39,7 +39,13 @@ internal static partial class PortalEndpoints
     internal const string Service2Data = "Service2Data";
 
     /// <summary>The relationship types this portal keeps; any other is answered with none.</summary>
-    private static readonly HashSet<string> KeptRelationships = new(StringComparer.OrdinalIgnoreCase) { Service2Data };
+    /// <summary>
+    /// ArcGIS's <c>Service2Service</c>: a hosted feature layer and the hosted scene layer made from it (ADR-270 §5.4), going
+    /// from the feature layer to the scene layer — the Maps SDK asks the scene layer's item for it <c>reverse</c>.
+    /// </summary>
+    internal const string Service2Service = "Service2Service";
+
+    private static readonly HashSet<string> KeptRelationships = new(StringComparer.OrdinalIgnoreCase) { Service2Data, Service2Service };
 
     /// <summary>
     /// The item an id names, as an item row: a service (by its own id or any of its faces' item ids) or a document the
@@ -93,11 +99,13 @@ internal static partial class PortalEndpoints
             IReadOnlyList<PublishedService> visible =
                 await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false) ?? [];
 
-            if (First(form, context, "relationshipType")
-                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Any(KeptRelationships.Contains))
+            foreach (string type in First(form, context, "relationshipType")
+                         .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                         .Where(KeptRelationships.Contains)
+                         .Select(t => KeptRelationships.First(k => k.Equals(t, StringComparison.OrdinalIgnoreCase)))
+                         .Distinct(StringComparer.Ordinal))
             {
-                foreach (Guid other in await annotations.RelatedAsync(item.Item, Service2Data, direction != "reverse", cancellation)
+                foreach (Guid other in await annotations.RelatedAsync(item.Item, type, direction != "reverse", cancellation)
                              .ConfigureAwait(false))
                 {
                     if (visible.FirstOrDefault(s => s.Id == other) is { } service)

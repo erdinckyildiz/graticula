@@ -140,7 +140,7 @@ viewer needs `js.arcgis.com`.
 
 **Depends on:** ADR-182, ADR-253, ADR-264, ADR-188 (documents).
 
-**Depended on by:** —
+**Depended on by:** [ADR-270](ADR-270-scene-viewer-to-arcgis-enterprise-parity.md) (Scene Viewer's tools, and Enterprise parity).
 
 ## 9. Conditions
 

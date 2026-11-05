@@ -1,0 +1,167 @@
+# ADR-270 — Scenes to ArcGIS Enterprise's level: Scene Viewer's tools, and what a scene layer is made from
+
+| | |
+|---|---|
+| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Confidence** | `MEDIUM` |
+| **Decided** | 2026-11-05, overnight. **The direction is the owner's**: *"aynı arcgis enterprise'da olduğu gibi"* ("just as it is in ArcGIS Enterprise"), and for the night *"buradaki işlerin tamamını bitir. sonra git arcgis online ve enterprise ile kıyasla. eksikse tekrar başla."* ("finish all the work here; then compare with ArcGIS Online and Enterprise; if something is missing, start again"). **Which parts of Enterprise that sentence takes in is this ADR's reading of it**, and every such part is marked `INFERRED` in §5 and listed for the owner's confirmation. |
+| **Supersedes** | — |
+| **Superseded by** | — |
+
+> Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
+> `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
+> Confidence: `HIGH`, `MEDIUM`, `LOW`.
+
+---
+
+## 1. Context
+
+[ADR-269](ADR-269-scenes-web-scenes-scene-packages-and-generated-i3s.md) gave Graticula web scenes, a `SceneServer` for
+scene layer packages and a generator for two kinds of scene layer. Its viewer drew a scene and let its owner list,
+hide, add and remove layers, choose an elevation surface and save — and nothing else. ArcGIS Enterprise's Scene Viewer,
+which an ArcGIS user compares it with, is a designer: a layer's look and pop-up, slides, the basemap, the ground, and a
+set of 3D analysis tools, all kept in the web scene it saves so that Pro and the Maps SDK open the same thing.
+
+The owner asked for the same. *The same* is not a list, and Enterprise's 3D is large: Scene Viewer, hosted scene layers
+of five profiles, scene layer caches tied to feature layers, elevation layers, local scenes, 3D Tiles, textures. This
+ADR records which of those the sentence is read as covering, how each is built, and which it is not read as covering.
+
+## 2. Alternatives considered
+
+### Alternative A — Studio's own panel for what edits the scene, the SDK's widgets for what draws in it (chosen)
+
+**Argument for.** What the panel edits — layer order, a layer's renderer and pop-up, slides, basemap, ground — is the web
+scene document itself, and the panel already speaks Studio's design language, keyboard pattern and copy; its state is
+plain DOM that the console suite reads. The analysis tools (measurement, line of sight, slice, shadow cast, daylight,
+weather, elevation profile) draw into the 3D view and are the SDK's own work; reimplementing any of them would be
+writing a renderer. Each is loaded the first time it is opened.
+
+**Argument against.** Two visual languages on one page: Studio's panel and the SDK's widgets.
+
+### Alternative B — the SDK's widgets for everything (LayerList, BasemapGallery, Slides via Expand)
+
+**Argument for.** Least code; the SDK's LayerList already has visibility, order and opacity.
+
+**Argument against.** The SDK has no slide editor and no pop-up or renderer editor — Scene Viewer's own designer panels
+are not part of the public SDK — so those would be Studio's anyway, beside SDK widgets for the rest. The gallery widget
+reads basemaps from the SDK's portal sources, and the SDK's OpenStreetMap layer asks three subdomains the console's
+policy does not admit (ADR-269's note in `scene.js`).
+
+### Alternative C — keep the viewer minimal; scenes are authored in Pro
+
+**Argument for.** No designer to maintain; Pro writes web scenes and the server already keeps them.
+
+**Argument against.** The owner asked otherwise, and a user without Pro then has a viewer that can show a scene and not
+make one worth showing.
+
+## 3. Counterarguments to the preferred option
+
+The look editor writes only a simple renderer with up to two visual variables, where Scene Viewer offers types,
+classes, unique values and its whole style gallery: a scene styled in Pro keeps its renderer until somebody picks a look
+here, and then loses it. The analysis widgets are the SDK's styling inside a Studio page. Every SDK widget is another
+fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
+
+## 4. Evidence
+
+| Claim | Evidence | Source |
+|---|---|---|
+| A layer's order, opacity, extruded look by a field and pop-up title are saved in the web scene and read back | saved through the portal, `operationalLayers` read from the item's data: order, `opacity` 0.5, an `Extrude` symbol layer with a `sizeInfo` of `$feature.floors * 3`, `popupInfo.title` `{floors}`; reopened, the form reads the look back | `SceneViewerToolsTests.A_layers_order_opacity_look_and_popup_are_kept_in_the_scene` |
+| Slides, the basemap and the ground are saved and read back | three captured, one renamed, one deleted, reordered, played; `presentation.slides` 2 with the renamed title; `baseMap.baseMapLayers` empty for None; `ground.transparency` 50 and `navigationConstraint.type` `none`; reopened, the panel shows both slides and the ground's settings | `SceneViewerToolsTests.Slides_the_basemap_and_the_ground_are_kept_in_the_scene` |
+| Each of the eight analysis tools opens in the scene, and the legend follows the layers | each tool's SDK widget drawn in the tool panel, one at a time; the legend names the added layer; the add list narrows by kind and title | `SceneViewerToolsTests.Every_analysis_tool_opens_and_the_legend_and_search_answer` |
+| A scene layer made here is found by the Maps SDK as the associated layer of its feature layer | the SDK 4.29, given the scene layer by its item, asked `relatedItems?relationshipType=Service2Service&direction=reverse` of the scene layer's item (read from the server's request log), then loaded the feature layer as `associatedLayer`; with the relationship kept the other way it found none | `SceneLayerSourceTests.A_made_scene_layer_names_its_feature_layer_and_the_sdk_finds_it`, measured 2026-11-05 |
+| A Scene Service item's data must be JSON | the SDK, adding a scene layer by its item, read the item's `data` and failed on the package's bytes: *Unexpected token 'P', "PK…" is not valid JSON* | measured 2026-11-05 |
+| Rebuild replaces the package in place | made from `ci_buildings`, rebuilt from Studio's page: *rebuilt with 8 buildings*, the item's `modified` later, its `SceneServer` still answering; a package without a source refused with 409 | `SceneLayerSourceTests.Rebuild_makes_the_scene_layer_again_in_place_from_studio`, `…A_package_not_made_here_has_no_source_to_rebuild_from` |
+| ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
+
+## 5. Decision
+
+1. **Scene Viewer's designer, in Studio's panel** — `scene.html`'s panel becomes six tabs: *Layers*, *Add*, *Basemap*,
+   *Ground*, *Slides*, *Legend*. *(INFERRED: that the sentence covers Scene Viewer's designer as a whole, and that these
+   six are its parts.)*
+   - **Layers**: visibility, order (▲▼, top of the list drawn on top), opacity, a title in this scene, zoom to, remove;
+     and per layer a **look** — polygons flat or extruded, points an icon or a 3D shape (sphere, cylinder, cone, cube,
+     diamond), lines a line or a tube, 3D objects a solid colour; one colour or a colour ramp by a number field; a size
+     or height in metres, or from a field times metres per unit (ADR-269's floors × 3) — its **height** (draped, above
+     the ground, at its own z, on top of the scene; an offset) and its **pop-up** (on or off, a field as its title, the
+     fields shown). Each is the layer's own renderer, `elevationInfo` and `popupTemplate`, so a web scene keeps it as
+     Pro and the Maps SDK write it. *(INFERRED: a simple renderer with a size and a colour variable is enough of Scene
+     Viewer's styles for v1; types, classes and the web style gallery's 3D models are not built.)*
+   - **Add**: the portal's own search, by title, by kind (scene, feature, imagery, map image, vector tile) and *only my
+     content*, or a service address.
+   - **Basemap**: the portal's basemap gallery (ADR-184), the operator's map ground, OpenStreetMap, none — the list
+     `webmap.js` offers.
+   - **Ground**: an elevation surface (ADR-182), the ground's opacity, and whether the camera may go below it.
+   - **Slides**: capture, rename, reorder, update to the current view, delete and play, kept as the web scene's
+     `presentation.slides`.
+   - **Legend**: the SDK's.
+2. **Analysis tools on the scene** — distance, area, line of sight, slice, shadows, daylight, weather and an elevation
+   profile, the SDK's widgets, one open at a time in a panel under a toolbar on the scene; on a phone the toolbar folds
+   behind one button. *(INFERRED: these eight are what Scene Viewer's analysis means; the SDK's viewshed and
+   volume-measurement tools are not in 4.29 and are not built.)* A measurement is cleared when its tool closes.
+3. A reader who is not the scene's owner sees every tab but *Add*, can switch layers, play slides and use every tool,
+   and is offered nothing that changes the scene: where the owner has controls, the reader has a sentence saying what
+   the scene's basemap and ground are.
+4. **A scene layer made here keeps where it came from, and is made again from it** — Enterprise's *associated feature
+   layer* and *Rebuild cache*. *(INFERRED: that "the same as Enterprise" takes in the link between a hosted scene layer
+   and its feature layer and the cache rebuilt on request; Enterprise's partial *Update cache* of edited nodes only is
+   not built — a rebuild is whole, which is seconds for a district.)*
+   - The request that made it is kept as the scene layer's private item resource `graticula/scene-source.json`, and the
+     feature service is related to it as ArcGIS's **`Service2Service`, from the feature layer to the scene layer** — the
+     direction the Maps SDK asks for (§4). Migration 133 admits the type. A scene layer added **by its item** — from the
+     viewer's list, or opened from its own page — then has the feature layer as its `associatedLayer`, so queries and
+     statistics on it go to the live layer.
+   - `POST /content/scenes/{id}/rebuild` makes it again from the layer as it now is and replaces the package in place:
+     its id, address, sharing and every scene that uses it stay, and each node's copy of the package is keyed by the
+     document's modified time (ADR-269 §5.2), so none is read stale. `GET /content/scenes/{id}/source` says what it was
+     made from, to its owner and administrators only. A package uploaded rather than made here has no source and is
+     refused a rebuild with the reason.
+   - Studio's page of such a scene layer says what it was made from and when, says when the layer has been edited since
+     (the layer's own `editingInfo`), and offers **Rebuild**.
+   - A scene layer package's portal `data` is now `{}` — a Scene Service item's data is its layer's settings, and the
+     SDK reads it as JSON — and the package downloads from the document's own address, as Studio's Download always did.
+5. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
+   the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
+   *(Deferred.)*
+
+## 6. Consequences
+
+**Positive.** A scene can be authored here as in Scene Viewer, and what is authored is the web scene document Pro and
+the SDK read.
+
+**Negative.** The look editor is narrower than Scene Viewer's and replaces a richer renderer once used. The SDK's
+widgets are styled by the SDK. More of the SDK is fetched, on first use.
+
+**Ports created.** None: the viewer is a page of the console, and the SDK is ADR-253's dependency.
+
+**State.** A scene layer's source as an item resource, and one relationship type more (migration 133). Everything a
+viewer authors lives in the web scene item ADR-269 keeps.
+
+## 7. Assumptions this decision rests on
+
+| ID | Assumption | Status |
+|---|---|---|
+| — | What the SDK's `WebScene.toJSON` writes for a renderer, a pop-up, slides and the ground is what Pro reads | Unmeasured — condition 2 |
+
+## 8. Dependencies
+
+**Depends on:** ADR-269, ADR-253, ADR-184 (basemap gallery), ADR-182 (elevation).
+
+**Depended on by:** —
+
+## 9. Conditions
+
+1. **The scene viewer passes the ux-designer review**, first-run state and phone included — the same condition as
+   ADR-269's fourth, for the screens this ADR adds. *(Open.)*
+2. **A web scene authored here — a styled layer, a pop-up, slides — opens in Pro as it was authored.** Owed by the owner:
+   it needs the desktop.
+3. **The parity with ArcGIS Online and Enterprise is written down**, item by item, with what is built, what is not and
+   why, in [3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md). *(Open.)*
+
+## 10. Revisit triggers
+
+- A user who needs unique-value or class-break styles, or 3D models from a web style, in a scene.
+- An SDK version that adds viewshed or volume measurement.
+
+## 11. Dissent
+
+None recorded.

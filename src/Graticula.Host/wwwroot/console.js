@@ -35002,6 +35002,7 @@ async function showDocumentItem(id) {
   drawDocSettings();
   drawDocTabs();
   loadDocExtras(doc);
+  if (!again) drawDocScene(doc);
   imcMount("doc");   // ADR-267: its metadata and comments
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
   if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
@@ -35056,6 +35057,61 @@ function contentCrumb(item, title) {
  * A document's terms of use and the reader's favourite (D-321), from its portal item and the reader's list, as a web
  * map's are. Drawn when they arrive; the page is already up without them.
  */
+/**
+ * A scene layer made here from a layer — ADR-270 §5.4, Enterprise's *Rebuild cache*: what it was made from, when, whether
+ * that layer has been edited since, and a button that makes it again in place. Its owner's and an administrator's; a
+ * package uploaded rather than made here has no source and shows nothing.
+ */
+async function drawDocScene(doc) {
+  const box = $("docScene");
+  box.hidden = true;
+  box.innerHTML = "";
+  if (doc.kind !== "slpk" || !doc.manages) return;
+  const source = await api(`/content/scenes/${encodeURIComponent(doc.id)}/source`).catch(() => null);
+  if (docOpen !== doc || !source) return;
+  // The source's own record of its last edit (editingInfo, migration 127), to say whether the scene is behind it.
+  const layer = source.exists
+    ? await api(`/rest/services/${source.service.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${source.layer}?f=json`).catch(() => null)
+    : null;
+  if (docOpen !== doc) return;
+  const edited = Number(layer?.editingInfo?.dataLastEditDate || layer?.editingInfo?.lastEditDate || 0);
+  const behind = edited > Number(source.built);
+  const how = source.heightField
+    ? ` — height from <code>${h(source.heightField)}</code>${Number(source.heightScale) && Number(source.heightScale) !== 1 ? ` × ${h(String(source.heightScale))} m` : ""}`
+    : "";
+  box.innerHTML = `
+    <p>Made from <a href="#/service/${h(source.service)}">${h(source.service)}</a>, layer ${h(String(source.layer))}${how}.
+      Built ${h(new Date(Number(source.built)).toLocaleString())}.
+      ${!source.exists ? `<span class="warn-inline">That layer no longer exists, so this scene layer cannot be made again.</span>`
+        : behind ? `<span class="warn-inline" id="docSceneBehind">The layer has been edited since, so this scene layer is behind it.</span>` : "It is up to date with the layer."}</p>
+    ${source.exists ? `<button type="button" id="docSceneRebuild" class="${behind ? "primary" : ""}">Rebuild</button>
+      <span class="hint">Makes it again from the layer as it is now. Its address, sharing and the scenes that use it stay.</span>` : ""}`;
+  box.hidden = false;
+}
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("#docSceneRebuild");
+  if (!button || !docOpen) return;
+  const doc = docOpen;
+  button.disabled = true;
+  button.textContent = "Rebuilding…";
+  $("docSays").textContent = "";
+  try {
+    const made = await api(`/content/scenes/${encodeURIComponent(doc.id)}/rebuild`, { method: "POST" });
+    const count = Number(made.features);
+    const noun = made.of === "points" ? (count === 1 ? "point" : "points") : (count === 1 ? "building" : "buildings");
+    if (docOpen !== doc) return;
+    $("docSays").textContent = `${doc.title} was rebuilt with ${count.toLocaleString()} ${noun}.`;
+    await drawDocScene(doc);
+    $("docSceneRebuild")?.focus();
+  } catch (e) {
+    if (docOpen !== doc) return;
+    button.disabled = false;
+    button.textContent = "Rebuild";
+    $("docSays").textContent = `Not rebuilt: ${e.message}`;
+  }
+});
+
 async function loadDocExtras(doc) {
   const [item] = await Promise.all([
     api(`/sharing/rest/content/items/${encodeURIComponent(doc.id)}?f=json`).catch(() => null),
