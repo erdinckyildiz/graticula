@@ -109,7 +109,7 @@
   label.field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
   .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   /* The scene's own layout: Studio's bar and the title row, then the panel and the scene side by side. */
-  #body { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: 0; }
+  #body { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 0; }
   #panel { display: flex; flex-direction: column; min-height: 0; overflow: auto; background: var(--surface);
            border-right: 1px solid var(--rule); padding: 12px 16px 18px; }
   #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; }
@@ -124,6 +124,59 @@
   #addUrl { margin-bottom: 6px; }
   .lnote { color: var(--warn); font-size: 12px; }
   #sceneTitleField { margin-top: 0; }
+
+  /* The panel's sections, one at a time under a row of tabs — the designer's side of Scene Viewer (ADR-270). */
+  /* One row, never two: six tabs fit 340 px, and a narrower panel scrolls them rather than wrapping (review). */
+  #tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 0; margin: 0 -6px 8px;
+          border-bottom: 1px solid var(--rule); }
+  #tabs button { flex: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+                 color: var(--muted); padding: 7px 7px; margin-bottom: -1px; font-size: 13px; }
+  #tabs button[aria-selected="true"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
+  .tabpanel h2:first-child { margin-top: 2px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
+             white-space: nowrap; border: 0; }
+  /* WCAG 2.2 SC 2.5.8: no target smaller than 24 px (design review). */
+  button.tiny { min-height: 24px; min-width: 24px; }
+  button.linkish { border: 0; background: none; padding: 0; color: var(--accent-ink); text-align: left; text-decoration: underline; }
+  fieldset.fields { margin: 6px 0 0; }
+  fieldset.fields legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
+  #addByAddress { margin: 8px 0; }
+  #addByAddress summary { cursor: pointer; color: var(--accent-ink); font-size: 13px; }
+  #toolClose { float: right; margin: 0 0 4px 4px; }
+  /* The SDK widgets' buttons in Studio's accent rather than the SDK's own blue (design review). */
+  #toolPanel .esri-button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  #toolPanel .esri-button--secondary, #toolPanel .esri-button--tertiary { background: var(--surface); color: var(--accent-ink); }
+  #layerList li { flex-wrap: wrap; }
+  #layerList .lrow { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+  #layerList .lbtns { display: flex; gap: 3px; flex: none; }
+  .ldetail { width: 100%; border-top: 1px solid var(--rule); margin-top: 6px; padding-top: 4px; }
+  .ldetail h3 { font-size: 12px; margin: 10px 0 2px; color: var(--ink); }
+  .ldetail .fields { max-height: 160px; overflow: auto; border: 1px solid var(--rule); border-radius: 3px; padding: 4px 6px; }
+  .ldetail .fields label { display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+  input[type="range"] { width: 100%; }
+  input[type="number"] { border: 1px solid var(--control-edge); border-radius: 3px; padding: 4px 6px; width: 100%;
+                         background: var(--surface); color: var(--ink); }
+  input[type="color"] { width: 44px; height: 28px; padding: 0 2px; border: 1px solid var(--control-edge); background: var(--surface); }
+  .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  #slideList, #baseList { list-style: none; margin: 0; padding: 0; }
+  #slideList > li { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; border: 1px solid var(--rule);
+                    border-radius: 4px; padding: 6px; margin-bottom: 6px; }
+  #slideList img, #slideList .noimg { width: 72px; height: 48px; object-fit: cover; border-radius: 3px; background: var(--surface-3);
+                    grid-row: span 2; cursor: pointer; border: 0; padding: 0; }
+  #slideList .row { gap: 3px; }
+  #slideList li.current { border-color: var(--accent); }
+  #baseList > li > button { width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 6px; }
+  #baseList > li > button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  #legendBox { min-height: 40px; }
+  #legendBox .esri-legend { background: none; padding: 0; }
+  /* The analysis tools: a bar on the scene, one tool's panel open at a time (ADR-270). */
+  #tools { display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--rule);
+           border-radius: var(--round); box-shadow: var(--float); padding: 3px; }
+  #tools button { border: 0; text-align: left; padding: 5px 9px; font-size: 12.5px; white-space: nowrap; }
+  #tools #toolsToggle { display: none; font-weight: 600; }
+  #tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+  #toolPanel { max-height: calc(100vh - 220px); overflow: auto; }
+  #toolPanel .esri-widget { box-shadow: var(--float); }
 
   #backContent { display: none; align-items: center; min-height: 36px; padding: 0 10px; color: var(--accent-ink); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -141,6 +194,10 @@
     #panel { border-right: 0; border-top: 1px solid var(--rule); order: 2; }
     #viewDiv { order: 1; }
     button, #headSave, #studio { min-height: 44px; }
+    /* The analysis tools fold behind one button on a phone: eight 44 px rows covered half the scene (review). */
+    #tools #toolsToggle { display: block; }
+    #tools:not(.open) [data-tool] { display: none; }
+    #tools button { min-height: 40px; }
   }
 </style>
 </head>
@@ -174,27 +231,88 @@
     <section id="panel" aria-label="Scene contents">
       <div id="sceneDetails" hidden>
         <label class="field" for="sceneTitle" id="sceneTitleField">Title</label>
-        <input type="text" id="sceneTitle" maxlength="250" autocomplete="off">
+        <input type="text" id="sceneTitle" maxlength="250" autocomplete="off" placeholder="Name this scene">
       </div>
-      <h2 id="layersHead">Layers</h2>
-      <ul id="layerList" aria-labelledby="layersHead"></ul>
-      <h2 id="groundHead">Ground</h2>
-      <label class="field" for="groundSelect">Elevation</label>
-      <select id="groundSelect"><option value="">Flat — no elevation</option></select>
-      <p class="hint">Elevation comes from an image service whose owner marked it as ground (Studio › the service › Settings).</p>
-      <div id="addPart">
-        <h2 id="addHead">Add a layer</h2>
-        <label class="field" for="addFilter">Find a layer</label>
-        <input type="search" id="addFilter" placeholder="Filter by title" autocomplete="off">
-        <ul id="addList" aria-labelledby="addHead"></ul>
-        <div class="row"><button type="button" id="addShowAll" hidden></button></div>
-        <label class="field" for="addUrl">Or a service address</label>
-        <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
-        <div class="row"><button type="button" id="addUrlButton">Add</button></div>
-        <p class="said" id="addSaid" role="status" aria-live="polite"></p>
+      <div id="tabs" role="tablist" aria-label="Scene panel">
+        <button type="button" role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true">Layers</button>
+        <button type="button" role="tab" id="tab-add" aria-controls="pane-add" aria-selected="false" tabindex="-1">Add</button>
+        <button type="button" role="tab" id="tab-basemap" aria-controls="pane-basemap" aria-selected="false" tabindex="-1">Basemap</button>
+        <button type="button" role="tab" id="tab-ground" aria-controls="pane-ground" aria-selected="false" tabindex="-1">Ground</button>
+        <button type="button" role="tab" id="tab-slides" aria-controls="pane-slides" aria-selected="false" tabindex="-1">Slides</button>
+        <button type="button" role="tab" id="tab-legend" aria-controls="pane-legend" aria-selected="false" tabindex="-1">Legend</button>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-layers" aria-labelledby="tab-layers">
+        <h2 id="layersHead" class="sr-only">Layers</h2>
+        <p class="hint" id="layersHint">Top of the list is drawn on top. Settings sets a layer's look, height and pop-ups.</p>
+        <ul id="layerList" aria-labelledby="layersHead"></ul>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-add" aria-labelledby="tab-add" hidden>
+        <div id="addPart">
+          <h2 id="addHead" class="sr-only">Add a layer</h2>
+          <label class="field" for="addFilter">Search layers</label>
+          <input type="search" id="addFilter" placeholder="Search by title" autocomplete="off">
+          <label class="field" for="addType">Kind</label>
+          <select id="addType">
+            <option value="">Every kind</option>
+            <option value="Scene Service">Scene layers</option>
+            <option value="Feature Service">Feature layers</option>
+            <option value="Image Service">Imagery layers</option>
+            <option value="Map Service">Map image layers</option>
+            <option value="Vector Tile Service">Vector tile layers</option>
+          </select>
+          <label class="check"><input type="checkbox" id="addMine"> Only my content</label>
+          <!-- Above the list, so it is not below the fold of eight rows (design review). -->
+          <details id="addByAddress">
+            <summary>Add by service address</summary>
+            <label class="field" for="addUrl">Service address</label>
+            <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
+            <div class="row"><button type="button" id="addUrlButton">Add</button></div>
+          </details>
+          <p class="said" id="addSaid" role="status" aria-live="polite"></p>
+          <ul id="addList" aria-labelledby="addHead"></ul>
+          <div class="row"><button type="button" id="addShowAll" hidden></button></div>
+        </div>
+        <p class="hint" id="addNotYours" hidden>Only the scene's owner can add layers to it.</p>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-basemap" aria-labelledby="tab-basemap" hidden>
+        <h2 id="baseHead" class="sr-only">Basemap</h2>
+        <ul id="baseList" aria-labelledby="baseHead"></ul>
+        <p class="hint" id="baseReadOnly" hidden></p>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-ground" aria-labelledby="tab-ground" hidden>
+        <h2 id="groundHead" class="sr-only">Ground</h2>
+        <p class="hint" id="groundReadOnly" hidden></p>
+        <div id="groundControls">
+        <label class="field" for="groundSelect">Elevation</label>
+        <select id="groundSelect"><option value="">Flat — no elevation</option></select>
+        <p class="hint">Elevation comes from an image service whose owner marked it as ground (Studio › the service › Settings).</p>
+        <label class="field" for="groundOpacity">Ground opacity <span id="groundOpacitySays"></span></label>
+        <input type="range" id="groundOpacity" min="0" max="100" step="5" value="100">
+        <label class="check"><input type="checkbox" id="groundUnder"> Let the camera go below the ground</label>
+        <p class="hint">Lower the opacity to see what lies under the surface — pipes, basements, the bottom of a mesh.</p>
+        </div>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-slides" aria-labelledby="tab-slides" hidden>
+        <h2 id="slidesHead" class="sr-only">Slides</h2>
+        <p class="hint">A slide keeps the camera, which layers are on, the basemap and the ground. Click its picture to go there.</p>
+        <div class="row">
+          <button type="button" id="slideAdd">Capture slide</button>
+          <button type="button" id="slidePlay">Play</button>
+        </div>
+        <ul id="slideList" aria-labelledby="slidesHead" style="margin-top:8px"></ul>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-legend" aria-labelledby="tab-legend" hidden>
+        <h2 id="legendHead" class="sr-only">Legend</h2>
+        <div id="legendBox"></div>
       </div>
     </section>
-    <div id="viewDiv" aria-label="The scene"></div>
+    <div id="viewDiv" role="region" aria-label="The scene. Drag to move, right-drag to turn, scroll to zoom."></div>
   </div>
 </div>
 <script src="scene.js"></script>

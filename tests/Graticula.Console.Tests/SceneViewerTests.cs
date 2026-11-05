@@ -103,7 +103,8 @@ public sealed class SceneViewerTests : ConsoleTest
                 "The scene layer did not open in the viewer.");
             await WaitForAsync("scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "The scene layer did not load.");
             Assert.Equal("scene", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).type"));
-            Assert.Equal("A new scene. 1 layer.", await Browser.EvaluateAsync<string>("document.getElementById('status').textContent"));
+            // ADR-270's design review: the header says what was added, then what the scene now is.
+            Assert.Matches(@" was added\. A new scene\. 1 layer\.$", await Browser.EvaluateAsync<string>("document.getElementById('status').textContent") ?? string.Empty);
 
             NothingWentWrong(await PageErrorsAsync());
         }

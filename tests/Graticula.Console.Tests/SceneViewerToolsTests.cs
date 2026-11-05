@@ -1,0 +1,267 @@
+using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace Graticula.Console.Tests;
+
+/// <summary>
+/// ADR-270: the scene viewer's Scene Viewer tools — a layer's order, opacity, look and pop-up, slides, the basemap and
+/// the ground, each kept in the web scene it saves; the analysis tools and the legend, each opened in the scene.
+/// </summary>
+public sealed class SceneViewerToolsTests : ConsoleTest
+{
+    /// <summary>As <see cref="SceneViewerTests"/>: the SDK refuses software WebGL unless the caveat flag is dropped.</summary>
+    private async Task DrawInSoftwareAsync() =>
+        await Browser.CallAsync("Page.addScriptToEvaluateOnNewDocument", new
+        {
+            source = "(() => { const get = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (type, attrs) {"
+                + " if (attrs && typeof attrs === 'object') attrs = { ...attrs, failIfMajorPerformanceCaveat: false };"
+                + " return get.call(this, type, attrs); }; })();",
+        });
+
+    private async Task OpenNewSceneAsync(string token, string cookie)
+    {
+        await DrawInSoftwareAsync();
+        await OpenAsync("/studio/scene.html", token, cookie);
+        await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The scene viewer did not open a new scene.");
+    }
+
+    private async Task AddByAddressAsync(string url, int expected)
+    {
+        await Browser.EvaluateAsync<bool>($"(document.getElementById('addUrl').value = {JsonSerializer.Serialize(url)}, document.getElementById('addUrlButton').click(), true)");
+        await WaitForAsync($"scState.scene.layers.length === {expected} && /was added/.test(document.getElementById('addSaid').textContent)",
+            $"Adding {url} did not say it was added.");
+    }
+
+    private async Task<string> SaveAsAsync(string title)
+    {
+        await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/addItem', '/update'], true)");
+        await Browser.EvaluateAsync<bool>($"(document.getElementById('sceneTitle').value = {JsonSerializer.Serialize(title)}, document.getElementById('sceneTitle').dispatchEvent(new Event('input')), true)");
+        await ClickAsync("#headSave");
+        await WaitForAsync("/Saved as/.test(document.getElementById('status').textContent)", "Save did not say the scene was saved.");
+        string id = await Browser.EvaluateAsync<string>("scState.id") ?? string.Empty;
+        Assert.False(string.IsNullOrEmpty(id));
+        return id;
+    }
+
+    private async Task<JsonElement> SavedSceneAsync(string id)
+    {
+        (int status, string body) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/content/items/{id}/data?f=json");
+        Assert.Equal(200, status);
+        return JsonDocument.Parse(body).RootElement;
+    }
+
+    /// <summary>
+    /// Two layers are reordered, one is made half transparent, extruded by its floors and given a pop-up whose title is a
+    /// field; the saved web scene carries each, and the scene opens again in that order with that look.
+    /// </summary>
+    [Fact]
+    public async Task A_layers_order_opacity_look_and_popup_are_kept_in_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string buildings = $"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0";
+        string sites = $"{Root}/rest/services/hosted/ci_EarlyAlert/FeatureServer/0";
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('tab-add').getAttribute('aria-selected')"));
+            await AddByAddressAsync(buildings, 1);
+            await AddByAddressAsync(sites, 2);
+            await ClickAsync("#tab-layers");
+
+            // The list is drawn top first: the sites, added last, are on top; moving them down puts the buildings on top.
+            string firstRow = "document.querySelector('#layerList [data-layer]')";
+            Assert.Equal("Features", await Browser.EvaluateAsync<string>($"{firstRow}.querySelector('span.lkind').textContent.trim()"));
+            string sitesTitle = await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(1).title") ?? string.Empty;
+            await ClickAsync("#layerList [data-layer] [data-act=down]");
+            await WaitForAsync($"scState.scene.layers.getItemAt(0).title === {JsonSerializer.Serialize(sitesTitle)}", "Move down did not lower the top layer.");
+            Assert.Matches("was moved down", await Browser.EvaluateAsync<string>("document.getElementById('status').textContent") ?? string.Empty);
+
+            // The buildings' settings: half opacity, extruded by floors × 3, a pop-up titled by a field.
+            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await WaitForAsync("!!document.querySelector('[data-detail] [data-style=shape]')", "The buildings' settings offered no look.");
+            await Browser.EvaluateAsync<bool>("(() => { const r = document.querySelector('[data-detail] [data-act=opacity]'); r.value = '50'; r.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
+            Assert.Equal(0.5, await Browser.EvaluateAsync<double>("scState.scene.layers.getItemAt(1).opacity"));
+
+            Assert.True(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('[data-detail] [data-style=shape] option')].some(o => o.value === 'extrude')"),
+                "A polygon layer was not offered Extruded.");
+            await Browser.EvaluateAsync<bool>("(() => { const d = document.querySelector('[data-detail]');"
+                + " d.querySelector('[data-style=shape]').value = 'extrude';"
+                + " d.querySelector('[data-style=sizeField]').value = 'floors';"
+                + " d.querySelector('[data-style=sizeScale]').value = '3';"
+                + " d.querySelector('[data-style=color]').value = '#c0392b';"
+                + " d.querySelector('[data-style=shape]').dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("/The look of/.test(document.getElementById('status').textContent)", "Apply look did not say it was set.");
+            Assert.Equal("extrude", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(1).renderer.symbol.symbolLayers.getItemAt(0).type"));
+
+            Assert.True(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('[data-detail] [data-popup=title] option')].some(o => o.value === 'floors')"),
+                "The pop-up's title did not offer the layer's fields.");
+            // Applied as it changes: there is no Apply button to forget (ADR-270's design review).
+            await Browser.EvaluateAsync<bool>("(() => { const t = document.querySelector('[data-detail] [data-popup=title]'); t.value = 'floors'; t.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("/The pop-up of/.test(document.getElementById('status').textContent)", "Apply pop-up did not say it was set.");
+            Assert.Equal("{floors}", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(1).popupTemplate.title"));
+
+            // A slide gone to does not close the open settings or undo what they set (the review's blocker).
+            await ClickAsync("#tab-slides");
+            await ClickAsync("#slideAdd");
+            await WaitForAsync("scState.scene.presentation.slides.length === 1", "Capture slide did not add a slide.");
+            await ClickAsync("#slideList [data-act=go]");
+            await ClickAsync("#tab-layers");
+            Assert.Equal("extrude", await Browser.EvaluateAsync<string>("document.querySelector('[data-detail] [data-style=shape]')?.value"));
+
+            id = await SaveAsAsync("zz console scene tools");
+            JsonElement saved = await SavedSceneAsync(id);
+            JsonElement[] layers = saved.GetProperty("operationalLayers").EnumerateArray().ToArray();
+            Assert.Equal(2, layers.Length);
+            Assert.Equal(sitesTitle, layers[0].GetProperty("title").GetString());
+            JsonElement building = layers[1];
+            Assert.Equal(0.5, building.GetProperty("opacity").GetDouble());
+            JsonElement renderer = building.GetProperty("layerDefinition").GetProperty("drawingInfo").GetProperty("renderer");
+            Assert.Equal("Extrude", renderer.GetProperty("symbol").GetProperty("symbolLayers")[0].GetProperty("type").GetString());
+            Assert.Contains(renderer.GetProperty("visualVariables").EnumerateArray(),
+                v => v.GetProperty("type").GetString() == "sizeInfo" && v.GetProperty("valueExpression").GetString() == "$feature.floors * 3");
+            Assert.Equal("{floors}", building.GetProperty("popupInfo").GetProperty("title").GetString());
+
+            // Opened again: the order, the look and the form read back from the renderer.
+            await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The saved scene did not open.");
+            Assert.Equal(sitesTitle, await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).title"));
+            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await WaitForAsync("document.querySelector('[data-detail] [data-style=shape]')?.value === 'extrude'", "The reopened form did not read the look back.");
+            Assert.Equal("floors", await Browser.EvaluateAsync<string>("document.querySelector('[data-detail] [data-style=sizeField]').value"));
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Slides are captured, renamed, reordered and deleted, and played; the basemap is set to none and the ground made
+    /// half transparent with the camera allowed below it; the saved web scene keeps all of it.
+    /// </summary>
+    [Fact]
+    public async Task Slides_the_basemap_and_the_ground_are_kept_in_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+
+            await ClickAsync("#tab-slides");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('slidePlay').disabled"), "Play was offered with no slides.");
+            await ClickAsync("#slideAdd");
+            await WaitForAsync("scState.scene.presentation.slides.length === 1", "Capture slide did not add a slide.");
+            await Browser.EvaluateAsync<bool>("(scState.view.goTo({ heading: 90 }, { animate: false }), true)");
+            await ClickAsync("#slideAdd");
+            await WaitForAsync("scState.scene.presentation.slides.length === 2", "A second capture did not add a slide.");
+            await ClickAsync("#slideAdd");
+            await WaitForAsync("scState.scene.presentation.slides.length === 3", "A third capture did not add a slide.");
+
+            await Browser.EvaluateAsync<bool>("(() => { const i = document.querySelector('#slideList [data-act=rename]'); i.value = 'Overview'; i.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            Assert.Equal("Overview", await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(0).title.text"));
+            await ClickAsync("#slideList li:nth-child(3) [data-act=delete]");
+            await WaitForAsync("scState.scene.presentation.slides.length === 2", "Delete did not remove the slide.");
+            await ClickAsync("#slideList li:nth-child(2) [data-act=up]");
+            await WaitForAsync("scState.scene.presentation.slides.getItemAt(1).title.text === 'Overview'", "Moving a slide earlier did not reorder the slides.");
+
+            await Browser.EvaluateAsync<bool>("(window.__slideSeconds = 0.2, true)");
+            await ClickAsync("#slidePlay");
+            await WaitForAsync("/The slides were played/.test(document.getElementById('status').textContent)", "Play did not go through the slides.");
+            Assert.Equal(await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(1).id"),
+                await Browser.EvaluateAsync<string>("scState.currentSlide"));
+
+            await ClickAsync("#tab-basemap");
+            await WaitForAsync("!!document.querySelector('#baseList [data-base=none]')", "The basemap list offered no None.");
+            // OpenStreetMap exactly once: the portal's default is often OpenStreetMap already (ADR-270's design review).
+            Assert.Equal(1, await Browser.EvaluateAsync<int>(
+                "scState.gallery.filter(e => (e.json.baseMapLayers || []).some(l => l.layerType === 'OpenStreetMap')).length"));
+            await ClickAsync("#baseList [data-base=none]");
+            await WaitForAsync("document.querySelector('#baseList [data-base=none]').getAttribute('aria-pressed') === 'true'", "None was not marked as the basemap.");
+
+            await ClickAsync("#tab-ground");
+            await Browser.EvaluateAsync<bool>("(() => { const r = document.getElementById('groundOpacity'); r.value = '50'; r.dispatchEvent(new Event('input')); return true; })()");
+            await ClickAsync("#groundUnder");
+            Assert.Equal("none", await Browser.EvaluateAsync<string>("scState.scene.ground.navigationConstraint.type"));
+
+            id = await SaveAsAsync("zz console scene slides");
+            JsonElement saved = await SavedSceneAsync(id);
+            JsonElement[] slides = saved.GetProperty("presentation").GetProperty("slides").EnumerateArray().ToArray();
+            Assert.Equal(2, slides.Length);
+            Assert.Equal("Overview", slides[1].GetProperty("title").GetProperty("text").GetString());
+            Assert.Equal(0, saved.GetProperty("baseMap").GetProperty("baseMapLayers").GetArrayLength());
+            JsonElement ground = saved.GetProperty("ground");
+            Assert.Equal(50, ground.GetProperty("transparency").GetDouble());
+            Assert.Equal("none", ground.GetProperty("navigationConstraint").GetProperty("type").GetString());
+
+            await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The saved scene did not open.");
+            Assert.Equal(2, await Browser.EvaluateAsync<int>("document.querySelectorAll('#slideList [data-slide]').length"));
+            Assert.Equal("50", await Browser.EvaluateAsync<string>("document.getElementById('groundOpacity').value"));
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundUnder').checked"), "The reopened scene forgot the camera may go below the ground.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
+
+    /// <summary>Every analysis tool opens its widget in the scene and closes again; the legend names a layer; the add list searches.</summary>
+    [Fact]
+    public async Task Every_analysis_tool_opens_and_the_legend_and_search_answer()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        await OpenNewSceneAsync(token, cookie);
+
+        // The add list searches the portal by title and kind.
+        await WaitForAsync("document.querySelectorAll('#addList [data-add]').length > 0", "The add list offered nothing.");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('addType').value = 'Feature Service', document.getElementById('addType').dispatchEvent(new Event('change')), true)");
+        await WaitForAsync("[...document.querySelectorAll('#addList span.lkind')].length > 0 && [...document.querySelectorAll('#addList span.lkind')].every(k => /Feature layer/.test(k.textContent))",
+            "Feature layers listed something that is not a feature layer.");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('addFilter').value = 'ci_buildings', document.getElementById('addFilter').dispatchEvent(new Event('input')), true)");
+        await WaitForAsync("document.querySelectorAll('#addList [data-add]').length >= 1 && [...document.querySelectorAll('#addList span.lname')].every(n => /ci_buildings/i.test(n.textContent))",
+            "Searching by a title did not narrow the list to it.");
+        await ClickAsync("#addList [data-add]");
+        await WaitForAsync("scState.scene.layers.length === 1 && scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "Add from the list did not add the layer.");
+        await WaitForAsync("/was added/.test(document.getElementById('status').textContent) && !document.querySelector('#addList [data-add]')",
+            "The header did not say the layer was added, or the list still offered it again.");
+
+        foreach (string tool in new[] { "distance", "area", "sight", "slice", "shadow", "daylight", "weather", "profile" })
+        {
+            await ClickAsync($"#tools [data-tool={tool}]");
+            await WaitForAsync($"scState.tool === '{tool}' && !!document.querySelector('#toolPanel .esri-widget')", $"The {tool} tool did not open its widget.");
+            Assert.Equal("true", await Browser.EvaluateAsync<string>($"document.querySelector('#tools [data-tool={tool}]').getAttribute('aria-pressed')"));
+        }
+
+        await ClickAsync("#tools [data-tool=profile]");
+        await WaitForAsync("scState.tool === null && !document.querySelector('#toolPanel .esri-widget')", "Clicking the open tool again did not close it.");
+        await ClickAsync("#tools [data-tool=slice]");
+        await WaitForAsync("scState.tool === 'slice'", "Slice did not open again.");
+        await Browser.EvaluateAsync<bool>("(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })), true)");
+        await WaitForAsync("scState.tool === null && document.activeElement === document.querySelector('#tools [data-tool=slice]')",
+            "Escape did not close the tool and give focus back to its button.");
+
+        await ClickAsync("#tab-legend");
+        await WaitForAsync("/ci_buildings/i.test(document.getElementById('legendBox').textContent)", "The legend did not name the layer.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+}
