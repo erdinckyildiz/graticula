@@ -151,9 +151,8 @@
   #toolPick button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   #toolPanel .esri-widget { box-shadow: none; width: auto !important; max-width: none; }
   /* The SDK's widgets in Studio's accent, not the SDK's own blue (confirming review). */
-  #toolPanel { --calcite-color-brand: var(--accent); --calcite-color-brand-hover: var(--accent-ink); --calcite-color-brand-press: var(--accent-ink); }
-  /* The pills repeat the right toolbar on a wide screen; they are the phone's way between a layer's parts. */
-  @media (min-width: 761px) { #layerParts { display: none; } }
+  #toolPanel, #legendBox { --calcite-color-brand: var(--accent); --calcite-color-brand-hover: var(--accent-ink); --calcite-color-brand-press: var(--accent-ink);
+    --calcite-color-foreground-1: var(--surface); --calcite-color-background: var(--surface); --calcite-color-text-1: var(--ink); --calcite-color-text-2: var(--muted); }
   /* A short laptop screen: the toolbars' buttons are shorter, so all of them fit (confirming review). */
   @media (max-height: 860px) and (min-width: 761px) { #tabs button, #tools button { min-height: 50px; } }
   #toolPanel:empty { display: none; }
@@ -180,6 +179,9 @@
   #layerParts { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
   #layerParts button { padding: 4px 10px; border-radius: 999px; font-size: 12.5px; }
   #layerParts button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  /* The pills repeat the right toolbar on a wide screen; they are the phone's way between a layer's parts. After the
+     rule above, so it wins (ADR-279's third look: placed before it, it lost at every width). */
+  @media (min-width: 761px) { #layerParts { display: none; } }
   #layerList, #addList { list-style: none; margin: 0; padding: 0; }
   #addList > li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule);
            border-radius: 4px; padding: 7px 8px; margin-bottom: 6px; background: var(--surface); }
@@ -458,7 +460,18 @@
           <label class="check"><input type="checkbox" id="addMine"> Only my content</label>
           <!-- ADR-271: the portal's search answers a box, so the list can follow the view. -->
           <label class="check"><input type="checkbox" id="addInView"> Only within the current view</label>
-          <!-- ADR-276 condition 2: Scene Viewer's Create layer — an empty hosted layer with heights, ready to edit. -->
+          <!-- Above the list, so it is not below the fold of eight rows (design review). -->
+          <details id="addByAddress">
+            <summary>Add by service address</summary>
+            <label class="field" for="addUrl">Service address</label>
+            <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
+            <div class="row"><button type="button" id="addUrlButton">Add</button></div>
+          </details>
+          <!-- Not a live region: the header's status says the same, and a screen reader heard it twice (confirming review). -->
+          <p class="said" id="addSaid"></p>
+          <ul id="addList" aria-labelledby="addHead"></ul>
+          <div class="row"><button type="button" id="addShowAll" hidden></button></div>
+          <!-- After the list, since making a layer is not a filter of it (ADR-279's third look). ADR-276 condition 2: Scene Viewer's Create layer — an empty hosted layer with heights, ready to edit. -->
           <details id="createLayer">
             <summary>Create a layer to draw in</summary>
             <label class="field" for="createName">Name</label>
@@ -472,17 +485,7 @@
             <p class="hint">An empty hosted layer of yours, with heights and a <i>label</i> field, added to the scene with Edit open. Letters, digits and _ in the name.</p>
             <div class="row"><button type="button" id="createGo">Create and edit</button></div>
           </details>
-          <!-- Above the list, so it is not below the fold of eight rows (design review). -->
-          <details id="addByAddress">
-            <summary>Add by service address</summary>
-            <label class="field" for="addUrl">Service address</label>
-            <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
-            <div class="row"><button type="button" id="addUrlButton">Add</button></div>
-          </details>
-          <!-- Not a live region: the header's status says the same, and a screen reader heard it twice (confirming review). -->
-          <p class="said" id="addSaid"></p>
-          <ul id="addList" aria-labelledby="addHead"></ul>
-          <div class="row"><button type="button" id="addShowAll" hidden></button></div>
+
         </div>
         <p class="hint" id="addNotYours" hidden>Only the scene's owner can add layers to it.</p>
       </div>

@@ -111,4 +111,8 @@ ADR-259, ADR-269, ADR-270, ADR-275.
    - no phone rail scrollbar;
    - shorter buttons on short screens;
    - the status on the title's line on a phone.
-   A third look is owed.)*
+   A third look is owed.)* *(Discharged 2026-11-07: the third look verified all of them but two, the desktop pills
+   (a CSS rule placed before the one it was to override) and the SDK widgets drawing white in the dark theme (Calcite's
+   mode class was never set). It said it would call the surface a pass once those two landed, without another look. Both
+   were fixed, with its four minors: Create layer below the list, a short tool status, and the widgets' Calcite colours
+   from the page's tokens, the legend's included.)*

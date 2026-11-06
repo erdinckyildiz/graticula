@@ -102,7 +102,9 @@ ADR-012 (server directories), ADR-193 (backups), ADR-269, ADR-272 §5.3.
 ## 9. Conditions
 
 1. **A site of two nodes reads a package uploaded through the other**, as `ASiteSharesItsServerDirectoriesTests` shows
-   for imagery. *(Open.)*
+   for imagery. *(Discharged 2026-11-07:
+   `ASiteSharesItsServerDirectoriesTests.A_large_scene_package_uploaded_through_one_node_is_served_by_the_other` uploads
+   a 65 MB package through one node and finds it under the shared directories and served by the other.)*
 2. **A package of hundreds of megabytes is served without the host's memory growing by its size**, measured on Esri's
    integrated mesh sample. *(Discharged 2026-11-07: §4. The upload peaked 35 MB above idle, and the download added
    nothing.)*

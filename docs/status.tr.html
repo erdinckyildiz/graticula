@@ -110,33 +110,33 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>13152f2a</code> · 2026-11-06 13:21</p>
+<p class="stamp">Şu commit’ten üretildi: <code>72286d5b</code> · 2026-11-06 13:27</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">277</div><div class="kpi-l">ADR</div><div class="kpi-n">93 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">664/714</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">38 canlı · 12 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">666/714</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">36 canlı · 12 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık borç</div><div class="kpi-n">330 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6092</div><div class="kpi-l">test</div><div class="kpi-n">673 kaynak dosya, 297,822 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6093</div><div class="kpi-l">test</div><div class="kpi-n">673 kaynak dosya, 297,822 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">43 madde</span></div><p><b>38 ADR conditions</b> outstanding across 27 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">41 madde</span></div><p><b>36 ADR conditions</b> outstanding across 26 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-269 · Scenes: web scenes are saved, scen</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-276 · Editing in the scene: the first st</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -157,7 +157,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-271 · The portal&#x27;s search answers `bbox`</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-275 · A scene may be embedded by the sit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-279 · The scene viewer takes Scene Viewe</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -447,12 +446,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">271</td><td>The portal&#x27;s search answers `bbox`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
 <tr><td class="id">272</td><td>The owner&#x27;s decisions on 3D scope, 2026-11-07</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">273</td><td>The Maps SDK the console loads is 4.34</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
-<tr><td class="id">274</td><td>A scene layer package above the document limit is a file in the server directories</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/5</td></tr>
+<tr><td class="id">274</td><td>A scene layer package above the document limit is a file in the server directories</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">275</td><td>A scene may be embedded by the sites the operator lists</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
 <tr><td class="id">276</td><td>Editing in the scene: the first step</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">277</td><td>A scene layer&#x27;s cache is rebuilt on a schedule, and in part</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">LOW</td><td class="num">1/4</td></tr>
 <tr><td class="id">278</td><td>A 3D Tiles archive is served from its zip and drawn in a scene</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
-<tr><td class="id">279</td><td>The scene viewer takes Scene Viewer&#x27;s and Studio&#x27;s map&#x27;s shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/1</td></tr>
+<tr><td class="id">279</td><td>The scene viewer takes Scene Viewer&#x27;s and Studio&#x27;s map&#x27;s shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/1</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -585,9 +584,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1770</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.9%"></div></div><div class="bar-n">971</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.6%"></div></div><div class="bar-n">966</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1771</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.8%"></div></div><div class="bar-n">971</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.5%"></div></div><div class="bar-n">966</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.7%"></div></div><div class="bar-n">579</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.2%"></div></div><div class="bar-n">481</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">450</div></div>
@@ -647,6 +646,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>72286d5b</code><time>2026-11-06</time><span>Create a layer to draw in, from the scene (ADR-276 condition 2)</span></li>
 <li><code>13152f2a</code><time>2026-11-06</time><span>Voxel drawn in a Web Mercator local scene; 3D Tiles 1.0 and Gaussian splat measured; a CI test of large packages</span></li>
 <li><code>b4638e61</code><time>2026-11-06</time><span>Deleted large packages&#x27; files are swept (D-389); archives and web scenes are found by a box</span></li>
 <li><code>47fc0d6d</code><time>2026-11-06</time><span>The scene viewer takes Scene Viewer&#x27;s and Studio&#x27;s map&#x27;s shape (ADR-279)</span></li>
@@ -660,7 +660,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>42e51f69</code><time>2026-11-06</time><span>The Maps SDK is 4.34, and the scene gains Volume, Viewshed and Dimensions (ADR-273, ADR-270 §5.18)</span></li>
 <li><code>66bbd5d4</code><time>2026-11-06</time><span>The request log is disposed once, however often it is asked</span></li>
 <li><code>fa024ce8</code><time>2026-11-06</time><span>The owner&#x27;s decisions on 3D scope (ADR-272)</span></li>
-<li><code>086cfe99</code><time>2026-11-06</time><span>Analysis from the scene, colour by values or classes, Play&#x27;s caption, voxel served as ArcGIS serves it (ADR-270 §5.14-5.17)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

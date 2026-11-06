@@ -19,7 +19,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 
 | ArcGIS | Graticula | State |
 |---|---|---|
-| A new scene is global or local, chosen at creation [1] | the same; a local scene is Web Mercator (ADR-270 §5.7) | Partly built — no other projected system |
+| A new scene is global or local, chosen at creation [1] | the same; a local scene is Web Mercator, or a 3D layer's own projected system when one is added to a new local scene (ADR-270 §5.7, §5.20) | Built |
 | Layer Manager: order, visibility, group layers [2] | order, visibility, opacity, title, zoom to, remove (§5.1) | Partly built — no group layers |
 | Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15) | Partly built — the number of values and classes is fixed, and no web style gallery |
 | Layer properties: pop-ups, visibility ranges, filters [2] | pop-up title and fields; a range from Scene Viewer's named scales; a filter, tried before it is kept (§5.1, §5.9) | Built |
@@ -92,7 +92,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | 3D object, 3D point | served from packages, and made from feature layers | Built |
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
 | Mesh (integrated mesh), point cloud | served by the same path rule and drawn; Esri's whole 286 MB mesh drawn textured (ADR-274), the point cloud measured on its subset | Built |
-| Voxel | served as ArcGIS serves one, and drawn in a local scene when it is in Web Mercator (ADR-270 §5.17) | Partly built — a voxel in another projected system needs a local scene in that system |
+| Voxel | served as ArcGIS serves one, and drawn in a local scene in its own system: Web Mercator and EPSG:2056 measured (ADR-270 §5.17, §5.20) | Built — a WGS 84 voxel is drawn in neither kind of scene by SDK 4.34 |
 | 3D tiles, `.3tz`, Gaussian splat | a `.3tz` archive is kept, served and drawn when its content is 3D Tiles 1.1 (glTF); 1.0 (b3dm) is loaded but not drawn by SDK 4.34, and Gaussian splat has no public API before SDK 5 (ADR-278) | Partly built — waits on an SDK that draws b3dm and splats |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
 | Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); each seen drawn on Esri's sample 2026-11-07, elevation over the heights the layer's statistics give | Built |

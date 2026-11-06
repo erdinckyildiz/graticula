@@ -90,6 +90,11 @@ function scLoadSdk() {
     css.rel = "stylesheet";
     css.href = url + `esri/themes/${document.documentElement.dataset.theme === "dark" ? "dark" : "light"}/main.css`;
     document.head.append(css);
+    // The SDK's widgets are Calcite components, which take their mode from an ancestor's class, not from the theme's
+    // stylesheet: without it they drew white cards on the dark page (ADR-279's third look).
+    const dark = document.documentElement.dataset.theme === "dark";
+    document.body.classList.toggle("calcite-mode-dark", dark);
+    document.body.classList.toggle("calcite-mode-light", !dark);
     const script = document.createElement("script");
     script.src = url;
     script.onload = () => resolve();
@@ -998,6 +1003,22 @@ async function scAddUrl(url, title, itemId, kind) {
     if (scState.mode === "local" && ["scene", "building-scene", "point-cloud", "integrated-mesh", "voxel"].includes(layer.type)
         && layer.spatialReference && layer.spatialReference.isGeographic) {
       throw new Error(`${layer.title || "this scene layer"} is in a geographic system (WGS 84), which I3S shows in a global scene only. Make a global scene for it`);
+    }
+    // ADR-270 §5.20: a 3D layer in a projected system other than the local scene's is drawn only in a local scene in its
+    // own. A new, empty scene offers to start again in it, with the layer; a scene with layers says why.
+    const ownWkid = layer.spatialReference && !layer.spatialReference.isGeographic && !layer.spatialReference.isWebMercator
+      ? layer.spatialReference.wkid : null;
+    if (scState.mode === "local" && ["scene", "building-scene", "point-cloud", "integrated-mesh", "voxel"].includes(layer.type)
+        && ownWkid && ownWkid !== scState.view.spatialReference.wkid) {
+      if (!scState.id && scState.scene.layers.length === 0) {
+        said.className = "said";
+        said.innerHTML = `${scEscape(layer.title || "This layer")} is in EPSG:${ownWkid}, and a 3D layer is drawn in a local scene in its own system.
+          <a href="/studio/scene.html?mode=local&amp;wkid=${ownWkid}&amp;layer=${encodeURIComponent(url)}&amp;title=${encodeURIComponent(layer.title || "")}" id="restartIn">Start a local scene in EPSG:${ownWkid}</a> — basemaps in Web Mercator are not drawn in it.`;
+        scSay(`${layer.title || "This layer"} needs a local scene in EPSG:${ownWkid}.`);
+        scDrawAddItems();
+        return;
+      }
+      throw new Error(`${layer.title || "this layer"} is in EPSG:${ownWkid}, and a 3D layer is drawn only in a local scene in its own system. Make a new local scene for it`);
     }
     // A layer that carries its own heights is placed at them; a flat one is draped on the ground.
     if (layer.type === "feature" && layer.hasZ) layer.elevationInfo = { mode: "absolute-height" };
@@ -2018,7 +2039,7 @@ async function scToggleTool(key, options = {}) {
       scState.tools[key] = made;
       scState.tool = key;
       pressed();
-      scSay(`${tool.label} is open.`);
+      scSay(tool.label);
       return;
     }
     const [Widget] = await scRequire([tool.module]);
@@ -2060,7 +2081,7 @@ async function scToggleTool(key, options = {}) {
     scState.tools[key] = new Widget(options);
     scState.tool = key;
     pressed();
-    scSay(`${tool.label} is open.`);
+    scSay(tool.label);
   } catch (e) {
     scSay(`${tool.label} could not be opened: ${e.message}`, true);
   }
@@ -2297,8 +2318,12 @@ async function scStart() {
     // ADR-270 §5.7: a local scene is flat, in Web Mercator — the projection of every basemap this server offers, so the
     // ground draws; feature layers are projected to it by the SDK. A global scene is the whole earth, as it was.
     const local = scQuery.get("mode") === "local";
-    scState.scene = new WebScene({ basemap, ground: {},
-      initialViewProperties: local ? { viewingMode: "local", spatialReference: { wkid: 3857 } } : undefined });
+    // ADR-270 §5.20: a local scene in a layer's own projected system (`&wkid=`), for a layer drawn only in its own — a
+    // voxel layer, a scene layer in a national grid. Web Mercator basemaps are not drawn in it, so it starts with none.
+    const wkid = Number(scQuery.get("wkid")) || 3857;
+    const own = local && wkid !== 3857 && wkid !== 102100;
+    scState.scene = new WebScene({ basemap: own ? null : basemap, ground: {},
+      initialViewProperties: local ? { viewingMode: "local", spatialReference: { wkid } } : undefined });
   }
 
   try {
