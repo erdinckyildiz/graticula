@@ -142,7 +142,11 @@ public sealed class PostgresDocumentStore : IDocumentStore
     {
         // Every tenant's rows, as the sweep is of the one shared folder: read through the root source, not the route.
         HashSet<string> named = new(StringComparer.Ordinal);
-        await using NpgsqlCommand command = _root.CreateCommand("select content_file from document where content_file is not null");
+        // A file is named by a live document or by one in the recycle bin, whose row is kept whole (ADR-203); with no
+        // tenant set the store's floor (graticula_tenant() is null) shows every organisation's rows, which this must.
+        await using NpgsqlCommand command = _root.CreateCommand(
+            "select content_file from document where content_file is not null "
+            + "union select row->>'content_file' from recycle_row where table_name = 'document' and row->>'content_file' is not null");
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

@@ -70,8 +70,7 @@ the tileset's east-north-up transform, so nothing of anyone else's is in it.
 ## 6. Consequences
 
 - **State.** None new. It is a document, and a file when it is large.
-- The portal's `bbox` search does not find an archive yet: its extent is the tileset's root bounding volume, which is
-  not read (ADR-271 finds only items with an extent).
+- The portal's `bbox` search finds an archive whose root is bounded by a region (§9 condition 4).
 
 ## 7. Assumptions this decision rests on
 
@@ -89,4 +88,6 @@ ADR-269, ADR-272 §5.5, ADR-273, ADR-274.
    added. *(Open.)*
 3. **Gaussian splat**: the SDK 4.34 has `GaussianSplatLayer`. What it reads, and whether this server can host it the
    same way, needs its own measurement. *(Open.)*
-4. **An archive's extent** from its root bounding volume, for the portal's `bbox` search. *(Open.)*
+4. **An archive's extent** from its root bounding volume, for the portal's `bbox` search. *(Discharged 2026-11-07 for a
+   root `region`: `TilesetExtentAsync`, and `TilesArchiveTests` finds the archive by a box around it and not by one far
+   away. A root bounded by a box or a sphere still has no extent, since placing it needs the root's transform.)*

@@ -500,7 +500,10 @@ public interface IDocumentStore
         string sha256,
         CancellationToken cancellationToken);
 
-    /// <summary>Every file the store's rows name (ADR-274), relative to the server directories, for the sweep.</summary>
+    /// <summary>
+    /// Every file the store's rows name (ADR-274), relative to the server directories, for the sweep — every
+    /// organisation's documents and the recycle bin's copies of deleted ones.
+    /// </summary>
     Task<IReadOnlySet<string>> ContentFilesAsync(CancellationToken cancellationToken);
 
     /// <summary>Replaces a document's title, snippet and scope; null when there is no such document.</summary>

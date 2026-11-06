@@ -64,7 +64,9 @@ than a slow right one.
    four finite numbers with min ≤ max is refused by name. A box across the antimeridian is refused rather than read as
    the world; the scene viewer does not send one.
 2. An item is found when its extent overlaps or touches the box. **An item with no extent is not found by a box**: a
-   PDF, an app, a layer whose source cannot be read, and for now a web scene, whose view is a camera. `INFERRED` from
+   PDF, an app, or a layer whose source cannot be read. *(Amended 2026-11-07: a web scene is found by its initial view's
+   target extent, or else by where its camera is, `PortalSpatialSearch.SceneExtent`; a 3D Tiles archive by its root
+   region, ADR-278.)* `INFERRED` from
    ArcGIS, where a spatial search matches the item's extent.
 3. The search listing still carries `extent: []`; only the item's own page fills it. Filling it on a listing is a
    separate change with its own cost.
@@ -96,7 +98,6 @@ than a slow right one.
 ## 10. Revisit triggers
 
 - An empty-`q` box takes longer than a second on a warm cache: then Alternative B, with a way to invalidate.
-- A user asks for a web scene to be found by a box.
 
 ## 11. Dissent
 

@@ -50,6 +50,13 @@ public sealed class TilesArchiveTests : ConsoleTest
             string tileset = described.GetProperty("url").GetString()!;
             Assert.EndsWith($"/rest/services/hosted/{id}/3DTilesServer/tileset.json", tileset);
 
+            // ADR-278 condition 4: the portal's bbox search finds the archive by its root region, and not elsewhere.
+            (status, string near) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=type:%223D%20Tiles%20Service%22&bbox=28.9,40.9,29.1,41.1&f=json");
+            Assert.Equal(200, status);
+            Assert.Contains(id!, near, StringComparison.Ordinal);
+            (_, string far) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=type:%223D%20Tiles%20Service%22&bbox=-10,-10,-9,-9&f=json");
+            Assert.DoesNotContain(id!, far, StringComparison.Ordinal);
+
             (status, string read) = await AdminAsync(HttpMethod.Get, $"/rest/services/hosted/{id}/3DTilesServer/tileset.json");
             Assert.Equal(200, status);
             Assert.Equal("box.glb", JsonDocument.Parse(read).RootElement.GetProperty("root").GetProperty("content").GetProperty("uri").GetString());

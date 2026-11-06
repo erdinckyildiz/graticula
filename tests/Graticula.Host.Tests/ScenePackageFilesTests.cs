@@ -76,4 +76,26 @@ public sealed class ScenePackageFilesTests : IDisposable
         Assert.True(File.Exists(fresh));
         Assert.True(File.Exists(kept));
     }
+
+    [Fact]
+    public void A_file_nothing_names_is_removed_once_a_day_old_and_a_named_one_never()
+    {
+        ScenePackageFiles files = new(_root);
+        Directory.CreateDirectory(files.Directory);
+        string named = new string('a', 64) + ".slpk", orphan = new string('b', 64) + ".slpk", young = new string('c', 64) + ".slpk";
+        foreach (string f in new[] { named, orphan, young })
+        {
+            File.WriteAllText(Path.Combine(files.Directory, f), "x");
+        }
+
+        File.SetLastWriteTimeUtc(Path.Combine(files.Directory, named), DateTime.UtcNow.AddDays(-30));
+        File.SetLastWriteTimeUtc(Path.Combine(files.Directory, orphan), DateTime.UtcNow.AddDays(-2));
+
+        int removed = files.SweepOrphans(new System.Collections.Generic.HashSet<string> { $"scene-package-files/{named}" }, TimeSpan.FromDays(1));
+
+        Assert.Equal(1, removed);
+        Assert.True(File.Exists(Path.Combine(files.Directory, named)), "A file a row names was removed.");
+        Assert.False(File.Exists(Path.Combine(files.Directory, orphan)), "A day-old file nothing names was kept.");
+        Assert.True(File.Exists(Path.Combine(files.Directory, young)), "A file kept moments ago, its row not yet written, was removed.");
+    }
 }

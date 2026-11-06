@@ -58,6 +58,39 @@ internal static class SceneServerEndpoints
 
     private const string TilesRoot = "/rest/services/hosted/{id}/3DTilesServer";
 
+    /// <summary>
+    /// A 3D Tiles archive's extent in WGS 84, from its root tile's <c>region</c> — west, south, east, north in radians, as
+    /// the 3D Tiles specification gives it — or empty when the root is bounded by a box or a sphere, which need its
+    /// transform to place (ADR-278 condition 4, for the portal's <c>bbox</c> search).
+    /// </summary>
+    internal static async Task<double[][]> TilesetExtentAsync(HttpContext context, Document document, CancellationToken cancellation)
+    {
+        IDocumentStore? documents = context.RequestServices.GetService<IDocumentStore>();
+        ScenePackages? packages = context.RequestServices.GetService<ScenePackages>();
+        if (documents is null || packages is null
+            || await packages.OpenAsync(document, documents, cancellation).ConfigureAwait(false) is not { } package
+            || package.Find("tileset.json") is not { } name)
+        {
+            return [];
+        }
+
+        try
+        {
+            JsonNode? tileset = JsonNode.Parse(Plain(name, await package.ReadAsync(name, cancellation).ConfigureAwait(false)));
+            if (tileset?["root"]?["boundingVolume"]?["region"] is not JsonArray region || region.Count < 4)
+            {
+                return [];
+            }
+
+            double[] r = [.. region.Take(4).Select(v => v is JsonValue value && value.TryGetValue(out double d) ? d * 180 / Math.PI : double.NaN)];
+            return r.All(double.IsFinite) && r[0] <= r[2] && r[1] <= r[3] ? [[r[0], r[1]], [r[2], r[3]]] : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>The address a 3D Tiles archive's tileset answers at, on this request's host (ADR-278).</summary>
     public static string TilesetAddressOf(HttpRequest request, string id) =>
         $"{request.Scheme}://{request.Host}{request.PathBase}/rest/services/hosted/{id}/3DTilesServer/tileset.json";

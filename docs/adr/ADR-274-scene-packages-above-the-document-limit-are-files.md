@@ -110,7 +110,11 @@ ADR-012 (server directories), ADR-193 (backups), ADR-269, ADR-272 §5.3.
    measured by hand. *(Open.)*
 3. **Replace file for a large package**, through the same streaming path. *(Open.)*
 4. **A file no live row, tenant or recycle bin entry names is removed**, with a test across two tenants and a restore
-   from the bin. *(Open. Until then deleted large packages leave their files; D-389.)*
+   from the bin. *(Partly discharged 2026-11-07: `ScenePackageFileSweep`, hourly and once per site, removes a
+   day-old file that no document of any organisation and no recycle bin copy names. With no tenant set, the store's
+   floor `graticula_tenant() is null` reads every organisation's rows, and the recycle bin keeps the document row whole,
+   `content_file` included. `ScenePackageFilesTests` covers the rule. A test across two real tenants and a restore
+   from the bin is still owed.)*
 
 ## 10. Revisit triggers
 

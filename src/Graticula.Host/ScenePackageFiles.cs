@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading;
@@ -19,7 +20,8 @@ namespace Graticula.Host;
 /// <para>
 /// <b>Streamed, never held.</b> An upload is copied to a partial file while it is hashed, then moved to its name; the
 /// caller checks it is a package before recording it. A partial file older than a day is an upload that died, and the
-/// sweep removes it. A complete file is never removed here (ADR-274 §5.4, D-389).
+/// sweep removes it. A complete file is removed only when no row of any organisation, and no copy in the recycle bin,
+/// names it, and it is a day old (<see cref="SweepOrphans"/>, D-389).
 /// </para>
 /// </remarks>
 internal sealed class ScenePackageFiles
@@ -125,6 +127,49 @@ internal sealed class ScenePackageFiles
                 if (File.GetLastWriteTimeUtc(partial) < before)
                 {
                     File.Delete(partial);
+                    removed++;
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// Removes the complete files no row names (D-389) — <paramref name="named"/> being every organisation's documents and
+    /// the recycle bin's copies — once they are older than <paramref name="age"/>, so a file kept a moment before its row
+    /// was written is never taken. Answers how many.
+    /// </summary>
+    public int SweepOrphans(IReadOnlySet<string> named, TimeSpan age)
+    {
+        ArgumentNullException.ThrowIfNull(named);
+        if (!System.IO.Directory.Exists(Directory))
+        {
+            return 0;
+        }
+
+        int removed = 0;
+        DateTime before = DateTime.UtcNow - age;
+
+        foreach (string file in System.IO.Directory.EnumerateFiles(Directory, "*.slpk"))
+        {
+            string name = Path.GetFileName(file);
+            if (!IsHashName(name) || named.Contains($"{Folder}/{name}"))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < before)
+                {
+                    File.Delete(file);
                     removed++;
                 }
             }

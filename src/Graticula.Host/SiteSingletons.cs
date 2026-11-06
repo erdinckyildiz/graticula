@@ -40,8 +40,11 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
     /// <summary>The sweeps that run once per site, by the name each is locked under.</summary>
     public static readonly IReadOnlyList<string> Names =
     [
-        Backup, LogRetention, HistoryRetention, AttachmentSweep, RecycleBinExpiry, CoveragePyramids, SceneRebuilds,
+        Backup, LogRetention, HistoryRetention, AttachmentSweep, RecycleBinExpiry, CoveragePyramids, SceneRebuilds, ScenePackageFiles,
     ];
+
+    /// <summary>Scene layer package files nothing names any more (D-389).</summary>
+    public const string ScenePackageFiles = "scene-package-files";
 
     /// <summary>Scene layers made again when their layer changed (ADR-277).</summary>
     public const string SceneRebuilds = "scene-rebuilds";

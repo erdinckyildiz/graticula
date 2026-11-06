@@ -187,4 +187,18 @@ public sealed class ThePortalAnswersAnArcGisClientAsArcGisDoesTests
         Assert.Equal("hosted", folder.RootElement.GetProperty("folderName").GetString());
         Assert.Equal(1, folder.RootElement.GetProperty("services").GetArrayLength());
     }
+
+    /// <summary>ADR-271, amended: a web scene is found by its target extent, or else where its camera is.</summary>
+    [Fact]
+    public void A_web_scene_is_found_by_its_view()
+    {
+        Assert.Equal([[29.0, 41.0], [29.0, 41.0]],
+            PortalSpatialSearch.SceneExtent("""{"initialState":{"viewpoint":{"camera":{"position":{"x":29,"y":41,"z":500,"spatialReference":{"wkid":4326}}}}}}"""));
+        double[][] mercator = PortalSpatialSearch.SceneExtent(
+            """{"initialState":{"viewpoint":{"camera":{"position":{"x":3228265.2,"y":5012341.7,"spatialReference":{"wkid":102100}}}}}}""");
+        Assert.Equal(29.0, mercator[0][0], 3);
+        Assert.Equal(41.0, mercator[0][1], 3);
+        Assert.Empty(PortalSpatialSearch.SceneExtent("""{"initialState":{}}"""));
+        Assert.Empty(PortalSpatialSearch.SceneExtent(null));
+    }
 }

@@ -790,7 +790,6 @@ public static class Program
         // ADR-274: scene layer packages above the document limit, as files in the server directories; an upload that
         // died is swept at start.
         ScenePackageFiles scenePackageFiles = new(settings.ServerDirectoryRoot);
-        scenePackageFiles.SweepPartials(TimeSpan.FromDays(1));
         builder.Services.AddSingleton(scenePackageFiles);
         builder.Services.AddSingleton(new ScenePackages(settings.StatePath, scenePackageFiles));
 
@@ -929,6 +928,9 @@ public static class Program
 
         // ADR-277: scene layers made again when the layer they were made from changed, where their owner asked.
         builder.Services.AddHostedService<SceneRebuilds>();
+
+        // D-389: scene package files nothing names any more, swept hourly once per site.
+        builder.Services.AddHostedService<ScenePackageFileSweep>();
 
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));

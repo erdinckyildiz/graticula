@@ -22,8 +22,8 @@ namespace Graticula.Host;
 /// <para>
 /// <b>An item with no extent is not found by a box</b> — a PDF, a web app, a layer whose source cannot be read.
 /// <c>INFERRED</c> from ArcGIS's search, where a spatial search matches against the item's extent and an item without
-/// one has nothing to match; for the owner to confirm. A web scene is one of these for now: its view is a camera, not a
-/// box, and its document is not read here. A box that touches an extent's edge meets it.
+/// one has nothing to match; for the owner to confirm. A web scene is found by its initial view's target extent, or by
+/// where its camera is (ADR-271, amended 2026-11-07). A box that touches an extent's edge meets it.
 /// </para>
 /// </remarks>
 internal static class PortalSpatialSearch
@@ -66,6 +66,18 @@ internal static class PortalSpatialSearch
             {
                 extent = await SceneServerEndpoints.PackageExtentAsync(context, document, projector, cancellation).ConfigureAwait(false);
             }
+            else if (entry.Document is { } scene && scene.Kind.Name == "webscene")
+            {
+                // A web scene's initial view: its target extent when it keeps one, or where its camera is.
+                byte[]? json = await context.RequestServices.GetRequiredService<IDocumentStore>()
+                    .ContentAsync(scene.Id, cancellation).ConfigureAwait(false);
+                extent = SceneExtent(json is null ? null : System.Text.Encoding.UTF8.GetString(json));
+            }
+            else if (entry.Document is { } archive && Documents.IsTilesArchive(archive.Kind))
+            {
+                // ADR-278: a 3D Tiles archive's root region.
+                extent = await SceneServerEndpoints.TilesetExtentAsync(context, archive, cancellation).ConfigureAwait(false);
+            }
             else
             {
                 extent = [];
@@ -78,6 +90,52 @@ internal static class PortalSpatialSearch
         }
 
         return found;
+    }
+
+    /// <summary>
+    /// A web scene's extent in degrees: its initial viewpoint's target extent, read as a web map's is
+    /// (<see cref="PortalEndpoints.MapExtent"/>), or else its camera's position as a point. Empty when it says neither.
+    /// </summary>
+    internal static double[][] SceneExtent(string? document)
+    {
+        if (PortalEndpoints.MapExtent(document) is [_, _] box)
+        {
+            return box;
+        }
+
+        try
+        {
+            using System.Text.Json.JsonDocument parsed = System.Text.Json.JsonDocument.Parse(document ?? "{}");
+            if (parsed.RootElement.TryGetProperty("initialState", out var state)
+                && state.TryGetProperty("viewpoint", out var viewpoint)
+                && viewpoint.TryGetProperty("camera", out var camera)
+                && camera.TryGetProperty("position", out var position)
+                && position.TryGetProperty("x", out var x) && position.TryGetProperty("y", out var y)
+                && x.ValueKind == System.Text.Json.JsonValueKind.Number)
+            {
+                int wkid = position.TryGetProperty("spatialReference", out var reference)
+                    && (reference.TryGetProperty("latestWkid", out var w) || reference.TryGetProperty("wkid", out w)) && w.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? w.GetInt32() : 4326;
+                double lon = x.GetDouble(), lat = y.GetDouble();
+                if (wkid is 3857 or 102100 or 102113 or 900913)
+                {
+                    const double Radius = 6378137.0;
+                    lon = lon / Radius * 180.0 / Math.PI;
+                    lat = ((2 * Math.Atan(Math.Exp(lat / Radius))) - (Math.PI / 2)) * 180.0 / Math.PI;
+                }
+                else if (wkid is not (4326 or 4490))
+                {
+                    return [];
+                }
+
+                return double.IsFinite(lon) && double.IsFinite(lat) ? [[lon, lat], [lon, lat]] : [];
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+
+        return [];
     }
 
     /// <summary>Whether an item's <c>[[xmin, ymin], [xmax, ymax]]</c> meets a box of minx, miny, maxx, maxy.</summary>
