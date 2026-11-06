@@ -136,6 +136,47 @@
                  color: var(--muted); padding: 7px 5px; margin-bottom: -1px; font-size: 13px; }
   #tabs button[aria-selected="true"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
   .tabpanel h2:first-child { margin-top: 2px; }
+  /* The analysis tools (analysis.js), as Studio's map draws them (webmap.html), in this panel's tokens. */
+  #pane-analysis .stacked { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+  #pane-analysis .stacked .hint { margin: 0; }
+  #pane-analysis fieldset.offered { border: 0; padding: 0; margin: 10px 0; }
+  #pane-analysis fieldset.offered legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
+  #pane-analysis label.check { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+  #pane-analysis label.check > span > .hint { display: block; margin: 2px 0 0; }
+  #pane-analysis .azrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+  #pane-analysis .azrow > .stacked { margin: 0; }
+  #pane-analysis .fielderror { color: var(--alert); font-size: 12.5px; }
+  /* Run stays in reach while the questions scroll: pinned to the bottom of the panel, over its 18px bottom padding. */
+  #pane-analysis .azfoot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
+    border-top: 1px solid var(--rule); padding: 10px 0 28px; margin: 10px 0 -18px; position: sticky; bottom: -18px;
+    background: var(--surface); }
+  #pane-analysis .azfoot .fill { flex: 1 1 100%; margin: 0; }
+  #pane-analysis #analyzeButtons { display: flex; gap: 8px; }
+  #pane-analysis .azfoot:empty { display: none; }
+  #pane-analysis .bad { color: var(--alert); }
+  #pane-analysis button.ghost { border-color: transparent; background: none; color: var(--muted); }
+  #pane-analysis select, #pane-analysis input[type=text], #pane-analysis input[type=number] { max-width: 100%; }
+  /* Play's caption over the scene (ADR-270 §5.16): the slide's title and description, and where it is. */
+  #slideCaption { max-width: min(440px, 70vw); max-height: 40%; overflow: auto; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--rule-strong); border-radius: 4px; padding: 10px 14px; box-shadow: var(--float); font-size: 14px;
+    display: flex; gap: 12px; align-items: flex-start; }
+  #slideCaption > div { flex: 1; min-width: 0; }
+  #slideCaption p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #slideCaption strong { display: block; font-size: 15px; }
+  #slideCaption p { margin: 4px 0 0; color: var(--muted); }
+  #slideCaption .where { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  /* The tab row says it scrolls: it fades at the edge it scrolls past (design review 2026-11-07). */
+  #tabs.more-right { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  #tabs.more-left { -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%); mask-image: linear-gradient(90deg, transparent, #000 15%); }
+  #tabs.more-left.more-right { -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent); mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent); }
+  button.linkish { border: 0; background: none; padding: 0; color: var(--accent-ink); text-decoration: underline; font: inherit; cursor: pointer; }
+  @media (max-width: 760px) {
+    .check { min-height: 44px; }
+    input[type=color] { height: 44px; }
+    #pane-analysis .azfoot { padding-bottom: 12px; }
+    #pane-analysis .azfoot .fill:empty { display: none; }
+    #slideCaption button { min-height: 44px; }
+  }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
              white-space: nowrap; border: 0; }
   /* WCAG 2.2 SC 2.5.8: no target smaller than 24 px (design review). */
@@ -256,6 +297,7 @@
         <button type="button" role="tab" id="tab-ground" aria-controls="pane-ground" aria-selected="false" tabindex="-1">Ground</button>
         <button type="button" role="tab" id="tab-slides" aria-controls="pane-slides" aria-selected="false" tabindex="-1">Slides</button>
         <button type="button" role="tab" id="tab-legend" aria-controls="pane-legend" aria-selected="false" tabindex="-1">Legend</button>
+        <button type="button" role="tab" id="tab-analysis" aria-controls="pane-analysis" aria-selected="false" tabindex="-1" hidden>Analysis</button>
       </div>
 
       <div class="tabpanel" role="tabpanel" id="pane-layers" aria-labelledby="tab-layers">
@@ -347,10 +389,22 @@
         <h2 id="legendHead" class="sr-only">Legend</h2>
         <div id="legendBox"></div>
       </div>
+
+      <!-- ADR-270 §5.13: the Spatial Analysis Service's tools, run on a layer of this scene; the result joins the scene.
+           The tools and their questions are analysis.js's, shared with Studio's map and an item's Analyze… dialog. -->
+      <div class="tabpanel" role="tabpanel" id="pane-analysis" aria-labelledby="tab-analysis" hidden>
+        <h2 class="sr-only">Analysis</h2>
+        <div class="stacked" id="azPick"><label for="azLayer">Layer to analyze</label>
+          <select id="azLayer"></select></div>
+        <p class="hint" id="azNone" hidden></p>
+        <div id="analyzeBody"></div>
+        <div class="azfoot" id="analyzeFoot"></div>
+      </div>
     </section>
     <div id="viewDiv" role="region" aria-label="The scene. Drag to move, right-drag to turn, scroll to zoom."></div>
   </div>
 </div>
+<script src="analysis.js"></script>
 <script src="scene.js"></script>
 </body>
 </html>

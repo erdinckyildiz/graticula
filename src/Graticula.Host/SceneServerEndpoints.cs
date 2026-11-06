@@ -49,6 +49,8 @@ internal static class SceneServerEndpoints
         app.MapGet(Root + "/layers", LayersAsync).Governed(SharingGovernedExtensions.ByService);
         app.MapGet(Root + "/layers/{layer:int}", LayerAsync).Governed(SharingGovernedExtensions.ByService);
         app.MapGet(Root + "/layers/{layer:int}/{**path}", ResourceAsync).Governed(SharingGovernedExtensions.ByService);
+        // A voxel layer's resources are below the service itself, not below layers/{id} (ADR-270 §5.17).
+        app.MapGet(Root + "/{**path}", VoxelResourceAsync).Governed(SharingGovernedExtensions.ByService);
     }
 
     /// <summary>The address a package's scene service answers at, on this request's host.</summary>
@@ -88,10 +90,17 @@ internal static class SceneServerEndpoints
     private static IResult NotFound() =>
         Results.Json(new { error = new { code = 404, message = "Service not found.", details = Array.Empty<string>() } }, statusCode: 404);
 
+    /// <summary>
+    /// The names a package's layer document has: <c>3dSceneLayer.json</c>, and a voxel layer's <c>layer.json</c> — I3S
+    /// voxel 3.0 names it so (ADR-270 §5.17, measured on a voxel package Pro wrote, 2026-11-07).
+    /// </summary>
+    private static readonly string[] LayerDocumentNames =
+        ["3dscenelayer.json.gz", "3dscenelayer.json", "layer.json.gz", "layer.json"];
+
     /// <summary>The layer document, parsed, with its <c>href</c> as the service document lists it.</summary>
     private static async Task<JsonObject?> LayerDocumentAsync(ScenePackages.Package package, CancellationToken cancellation)
     {
-        string? name = package.Find("3dscenelayer.json.gz", "3dscenelayer.json");
+        string? name = package.Find(LayerDocumentNames);
         if (name is null)
         {
             return null;
@@ -164,6 +173,25 @@ internal static class SceneServerEndpoints
             return Results.Json(new { error = new { code = 500, message = "The package has no layer document (3dSceneLayer.json.gz).", details = Array.Empty<string>() } }, statusCode: 500);
         }
 
+        // <b>A voxel layer is the service</b> (I3S voxel 3.0; measured on an ArcGIS Online hosted voxel layer,
+        // 2026-11-07): the service document says `layerType: Voxel` and lists no layers, the layer document is at
+        // `SceneServer/layer` and its resources below the service. Answered as a 3D object service, the Maps SDK made it
+        // a SceneLayer and refused it ("SceneLayer does not support this layer type").
+        if (IsVoxel(layer))
+        {
+            JsonObject voxel = new()
+            {
+                ["serviceItemId"] = document!.Id,
+                ["serviceName"] = document.Title,
+                ["name"] = document.Title,
+                ["currentVersion"] = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
+                ["serviceVersion"] = layer["version"] is JsonValue v && v.TryGetValue(out string? version) ? version : "3.0",
+                ["supportedBindings"] = new JsonArray("REST"),
+                ["layerType"] = "Voxel",
+            };
+            return Results.Text(voxel.ToJsonString(), "application/json; charset=utf-8");
+        }
+
         layer["href"] = $"./layers/{LayerId(layer)}";
         JsonObject service = new()
         {
@@ -208,7 +236,32 @@ internal static class SceneServerEndpoints
         }
 
         string? name = await IsTheLayerAsync(package!, layer, cancellation).ConfigureAwait(false)
-            ? package!.Find("3dscenelayer.json.gz", "3dscenelayer.json") : null;
+            ? package!.Find(LayerDocumentNames) : null;
+        return name is null ? NotFound() : await EntryAsync(context, package!, name, cancellation).ConfigureAwait(false);
+    }
+
+    private static bool IsVoxel(JsonObject layer) =>
+        layer["layerType"] is JsonValue type && type.TryGetValue(out string? kind) && string.Equals(kind, "Voxel", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A voxel package's layer document (<c>layer</c>) or one of its resources, below the service itself.</summary>
+    private static async Task<IResult> VoxelResourceAsync(HttpContext context, string id, string path, CancellationToken cancellation)
+    {
+        (ScenePackages.Package? package, _, IResult? refusal) = await OpenAsync(context, id, cancellation).ConfigureAwait(false);
+        if (refusal is not null)
+        {
+            return refusal;
+        }
+
+        string below = (path ?? string.Empty).Trim('/');
+        if (below.Length == 0 || below.Contains("..", StringComparison.Ordinal)
+            || await LayerDocumentAsync(package!, cancellation).ConfigureAwait(false) is not { } layer || !IsVoxel(layer))
+        {
+            return NotFound();
+        }
+
+        string? name = below.Equals("layer", StringComparison.OrdinalIgnoreCase)
+            ? package!.Find(LayerDocumentNames)
+            : EntryFor(below, package!.Find, package!.FindStem);
         return name is null ? NotFound() : await EntryAsync(context, package!, name, cancellation).ConfigureAwait(false);
     }
 

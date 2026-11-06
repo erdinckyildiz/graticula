@@ -180,9 +180,16 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             await ClickAsync("#slideList li:nth-child(2) [data-act=up]");
             await WaitForAsync("scState.scene.presentation.slides.getItemAt(1).title.text === 'Overview'", "Moving a slide earlier did not reorder the slides.");
 
-            await Browser.EvaluateAsync<bool>("(window.__slideSeconds = 0.2, true)");
+            // ADR-270 §5.16: Play captions each slide over the scene, and takes the caption away when it ends.
+            await Browser.EvaluateAsync<bool>("(window.__slideSeconds = 1.5, true)");
             await ClickAsync("#slidePlay");
+            await WaitForAsync("!!document.getElementById('slideCaption') && !document.getElementById('slideCaption').hidden"
+                + " && /1 of 2/.test(document.getElementById('slideCaption').textContent)", "Play showed no caption for the first slide.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#slideCaption #captionStop')"), "The caption offered no Stop.");
+            await WaitForAsync("/2 of 2/.test(document.getElementById('slideCaption')?.textContent || '') && /Overview/.test(document.getElementById('slideCaption').textContent)",
+                "The caption did not follow Play to the second slide, by its title.");
             await WaitForAsync("/The slides were played/.test(document.getElementById('status').textContent)", "Play did not go through the slides.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('slideCaption').hidden"), "The caption stayed after Play ended.");
             Assert.Equal(await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(1).id"),
                 await Browser.EvaluateAsync<string>("scState.currentSlide"));
 
@@ -658,5 +665,122 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         await WaitForAsync($"!!document.querySelector('#addList [data-item=\"{item}\"]')", "The layer under the view was not offered when the camera settled over it.");
 
         NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// ADR-270 §5.13: the Analysis tab runs the server's tools, analysis.js's as Studio's map runs them, on a feature layer
+    /// of the scene; a real run's result is a hosted layer that joins the scene.
+    /// </summary>
+    [Fact]
+    public async Task The_scene_runs_an_analysis_and_its_result_joins_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string result = $"zz_scene_buffers_{Guid.NewGuid():N}"[..28];
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await WaitForAsync("!document.getElementById('tab-analysis').hidden", "The scene's owner was not offered Analysis.");
+            await ClickAsync("#tab-analysis");
+            await WaitForAsync("/hosted feature layers from this server/.test(document.getElementById('azNone').textContent) && !document.getElementById('azNone').hidden",
+                "With no layer, Analysis did not say there was nothing to analyze.");
+
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            await ClickAsync("#tab-analysis");
+            await WaitForAsync("document.querySelectorAll('#azLayer option').length === 1 && !!document.querySelector('#pane-analysis #azTool option[value=CreateBuffers]')",
+                "Analysis did not offer the scene's feature layer and its tools.");
+
+            await Browser.EvaluateAsync<bool>("(() => { const s = document.getElementById('azTool'); s.value = 'CreateBuffers'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("!!document.getElementById('azDistances')", "Create buffers asked no distances in the scene.");
+            await Browser.EvaluateAsync<bool>($"(document.getElementById('azDistances').value = '25', document.getElementById('azName').value = {JsonSerializer.Serialize(result)}, true)");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/submitJob', '/cancel'], true)");
+            await ClickAsync("#analyzeGo");
+
+            // A real job, polled every 1.5 s by analysis.js: up to two minutes, longer than one ten-second wait.
+            const string ended = "/was added to the scene|failed|is in Content/.test(document.getElementById('analyzeSays')?.textContent || '')";
+            for (int waited = 0; waited < 240 && !await Browser.EvaluateAsync<bool>(ended); waited++)
+            {
+                await Task.Delay(500);
+            }
+
+            await WaitForAsync("/was added to the scene/.test(document.getElementById('analyzeSays')?.textContent || '')",
+                "The run's end was not said as a result added to the scene.");
+            Assert.Equal(2, await Browser.EvaluateAsync<int>("scState.scene.layers.length"));
+            Assert.Equal(result, await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(1).title"));
+            Assert.Equal("polygon", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(1).geometryType"));
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('headSave').classList.contains('primary')"),
+                "The scene with a result added was not marked as having something to save.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{result}?folder=hosted&drop=true");
+        }
+    }
+
+    /// <summary>
+    /// ADR-270 §5.15: a layer is coloured by a field's values, a colour each, or by classes of a number field, as Scene
+    /// Viewer's styles colour one; the web scene keeps the renderer and the form reads it back.
+    /// </summary>
+    [Fact]
+    public async Task A_layer_is_coloured_by_its_values_or_by_classes_and_kept()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            await ClickAsync("#tab-layers");
+            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await WaitForAsync("!!document.querySelector('[data-detail] [data-style=colorBy]')", "The look offered no way to colour by a field.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('[data-detail] [data-part=colorField]').hidden"),
+                "One colour offered a field.");
+
+            // A colour for each name: the field list offers text fields, not the id fields.
+            await Browser.EvaluateAsync<bool>("(() => { const c = document.querySelector('[data-detail] [data-style=colorBy]'); c.value = 'unique';"
+                + " c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("scState.scene.layers.getItemAt(0).renderer.type === 'unique-value'", "A colour for each value was not applied.");
+            Assert.Equal("name", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).renderer.field"));
+            // A colour each takes no colour of the reader's: the well is not offered (design review 2026-11-07).
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('[data-detail] [data-part=colorSwatch]').hidden"),
+                "A colour each still offered a colour well that does nothing.");
+            Assert.Equal(8, await Browser.EvaluateAsync<int>("scState.scene.layers.getItemAt(0).renderer.uniqueValueInfos.length"));
+            Assert.False(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('[data-detail] [data-style=colorField] option')].some(o => /objectid|globalid/.test(o.value))"),
+                "An id field was offered to colour by.");
+
+            id = await SaveAsAsync($"zz scene colours {Guid.NewGuid():N}"[..30]);
+            JsonElement renderer = (await SavedSceneAsync(id)).GetProperty("operationalLayers")[0]
+                .GetProperty("layerDefinition").GetProperty("drawingInfo").GetProperty("renderer");
+            Assert.Equal("uniqueValue", renderer.GetProperty("type").GetString());
+            Assert.Equal("name", renderer.GetProperty("field1").GetString());
+            Assert.Equal(8, renderer.GetProperty("uniqueValueInfos").GetArrayLength());
+
+            // Opened again, the form says how the layer is coloured; then classes of floors replace it.
+            await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The saved scene did not open.");
+            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await WaitForAsync("document.querySelector('[data-detail] [data-style=colorBy]')?.value === 'unique'", "The reopened form did not read a colour each back.");
+            Assert.Equal("name", await Browser.EvaluateAsync<string>("document.querySelector('[data-detail] [data-style=colorField]').value"));
+
+            await Browser.EvaluateAsync<bool>("(() => { const c = document.querySelector('[data-detail] [data-style=colorBy]'); c.value = 'classes';"
+                + " c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("scState.scene.layers.getItemAt(0).renderer.type === 'class-breaks'", "Classes were not applied.");
+            Assert.True(await Browser.EvaluateAsync<bool>("['floors', 'built'].includes(scState.scene.layers.getItemAt(0).renderer.field)"),
+                "Classes were not of a number field.");
+            Assert.True(await Browser.EvaluateAsync<int>("scState.scene.layers.getItemAt(0).renderer.classBreakInfos.length") >= 2, "Fewer than two classes were made.");
+            Assert.Equal("Darkest class", await Browser.EvaluateAsync<string>("document.querySelector('[data-detail] [data-part=colorSwatchLabel]').textContent"));
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
     }
 }

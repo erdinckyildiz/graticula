@@ -64,4 +64,20 @@ public sealed class ScenePackagePathsTests
         Assert.Equal("nodes/1/3dnodeindexdocument.json.gz", Entry(package, "nodes/1"));
         Assert.Equal("nodes/1/shared/sharedresource.json.gz", Entry(package, "nodes/1/shared"));
     }
+
+    [Fact]
+    public void A_voxel_layers_resources_are_found_below_the_service()
+    {
+        // The layout of a voxel package ArcGIS Pro wrote (NASA's AIRS_Voxel, read 2026-11-07): served below SceneServer
+        // itself, as ArcGIS Online serves a hosted voxel layer (ADR-270 §5.17).
+        ScenePackages.Package package = Package(
+            "layer.json.gz", "variables/0/index.json.gz", "variables/0/stats.json.gz", "variables/0/0/stats.json.gz",
+            "variables/0/0/tree.bin.gz", "variables/0/0/bundles/0/0-0-0.bin.gz");
+
+        Assert.Equal("variables/0/index.json.gz", Entry(package, "variables/0/index"));
+        Assert.Equal("variables/0/stats.json.gz", Entry(package, "variables/0/stats"));
+        Assert.Equal("variables/0/0/tree.bin.gz", Entry(package, "variables/0/0/tree"));
+        Assert.Equal("variables/0/0/bundles/0/0-0-0.bin.gz", Entry(package, "variables/0/0/bundles/0/0-0-0"));
+        Assert.Null(Entry(package, "variables/1/index"));
+    }
 }

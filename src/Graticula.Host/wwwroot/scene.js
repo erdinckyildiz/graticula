@@ -135,9 +135,25 @@ function scShowTab(name) {
     tab.setAttribute("aria-selected", on ? "true" : "false");
     tab.tabIndex = on ? 0 : -1;
     sc$(tab.getAttribute("aria-controls")).hidden = !on;
+    // Seven tabs do not fit 340 px: the chosen one is scrolled into the row (design review 2026-11-07).
+    if (on) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
+  scTabsFade();
   if (name === "legend") scEnsureLegend();
+  if (name === "add" && sc$("addInView").checked) scSearchAdd();
+  // Leaving the tools lets a run go on; its end is said in the header and its result still joins the scene.
+  if (name !== "analysis" && scState.analysisOpen) { scState.analysisOpen = false; window.GraticulaAnalysis?.closed(); }
+  if (name === "analysis") scDrawAnalysis();
 }
+
+/** The tab row fades at the edge it scrolls past, so a tab out of sight is seen to be there (design review). */
+function scTabsFade() {
+  const row = sc$("tabs");
+  row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 1);
+  row.classList.toggle("more-left", row.scrollLeft > 1);
+}
+sc$("tabs").addEventListener("scroll", scTabsFade, { passive: true });
+window.addEventListener("resize", scTabsFade);
 
 sc$("tabs").addEventListener("click", event => {
   const tab = event.target.closest("[role=tab]");
@@ -181,6 +197,8 @@ function scNumberFields(layer) {
 }
 
 function scDrawLayers() {
+  // The tools' list of layers follows the scene's, when they are open.
+  if (!sc$("pane-analysis").hidden) scDrawAnalysis();
   const list = sc$("layerList");
   const layers = scState.scene.layers.toArray().slice().reverse();
   if (layers.length === 0) {
@@ -276,7 +294,7 @@ function scPointCloudForm(layer) {
 const SC_LAS_CLASSES = [[["2"], "Ground", [166, 124, 82]], [["3", "4", "5"], "Vegetation", [56, 168, 0]], [["6"], "Building", [222, 98, 65]],
   [["9"], "Water", [0, 112, 255]], [["1"], "Unassigned", [180, 180, 180]], [["7", "18"], "Noise", [255, 0, 197]]];
 
-function scPointCloudRenderer(layer, look) {
+async function scPointCloudRenderer(layer, look) {
   const field = name => ((layer.fields || []).find(f => f.name.toUpperCase() === name) || {}).name || name;
   const size = { pointSizeAlgorithm: { type: "splat", scaleFactor: 1 }, pointsPerInch: 15 };
   if (look === "rgb") return { type: "point-cloud-rgb", field: field("RGB"), ...size };
@@ -288,18 +306,26 @@ function scPointCloudRenderer(layer, look) {
     return { type: "point-cloud-stretch", field: field("INTENSITY"), ...size,
       stops: [{ value: 0, color: [20, 20, 20], label: "Low" }, { value: 255, color: [255, 255, 255], label: "High" }] };
   }
+  // The heights from the layer's extent, or, when it has none — Esri's Morro Bay sample has none — from the ELEVATION
+  // attribute's statistics, which a point cloud package carries (measured 2026-11-07: 0–100 left most points one colour).
   const extent = layer.fullExtent || {};
-  const low = Number.isFinite(extent.zmin) ? extent.zmin : 0, high = Number.isFinite(extent.zmax) ? extent.zmax : 100;
+  let low = extent.zmin, high = extent.zmax;
+  if (!Number.isFinite(low) || !Number.isFinite(high) || low === high) {
+    const stats = await layer.queryCachedStatistics(field("ELEVATION")).catch(() => null);
+    const summary = stats && stats.stats;
+    low = summary && Number.isFinite(summary.min) ? summary.min : 0;
+    high = summary && Number.isFinite(summary.max) && summary.max > low ? summary.max : low + 100;
+  }
   return { type: "point-cloud-stretch", field: field("ELEVATION"), ...size,
     stops: [{ value: low, color: [43, 131, 186], label: String(Math.round(low)) },
       { value: (low + high) / 2, color: [255, 255, 191] }, { value: high, color: [215, 25, 28], label: String(Math.round(high)) }] };
 }
 
-sc$("layerList").addEventListener("change", event => {
+sc$("layerList").addEventListener("change", async event => {
   if (event.target.dataset.pc !== "look") return;
   const layer = scLayerOf(event.target);
   if (!layer || !event.target.value) return;
-  layer.renderer = scPointCloudRenderer(layer, event.target.value);
+  layer.renderer = await scPointCloudRenderer(layer, event.target.value);
   scMarkDirty();
   scSay(`${layer.title || "The point cloud"} is coloured ${event.target.selectedOptions[0].textContent.toLowerCase()}.`);
 });
@@ -380,11 +406,19 @@ function scFillLayerDetails() {
 function scReadStyle(layer) {
   const geometry = scGeometry(layer);
   const style = { shape: scDefaultShape(geometry), color: "#3a7bd5", size: geometry === "point" ? 10 : 2,
-    sizeField: "", sizeScale: 1, colorField: "", own: false };
+    sizeField: "", sizeScale: 1, colorBy: "single", colorField: "", own: false };
   const renderer = layer.renderer;
   if (!renderer) return style;
-  if (renderer.type !== "simple" || !renderer.symbol || !renderer.symbol.symbolLayers) { style.own = renderer.type !== "simple"; return style; }
-  const symbolLayer = renderer.symbol.symbolLayers.getItemAt(0);
+  // A colour for each value, or classes of a number field (ADR-270 §5.15): the symbol of the first value or class carries
+  // the shape and size, and the last class's colour is the ramp's end.
+  const grouped = renderer.type === "unique-value" ? renderer.uniqueValueInfos
+    : renderer.type === "class-breaks" ? renderer.classBreakInfos : null;
+  const symbol = grouped ? grouped.length && grouped[grouped.length - 1].symbol : renderer.symbol;
+  if (grouped && renderer.field && symbol && symbol.symbolLayers) {
+    style.colorBy = renderer.type === "unique-value" ? "unique" : "classes";
+    style.colorField = renderer.field;
+  } else if (renderer.type !== "simple" || !symbol || !symbol.symbolLayers) { style.own = renderer.type !== "simple"; return style; }
+  const symbolLayer = symbol.symbolLayers.getItemAt(0);
   if (!symbolLayer) return style;
   const color = symbolLayer.material && symbolLayer.material.color;
   if (color) style.color = color.toHex();
@@ -399,7 +433,7 @@ function scReadStyle(layer) {
       style.sizeField = match ? match[1] : variable.field || "";
       style.sizeScale = match ? Number(match[2]) : 1;
     }
-    if (variable.type === "color") style.colorField = variable.field || "";
+    if (variable.type === "color" && variable.field) { style.colorBy = "ramp"; style.colorField = variable.field; }
   }
   return style;
 }
@@ -430,10 +464,17 @@ function scStyleForm(layer) {
     ${style.own ? `<p class="hint">This layer has a look of its own (${scEscape(layer.renderer.type)}). Choosing one here replaces it.</p>` : ""}
     <label class="field" for="sh-${id}">Drawn as</label>
     <select data-style="shape" id="sh-${id}">${options(scShapes(geometry))}</select>
-    <label class="field" for="co-${id}">Colour</label>
-    <div class="row"><input type="color" data-style="color" id="co-${id}" value="${scEscape(style.color)}">
-      <select data-style="colorField" aria-label="Colour by field" style="flex:1;width:auto">
-        <option value="">One colour</option>${options(fieldOptions)}</select></div>
+    <label class="field" for="cb-${id}">Colour by</label>
+    <select data-style="colorBy" id="cb-${id}">${SC_COLOR_BY.map(([v, t]) => {
+      const none = v !== "single" && !scColorFieldOptions(layer, v);
+      return `<option value="${v}" ${none ? "disabled" : ""}>${scEscape(t)}${none ? (v === "unique" ? " (no text fields)" : " (no number fields)") : ""}</option>`;
+    }).join("")}</select>
+    <div data-part="colorField" ${style.colorBy === "single" ? "hidden" : ""}>
+      <label class="field" for="cf-${id}">By field</label>
+      <select data-style="colorField" id="cf-${id}">${scColorFieldOptions(layer, style.colorBy)}</select></div>
+    <div data-part="colorSwatch" ${style.colorBy === "unique" ? "hidden" : ""}>
+      <label class="field" for="co-${id}" data-part="colorSwatchLabel">${SC_SWATCH_LABELS[style.colorBy] || "Colour"}</label>
+      <input type="color" data-style="color" id="co-${id}" value="${scEscape(style.color)}"></div>
     ${sized ? `<label class="field" for="sz-${id}">${geometry === "polygon" ? "Height (metres)" : geometry === "point" ? "Size (metres for shapes, pixels for icons)" : "Width (metres for tubes, pixels for lines)"}</label>
     <input type="number" data-style="size" id="sz-${id}" min="0" step="any" value="${scEscape(style.size)}">
     <label class="field" for="sf-${id}">${sizeLabel}</label>
@@ -444,6 +485,46 @@ function scStyleForm(layer) {
     </div>` : ""}
     `;
 }
+
+/** How a layer is coloured: Scene Viewer's styles that colour by a field, beside one colour (ADR-270 §5.15). */
+const SC_COLOR_BY = [["single", "One colour"], ["ramp", "A ramp by a number field"], ["classes", "Classes of a number field"],
+  ["unique", "A colour for each value"]];
+
+/** The fields a colouring can use: numbers for a ramp or classes, and text or whole numbers for a colour each. */
+function scColorFieldOptions(layer, colorBy) {
+  const fields = colorBy === "unique"
+    ? (layer.fields || []).filter(f => ["string", "small-integer", "integer", "long"].includes(f.type) && !scQuietField(f))
+    : scNumberFields(layer).filter(f => !scQuietField(f));
+  return fields.map(f => `<option value="${scEscape(f.name)}">${scEscape(f.alias || f.name)}</option>`).join("");
+}
+
+/** What the colour well means under each colouring; a colour each has none. */
+const SC_SWATCH_LABELS = { single: "Colour", ramp: "Ramp ends at", classes: "Darkest class" };
+
+/**
+ * Ten colours told apart from each other, for a colour each: Okabe and Ito's eight, read by most colour-blind readers,
+ * and two more (design review); what is not among the ten most common is a light grey, as Other.
+ */
+const SC_CATEGORIES = ["#e69f00", "#56b4e9", "#009e73", "#f0e442", "#0072b2", "#d55e00", "#cc79a7", "#000000", "#8c564b", "#7f7f7f"];
+
+/** A colour between two, a share of the way along. */
+function scBlend(from, to, share) {
+  const a = from.match(/\w\w/g).map(h => parseInt(h, 16)), b = to.match(/\w\w/g).map(h => parseInt(h, 16));
+  return "#" + a.map((v, i) => Math.round(v + (b[i] - v) * share).toString(16).padStart(2, "0")).join("");
+}
+
+// The field list follows the colouring chosen, before the look is applied with it.
+sc$("layerList").addEventListener("change", event => {
+  if (!event.target.matches("[data-style=colorBy]")) return;
+  const detail = event.target.closest("[data-detail]");
+  const layer = scLayerOf(event.target);
+  if (!detail || !layer) return;
+  const row = detail.querySelector("[data-part=colorField]");
+  row.hidden = event.target.value === "single";
+  row.querySelector("select").innerHTML = scColorFieldOptions(layer, event.target.value);
+  detail.querySelector("[data-part=colorSwatch]").hidden = event.target.value === "unique";
+  detail.querySelector("[data-part=colorSwatchLabel]").textContent = SC_SWATCH_LABELS[event.target.value] || "Colour";
+}, true);
 
 /** Puts the form's current values into the select boxes after drawing, where `value=` in the markup cannot. */
 function scSyncStyleForm(detail, layer) {
@@ -457,14 +538,51 @@ function scSyncStyleForm(detail, layer) {
 /** The style read from a layer's form. */
 function scFormStyle(detail) {
   const read = key => { const c = detail.querySelector(`[data-style=${key}]`); return c ? c.value : ""; };
+  const colorBy = read("colorBy") || "single";
   return { shape: read("shape"), color: read("color") || "#3a7bd5", size: Number(read("size")) || 0,
-    sizeField: read("sizeField"), sizeScale: Number(read("sizeScale")) || 1, colorField: read("colorField") };
+    sizeField: read("sizeField"), sizeScale: Number(read("sizeScale")) || 1, colorBy,
+    colorField: colorBy === "single" ? "" : read("colorField") };
 }
 
 /** The renderer a style asks for, as the JSON the SDK autocasts — the same JSON a web scene keeps. */
 async function scRendererFor(layer, style) {
   const geometry = scGeometry(layer);
-  const material = { color: style.color };
+  const symbolOf = color => scSymbolFor(geometry, style, { color });
+  const symbol = symbolOf(style.color);
+  const visualVariables = await scSizeVariables(layer, style, geometry);
+
+  if (style.colorBy === "unique" && style.colorField) {
+    const [uniqueValues] = await scRequire(["esri/smartMapping/statistics/uniqueValues"]);
+    const found = await uniqueValues({ layer, field: style.colorField, view: scState.view });
+    const common = (found.uniqueValueInfos || []).filter(info => info.value !== null && info.value !== undefined)
+      .sort((a, b) => b.count - a.count).slice(0, SC_CATEGORIES.length);
+    if (common.length === 0) throw new Error(`${style.colorField} has no values to colour by`);
+    return { type: "unique-value", field: style.colorField, visualVariables,
+      defaultSymbol: symbolOf("#c9ced4"), defaultLabel: "Other",
+      uniqueValueInfos: common.map((info, i) => ({ value: info.value, label: String(info.value), symbol: symbolOf(SC_CATEGORIES[i]) })) };
+  }
+
+  if (style.colorBy === "classes" && style.colorField) {
+    const [classBreaks] = await scRequire(["esri/smartMapping/statistics/classBreaks"]);
+    const found = await classBreaks({ layer, field: style.colorField, classificationMethod: "natural-breaks", numClasses: 5, view: scState.view });
+    const classes = found.classBreakInfos || [];
+    if (classes.length === 0) throw new Error(`${style.colorField} has no values to class`);
+    return { type: "class-breaks", field: style.colorField, visualVariables,
+      classBreakInfos: classes.map((info, i) => ({ minValue: info.minValue, maxValue: info.maxValue, label: info.label,
+        symbol: symbolOf(scBlend(scBlend("#ffffff", style.color, 0.25), scBlend(style.color, "#000000", 0.25),
+          classes.length === 1 ? 1 : i / (classes.length - 1))) })) };
+  }
+
+  if (style.colorBy === "ramp" && style.colorField) {
+    const stats = await scFieldRange(layer, style.colorField);
+    visualVariables.push({ type: "color", field: style.colorField,
+      stops: [{ value: stats.min, color: "#fde4c3", label: String(stats.min) }, { value: stats.max, color: style.color, label: String(stats.max) }] });
+  }
+  return { type: "simple", symbol, visualVariables };
+}
+
+/** The 3D symbol a style draws with, in one colour. */
+function scSymbolFor(geometry, style, material) {
   let symbol;
   if (geometry === "polygon") {
     symbol = { type: "polygon-3d", symbolLayers: [style.shape === "extrude"
@@ -482,7 +600,11 @@ async function scRendererFor(layer, style) {
   } else {
     symbol = { type: "mesh-3d", symbolLayers: [{ type: "fill", material }] };
   }
+  return symbol;
+}
 
+/** The size variable a style asks for: a height, size or width from a field. */
+async function scSizeVariables(layer, style, geometry) {
   const visualVariables = [];
   if (style.sizeField && geometry !== "mesh" && !(geometry === "polygon" && style.shape !== "extrude")) {
     // A field times metres per unit: floors × 3 is a height in metres (ADR-269's dialog asks the same).
@@ -496,12 +618,7 @@ async function scRendererFor(layer, style) {
     }
     visualVariables.push(size);
   }
-  if (style.colorField) {
-    const stats = await scFieldRange(layer, style.colorField);
-    visualVariables.push({ type: "color", field: style.colorField,
-      stops: [{ value: stats.min, color: "#fde4c3", label: String(stats.min) }, { value: stats.max, color: style.color, label: String(stats.max) }] });
-  }
-  return { type: "simple", symbol, visualVariables };
+  return visualVariables;
 }
 
 /** A number field's smallest and largest value, by the SDK's own statistics (a query, or a scene layer's statistics). */
@@ -698,6 +815,20 @@ async function scAddUrl(url, title, itemId, kind) {
     // A layer that carries its own heights is placed at them; a flat one is draped on the ground.
     if (layer.type === "feature" && layer.hasZ) layer.elevationInfo = { mode: "absolute-height" };
     scState.scene.add(layer);
+    // A layer the scene loads but cannot draw — a voxel layer the pinned SDK cannot place in this scene (ADR-270 §5.17)
+    // — would otherwise sit in the list drawing nothing; its reason is said instead.
+    layer.__drawable = scState.view.whenLayerView(layer).then(() => true, e => {
+      // The SDK's own words are for a developer: kept in the console, not shown (design review).
+      console.warn("Layer view not created", layer.title, e);
+      if (!scState.scene.layers.includes(layer)) return false;
+      const why = layer.type === "voxel"
+        ? `${layer.title || "The layer"} was added but can't be drawn: this server's 3D viewer can't draw voxel layers in WGS 84 yet. Remove it from Layers.`
+        : `${layer.title || "The layer"} was added but can't be drawn in this scene. Remove it from Layers, or try it in a ${scState.mode === "local" ? "global" : "local"} scene.`;
+      said.className = "said bad";
+      said.textContent = why;
+      scSay(why, true);
+      return false;
+    });
     scMarkDirty();
     scDrawLayers();
     scDrawMode();
@@ -760,6 +891,10 @@ async function scSearchAdd() {
   const asked = (scState.addAsked = (scState.addAsked || 0) + 1);
   try {
     const box = sc$("addInView").checked ? await scViewBox() : null;
+    // A view that is not one box (it crosses the antimeridian) cannot narrow the list; said, not silently ignored.
+    const unboxed = "This view cannot be searched as one area, so every layer is listed.";
+    if (sc$("addInView").checked && !box) { sc$("addSaid").className = "said"; sc$("addSaid").textContent = unboxed; }
+    else if (sc$("addSaid").textContent === unboxed) sc$("addSaid").textContent = "";
     const found = await scPortal(`/search?num=100&sortField=modified&sortOrder=desc&q=${encodeURIComponent(parts.join(" AND "))}`
       + (box ? `&bbox=${box.join(",")}` : ""));
     if (asked !== scState.addAsked) return;
@@ -801,7 +936,7 @@ function scDrawAddItems() {
   const shown = scState.showAll || words ? items : items.slice(0, 8);
   sc$("addList").innerHTML = items.length === 0
     ? `<li class="hint" style="border:0;padding:0">${sc$("addInView").checked
-      ? `No layer of this kind${words ? ` with “${scEscape(words)}” in its title` : ""} lies within the current view. Move the view, or clear “Only within the current view”.`
+      ? `No ${sc$("addMine").checked ? "layers of yours" : sc$("addType").value ? scEscape(scTypeLabel(sc$("addType").value).toLowerCase()) + "s" : "layers"}${words ? ` with “${scEscape(words)}” in the title` : ""} lie within the current view. Move the view, or clear “Only within the current view”.`
       : words ? `No layer's title has “${scEscape(words)}” in it.`
       : "No layers of this kind are shared with you yet. Publish one in Content, or add one by its address."}</li>`
     : shown.map(item => `
@@ -838,6 +973,113 @@ sc$("addList").addEventListener("click", event => {
   button.textContent = "Adding…";
   scAddUrl(button.dataset.add, button.dataset.title, button.dataset.item, button.dataset.kind);
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Analysis (ADR-270 §5.13): the Spatial Analysis Service's tools, as Studio's map runs them (analysis.js), on a feature
+// layer of this scene or the feature layer a scene layer was made from; the result is added to the scene.
+
+/** A request to this server answered as JSON, as analysis.js asks one (webmap.js's wmFetch, with this page's token). */
+async function scFetch(url, options = {}) {
+  const headers = { Accept: "application/json", ...(options.headers || {}) };
+  if (scToken) headers.Authorization = "Bearer " + scToken;
+  const response = await fetch(url, { credentials: "same-origin", ...options, headers });
+  const text = await response.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+  const envelope = body && typeof body === "object" && body.error;
+  if (!response.ok || envelope) {
+    const failure = new Error((envelope && envelope.message) || `${response.status} ${response.statusText || ""}`.trim());
+    failure.status = (envelope && Number(envelope.code)) || response.status;
+    throw failure;
+  }
+  return body;
+}
+
+/** A feature layer's own address, with its layer id: the SDK keeps a portal item's as the service and the id apart. */
+function scFeatureAddress(layer) {
+  if (!layer || !layer.url) return null;
+  const url = String(layer.url).replace(/\/+$/, "");
+  return /\/FeatureServer$/i.test(url) ? `${url}/${layer.layerId ?? 0}` : url;
+}
+
+/**
+ * What can be analysed: this server's hosted feature layers in the scene, and the feature layer a scene layer made here
+ * is related to — Scene Viewer analyses a scene layer through its associated layer. A registered layer or another
+ * server's is left out, because the service refuses it by name (ADR-222 condition 4).
+ */
+function scAnalysable() {
+  const hosted = url => {
+    try {
+      const parsed = new URL(url, location.href);
+      return parsed.origin === location.origin && /\/rest\/services\/hosted\/[^/]+\/FeatureServer\/\d+$/.test(parsed.pathname);
+    } catch { return false; }
+  };
+  const found = [];
+  for (const layer of scState.scene.layers.toArray()) {
+    const source = layer.type === "feature" ? layer : layer.type === "scene" ? layer.associatedLayer : null;
+    const url = scFeatureAddress(source);
+    if (url && hosted(url) && !found.some(f => f.url === url)) {
+      found.push({ url: new URL(url, location.href).href, title: layer.title || "Untitled layer",
+        via: layer.type === "scene" ? " — the feature layer behind it" : "" });
+    }
+  }
+  return found;
+}
+
+/** The panel: which layer to analyse and the tools on it, or why there is nothing to analyse. */
+function scDrawAnalysis() {
+  const pick = sc$("azLayer");
+  const layers = scAnalysable();
+  if (layers.length === 0) {
+    sc$("azPick").hidden = true;
+    sc$("analyzeBody").innerHTML = "";
+    sc$("analyzeFoot").innerHTML = "";
+    sc$("azNone").hidden = false;
+    sc$("azNone").innerHTML = `Analysis runs on hosted feature layers from this server. Add one, or a scene layer published from one, on the <button type="button" class="linkish" id="azToAdd">Add tab</button>.`;
+    scState.analysisOpen = false;
+    return;
+  }
+  sc$("azNone").hidden = true;
+  sc$("azPick").hidden = false;
+  const was = pick.value;
+  pick.innerHTML = layers.map(l => `<option value="${scEscape(l.url)}">${scEscape(l.title + l.via)}</option>`).join("");
+  if (layers.some(l => l.url === was)) pick.value = was;
+  if (pick.value !== was || !scState.analysisOpen) scOpenAnalysis();
+}
+
+/** Opens the shared tools on the layer chosen; a result is added to this scene. */
+function scOpenAnalysis() {
+  const chosen = scAnalysable().find(l => l.url === sc$("azLayer").value);
+  if (!chosen || !window.GraticulaAnalysis) return;
+  scState.analysisOpen = true;
+  GraticulaAnalysis.open({ url: chosen.url, name: chosen.title }, {
+    fetch: scFetch,
+    notify: (text, tone) => scSay(text, tone === false),
+    body: sc$("analyzeBody"),
+    foot: sc$("analyzeFoot"),
+    lead: name => `Runs on <b>${name}</b>. The result is a new hosted layer of yours, private until you share it, and is added to this scene.`,
+    focus: false,
+    // Cancel starts the questions again; the tab stays where the reader is.
+    close: () => { scOpenAnalysis(); sc$("azLayer").focus(); },
+    succeeded: async (run, value, open) => {
+      const url = value.url ? `${String(value.url).replace(/\/+$/, "")}${/FeatureServer$/i.test(value.url) ? "/0" : ""}`
+        : `${location.origin}/rest/services/hosted/${run.name}/FeatureServer/0`;
+      const before = scState.scene.layers.length;
+      await scAddUrl(url, run.name, value.itemId, "Feature Service");
+      const layer = scState.scene.layers.length > before ? scState.scene.layers.getItemAt(scState.scene.layers.length - 1) : null;
+      // Added and drawn: a layer that cannot be drawn is not "added to the scene" for the reader (design review).
+      const added = !!layer && await (layer.__drawable || Promise.resolve(true));
+      if (!open) return {};
+      return added
+        ? { html: `Done: ${scEscape(run.name)} was added to the scene. <a href="/studio/#/item/${scEscape(value.itemId || "")}" id="analyzeResult">Open it in Content</a>.`,
+          focus: "analyzeResult" }
+        : { html: `Done: ${scEscape(run.name)} is in Content; it could not be added to the scene. ${scEscape(sc$("addSaid").textContent)}` };
+    },
+  });
+}
+
+sc$("azLayer").addEventListener("change", scOpenAnalysis);
+sc$("azNone").addEventListener("click", event => { if (event.target.id === "azToAdd") { scShowTab("add"); sc$("tab-add").focus(); } });
 
 /**
  * The elevation surfaces the ground can be: the image services shared with the reader that are elevation layers — the
@@ -1195,8 +1437,8 @@ sc$("slidePlay").addEventListener("click", async () => {
   if (slides.length === 0) return;
   const run = scState.playing = { at: 0 };
   scDrawSlides();
-  scSay("Playing the slides.");
   while (scState.playing === run && run.at < slides.length) {
+    scCaption(slides[run.at], run.at, slides.length);
     await scGoToSlide(slides[run.at]);
     run.at++;
     if (run.at < slides.length) await new Promise(resolve => setTimeout(resolve, Number(window.__slideSeconds ?? 4) * 1000));
@@ -1204,7 +1446,33 @@ sc$("slidePlay").addEventListener("click", async () => {
   if (scState.playing === run) scStopPlaying("The slides were played.");
 });
 
+/**
+ * The caption Play shows over the scene — the slide's title and description and where it is in the presentation — as
+ * Scene Viewer's Present mode captions each slide (ADR-270 §5.16). Placed in the view's own corner, over the scene.
+ */
+function scCaption(slide, at, count) {
+  let box = sc$("slideCaption");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "slideCaption";
+    // Seen, not spoken: the header's status announces each slide, the page's one live region (design review).
+    scState.view.ui.add(box, "bottom-left");
+    box.addEventListener("click", event => { if (event.target.id === "captionStop") scStopPlaying(); });
+  }
+  box.hidden = !slide;
+  if (!slide) return;
+  const title = slide.title.text || "Untitled slide";
+  const description = slide.description && slide.description.text;
+  box.innerHTML = `<div aria-hidden="true"><span class="where">Slide ${at + 1} of ${count}</span><strong>${scEscape(title)}</strong>${
+    description ? `<p>${scEscape(description)}</p>` : ""}</div><button type="button" class="tiny" id="captionStop">Stop</button>`;
+  scSay(`Slide ${at + 1} of ${count}: ${title}.`);
+}
+
+// Escape stops a presentation, as it closes a tool.
+document.addEventListener("keydown", event => { if (event.key === "Escape" && scState.playing) scStopPlaying(); });
+
 function scStopPlaying(said = "The slides stopped.") {
+  scCaption(null);
   scState.playing = null;
   scDrawSlides();
   scSay(said);
@@ -1482,6 +1750,8 @@ async function scStart() {
   sc$("addNotYours").hidden = scCanEdit();
   // A reader who cannot change the scene has nothing to add: no Add tab (confirming review).
   sc$("tab-add").hidden = !scCanEdit();
+  // A result is a hosted layer of the reader's own added to this scene: offered to whoever may change the scene.
+  sc$("tab-analysis").hidden = !scCanEdit() || !scToken || !window.GraticulaAnalysis;
 
   scState.mode = scState.scene.initialViewProperties.viewingMode === "local" ? "local" : "global";
   const quality = (() => { try { return localStorage.getItem("graticula-scene-quality"); } catch { return null; } })();
@@ -1497,7 +1767,7 @@ async function scStart() {
   scState.view.watch("stationary", stationary => {
     if (stationary && scState.moved && scState.opened && scCanEdit()) scMarkDirty();
     // The list that follows the view follows it when the camera settles.
-    if (stationary && sc$("addInView").checked && scCanEdit()) scSearchAdd();
+    if (stationary && sc$("addInView").checked && scCanEdit() && !sc$("pane-add").hidden && !scState.playing) scSearchAdd();
   });
   try {
     await scState.view.when();

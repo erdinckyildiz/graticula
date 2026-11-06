@@ -7,6 +7,7 @@
 | **Decided** | 2026-11-05, overnight. **The direction is the owner's**: *"aynı arcgis enterprise'da olduğu gibi"* ("just as it is in ArcGIS Enterprise"), and for the night *"buradaki işlerin tamamını bitir. sonra git arcgis online ve enterprise ile kıyasla. eksikse tekrar başla."* ("finish all the work here; then compare with ArcGIS Online and Enterprise; if something is missing, start again"). **Which parts of Enterprise that sentence takes in is this ADR's reading of it**, and every such part is marked `INFERRED` in §5 and listed for the owner's confirmation. |
 | **Supersedes** | — |
 | **Superseded by** | — |
+| **Confirmed** | 2026-11-07: the owner confirmed every `INFERRED` reading here (§5.1–5.17) — [ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.8. The markers are left in place so the reading can be told from the confirmation. |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -166,10 +167,40 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     A file elsewhere on the web is not offered: the policy names no other origin.
 12. **A point cloud's look** — Scene Viewer's point cloud renderers: true colour (RGB), by elevation (a stretch over
     the layer's height range), by LAS class (ground, vegetation, building, water, unassigned, noise) and by intensity,
-    each offered when the layer has the attribute, kept as the layer's renderer.
+    each offered when the layer has the attribute, kept as the layer's renderer. *2026-11-07: each of the four seen
+    drawn on Esri's Morro Bay subset. The height range is the layer extent's z, or, when the extent has none (this
+    sample's has none), the ELEVATION attribute's cached statistics; without them it was 0–100 m and most points were
+    one colour.*
 13. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
-   *(Deferred.)*
+   *(Deferred.)* Since §14 there are seven for a scene's owner, and the row scrolls at 340 px as it was built to.
+14. **Analysis from the scene** (2026-11-07, the comparison's §D) — Scene Viewer's *Analysis*: an *Analysis* tab, for
+    whoever may change the scene and is signed in, runs the Spatial Analysis Service's tools on a hosted feature layer of
+    the scene, or on the feature layer a scene layer made here is related to (§4's relationship). **The tools, their
+    questions and what they send are analysis.js's**, the one copy Studio's map and an item's *Analyze…* dialog use
+    (ADR-222 condition 7), so a third copy is not made (D-130). The result, a hosted feature layer of the reader's, is
+    added to the scene. A run left by leaving the tab goes on, and its end is said in the header.
+    *(INFERRED, as §5.1–5.9: that Scene Viewer's analysis is in the sentence. Scene Viewer's 3D-only analyses — viewshed
+    and volume — are not the service's and wait on the SDK, as the comparison lists.)*
+15. **Colour by a field's values, or by classes** (2026-11-07, the comparison's §A) — two of Scene Viewer's smart mapping
+    styles beside one colour and a ramp: *a colour for each value* (a unique-value renderer over the ten most common
+    values of a text or whole-number field, the rest grey as *Other*) and *classes of a number field* (a class-breaks
+    renderer, five natural-breaks classes from light to the chosen colour). Both are computed by the SDK's own statistics
+    (`uniqueValues`, `classBreaks`) and keep the shape, size and height of the simple look, so changing the colouring
+    changes nothing else. The form reads both back from a renderer it wrote. *(INFERRED, as §5.1: ten values and five
+    classes are this page's defaults, not ArcGIS's, which lets a reader change both; the web style gallery is not built.)*
+16. **Play captions each slide** (2026-11-07, the comparison's §B) — Scene Viewer's *Present*: while the slides play, the
+    slide's title and description and where it is in the presentation (*2 of 5*) are shown over the scene, in the view's
+    own corner, and announced as a status. Cover and caption *styles* — a choice of how they look — are not built.
+17. **A voxel package is served as ArcGIS serves a voxel layer** (2026-11-07, the comparison's §G). Measured on a
+    voxel package ArcGIS Pro wrote (NASA's `AIRS_Voxel`, public on ArcGIS Online, used locally and not committed) and
+    on an ArcGIS Online hosted voxel layer: the layer document is `layer.json`, not `3dSceneLayer.json`. The service
+    document says `layerType: Voxel` and lists no layers. The layer document is at `SceneServer/layer`, and the
+    resources (`variables/…`) are below the service itself. Served so, the Maps SDK loads it as a voxel layer; served
+    as a 3D object service, it refused it. **Drawing it is not achieved.** SDK 4.29 created no layer view for this
+    WGS 84 sample in a global scene or in this viewer's local scene, which is Web Mercator. A projected voxel package
+    and a local scene in its own system (§A's *no other projected system*) are what to try next. A layer the scene
+    cannot draw now says why when it is added, instead of drawing nothing.
 
 ## 6. Consequences
 
@@ -214,6 +245,12 @@ viewer authors lives in the web scene item ADR-269 keeps.
    why, in [3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md). *(Discharged 2026-11-06: written from ArcGIS Online's
    pages and Enterprise 11.4's Scene Viewer page, every row cited; the gaps it found are each built, owed, or listed for
    the owner with a recommendation.)*
+
+4. **The second night's screens pass the ux-designer review** — *Only within the current view*, the Analysis tab, the
+   colouring controls and Play's caption (§5.14–5.16, ADR-271). *(Open. 2026-11-07: the first review found no blocker
+   and six majors — the seventh tab out of sight at 340 px, two controls both called *Colour*, a view that cannot be a
+   box filtering silently, the caption's live region, no Stop on the scene, the SDK's developer text in an error — all
+   applied, with most of the minors; a confirming review is owed.)*
 
 ## 10. Revisit triggers
 

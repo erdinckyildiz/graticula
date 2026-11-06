@@ -21,7 +21,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | A new scene is global or local, chosen at creation [1] | the same; a local scene is Web Mercator (ADR-270 §5.7) | Partly built — no other projected system |
 | Layer Manager: order, visibility, group layers [2] | order, visibility, opacity, title, zoom to, remove (§5.1) | Partly built — no group layers |
-| Layer style: smart mapping styles [2] | a simple style with a colour and a size by field, 3D shapes, extrusion (§5.1) | Partly built — no unique values, classes or web style gallery |
+| Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15) | Partly built — the number of values and classes is fixed, and no web style gallery |
 | Layer properties: pop-ups, visibility ranges, filters [2] | pop-up title and fields; a range from Scene Viewer's named scales; a filter, tried before it is kept (§5.1, §5.9) | Built |
 | Configure ground: elevation layers, how the ground is shown and navigated [2] | elevation from an elevation layer, ground opacity, underground navigation (§5.1, §5.8) | Built |
 | Basemap gallery [1] | the portal's gallery, the map ground, OpenStreetMap, none | Built |
@@ -34,7 +34,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Capture, rename, describe, duplicate, recapture, remove, reorder [4] | the same (§5.1, §5.9) | Built |
 | A slide keeps the camera, daylight, basemap, layer visibility, weather [4] | the SDK's `Slide.createFrom` | Built |
 | A slide may capture its legend, a pop-up and a slice [4] | the SDK 4.29 `Slide` keeps none of the three (its properties: basemap, description, environment, ground, hidden, id, thumbnail, title, viewpoint, visible layers) | Owner — an SDK upgrade |
-| Presentation styles (caption, cover) and *Present* mode [1][4] | *Play* steps through the slides; no caption or cover styles | Partly built |
+| Presentation styles (caption, cover) and *Present* mode [1][4] | *Play* steps through the slides with each one's title and description as a caption (ADR-270 §5.16) | Partly built — one caption style, no cover |
 | Show or hide a slide in the presentation [4] | *In presentation*, per slide; Play skips a hidden one and a reader does not see it (§5.10) | Built |
 | `#<n>` opens the scene at a slide [4] | the same (§5.9) | Built |
 
@@ -59,7 +59,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 
 | ArcGIS | Graticula | State |
 |---|---|---|
-| Feature and raster analysis tools run from the scene, results added to it [5] | the server's analysis is reached from Studio's 2D map, not from the scene viewer | Owed |
+| Feature and raster analysis tools run from the scene, results added to it [5] | *Analysis*: the server's feature tools, the ones Studio's map runs, on a scene's hosted feature layer or a scene layer's own; the result joins the scene (ADR-270 §5.14) | Partly built — no raster analysis, which the server's Spatial Analysis Service does not offer |
 
 ## E. Adding layers
 
@@ -92,10 +92,10 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | 3D object, 3D point | served from packages, and made from feature layers | Built |
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
 | Mesh (integrated mesh), point cloud | served by the same path rule and drawn — Esri's samples, each cut to its first levels because the whole exceeds the document limit (ADR-270 §4) | Built — whole packages wait on D-386 |
-| Voxel | the path rule only | Needs a sample — none was found to measure with |
+| Voxel | served as ArcGIS serves one, and loaded by the SDK as a voxel layer; not drawn: SDK 4.29 drew no WGS 84 voxel sample in either kind of scene (ADR-270 §5.17) | Partly built — drawing needs a projected sample and a local scene in its system |
 | 3D tiles, `.3tz`, Gaussian splat | out of v1-scope | Owner |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
-| Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); applied and saved on Esri's sample, each look not yet seen drawn | Partly built |
+| Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); each seen drawn on Esri's sample 2026-11-07, elevation over the heights the layer's statistics give | Built |
 
 ## H. Sharing a scene [8]
 
@@ -107,11 +107,13 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 
 ## Still to do
 
-One gap needs no decision and was too large to finish well the same night. The second, *only content within the map
-area*, was built the next night (ADR-271):
+Both gaps the first pass left without needing a decision were built the next night: *only content within the map
+area* (ADR-271) and *analysis from the scene* (ADR-270 §5.14). What remains is in the *Partly built* rows and the owner's
+list below.
 
-- **Running the server's analysis from the scene** (§D): the analysis Studio's 2D map runs, offered on a scene's
-  feature layers with its results added to the scene.
+## Decided by the owner, 2026-11-07
+
+[ADR-272](../adr/ADR-272-owner-decisions-on-3d-scope.md): every item below was answered. The SDK is raised first. Large packages go on the state volume. An embed address will be framed only by origins the operator lists. 3D Tiles, `.3tz` and Gaussian splat, 3D editing and partial and scheduled rebuilds are all in scope, each owed its own ADR. The list below is kept as it was put to the owner.
 
 ## For the owner
 
