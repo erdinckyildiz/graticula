@@ -996,4 +996,46 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{name}?folder=hosted&drop=true");
         }
     }
+
+    /// <summary>
+    /// ADR-270 §5.19, the half the slides test leaves: a slide captured with a slice and a pop-up open keeps both, and
+    /// going back to it puts the slice in the scene and opens the pop-up on the same feature.
+    /// </summary>
+    [Fact]
+    public async Task A_slide_keeps_its_slice_and_its_popup()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        await OpenNewSceneAsync(token, cookie);
+        await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+        await WaitForAsync("scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "The buildings did not load.");
+
+        // A slice, placed through the widget's own analysis, and a pop-up on one building.
+        await OpenToolAsync("slice");
+        await WaitForAsync("scState.tool === 'slice' && !!scState.tools.slice", "Slice did not open.");
+        await Browser.EvaluateAsync<bool>("(scRequire(['esri/analysis/SlicePlane']).then(([SlicePlane]) => { const c = scState.view.center;"
+            + " scState.tools.slice.analysis.shape = new SlicePlane({ position: { longitude: c.longitude, latitude: c.latitude, z: 10, spatialReference: { wkid: 4326 } }, tilt: 0, width: 500, height: 500 }); }), true)");
+        await WaitForAsync("!!scState.tools.slice.analysis.shape", "The slice was not placed.");
+        await Browser.EvaluateAsync<bool>("(scState.scene.layers.getItemAt(0).queryFeatures({ where: '1=1', outFields: ['*'], returnGeometry: true, num: 1 })"
+            + ".then(r => scState.view.openPopup({ features: r.features, location: r.features[0].geometry.centroid || r.features[0].geometry })).then(() => window.__opened = true), true)");
+        await WaitForAsync("window.__opened === true && scState.view.popup.visible", "The pop-up did not open.");
+        string feature = await Browser.EvaluateAsync<string>("String(scState.view.popup.features[0].getObjectId())") ?? string.Empty;
+
+        await ClickAsync("#tab-slides");
+        await ClickAsync("#slideAdd");
+        await WaitForAsync("scState.scene.presentation.slides.length === 1", "Capture slide did not add a slide.");
+        Assert.Equal(1, await Browser.EvaluateAsync<int>("scState.scene.presentation.slides.getItemAt(0).elements.analyses.length"));
+        Assert.Equal(feature, await Browser.EvaluateAsync<string>("String(scState.scene.presentation.slides.getItemAt(0).elements.popupInfo.features.getItemAt(0).id.value)"));
+
+        // Away from both, then back to the slide: the slice is in the scene and the pop-up is open on the same building.
+        await ClickAsync("#tools [data-group=analyze]");
+        await WaitForAsync("scState.tool === null", "The slice did not close.");
+        await Browser.EvaluateAsync<bool>("(scState.view.closePopup(), true)");
+        await WaitForAsync("!scState.view.analyses.some(a => a.type === 'slice') && !scState.view.popup.visible", "The slice or the pop-up stayed.");
+        await ClickAsync("#slideList [data-act=go]");
+        await WaitForAsync("scState.view.analyses.some(a => a.type === 'slice')", "Going to the slide did not put its slice back.");
+        await WaitForAsync($"scState.view.popup.visible && String(scState.view.popup.features[0]?.getObjectId()) === '{feature}'",
+            "Going to the slide did not open its pop-up on the same feature.");
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

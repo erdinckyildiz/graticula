@@ -219,7 +219,8 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     shown, and the open pop-up, by layer and object id. Going to the slide puts them back: the slice is added, the
     legend tab is shown, and the features are queried and their pop-up opened. Each slide is *Shown as* caption, cover
     or scene only, and Play draws it so. *Tested: the cover layout and the legend, saved and read back. The slice and
-    the pop-up go through the same code and are not yet tested by a console test.*
+    the pop-up go through the same code and are not yet tested by a console test.* *(Tested since 2026-11-07:
+    `A_slide_keeps_its_slice_and_its_popup` captures both, leaves them, and finds them put back, on the same feature.)*
 20. **A local scene in a layer's own projected system** (2026-11-07, the comparison's §A *no other projected system*).
     A 3D layer (scene, building, point cloud, mesh, voxel) in a projected system other than the local scene's is
     drawn only in a local scene in its own. Added to a new, empty local scene, it offers *Start a local scene in
