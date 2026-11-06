@@ -91,7 +91,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | 3D object, 3D point | served from packages, and made from feature layers | Built |
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
-| Mesh (integrated mesh), point cloud | served by the same path rule; not measured — the samples exceed the document limit | Owed |
+| Mesh (integrated mesh), point cloud | served by the same path rule and drawn — Esri's samples, each cut to its first levels because the whole exceeds the document limit (ADR-270 §4) | Built — whole packages wait on D-386 |
 | Voxel | the path rule only; no sample | Owed |
 | 3D tiles, `.3tz`, Gaussian splat | out of v1-scope | Owner |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |

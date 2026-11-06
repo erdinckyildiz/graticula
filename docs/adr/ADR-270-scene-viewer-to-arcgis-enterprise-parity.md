@@ -75,6 +75,7 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 | A local scene keeps its type and its clip | made local, a feature layer projected into it, clipped to the view, saved: `viewingMode` `local`, `clippingArea.clip` true with an extent, the item's `ViewingMode-local`; reopened local and clipped; a WGS 84 scene layer refused with the reason | `SceneViewerToolsTests.A_local_scene_is_clipped_and_kept` |
 | Only an elevation surface is offered as the ground, and it is kept | the fixture's `ci_imagery` not offered; made a surface, offered, chosen, saved as an `ArcGISTiledElevationServiceLayer` naming it | `SceneViewerToolsTests.An_elevation_surface_is_offered_as_the_ground_and_kept` |
 | A layer's range and filter, a slide's description, a duplicate and `#n`, and Time are kept or offered | `minScale` 144448 and `definitionExpression` `floors >= 0` in the saved layer; a refused filter said and not kept; a description and a `(copy)` slide saved; `#2` opened at the second slide; Time offered only with `ci_observations` and opened | `SceneViewerToolsTests.Ranges_filters_slide_descriptions_and_the_time_tool_are_kept` |
+| An integrated mesh and a point cloud package are served and drawn | Esri's *Rancho_Mesh_v18* (item `95a427c7…`, 286 MB) and *Morro_Bay_LiDAR* (item `496552d0…`, 578 MB), each cut to its root and four children (26 MB, 0.4 MB) because both exceed the document limit: the SDK loaded an `IntegratedMeshLayer`, fetched four geometries and four compressed textures (`textures/0_0_1` → `.bin.dds.gz`) and drew the mesh textured; it loaded a `PointCloudLayer`, fetched four `.bin.pccxyz` geometries and `.bin.pccrgb` colours through the stem lookup and drew the points in colour. Neither package is in this repository | measured 2026-11-06 |
 | ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
 
 ## 5. Decision
@@ -129,9 +130,9 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
    documents and shared resources at any depth — the layer answers at its document's own id as well as 0 (I3S says a
    client must not assume a building layer's id is 0), and a resource stored under an extension the rule does not name
    (a point cloud's `.bin.pccxyz`, a voxel layer's) is found by its path without one.
-   *(Measured for a building scene layer (§4). **Not measured** for integrated mesh and point cloud: the samples the
-   specification links to are 286 MB and 578 MB, both over the document limit — D-386's open half — and too large to
-   load beside the showcase on the machine the night ran on. Voxel: no sample found.)*
+   *(Measured for a building scene layer, an integrated mesh and a point cloud (§4). The mesh and point cloud samples the
+   specification links to are 286 MB and 578 MB, over the document limit — D-386's open half — so each was measured on
+   a subset of itself: its root and the root's four children, the node page cut to them. Voxel: no sample found.)*
 7. **A scene is global or local**, chosen while it is new and empty, as Scene Viewer asks it; a local scene is flat, in
    Web Mercator — the projection of every basemap this server offers, so its ground draws, and feature layers are
    projected to it by the SDK — and may be **clipped** to the current view or shown whole. The web scene keeps
