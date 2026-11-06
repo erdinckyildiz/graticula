@@ -1337,6 +1337,9 @@ function scDrawSlides() {
           <button type="button" class="tiny" data-act="update" aria-label="Update slide ${at + 1} to the current view">Update</button>
           <button type="button" class="tiny" data-act="duplicate" aria-label="Duplicate slide ${at + 1}">Duplicate</button>
           <label class="check" style="margin:0;font-size:12px"><input type="checkbox" data-act="shown" ${slide.hidden ? "" : "checked"}> In presentation</label>
+          <label style="font-size:12px">Shown as <select data-act="layout" aria-label="How slide ${at + 1} is shown when played">${
+            [["caption", "Caption"], ["cover", "Cover"], ["none", "Scene only"]].map(([v, t]) =>
+              `<option value="${v}" ${(slide.layout || "caption") === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
           <button type="button" class="tiny danger" data-act="delete" aria-label="Delete slide ${at + 1}">Delete</button>
         </div>` : ""}
       </li>`).join("");
@@ -1348,6 +1351,7 @@ sc$("slideAdd").addEventListener("click", async () => {
   button.disabled = true;
   try {
     const slide = await scState.sdk.Slide.createFrom(scState.view);
+    await scCaptureElements(slide);
     slide.title.text = `Slide ${scSlides().length + 1}`;
     scSlides().add(slide);
     scState.currentSlide = slide.id;
@@ -1362,10 +1366,54 @@ sc$("slideAdd").addEventListener("click", async () => {
   }
 });
 
+/**
+ * What a slide keeps beside its camera, as Scene Viewer's slide does (ADR-270 §5.19, SDK 4.34's `Slide.elements`): the
+ * slice that is open, whether the legend is shown, and the pop-up that is open — its location and features by layer
+ * and object id.
+ */
+async function scCaptureElements(slide) {
+  const slice = scState.tool === "slice" && scState.tools.slice && scState.tools.slice.analysis;
+  const popup = scState.view.popup;
+  const features = popup && popup.visible ? (popup.features || []).filter(f => f.layer && typeof f.getObjectId === "function" && f.getObjectId() != null) : [];
+  slide.elements = {
+    analyses: slice && slice.shape ? [slice.clone()] : [],
+    legendInfo: { visible: !sc$("pane-legend").hidden },
+    popupInfo: features.length ? { location: popup.location, selectedFeatureIndex: Math.max(0, popup.selectedFeatureIndex || 0),
+      features: features.map(f => ({ id: { type: "object-id", value: f.getObjectId() }, layerReference: { layerId: f.layer.id } })) } : null,
+  };
+}
+
+/** Puts a slide's elements in the view: its slice, its legend and its pop-up, and takes the last slide's slice away. */
+async function scApplyElements(slide) {
+  for (const old of scState.slideAnalyses || []) scState.view.analyses.remove(old);
+  scState.slideAnalyses = [];
+  const elements = slide.elements;
+  if (!elements) return;
+  for (const analysis of elements.analyses || []) {
+    const shown = analysis.clone();
+    scState.view.analyses.add(shown);
+    scState.slideAnalyses.push(shown);
+  }
+  if (elements.legendInfo && elements.legendInfo.visible) scShowTab("legend");
+  const info = elements.popupInfo;
+  scState.view.closePopup();
+  if (info && info.features && info.features.length) {
+    const found = [];
+    for (const ref of info.features) {
+      const layer = scState.scene.layers.find(l => l.id === (ref.layerReference && ref.layerReference.layerId));
+      if (!layer || typeof layer.queryFeatures !== "function" || !ref.id) continue;
+      const result = await layer.queryFeatures({ objectIds: [ref.id.value], outFields: ["*"], returnGeometry: true }).catch(() => null);
+      if (result) found.push(...result.features);
+    }
+    if (found.length) scState.view.openPopup({ features: found, location: info.location || undefined });
+  }
+}
+
 async function scGoToSlide(slide) {
   scState.currentSlide = slide.id;
   scDrawSlides();
   await slide.applyTo(scState.view, { animate: !matchMedia("(prefers-reduced-motion: reduce)").matches }).catch(() => {});
+  await scApplyElements(slide).catch(() => {});
   // Only the checkboxes follow the slide: rebuilding the list would close an open layer's settings (design review).
   for (const box of document.querySelectorAll("#layerList [data-act=visible]")) {
     const layer = scLayerOf(box);
@@ -1389,6 +1437,7 @@ sc$("slideList").addEventListener("click", async event => {
     scDrawSlides();
   } else if (act === "update") {
     await slide.updateFrom(scState.view);
+    await scCaptureElements(slide);
     scMarkDirty();
     scDrawSlides();
     scSay(`${slide.title.text || "The slide"} now keeps the current view.`);
@@ -1419,6 +1468,17 @@ sc$("slideList").addEventListener("change", event => {
   if (act === "rename") slide.title.text = event.target.value.trim() || slide.title.text;
   else slide.description = { text: event.target.value.trim() };
   scMarkDirty();
+});
+
+// How a slide is shown when played: under a caption, as a cover over the scene, or the scene alone (SDK 4.34's
+// Slide.layout, ADR-270 §5.19).
+sc$("slideList").addEventListener("change", event => {
+  if (event.target.dataset.act !== "layout") return;
+  const slide = scSlides().find(s => s.id === event.target.closest("[data-slide]").dataset.slide);
+  if (!slide) return;
+  slide.layout = event.target.value;
+  scMarkDirty();
+  scSay(`${slide.title.text || "The slide"} is shown ${({ caption: "with a caption", cover: "as a cover", none: "as the scene only" })[slide.layout]} when played.`);
 });
 
 sc$("slideList").addEventListener("change", event => {
@@ -1456,10 +1516,13 @@ function scCaption(slide, at, count) {
     box = document.createElement("div");
     box.id = "slideCaption";
     // Seen, not spoken: the header's status announces each slide, the page's one live region (design review).
-    scState.view.ui.add(box, "bottom-left");
+    scState.view.ui.add(box, "manual");
     box.addEventListener("click", event => { if (event.target.id === "captionStop") scStopPlaying(); });
   }
+  const layout = slide ? slide.layout || "caption" : "none";
   box.hidden = !slide;
+  box.classList.toggle("cover", layout === "cover");
+  box.classList.toggle("bare", layout === "none");
   if (!slide) return;
   const title = slide.title.text || "Untitled slide";
   const description = slide.description && slide.description.text;

@@ -33,8 +33,8 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | Capture, rename, describe, duplicate, recapture, remove, reorder [4] | the same (§5.1, §5.9) | Built |
 | A slide keeps the camera, daylight, basemap, layer visibility, weather [4] | the SDK's `Slide.createFrom` | Built |
-| A slide may capture its legend, a pop-up and a slice [4] | SDK 4.34's `Slide.elements` keeps analyses, legend and pop-up (ADR-273); not yet used here | Owed |
-| Presentation styles (caption, cover) and *Present* mode [1][4] | *Play* steps through the slides with each one's title and description as a caption (ADR-270 §5.16) | Partly built — one caption style, no cover |
+| A slide may capture its legend, a pop-up and a slice [4] | captured with the slide and put back when it is shown (ADR-270 §5.19, SDK 4.34) | Built — the slice and pop-up halves not yet covered by a test |
+| Presentation styles (caption, cover) and *Present* mode [1][4] | each slide *Shown as* caption, cover or scene only, and *Play* draws it so (ADR-270 §5.16, §5.19) | Built |
 | Show or hide a slide in the presentation [4] | *In presentation*, per slide; Play skips a hidden one and a reader does not see it (§5.10) | Built |
 | `#<n>` opens the scene at a slide [4] | the same (§5.9) | Built |
 

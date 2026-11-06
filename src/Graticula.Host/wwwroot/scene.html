@@ -157,6 +157,16 @@
   #pane-analysis button.ghost { border-color: transparent; background: none; color: var(--muted); }
   #pane-analysis select, #pane-analysis input[type=text], #pane-analysis input[type=number] { max-width: 100%; }
   /* Play's caption over the scene (ADR-270 §5.16): the slide's title and description, and where it is. */
+  /* Placed by hand in the view's UI: a caption sits bottom left; a cover fills the scene; "scene only" keeps just Stop. */
+  #slideCaption { position: absolute; left: 15px; bottom: 30px; }
+  #slideCaption.cover { inset: 0; max-width: none; max-height: none; border: 0; border-radius: 0; justify-content: center;
+    align-items: center; text-align: center; background: color-mix(in srgb, var(--surface) 88%, transparent); font-size: 18px; }
+  #slideCaption.cover > div { flex: 0 1 640px; }
+  #slideCaption.cover strong { font-size: 30px; line-height: 1.2; }
+  #slideCaption.cover p { -webkit-line-clamp: 8; font-size: 17px; }
+  #slideCaption.cover #captionStop { position: absolute; top: 12px; right: 12px; }
+  #slideCaption.bare { padding: 4px; }
+  #slideCaption.bare > div { display: none; }
   #slideCaption { max-width: min(440px, 70vw); max-height: 40%; overflow: auto; background: var(--surface); color: var(--ink);
     border: 1px solid var(--rule-strong); border-radius: 4px; padding: 10px 14px; box-shadow: var(--float); font-size: 14px;
     display: flex; gap: 12px; align-items: flex-start; }

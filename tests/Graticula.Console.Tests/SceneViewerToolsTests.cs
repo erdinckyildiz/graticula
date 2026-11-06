@@ -180,6 +180,17 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             await ClickAsync("#slideList li:nth-child(2) [data-act=up]");
             await WaitForAsync("scState.scene.presentation.slides.getItemAt(1).title.text === 'Overview'", "Moving a slide earlier did not reorder the slides.");
 
+            // ADR-270 §5.19 (SDK 4.34): the second slide is played as a cover, and the first, updated with the legend open,
+            // keeps that its legend is shown.
+            await Browser.EvaluateAsync<bool>("(() => { const s = document.querySelector('#slideList li:nth-child(2) [data-act=layout]'); s.value = 'cover';"
+                + " s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            Assert.Equal("cover", await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(1).layout"));
+            await ClickAsync("#tab-legend");
+            await Browser.EvaluateAsync<bool>("(document.querySelector('#slideList li:nth-child(1) [data-act=update]').click(), true)");
+            await WaitForAsync("scState.scene.presentation.slides.getItemAt(0).elements?.legendInfo?.visible === true",
+                "Updating a slide with the legend open did not keep that the legend is shown.");
+            await ClickAsync("#tab-slides");
+
             // ADR-270 §5.16: Play captions each slide over the scene, and takes the caption away when it ends.
             await Browser.EvaluateAsync<bool>("(window.__slideSeconds = 1.5, true)");
             await ClickAsync("#slidePlay");
@@ -188,6 +199,8 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#slideCaption #captionStop')"), "The caption offered no Stop.");
             await WaitForAsync("/2 of 2/.test(document.getElementById('slideCaption')?.textContent || '') && /Overview/.test(document.getElementById('slideCaption').textContent)",
                 "The caption did not follow Play to the second slide, by its title.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('slideCaption').classList.contains('cover')"),
+                "A slide shown as a cover was played with a caption.");
             await WaitForAsync("/The slides were played/.test(document.getElementById('status').textContent)", "Play did not go through the slides.");
             Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('slideCaption').hidden"), "The caption stayed after Play ended.");
             Assert.Equal(await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(1).id"),
@@ -211,6 +224,8 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             JsonElement[] slides = saved.GetProperty("presentation").GetProperty("slides").EnumerateArray().ToArray();
             Assert.Equal(2, slides.Length);
             Assert.Equal("Overview", slides[1].GetProperty("title").GetProperty("text").GetString());
+            Assert.Equal("cover", slides[1].GetProperty("layout").GetString());
+            Assert.Contains("legendInfo", slides[0].GetRawText(), StringComparison.Ordinal);
             Assert.Equal(0, saved.GetProperty("baseMap").GetProperty("baseMapLayers").GetArrayLength());
             JsonElement ground = saved.GetProperty("ground");
             Assert.Equal(50, ground.GetProperty("transparency").GetDouble());

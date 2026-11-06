@@ -207,7 +207,13 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     *Start* (the SDK's own interactive placement), *Done*, *Clear*, and for volume the cut, fill and net. The analysis
     is in the view while its tool is open and is taken out when it closes, as a widget's measurement is. Slides that
     keep their analyses, legend and pop-up (4.34's `Slide.elements`), and the caption and cover layouts
-    (`Slide.layout`), are now possible and not yet built.
+    (`Slide.layout`), are now possible and not yet built. *(Built the same morning, §19.)*
+19. **A slide keeps its slice, legend and pop-up, and is played as a caption, a cover or the scene alone** (SDK 4.34's
+    `Slide.elements` and `Slide.layout`). Capturing or updating a slide records the open slice, whether the legend is
+    shown, and the open pop-up, by layer and object id. Going to the slide puts them back: the slice is added, the
+    legend tab is shown, and the features are queried and their pop-up opened. Each slide is *Shown as* caption, cover
+    or scene only, and Play draws it so. *Tested: the cover layout and the legend, saved and read back. The slice and
+    the pop-up go through the same code and are not yet tested by a console test.*
 
 ## 6. Consequences
 
