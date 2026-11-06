@@ -442,6 +442,23 @@ internal static partial class AdminEndpoints
                     new JsonObject { ["id"] = 2, ["name"] = "assets", ["role"] = "assets" }),
             },
             ["supportsAsyncConvert3D"] = false,
+            // The Editor builds its Create list from the layer's templates: without one it offered nothing to place
+            // (measured on SDK 5.2, ADR-280 condition 5). One template, the transform at rest, as a 3D object layer has.
+            ["templates"] = new JsonArray(new JsonObject
+            {
+                ["name"] = mesh.Title, ["description"] = string.Empty, ["drawingTool"] = "esriFeatureEditToolNone",
+                ["prototype"] = new JsonObject
+                {
+                    ["attributes"] = new JsonObject
+                    {
+                        ["name"] = null, ["ESRI3DO_TYPE"] = null, ["ESRI3DO_OX"] = 0, ["ESRI3DO_OY"] = 0, ["ESRI3DO_OZ"] = 0,
+                        ["ESRI3DO_TX"] = 0, ["ESRI3DO_TY"] = 0, ["ESRI3DO_TZ"] = 0, ["ESRI3DO_SX"] = 1, ["ESRI3DO_SY"] = 1, ["ESRI3DO_SZ"] = 1,
+                        ["ESRI3DO_RX"] = 0, ["ESRI3DO_RY"] = 1, ["ESRI3DO_RZ"] = 0, ["ESRI3DO_RDEG"] = 0,
+                        ["ESRI3DO_PID"] = "{00000000-0000-0000-0000-000000000000}",
+                    },
+                },
+            }),
+            ["types"] = new JsonArray(),
         };
         return layer;
     }

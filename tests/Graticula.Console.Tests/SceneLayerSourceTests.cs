@@ -329,6 +329,9 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             await WaitForAsync("scState.tool === 'edit'", "Edit was not opened on the new layer.");
             Assert.True(await Browser.EvaluateAsync<bool>("scState.tools.edit.layerInfos.some(i => i.enabled && i.layer === scLeaves()[0])"),
                 "The editor was not offered the 3D object layer's scene layer.");
+            // ADR-280 condition 5: the Editor's Create list offers the layer, from its template, for a person to place a model.
+            await WaitForAsync("/Create features[\\s\\S]*zz_models/.test(document.getElementById('toolPanel').innerText)",
+                "The Editor offered nothing to create in the 3D object layer.");
 
             // A 10 by 20 by 10 m box placed through the scene layer, as the SDK's editor places a model.
             await Browser.EvaluateAsync<bool>("(scRequire(['esri/geometry/Mesh', 'esri/geometry/Point', 'esri/Graphic']).then(([Mesh, Point, Graphic]) => {"

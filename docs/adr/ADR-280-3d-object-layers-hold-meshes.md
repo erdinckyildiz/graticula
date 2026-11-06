@@ -184,7 +184,11 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
 3. **An empty 3D object layer from the scene** (ADR-276 condition 2's remaining half). *(Discharged 2026-11-07: *Create a
    layer to draw in* → *3D objects*, the same test.)*
 5. **The Editor widget's own placing of a model**, by a person in the scene, beside the SDK's `applyEdits` the test
-   uses. The widget offers the layer (`layerInfos`); a person uploading a glb through it is not yet measured. *(Open.)*
+   uses. The widget offers the layer (`layerInfos`); a person uploading a glb through it is not yet measured. *(Partly
+   discharged 2026-11-07. Measured on SDK 5.2: with no feature template, the Editor's *Create features* was empty. The
+   layer now carries one template, the transform at rest, as Esri's public sample has. The Editor lists the layer
+   under *Create features* with its upload button, asserted in the end-to-end test. What is left: a person choosing a
+   file in the browser's dialog and clicking where it stands, which the headless suite does not drive yet.)*
 4. **The converter** from OBJ, FBX, COLLADA, IFC and USD to glb: a Tier 2 library behind our port, with its licence
    read against [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) and
    [ADR-254](ADR-254-gdal-without-poppler.md) (no GPL linked), and run where a malformed file cannot take the server
