@@ -35092,7 +35092,7 @@ async function drawDocScene(doc) {
       <label class="check"><input type="checkbox" id="docSceneAuto" ${source.autoRebuild ? "checked" : ""}>
         Rebuild on its own when the layer changes <span class="hint">— within a few minutes of an edit (ADR-277).</span></label>
       ${source.lastAutomatic ? `<p class="hint" id="docSceneAutomatic">${source.lastAutomatic.made
-        ? `Last rebuilt on its own ${h(day(new Date(source.lastAutomatic.at)))}, ${h(new Date(source.lastAutomatic.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }))}${source.lastAutomatic.features ? `, ${h(source.lastAutomatic.features.toLocaleString())} features` : ""}.`
+        ? `Last rebuilt on its own ${h(day(new Date(source.lastAutomatic.at)))}, ${h(new Date(source.lastAutomatic.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }))}${source.lastAutomatic.features ? `, ${h(source.lastAutomatic.features.toLocaleString())} features` : ""}${source.lastAutomatic.partial ? ` — ${h(source.lastAutomatic.partial)}` : ""}.`
         : `<span class="warn-inline">Not rebuilt on its own: ${h(source.lastAutomatic.why || "the server did not say why")}</span>`}</p>` : ""}` : ""}`;
   box.hidden = false;
   // A scene layer made from a layer is made again from it: a file put in by hand would be overwritten by the next
@@ -35125,7 +35125,7 @@ document.addEventListener("click", async event => {
     const count = Number(made.features);
     const noun = made.of === "points" ? (count === 1 ? "point" : "points") : (count === 1 ? "building" : "buildings");
     if (docOpen !== doc) return;
-    $("docSays").textContent = `${doc.title} was rebuilt with ${count.toLocaleString()} ${noun}.`;
+    $("docSays").textContent = `${doc.title} was rebuilt with ${count.toLocaleString()} ${noun}${made.partial ? ` — ${made.partial}` : ""}.`;
     await drawDocScene(doc);
     $("docSceneRebuild")?.focus();
   } catch (e) {

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `LOW` |
-| **Decided** | 2026-11-07. **That both are built is the owner's decision** ([ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.7: *"Kısmi güncelleme de"*, partial updates as well). The design below is this ADR's. **Scheduled rebuilds were built 2026-11-07** (§4); partial updates are not yet. |
+| **Decided** | 2026-11-07. **That both are built is the owner's decision** ([ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.7: *"Kısmi güncelleme de"*, partial updates as well). The design below is this ADR's. **Scheduled rebuilds were built 2026-11-07** (§4), and **partial updates the same night** (§4b), by a different route than §2 proposed: a fingerprint per feature kept in the package, not a per-row change record. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -70,17 +70,44 @@ The sweep:
 - uses the request path's own maker, `MakeSceneFromAsync`, now free of the request (condition 1);
 - reads a layer on the owner's behalf only when it is theirs or shared with everyone, and says so otherwise.
 
+### 4b. Partial update, as built
+
+A per-row change record (§2, partial A) would have touched every edit path. The package can instead carry what it was
+made from. Since 2026-11-07 a 3D object package written here holds `graticula/plan.json.gz`: each leaf node with the
+object ids it holds and a fingerprint of each feature (its footprint, base, height and attributes). On a rebuild, the
+features read now are fingerprinted and compared with the plan:
+
+- nothing differs: the package is not written again, and the rebuild says *nothing had changed*;
+- some differ: only the leaves holding a changed, added or removed feature are rewritten, with every ancestor up to the
+  root (their coarse levels and extents). Every other node's entries are copied byte for byte. An added feature goes to
+  the leaf whose box centre is nearest. The statistics, the layer document and the plan are written again;
+- the full build is the fallback: no plan (a package from elsewhere or before this), more than a quarter of the
+  features changed, a leaf emptied, or a leaf grown past twice the node limit.
+
+`SceneLayerPackageUpdateTests` (Core, 2026-11-07): an unchanged layer gives an identical node set; one building raised
+rewrites one leaf and its ancestors, and the package reads the same as a full build of the same features; an added and
+a removed building; the fallbacks. Measured on a synthetic city, one building changed (Release, arm64, not committed):
+
+| features | full build | partial | nodes rewritten |
+|---:|---:|---:|---:|
+| 20,000 | 1.6–2.9 s | 0.9 s | 4 |
+| 100,000 | 6.9 s | 3.6 s | 5 |
+
+Half the time, not a tenth: reading and fingerprinting every feature, and recompressing the zip, are both still whole.
+`SceneLayerSourceTests` checks that Studio's *Rebuild* of an unchanged layer says so. A point scene layer is still
+always made whole; it is one small node set per level, and nobody has measured a reason.
+
 ## 5. Decision
 
 1. Scheduled rebuilds as a site sweep, as the owner, as Alternative A describes, once the build is a service that
    takes a principal.
-2. Partial updates once hosted layers record which rows changed, with the full rebuild as the fallback.
+2. Partial updates for 3D object layers by the package's own fingerprints (§4b), with the full rebuild as the fallback. *(Amended 2026-11-07 from "once hosted layers record which rows changed".)*
 3. Until then, Studio's *behind* notice and *Rebuild* stand.
 
 ## 6. Consequences
 
-- **State.** A flag in the scene source resource. A rebuild's outcome kept on the item. Later, a per-row change
-  record per hosted layer.
+- **State.** A flag in the scene source resource. A rebuild's outcome kept on the item. A plan entry inside the
+  package, which is the package's own and goes where it goes. No per-row change record.
 
 ## 7. Assumptions this decision rests on
 
@@ -97,6 +124,8 @@ ADR-012 (site sweeps), ADR-270 §5.4, ADR-272 §5.7, D-386 (coarse levels).
 2. **The sweep**: a scene layer whose owner asked is rebuilt after its layer changes, and once only on a site of two
    nodes. *(Partly discharged 2026-11-07: the rebuild is measured, §4; once-per-site rests on the same singleton lease
    every other sweep uses, and is not separately measured on two nodes.)*
-3. **Hosted layers record which rows changed since a time.** *(Open.)*
+3. **Hosted layers record which rows changed since a time.** *(Discharged 2026-11-07 by being made unnecessary: the
+   package's fingerprints say what changed, §4b. A per-row record would still save the reading of every feature, which
+   is half of what a partial update now costs; that is a performance question with no measured need yet.)*
 4. **A partial update**: one building edited, one leaf and its parents rewritten, and the package read the same as a
-   full rebuild. *(Open.)*
+   full rebuild. *(Discharged 2026-11-07: `SceneLayerPackageUpdateTests`, §4b.)*

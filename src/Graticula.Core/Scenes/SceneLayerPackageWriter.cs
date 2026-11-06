@@ -173,6 +173,13 @@ public static partial class SceneLayerPackageWriter
 
         Box all = BoxOf(meshes);
         zip.Add("3dSceneLayer.json.gz", Gzip(Utf8(Layer(name, stored, all, colour, updated))));
+
+        // ADR-277 §5.2: the plan a later partial update rewrites from — each node's place in the tree, each leaf's
+        // buildings, and every building's fingerprint. A client of I3S reads none of it.
+        zip.Add(PlanEntry, Gzip(Utf8(Plan(
+            [.. nodes.Select((n, i) => (n.Parent, (IReadOnlyList<int>)n.Children,
+                i > 0 && n.Children.Count == 0 ? (IReadOnlyList<long>)[.. n.Meshes.Select(m => m.Building.Id)] : (IReadOnlyList<long>)[]))],
+            meshes.Select(m => m.Building)))));
         zip.Add("metadata.json", Utf8(new JsonObject { ["I3SVersion"] = "1.7", ["nodeCount"] = nodes.Count }));
         zip.Finish();
         return package.ToArray();
@@ -283,12 +290,15 @@ public static partial class SceneLayerPackageWriter
     /// prism of its footprint's convex hull — a few walls instead of every corner, the same ids and values, so a feature
     /// picked far away is the feature picked close by.
     /// </summary>
-    private static List<Mesh> Coarse(List<Mesh> meshes) =>
-        [.. meshes
-            .OrderByDescending(m => Volume(m.Building))
-            .ThenBy(m => m.Building.Id)
+    private static List<Mesh> Coarse(List<Mesh> meshes) => CoarseOf(meshes.Select(m => m.Building));
+
+    /// <summary>The coarse city of some buildings: the largest by volume, each the prism of its footprint's hull.</summary>
+    private static List<Mesh> CoarseOf(IEnumerable<SceneBuilding> buildings) =>
+        [.. buildings
+            .OrderByDescending(Volume)
+            .ThenBy(b => b.Id)
             .Take(MaximumPerNode)
-            .Select(m => Build(m.Building with { Polygons = [[Hull(m.Building)]] }))
+            .Select(b => Build(b with { Polygons = [[Hull(b)]] }))
             .Where(m => m.Points.Count > 0)];
 
     private static double Volume(SceneBuilding building)

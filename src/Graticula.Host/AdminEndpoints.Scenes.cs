@@ -52,7 +52,8 @@ internal sealed record SceneSource(
 
 /// <summary>A package made from a layer, before it is kept.</summary>
 internal sealed record SceneMade(
-    byte[] Package, string Title, string Counted, string Noun, int Count, PublishedService Service, int Index);
+    byte[] Package, string Title, string Counted, string Noun, int Count, PublishedService Service, int Index,
+    string? Partial = null);
 
 internal static partial class AdminEndpoints
 {
@@ -110,7 +111,8 @@ internal static partial class AdminEndpoints
     /// making a scene layer and making it again (ADR-270 §5.4), so the two cannot drift.
     /// </summary>
     private static async Task<(SceneMade? Made, IResult? Refused)> MakeSceneAsync(
-        HttpContext context, SceneFromLayerRequest request, CatalogFallback catalog, ServiceContexts contexts, CancellationToken cancellation)
+        HttpContext context, SceneFromLayerRequest request, CatalogFallback catalog, ServiceContexts contexts, CancellationToken cancellation,
+        byte[]? previous = null)
     {
         if (string.IsNullOrWhiteSpace(request.Service) || request.Layer is null)
         {
@@ -123,7 +125,7 @@ internal static partial class AdminEndpoints
             return (null, Results.Empty);
         }
 
-        (SceneMade? made, int status, string? why) = await MakeSceneFromAsync(request, service, contexts, cancellation).ConfigureAwait(false);
+        (SceneMade? made, int status, string? why) = await MakeSceneFromAsync(request, service, contexts, cancellation, previous).ConfigureAwait(false);
         return made is null ? (null, Refuse(status, why!)) : (made, null);
     }
 
@@ -133,9 +135,10 @@ internal static partial class AdminEndpoints
     /// status and its sentence.
     /// </summary>
     internal static async Task<(SceneMade? Made, int Status, string? Why)> MakeSceneFromAsync(
-        SceneFromLayerRequest request, PublishedService service, ServiceContexts contexts, CancellationToken cancellation)
+        SceneFromLayerRequest request, PublishedService service, ServiceContexts contexts, CancellationToken cancellation,
+        byte[]? previous = null)
     {
-        (SceneMade? made, IResult? refused) = await MakeSceneCoreAsync(request, service, contexts, cancellation).ConfigureAwait(false);
+        (SceneMade? made, IResult? refused) = await MakeSceneCoreAsync(request, service, contexts, cancellation, previous).ConfigureAwait(false);
         return made is not null ? (made, 200, null)
             : refused is IStatusCodeHttpResult { StatusCode: { } code } and IValueHttpResult { Value: { } value }
                 ? (null, code, JsonSerializer.Serialize(value) is var text && JsonDocument.Parse(text).RootElement.TryGetProperty("error", out JsonElement e)
@@ -144,7 +147,8 @@ internal static partial class AdminEndpoints
     }
 
     private static async Task<(SceneMade? Made, IResult? Refused)> MakeSceneCoreAsync(
-        SceneFromLayerRequest request, PublishedService service, ServiceContexts contexts, CancellationToken cancellation)
+        SceneFromLayerRequest request, PublishedService service, ServiceContexts contexts, CancellationToken cancellation,
+        byte[]? previous = null)
     {
         int index = request.Layer!.Value;
 
@@ -262,8 +266,19 @@ internal static partial class AdminEndpoints
         }
 
         string title = string.IsNullOrWhiteSpace(request.Title) ? $"{layer.Definition.Name} (3D)" : request.Title.Trim();
-        byte[] package = SceneLayerPackageWriter.Write(
-            title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))], buildings, colour, DateTimeOffset.UtcNow);
+        SceneField[] sceneFields = [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))];
+
+        // ADR-277 §5.2: made again from a package this server wrote, only the nodes whose buildings changed are written
+        // again; when too much changed, or the package has no plan, it is made whole.
+        if (previous is not null
+            && SceneLayerPackageWriter.Update(previous, title, sceneFields, buildings, colour, DateTimeOffset.UtcNow) is { } updated)
+        {
+            string partial = updated.Changed == 0 ? "nothing had changed"
+                : $"{updated.Changed:N0} {(updated.Changed == 1 ? "building" : "buildings")} changed, {updated.Rewritten:N0} {(updated.Rewritten == 1 ? "node" : "nodes")} written again";
+            return (new SceneMade(updated.Package, title, $"{buildings.Count:N0} buildings", "buildings", buildings.Count, service, index, partial), null);
+        }
+
+        byte[] package = SceneLayerPackageWriter.Write(title, sceneFields, buildings, colour, DateTimeOffset.UtcNow);
 
         return (new SceneMade(package, title, $"{buildings.Count:N0} buildings", "buildings", buildings.Count, service, index), null);
     }
@@ -387,6 +402,7 @@ internal static partial class AdminEndpoints
         id = kept.Id, title = kept.Title, features = made.Count, of = made.Noun,
         buildings = made.Noun == "buildings" ? made.Count : 0, bytes = kept.Size, url = SceneServerEndpoints.AddressOf(context.Request, kept.Id),
         source = new { service = made.Service.QualifiedName, layer = made.Index },
+        partial = made.Partial,
     };
 
     private static IResult TooLarge(HttpContext context, SceneMade made) =>
@@ -485,7 +501,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>What the last rebuild the sweep made said (ADR-277): when, whether it was made, and why not.</summary>
-    internal sealed record SceneAutomatic(DateTimeOffset At, bool Made, string? Why, int? Features);
+    internal sealed record SceneAutomatic(DateTimeOffset At, bool Made, string? Why, int? Features, string? Partial = null);
 
     /// <summary>The item resource the sweep's outcome is kept as, beside the source.</summary>
     internal const string AutomaticPath = "graticula/scene-rebuild.json";
@@ -501,7 +517,7 @@ internal static partial class AdminEndpoints
         try
         {
             return JsonSerializer.Deserialize<SceneAutomatic>(found.Content, SceneSourceJson) is { } said
-                ? new { at = said.At.ToUnixTimeMilliseconds(), made = said.Made, why = said.Why, features = said.Features }
+                ? new { at = said.At.ToUnixTimeMilliseconds(), made = said.Made, why = said.Why, features = said.Features, partial = said.Partial }
                 : null;
         }
         catch (JsonException)
@@ -572,8 +588,10 @@ internal static partial class AdminEndpoints
         IServiceProvider services, Document document, SceneSource source, PublishedService service, CancellationToken cancellation)
     {
         SceneFromLayerRequest request = source.Request(document.Title);
+        IDocumentStore store = services.GetRequiredService<IDocumentStore>();
+        byte[]? previous = await store.ContentAsync(document.Id, cancellation).ConfigureAwait(false);
         (SceneMade? made, _, string? why) = await MakeSceneFromAsync(
-            request, service, services.GetRequiredService<ServiceContexts>(), cancellation).ConfigureAwait(false);
+            request, service, services.GetRequiredService<ServiceContexts>(), cancellation, previous).ConfigureAwait(false);
         if (made is null)
         {
             return new SceneAutomatic(DateTimeOffset.UtcNow, false, why, null);
@@ -593,7 +611,7 @@ internal static partial class AdminEndpoints
         }
 
         await RememberSourceAsync(services, document.Id, request with { Title = source.Title }, made, source.AutoRebuild, cancellation).ConfigureAwait(false);
-        return new SceneAutomatic(DateTimeOffset.UtcNow, true, null, made.Count);
+        return new SceneAutomatic(DateTimeOffset.UtcNow, true, null, made.Count, made.Partial);
     }
 
     /// <summary>
@@ -619,7 +637,9 @@ internal static partial class AdminEndpoints
 
         // The layer as it is now, by the name it had: a service renamed or removed since is said, not guessed at.
         SceneFromLayerRequest request = source.Request(document.Title);
-        (SceneMade? made, IResult? refused) = await MakeSceneAsync(context, request, catalog, contexts, cancellation).ConfigureAwait(false);
+        // ADR-277 §5.2: the package as it is, so only what changed is written again.
+        byte[]? previous = await documents.ContentAsync(id, cancellation).ConfigureAwait(false);
+        (SceneMade? made, IResult? refused) = await MakeSceneAsync(context, request, catalog, contexts, cancellation, previous).ConfigureAwait(false);
         if (made is null)
         {
             return refused!;
