@@ -104,7 +104,8 @@ public sealed class SceneViewerTests : ConsoleTest
             await WaitForAsync("scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "The scene layer did not load.");
             Assert.Equal("scene", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).type"));
             // ADR-270's design review: the header says what was added, then what the scene now is.
-            Assert.Matches(@" was added\. A new scene\. 1 layer\.$", await Browser.EvaluateAsync<string>("document.getElementById('status').textContent") ?? string.Empty);
+            // One sentence, as Studio's map says it (ADR-279's confirming review).
+            Assert.Matches(@" was added — 1 layer, not saved yet\.$", await Browser.EvaluateAsync<string>("document.getElementById('status').textContent") ?? string.Empty);
 
             NothingWentWrong(await PageErrorsAsync());
         }

@@ -18,7 +18,7 @@ const SC_REST = `${SC_PORTAL}/sharing/rest`;
 
 const sc$ = id => document.getElementById(id);
 const scState = { id: scQuery.get("id"), scene: null, view: null, user: null, manages: true, dirty: false, saving: false,
-  open: new Set(), tool: null, tools: {}, playing: null, gallery: [] };
+  selected: null, side: null, layerPart: "props", group: null, tool: null, tools: {}, playing: null, gallery: [] };
 
 /** Says a sentence in the page's live status line; `bad` marks a failure. */
 function scSay(text, bad = false) {
@@ -137,44 +137,70 @@ function scDrawSaved() {
 // ---------------------------------------------------------------------------------------------------------------------
 // The panel's tabs.
 
+/** What the left panel is called while a tab has it — its tool's own name, as Scene Viewer heads its panels. */
+const SC_TAB_TITLES = { add: "Add layers", layers: "Layers", basemap: "Basemap", ground: "Ground", slides: "Slides",
+  legend: "Legend", scene: "Scene properties", more: "More" };
+
+/** Whether the left panel is open: a column on a wide screen, a sheet over the scene on a phone (ADR-279). */
+const SC_PHONE = window.matchMedia("(max-width: 760px)");
+function scOpenPanel(open) {
+  document.body.classList.toggle("lclosed", !open);
+  document.body.classList.toggle("sheet", open && SC_PHONE.matches);
+}
+
 function scShowTab(name) {
   for (const tab of document.querySelectorAll("#tabs [role=tab]")) {
     const on = tab.id === `tab-${name}`;
     tab.setAttribute("aria-selected", on ? "true" : "false");
     tab.tabIndex = on ? 0 : -1;
     sc$(tab.getAttribute("aria-controls")).hidden = !on;
-    // Seven tabs do not fit 340 px: the chosen one is scrolled into the row (design review 2026-11-07).
-    if (on) tab.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
-  scTabsFade();
+  sc$("panelTitle").textContent = SC_TAB_TITLES[name] || name;
+  scOpenPanel(true);
   if (name === "legend") scEnsureLegend();
   if (name === "add" && sc$("addInView").checked) scSearchAdd();
-  // Leaving the tools lets a run go on; its end is said in the header and its result still joins the scene.
-  if (name !== "analysis" && scState.analysisOpen) { scState.analysisOpen = false; window.GraticulaAnalysis?.closed(); }
-  if (name === "analysis") scDrawAnalysis();
+
 }
 
-/** The tab row fades at the edge it scrolls past, so a tab out of sight is seen to be there (design review). */
-function scTabsFade() {
-  const row = sc$("tabs");
-  row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 1);
-  row.classList.toggle("more-left", row.scrollLeft > 1);
-}
-sc$("tabs").addEventListener("scroll", scTabsFade, { passive: true });
-window.addEventListener("resize", scTabsFade);
+// The Layers panel's own buttons, as Studio's map has them.
+sc$("layersAdd").addEventListener("click", () => { scShowTab("add"); sc$("addFilter").focus(); });
+sc$("layersZoomAll").addEventListener("click", () => {
+  const extents = scState.scene.layers.toArray().map(l => l.fullExtent).filter(Boolean);
+  if (extents.length === 0) { scSay("No layer says where it is.", true); return; }
+  scState.view.goTo({ target: extents, tilt: 55 }).catch(() => {});
+});
 
+// The open tab's button closes its panel, giving the scene the room, as Studio's map does (ADR-259).
 sc$("tabs").addEventListener("click", event => {
   const tab = event.target.closest("[role=tab]");
-  if (tab) scShowTab(tab.id.slice(4));
+  if (!tab) return;
+  const open = !document.body.classList.contains("lclosed") && (!SC_PHONE.matches || document.body.classList.contains("sheet"));
+  if (tab.getAttribute("aria-selected") === "true" && open) { scOpenPanel(false); return; }
+  scShowTab(tab.id.slice(4));
+});
+sc$("panelClose").addEventListener("click", () => {
+  scOpenPanel(false);
+  document.querySelector("#tabs [aria-selected=true]")?.focus();
+});
+// A phone opens with the scene whole; a wide screen with the Layers panel. The toolbar runs along the bottom on a phone.
+function scOrient() { sc$("tabs").setAttribute("aria-orientation", SC_PHONE.matches ? "horizontal" : "vertical"); }
+scOrient();
+SC_PHONE.addEventListener("change", scOrient);
+if (SC_PHONE.matches) document.body.classList.remove("sheet");
+// On a phone, Ground, Legend and Scene are behind More: a bottom bar holds five (design review).
+sc$("paneMore").addEventListener("click", event => {
+  const go = event.target.closest("[data-goto]");
+  if (go) scShowTab(go.dataset.goto);
 });
 
 // The tab pattern as webmap.js has it: arrows move between the tabs that are shown, Home and End go to the ends.
 sc$("tabs").addEventListener("keydown", event => {
-  if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+  if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   const tabs = [...document.querySelectorAll("#tabs [role=tab]")].filter(t => !t.hidden);
   const at = tabs.findIndex(t => t.getAttribute("aria-selected") === "true");
+  const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
   const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[tabs.length - 1]
-    : tabs[(at + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    : tabs[(at + (forward ? 1 : tabs.length - 1)) % tabs.length];
   event.preventDefault();
   scShowTab(next.id.slice(4));
   next.focus();
@@ -206,55 +232,172 @@ function scNumberFields(layer) {
 
 function scDrawLayers() {
   // The tools' list of layers follows the scene's, when they are open.
-  if (!sc$("pane-analysis").hidden) scDrawAnalysis();
+  if (!sc$("pane-analysis").hidden && scState.group === "server") scDrawAnalysis();
   const list = sc$("layerList");
   const layers = scState.scene.layers.toArray().slice().reverse();
+  sc$("layersActions").hidden = !scCanEdit();
   if (layers.length === 0) {
+    sc$("layersCount").textContent = "0";
     list.innerHTML = `<li class="hint" style="border:0;padding:0">This scene has no layers yet.${
-      scCanEdit() ? " Add one from the Add tab." : ""}</li>`;
+      scCanEdit() ? " <b>Add layer</b> lists the layers you can read." : ""}</li>`;
+    scDrawLayerTools();
     return;
   }
   const edit = scCanEdit();
-  list.innerHTML = layers.map((layer, at) => `
-    <li data-layer="${scEscape(layer.id)}">
-      <div class="lrow">
-        <label style="flex:1;min-width:0;display:flex;gap:8px;align-items:center"><input type="checkbox" data-act="visible" ${layer.visible ? "checked" : ""}>
-          <span class="lname">${scEscape(layer.title || "Untitled layer")}<span class="lkind">${scEscape(scKind(layer))}${
-            layer.loadStatus === "failed" ? ` · <span class="lnote">could not be read</span>` : ""}</span></span></label>
-        <span class="lbtns">
-          ${edit ? `<button type="button" class="tiny" data-act="up" ${at === 0 ? "disabled" : ""}
-            aria-label="Move ${scEscape(layer.title || "this layer")} up">▲</button>
-          <button type="button" class="tiny" data-act="down" ${at === layers.length - 1 ? "disabled" : ""}
-            aria-label="Move ${scEscape(layer.title || "this layer")} down">▼</button>` : ""}
-          <button type="button" class="tiny" data-act="settings" aria-expanded="${scState.open.has(layer.id)}"
-            aria-label="${edit ? "Settings for" : "About"} ${scEscape(layer.title || "this layer")}">${edit ? "Settings" : "About"}</button>
-        </span>
+  sc$("layersCount").textContent = String(layers.length);
+  // ADR-279, as Studio's map draws a layer (ADR-259): show it, select it by its name, and ⋯ for what is done to it; what
+  // it is given is in the right toolbar's panel.
+  const selected = scSelectedLayer();
+  list.innerHTML = layers.map((layer, at) => {
+    const k = scEscape(layer.id);
+    const title = scEscape(layer.title || "Untitled layer");
+    const mine = selected && selected.id === layer.id;
+    return `
+    <li class="${layer.visible ? "" : "off"}${mine ? " sel" : ""}" data-layer="${k}">
+      <div class="lhead">
+        <input type="checkbox" data-act="visible" aria-label="Show ${title}" ${layer.visible ? "checked" : ""}>
+        <button type="button" class="lname" data-act="select" aria-pressed="${mine ? "true" : "false"}" aria-controls="side">
+          <span class="ltitle">${title}</span><span class="lkind">${scEscape(scKind(layer))}${
+            layer.loadStatus === "failed" ? ` · <span class="lnote">could not be read</span>` : ""}</span></button>
+        <button type="button" class="lmore" data-act="menu" aria-expanded="${scState.menu === layer.id}" aria-controls="menu-${k}"
+          aria-label="Actions for ${title}">&hellip;</button>
       </div>
-      ${scState.open.has(layer.id) ? scLayerDetail(layer) : ""}
-    </li>`).join("");
-  scFillLayerDetails();
+      <div class="lmenu" id="menu-${k}" role="group" aria-label="Actions for ${title}"${scState.menu === layer.id ? "" : " hidden"}>
+        <button type="button" data-act="zoom">Zoom to</button>
+        <button type="button" data-act="settings" aria-controls="side">Properties</button>
+        ${edit ? `<button type="button" data-act="up" ${at === 0 ? "disabled" : ""}>Move up</button>
+        <button type="button" data-act="down" ${at === layers.length - 1 ? "disabled" : ""}>Move down</button>
+        <hr>
+        <button type="button" class="danger" data-act="remove">Remove</button>` : ""}
+      </div>
+    </li>`;
+  }).join("");
+
+  // The right panel follows the scene's layers while it shows one of them.
+  if (scState.side === "layer") scDrawLayerTool();
+  scDrawLayerTools();
 }
 
-/** The settings of one layer, drawn under its row. */
+// ---------------------------------------------------------------------------------------------------------------------
+// The selected layer's settings, in the right panel (ADR-279): one part at a time, the part its toolbar button names.
+
+const SC_LAYER_PARTS = [["props", "Properties", "sliders"], ["look", "Styles", "style"], ["vis", "Filter", "filter"],
+  ["popup", "Pop-ups", "popup"]];
+
+/** The layer the right panel's settings are of: the one chosen, or the top of the list. */
+function scSelectedLayer() {
+  const layers = scState.scene ? scState.scene.layers : null;
+  if (!layers || layers.length === 0) return null;
+  return layers.find(l => l.id === scState.selected) || layers.getItemAt(layers.length - 1);
+}
+
+function scDrawLayerTool() {
+  const box = sc$("layerTool");
+  const layer = scSelectedLayer();
+  const part = scState.layerPart || "props";
+  sc$("sideTitle").textContent = scCanEdit() ? (SC_LAYER_PARTS.find(p => p[0] === part) || SC_LAYER_PARTS[0])[1] : "Layer details";
+  if (!layer) {
+    box.innerHTML = `<p class="hint">This scene has no layers yet.${scCanEdit() ? " Add one with Add, at the left." : ""}</p>`;
+    return;
+  }
+  scState.selected = layer.id;
+  const layers = scState.scene.layers.toArray().slice().reverse();
+  // Which layer, and which of its parts — the parts switch inside the panel too, since a phone's toolbar has one button
+  // for all four (ADR-259 §3.5's pattern).
+  box.innerHTML = `<div class="lhead"><label for="layerPick">Layer</label>
+      <select id="layerPick">${layers.map(l => `<option value="${scEscape(l.id)}" ${l.id === layer.id ? "selected" : ""}>${scEscape(l.title || "Untitled layer")}</option>`).join("")}</select></div>
+    ${scCanEdit() ? `<div id="layerParts" role="group" aria-label="Layer settings">${SC_LAYER_PARTS.map(([key, label]) =>
+      `<button type="button" data-part="${key}" aria-pressed="${key === part}">${label}</button>`).join("")}</div>` : ""}
+    ${scLayerDetail(layer)}`;
+  box.dataset.show = part;
+  for (const sec of box.querySelectorAll(".lsec")) sec.toggleAttribute("data-on", sec.dataset.section === part);
+  if (!box.querySelector(".lsec[data-on]")) {
+    box.querySelector("[data-detail]").insertAdjacentHTML("beforeend",
+      `<p class="hint lsec" data-section="${part}" data-on>${scEscape(layer.title || "This layer")} has no ${part === "look" ? "look" : part === "popup" ? "pop-ups" : "settings"} to set here.</p>`);
+  }
+  scFillLayerDetails();
+  const detail = box.querySelector("[data-detail]");
+  if (detail) scSyncStyleForm(detail, layer);
+}
+
+/** Opens the right panel on a part of the selected layer's settings. */
+function scOpenLayerPart(part, layerId) {
+  if (scState.tool) scToggleTool(scState.tool, { keepSide: true });
+  if (layerId) scState.selected = layerId;
+  scState.layerPart = part;
+  scState.side = "layer";
+  sc$("toolPick").hidden = true;
+  sc$("layerTool").hidden = false;
+  scOpenSide(true);
+  scDrawLayerTool();
+  scDrawLayerTools();
+  for (const row of sc$("layerList").querySelectorAll("[data-layer]")) {
+    row.classList.toggle("selected", row.dataset.layer === scState.selected);
+    row.querySelector("[data-act=settings]")?.setAttribute("aria-expanded", String(row.dataset.layer === scState.selected));
+  }
+}
+
+sc$("layerTool").addEventListener("click", event => {
+  const part = event.target.closest("#layerParts [data-part]");
+  if (!part) return;
+  scState.layerPart = part.dataset.part;
+  scDrawLayerTool();
+  scDrawLayerTools();
+  sc$("layerParts").querySelector(`[data-part=${part.dataset.part}]`)?.focus();
+});
+
+sc$("layerTool").addEventListener("change", event => {
+  if (event.target.id !== "layerPick") return;
+  scState.selected = event.target.value;
+  scDrawLayerTool();
+  sc$("layerPick").focus();
+});
+
+/** Opens or closes the right panel; a column on a wide screen, a sheet on a phone. */
+function scOpenSide(open) {
+  scState.sideHidden = false;
+  sc$("side").hidden = !open;
+  document.body.classList.toggle("ropen", open);
+  if (open && SC_PHONE.matches) scOpenPanel(false);
+  if (open && innerWidth < 1600 && !SC_PHONE.matches) scOpenPanel(false);
+  if (!open || scState.group !== "server") {
+    // Leaving the analysis lets a run go on; its end is said in the header and its result still joins the scene.
+    if (!sc$("pane-analysis").hidden) { sc$("pane-analysis").hidden = true; if (scState.analysisOpen) { scState.analysisOpen = false; window.GraticulaAnalysis?.closed(); } }
+  }
+  if (!open) { scState.side = null; scDrawLayerTools(); }
+}
+
+sc$("sideClose").addEventListener("click", () => {
+  const was = scState.side === "layer" ? `[data-part-tool="${scState.layerPart}"]` : scState.group ? `[data-group="${scState.group}"]` : null;
+  if (scState.tool) scToggleTool(scState.tool);
+  scOpenSide(false);
+  scState.group = null;
+  scDrawLayerTools();
+  (was && sc$("tools").querySelector(was))?.focus();
+});
+
+/** The settings of one layer, in parts (ADR-279): properties, look, pop-ups and visibility, shown one at a time. */
 function scLayerDetail(layer) {
   const edit = scCanEdit();
   const geometry = scGeometry(layer);
   const id = scEscape(layer.id);
   const opacity = Math.round((layer.opacity ?? 1) * 100);
-  let html = `<div class="ldetail" data-detail="${id}">
-    <div class="row" style="margin-top:6px">
-      <button type="button" class="tiny" data-act="zoom">Zoom to</button>
-      ${edit ? `<button type="button" class="tiny danger" data-act="remove" aria-label="Remove ${scEscape(layer.title || "this layer")}">Remove</button>` : ""}
-    </div>`;
-  if (!edit) return html + `<p class="hint">${scEscape(scKind(layer))}${layer.url ? ` from ${scEscape(layer.url)}` : ""}.</p></div>`;
+  // Title, opacity and Zoom to first; where it comes from folded; Remove last and apart (design review).
+  const source = `<details class="lsource"><summary>Source</summary><p>${scEscape(scKind(layer))}${
+    layer.url ? `<code>${scEscape(layer.url)}</code>` : ""}</p></details>`;
+  let html = `<div class="ldetail" data-detail="${id}"><div class="lsec" data-section="props">`;
+  if (!edit) return html + `<div class="row"><button type="button" class="tiny" data-act="zoom">Zoom to</button></div>${source}</div></div>`;
 
-  html += `<label class="field" for="op-${id}">Opacity <span data-says="opacity">${opacity}%</span></label>
+  html += `<label class="field" for="ttl-${id}">Title in this scene</label>
+    <input type="text" id="ttl-${id}" data-act="title" value="${scEscape(layer.title || "")}" maxlength="250">
+    <label class="field" for="op-${id}">Opacity <span data-says="opacity">${opacity}%</span></label>
     <input type="range" id="op-${id}" data-act="opacity" min="0" max="100" step="5" value="${opacity}">
-    <label class="field" for="ttl-${id}">Title in this scene</label>
-    <input type="text" id="ttl-${id}" data-act="title" value="${scEscape(layer.title || "")}" maxlength="250">`;
+    <div class="row" style="margin-top:10px"><button type="button" data-act="zoom">Zoom to</button></div>
+    ${source}
+    <div class="lremove"><button type="button" class="danger" data-act="remove" aria-label="Remove ${scEscape(layer.title || "this layer")} from the scene">Remove layer</button></div></div>`;
 
   if (scStylable(layer)) {
-    html += `<h3>Look</h3><div data-part="style"></div>`;
+    html += `<div class="lsec" data-section="look"><h3>Look</h3><div data-part="style"></div>`;
     if (scFeatureLike(layer) || geometry === "point") {
       html += `<h3>Position</h3>
         <label class="field" for="em-${id}">Sits</label>
@@ -267,10 +410,10 @@ function scLayerDetail(layer) {
         <div data-part="offset"><label class="field" for="eo-${id}">Raised by (metres)</label>
         <input type="number" id="eo-${id}" data-act="offset" step="any" value="${(layer.elevationInfo && layer.elevationInfo.offset) || 0}"></div>`;
     }
-    html += `<h3>Pop-ups</h3><div data-part="popup"></div>`;
+    html += `</div><div class="lsec" data-section="popup"><h3>Pop-ups</h3><div data-part="popup"></div></div>`;
   }
-  if (layer.type === "point-cloud" && layer.loadStatus === "loaded") html += scPointCloudForm(layer);
-  html += scVisibilityForm(layer);
+  if (layer.type === "point-cloud" && layer.loadStatus === "loaded") html += `<div class="lsec" data-section="look">${scPointCloudForm(layer)}</div>`;
+  html += `<div class="lsec" data-section="vis">${scVisibilityForm(layer)}</div>`;
   return html + `</div>`;
 }
 
@@ -329,7 +472,7 @@ async function scPointCloudRenderer(layer, look) {
       { value: (low + high) / 2, color: [255, 255, 191] }, { value: high, color: [215, 25, 28], label: String(Math.round(high)) }] };
 }
 
-sc$("layerList").addEventListener("change", async event => {
+scOnLayers("change", async event => {
   if (event.target.dataset.pc !== "look") return;
   const layer = scLayerOf(event.target);
   if (!layer || !event.target.value) return;
@@ -360,7 +503,7 @@ function scVisibilityForm(layer) {
       <p class="hint">A condition on the layer's fields, as a query's <code>where</code> is written. Press Enter to apply; empty shows every feature.</p>` : ""}`;
 }
 
-sc$("layerList").addEventListener("change", async event => {
+scOnLayers("change", async event => {
   const key = event.target.dataset.vis;
   if (!key) return;
   const layer = scLayerOf(event.target);
@@ -522,7 +665,7 @@ function scBlend(from, to, share) {
 }
 
 // The field list follows the colouring chosen, before the look is applied with it.
-sc$("layerList").addEventListener("change", event => {
+scOnLayers("change", event => {
   if (!event.target.matches("[data-style=colorBy]")) return;
   const detail = event.target.closest("[data-detail]");
   const layer = scLayerOf(event.target);
@@ -689,11 +832,18 @@ async function scApplyPopup(layer, detail) {
 // --- the list's events -----------------------------------------------------------------------------------------------
 
 function scLayerOf(element) {
-  const row = element.closest("[data-layer]");
-  return row ? scState.scene.layers.find(l => l.id === row.dataset.layer) : null;
+  const row = element.closest("[data-layer]") || element.closest("[data-detail]");
+  const id = row && (row.dataset.layer || row.dataset.detail);
+  return id ? scState.scene.layers.find(l => l.id === id) : null;
 }
 
-sc$("layerList").addEventListener("change", event => {
+/** The layer list and the right panel's settings answer the same controls (ADR-279). */
+function scOnLayers(type, handler, options) {
+  sc$("layerList").addEventListener(type, handler, options);
+  sc$("layerTool").addEventListener(type, handler, options);
+}
+
+scOnLayers("change", event => {
   const layer = scLayerOf(event.target);
   if (!layer) return;
   const act = event.target.dataset.act;
@@ -713,7 +863,7 @@ sc$("layerList").addEventListener("change", event => {
   }
 });
 
-sc$("layerList").addEventListener("input", event => {
+scOnLayers("input", event => {
   if (event.target.dataset.act !== "opacity") return;
   const layer = scLayerOf(event.target);
   if (!layer) return;
@@ -722,7 +872,7 @@ sc$("layerList").addEventListener("input", event => {
   scMarkDirty();
 });
 
-sc$("layerList").addEventListener("click", async event => {
+scOnLayers("click", async event => {
   const button = event.target.closest("button[data-act]");
   if (!button) return;
   const layer = scLayerOf(button);
@@ -739,27 +889,50 @@ sc$("layerList").addEventListener("click", async event => {
     scSay(`${layer.title || "The layer"} was moved ${act}.`);
     const again = sc$("layerList").querySelector(`[data-layer="${CSS.escape(layer.id)}"] [data-act=${act}]`);
     (again && !again.disabled ? again : sc$("layerList").querySelector(`[data-layer="${CSS.escape(layer.id)}"] [data-act=settings]`)).focus();
-  } else if (act === "settings") {
-    if (scState.open.has(layer.id)) scState.open.delete(layer.id); else scState.open.add(layer.id);
+  } else if (act === "settings" || act === "select") {
+    // Selected by its name, as in Studio's map: its settings in the right panel, the part already open or Properties.
+    scState.menu = null;
+    scOpenLayerPart(scState.side === "layer" ? scState.layerPart || "props" : "props", layer.id);
+    sc$("layerList").querySelector(`[data-layer="${CSS.escape(layer.id)}"] [data-act=select]`)?.focus();
+  } else if (act === "menu") {
+    scState.menu = scState.menu === layer.id ? null : layer.id;
     scDrawLayers();
-    const detail = sc$("layerList").querySelector(`[data-detail="${CSS.escape(layer.id)}"]`);
-    if (detail) scSyncStyleForm(detail, layer);
-    sc$("layerList").querySelector(`[data-layer="${CSS.escape(layer.id)}"] [data-act=settings]`).focus();
+    const opened = sc$("layerList").querySelector(`[data-layer="${CSS.escape(layer.id)}"] .lmenu:not([hidden]) button`);
+    (opened || sc$("layerList").querySelector(`[data-layer="${CSS.escape(layer.id)}"] [data-act=menu]`))?.focus();
   } else if (act === "zoom") {
     const extent = layer.fullExtent;
     if (extent) scState.view.goTo({ target: extent, tilt: 55 }).catch(() => {});
     else scSay(`${layer.title || "The layer"} does not say where it is.`, true);
   } else if (act === "remove") {
     const title = layer.title || "The layer";
+    const at = layers.indexOf(layer);
     scState.scene.remove(layer);
-    scState.open.delete(layer.id);
+    scState.menu = null;
+    // The panel does not slide onto another layer, where the same Remove would act on it (design review).
+    if (scState.selected === layer.id) { scState.selected = null; if (scState.side === "layer") scOpenSide(false); }
     scMarkDirty();
     scDrawLayers();
     scSaySummary();
-    scSay(`${title} was removed.`);
-    (sc$("layerList").querySelector("input, button") || sc$("tab-layers")).focus();
+    scOfferUndo(`${title} was removed.`, () => { scState.scene.add(layer, at); scMarkDirty(); scDrawLayers(); scSay(`${title} is back.`); });
+    (sc$("layerList").querySelector("[data-act=select]") || sc$("tab-add")).focus();
   }
 });
+
+/** Says what was done with an Undo beside it in the header, for a few seconds (design review: Remove had no way back). */
+function scOfferUndo(text, undo) {
+  scSay(text);
+  const status = sc$("status");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "tiny";
+  button.id = "undoLast";
+  button.textContent = "Undo";
+  button.addEventListener("click", () => { clearTimeout(scState.undoTimer); button.remove(); undo(); });
+  sc$("undoLast")?.remove();
+  status.after(button);
+  clearTimeout(scState.undoTimer);
+  scState.undoTimer = setTimeout(() => button.remove(), 10000);
+}
 
 // <b>A layer's look and pop-up apply as they are changed</b>, as its opacity and height do (design review, blocker): with
 // Apply buttons, anything that redrew the list — a slide, a reorder — threw away choices not yet applied, unsaid.
@@ -781,7 +954,7 @@ function scApplySoon(layer, detail, what) {
   }, Number(window.__applyDelay ?? 300)));
 }
 
-sc$("layerList").addEventListener("change", event => {
+scOnLayers("change", event => {
   const detail = event.target.closest("[data-detail]");
   if (!detail) return;
   const layer = scLayerOf(event.target);
@@ -848,7 +1021,8 @@ async function scAddUrl(url, title, itemId, kind) {
     scDrawMode();
     said.textContent = `${layer.title || "The layer"} was added.`;
     scSaySummary();
-    scSay(`${layer.title || "The layer"} was added. ${sc$("status").textContent}`);
+    // One sentence, as the map says it (confirming review): what was added, then how many and whether saved.
+    scSay(`${layer.title || "The layer"} was added — ${sc$("status").textContent.replace(/\.$/, "").replace(/^(\d)/, "$1")}.`);
     scDrawAddItems();
     // Framed at an angle: a scene seen from straight above looks like a map (design: the point of a scene is height).
     if (layer.fullExtent) scState.view.goTo({ target: layer.fullExtent, tilt: 55 }).catch(() => {});
@@ -869,9 +1043,11 @@ function scHasLayer(url) {
 
 /** The header's line about the scene as it now is: whether it is new, and how many layers it has. */
 function scSaySummary() {
+  if (sc$("addStart")) sc$("addStart").hidden = !scCanEdit() || (scState.scene && scState.scene.layers.length > 0);
   const count = scState.scene.layers.length;
   // A new, empty scene says what to do first (design review: Save was off with no reason given).
-  scSay(!scState.id && count === 0 ? (scCanEdit() ? "Add a layer or name the scene to start." : "") : `${scState.id ? "" : "A new scene. "}${count === 0 ? "No layers" : count === 1 ? "1 layer" : `${count} layers`}.`);
+  // The Add panel says where to start; the header does not say it again (confirming review).
+  scSay(!scState.id && count === 0 ? "" : `${count === 0 ? "No layers" : count === 1 ? "1 layer" : `${count} layers`}${scState.id ? "" : ", not saved yet"}.`);
 }
 
 sc$("addUrlButton").addEventListener("click", () => {
@@ -1568,32 +1744,49 @@ async function scEnsureLegend() {
 // Analysis: the SDK's 3D tools, one open at a time, in a panel on the scene (ADR-270).
 
 const SC_TOOLS = [
-  { key: "distance", label: "Distance", module: "esri/widgets/DirectLineMeasurement3D" },
-  { key: "area", label: "Area", module: "esri/widgets/AreaMeasurement3D" },
-  { key: "sight", label: "Line of sight", module: "esri/widgets/LineOfSight" },
-  { key: "slice", label: "Slice", module: "esri/widgets/Slice" },
-  { key: "shadow", label: "Shadows", module: "esri/widgets/ShadowCast" },
-  { key: "daylight", label: "Daylight", module: "esri/widgets/Daylight" },
-  { key: "weather", label: "Weather", module: "esri/widgets/Weather" },
-  { key: "profile", label: "Elevation profile", module: "esri/widgets/ElevationProfile" },
+  { key: "distance", group: "measure", label: "Distance", module: "esri/widgets/DirectLineMeasurement3D" },
+  { key: "area", group: "measure", label: "Area", module: "esri/widgets/AreaMeasurement3D" },
+  { key: "sight", group: "analyze", label: "Line of sight", module: "esri/widgets/LineOfSight" },
+  { key: "slice", group: "analyze", label: "Slice", module: "esri/widgets/Slice" },
+  { key: "shadow", group: "analyze", label: "Shadows", module: "esri/widgets/ShadowCast" },
+  { key: "daylight", group: "environment", label: "Daylight", module: "esri/widgets/Daylight" },
+  { key: "weather", group: "environment", label: "Weather", module: "esri/widgets/Weather" },
+  { key: "profile", group: "analyze", label: "Elevation profile", module: "esri/widgets/ElevationProfile" },
   // Scene Viewer's Location and feature search (ADR-270 §5.10): the SDK's coordinate widget, and its search widget over the
   // scene's own feature layers — no geocoder, which this server does not have.
-  { key: "location", label: "Location", module: "esri/widgets/CoordinateConversion" },
+  { key: "location", group: "location", label: "Location", module: "esri/widgets/CoordinateConversion" },
   // ADR-270 §5.18: Scene Viewer's volume, viewshed and dimensions, which SDK 4.34 has as analyses with no widget
   // (ADR-273): each is a small panel of this page's over the SDK's own analysis and its interactive placement.
-  { key: "volume", label: "Volume", analysis: "esri/analysis/VolumeMeasurementAnalysis",
+  { key: "volume", group: "measure", label: "Volume", analysis: "esri/analysis/VolumeMeasurementAnalysis",
     says: "Draw an area on the ground: the volume above and below a flat surface at its average height — cut, fill and net." },
-  { key: "viewshed", label: "Viewshed", analysis: "esri/analysis/ViewshedAnalysis",
+  { key: "viewshed", group: "analyze", label: "Viewshed", analysis: "esri/analysis/ViewshedAnalysis",
     says: "Click where an observer stands, then where they look: what they can see is green, what is hidden is red. Add as many as you need." },
-  { key: "dimension", label: "Dimensions", analysis: "esri/analysis/DimensionAnalysis",
+  { key: "dimension", group: "measure", label: "Dimensions", analysis: "esri/analysis/DimensionAnalysis",
     says: "Click two points to put a length on the scene: between buildings, along a wall, up a height. Add as many as you need." },
-  { key: "search", label: "Search", module: "esri/widgets/Search", when: l => l.type === "feature" },
+  { key: "search", group: "search", label: "Search", module: "esri/widgets/Search", when: l => l.type === "feature" },
   // Offered only when the scene has a layer they work on (scDrawConditionalTools).
-  { key: "building", label: "Building explorer", module: "esri/widgets/BuildingExplorer", when: l => l.type === "building-scene" },
-  { key: "time", label: "Time", module: "esri/widgets/TimeSlider", when: l => !!(l.timeInfo && l.timeInfo.fullTimeExtent) },
+  { key: "building", group: "building", label: "Building explorer", module: "esri/widgets/BuildingExplorer", when: l => l.type === "building-scene" },
+  { key: "time", group: "time", label: "Time", module: "esri/widgets/TimeSlider", when: l => !!(l.timeInfo && l.timeInfo.fullTimeExtent) },
   // ADR-276: Scene Viewer's Edit — the SDK's editor over the scene's layers the reader may edit, features placed in 3D
   // (with their height where the layer keeps one). The server decides who may edit; the layer's capabilities say it.
-  { key: "edit", label: "Edit", module: "esri/widgets/Editor", when: l => scEditable(l) },
+  { key: "edit", group: "edit", label: "Edit", module: "esri/widgets/Editor", when: l => scEditable(l) },
+];
+
+/**
+ * The right toolbar's groups (ADR-279), as Scene Viewer groups its tools: each opens the right panel with its tools to
+ * choose from, the first open. A group whose tools need a layer the scene does not have is not shown.
+ */
+const SC_GROUPS = [
+  { key: "search", label: "Search", icon: "search" },
+  { key: "measure", label: "Measure", icon: "ruler" },
+  { key: "analyze", label: "3D analysis", icon: "sight" },
+  // The server's analysis, where Studio's map has it (ADR-259): its own panel, analysis.js's (ADR-270 §5.14).
+  { key: "server", label: "Analysis", icon: "analysis" },
+  { key: "environment", label: "Light & weather", icon: "sun" },
+  { key: "location", label: "Location", icon: "pin" },
+  { key: "edit", label: "Edit", icon: "edit" },
+  { key: "building", label: "Building", icon: "building" },
+  { key: "time", label: "Time", icon: "clock" },
 ];
 
 /** Whether the reader may edit a layer's features here: a feature layer whose service says it takes edits from them. */
@@ -1606,27 +1799,26 @@ function scEditable(layer) {
 function scDrawConditionalTools() {
   const layers = scState.scene ? scState.scene.layers.toArray() : [];
   for (const tool of SC_TOOLS.filter(t => t.when)) {
-    const button = document.querySelector(`#tools [data-tool=${tool.key}]`);
-    if (!button) continue;
     const offered = layers.some(tool.when);
-    button.hidden = !offered;
     if (!offered && scState.tool === tool.key) scToggleTool(tool.key);
   }
+  // A group with nothing to offer is not shown (Search with no feature layer, Building with no building layer).
+  for (const group of SC_GROUPS) {
+    const button = document.querySelector(`#tools [data-group=${group.key}]`);
+    if (button) button.hidden = scGroupTools(group.key).length === 0;
+    if (button?.hidden && scState.group === group.key) { scOpenSide(false); scState.group = null; }
+  }
+  scDrawLayerTools();
 }
 
 function scDrawToolbar() {
-  const bar = document.createElement("div");
-  bar.id = "tools";
-  bar.setAttribute("role", "toolbar");
-  bar.setAttribute("aria-label", "Analysis");
-  // On a phone the tools fold behind one button (scene.html's media rule); on a wide screen the button is not drawn.
-  bar.innerHTML = `<button type="button" id="toolsToggle" aria-expanded="false" aria-controls="tools">Tools</button>`
-    + SC_TOOLS.map(t => `<button type="button" data-tool="${t.key}" aria-pressed="false">${scEscape(t.label)}</button>`).join("");
-  const panel = document.createElement("div");
-  panel.id = "toolPanel";
-  scState.view.ui.add(bar, "top-right");
-  scState.view.ui.add(panel, "top-right");
-  bar.setAttribute("aria-orientation", "vertical");
+  const bar = sc$("tools");
+  const parts = SC_EMBED ? [] : SC_LAYER_PARTS;
+  bar.innerHTML = parts.map(([key, label, icon]) =>
+    `<button type="button" data-part-tool="${key}" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-${icon}"/></svg><span class="tl">${label}</span></button>`).join("")
+    + (parts.length ? `<span class="rsep" aria-hidden="true"></span>` : "")
+    + SC_GROUPS.map(g =>
+      `<button type="button" data-group="${g.key}" aria-expanded="false" aria-controls="side"><svg class="i" aria-hidden="true"><use href="#i-${g.icon}"/></svg><span class="tl">${g.label}</span></button>`).join("");
   const roving = () => [...bar.querySelectorAll("button")].filter(b => b.offsetParent !== null);
   roving().forEach((b, i) => { b.tabIndex = i === 0 ? 0 : -1; });
   bar.addEventListener("keydown", event => {
@@ -1640,22 +1832,102 @@ function scDrawToolbar() {
     next.focus();
   });
   bar.addEventListener("click", event => {
-    if (event.target.closest("#toolsToggle")) {
-      const open = bar.classList.toggle("open");
-      sc$("toolsToggle").setAttribute("aria-expanded", String(open));
+    const hit = event.target.closest("button");
+    if (hit) bar.querySelectorAll("button").forEach(b => { b.tabIndex = b === hit ? 0 : -1; });
+    const part = event.target.closest("[data-part-tool]");
+    if (part) {
+      // The open part's button closes the panel, as the left toolbar's do.
+      if (scState.side === "layer" && scState.layerPart === part.dataset.partTool) { scOpenSide(false); return; }
+      scOpenLayerPart(part.dataset.partTool);
       return;
     }
-    const button = event.target.closest("[data-tool]");
-    if (!button) return;
-    // Picking a tool folds the phone's list again, so the tool's panel has the scene to itself.
-    bar.classList.remove("open");
-    sc$("toolsToggle").setAttribute("aria-expanded", "false");
-    scToggleTool(button.dataset.tool);
+    const group = event.target.closest("[data-group]");
+    if (!group) return;
+    if (scState.sideHidden && scState.side === "group" && scState.group === group.dataset.group) {
+      scState.sideHidden = false;
+      scOpenSide(true);
+      scDrawLayerTools();
+      return;
+    }
+    if (scState.side === "group" && scState.group === group.dataset.group) {
+      if (scState.tool) scToggleTool(scState.tool, { keepSide: true });
+      scOpenSide(false);
+      scState.group = null;
+      scDrawLayerTools();
+      return;
+    }
+    scOpenGroup(group.dataset.group);
   });
+  // A group's tools are a choice of one: the open tool's pill stays pressed rather than leaving the panel empty.
+  sc$("toolPick").addEventListener("click", event => {
+    const button = event.target.closest("[data-tool]");
+    if (button && button.dataset.tool !== scState.tool) scToggleTool(button.dataset.tool, { keepSide: true });
+  });
+  scDrawLayerTools();
 }
 
-async function scToggleTool(key) {
+/** The tools of a group the scene offers now. */
+function scGroupTools(group) {
+  if (group === "server") return scCanEdit() && scToken && window.GraticulaAnalysis ? [{ key: "server", label: "Analysis" }] : [];
+  const layers = scState.scene ? scState.scene.layers.toArray() : [];
+  return SC_TOOLS.filter(t => t.group === group && (!t.when || layers.some(t.when)));
+}
+
+/** Opens the right panel on a group of tools, its first (or last used) tool open. */
+function scOpenGroup(group) {
+  const tools = scGroupTools(group);
+  if (tools.length === 0) return;
+  if (scState.tool) scToggleTool(scState.tool, { keepSide: true });
+  if (group === "server") {
+    scState.side = "group";
+    scState.group = "server";
+    sc$("layerTool").hidden = true;
+    sc$("toolPick").hidden = true;
+    sc$("sideTitle").textContent = "Analysis";
+    sc$("pane-analysis").hidden = false;
+    scOpenSide(true);
+    scDrawLayerTools();
+    scDrawAnalysis();
+    return;
+  }
+  sc$("pane-analysis").hidden = true;
+  scState.side = "group";
+  scState.group = group;
+  sc$("layerTool").hidden = true;
+  sc$("sideTitle").textContent = SC_GROUPS.find(g => g.key === group).label;
+  const pick = sc$("toolPick");
+  pick.hidden = tools.length < 2;
+  pick.innerHTML = tools.map(t => `<button type="button" data-tool="${t.key}" aria-pressed="false">${scEscape(t.label)}</button>`).join("");
+  scOpenSide(true);
+  scDrawLayerTools();
+  const wanted = tools.find(t => t.key === scState.lastTool?.[group]) || tools[0];
+  if (scState.tool !== wanted.key) scToggleTool(wanted.key, { keepSide: true });
+}
+
+/** The right toolbar's buttons say which panel is open; a layer's parts are dimmed with no layer to act on. */
+function scDrawLayerTools() {
+  const bar = sc$("tools");
+  if (!bar) return;
+  const none = !scState.scene || scState.scene.layers.length === 0;
+  for (const b of bar.querySelectorAll("[data-part-tool]")) {
+    b.setAttribute("aria-expanded", String(scState.side === "layer" && scState.layerPart === b.dataset.partTool));
+    // A reader has a layer's details only: Styles, Filter and Pop-ups would open empty (confirming review).
+    b.hidden = none || (!scCanEdit() && b.dataset.partTool !== "props");
+    b.querySelector(".tl").textContent = !scCanEdit() && b.dataset.partTool === "props" ? "Details"
+      : (SC_LAYER_PARTS.find(p => p[0] === b.dataset.partTool) || [])[1];
+  }
+  const sep = bar.querySelector(".rsep");
+  if (sep) sep.hidden = none;
+  for (const b of bar.querySelectorAll("[data-group]")) {
+    b.setAttribute("aria-expanded", String(scState.side === "group" && scState.group === b.dataset.group));
+  }
+}
+
+async function scToggleTool(key, options = {}) {
   const opening = scState.tool !== key;
+  // A tool still loading when another is chosen must not arrive afterwards and stay in the scene with nothing to
+  // close it (measured: a fast second choice left the first tool's measurement behind).
+  const ticket = scState.toolTicket = (scState.toolTicket || 0) + 1;
   if (scState.tool) {
     const open = scState.tools[scState.tool];
     if (open) {
@@ -1666,21 +1938,49 @@ async function scToggleTool(key) {
     delete scState.tools[scState.tool];
     scState.tool = null;
   }
-  for (const b of document.querySelectorAll("#tools [data-tool]")) b.setAttribute("aria-pressed", "false");
+  for (const b of document.querySelectorAll("#toolPick [data-tool]")) b.setAttribute("aria-pressed", "false");
   const panel = sc$("toolPanel");
   panel.innerHTML = "";
-  if (!opening) { scSay(`${SC_TOOLS.find(t => t.key === key).label} is closed.`); return; }
+  if (!opening) {
+    scSay(`${SC_TOOLS.find(t => t.key === key).label} is closed.`);
+    // A tool alone in its group takes the panel with it; one of several leaves the group's choice open.
+    if (!options.keepSide && scState.side === "group" && scGroupTools(scState.group).length < 2) { scOpenSide(false); scState.group = null; scDrawLayerTools(); }
+    return;
+  }
   const tool = SC_TOOLS.find(t => t.key === key);
+  // Opened from a group or by itself: either way the right panel shows its group.
+  if (scState.side !== "group" || scState.group !== tool.group) {
+    scState.side = "group";
+    scState.group = tool.group;
+    sc$("layerTool").hidden = true;
+    sc$("sideTitle").textContent = SC_GROUPS.find(g => g.key === tool.group).label;
+    const tools = scGroupTools(tool.group);
+    const pick = sc$("toolPick");
+    pick.hidden = tools.length < 2;
+    pick.innerHTML = tools.map(t => `<button type="button" data-tool="${t.key}" aria-pressed="false">${scEscape(t.label)}</button>`).join("");
+    scOpenSide(true);
+    scDrawLayerTools();
+  }
+  scState.lastTool = { ...(scState.lastTool || {}), [tool.group]: key };
+  const pressed = () => sc$("toolPick").querySelector(`[data-tool=${key}]`)?.setAttribute("aria-pressed", "true");
+  pressed();
+  // Said while the SDK's widget loads, so the panel is never blank (design review).
+  panel.innerHTML = `<p class="hint" role="status">Opening ${scEscape(tool.label)}…</p>`;
   try {
     if (tool.analysis) {
-      scState.tools[key] = await scAnalysisTool(tool, panel);
+      const made = await scAnalysisTool(tool, panel);
+      if (ticket !== scState.toolTicket) { made.destroy(); return; }
+      panel.querySelector("p[role=status]")?.remove();
+      scState.tools[key] = made;
       scState.tool = key;
-      document.querySelector(`#tools [data-tool=${key}]`).setAttribute("aria-pressed", "true");
+      pressed();
       scSay(`${tool.label} is open.`);
       return;
     }
     const [Widget] = await scRequire([tool.module]);
+    if (ticket !== scState.toolTicket) return;
     const container = document.createElement("div");
+    panel.innerHTML = "";
     panel.append(container);
     const options = { view: scState.view, container };
     if (key === "profile") {
@@ -1713,17 +2013,9 @@ async function scToggleTool(key) {
       options.timeVisible = true;
       options.mode = "time-window";
     }
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "tiny";
-    close.id = "toolClose";
-    close.textContent = "×";
-    close.setAttribute("aria-label", `Close ${tool.label}`);
-    close.addEventListener("click", () => { scToggleTool(key); document.querySelector(`#tools [data-tool=${key}]`)?.focus(); });
-    panel.prepend(close);
     scState.tools[key] = new Widget(options);
     scState.tool = key;
-    document.querySelector(`#tools [data-tool=${key}]`).setAttribute("aria-pressed", "true");
+    pressed();
     scSay(`${tool.label} is open.`);
   } catch (e) {
     scSay(`${tool.label} could not be opened: ${e.message}`, true);
@@ -1745,7 +2037,6 @@ async function scAnalysisTool(tool, panel) {
   const box = document.createElement("div");
   box.className = "esri-widget sc-analysis";
   box.innerHTML = `
-    <button type="button" class="tiny" id="toolClose" aria-label="Close ${scEscape(tool.label)}">×</button>
     <h3>${scEscape(tool.label)}</h3>
     <p class="hint">${scEscape(tool.says)}</p>
     <div class="row"><button type="button" class="primary" id="anStart">Start</button>
@@ -1763,7 +2054,6 @@ async function scAnalysisTool(tool, panel) {
   };
   const count = () => tool.key === "viewshed" ? analysis.viewsheds.length : tool.key === "dimension" ? analysis.dimensions.length : (analysis.geometry ? 1 : 0);
 
-  box.querySelector("#toolClose").addEventListener("click", () => { scToggleTool(tool.key); document.querySelector(`#tools [data-tool=${tool.key}]`)?.focus(); });
   box.querySelector("#anStart").addEventListener("click", async () => {
     stop();
     placing = new AbortController();
@@ -1814,13 +2104,34 @@ async function scAnalysisTool(tool, panel) {
   };
 }
 
-// Escape closes the open tool and gives focus back to its button, as webmap.js closes its side tool (design review).
+// Escape closes the right panel and gives focus back to the button that opened it — but not from inside a tool, where
+// the SDK's tools use it to cancel a placement, and it never clears a measurement (design review: one key wiped it).
 document.addEventListener("keydown", event => {
-  if (event.key !== "Escape" || !scState.tool) return;
-  const key = scState.tool;
-  scToggleTool(key);
-  document.querySelector(`#tools [data-tool=${key}]`)?.focus();
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  if (event.target instanceof Element && event.target.closest("#toolPanel, #layerTool input, #layerTool select, #layerTool textarea, #pane-analysis")) return;
+  if (scState.playing) return;
+  if (!sc$("side").hidden) {
+    const back = scState.side === "layer" ? `[data-part-tool="${scState.layerPart}"]` : `[data-group="${scState.group}"]`;
+    scHideSide();
+    sc$("tools").querySelector(back)?.focus();
+    return;
+  }
+  if (SC_PHONE.matches && document.body.classList.contains("sheet")) {
+    scOpenPanel(false);
+    document.querySelector("#tabs [aria-selected=true]")?.focus();
+  }
 });
+
+/**
+ * Hides the right panel and keeps what its tool drew: the tool stays open behind it, so its measurement is still in the
+ * scene, and its button opens it again as it was. Closing the tool itself is its button's or the panel's ×.
+ */
+function scHideSide() {
+  sc$("side").hidden = true;
+  document.body.classList.remove("ropen");
+  scState.sideHidden = true;
+  for (const b of sc$("tools").querySelectorAll("[aria-expanded=true]")) b.setAttribute("aria-expanded", "false");
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Embedding (ADR-275): the code for a saved scene, when the operator has named a site that may frame it.
@@ -1968,13 +2279,16 @@ async function scStart() {
     scState.manages = !!scState.user && item.owner === scState.user;
   }
   sc$("sceneDetails").hidden = !scCanEdit();
+  sc$("sceneAbout").textContent = scCanEdit() ? "" : "You can look around this scene, play its slides and use its tools; only its owner can change it.";
   sc$("addPart").hidden = !scCanEdit();
   sc$("addNotYours").hidden = scCanEdit();
   // A reader who cannot change the scene has nothing to add: no Add tab (confirming review).
   sc$("tab-add").hidden = !scCanEdit();
   scDrawEmbed();
-  // A result is a hosted layer of the reader's own added to this scene: offered to whoever may change the scene.
-  sc$("tab-analysis").hidden = !scCanEdit() || !scToken || !window.GraticulaAnalysis;
+  // The server's analysis: a result is a hosted layer of the reader's own added to this scene, so it is offered to
+  // whoever may change the scene (scGroupTools). Its pane lives in the right panel.
+  sc$("sideBody").append(sc$("pane-analysis"));
+  sc$("pane-analysis").hidden = true;
 
   scState.mode = scState.scene.initialViewProperties.viewingMode === "local" ? "local" : "global";
   const quality = (() => { try { return localStorage.getItem("graticula-scene-quality"); } catch { return null; } })();

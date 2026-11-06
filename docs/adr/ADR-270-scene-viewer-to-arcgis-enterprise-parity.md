@@ -174,6 +174,8 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 13. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
    *(Deferred.)* Since §14 there are seven for a scene's owner, and the row scrolls at 340 px as it was built to.
+   ***Superseded 2026-11-07 by [ADR-279](ADR-279-the-scene-viewer-takes-the-map-viewers-shape.md)**, after the owner called the
+   interface very bad: the icon rail, and the map viewer's whole shape, were adopted.*
 14. **Analysis from the scene** (2026-11-07, the comparison's §D) — Scene Viewer's *Analysis*: an *Analysis* tab, for
     whoever may change the scene and is signed in, runs the Spatial Analysis Service's tools on a hosted feature layer of
     the scene, or on the feature layer a scene layer made here is related to (§4's relationship). **The tools, their
@@ -263,7 +265,8 @@ viewer authors lives in the web scene item ADR-269 keeps.
    colouring controls and Play's caption (§5.14–5.16, ADR-271). *(Open. 2026-11-07: the first review found no blocker
    and six majors — the seventh tab out of sight at 340 px, two controls both called *Colour*, a view that cannot be a
    box filtering silently, the caption's live region, no Stop on the scene, the SDK's developer text in an error — all
-   applied, with most of the minors; a confirming review is owed.)*
+   applied, with most of the minors; a confirming review is owed.)* *(Deferred 2026-11-07 to ADR-279 condition 1: the screens it reviewed were redrawn in the map viewer's shape, so the
+   confirming review is of the new shape.)*
 
 ## 10. Revisit triggers
 

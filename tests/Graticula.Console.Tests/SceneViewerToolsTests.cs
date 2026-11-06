@@ -31,6 +31,25 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The scene viewer did not open a new scene.");
     }
 
+    /// <summary>
+    /// Opens a tool as a reader does (ADR-279): its group's button on the right toolbar, then the tool in the group's
+    /// panel when the group holds more than one.
+    /// </summary>
+    private async Task OpenToolAsync(string tool)
+    {
+        string group = await Browser.EvaluateAsync<string>($"SC_TOOLS.find(t => t.key === '{tool}').group") ?? string.Empty;
+        if (await Browser.EvaluateAsync<bool>($"scState.group !== '{group}' || document.getElementById('side').hidden"))
+        {
+            await ClickAsync($"#tools [data-group={group}]");
+        }
+
+        await WaitForAsync($"!document.getElementById('side').hidden && scState.group === '{group}'", $"{group}'s button did not open its panel.");
+        if (await Browser.EvaluateAsync<bool>($"scState.tool !== '{tool}'"))
+        {
+            await ClickAsync($"#toolPick [data-tool={tool}]");
+        }
+    }
+
     private async Task AddByAddressAsync(string url, int expected)
     {
         await Browser.EvaluateAsync<bool>($"(document.getElementById('addUrl').value = {JsonSerializer.Serialize(url)}, document.getElementById('addUrlButton').click(), true)");
@@ -85,7 +104,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             Assert.Matches("was moved down", await Browser.EvaluateAsync<string>("document.getElementById('status').textContent") ?? string.Empty);
 
             // The buildings' settings: half opacity, extruded by floors × 3, a pop-up titled by a field.
-            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await ClickAsync("#layerList [data-layer] [data-act=select]");
             await WaitForAsync("!!document.querySelector('[data-detail] [data-style=shape]')", "The buildings' settings offered no look.");
             await Browser.EvaluateAsync<bool>("(() => { const r = document.querySelector('[data-detail] [data-act=opacity]'); r.value = '50'; r.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
             Assert.Equal(0.5, await Browser.EvaluateAsync<double>("scState.scene.layers.getItemAt(1).opacity"));
@@ -133,7 +152,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
             await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The saved scene did not open.");
             Assert.Equal(sitesTitle, await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).title"));
-            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await ClickAsync("#layerList [data-layer] [data-act=select]");
             await WaitForAsync("document.querySelector('[data-detail] [data-style=shape]')?.value === 'extrude'", "The reopened form did not read the look back.");
             Assert.Equal("floors", await Browser.EvaluateAsync<string>("document.querySelector('[data-detail] [data-style=sizeField]').value"));
 
@@ -379,18 +398,19 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         try
         {
             await OpenNewSceneAsync(token, cookie);
-            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('#tools [data-tool=time]').hidden"), "Time was offered with no time-aware layer.");
-            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('#tools [data-tool=building]').hidden"), "Building explorer was offered with no building layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('#tools [data-group=time]').hidden"), "Time was offered with no time-aware layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('#tools [data-group=building]').hidden"), "Building explorer was offered with no building layer.");
             await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
             await AddByAddressAsync($"{Root}/rest/services/hosted/ci_observations/FeatureServer/0", 2);
-            await WaitForAsync("!document.querySelector('#tools [data-tool=time]').hidden", "Time was not offered with a time-aware layer.");
-            await ClickAsync("#tools [data-tool=time]");
+            await WaitForAsync("!document.querySelector('#tools [data-group=time]').hidden", "Time was not offered with a time-aware layer.");
+            await ClickAsync("#tools [data-group=time]");
             await WaitForAsync("scState.tool === 'time' && !!document.querySelector('#toolPanel .esri-widget')", "The Time tool did not open.");
-            await ClickAsync("#tools [data-tool=time]");
+            await ClickAsync("#tools [data-group=time]");
+            await WaitForAsync("scState.tool === null && document.getElementById('side').hidden", "Time's button did not close its panel.");
 
             // The buildings — second in the list, the observations being on top.
             await ClickAsync("#tab-layers");
-            await ClickAsync("#layerList li:nth-child(2) [data-act=settings]");
+            await ClickAsync("#layerList li:nth-child(2) [data-act=select]");
             await WaitForAsync("!!document.querySelector('[data-detail] [data-vis=filter]')", "A feature layer's settings offered no filter.");
             await Browser.EvaluateAsync<bool>("(() => { const s = document.querySelector('[data-detail] [data-vis=minScale]'); s.value = '144448'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
             Assert.Equal(144448, await Browser.EvaluateAsync<double>("scState.scene.layers.getItemAt(0).minScale"));
@@ -487,7 +507,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
                 "The tab row collapsed on the first run.");
             await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
             await ClickAsync("#tab-layers");
-            await ClickAsync("#layerList [data-act=settings]");
+            await ClickAsync("#layerList [data-act=select]");
             await WaitForAsync("!!document.querySelector('[data-detail] [data-style=shape]')", "The settings did not open.");
             Assert.True(await Browser.EvaluateAsync<double>("document.getElementById('tabs').getBoundingClientRect().height") >= 30,
                 "The tab row collapsed with a layer's settings open.");
@@ -624,16 +644,16 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         // scene's feature layers.
         foreach (string tool in new[] { "distance", "area", "sight", "slice", "shadow", "daylight", "weather", "location", "search", "profile" })
         {
-            await ClickAsync($"#tools [data-tool={tool}]");
+            await OpenToolAsync(tool);
             await WaitForAsync($"scState.tool === '{tool}' && !!document.querySelector('#toolPanel .esri-widget')", $"The {tool} tool did not open its widget.");
-            Assert.Equal("true", await Browser.EvaluateAsync<string>($"document.querySelector('#tools [data-tool={tool}]').getAttribute('aria-pressed')"));
+            Assert.Equal("true", await Browser.EvaluateAsync<string>($"document.querySelector('#tools [data-group=' + SC_TOOLS.find(t => t.key === '{tool}').group + ']').getAttribute('aria-expanded')"));
         }
 
         // ADR-270 §5.18 (SDK 4.34, ADR-273): volume, viewshed and dimensions, each an analysis in the view while its tool
         // is open, and taken out of the scene when it closes.
         foreach ((string tool, string type) in new[] { ("volume", "volume-measurement"), ("viewshed", "viewshed"), ("dimension", "dimension") })
         {
-            await ClickAsync($"#tools [data-tool={tool}]");
+            await OpenToolAsync(tool);
             await WaitForAsync($"scState.tool === '{tool}' && !!document.querySelector('#toolPanel .sc-analysis #anStart')"
                 + $" && scState.view.analyses.some(a => a.type === '{type}')", $"The {tool} tool did not open its analysis.");
             await ClickAsync("#anStart");
@@ -649,18 +669,30 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             + " endPoint: new Point({ longitude: c.longitude + 0.001, latitude: c.latitude, z: 0 }) })); }), true)");
         await WaitForAsync("scState.tools.dimension.analysisView.results.length === 1 && scState.tools.dimension.analysisView.results.getItemAt(0).length?.value > 50",
             "A dimension of about 90 m was not measured.");
-        await ClickAsync("#tools [data-tool=dimension]");
-        await WaitForAsync("scState.tool === null && scState.view.analyses.length === 0", "Closing Dimensions left its analysis in the scene.");
+        // The open tool's pill stays pressed (a choice of one); the group's own button closes the tool and its panel.
+        await ClickAsync("#toolPick [data-tool=dimension]");
+        Assert.Equal("dimension", await Browser.EvaluateAsync<string>("scState.tool"));
+        await ClickAsync("#tools [data-group=measure]");
+        await Task.Delay(1500);
+        string closed = await Browser.EvaluateAsync<string>("JSON.stringify({ tool: scState.tool, side: document.getElementById('side').hidden, group: scState.group, analyses: scState.view.analyses.toArray().map(a => a.type) })") ?? "";
+        Assert.True(closed.Contains("\"tool\":null", StringComparison.Ordinal) && closed.Contains("\"side\":true", StringComparison.Ordinal) && closed.Contains("\"analyses\":[]", StringComparison.Ordinal),
+            "Closing Measure left the scene as " + closed);
 
-        await ClickAsync("#tools [data-tool=profile]");
+        await OpenToolAsync("profile");
         await WaitForAsync("scState.tool === 'profile'", "The profile tool did not open again.");
-        await ClickAsync("#tools [data-tool=profile]");
-        await WaitForAsync("scState.tool === null && !document.querySelector('#toolPanel .esri-widget')", "Clicking the open tool again did not close it.");
-        await ClickAsync("#tools [data-tool=slice]");
+        await ClickAsync("#tools [data-group=analyze]");
+        await WaitForAsync("scState.tool === null && !document.querySelector('#toolPanel .esri-widget')", "The group's button did not close its tool.");
+
+        // Escape hides the panel and gives focus back to the group's button, and keeps the tool and what it drew: one key
+        // must not wipe a measurement (design review). The group's button shows it again as it was.
+        await OpenToolAsync("slice");
         await WaitForAsync("scState.tool === 'slice'", "Slice did not open again.");
-        await Browser.EvaluateAsync<bool>("(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })), true)");
-        await WaitForAsync("scState.tool === null && document.activeElement === document.querySelector('#tools [data-tool=slice]')",
-            "Escape did not close the tool and give focus back to its button.");
+        await Browser.EvaluateAsync<bool>("(document.querySelector('#tools [data-group=analyze]').focus(), document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })), true)");
+        await WaitForAsync("scState.tool === 'slice' && document.getElementById('side').hidden && document.activeElement === document.querySelector('#tools [data-group=analyze]')",
+            "Escape did not hide the panel, keep the tool and give focus back to its group's button.");
+        await ClickAsync("#tools [data-group=analyze]");
+        await WaitForAsync("!document.getElementById('side').hidden && scState.tool === 'slice' && !!document.querySelector('#toolPanel .esri-widget')",
+            "The group's button did not show the hidden tool again as it was.");
 
         await ClickAsync("#tab-legend");
         await WaitForAsync("/ci_buildings/i.test(document.getElementById('legendBox').textContent)", "The legend did not name the layer.");
@@ -720,13 +752,17 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         try
         {
             await OpenNewSceneAsync(token, cookie);
-            await WaitForAsync("!document.getElementById('tab-analysis').hidden", "The scene's owner was not offered Analysis.");
-            await ClickAsync("#tab-analysis");
+            await WaitForAsync("!document.querySelector('#tools [data-group=server]').hidden", "The scene's owner was not offered Analysis.");
+            await ClickAsync("#tools [data-group=server]");
             await WaitForAsync("/hosted feature layers from this server/.test(document.getElementById('azNone').textContent) && !document.getElementById('azNone').hidden",
                 "With no layer, Analysis did not say there was nothing to analyze.");
 
             await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
-            await ClickAsync("#tab-analysis");
+            if (await Browser.EvaluateAsync<bool>("document.getElementById('side').hidden"))
+            {
+                await ClickAsync("#tools [data-group=server]");
+            }
+
             await WaitForAsync("document.querySelectorAll('#azLayer option').length === 1 && !!document.querySelector('#pane-analysis #azTool option[value=CreateBuffers]')",
                 "Analysis did not offer the scene's feature layer and its tools.");
 
@@ -774,7 +810,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             await OpenNewSceneAsync(token, cookie);
             await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
             await ClickAsync("#tab-layers");
-            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await ClickAsync("#layerList [data-layer] [data-act=select]");
             await WaitForAsync("!!document.querySelector('[data-detail] [data-style=colorBy]')", "The look offered no way to colour by a field.");
             Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('[data-detail] [data-part=colorField]').hidden"),
                 "One colour offered a field.");
@@ -801,7 +837,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             // Opened again, the form says how the layer is coloured; then classes of floors replace it.
             await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
             await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The saved scene did not open.");
-            await ClickAsync("#layerList [data-layer] [data-act=settings]");
+            await ClickAsync("#layerList [data-layer] [data-act=select]");
             await WaitForAsync("document.querySelector('[data-detail] [data-style=colorBy]')?.value === 'unique'", "The reopened form did not read a colour each back.");
             Assert.Equal("name", await Browser.EvaluateAsync<string>("document.querySelector('[data-detail] [data-style=colorField]').value"));
 
@@ -900,9 +936,9 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         await OpenNewSceneAsync(token, cookie);
         await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/applyEdits'], true)");
         await AddByAddressAsync($"{Root}/rest/services/{editable}/FeatureServer/0", 1);
-        await WaitForAsync("!!document.querySelector('#tools [data-tool=edit]') && !document.querySelector('#tools [data-tool=edit]').hidden",
+        await WaitForAsync("!!document.querySelector('#tools [data-group=edit]') && !document.querySelector('#tools [data-group=edit]').hidden",
             "An editable layer in the scene did not offer Edit.");
-        await ClickAsync("#tools [data-tool=edit]");
+        await ClickAsync("#tools [data-group=edit]");
         await WaitForAsync("scState.tool === 'edit' && !!document.querySelector('#toolPanel .esri-editor')", "Edit did not open the editor.");
         Assert.True(await Browser.EvaluateAsync<bool>("scState.tools.edit.layerInfos.some(i => i.enabled && i.layer === scState.scene.layers.getItemAt(0))"),
             "The editor did not offer the scene's editable layer.");
@@ -919,7 +955,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             + ".then(r => window.__removed = r.deleteFeatureResults[0]), true)");
         await WaitForAsync("!!window.__removed && !window.__removed.error", "The feature the test added was not removed.");
 
-        await ClickAsync("#tools [data-tool=edit]");
+        await ClickAsync("#tools [data-group=edit]");
         await WaitForAsync("scState.tool === null", "Edit did not close.");
         NothingWentWrong(await PageErrorsAsync());
     }
