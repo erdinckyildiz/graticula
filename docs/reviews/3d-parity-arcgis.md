@@ -81,7 +81,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Scheduled rebuilds, job status [6] | *Rebuild on its own when the layer changes*: a site sweep every five minutes, its last outcome on the item and in Studio (ADR-277) | Built |
 | Replace a layer's package [6] | a document's *Replace file* | Built |
 | Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers (ADR-276) | Partly built — no mesh (3D object) editing yet, ADR-276 condition 1 |
-| Create an empty 3D object layer to edit [7] | — | Owed — ADR-276 condition 2 |
+| Create an empty 3D object layer to edit [7] | *Create a layer to draw in*: an empty hosted layer of 3D points, lines or polygons, opened in Edit (ADR-276) | Partly built — no empty mesh layer, which waits on mesh geometry |
 | Levels of detail for large layers | inner nodes carry the largest buildings as simpler blocks (D-386) | Built |
 | Package size | up to `ScenePackageMaxMB` (4 GB): above the document limit a package is a file in the server directories (ADR-274); Esri's 286 MB mesh sample served and drawn whole | Built |
 

@@ -959,4 +959,41 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         await WaitForAsync("scState.tool === null", "Edit did not close.");
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// ADR-276 condition 2: Create layer makes an empty hosted layer with heights through the portal's createService, adds
+    /// it to the scene and opens Edit on it; a point placed with a height keeps it.
+    /// </summary>
+    [Fact]
+    public async Task An_empty_3d_layer_is_created_from_the_scene_and_edited()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string name = $"zz_scene_new_{Guid.NewGuid():N}"[..24];
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/createService', '/applyEdits'], true)");
+            await Browser.EvaluateAsync<bool>($"(document.getElementById('createLayer').open = true, document.getElementById('createName').value = {JsonSerializer.Serialize(name)}, true)");
+            await ClickAsync("#createGo");
+            await WaitForAsync("scState.scene.layers.length === 1 && scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "Create layer did not add the new layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("scState.scene.layers.getItemAt(0).hasZ === true"), "The new layer has no heights.");
+            await WaitForAsync("scState.tool === 'edit' && !!document.querySelector('#toolPanel .esri-editor')", "Edit was not opened on the new layer.");
+
+            await Browser.EvaluateAsync<bool>("(scRequire(['esri/Graphic']).then(([Graphic]) => { const l = scState.scene.layers.getItemAt(0); const c = scState.view.center;"
+                + " return l.applyEdits({ addFeatures: [new Graphic({ geometry: { type: 'point', longitude: c.longitude, latitude: c.latitude, z: 42, hasZ: true }, attributes: { label: 'zz high' } })] }); })"
+                + ".then(r => window.__made = r.addFeatureResults[0], e => window.__made = { error: e.message }), true)");
+            await WaitForAsync("!!window.__made", "The edit was not answered.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!window.__made.error && window.__made.objectId > 0"), await Browser.EvaluateAsync<string>("JSON.stringify(window.__made)"));
+
+            (int status, string read) = await AdminAsync(HttpMethod.Get, $"/rest/services/hosted/{name}/FeatureServer/0/query?where=1%3D1&returnZ=true&outFields=label&f=json");
+            Assert.Equal(200, status);
+            Assert.Contains("\"z\":42", read, StringComparison.Ordinal);
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{name}?folder=hosted&drop=true");
+        }
+    }
 }

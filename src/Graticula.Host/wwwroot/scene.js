@@ -1276,6 +1276,46 @@ sc$("azLayer").addEventListener("change", scOpenAnalysis);
 sc$("azNone").addEventListener("click", event => { if (event.target.id === "azToAdd") { scShowTab("add"); sc$("tab-add").focus(); } });
 
 /**
+ * Scene Viewer's Create layer (ADR-276 condition 2): an empty hosted layer with heights, made through the portal's own
+ * createService as ArcGIS's clients make one, added to the scene and opened in Edit.
+ */
+sc$("createGo").addEventListener("click", async () => {
+  const name = sc$("createName").value.trim();
+  const said = sc$("addSaid");
+  said.className = "said";
+  if (!/^[A-Za-z][A-Za-z0-9_]{0,59}$/.test(name)) {
+    said.className = "said bad";
+    said.textContent = "Not created: a name starts with a letter and holds letters, digits and _.";
+    sc$("createName").focus();
+    return;
+  }
+  said.textContent = `Creating ${name}…`;
+  try {
+    const made = await scPortal(`/content/users/${encodeURIComponent(scState.user)}/createService`, {
+      outputType: "featureService",
+      createParameters: JSON.stringify({ name, spatialReference: { wkid: 4326 }, layers: [{
+        name, type: "Feature Layer", geometryType: sc$("createKind").value, hasZ: true,
+        fields: [{ name: "label", type: "esriFieldTypeString", alias: "Label", length: 255, nullable: true }] }] }),
+    });
+    const url = `${String(made.serviceurl || made.encodedServiceURL).replace(/\/+$/, "")}/0`;
+    await scAddUrl(url, name, null, "Feature Service");
+    const layer = scState.scene.layers.toArray().find(l => scFeatureAddress(l) === url || l.url === url);
+    if (layer) {
+      layer.elevationInfo = { mode: "absolute-height" };
+      await layer.load();
+      // Edit only once the layer's capabilities are read, so the editor offers it.
+      scDrawConditionalTools();
+      scOpenGroup("edit");
+    }
+    sc$("createName").value = "";
+  } catch (e) {
+    said.className = "said bad";
+    said.textContent = `Not created: ${e.message}`;
+    scSay(said.textContent, true);
+  }
+});
+
+/**
  * The elevation surfaces the ground can be: the image services shared with the reader that are elevation layers — the
  * "Elevation 3D Layer" keyword ADR-182's surfaces carry, as Esri's Terrain3D does, and the list Scene Viewer offers. An
  * image service that is a picture, not heights, is not offered (ADR-270 §5.8).

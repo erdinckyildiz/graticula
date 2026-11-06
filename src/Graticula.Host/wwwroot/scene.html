@@ -281,7 +281,8 @@
   fieldset.fields { margin: 6px 0 0; }
   fieldset.fields legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
   #addByAddress { margin: 8px 0; }
-  #addByAddress summary { cursor: pointer; color: var(--accent-ink); font-size: 13px; }
+  #addByAddress summary, #createLayer summary { cursor: pointer; color: var(--accent-ink); font-size: 13px; }
+  #createLayer { margin: 8px 0; }
   /* The SDK widgets' buttons in Studio's accent rather than the SDK's own blue (design review). */
   #toolPanel .esri-button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   #toolPanel .esri-button--secondary, #toolPanel .esri-button--tertiary { background: var(--surface); color: var(--accent-ink); }
@@ -457,6 +458,20 @@
           <label class="check"><input type="checkbox" id="addMine"> Only my content</label>
           <!-- ADR-271: the portal's search answers a box, so the list can follow the view. -->
           <label class="check"><input type="checkbox" id="addInView"> Only within the current view</label>
+          <!-- ADR-276 condition 2: Scene Viewer's Create layer — an empty hosted layer with heights, ready to edit. -->
+          <details id="createLayer">
+            <summary>Create a layer to draw in</summary>
+            <label class="field" for="createName">Name</label>
+            <input type="text" id="createName" maxlength="60" autocomplete="off" placeholder="e.g. street_trees" spellcheck="false">
+            <label class="field" for="createKind">It holds</label>
+            <select id="createKind">
+              <option value="esriGeometryPoint">3D points — trees, lamps, sensors</option>
+              <option value="esriGeometryPolyline">3D lines — pipes, cables, routes</option>
+              <option value="esriGeometryPolygon">3D polygons — areas, roofs</option>
+            </select>
+            <p class="hint">An empty hosted layer of yours, with heights and a <i>label</i> field, added to the scene with Edit open. Letters, digits and _ in the name.</p>
+            <div class="row"><button type="button" id="createGo">Create and edit</button></div>
+          </details>
           <!-- Above the list, so it is not below the fold of eight rows (design review). -->
           <details id="addByAddress">
             <summary>Add by service address</summary>
