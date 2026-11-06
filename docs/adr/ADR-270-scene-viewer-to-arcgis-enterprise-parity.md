@@ -201,6 +201,13 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     WGS 84 sample in a global scene or in this viewer's local scene, which is Web Mercator. A projected voxel package
     and a local scene in its own system (§A's *no other projected system*) are what to try next. A layer the scene
     cannot draw now says why when it is added, instead of drawing nothing.
+18. **Volume, viewshed and dimensions** (2026-11-07, on SDK 4.34, ADR-273) — Scene Viewer's three tools that 4.29 did
+    not have. In 4.34 they are analyses with no widget (`VolumeMeasurementAnalysis`, `ViewshedAnalysis`,
+    `DimensionAnalysis`), so each is a small panel of this page's. The panel holds a sentence saying what the tool does,
+    *Start* (the SDK's own interactive placement), *Done*, *Clear*, and for volume the cut, fill and net. The analysis
+    is in the view while its tool is open and is taken out when it closes, as a widget's measurement is. Slides that
+    keep their analyses, legend and pop-up (4.34's `Slide.elements`), and the caption and cover layouts
+    (`Slide.layout`), are now possible and not yet built.
 
 ## 6. Consequences
 

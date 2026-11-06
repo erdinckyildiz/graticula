@@ -344,12 +344,14 @@ internal sealed record HostSettings(
     /// Where the map SDK comes from unless a deployment says otherwise.
     /// </summary>
     /// <remarks>
-    /// <b>Pinned, and the version is part of the value.</b> ADR-020 §4 chose Esri's CDN and
-    /// 4.29 is the version this console was built and tested against; a floating `latest` would
-    /// change the console's behaviour without a commit. An air-gapped deployment (Q-15) points
-    /// this at its own copy, which is the case the setting exists for.
+    /// <b>Pinned, and the version is part of the value.</b> ADR-020 §4 chose Esri's CDN; a floating
+    /// `latest` would change the console's behaviour without a commit. An air-gapped deployment (Q-15)
+    /// points this at its own copy, which is the case the setting exists for.
+    /// <b>4.34 since 2026-11-07</b> (ADR-273, by owner decision ADR-272 §5.2), raised from 4.29 with the
+    /// 85 console tests that load the SDK run against it. 4.34 is the last release with the AMD build
+    /// (`init.js`) every page here loads; 5.x is ES modules only.
     /// </remarks>
-    public const string DefaultMapSdkUrl = "https://js.arcgis.com/4.29/";
+    public const string DefaultMapSdkUrl = "https://js.arcgis.com/4.34/";
 
     /// <summary>
     /// The origin of <see cref="MapSdkUrl"/>, which is what a policy names.

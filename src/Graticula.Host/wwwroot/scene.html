@@ -177,6 +177,13 @@
     #pane-analysis .azfoot .fill:empty { display: none; }
     #slideCaption button { min-height: 44px; }
   }
+  /* ADR-270 §5.18: the analyses SDK 4.34 has without a widget, in a panel of this page's. */
+  .sc-analysis { padding: 10px 12px; max-width: 300px; position: relative; }
+  .sc-analysis h3 { margin: 0 24px 4px 0; font-size: 14px; }
+  .sc-analysis #toolClose { position: absolute; top: 6px; right: 6px; }
+  .sc-analysis dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+  .sc-analysis dt { color: var(--muted); }
+  .sc-analysis dd { margin: 0; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
              white-space: nowrap; border: 0; }
   /* WCAG 2.2 SC 2.5.8: no target smaller than 24 px (design review). */

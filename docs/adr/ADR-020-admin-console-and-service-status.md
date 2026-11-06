@@ -8,6 +8,9 @@
 | **Answers** | [ADR-017](ADR-017-admin-api.md) §7's deferred *whether there is a web console* · owner request for start/stop |
 
 
+> **Amended 2026-11-07 by [ADR-273](ADR-273-the-maps-sdk-is-4-34.md):** the ArcGIS Maps SDK this console loads from Esri's CDN is
+> pinned to **4.34**, raised from 4.29 by owner decision (ADR-272 §5.2). §4's choice of the SDK and of the CDN stands.
+
 > **Amended 2026-08-17 by [ADR-034](ADR-034-server-and-studio.md).** One console becomes two
 > surfaces over the same API: **Server** for the operator, gated on `admin:manageServer`, and
 > **Studio** for the publisher, gated on being signed in. Everything below still describes the

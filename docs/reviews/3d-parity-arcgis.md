@@ -33,7 +33,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | Capture, rename, describe, duplicate, recapture, remove, reorder [4] | the same (§5.1, §5.9) | Built |
 | A slide keeps the camera, daylight, basemap, layer visibility, weather [4] | the SDK's `Slide.createFrom` | Built |
-| A slide may capture its legend, a pop-up and a slice [4] | the SDK 4.29 `Slide` keeps none of the three (its properties: basemap, description, environment, ground, hidden, id, thumbnail, title, viewpoint, visible layers) | Owner — an SDK upgrade |
+| A slide may capture its legend, a pop-up and a slice [4] | SDK 4.34's `Slide.elements` keeps analyses, legend and pop-up (ADR-273); not yet used here | Owed |
 | Presentation styles (caption, cover) and *Present* mode [1][4] | *Play* steps through the slides with each one's title and description as a caption (ADR-270 §5.16) | Partly built — one caption style, no cover |
 | Show or hide a slide in the presentation [4] | *In presentation*, per slide; Play skips a hidden one and a reader does not see it (§5.10) | Built |
 | `#<n>` opens the scene at a slide [4] | the same (§5.9) | Built |
@@ -45,11 +45,11 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Daylight, shadows [1] | Daylight and Shadows, the SDK's (§5.2) | Built |
 | Weather: rain, snow, fog [1] | Weather, the SDK's | Built |
 | Measure distance, Measure area [1] | the same | Built |
-| Measure volume [1] | not in the Maps SDK 4.29 this server pins | Owner — an SDK upgrade |
+| Measure volume [1] | *Volume*: cut, fill and net over an area drawn on the ground (ADR-270 §5.18, SDK 4.34) | Built |
 | Slice [1] | the same | Built |
 | Elevation profile [1] | the same | Built |
 | Line of sight [3] | the same | Built |
-| Viewshed, Dimensions [3] | not in the Maps SDK 4.29 | Owner — an SDK upgrade |
+| Viewshed, Dimensions [3] | *Viewshed* and *Dimensions* (ADR-270 §5.18, SDK 4.34) | Built |
 | Time slider [1] | *Time*, offered with a time-aware layer (§5.9) | Built |
 | Building explorer [1] | offered with a building scene layer (§5.9); on Esri's sample it opened with its levels, construction phases and disciplines | Built |
 | Location: coordinates, elevation [1] | *Location*, the SDK's coordinate widget (§5.10) | Built |

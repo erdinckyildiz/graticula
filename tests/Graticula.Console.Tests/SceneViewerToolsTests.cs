@@ -614,6 +614,31 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             Assert.Equal("true", await Browser.EvaluateAsync<string>($"document.querySelector('#tools [data-tool={tool}]').getAttribute('aria-pressed')"));
         }
 
+        // ADR-270 §5.18 (SDK 4.34, ADR-273): volume, viewshed and dimensions, each an analysis in the view while its tool
+        // is open, and taken out of the scene when it closes.
+        foreach ((string tool, string type) in new[] { ("volume", "volume-measurement"), ("viewshed", "viewshed"), ("dimension", "dimension") })
+        {
+            await ClickAsync($"#tools [data-tool={tool}]");
+            await WaitForAsync($"scState.tool === '{tool}' && !!document.querySelector('#toolPanel .sc-analysis #anStart')"
+                + $" && scState.view.analyses.some(a => a.type === '{type}')", $"The {tool} tool did not open its analysis.");
+            await ClickAsync("#anStart");
+            await WaitForAsync("!document.getElementById('anDone').hidden", $"Start did not begin placing a {tool}.");
+            await ClickAsync("#anDone");
+            await WaitForAsync("document.getElementById('anDone').hidden && /placed/.test(document.getElementById('anSays').textContent)", $"Done did not end placing a {tool}.");
+        }
+
+        // A dimension placed through the analysis is measured, and the scene keeps no analysis once the tool closes.
+        await Browser.EvaluateAsync<bool>("(scRequire(['esri/analysis/LengthDimension', 'esri/geometry/Point']).then(([LengthDimension, Point]) => {"
+            + " const a = scState.tools.dimension.analysis; const c = scState.view.center;"
+            + " a.dimensions.add(new LengthDimension({ startPoint: new Point({ longitude: c.longitude, latitude: c.latitude, z: 0 }),"
+            + " endPoint: new Point({ longitude: c.longitude + 0.001, latitude: c.latitude, z: 0 }) })); }), true)");
+        await WaitForAsync("scState.tools.dimension.analysisView.results.length === 1 && scState.tools.dimension.analysisView.results.getItemAt(0).length?.value > 50",
+            "A dimension of about 90 m was not measured.");
+        await ClickAsync("#tools [data-tool=dimension]");
+        await WaitForAsync("scState.tool === null && scState.view.analyses.length === 0", "Closing Dimensions left its analysis in the scene.");
+
+        await ClickAsync("#tools [data-tool=profile]");
+        await WaitForAsync("scState.tool === 'profile'", "The profile tool did not open again.");
         await ClickAsync("#tools [data-tool=profile]");
         await WaitForAsync("scState.tool === null && !document.querySelector('#toolPanel .esri-widget')", "Clicking the open tool again did not close it.");
         await ClickAsync("#tools [data-tool=slice]");

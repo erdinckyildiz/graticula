@@ -1502,6 +1502,14 @@ const SC_TOOLS = [
   // Scene Viewer's Location and feature search (ADR-270 §5.10): the SDK's coordinate widget, and its search widget over the
   // scene's own feature layers — no geocoder, which this server does not have.
   { key: "location", label: "Location", module: "esri/widgets/CoordinateConversion" },
+  // ADR-270 §5.18: Scene Viewer's volume, viewshed and dimensions, which SDK 4.34 has as analyses with no widget
+  // (ADR-273): each is a small panel of this page's over the SDK's own analysis and its interactive placement.
+  { key: "volume", label: "Volume", analysis: "esri/analysis/VolumeMeasurementAnalysis",
+    says: "Draw an area on the ground: the volume above and below a flat surface at its average height — cut, fill and net." },
+  { key: "viewshed", label: "Viewshed", analysis: "esri/analysis/ViewshedAnalysis",
+    says: "Click where an observer stands, then where they look: what they can see is green, what is hidden is red. Add as many as you need." },
+  { key: "dimension", label: "Dimensions", analysis: "esri/analysis/DimensionAnalysis",
+    says: "Click two points to put a length on the scene: between buildings, along a wall, up a height. Add as many as you need." },
   { key: "search", label: "Search", module: "esri/widgets/Search", when: l => l.type === "feature" },
   // Offered only when the scene has a layer they work on (scDrawConditionalTools).
   { key: "building", label: "Building explorer", module: "esri/widgets/BuildingExplorer", when: l => l.type === "building-scene" },
@@ -1578,6 +1586,13 @@ async function scToggleTool(key) {
   if (!opening) { scSay(`${SC_TOOLS.find(t => t.key === key).label} is closed.`); return; }
   const tool = SC_TOOLS.find(t => t.key === key);
   try {
+    if (tool.analysis) {
+      scState.tools[key] = await scAnalysisTool(tool, panel);
+      scState.tool = key;
+      document.querySelector(`#tools [data-tool=${key}]`).setAttribute("aria-pressed", "true");
+      scSay(`${tool.label} is open.`);
+      return;
+    }
     const [Widget] = await scRequire([tool.module]);
     const container = document.createElement("div");
     panel.append(container);
@@ -1622,6 +1637,90 @@ async function scToggleTool(key) {
   } catch (e) {
     scSay(`${tool.label} could not be opened: ${e.message}`, true);
   }
+}
+
+/**
+ * One of the analyses SDK 4.34 has without a widget (ADR-270 §5.18), as a tool: the analysis is added to the view, Start
+ * begins its interactive placement, Done ends it, Clear empties it, and closing the tool takes it out of the scene — the
+ * same life a widget's measurement has. Returns what scToggleTool destroys.
+ */
+async function scAnalysisTool(tool, panel) {
+  const [Analysis, reactiveUtils] = await scRequire([tool.analysis, "esri/core/reactiveUtils"]);
+  const analysis = new Analysis();
+  scState.view.analyses.add(analysis);
+  const analysisView = await scState.view.whenAnalysisView(analysis);
+  let placing = null;
+  const handles = [];
+  const box = document.createElement("div");
+  box.className = "esri-widget sc-analysis";
+  box.innerHTML = `
+    <button type="button" class="tiny" id="toolClose" aria-label="Close ${scEscape(tool.label)}">×</button>
+    <h3>${scEscape(tool.label)}</h3>
+    <p class="hint">${scEscape(tool.says)}</p>
+    <div class="row"><button type="button" class="primary" id="anStart">Start</button>
+      <button type="button" id="anDone" hidden>Done</button>
+      <button type="button" id="anClear">Clear</button></div>
+    <p class="said" id="anSays" role="status" aria-live="polite"></p>
+    <dl id="anResult"></dl>`;
+  panel.append(box);
+  const says = text => { box.querySelector("#anSays").textContent = text; };
+  const stop = () => {
+    if (placing) placing.abort();
+    placing = null;
+    box.querySelector("#anStart").hidden = false;
+    box.querySelector("#anDone").hidden = true;
+  };
+  const count = () => tool.key === "viewshed" ? analysis.viewsheds.length : tool.key === "dimension" ? analysis.dimensions.length : (analysis.geometry ? 1 : 0);
+
+  box.querySelector("#toolClose").addEventListener("click", () => { scToggleTool(tool.key); document.querySelector(`#tools [data-tool=${tool.key}]`)?.focus(); });
+  box.querySelector("#anStart").addEventListener("click", async () => {
+    stop();
+    placing = new AbortController();
+    box.querySelector("#anStart").hidden = true;
+    box.querySelector("#anDone").hidden = false;
+    box.querySelector("#anDone").focus();
+    says(tool.key === "volume" ? "Click the corners of the area; double-click to finish." : "Click in the scene to place it. Done when you have enough.");
+    try {
+      if (tool.key === "viewshed") await analysisView.createViewsheds({ signal: placing.signal });
+      else if (tool.key === "dimension") await analysisView.createLengthDimensions({ signal: placing.signal });
+      else await analysisView.place({ signal: placing.signal });
+    } catch (e) {
+      if (e && e.name !== "AbortError") says(`It could not be placed: ${e.message}`);
+    }
+    stop();
+    if (!box.querySelector("#anSays").textContent.startsWith("It could not")) says(`${count()} placed.`);
+  });
+  box.querySelector("#anDone").addEventListener("click", () => { stop(); box.querySelector("#anStart").focus(); });
+  box.querySelector("#anClear").addEventListener("click", () => {
+    stop();
+    if (tool.key === "viewshed") analysis.viewsheds.removeAll();
+    else if (tool.key === "dimension") analysis.dimensions.removeAll();
+    else analysis.geometry = null;
+    box.querySelector("#anResult").innerHTML = "";
+    says("Cleared.");
+  });
+
+  // A volume's result, in the units the SDK chose for the scene.
+  if (tool.key === "volume") {
+    const show = v => v ? `${Math.round(v.value).toLocaleString()} ${v.unit.replace(/^cubic-/, "cubic ").replace(/-/g, " ")}` : "—";
+    handles.push(reactiveUtils.watch(() => analysisView.result, result => {
+      box.querySelector("#anResult").innerHTML = result ? `
+        <dt>Cut</dt><dd>${scEscape(show(result.cutVolume))}</dd>
+        <dt>Fill</dt><dd>${scEscape(show(result.fillVolume))}</dd>
+        <dt>Net</dt><dd>${scEscape(show(result.netVolume))}</dd>` : "";
+    }));
+    handles.push(reactiveUtils.watch(() => analysisView.error, error => { if (error) says(`Not measured: ${error.message}`); }));
+  }
+
+  return {
+    analysis, analysisView,
+    destroy() {
+      stop();
+      handles.forEach(h => h.remove());
+      scState.view.analyses.remove(analysis);
+      box.remove();
+    },
+  };
 }
 
 // Escape closes the open tool and gives focus back to its button, as webmap.js closes its side tool (design review).

@@ -66,7 +66,7 @@ Optional: `Graticula__Port` (8443), `Graticula__Listen` (0.0.0.0),
 
 **`Graticula__MapSdkUrl`** deserves its own line, because it is the one optional setting that
 changes this server's **security policy**. It is where the console fetches the ArcGIS Maps SDK
-from, defaulting to `https://js.arcgis.com/4.29/`, and its origin is written into the console's
+from, defaulting to `https://js.arcgis.com/4.34/` (4.29 until 2026-11-07, ADR-273), and its origin is written into the console's
 `Content-Security-Policy` — so pointing it at your own copy is one change rather than two, and
 an air-gapped deployment ([Q-15](open-questions.md)) can serve the library from inside the
 network. It must be an absolute `http`/`https` URL **ending in a slash**; the server refuses to
