@@ -110,33 +110,32 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b28bb33e</code> · 2026-11-06 14:38</p>
+<p class="stamp">Şu commit’ten üretildi: <code>90d7c2f4</code> · 2026-11-06 15:49</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">277</div><div class="kpi-l">ADR</div><div class="kpi-n">93 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">666/714</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">36 canlı · 12 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">669/714</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">33 canlı · 12 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık borç</div><div class="kpi-n">330 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6095</div><div class="kpi-l">test</div><div class="kpi-n">673 kaynak dosya, 297,822 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6105</div><div class="kpi-l">test</div><div class="kpi-n">674 kaynak dosya, 298,245 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">41 madde</span></div><p><b>36 ADR conditions</b> outstanding across 26 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">38 madde</span></div><p><b>33 ADR conditions</b> outstanding across 26 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-269 · Scenes: web scenes are saved, scen</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-276 · Editing in the scene: the first st</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-276 · Editing in the scene: the first st</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -156,6 +155,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-270 · Scenes to ArcGIS Enterprise&#x27;s leve</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-271 · The portal&#x27;s search answers `bbox`</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-275 · A scene may be embedded by the sit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
@@ -448,8 +448,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">273</td><td>The Maps SDK the console loads is 4.34</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">274</td><td>A scene layer package above the document limit is a file in the server directories</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">275</td><td>A scene may be embedded by the sites the operator lists</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
-<tr><td class="id">276</td><td>Editing in the scene: the first step</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
-<tr><td class="id">277</td><td>A scene layer&#x27;s cache is rebuilt on a schedule, and in part</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">LOW</td><td class="num">1/4</td></tr>
+<tr><td class="id">276</td><td>Editing in the scene: the first step</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
+<tr><td class="id">277</td><td>A scene layer&#x27;s cache is rebuilt on a schedule, and in part</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">LOW</td><td class="num">3/4</td></tr>
 <tr><td class="id">278</td><td>A 3D Tiles archive is served from its zip and drawn in a scene</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">279</td><td>The scene viewer takes Scene Viewer&#x27;s and Studio&#x27;s map&#x27;s shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/1</td></tr>
 </tbody></table></div></section>
@@ -584,17 +584,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1771</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.8%"></div></div><div class="bar-n">971</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.5%"></div></div><div class="bar-n">966</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.7%"></div></div><div class="bar-n">579</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.3%"></div></div><div class="bar-n">483</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1775</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.9%"></div></div><div class="bar-n">975</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">966</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.6%"></div></div><div class="bar-n">579</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.3%"></div></div><div class="bar-n">485</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.7%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.4%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.0%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">106</div></div>
-<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.0%"></div></div><div class="bar-n">70</div></div>
+<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">55</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.4%"></div></div><div class="bar-n">43</div></div>
@@ -646,6 +646,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>90d7c2f4</code><time>2026-11-06</time><span>Values and classes chosen, navigation settings, favourites and groups in Add, a web app from a scene (ADR-270 §5.15, §5.21-5.23)</span></li>
 <li><code>b28bb33e</code><time>2026-11-06</time><span>A slide&#x27;s slice and pop-up are tested: captured, left, and put back on the same feature (ADR-270 §5.19)</span></li>
 <li><code>60750b0c</code><time>2026-11-06</time><span>The site-sweep test counts every sweep&#x27;s lock from SiteSingletons.Names</span></li>
 <li><code>8b2de809</code><time>2026-11-06</time><span>The scene viewer passes its third look; a local scene in a layer&#x27;s own projected system; large packages across a site</span></li>
@@ -659,7 +660,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>89a22831</code><time>2026-11-06</time><span>A scene may be embedded by the sites the operator lists (ADR-275)</span></li>
 <li><code>03f00cbd</code><time>2026-11-06</time><span>Where the document limit is described, the scene package exception is named (ADR-274)</span></li>
 <li><code>507d59b0</code><time>2026-11-06</time><span>A scene layer package above the document limit is a file in the server directories (ADR-274, D-386 closed)</span></li>
-<li><code>c3dbae8f</code><time>2026-11-06</time><span>A slide keeps its slice, legend and pop-up, and is played as a caption, a cover or the scene alone (ADR-270 §5.19)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -70,7 +70,7 @@ the tileset's east-north-up transform, so nothing of anyone else's is in it.
 ## 6. Consequences
 
 - **State.** None new. It is a document, and a file when it is large.
-- The portal's `bbox` search finds an archive whose root is bounded by a region (§9 condition 4).
+- The portal's `bbox` search finds an archive by its root's region, box or sphere (§9 condition 4).
 
 ## 7. Assumptions this decision rests on
 
@@ -95,3 +95,9 @@ ADR-269, ADR-272 §5.5, ADR-273, ADR-274.
 4. **An archive's extent** from its root bounding volume, for the portal's `bbox` search. *(Discharged 2026-11-07 for a
    root `region`: `TilesetExtentAsync`, and `TilesArchiveTests` finds the archive by a box around it and not by one far
    away. A root bounded by a box or a sphere still has no extent, since placing it needs the root's transform.)*
+   *(Discharged in full 2026-11-07: a box or a sphere has its eight corners placed by the root's transform, read in
+   earth-centred coordinates as WGS 84 longitude and latitude; a volume whose corners are not near the earth's surface
+   has no place and no extent, and corners across the antimeridian take the whole width.
+   `ATilesetsExtentIsReadFromItsRootTests`: an east-north-up box at 29°E 41°N, a sphere in earth-centred metres at New
+   York, a box with no place, and a region. The extent is the corners' and so a little larger than the volume, which
+   for a search box is the right side to err on.)*

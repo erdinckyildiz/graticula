@@ -76,19 +76,94 @@ internal static class SceneServerEndpoints
 
         try
         {
-            JsonNode? tileset = JsonNode.Parse(Plain(name, await package.ReadAsync(name, cancellation).ConfigureAwait(false)));
-            if (tileset?["root"]?["boundingVolume"]?["region"] is not JsonArray region || region.Count < 4)
-            {
-                return [];
-            }
-
-            double[] r = [.. region.Take(4).Select(v => v is JsonValue value && value.TryGetValue(out double d) ? d * 180 / Math.PI : double.NaN)];
-            return r.All(double.IsFinite) && r[0] <= r[2] && r[1] <= r[3] ? [[r[0], r[1]], [r[2], r[3]]] : [];
+            return TilesetExtentOf(JsonNode.Parse(Plain(name, await package.ReadAsync(name, cancellation).ConfigureAwait(false))));
         }
         catch (JsonException)
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// A tileset's extent in degrees from its root's bounding volume: a <c>region</c> as it is, and since ADR-278
+    /// condition 4's second half a <c>box</c> or <c>sphere</c>, whose eight corners are placed by the root's transform in
+    /// earth-centred coordinates and read as longitude and latitude. A volume whose corners are not near the earth's
+    /// surface is a tileset with no place on it, and has no extent.
+    /// </summary>
+    internal static double[][] TilesetExtentOf(JsonNode? tileset)
+    {
+        JsonNode? root = tileset?["root"];
+        JsonNode? volume = root?["boundingVolume"];
+        static double[]? Numbers(JsonNode? node, int count) =>
+            node is JsonArray array && array.Count >= count
+            && array.Take(count).Select(v => v is JsonValue value && value.TryGetValue(out double d) ? d : double.NaN).ToArray() is { } n
+            && n.All(double.IsFinite) ? n : null;
+
+        if (Numbers(volume?["region"], 4) is { } region)
+        {
+            double[] r = [.. region.Select(v => v * 180 / Math.PI)];
+            return r[0] <= r[2] && r[1] <= r[3] ? [[r[0], r[1]], [r[2], r[3]]] : [];
+        }
+
+        double[] centre, u, v, w;
+        if (Numbers(volume?["box"], 12) is { } box)
+        {
+            (centre, u, v, w) = (box[0..3], box[3..6], box[6..9], box[9..12]);
+        }
+        else if (Numbers(volume?["sphere"], 4) is { } sphere)
+        {
+            (centre, u, v, w) = (sphere[0..3], [sphere[3], 0, 0], [0, sphere[3], 0], [0, 0, sphere[3]]);
+        }
+        else
+        {
+            return [];
+        }
+
+        // Column-major, as 3D Tiles writes a transform; none is the identity.
+        double[] m = Numbers(root?["transform"], 16) ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+        double west = double.MaxValue, south = double.MaxValue, east = double.MinValue, north = double.MinValue;
+        foreach (int su in new[] { -1, 1 })
+        {
+            foreach (int sv in new[] { -1, 1 })
+            {
+                foreach (int sw in new[] { -1, 1 })
+                {
+                    double x = centre[0] + (su * u[0]) + (sv * v[0]) + (sw * w[0]);
+                    double y = centre[1] + (su * u[1]) + (sv * v[1]) + (sw * w[1]);
+                    double z = centre[2] + (su * u[2]) + (sv * v[2]) + (sw * w[2]);
+                    double ex = (m[0] * x) + (m[4] * y) + (m[8] * z) + m[12];
+                    double ey = (m[1] * x) + (m[5] * y) + (m[9] * z) + m[13];
+                    double ez = (m[2] * x) + (m[6] * y) + (m[10] * z) + m[14];
+                    double far = Math.Sqrt((ex * ex) + (ey * ey) + (ez * ez));
+                    if (far < 6_000_000 || far > 7_000_000)
+                    {
+                        return [];
+                    }
+
+                    (double lon, double lat) = Geodetic(ex, ey, ez);
+                    (west, east, south, north) = (Math.Min(west, lon), Math.Max(east, lon), Math.Min(south, lat), Math.Max(north, lat));
+                }
+            }
+        }
+
+        // Corners on both sides of the antimeridian: the whole width, rather than an extent the wrong way round the earth.
+        return east - west > 180 ? [[-180, south], [180, north]] : [[west, south], [east, north]];
+    }
+
+    /// <summary>WGS 84 longitude and latitude, in degrees, of an earth-centred point (Bowring's method, two steps).</summary>
+    private static (double Lon, double Lat) Geodetic(double x, double y, double z)
+    {
+        const double a = 6378137.0, f = 1 / 298.257223563;
+        const double b = a * (1 - f), e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+        double p = Math.Sqrt((x * x) + (y * y));
+        double lat = Math.Atan2(z, p * (1 - e2));
+        for (int i = 0; i < 2; i++)
+        {
+            double theta = Math.Atan2(z * a, p * b);
+            lat = Math.Atan2(z + (ep2 * b * Math.Pow(Math.Sin(theta), 3)), p - (e2 * a * Math.Pow(Math.Cos(theta), 3)));
+        }
+
+        return (Math.Atan2(y, x) * 180 / Math.PI, lat * 180 / Math.PI);
     }
 
     /// <summary>The address a 3D Tiles archive's tileset answers at, on this request's host (ADR-278).</summary>
