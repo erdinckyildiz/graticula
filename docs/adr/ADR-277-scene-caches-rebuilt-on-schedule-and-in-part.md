@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | `REQUIRES PROTOTYPE` |
+| **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `LOW` |
-| **Decided** | 2026-11-07. **That both are built is the owner's decision** ([ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.7: *"Kısmi güncelleme de"*, partial updates as well). The design below is this ADR's, and none of it is built yet. |
+| **Decided** | 2026-11-07. **That both are built is the owner's decision** ([ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.7: *"Kısmi güncelleme de"*, partial updates as well). The design below is this ADR's. **Scheduled rebuilds were built 2026-11-07** (§4); partial updates are not yet. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -55,7 +55,20 @@ ArcGIS Enterprise also rebuilds on a schedule, and updates only what changed (*p
 
 ## 4. Evidence
 
-None yet. This ADR records a design and the owner's decision, not a result.
+`SceneLayerSourceTests.A_scene_layer_is_rebuilt_on_its_own_after_its_layer_changes` (console, on the fixture with
+`Graticula:SceneRebuildSeconds=5`, 2026-11-07):
+
+- a point scene layer is made from the editable layer;
+- its owner turns *Rebuild on its own when the layer changes* on in Studio;
+- one point is added through `applyEdits`;
+- within the minute the sweep made it again, and its record says so;
+- Studio's page says when.
+
+The sweep:
+
+- is `SceneRebuilds`, a site singleton (`scene-rebuilds`) that runs every five minutes, in every tenant;
+- uses the request path's own maker, `MakeSceneFromAsync`, now free of the request (condition 1);
+- reads a layer on the owner's behalf only when it is theirs or shared with everyone, and says so otherwise.
 
 ## 5. Decision
 
@@ -80,9 +93,10 @@ ADR-012 (site sweeps), ADR-270 §5.4, ADR-272 §5.7, D-386 (coarse levels).
 
 ## 9. Conditions
 
-1. **The build is a service that takes a principal**, and the request path uses it unchanged. *(Open.)*
+1. **The build is a service that takes a principal**, and the request path uses it unchanged. *(Discharged 2026-11-07: `MakeSceneFromAsync` takes the service already found and allowed; the request path finds and allows it as before, and the sweep allows only the owner's own or a public layer, §4.)*
 2. **The sweep**: a scene layer whose owner asked is rebuilt after its layer changes, and once only on a site of two
-   nodes. *(Open.)*
+   nodes. *(Partly discharged 2026-11-07: the rebuild is measured, §4; once-per-site rests on the same singleton lease
+   every other sweep uses, and is not separately measured on two nodes.)*
 3. **Hosted layers record which rows changed since a time.** *(Open.)*
 4. **A partial update**: one building edited, one leaf and its parents rewritten, and the package read the same as a
    full rebuild. *(Open.)*

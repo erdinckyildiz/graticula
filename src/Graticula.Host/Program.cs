@@ -927,6 +927,9 @@ public static class Program
         // ADR-207: attachments a registered layer keeps in the datastore, for features another tool deleted.
         builder.Services.AddHostedService<AttachmentSweep>();
 
+        // ADR-277: scene layers made again when the layer they were made from changed, where their owner asked.
+        builder.Services.AddHostedService<SceneRebuilds>();
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 

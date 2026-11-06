@@ -40,8 +40,11 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
     /// <summary>The sweeps that run once per site, by the name each is locked under.</summary>
     public static readonly IReadOnlyList<string> Names =
     [
-        Backup, LogRetention, HistoryRetention, AttachmentSweep, RecycleBinExpiry, CoveragePyramids,
+        Backup, LogRetention, HistoryRetention, AttachmentSweep, RecycleBinExpiry, CoveragePyramids, SceneRebuilds,
     ];
+
+    /// <summary>Scene layers made again when their layer changed (ADR-277).</summary>
+    public const string SceneRebuilds = "scene-rebuilds";
 
     /// <summary>The scheduled backup (ADR-193): one per site per day, not one per node.</summary>
     public const string Backup = "backup-schedule";

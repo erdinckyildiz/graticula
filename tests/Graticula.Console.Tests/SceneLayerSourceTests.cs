@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -143,6 +144,90 @@ public sealed class SceneLayerSourceTests : ConsoleTest
         }
         finally
         {
+            await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+        }
+    }
+
+    /// <summary>
+    /// ADR-277: a scene layer whose owner asked is made again on its own after its layer changes — Enterprise's scheduled
+    /// rebuild — and Studio's page says when it was and with how many features.
+    /// </summary>
+    [Fact]
+    public async Task A_scene_layer_is_rebuilt_on_its_own_after_its_layer_changes()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string editable = (Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE") ?? "hosted/ci_editable").Trim('/');
+        string folder = editable.Contains('/') ? editable[..editable.IndexOf('/')] : string.Empty;
+        string name = editable[(editable.IndexOf('/') + 1)..];
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/scenes",
+            JsonSerializer.Serialize(new { service = name, folder, layer = 0, title = "zz console scene auto rebuild" }));
+        Assert.True(status == 201, $"Making the point scene layer answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+        long added = 0;
+
+        try
+        {
+            await OpenAsync($"/studio/#/item/{id}", token, cookie);
+            await WaitForAsync("!!document.getElementById('docSceneAuto')", "The scene layer's page offered no automatic rebuild.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/source'], true)");
+            await ClickAsync("#docSceneAuto");
+            await WaitForAsync("/rebuilt on its own when the layer changes/.test(document.getElementById('docSays').textContent)",
+                "Turning the automatic rebuild on was not said.");
+
+            (status, string source) = await AdminAsync(HttpMethod.Get, $"/content/scenes/{id}/source");
+            Assert.Equal(200, status);
+            Assert.True(JsonDocument.Parse(source).RootElement.GetProperty("autoRebuild").GetBoolean());
+
+            // The layer changes: one point more.
+            using (HttpRequestMessage edit = new(HttpMethod.Post, new Uri($"{Root}/rest/services/{editable}/FeatureServer/0/applyEdits"))
+            {
+                Content = new FormUrlEncodedContent(new System.Collections.Generic.Dictionary<string, string>
+                {
+                    ["adds"] = "[{\"geometry\":{\"x\":29.01,\"y\":41.01,\"spatialReference\":{\"wkid\":4326}},\"attributes\":{\"label\":\"zz auto rebuild\"}}]",
+                    ["f"] = "json",
+                }),
+            })
+            {
+                edit.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage edited = await Http.SendAsync(edit);
+                JsonElement result = JsonDocument.Parse(await edited.Content.ReadAsStringAsync()).RootElement.GetProperty("addResults")[0];
+                Assert.True(result.GetProperty("success").GetBoolean(), result.GetRawText());
+                added = result.GetProperty("objectId").GetInt64();
+            }
+
+            // The sweep looks every few seconds on a test server (Graticula:SceneRebuildSeconds); allow it a minute.
+            JsonElement automatic = default;
+            for (int waited = 0; waited < 60; waited++)
+            {
+                (_, source) = await AdminAsync(HttpMethod.Get, $"/content/scenes/{id}/source");
+                if (JsonDocument.Parse(source).RootElement.TryGetProperty("lastAutomatic", out automatic) && automatic.ValueKind == JsonValueKind.Object)
+                {
+                    break;
+                }
+
+                await Task.Delay(1000);
+            }
+
+            Assert.True(automatic.ValueKind == JsonValueKind.Object, "The scene layer was not rebuilt on its own within a minute of its layer changing.");
+            Assert.True(automatic.GetProperty("made").GetBoolean(), automatic.GetRawText());
+
+            await OpenAsync($"/studio/#/item/{id}", token, cookie);
+            await WaitForAsync("/Last rebuilt on its own/.test(document.getElementById('docSceneAutomatic')?.textContent || '')",
+                "Studio's page did not say the scene layer was rebuilt on its own.");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (added > 0)
+            {
+                using HttpRequestMessage undo = new(HttpMethod.Post, new Uri($"{Root}/rest/services/{editable}/FeatureServer/0/applyEdits"))
+                {
+                    Content = new FormUrlEncodedContent(new System.Collections.Generic.Dictionary<string, string> { ["deletes"] = added.ToString(System.Globalization.CultureInfo.InvariantCulture), ["f"] = "json" }),
+                };
+                undo.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage _ = await Http.SendAsync(undo);
+            }
+
             await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
         }
     }

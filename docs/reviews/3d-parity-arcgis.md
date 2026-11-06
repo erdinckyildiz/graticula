@@ -78,7 +78,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Publish from a hosted feature layer, associating the two [6][7] | 3D object and point scene layers, related as `Service2Service` (ADR-270 §5.4); the SDK finds the feature layer | Built |
 | Rebuild cache: full [6] | *Rebuild* in Studio and `POST /content/scenes/{id}/rebuild` | Built |
 | Rebuild cache: selected layers, partial update of what changed [6] | designed (ADR-277): nodes of changed features rewritten, once hosted layers record which rows changed | Owed — ADR-277 |
-| Scheduled rebuilds, job status [6] | designed (ADR-277): a site sweep rebuilds as the owner when the layer changed; Studio already says when a cache is behind | Owed — ADR-277 |
+| Scheduled rebuilds, job status [6] | *Rebuild on its own when the layer changes*: a site sweep every five minutes, its last outcome on the item and in Studio (ADR-277) | Built |
 | Replace a layer's package [6] | a document's *Replace file* | Built |
 | Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers (ADR-276) | Partly built — no mesh (3D object) editing yet, ADR-276 condition 1 |
 | Create an empty 3D object layer to edit [7] | — | Owed — ADR-276 condition 2 |

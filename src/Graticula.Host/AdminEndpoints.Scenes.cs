@@ -41,7 +41,7 @@ internal sealed record SceneFromLayerRequest(
 /// </summary>
 internal sealed record SceneSource(
     string Service, string? Folder, int Layer, string? HeightField, string? BaseField, string? Title, string? Colour,
-    double? HeightScale, bool? OnTheGround, Guid ServiceId, DateTimeOffset Built)
+    double? HeightScale, bool? OnTheGround, Guid ServiceId, DateTimeOffset Built, bool? AutoRebuild = null)
 {
     /// <summary>The item resource it is kept as: private, so only the scene layer's owner and administrators read it.</summary>
     internal const string Path = "graticula/scene-source.json";
@@ -73,6 +73,8 @@ internal static partial class AdminEndpoints
         // *Rebuild cache* — and says where it came from.
         app.MapPost("/content/scenes/{id}/rebuild", RebuildSceneAsync);
         app.MapGet("/content/scenes/{id}/source", SceneSourceAsync);
+        // ADR-277: whether the scene layer is made again on its own when its layer changes.
+        app.MapPut("/content/scenes/{id}/source", SetSceneSourceAsync);
     }
 
     /// <summary>
@@ -110,7 +112,7 @@ internal static partial class AdminEndpoints
     private static async Task<(SceneMade? Made, IResult? Refused)> MakeSceneAsync(
         HttpContext context, SceneFromLayerRequest request, CatalogFallback catalog, ServiceContexts contexts, CancellationToken cancellation)
     {
-        if (string.IsNullOrWhiteSpace(request.Service) || request.Layer is not { } index)
+        if (string.IsNullOrWhiteSpace(request.Service) || request.Layer is null)
         {
             return (null, Refuse(400, "Name the layer: its service, its folder if it has one, and its layer index."));
         }
@@ -120,6 +122,31 @@ internal static partial class AdminEndpoints
         {
             return (null, Results.Empty);
         }
+
+        (SceneMade? made, int status, string? why) = await MakeSceneFromAsync(request, service, contexts, cancellation).ConfigureAwait(false);
+        return made is null ? (null, Refuse(status, why!)) : (made, null);
+    }
+
+    /// <summary>
+    /// The package a request makes from a service already found and allowed — the request path's and the rebuild sweep's
+    /// one maker (ADR-277), so a scene layer rebuilt on its own is made exactly as one rebuilt by hand. A refusal is its
+    /// status and its sentence.
+    /// </summary>
+    internal static async Task<(SceneMade? Made, int Status, string? Why)> MakeSceneFromAsync(
+        SceneFromLayerRequest request, PublishedService service, ServiceContexts contexts, CancellationToken cancellation)
+    {
+        (SceneMade? made, IResult? refused) = await MakeSceneCoreAsync(request, service, contexts, cancellation).ConfigureAwait(false);
+        return made is not null ? (made, 200, null)
+            : refused is IStatusCodeHttpResult { StatusCode: { } code } and IValueHttpResult { Value: { } value }
+                ? (null, code, JsonSerializer.Serialize(value) is var text && JsonDocument.Parse(text).RootElement.TryGetProperty("error", out JsonElement e)
+                    && e.TryGetProperty("message", out JsonElement m) ? m.GetString() : text)
+                : (null, 500, "The scene layer could not be made.");
+    }
+
+    private static async Task<(SceneMade? Made, IResult? Refused)> MakeSceneCoreAsync(
+        SceneFromLayerRequest request, PublishedService service, ServiceContexts contexts, CancellationToken cancellation)
+    {
+        int index = request.Layer!.Value;
 
         if (service.LayerOrTable(index) is not { } layer)
         {
@@ -370,16 +397,24 @@ internal static partial class AdminEndpoints
     /// feature service as ArcGIS's <c>Service2Service</c>, so a client that asks for the scene layer's associated
     /// feature layer finds it, and so it can be made again.
     /// </summary>
-    private static async Task RememberSourceAsync(
-        HttpContext context, string documentId, SceneFromLayerRequest request, SceneMade made, CancellationToken cancellation)
+    private static Task RememberSourceAsync(
+        HttpContext context, string documentId, SceneFromLayerRequest request, SceneMade made, CancellationToken cancellation,
+        bool? autoRebuild = null) =>
+        RememberSourceAsync(context.RequestServices, documentId, request, made, autoRebuild, cancellation);
+
+    /// <summary>The same, for a caller with no request — the rebuild sweep (ADR-277).</summary>
+    internal static async Task RememberSourceAsync(
+        IServiceProvider services, string documentId, SceneFromLayerRequest request, SceneMade made, bool? autoRebuild,
+        CancellationToken cancellation)
     {
         Guid item = Guid.Parse(documentId);
         SceneSource source = new(
             made.Service.Name, string.IsNullOrEmpty(made.Service.Folder) ? null : made.Service.Folder, made.Index, request.HeightField,
-            request.BaseField, request.Title, request.Colour, request.HeightScale, request.OnTheGround, made.Service.Id, DateTimeOffset.UtcNow);
+            request.BaseField, request.Title, request.Colour, request.HeightScale, request.OnTheGround, made.Service.Id, DateTimeOffset.UtcNow,
+            autoRebuild);
 
         // The store adds only where nothing is, or replaces only where something is: a first build adds, a rebuild replaces.
-        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        IItemResourceStore resources = services.GetRequiredService<IItemResourceStore>();
         bool kept = await resources.FindAsync(item, SceneSource.Path, cancellation).ConfigureAwait(false) is not null;
         await resources.WriteAsync(
             item, SceneSource.Path, "application/json", JsonSerializer.SerializeToUtf8Bytes(source, SceneSourceJson), "private",
@@ -388,16 +423,20 @@ internal static partial class AdminEndpoints
         // From the feature layer to the scene layer: the Maps SDK 4.29 asks a scene layer's item for its Service2Service
         // relationships going *reverse* (measured 2026-11-05, the request in the server's log), so the feature layer is
         // the origin.
-        await context.RequestServices.GetRequiredService<IItemAnnotationStore>()
+        await services.GetRequiredService<IItemAnnotationStore>()
             .RelateAsync(made.Service.Id, item, PortalEndpoints.Service2Service, cancellation).ConfigureAwait(false);
     }
 
     private static readonly JsonSerializerOptions SceneSourceJson = new(JsonSerializerDefaults.Web);
 
-    private static async Task<SceneSource?> ReadSourceAsync(HttpContext context, string documentId, CancellationToken cancellation)
+    private static Task<SceneSource?> ReadSourceAsync(HttpContext context, string documentId, CancellationToken cancellation) =>
+        ReadSourceAsync(context.RequestServices, documentId, cancellation);
+
+    /// <summary>A scene layer's source, for a caller with no request (ADR-277).</summary>
+    internal static async Task<SceneSource?> ReadSourceAsync(IServiceProvider services, string documentId, CancellationToken cancellation)
     {
         if (!Guid.TryParse(documentId, out Guid item)
-            || await context.RequestServices.GetRequiredService<IItemResourceStore>()
+            || await services.GetRequiredService<IItemResourceStore>()
                 .FindAsync(item, SceneSource.Path, cancellation).ConfigureAwait(false) is not { } found)
         {
             return null;
@@ -440,7 +479,121 @@ internal static partial class AdminEndpoints
             service = service?.QualifiedName ?? (string.IsNullOrEmpty(source.Folder) ? source.Service : $"{source.Folder}/{source.Service}"),
             layer = source.Layer, exists = service is not null, heightField = source.HeightField, baseField = source.BaseField,
             heightScale = source.HeightScale, onTheGround = source.OnTheGround, built = source.Built.ToUnixTimeMilliseconds(),
+            autoRebuild = source.AutoRebuild == true,
+            lastAutomatic = await ReadAutomaticAsync(context.RequestServices, id, cancellation).ConfigureAwait(false),
         });
+    }
+
+    /// <summary>What the last rebuild the sweep made said (ADR-277): when, whether it was made, and why not.</summary>
+    internal sealed record SceneAutomatic(DateTimeOffset At, bool Made, string? Why, int? Features);
+
+    /// <summary>The item resource the sweep's outcome is kept as, beside the source.</summary>
+    internal const string AutomaticPath = "graticula/scene-rebuild.json";
+
+    internal static async Task<object?> ReadAutomaticAsync(IServiceProvider services, string documentId, CancellationToken cancellation)
+    {
+        if (!Guid.TryParse(documentId, out Guid item)
+            || await services.GetRequiredService<IItemResourceStore>().FindAsync(item, AutomaticPath, cancellation).ConfigureAwait(false) is not { } found)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<SceneAutomatic>(found.Content, SceneSourceJson) is { } said
+                ? new { at = said.At.ToUnixTimeMilliseconds(), made = said.Made, why = said.Why, features = said.Features }
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    internal static async Task WriteAutomaticAsync(IServiceProvider services, string documentId, SceneAutomatic said, CancellationToken cancellation)
+    {
+        Guid item = Guid.Parse(documentId);
+        IItemResourceStore resources = services.GetRequiredService<IItemResourceStore>();
+        bool kept = await resources.FindAsync(item, AutomaticPath, cancellation).ConfigureAwait(false) is not null;
+        await resources.WriteAsync(item, AutomaticPath, "application/json", JsonSerializer.SerializeToUtf8Bytes(said, SceneSourceJson), "private",
+            replace: kept, limit: long.MaxValue, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Turns the scene layer's automatic rebuild on or off — <c>{ "autoRebuild": true }</c>; its owner's and an
+    /// administrator's, as <i>Rebuild</i> is (ADR-277).
+    /// </summary>
+    private static async Task<IResult> SetSceneSourceAsync(
+        HttpContext context, string id, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        if (await ManagedDocumentAsync(context, current, id, "change the rebuilding of", documents, audit, cancellation).ConfigureAwait(false)
+            is not { } document)
+        {
+            return Results.Empty;
+        }
+
+        if (await ReadSourceAsync(context, id, cancellation).ConfigureAwait(false) is not { } source)
+        {
+            return Refuse(404, $"'{document.Title}' was not made by this server from a layer, so it has nothing to be made again from.");
+        }
+
+        bool on;
+        try
+        {
+            using JsonDocument asked = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: cancellation).ConfigureAwait(false);
+            if (!asked.RootElement.TryGetProperty("autoRebuild", out JsonElement flag) || flag.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return Refuse(400, "Send { \"autoRebuild\": true } or false.");
+            }
+
+            on = flag.GetBoolean();
+        }
+        catch (JsonException)
+        {
+            return Refuse(400, "Send { \"autoRebuild\": true } or false.");
+        }
+
+        Guid item = Guid.Parse(id);
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        await resources.WriteAsync(item, SceneSource.Path, "application/json",
+            JsonSerializer.SerializeToUtf8Bytes(source with { AutoRebuild = on }, SceneSourceJson), "private",
+            replace: true, limit: long.MaxValue, cancellation).ConfigureAwait(false);
+
+        await AuditAsync(context, audit, "document.update", id, Detail(new { autoRebuild = on }), succeeded: true, cancellation).ConfigureAwait(false);
+        return Results.Json(new { autoRebuild = on });
+    }
+
+    /// <summary>
+    /// Makes a scene layer again from its source, in place, with no request — the rebuild sweep's (ADR-277). The same
+    /// maker and the same replacement as <i>Rebuild</i>; answers what it did, for the item's record.
+    /// </summary>
+    internal static async Task<SceneAutomatic> RebuildFromSourceAsync(
+        IServiceProvider services, Document document, SceneSource source, PublishedService service, CancellationToken cancellation)
+    {
+        SceneFromLayerRequest request = source.Request(document.Title);
+        (SceneMade? made, _, string? why) = await MakeSceneFromAsync(
+            request, service, services.GetRequiredService<ServiceContexts>(), cancellation).ConfigureAwait(false);
+        if (made is null)
+        {
+            return new SceneAutomatic(DateTimeOffset.UtcNow, false, why, null);
+        }
+
+        long limit = services.GetRequiredService<HostSettings>().DocumentMaximumBytes;
+        if (made.Package.Length > limit)
+        {
+            return new SceneAutomatic(DateTimeOffset.UtcNow, false,
+                $"The scene layer came to {made.Package.Length / (1 << 20)} MB, more than the {limit / (1 << 20)} MB a package may be here.", null);
+        }
+
+        IDocumentStore documents = services.GetRequiredService<IDocumentStore>();
+        if (!await documents.ReplaceAsync(document.Id, document.FileName, document.Kind, made.Package, cancellation).ConfigureAwait(false))
+        {
+            return new SceneAutomatic(DateTimeOffset.UtcNow, false, "The scene layer no longer exists.", null);
+        }
+
+        await RememberSourceAsync(services, document.Id, request with { Title = source.Title }, made, source.AutoRebuild, cancellation).ConfigureAwait(false);
+        return new SceneAutomatic(DateTimeOffset.UtcNow, true, null, made.Count);
     }
 
     /// <summary>
@@ -483,7 +636,7 @@ internal static partial class AdminEndpoints
             return Refuse(404, NoDocument(id));
         }
 
-        await RememberSourceAsync(context, id, request with { Title = source.Title }, made, cancellation).ConfigureAwait(false);
+        await RememberSourceAsync(context, id, request with { Title = source.Title }, made, cancellation, source.AutoRebuild).ConfigureAwait(false);
 
         await AuditAsync(
             context, audit, "document.replace", id,

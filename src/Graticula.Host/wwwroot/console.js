@@ -35088,12 +35088,27 @@ async function drawDocScene(doc) {
       ${!source.exists ? `<span class="warn-inline">That layer no longer exists, so this scene layer cannot be made again.</span>`
         : behind ? `<span class="warn-inline" id="docSceneBehind">The layer has been edited since, so this scene layer is behind it.</span>` : "It is up to date with the layer."}</p>
     ${source.exists ? `<button type="button" id="docSceneRebuild" class="${behind ? "primary" : ""}">Rebuild</button>
-      <span class="hint">Makes it again from the layer as it is now. Its address, sharing and the scenes that use it stay.</span>` : ""}`;
+      <span class="hint">Makes it again from the layer as it is now. Its address, sharing and the scenes that use it stay.</span>
+      <label class="check"><input type="checkbox" id="docSceneAuto" ${source.autoRebuild ? "checked" : ""}>
+        Rebuild on its own when the layer changes <span class="hint">— within a few minutes of an edit (ADR-277).</span></label>
+      ${source.lastAutomatic ? `<p class="hint" id="docSceneAutomatic">${source.lastAutomatic.made
+        ? `Last rebuilt on its own ${h(day(new Date(source.lastAutomatic.at)))}, ${h(new Date(source.lastAutomatic.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }))}${source.lastAutomatic.features ? `, ${h(source.lastAutomatic.features.toLocaleString())} features` : ""}.`
+        : `<span class="warn-inline">Not rebuilt on its own: ${h(source.lastAutomatic.why || "the server did not say why")}</span>`}</p>` : ""}` : ""}`;
   box.hidden = false;
   // A scene layer made from a layer is made again from it: a file put in by hand would be overwritten by the next
   // Rebuild, so Replace file is not offered beside it — as Enterprise offers Replace layer only without an associated
   // feature layer.
   doc.sceneSource = source;
+  $("docSceneAuto")?.addEventListener("change", async event => {
+    const on = event.target.checked;
+    try {
+      await api(`/content/scenes/${encodeURIComponent(doc.id)}/source`, { method: "PUT", body: JSON.stringify({ autoRebuild: on }), headers: { "Content-Type": "application/json" } });
+      $("docSays").textContent = on ? "It will be rebuilt on its own when the layer changes." : "It will be rebuilt only when you press Rebuild.";
+    } catch (e) {
+      event.target.checked = !on;
+      $("docSays").textContent = `Not changed: ${e.message}`;
+    }
+  });
   const replace = $("docReplace");
   if (replace) replace.hidden = true;
 }

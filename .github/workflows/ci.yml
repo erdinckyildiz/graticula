@@ -649,12 +649,14 @@ jobs:
 
       # ADR-266: the webhook tests post to a listener inside the test on 127.0.0.1, which a webhook refuses unless the
       # deployment allows its own network. On here only so that receiver can be reached; off is the default.
+      # ADR-277: the scene rebuild sweep looks every five seconds here, rather than five minutes, so its test is quick.
       - name: start the server
         run: |
           Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=graticula_ci;Password=ci-serving-role;SearchPath=gisserver' \
           Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
           Graticula__Port=8443 \
           Graticula__WebhooksAllowPrivate=true \
+          Graticula__SceneRebuildSeconds=5 \
           Graticula__Tools__Python="$(command -v python)" \
             nohup env "Logging__LogLevel__Microsoft.AspNetCore.Server.Kestrel=Debug" \
               src/Graticula.Host/bin/Release/net9.0/Graticula.Host \
