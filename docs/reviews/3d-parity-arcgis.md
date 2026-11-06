@@ -33,7 +33,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | Capture, rename, describe, duplicate, recapture, remove, reorder [4] | the same (§5.1, §5.9) | Built |
 | A slide keeps the camera, daylight, basemap, layer visibility, weather [4] | the SDK's `Slide.createFrom` | Built |
-| A slide may capture its legend, a pop-up and a slice [4] | — | Owed |
+| A slide may capture its legend, a pop-up and a slice [4] | the SDK 4.29 `Slide` keeps none of the three (its properties: basemap, description, environment, ground, hidden, id, thumbnail, title, viewpoint, visible layers) | Owner — an SDK upgrade |
 | Presentation styles (caption, cover) and *Present* mode [1][4] | *Play* steps through the slides; no caption or cover styles | Partly built |
 | Show or hide a slide in the presentation [4] | *In presentation*, per slide; Play skips a hidden one and a reader does not see it (§5.10) | Built |
 | `#<n>` opens the scene at a slide [4] | the same (§5.9) | Built |
@@ -51,7 +51,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Line of sight [3] | the same | Built |
 | Viewshed, Dimensions [3] | not in the Maps SDK 4.29 | Owner — an SDK upgrade |
 | Time slider [1] | *Time*, offered with a time-aware layer (§5.9) | Built |
-| Building explorer [1] | offered with a building scene layer (§5.9); the layer drawn from Esri's sample, the explorer itself not yet tested | Partly built |
+| Building explorer [1] | offered with a building scene layer (§5.9); on Esri's sample it opened with its levels, construction phases and disciplines | Built |
 | Location: coordinates, elevation [1] | *Location*, the SDK's coordinate widget (§5.10) | Built |
 | Scene Viewer settings: quality, navigation [1] | *Drawing quality*, the reader's own (§5.10); navigation is the SDK's default | Partly built |
 
@@ -92,7 +92,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | 3D object, 3D point | served from packages, and made from feature layers | Built |
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
 | Mesh (integrated mesh), point cloud | served by the same path rule and drawn — Esri's samples, each cut to its first levels because the whole exceeds the document limit (ADR-270 §4) | Built — whole packages wait on D-386 |
-| Voxel | the path rule only; no sample | Owed |
+| Voxel | the path rule only | Needs a sample — none was found to measure with |
 | 3D tiles, `.3tz`, Gaussian splat | out of v1-scope | Owner |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
 | Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); applied and saved on Esri's sample, each look not yet seen drawn | Partly built |
@@ -104,6 +104,15 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Share with groups, the organisation, everyone | a web scene is an item, shared as any item (ADR-269 §5.1) | Built |
 | Email or social media link | the scene's address | Built |
 | Embed in a website, create a web app from the scene | — | Owner — the console's pages answer `frame-ancestors 'none'`, so a scene cannot be framed by another site; allowing it is a security decision |
+
+## Still to do
+
+Two gaps need no decision and were too large to finish well the same night:
+
+- **Running the server's analysis from the scene** (§D): the analysis Studio's 2D map runs, offered on a scene's
+  feature layers with its results added to the scene.
+- **Only content within the map area** (§E): the portal's search must first answer `bbox`, which needs an extent for
+  every kind of item, documents included.
 
 ## For the owner
 
