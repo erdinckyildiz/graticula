@@ -151,7 +151,8 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
    layer before it is kept so a condition it refuses is said; a slide's **description**, **Duplicate**, and Scene
    Viewer's **`#n` address** of a slide; **Time**, offered while a time-aware layer is in the scene, and **Building
    explorer**, while a building scene layer is.
-10. **Location, Search and drawing quality** — the SDK's coordinate widget; its search widget over the scene's own feature
+10. **A slide may be left out of the presentation** — Scene Viewer's *Hide in presentation*, the SDK's `Slide.hidden`:
+    Play skips it, and a reader does not see it. **Location, Search and drawing quality** — the SDK's coordinate widget; its search widget over the scene's own feature
     layers, with no geocoder (this server has none); and the reader's quality, kept in their browser, not the scene.
     *(INFERRED, as §5.1–5.9: that these are in the sentence. What the comparison left to the owner — an SDK upgrade for
     volume, viewshed and dimensions; 3D tiles; editing in the scene; partial and scheduled rebuilds; where packages above
@@ -188,7 +189,12 @@ viewer authors lives in the web scene item ADR-269 keeps.
 ## 9. Conditions
 
 1. **The scene viewer passes the ux-designer review**, first-run state and phone included — the same condition as
-   ADR-269's fourth, for the screens this ADR adds. *(Open.)*
+   ADR-269's fourth, for the screens this ADR adds. *(Open. 2026-11-05: the first review found a blocker — a look not
+   yet applied was lost when the list redrew — and sixteen more; all but the icon rail were applied. 2026-11-06: a
+   confirming review said **not pass** and found a second blocker the first had not — the tab row, a flex child with
+   `overflow-x`, shrank to nothing whenever the pane was taller than the screen, the first run included — and the phone's
+   open tool list running past the scene; both fixed, with a test that the row stays 30 px tall and a reader test on a
+   fresh page as a real second member. A third look at the fixed screens is owed before this is discharged.)*
 2. **A web scene authored here — a styled layer, a pop-up, slides — opens in Pro as it was authored.** Owed by the owner:
    it needs the desktop.
 3. **The parity with ArcGIS Online and Enterprise is written down**, item by item, with what is built, what is not and

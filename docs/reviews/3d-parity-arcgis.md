@@ -35,7 +35,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | A slide keeps the camera, daylight, basemap, layer visibility, weather [4] | the SDK's `Slide.createFrom` | Built |
 | A slide may capture its legend, a pop-up and a slice [4] | — | Owed |
 | Presentation styles (caption, cover) and *Present* mode [1][4] | *Play* steps through the slides; no caption or cover styles | Partly built |
-| Show or hide a slide in the presentation [4] | — | Owed |
+| Show or hide a slide in the presentation [4] | *In presentation*, per slide; Play skips a hidden one and a reader does not see it (§5.10) | Built |
 | `#<n>` opens the scene at a slide [4] | the same (§5.9) | Built |
 
 ## C. Environment and interactive tools
@@ -66,7 +66,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | ArcGIS | Graticula | State |
 |---|---|---|
 | Browse My content, favourites, groups, organisation, Living Atlas, ArcGIS Online [3] | the portal's search by title and kind, everything shared or only mine (§5.1) | Partly built — no favourites or groups filter; Living Atlas and ArcGIS Online are not this portal's |
-| Only content within the map area [3] | — | Owed |
+| Only content within the map area [3] | — the portal's search refuses `bbox` by name (PortalEndpoints, the 2026-11-02 review's E), so this needs the search first | Owed |
 | A layer from a URL [3] | the same | Built |
 | GeoJSON and CSV files [3] | — | Owed |
 
@@ -103,7 +103,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | Share with groups, the organisation, everyone | a web scene is an item, shared as any item (ADR-269 §5.1) | Built |
 | Email or social media link | the scene's address | Built |
-| Embed in a website, create a web app from the scene | — | Owed |
+| Embed in a website, create a web app from the scene | — | Owner — the console's pages answer `frame-ancestors 'none'`, so a scene cannot be framed by another site; allowing it is a security decision |
 
 ## For the owner
 
@@ -115,7 +115,9 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 3. **Editing in the scene, and empty 3D object layers.** *Recommendation:* not before the 2D editor's own open debts.
 4. **Partial cache updates and scheduled rebuilds.** *Recommendation:* scheduled full rebuilds first; partial updates
    when a layer is large enough that a full one is too slow (ADR-269's revisit trigger).
-5. **Packages above the document limit** (D-386's open half): where large packages live. *Recommendation:* the state
+5. **Embedding a scene in another site.** The console forbids being framed (`frame-ancestors 'none'`). *Recommendation:*
+   an embed address of the viewer alone, framable only by origins the operator lists, as the style origins are listed.
+6. **Packages above the document limit** (D-386's open half): where large packages live. *Recommendation:* the state
    volume, as each node's copy already does, with the store keeping a reference and a hash.
 
 ## Sources

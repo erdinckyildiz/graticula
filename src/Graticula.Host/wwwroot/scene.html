@@ -112,6 +112,9 @@
   #body { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 0; }
   #panel { display: flex; flex-direction: column; min-height: 0; overflow: auto; background: var(--surface);
            border-right: 1px solid var(--rule); padding: 12px 16px 18px; }
+  /* Nothing in the panel shrinks: the panel scrolls instead. The tab row has overflow-x, so its automatic minimum
+     height is 0, and it was squeezed to nothing whenever the pane was taller than the screen (confirming review). */
+  #panel > * { flex-shrink: 0; }
   #panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; }
   #panel h2:first-child { margin-top: 2px; }
   #viewDiv { min-height: 0; min-width: 0; background: var(--paper); }
@@ -130,7 +133,7 @@
   #tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 0; margin: 0 -6px 8px;
           border-bottom: 1px solid var(--rule); }
   #tabs button { flex: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
-                 color: var(--muted); padding: 7px 7px; margin-bottom: -1px; font-size: 13px; }
+                 color: var(--muted); padding: 7px 5px; margin-bottom: -1px; font-size: 13px; }
   #tabs button[aria-selected="true"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
   .tabpanel h2:first-child { margin-top: 2px; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
@@ -163,7 +166,7 @@
                     border-radius: 4px; padding: 6px; margin-bottom: 6px; }
   #slideList img, #slideList .noimg { width: 72px; height: 48px; object-fit: cover; border-radius: 3px; background: var(--surface-3);
                     grid-row: span 2; cursor: pointer; border: 0; padding: 0; }
-  #slideList .row { gap: 3px; }
+  #slideList .row { gap: 3px; grid-column: 1 / -1; }
   #slideList li.current { border-color: var(--accent); }
   #baseList > li > button { width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 6px; }
   #baseList > li > button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
@@ -199,6 +202,8 @@
     #tools #toolsToggle { display: block; }
     #tools:not(.open) [data-tool] { display: none; }
     #tools button { min-height: 40px; }
+    /* The open list scrolls within the scene rather than running past it (confirming review). */
+    #tools.open { max-height: 45vh; overflow-y: auto; overscroll-behavior: contain; }
   }
 </style>
 </head>
@@ -279,7 +284,8 @@
             <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
             <div class="row"><button type="button" id="addUrlButton">Add</button></div>
           </details>
-          <p class="said" id="addSaid" role="status" aria-live="polite"></p>
+          <!-- Not a live region: the header's status says the same, and a screen reader heard it twice (confirming review). -->
+          <p class="said" id="addSaid"></p>
           <ul id="addList" aria-labelledby="addHead"></ul>
           <div class="row"><button type="button" id="addShowAll" hidden></button></div>
         </div>

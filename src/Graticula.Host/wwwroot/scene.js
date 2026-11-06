@@ -259,7 +259,7 @@ function scVisibilityForm(layer) {
     ${scales(layer.maxScale, "Hidden when zoomed in beyond", "maxScale")}
     ${layer.type === "feature" ? `<label class="field" for="flt-${id}">Filter — which features are shown</label>
       <input type="text" id="flt-${id}" data-vis="filter" value="${scEscape(layer.definitionExpression || "")}" placeholder="e.g. floors >= 5" autocomplete="off">
-      <p class="hint">A condition on the layer's fields, as a query's <code>where</code> is written. Empty shows every feature.</p>` : ""}`;
+      <p class="hint">A condition on the layer's fields, as a query's <code>where</code> is written. Press Enter to apply; empty shows every feature.</p>` : ""}`;
 }
 
 sc$("layerList").addEventListener("change", async event => {
@@ -969,12 +969,13 @@ function scSlides() {
 }
 
 function scDrawSlides() {
-  const slides = scSlides().toArray();
   const edit = scCanEdit();
+  // A slide hidden from the presentation is its author's to see, not a reader's (Scene Viewer's Hide in presentation).
+  const slides = scSlides().toArray().filter(slide => edit || !slide.hidden);
   sc$("slideAdd").hidden = !edit;
-  sc$("slidePlay").disabled = slides.length < 2 && !scState.playing;
+  sc$("slidePlay").disabled = slides.filter(s => !s.hidden).length < 2 && !scState.playing;
   sc$("slidePlay").textContent = scState.playing ? "Stop" : "Play";
-  sc$("slidePlay").title = sc$("slidePlay").disabled ? "Capture two slides to play them" : "";
+  sc$("slidePlay").title = sc$("slidePlay").disabled ? "Two slides in the presentation are needed to play it" : "";
   sc$("slideList").innerHTML = slides.length === 0
     ? `<li class="hint" style="border:0;padding:0;display:block">${edit ? "No slides yet. Move the camera where you want it and capture one." : "This scene has no slides."}</li>`
     : slides.map((slide, at) => `
@@ -991,6 +992,7 @@ function scDrawSlides() {
           <button type="button" class="tiny" data-act="down" ${at === slides.length - 1 ? "disabled" : ""} aria-label="Move slide ${at + 1} later">▼</button>
           <button type="button" class="tiny" data-act="update" aria-label="Update slide ${at + 1} to the current view">Update</button>
           <button type="button" class="tiny" data-act="duplicate" aria-label="Duplicate slide ${at + 1}">Duplicate</button>
+          <label class="check" style="margin:0;font-size:12px"><input type="checkbox" data-act="shown" ${slide.hidden ? "" : "checked"}> In presentation</label>
           <button type="button" class="tiny danger" data-act="delete" aria-label="Delete slide ${at + 1}">Delete</button>
         </div>` : ""}
       </li>`).join("");
@@ -1075,10 +1077,19 @@ sc$("slideList").addEventListener("change", event => {
   scMarkDirty();
 });
 
+sc$("slideList").addEventListener("change", event => {
+  if (event.target.dataset.act !== "shown") return;
+  const slide = scSlides().find(s => s.id === event.target.closest("[data-slide]").dataset.slide);
+  if (!slide) return;
+  slide.hidden = !event.target.checked;
+  scMarkDirty();
+  scSay(`${slide.title.text || "The slide"} is ${slide.hidden ? "left out of" : "in"} the presentation.`);
+});
+
 /** Plays the slides in order, one every few seconds, until Stop or the last one. */
 sc$("slidePlay").addEventListener("click", async () => {
   if (scState.playing) { scStopPlaying(); return; }
-  const slides = scSlides().toArray();
+  const slides = scSlides().toArray().filter(slide => !slide.hidden);
   if (slides.length === 0) return;
   const run = scState.playing = { at: 0 };
   scDrawSlides();
@@ -1333,7 +1344,9 @@ async function scStart() {
   if (scState.id) {
     scState.scene = new WebScene({ portalItem: { id: scState.id, portal: { url: SC_PORTAL } } });
   } else {
-    const basemap = self.defaultBasemap ? Basemap.fromJSON(self.defaultBasemap) : null;
+    // The portal's default, or OpenStreetMap when it names none: a new globe without a basemap looked broken (review).
+    const basemap = Basemap.fromJSON(self.defaultBasemap && (self.defaultBasemap.baseMapLayers || []).length ? self.defaultBasemap
+      : { title: "OpenStreetMap", baseMapLayers: [{ id: "OpenStreetMap", layerType: "OpenStreetMap", title: "OpenStreetMap", visibility: true, opacity: 1 }] });
     // ADR-270 §5.7: a local scene is flat, in Web Mercator — the projection of every basemap this server offers, so the
     // ground draws; feature layers are projected to it by the SDK. A global scene is the whole earth, as it was.
     const local = scQuery.get("mode") === "local";
@@ -1365,7 +1378,8 @@ async function scStart() {
   sc$("sceneDetails").hidden = !scCanEdit();
   sc$("addPart").hidden = !scCanEdit();
   sc$("addNotYours").hidden = scCanEdit();
-  sc$("tab-add").hidden = !scState.user;
+  // A reader who cannot change the scene has nothing to add: no Add tab (confirming review).
+  sc$("tab-add").hidden = !scCanEdit();
 
   scState.mode = scState.scene.initialViewProperties.viewingMode === "local" ? "local" : "global";
   const quality = (() => { try { return localStorage.getItem("graticula-scene-quality"); } catch { return null; } })();

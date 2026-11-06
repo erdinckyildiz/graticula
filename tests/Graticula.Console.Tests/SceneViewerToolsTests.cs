@@ -1,4 +1,7 @@
+using System;
 using System.Linq;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -385,6 +388,10 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             Assert.NotEqual(await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(0).id"),
                 await Browser.EvaluateAsync<string>("scState.scene.presentation.slides.getItemAt(1).id"));
 
+            // The copy left out of the presentation: Scene Viewer's Hide in presentation.
+            await Browser.EvaluateAsync<bool>("(() => { const c = document.querySelectorAll('#slideList [data-act=shown]')[1]; c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            Assert.True(await Browser.EvaluateAsync<bool>("scState.scene.presentation.slides.getItemAt(1).hidden"), "The slide was not left out of the presentation.");
+
             id = await SaveAsAsync("zz console scene ranges");
             JsonElement saved = await SavedSceneAsync(id);
             JsonElement buildings = saved.GetProperty("operationalLayers")[0];
@@ -394,6 +401,7 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             Assert.Equal(2, slides.Length);
             Assert.Equal("The district from the south.", slides[0].GetProperty("description").GetProperty("text").GetString());
             Assert.EndsWith("(copy)", slides[1].GetProperty("title").GetProperty("text").GetString());
+            Assert.True(slides[1].TryGetProperty("hidden", out JsonElement hidden) && hidden.GetBoolean(), "The saved slide is not hidden: " + slides[1]);
 
             // Scene Viewer's address of a slide: #2 opens the scene at the second.
             await OpenAsync($"/studio/scene.html?id={id}#2", token, cookie);
@@ -408,6 +416,97 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             {
                 await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
             }
+        }
+    }
+
+    /// <summary>A member with the user role, signed in with the password they chose — as ItemMetadataCommentsScreenTests makes one.</summary>
+    private async Task<string> MemberAsync(string name)
+    {
+        (int made, string answer) = await AdminAsync(HttpMethod.Post, "/admin/members", JsonSerializer.Serialize(new { name, role = "user" }));
+        Assert.True(made == 201, $"Making {name} answered {made}.");
+        string issued = JsonDocument.Parse(answer).RootElement.GetProperty("password").GetString()!;
+
+        async Task<string> LoginAsync(string password)
+        {
+            using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"{Root}/rest/auth/login"));
+            request.Content = new StringContent(JsonSerializer.Serialize(new { name, password }), Encoding.UTF8, "application/json");
+            using HttpResponseMessage response = await Http.SendAsync(request);
+            Assert.True(response.IsSuccessStatusCode, $"Signing in as {name} answered {(int)response.StatusCode}.");
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("token").GetString()!;
+        }
+
+        string first = await LoginAsync(issued);
+        string chosen = "Zz" + Guid.NewGuid().ToString("N")[..20] + "!7";
+        using HttpRequestMessage change = new(HttpMethod.Post, new Uri($"{Root}/rest/auth/password"));
+        change.Headers.Authorization = new AuthenticationHeaderValue("Bearer", first);
+        change.Content = new StringContent(JsonSerializer.Serialize(new { currentPassword = issued, newPassword = chosen }), Encoding.UTF8, "application/json");
+        using HttpResponseMessage changed = await Http.SendAsync(change);
+        Assert.True(changed.IsSuccessStatusCode, $"Replacing {name}'s issued password answered {(int)changed.StatusCode}.");
+        return await LoginAsync(chosen);
+    }
+
+    /// <summary>
+    /// ADR-269 condition 4, ADR-270 condition 1: a member who is not the scene's owner, on a fresh page, sees what the scene
+    /// is and is offered nothing that changes it — no Save, no title, no Add tab, sentences for the basemap and ground — and
+    /// the tab row stays visible however long the pane is (the confirming review's blocker).
+    /// </summary>
+    [Fact]
+    public async Task A_reader_who_is_not_the_owner_is_offered_nothing_that_changes_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+        string member = "zz_scene_reader_" + Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            // The first run lands on Add, the longest pane: the tab row is still there to leave it by.
+            Assert.True(await Browser.EvaluateAsync<double>("document.getElementById('tabs').getBoundingClientRect().height") >= 30,
+                "The tab row collapsed on the first run.");
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            await ClickAsync("#tab-layers");
+            await ClickAsync("#layerList [data-act=settings]");
+            await WaitForAsync("!!document.querySelector('[data-detail] [data-style=shape]')", "The settings did not open.");
+            Assert.True(await Browser.EvaluateAsync<double>("document.getElementById('tabs').getBoundingClientRect().height") >= 30,
+                "The tab row collapsed with a layer's settings open.");
+            await ClickAsync("#tab-slides");
+            await ClickAsync("#slideAdd");
+            await WaitForAsync("scState.scene.presentation.slides.length === 1", "Capture slide did not add a slide.");
+            id = await SaveAsAsync("zz console scene for a reader");
+            (int shared, string said) = await AdminAsync(HttpMethod.Put, $"/content/documents/{id}",
+                JsonSerializer.Serialize(new { title = "zz console scene for a reader", sharing = "public" }));
+            Assert.True(shared == 200, $"Sharing the scene answered {shared}: {said}");
+
+            string reader = await MemberAsync(member);
+            await OpenAsync($"/studio/scene.html?id={id}", reader);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The shared scene did not open for a reader.");
+            Assert.Equal(member, await Browser.EvaluateAsync<string>("scState.user"));
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('headSave').hidden"), "A reader was offered Save.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('sceneDetails').hidden"), "A reader was offered the title.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('tab-add').hidden"), "A reader was offered the Add tab.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#layerList [data-act=up], #layerList [data-act=remove]')"),
+                "A reader was offered to reorder or remove a layer.");
+            await ClickAsync("#tab-ground");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundControls').hidden"), "A reader was offered the ground's controls.");
+            Assert.Matches("Only the scene's owner can change it", await Browser.EvaluateAsync<string>("document.getElementById('groundReadOnly').textContent") ?? string.Empty);
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('sceneQuality').closest('[hidden]') !== null"), "A reader was not offered the drawing quality.");
+            await ClickAsync("#tab-basemap");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('baseList').hidden"), "A reader was offered the basemap list.");
+            await ClickAsync("#tab-slides");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('slideAdd').hidden"), "A reader was offered Capture slide.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#slideList [data-act=go]') && !document.querySelector('#slideList [data-act=delete]')"),
+                "A reader could not go to the slide, or was offered Delete.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}");
         }
     }
 
