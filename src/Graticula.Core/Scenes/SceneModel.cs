@@ -124,11 +124,19 @@ public sealed class GltfTriangles
         return new GltfTriangles(points, colours, skipped);
     }
 
+    private static readonly HashSet<string> StoredOtherwise = new(StringComparer.Ordinal)
+    {
+        "KHR_draco_mesh_compression", "EXT_meshopt_compression", "KHR_gaussian_splatting", "KHR_mesh_quantization",
+    };
+
     private static bool Primitive(
         JsonNode doc, byte[] bin, JsonObject? primitive, double[] world,
         List<(double, double, double)> points, List<(byte, byte, byte, byte)> colours)
     {
-        if (primitive is null || ((int?)primitive["mode"] ?? 4) != 4 || primitive["extensions"] is JsonObject { Count: > 0 }
+        // An extension that stores the geometry another way is not read; one that only describes it (Assimp writes
+        // FB_ngon_encoding on every primitive, measured 2026-11-07) does not stop the triangles being read.
+        if (primitive is null || ((int?)primitive["mode"] ?? 4) != 4
+            || (primitive["extensions"] is JsonObject extensions && extensions.Any(e => StoredOtherwise.Contains(e.Key)))
             || primitive["targets"] is not null || primitive["attributes"]?["POSITION"] is not JsonValue p)
         {
             return false;

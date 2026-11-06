@@ -25,7 +25,7 @@ public sealed class SceneModelTests
 
     /// <summary>A glb of one box, <paramref name="w"/> wide (x), <paramref name="h"/> tall (y) and <paramref name="d"/> deep
     /// (z), standing on its origin, in one linear colour, its node moved by <paramref name="lift"/> up.</summary>
-    private static byte[] Box(float w, float h, float d, float[] linear, float lift = 0)
+    private static byte[] Box(float w, float h, float d, float[] linear, float lift = 0, string? extension = null)
     {
         float x = w / 2, z = d / 2;
         float[][] c = [[-x, 0, -z], [x, 0, -z], [x, h, -z], [-x, h, -z], [-x, 0, z], [x, 0, z], [x, h, z], [-x, h, z]];
@@ -40,7 +40,11 @@ public sealed class SceneModelTests
             scene = 0,
             scenes = new[] { new { nodes = RootNodes } },
             nodes = new[] { new { mesh = 0, translation = new[] { 0f, lift, 0f } } },
-            meshes = new[] { new { primitives = new[] { new { attributes = new { POSITION = 0 }, indices = 1, material = 0 } } } },
+            meshes = new[] { new { primitives = new[] { new Dictionary<string, object>
+            {
+                ["attributes"] = new { POSITION = 0 }, ["indices"] = 1, ["material"] = 0,
+                ["extensions"] = extension is null ? new Dictionary<string, object>() : new Dictionary<string, object> { [extension] = new { } },
+            } } } },
             materials = new[] { new { pbrMetallicRoughness = new { baseColorFactor = new[] { linear[0], linear[1], linear[2], 1f } } } },
             accessors = new object[]
             {
@@ -116,6 +120,13 @@ public sealed class SceneModelTests
         Assert.Equal(8, read.Points.Max(p => p.Y), 5);
         Assert.All(read.Colours, c => Assert.Equal((255, 0, 0, 255), ((int)c.R, (int)c.G, (int)c.B, (int)c.A)));
         Assert.Throws<FormatException>(() => GltfTriangles.Read(Encoding.ASCII.GetBytes("not a glb at all, at all")));
+
+        // An extension that only describes the triangles is read past (Assimp writes FB_ngon_encoding on every
+        // primitive); one that stores them another way is not read, and is counted.
+        Assert.Equal(36, GltfTriangles.Read(Box(2, 3, 4, [1f, 0f, 0f], extension: "FB_ngon_encoding")).Points.Count);
+        GltfTriangles draco = GltfTriangles.Read(Box(2, 3, 4, [1f, 0f, 0f], extension: "KHR_draco_mesh_compression"));
+        Assert.Empty(draco.Points);
+        Assert.Equal(1, draco.Skipped);
     }
 
     [Fact]

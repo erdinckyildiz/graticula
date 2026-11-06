@@ -165,7 +165,9 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
 4. **The converter** from OBJ, FBX, COLLADA, IFC and USD to glb: a Tier 2 library behind our port, with its licence
    read against [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) and
    [ADR-254](ADR-254-gdal-without-poppler.md) (no GPL linked), and run where a malformed file cannot take the server
-   down. Its own ADR. *(Open.)*
+   down. Its own ADR. *(The ADR is [ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md),
+   2026-11-07: Assimp's command-line tool in a process of its own, prototyped for OBJ, COLLADA and FBX. Its conditions
+   carry the rest.)*
 
 ## 10. For the owner
 
