@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -378,6 +379,76 @@ public sealed class SceneLayerSourceTests : ConsoleTest
         {
             if (sceneId is not null) await AdminAsync(HttpMethod.Delete, $"/content/documents/{sceneId}");
             if (meshId is not null) await AdminAsync(HttpMethod.Delete, $"/content/documents/{meshId}");
+        }
+    }
+    /// <summary>
+    /// ADR-282: a 3D object layer converts a model it is given as OBJ to glb, keeps it under the hash of what was uploaded,
+    /// and places it by an asset map naming that hash; a file the converter cannot read is refused with its reason.
+    /// </summary>
+    [Fact]
+    public async Task A_3d_object_layer_converts_an_obj_model_and_refuses_one_it_cannot_read()
+    {
+        (string token, _) = await SignInAsync();
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/meshes", """{"title":"zz_converted"}""");
+        Assert.True(status == 201, body);
+        JsonElement made = JsonDocument.Parse(body).RootElement;
+        string meshId = made.GetProperty("id").GetString()!, sceneId = made.GetProperty("scene").GetProperty("id").GetString()!;
+        string root = $"/rest/services/meshes/{meshId}/FeatureServer";
+
+        async Task<JsonElement> PostAsync(string path, System.Collections.Generic.Dictionary<string, string> form)
+        {
+            using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"{Root}{path}")) { Content = new FormUrlEncodedContent(form) };
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage response = await Http.SendAsync(request);
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
+        }
+
+        try
+        {
+            (status, string layer) = await AdminAsync(HttpMethod.Get, $"{root}/0?f=json");
+            Assert.Contains("3D_obj", JsonDocument.Parse(layer).RootElement.GetProperty("infoFor3D").GetProperty("editFormats").GetRawText(), StringComparison.Ordinal);
+
+            // A 10 × 20 × 4 m box, written by hand as OBJ.
+            const string Obj = "v -5 0 -2\nv 5 0 -2\nv 5 20 -2\nv -5 20 -2\nv -5 0 2\nv 5 0 2\nv 5 20 2\nv -5 20 2\n"
+                + "f 1 3 2\nf 1 4 3\nf 5 6 7\nf 5 7 8\nf 1 5 8\nf 1 8 4\nf 2 3 7\nf 2 7 6\nf 4 8 7\nf 4 7 3\nf 1 2 6\nf 1 6 5\n";
+            byte[] obj = Encoding.ASCII.GetBytes(Obj);
+            string sourceHash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(obj));
+            JsonElement uploaded = await PostAsync($"{root}/0/uploadAssets", new()
+            {
+                ["assets"] = JsonSerializer.Serialize(new[] { new { assetType = "3D_obj", assetData = Convert.ToBase64String(obj) } }), ["f"] = "json",
+            });
+            JsonElement result = uploaded.GetProperty("uploadResults")[0];
+            Assert.True(result.GetProperty("success").GetBoolean(), result.GetRawText());
+            Assert.Equal(sourceHash, result.GetProperty("assetHash").GetString());
+
+            string gid = "{" + Guid.NewGuid().ToString("D").ToUpperInvariant() + "}";
+            JsonElement edited = await PostAsync($"{root}/0/applyEdits", new()
+            {
+                ["useGlobalIds"] = "true", ["f"] = "json",
+                ["adds"] = JsonSerializer.Serialize(new[] { new { attributes = new Dictionary<string, object> { ["globalid"] = gid, ["name"] = "zz obj", ["ESRI3DO_OX"] = 29.02, ["ESRI3DO_OY"] = 41.02, ["ESRI3DO_OZ"] = 0.0 } } }),
+                ["assetMaps"] = JsonSerializer.Serialize(new { adds = new[] { new { globalId = "{" + Guid.NewGuid().ToString("D").ToUpperInvariant() + "}", parentGlobalId = gid, assetName = "box.glb", assetHash = sourceHash } } }),
+            });
+            Assert.True(edited.GetProperty("addResults")[0].GetProperty("success").GetBoolean(), edited.GetRawText());
+
+            (status, string features) = await AdminAsync(HttpMethod.Get, $"{root}/0/query?where=1%3D1&f=json");
+            JsonElement geometry = JsonDocument.Parse(features).RootElement.GetProperty("features")[0].GetProperty("geometry");
+            Assert.Equal(20, geometry.GetProperty("zmax").GetDouble() - geometry.GetProperty("zmin").GetDouble(), 1);
+
+            (status, string rebuilt) = await AdminAsync(HttpMethod.Post, $"/content/scenes/{sceneId}/rebuild");
+            Assert.True(status == 200, rebuilt);
+            Assert.Equal(1, JsonDocument.Parse(rebuilt).RootElement.GetProperty("features").GetInt32());
+
+            JsonElement refused = (await PostAsync($"{root}/0/uploadAssets", new()
+            {
+                ["assets"] = JsonSerializer.Serialize(new[] { new { assetType = "3D_fbx", assetData = Convert.ToBase64String(Encoding.ASCII.GetBytes("not a model at all")) } }), ["f"] = "json",
+            })).GetProperty("uploadResults")[0];
+            Assert.False(refused.GetProperty("success").GetBoolean());
+            Assert.Contains("could not be converted", refused.GetProperty("error").GetProperty("description").GetString() ?? string.Empty, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/documents/{sceneId}");
+            await AdminAsync(HttpMethod.Delete, $"/content/documents/{meshId}");
         }
     }
 }

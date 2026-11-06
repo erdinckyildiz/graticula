@@ -276,7 +276,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 # postgresql-client-16, for ADR-193: `graticula backup` and `restore` run pg_dump, pg_dumpall and pg_restore against
 # the platform store. Its major version has to be at least the server's; the datastore is PostgreSQL 16, and noble's
 # own package is 16. A deployment on a newer PostgreSQL points Graticula__PostgresTools at matching tools.
-RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16  && rm -rf /var/lib/apt/lists/*
+#
+# assimp-utils, for ADR-282: a 3D object layer's models in OBJ, COLLADA or FBX are converted to glb by Assimp's
+# command-line tool (BSD-3), run as a process of its own per file — nothing of it is linked into the server.
+RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16 assimp-utils  && rm -rf /var/lib/apt/lists/*
 
 # ADR-223 §5.6: users' Python toolboxes run on this interpreter and this wheel set, fixed when the image is built —
 # nothing is installed at runtime. grapy itself is copied beside the server by the build (src/grapy/grapy).

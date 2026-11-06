@@ -93,9 +93,17 @@ ADR-254 (no GPL linked), ADR-280, ADR-281 §5.1, build-vs-adopt Tier 2.
 
 ## 9. Conditions
 
-1. **The port and the adapter**, with the limits, and a test per format offered. *(Open.)*
+1. **The port and the adapter**, with the limits, and a test per format offered. *(Partly discharged 2026-11-07:
+   `IModelConverter` (Core) and `AssimpModelConverter` (Host) give 90 seconds, 2 GB of address space and a scratch
+   directory per file. A zip is unpacked flat, with no path from it followed, within 512 MB. The glb is read back by
+   `GltfTriangles` before it is accepted. When the tool is absent, nothing is offered. Tested end to end for OBJ, and
+   for an unreadable FBX refused with its reason
+   (`SceneLayerSourceTests.A_3d_object_layer_converts_an_obj_model_and_refuses_one_it_cannot_read`). COLLADA and FBX
+   are converted by the same path and measured only in the prototype (§4); a test each is owed.)*
 2. **Real files**: an FBX from a modelling tool, an IFC from a BIM tool and a USD, each converted or refused with its
    reason. *(Open.)*
-3. **The image and the licence register** carry `assimp-utils`. *(Open.)*
-4. **Behind the mesh layer's `uploadAssets`** (ADR-280), a non-glb asset type is converted there. *(Open, waits on the
-   mesh layer.)*
+3. **The image and the licence register** carry `assimp-utils`. *(Discharged 2026-11-07: `deploy/server.Dockerfile`,
+   the CI job with a server, and [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) §Assimp.)*
+4. **Behind the mesh layer's `uploadAssets`** (ADR-280), a non-glb asset type is converted there. *(Discharged
+   2026-11-07: converted, and kept under the hash of what was uploaded, which is the hash the client's asset map names.
+   The layer's `editFormats` lists what the converter takes.)*

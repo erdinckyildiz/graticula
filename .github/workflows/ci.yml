@@ -647,6 +647,10 @@ jobs:
           python -m pip install --quiet shapely pyproj numpy pyarrow rasterio scipy laspy lazrs xarray manifold3d
           python -m pip install --quiet --index-url https://download.pytorch.org/whl/cpu torch torchvision
 
+      # ADR-282: a 3D object layer converts OBJ, COLLADA and FBX with Assimp's command-line tool, which the image carries.
+      - name: the 3D model converter
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends assimp-utils && assimp version | head -3
+
       # ADR-266: the webhook tests post to a listener inside the test on 127.0.0.1, which a webhook refuses unless the
       # deployment allows its own network. On here only so that receiver can be reached; off is the default.
       # ADR-277: the scene rebuild sweep looks every five seconds here, rather than five minutes, so its test is quick.

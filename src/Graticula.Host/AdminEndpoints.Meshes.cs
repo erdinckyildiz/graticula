@@ -377,6 +377,7 @@ internal static partial class AdminEndpoints
         MeshState state = await ReadMeshAsync(context.RequestServices, mesh.Id, cancellation).ConfigureAwait(false);
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         bool editor = LayerAccess.MayManage(mesh.Owner, current.Principal, current.Authorization);
+        IModelConverter converter = context.RequestServices.GetRequiredService<IModelConverter>();
         string[] roles = ["globalID", "originX", "originY", "originZ", "translationX", "translationY", "translationZ", "scaleX", "scaleY", "scaleZ",
             "rotationX", "rotationY", "rotationZ", "rotationDeg"];
         JsonObject transformRoles = new() { ["globalID"] = "globalid" };
@@ -418,9 +419,10 @@ internal static partial class AdminEndpoints
             },
             ["infoFor3D"] = new JsonObject
             {
-                ["supportedFormats"] = new JsonArray(new JsonArray("3D_glb", "model/gltf-binary", "glb", "Khronos Group glTF binary")),
+                ["supportedFormats"] = new JsonArray([new JsonArray("3D_glb", "model/gltf-binary", "glb", "Khronos Group glTF binary"),
+                    .. converter.Formats.Select(f => (JsonNode)new JsonArray(f, "application/octet-stream", f[3..], f))]),
                 ["queryFormats"] = new JsonArray("3D_glb"),
-                ["editFormats"] = new JsonArray("3D_glb"),
+                ["editFormats"] = new JsonArray([(JsonNode)"3D_glb", .. converter.Formats.Select(f => (JsonNode)f)]),
                 ["transformFieldRoles"] = transformRoles,
                 ["assetTypeField"] = "ESRI3DO_TYPE", ["sourceHashField"] = "ESRI3DO_SHASH", ["parentFeatureField"] = "ESRI3DO_PID",
                 ["assetHashAlgorithm"] = "SHA256",
@@ -477,9 +479,12 @@ internal static partial class AdminEndpoints
         {
             string? type = asset?["assetType"]?.GetValue<string>();
             string? data = asset?["assetData"]?.GetValue<string>();
-            if (!string.Equals(type, "3D_glb", StringComparison.OrdinalIgnoreCase) || data is null)
+            IModelConverter converter = context.RequestServices.GetRequiredService<IModelConverter>();
+            bool glbAsset = string.Equals(type, "3D_glb", StringComparison.OrdinalIgnoreCase);
+            if (data is null || (!glbAsset && !converter.Formats.Contains(type ?? string.Empty, StringComparer.OrdinalIgnoreCase)))
             {
-                results.Add(new { success = false, error = new { code = 400, description = $"Only 3D_glb is taken here, as base64 assetData; {type ?? "this"} is converted once the server's converter is built (ADR-282). Export the model as glb." } });
+                string offered = string.Join(", ", converter.Formats.Prepend("3D_glb"));
+                results.Add(new { success = false, error = new { code = 400, description = $"{type ?? "This asset"} is not taken here, as base64 assetData; these are: {offered}." } });
                 continue;
             }
 
@@ -500,6 +505,21 @@ internal static partial class AdminEndpoints
                 continue;
             }
 
+            // ADR-282: another format is converted to glb, and kept under the hash of what was uploaded, which is the hash
+            // the client names in its asset map.
+            string hash = Convert.ToHexStringLower(SHA256.HashData(glb));
+            if (!glbAsset)
+            {
+                ModelConversion converted = await converter.ConvertAsync(glb, type!, cancellation).ConfigureAwait(false);
+                if (converted.Glb is null)
+                {
+                    results.Add(new { success = false, error = new { code = 400, description = converted.Refusal } });
+                    continue;
+                }
+
+                glb = converted.Glb;
+            }
+
             try
             {
                 if (GltfTriangles.Read(glb).Points.Count == 0)
@@ -514,7 +534,6 @@ internal static partial class AdminEndpoints
                 continue;
             }
 
-            string hash = Convert.ToHexStringLower(SHA256.HashData(glb));
             if (await resources.FindAsync(Guid.Parse(mesh.Id), MeshAssetPrefix + hash, cancellation).ConfigureAwait(false) is null)
             {
                 await resources.WriteAsync(Guid.Parse(mesh.Id), MeshAssetPrefix + hash, "model/gltf-binary", glb, "private", replace: false, limit: long.MaxValue, cancellation).ConfigureAwait(false);

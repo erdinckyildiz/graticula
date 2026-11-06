@@ -385,6 +385,21 @@ off. One library per platform, pinned by SHA-256 in
 needs more, and refuses an archive whose checksum differs from the lock. `tools/gdal-natives.py` still refuses a PDFium
 inside GDAL's closure: GDAL has no PDF driver, and this is not one.
 
+## Assimp — the 3D model converter, added 2026-11-07
+
+[ADR-282](docs/adr/ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md): a 3D object layer's models in
+OBJ, COLLADA or FBX are converted to glb by the Open Asset Import Library's **command-line tool**. The server image
+installs it from the distribution (`assimp-utils`, and Debian bookworm's 5.2.5 was the one measured). It is run as a
+process of its own per file and **is not linked** into anything of ours.
+
+| Component | Licence | Notes |
+|---|---|---|
+| assimp-utils, libassimp5 | BSD-3-Clause (Assimp's own `LICENSE`, read 2026-11-07) | The tool and its library |
+| libdraco | Apache-2.0 | Assimp's glTF Draco support |
+| libminizip1, zlib1g | zlib | |
+
+**Nothing here is copyleft.**
+
 ## ⚠ Verification status
 
 Every entry below is marked `UNVERIFIED`. The licences are recorded from general
