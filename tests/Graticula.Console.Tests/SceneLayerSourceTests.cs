@@ -506,8 +506,12 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             // asked to zoom in and took no click).
             await Task.Delay(8000);
             // Close to where it will stand, and a click there.
-            await Browser.EvaluateAsync<bool>("(scState.view.goTo({ center: [29.01, 41.01], zoom: 18, tilt: 45 }, { animate: false }), true)");
-            await Task.Delay(6000);
+            // Close enough that a 6 m tree is many pixels across: further out the Editor asks to zoom in and takes no click
+            // (CI run 42297749160, at zoom 18 in its smaller window).
+            await Browser.EvaluateAsync<bool>("(scState.view.goTo({ center: [29.01, 41.01], zoom: 21, tilt: 45 }, { animate: false }), true)");
+            await WaitForAsync("/Click in the scene to place the model/.test(document.getElementById('toolPanel').innerText)",
+                "Close to the place, the Editor did not ask for the click: " + await Browser.EvaluateAsync<string>("document.getElementById('toolPanel').innerText.slice(0, 200)"));
+            await Task.Delay(2000);
             string view = await Browser.EvaluateAsync<string>("JSON.stringify(document.getElementById('viewDiv').getBoundingClientRect())") ?? "{}";
             await MouseClickAsync(view);
             await WaitForAsync("/\\bCreate\\b/.test(document.getElementById('toolPanel').innerText) || /Rebuild/.test(document.getElementById('toolPanel').innerText)",
