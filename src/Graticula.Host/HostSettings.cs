@@ -348,10 +348,12 @@ internal sealed record HostSettings(
     /// `latest` would change the console's behaviour without a commit. An air-gapped deployment (Q-15)
     /// points this at its own copy, which is the case the setting exists for.
     /// <b>4.34 since 2026-11-07</b> (ADR-273, by owner decision ADR-272 §5.2), raised from 4.29 with the
-    /// 85 console tests that load the SDK run against it. 4.34 is the last release with the AMD build
-    /// (`init.js`) every page here loads; 5.x is ES modules only.
+    /// 85 console tests that load the SDK run against it. <b>5.2 since 2026-11-07</b> (ADR-281, by owner
+    /// decision): 5.x has no <c>init.js</c>, and the pages load its <c>core.js</c> as a module, which still
+    /// answers <c>require</c>. An address ending in a 4.x version is loaded the classic way, so a
+    /// deployment that pins 4.34 keeps working.
     /// </remarks>
-    public const string DefaultMapSdkUrl = "https://js.arcgis.com/4.34/";
+    public const string DefaultMapSdkUrl = "https://js.arcgis.com/5.2/";
 
     /// <summary>
     /// The origin of <see cref="MapSdkUrl"/>, which is what a policy names.

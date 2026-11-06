@@ -4452,8 +4452,11 @@ function loadSdk() {
     css.href = SDK + "esri/themes/light/main.css";
     document.head.append(css);
 
+    // ADR-281: 5.x is loaded as a module (core.js), which still answers `require`; 4.x by its classic init.
     const script = document.createElement("script");
-    script.src = SDK;
+    const modular = !/\/4\.\d+\/$/.test(SDK);
+    if (modular) script.type = "module";
+    script.src = modular ? SDK + "core.js" : SDK;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(
       "The map library could not be loaded from " + SDK + ". Everything else in this "

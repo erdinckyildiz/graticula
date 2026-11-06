@@ -164,8 +164,11 @@
       css.href = url + `esri/themes/${document.documentElement.dataset.theme === "dark" ? "dark" : "light"}/main.css`;
       document.head.append(css);
 
+      // ADR-281: 5.x is loaded as a module (core.js), which still answers `require`; 4.x by its classic init.
       const script = document.createElement("script");
-      script.src = url;
+      const modular = !/\/4\.\d+\/$/.test(url);
+      if (modular) script.type = "module";
+      script.src = modular ? url + "core.js" : url;
       script.onload = () => resolve();
       script.onerror = () => reject(new Error("it could not be fetched from " + url));
       document.head.append(script);

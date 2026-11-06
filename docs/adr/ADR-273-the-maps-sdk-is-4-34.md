@@ -6,7 +6,7 @@
 | **Confidence** | `HIGH` |
 | **Decided** | 2026-11-07. **The direction is the owner's**: [ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.2 says to raise the SDK as its own change, with the console suite run against it. **The version is this ADR's choice** (§2). |
 | **Supersedes** | The 4.29 pin in `HostSettings.DefaultMapSdkUrl` (ADR-020 §4's CDN choice is unchanged). |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §5.2, 2026-11-07, **by owner decision** (*switch now*): the default is 5.2, loaded as a module; an address naming 4.x is still loaded the classic way. This ADR's measurement of 4.34 stands as the record of that version. |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
