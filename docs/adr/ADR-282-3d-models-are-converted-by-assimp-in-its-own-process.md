@@ -99,7 +99,9 @@ ADR-254 (no GPL linked), ADR-280, ADR-281 §5.1, build-vs-adopt Tier 2.
    `GltfTriangles` before it is accepted. When the tool is absent, nothing is offered. Tested end to end for OBJ, and
    for an unreadable FBX refused with its reason
    (`SceneLayerSourceTests.A_3d_object_layer_converts_an_obj_model_and_refuses_one_it_cannot_read`). COLLADA and FBX
-   are converted by the same path and measured only in the prototype (§4); a test each is owed.)*
+   are converted by the same path and measured only in the prototype (§4); a test each is owed.)* *(Discharged the same
+   night: the test, renamed `…converts_obj_collada_and_fbx_models_and_refuses_one_it_cannot_read`, converts the same box
+   as COLLADA and as ASCII FBX from `tests/Graticula.Console.Tests/corpus/`, each kept under its own hash.)*
 2. **Real files**: an FBX from a modelling tool, an IFC from a BIM tool and a USD, each converted or refused with its
    reason. *(Open.)*
 3. **The image and the licence register** carry `assimp-utils`. *(Discharged 2026-11-07: `deploy/server.Dockerfile`,

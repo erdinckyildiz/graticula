@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -385,11 +386,11 @@ public sealed class SceneLayerSourceTests : ConsoleTest
         }
     }
     /// <summary>
-    /// ADR-282: a 3D object layer converts a model it is given as OBJ to glb, keeps it under the hash of what was uploaded,
+    /// ADR-282: a 3D object layer converts a model it is given as OBJ, COLLADA or FBX to glb, keeps it under the hash of what was uploaded,
     /// and places it by an asset map naming that hash; a file the converter cannot read is refused with its reason.
     /// </summary>
     [Fact]
-    public async Task A_3d_object_layer_converts_an_obj_model_and_refuses_one_it_cannot_read()
+    public async Task A_3d_object_layer_converts_obj_collada_and_fbx_models_and_refuses_one_it_cannot_read()
     {
         (string token, _) = await SignInAsync();
         (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/meshes", """{"title":"zz_converted"}""");
@@ -440,6 +441,20 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             (status, string rebuilt) = await AdminAsync(HttpMethod.Post, $"/content/scenes/{sceneId}/rebuild");
             Assert.True(status == 200, rebuilt);
             Assert.Equal(1, JsonDocument.Parse(rebuilt).RootElement.GetProperty("features").GetInt32());
+
+            // COLLADA and FBX (ASCII) are converted by the same path (ADR-282 condition 1): the same box, in each.
+            DirectoryInfo? repository = new(AppContext.BaseDirectory);
+            while (repository is not null && repository.GetFiles("*.sln").Length == 0) repository = repository.Parent;
+            foreach ((string type, string file) in new[] { ("3D_dae", "box.dae"), ("3D_fbx", "box-ascii.fbx") })
+            {
+                byte[] model = File.ReadAllBytes(Path.Combine(repository!.FullName, "tests", "Graticula.Console.Tests", "corpus", file));
+                JsonElement converted = (await PostAsync($"{root}/0/uploadAssets", new()
+                {
+                    ["assets"] = JsonSerializer.Serialize(new[] { new { assetType = type, assetData = Convert.ToBase64String(model) } }), ["f"] = "json",
+                })).GetProperty("uploadResults")[0];
+                Assert.True(converted.GetProperty("success").GetBoolean(), $"{file}: {converted.GetRawText()}");
+                Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(model)), converted.GetProperty("assetHash").GetString());
+            }
 
             JsonElement refused = (await PostAsync($"{root}/0/uploadAssets", new()
             {
