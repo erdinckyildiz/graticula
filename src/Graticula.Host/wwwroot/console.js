@@ -34987,7 +34987,7 @@ async function showDocumentItem(id) {
     ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
     <button type="button" id="docFavorite" data-of="doc" hidden></button>
-    ${doc.manages && !doc.app ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
+    ${doc.manages && !doc.app && !doc.sceneSource ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
     ${more ? `<details class="menu itemmore">
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
       <div class="sheet">${more}</div>
@@ -35079,14 +35079,23 @@ async function drawDocScene(doc) {
   const how = source.heightField
     ? ` — height from <code>${h(source.heightField)}</code>${Number(source.heightScale) && Number(source.heightScale) !== 1 ? ` × ${h(String(source.heightScale))} m` : ""}`
     : "";
+  // A heading, as every card on the page has one (ADR-269 condition 4's review), and the page's own date.
+  const built = new Date(Number(source.built));
   box.innerHTML = `
+    <h3>Source</h3>
     <p>Made from <a href="#/service/${h(source.service)}">${h(source.service)}</a>, layer ${h(String(source.layer))}${how}.
-      Built ${h(new Date(Number(source.built)).toLocaleString())}.
+      Built ${h(day(built))}, ${h(built.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }))}.
       ${!source.exists ? `<span class="warn-inline">That layer no longer exists, so this scene layer cannot be made again.</span>`
         : behind ? `<span class="warn-inline" id="docSceneBehind">The layer has been edited since, so this scene layer is behind it.</span>` : "It is up to date with the layer."}</p>
     ${source.exists ? `<button type="button" id="docSceneRebuild" class="${behind ? "primary" : ""}">Rebuild</button>
       <span class="hint">Makes it again from the layer as it is now. Its address, sharing and the scenes that use it stay.</span>` : ""}`;
   box.hidden = false;
+  // A scene layer made from a layer is made again from it: a file put in by hand would be overwritten by the next
+  // Rebuild, so Replace file is not offered beside it — as Enterprise offers Replace layer only without an associated
+  // feature layer.
+  doc.sceneSource = source;
+  const replace = $("docReplace");
+  if (replace) replace.hidden = true;
 }
 
 document.addEventListener("click", async event => {
@@ -36097,6 +36106,11 @@ async function createScene() {
 
   const go = $("createSceneGo");
   go.disabled = true;
+  // While it is being made the dialog stays: closed half-way it hid the result, and a second try made a duplicate
+  // (ADR-269 condition 4's review). Cancel, × and Escape come back with the answer.
+  const holding = [$("createSceneCancel"), $("createSceneClose")].filter(Boolean);
+  holding.forEach(b => { b.disabled = true; });
+  $("createScene").oncancel = event => { if (go.isConnected && go.disabled) event.preventDefault(); };
   says.textContent = "Creating the scene layer…";
   try {
     const parts = serviceOpen.qualified.split("/");
@@ -36125,6 +36139,8 @@ async function createScene() {
   } catch (e) {
     says.textContent = `Not created: ${e.message}`;
     go.disabled = false;
+  } finally {
+    holding.forEach(b => { b.disabled = false; });
   }
 }
 

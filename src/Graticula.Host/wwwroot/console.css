@@ -7870,6 +7870,7 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 #serverConfirm { width: min(480px, calc(100vw - 32px)); }
 
 /* ADR-270 §5.4: a scene layer made here — what it was made from, and Rebuild. */
-.scenesource { border: 1px solid var(--rule); border-radius: var(--round); padding: 10px 14px; margin: 0 0 14px; background: var(--surface); }
+.scenesource { border: 1px solid var(--rule); border-radius: var(--round); padding: 16px; margin: 0 0 14px; background: var(--surface); }
+.scenesource h3 { margin: 0 0 8px; font-size: 15px; }
 .scenesource p { margin: 0 0 8px; }
 .scenesource code { font-family: var(--mono); font-size: .95em; }

@@ -154,10 +154,13 @@ viewer needs `js.arcgis.com`.
 3. **A layer the server generated is drawn** by the Maps SDK and by Pro, and its package opens in Pro. *(2026-11-05: by
    the Maps SDK, measured and tested, buildings and points both. One was made on dev from `look_buildings` for Pro to
    add; Pro is owed, and for a point layer as well.)*
-4. **Every new screen passes the ux-designer review**, first-run state included. *(**PARTLY DISCHARGED** 2026-11-06: the
-   scene viewer passed a third look after two rounds of fixes ([ADR-270](ADR-270-scene-viewer-to-arcgis-enterprise-parity.md)
-   condition 1). Owed: the *Create scene layer* dialog and a scene layer's item page, which since ADR-270 §5.4 carries
-   what it was made from and *Rebuild*.)*
+4. **Every new screen passes the ux-designer review**, first-run state included. *(**DISCHARGED** 2026-11-06: the scene
+   viewer passed a third look after two rounds of fixes ([ADR-270](ADR-270-scene-viewer-to-arcgis-enterprise-parity.md)
+   condition 1); the *Create scene layer* dialog and a scene layer's item page with its source and *Rebuild* passed
+   their first, fresh and on a phone. Applied from their minors: the dialog cannot be closed while a layer is being made
+   (closed half-way, a second try made a duplicate); the source panel has a heading and the page's date; and a scene
+   layer made from a layer offers no *Replace file*, which the next Rebuild would overwrite — as Enterprise offers
+   *Replace layer* only without an associated feature layer.)*
 
 ## 10. Revisit triggers
 

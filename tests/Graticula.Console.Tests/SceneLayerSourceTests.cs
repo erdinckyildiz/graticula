@@ -89,6 +89,9 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             await WaitForAsync("!document.getElementById('docScene')?.hidden && /Made from/.test(document.getElementById('docScene').textContent)",
                 "The scene layer's page did not say what it was made from.");
             Assert.Contains("hosted/ci_buildings", await Browser.EvaluateAsync<string>("document.getElementById('docScene').textContent"));
+            // Made again from its layer, so a file put in by hand is not offered: the next Rebuild would overwrite it.
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('docReplace') && !document.getElementById('docReplace').hidden"),
+                "A scene layer made from a layer offered Replace file beside Rebuild.");
 
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/rebuild'], true)");
             await ClickAsync("#docSceneRebuild");
