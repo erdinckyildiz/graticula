@@ -243,9 +243,66 @@ function scLayerDetail(layer) {
     }
     html += `<h3>Pop-ups</h3><div data-part="popup"></div>`;
   }
+  if (layer.type === "point-cloud" && layer.loadStatus === "loaded") html += scPointCloudForm(layer);
   html += scVisibilityForm(layer);
   return html + `</div>`;
 }
+
+// --- a point cloud's look: Scene Viewer's RGB, stretch, classes (ADR-270 §5.12) ------------------------------------------
+
+/** The looks a point cloud can take, those its attributes allow. */
+function scPointCloudLooks(layer) {
+  const has = name => (layer.fields || []).some(f => f.name.toUpperCase() === name);
+  return [
+    has("RGB") && ["rgb", "True colour"],
+    ["elevation", "By elevation"],
+    has("CLASS_CODE") && ["class", "By class"],
+    has("INTENSITY") && ["intensity", "By intensity"],
+  ].filter(Boolean);
+}
+
+function scPointCloudForm(layer) {
+  const id = scEscape(layer.id);
+  const current = ({ "point-cloud-rgb": "rgb", "point-cloud-unique-value": "class" })[layer.renderer && layer.renderer.type]
+    || (layer.renderer && layer.renderer.type === "point-cloud-stretch" && /INTENSITY/i.test(layer.renderer.field || "") ? "intensity"
+      : layer.renderer && layer.renderer.type === "point-cloud-stretch" ? "elevation" : "");
+  return `<h3>Look</h3>
+    <label class="field" for="pc-${id}">Coloured</label>
+    <select id="pc-${id}" data-pc="look">${current ? "" : `<option value="">As published</option>`}${scPointCloudLooks(layer).map(([v, t]) =>
+      `<option value="${v}" ${v === current ? "selected" : ""}>${scEscape(t)}</option>`).join("")}</select>`;
+}
+
+/** LAS classes as a reader names them, the ones a survey usually has. */
+const SC_LAS_CLASSES = [[["2"], "Ground", [166, 124, 82]], [["3", "4", "5"], "Vegetation", [56, 168, 0]], [["6"], "Building", [222, 98, 65]],
+  [["9"], "Water", [0, 112, 255]], [["1"], "Unassigned", [180, 180, 180]], [["7", "18"], "Noise", [255, 0, 197]]];
+
+function scPointCloudRenderer(layer, look) {
+  const field = name => ((layer.fields || []).find(f => f.name.toUpperCase() === name) || {}).name || name;
+  const size = { pointSizeAlgorithm: { type: "splat", scaleFactor: 1 }, pointsPerInch: 15 };
+  if (look === "rgb") return { type: "point-cloud-rgb", field: field("RGB"), ...size };
+  if (look === "class") {
+    return { type: "point-cloud-unique-value", field: field("CLASS_CODE"), ...size,
+      colorUniqueValueInfos: SC_LAS_CLASSES.map(([values, label, color]) => ({ values, label, color })) };
+  }
+  if (look === "intensity") {
+    return { type: "point-cloud-stretch", field: field("INTENSITY"), ...size,
+      stops: [{ value: 0, color: [20, 20, 20], label: "Low" }, { value: 255, color: [255, 255, 255], label: "High" }] };
+  }
+  const extent = layer.fullExtent || {};
+  const low = Number.isFinite(extent.zmin) ? extent.zmin : 0, high = Number.isFinite(extent.zmax) ? extent.zmax : 100;
+  return { type: "point-cloud-stretch", field: field("ELEVATION"), ...size,
+    stops: [{ value: low, color: [43, 131, 186], label: String(Math.round(low)) },
+      { value: (low + high) / 2, color: [255, 255, 191] }, { value: high, color: [215, 25, 28], label: String(Math.round(high)) }] };
+}
+
+sc$("layerList").addEventListener("change", event => {
+  if (event.target.dataset.pc !== "look") return;
+  const layer = scLayerOf(event.target);
+  if (!layer || !event.target.value) return;
+  layer.renderer = scPointCloudRenderer(layer, event.target.value);
+  scMarkDirty();
+  scSay(`${layer.title || "The point cloud"} is coloured ${event.target.selectedOptions[0].textContent.toLowerCase()}.`);
+});
 
 // --- visibility: a scale range, and a filter (ADR-270 §5.9) -------------------------------------------------------------
 

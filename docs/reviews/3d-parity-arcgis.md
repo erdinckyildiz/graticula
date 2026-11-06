@@ -95,7 +95,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Voxel | the path rule only; no sample | Owed |
 | 3D tiles, `.3tz`, Gaussian splat | out of v1-scope | Owner |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
-| Point cloud renderers: stretch, classify, unique values, RGB [7] | — | Owed (with point cloud) |
+| Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); applied and saved on Esri's sample, each look not yet seen drawn | Partly built |
 
 ## H. Sharing a scene [8]
 

@@ -77,6 +77,7 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
 | A layer's range and filter, a slide's description, a duplicate and `#n`, and Time are kept or offered | `minScale` 144448 and `definitionExpression` `floors >= 0` in the saved layer; a refused filter said and not kept; a description and a `(copy)` slide saved; `#2` opened at the second slide; Time offered only with `ci_observations` and opened | `SceneViewerToolsTests.Ranges_filters_slide_descriptions_and_the_time_tool_are_kept` |
 | An integrated mesh and a point cloud package are served and drawn | Esri's *Rancho_Mesh_v18* (item `95a427c7…`, 286 MB) and *Morro_Bay_LiDAR* (item `496552d0…`, 578 MB), each cut to its root and four children (26 MB, 0.4 MB) because both exceed the document limit: the SDK loaded an `IntegratedMeshLayer`, fetched four geometries and four compressed textures (`textures/0_0_1` → `.bin.dds.gz`) and drew the mesh textured; it loaded a `PointCloudLayer`, fetched four `.bin.pccxyz` geometries and `.bin.pccrgb` colours through the stem lookup and drew the points in colour. Neither package is in this repository | measured 2026-11-06 |
 | A CSV and a GeoJSON file from content are added and kept | both uploaded, offered under their kind, added as `csv` and `geojson` layers, saved with `layerType` `CSV` (its URL the document's data) and `GeoJSON` | `SceneViewerToolsTests.A_csv_or_geojson_file_from_content_is_added_and_kept` |
+| A point cloud's looks are applied and kept | on the cut *Morro_Bay_LiDAR*: all four offered, each applied as `point-cloud-stretch`, `point-cloud-unique-value`, `point-cloud-stretch` and `point-cloud-rgb` with no page error, the scene saved with a `pointCloudRGBRenderer`. **Not seen drawn** in each look — the one picture taken was of the camera too close — and not in a committed test, the sample not being in the repository | measured 2026-11-06 |
 | ADR-269's scene tests still pass on the new viewer | the three `SceneViewerTests` | run 2026-11-05 against a local fixture, Chromium 156 with SwiftShader |
 
 ## 5. Decision
@@ -163,7 +164,10 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     offers them by kind, and each is drawn from the document's own data, which is this server's, so the console's
     policy admits it; the scene keeps it as a `CSV` or `GeoJSON` layer, styled, placed and filtered as a feature layer.
     A file elsewhere on the web is not offered: the policy names no other origin.
-12. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
+12. **A point cloud's look** — Scene Viewer's point cloud renderers: true colour (RGB), by elevation (a stretch over
+    the layer's height range), by LAS class (ground, vegetation, building, water, unassigned, noise) and by intensity,
+    each offered when the layer has the attribute, kept as the layer's renderer.
+13. **Not built from the design review** (ADR-269 condition 4's reviewer, 2026-11-05): adopting the 2D map's icon rail for
    the panel's tabs. The six text tabs fit one row at 340 px; the rail is a consistency gain, not a defect.
    *(Deferred.)*
 
