@@ -93,7 +93,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
 | Mesh (integrated mesh), point cloud | served by the same path rule and drawn; Esri's whole 286 MB mesh drawn textured (ADR-274), the point cloud measured on its subset | Built |
 | Voxel | served as ArcGIS serves one, and drawn in a local scene in its own system: Web Mercator and EPSG:2056 measured (ADR-270 §5.17, §5.20) | Built — a WGS 84 voxel is drawn in neither kind of scene by SDK 4.34 |
-| 3D tiles, `.3tz`, Gaussian splat | a `.3tz` archive is kept, served and drawn, its content 3D Tiles 1.1 (glTF) or 1.0 (b3dm), on SDK 5.2 (ADR-281); a splat tileset is added as a splat layer, and Esri's are drawn | Partly built — a splat archive of our own is refused by the SDK; SPZ-compressed splats are the next step (ADR-281 condition 2) |
+| 3D tiles, `.3tz`, Gaussian splat | a `.3tz` archive is kept, served and drawn: 3D Tiles 1.1 (glTF), 1.0 (b3dm), and Gaussian splats as ArcGIS's tools write them (SPZ), added as a splat layer, on SDK 5.2 (ADR-281) | Built |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
 | Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); each seen drawn on Esri's sample 2026-11-07, elevation over the heights the layer's statistics give | Built |
 

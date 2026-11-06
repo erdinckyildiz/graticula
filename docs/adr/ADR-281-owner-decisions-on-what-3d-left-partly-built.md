@@ -83,6 +83,13 @@ All on the fixture server, 2026-11-07, with SDK 5.2.0.
     glb, tried five ways: a region or a box; with and without `ESRI_crs` in UTM on the tileset and on the tile; content
     on the root or in a child; an external tileset. What Esri's sample has and ours does not is SPZ compression
     (`KHR_gaussian_splatting_compression_spz_2`).
+  - **Bisected the same night.** Esri's tileset JSON, served from this server's origin, is accepted. With the SPZ
+    extension taken out of its `3DTILES_content_gltf` lists it is refused exactly as ours was. Taking out `ESRI_crs`,
+    `asset.extras` or the 1.1 version changes nothing. **SDK 5.2's splat layer takes SPZ-compressed splats only.**
+  - **A real splat archive is drawn from this server.** Esri's sample was cut to its root, one sub-tileset and one
+    75 KB SPZ glb, zipped as a `.3tz`, uploaded to the fixture and added in the scene viewer. It was added as a splat
+    layer, the SDK fetched the sub-tileset and the glb from `3DTilesServer`, and the splats were drawn. This was kept
+    local and deleted: the sample's licence is not stated.
 - **The item type.** A public ArcGIS Online 3D tiles item is typed `3DTiles Service`, with no space (item
   `01596d71a5ce40ec8a6f21baad6e5b6f`, read 2026-11-07). ADR-278's inferred `3D Tiles Service` was wrong and is
   corrected.
@@ -130,8 +137,12 @@ ADR-020, ADR-136, ADR-182, ADR-270, ADR-272, ADR-273, ADR-278, ADR-280.
 
 1. **Every console test that loads the SDK passes on 5.2.** *(Discharged 2026-11-07, 95 of 95, §4.)*
 2. **b3dm and Gaussian splat measured on 5.2**, and ADR-278 conditions 2 and 3 answered again. *(Partly discharged
-   2026-11-07, §4: b3dm is drawn. Splats are recognised and Esri's are drawn, but ours are refused. Writing SPZ-compressed
-   splats is the next step.)*
+   2026-11-07, §4: b3dm is drawn, and a splat archive (SPZ, as ArcGIS's tools write them) is drawn from this server.)*
+   *(Discharged the same night: `GaussianSplatArchiveTests` writes 600 splats of its own as SPZ. The format is Niantic's
+   open one (MIT reference). It is written as **version 3**, flagged antialiased, with "smallest three" rotations,
+   which is what Esri's sample turned out to hold under an extension named `spz_2`; written as version 2, the splats
+   loaded and drew nothing. The archive is uploaded, offered among 3D tiles layers, added as a splat layer, its glb
+   fetched from `3DTilesServer`, and the sphere drawn (screenshot, not committed).)*
 3. **The gallery**: a point layer drawn as a model and read back. *(Discharged 2026-11-07, §4.)*
 4. **Terrain**: a slope added from an image service, asked of the server, and kept in the scene. *(Discharged 2026-11-07, §4.)*
 5. **The converter's ADR** (§5.1). *(Discharged 2026-11-07: [ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md).)*
