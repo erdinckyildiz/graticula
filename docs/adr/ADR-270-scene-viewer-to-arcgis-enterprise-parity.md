@@ -203,6 +203,10 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     WGS 84 sample in a global scene or in this viewer's local scene, which is Web Mercator. A projected voxel package
     and a local scene in its own system (§A's *no other projected system*) are what to try next. A layer the scene
     cannot draw now says why when it is added, instead of drawing nothing.
+    *(Drawn 2026-11-07: a voxel package in Web Mercator, a public sample measured locally and not committed, was
+    drawn whole in this viewer's local scene. The rule the SDK keeps is the layer's own coordinate system: a WGS 84
+    voxel is drawn in neither kind of scene, and one in another projected system needs a local scene in that system,
+    which this viewer does not make (§A's *no other projected system*). The added-layer message now says so.)*
 18. **Volume, viewshed and dimensions** (2026-11-07, on SDK 4.34, ADR-273) — Scene Viewer's three tools that 4.29 did
     not have. In 4.34 they are analyses with no widget (`VolumeMeasurementAnalysis`, `ViewshedAnalysis`,
     `DimensionAnalysis`), so each is a small panel of this page's. The panel holds a sentence saying what the tool does,

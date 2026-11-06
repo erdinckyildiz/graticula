@@ -85,9 +85,13 @@ ADR-269, ADR-272 §5.5, ADR-273, ADR-274.
 1. **A real-world archive** (a city's photogrammetry exported as `.3tz`) is drawn, and its size and node count are
    recorded. *(Open.)*
 2. **3D Tiles 1.0 content** (b3dm): measured whether the SDK draws it, and the answer said where a 1.0 archive is
-   added. *(Open.)*
+   added. *(Discharged 2026-11-07: an archive of the same box as b3dm in a 1.0 tileset was kept, served and loaded, and
+   SDK 4.34 created no layer view for it. 1.0 content is not drawn, and adding one now says so. Drawing it is a
+   conversion to glTF, or an SDK that draws b3dm.)*
 3. **Gaussian splat**: the SDK 4.34 has `GaussianSplatLayer`. What it reads, and whether this server can host it the
-   same way, needs its own measurement. *(Open.)*
+   same way, needs its own measurement. *(Measured 2026-11-07: 4.34's published typings have no `GaussianSplatLayer`;
+   a module of that name is on the CDN but not public API. Gaussian splat waits on the move to SDK 5.x, ADR-273's
+   revisit trigger. **Deferred** with that decision.)*
 4. **An archive's extent** from its root bounding volume, for the portal's `bbox` search. *(Discharged 2026-11-07 for a
    root `region`: `TilesetExtentAsync`, and `TilesArchiveTests` finds the archive by a box around it and not by one far
    away. A root bounded by a box or a sphere still has no extent, since placing it needs the root's transform.)*

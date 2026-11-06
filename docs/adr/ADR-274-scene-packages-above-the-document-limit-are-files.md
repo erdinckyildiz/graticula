@@ -107,7 +107,8 @@ ADR-012 (server directories), ADR-193 (backups), ADR-269, ADR-272 §5.3.
    integrated mesh sample. *(Discharged 2026-11-07: §4. The upload peaked 35 MB above idle, and the download added
    nothing.)*
 5. **A console test of the large path**, on a fixture started with a small `DocumentMaxMB`, so CI keeps what §4
-   measured by hand. *(Open.)*
+   measured by hand. *(Discharged 2026-11-07, without changing the limit: `LargeScenePackagesTests` makes its own 65 MB
+   package, uploads it past the default limit, reads the scene service from it and downloads it with the same SHA-256.)*
 3. **Replace file for a large package**, through the same streaming path. *(Open.)*
 4. **A file no live row, tenant or recycle bin entry names is removed**, with a test across two tenants and a restore
    from the bin. *(Partly discharged 2026-11-07: `ScenePackageFileSweep`, hourly and once per site, removes a

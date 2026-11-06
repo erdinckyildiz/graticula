@@ -1008,8 +1008,12 @@ async function scAddUrl(url, title, itemId, kind) {
       // The SDK's own words are for a developer: kept in the console, not shown (design review).
       console.warn("Layer view not created", layer.title, e);
       if (!scState.scene.layers.includes(layer)) return false;
+      // Measured 2026-11-07 (ADR-270 §5.17, ADR-278): a voxel layer is drawn in a local scene in its own coordinate
+      // system — this viewer's local scenes are Web Mercator — and the SDK draws 3D Tiles 1.1 (glTF), not 1.0 (b3dm).
       const why = layer.type === "voxel"
-        ? `${layer.title || "The layer"} was added but can't be drawn: this server's 3D viewer can't draw voxel layers in WGS 84 yet. Remove it from Layers.`
+        ? `${layer.title || "The layer"} was added but can't be drawn here: a voxel layer is drawn in a local scene in its own coordinate system, and this viewer's local scenes are Web Mercator (EPSG:3857). Remove it from Layers.`
+        : layer.type === "integrated-mesh-3dtiles"
+        ? `${layer.title || "The layer"} was added but can't be drawn: the map SDK this server uses draws 3D Tiles 1.1 (glTF content), and this may be 3D Tiles 1.0 (b3dm). Remove it from Layers.`
         : `${layer.title || "The layer"} was added but can't be drawn in this scene. Remove it from Layers, or try it in a ${scState.mode === "local" ? "global" : "local"} scene.`;
       said.className = "said bad";
       said.textContent = why;
