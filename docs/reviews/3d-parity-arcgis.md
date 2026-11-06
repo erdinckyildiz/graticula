@@ -21,7 +21,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | A new scene is global or local, chosen at creation [1] | the same; a local scene is Web Mercator, or a 3D layer's own projected system when one is added to a new local scene (ADR-270 §5.7, §5.20) | Built |
 | Layer Manager: order, visibility, group layers [2] | order, visibility, opacity, title, zoom to, remove (§5.1) | Partly built — no group layers |
-| Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15) | Partly built — the number of values and classes is fixed, and no web style gallery |
+| Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15) | Partly built — no web style gallery (Owner) |
 | Layer properties: pop-ups, visibility ranges, filters [2] | pop-up title and fields; a range from Scene Viewer's named scales; a filter, tried before it is kept (§5.1, §5.9) | Built |
 | Configure ground: elevation layers, how the ground is shown and navigated [2] | elevation from an elevation layer, ground opacity, underground navigation (§5.1, §5.8) | Built |
 | Basemap gallery [1] | the portal's gallery, the map ground, OpenStreetMap, none | Built |
@@ -53,7 +53,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Time slider [1] | *Time*, offered with a time-aware layer (§5.9) | Built |
 | Building explorer [1] | offered with a building scene layer (§5.9); on Esri's sample it opened with its levels, construction phases and disciplines | Built |
 | Location: coordinates, elevation [1] | *Location*, the SDK's coordinate widget (§5.10) | Built |
-| Scene Viewer settings: quality, navigation [1] | *Drawing quality*, the reader's own (§5.10); navigation is the SDK's default | Partly built |
+| Scene Viewer settings: quality, navigation [1] | *Drawing quality*, mouse-wheel zoom and one-finger panning, the reader's own (§5.10, §5.21) | Built |
 
 ## D. Spatial analysis from Scene Viewer
 
@@ -65,7 +65,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 
 | ArcGIS | Graticula | State |
 |---|---|---|
-| Browse My content, favourites, groups, organisation, Living Atlas, ArcGIS Online [3] | the portal's search by title and kind, everything shared or only mine (§5.1) | Partly built — no favourites or groups filter; Living Atlas and ArcGIS Online are not this portal's |
+| Browse My content, favourites, groups, organisation, Living Atlas, ArcGIS Online [3] | the portal's search by title and kind, everything shared or only mine (§5.1) | Built — favourites and groups as *From* (§5.22); Living Atlas and ArcGIS Online are not this portal's to list |
 | Only content within the map area [3] | *Only within the current view*: the portal's search answers `bbox` since ADR-271, and the list follows the camera | Built |
 | A layer from a URL [3] | the same | Built |
 | GeoJSON and CSV files [3] | from the reader's content, drawn from the document's data (§5.11); a file elsewhere on the web is not, as the console's policy names no other origin | Built |
@@ -103,7 +103,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | Share with groups, the organisation, everyone | a web scene is an item, shared as any item (ADR-269 §5.1) | Built |
 | Email or social media link | the scene's address | Built |
-| Embed in a website, create a web app from the scene | `/studio/scene-embed.html?id=…`, framable by the sites `Graticula:EmbedOrigins` lists (ADR-275) | Partly built — the embed code is offered in Studio; no web app is made from a scene |
+| Embed in a website, create a web app from the scene | `/studio/scene-embed.html?id=…`, framable by the sites `Graticula:EmbedOrigins` lists (ADR-275) | Built — the embed code in Studio, and *Create a web app* (§5.23) |
 
 ## Still to do
 

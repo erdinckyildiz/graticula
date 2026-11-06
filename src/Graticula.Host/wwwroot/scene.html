@@ -457,6 +457,8 @@
             <option value="CSV">CSV files</option>
             <option value="GeoJson">GeoJSON files</option>
           </select>
+          <label class="field" for="addFrom">From</label>
+          <select id="addFrom"><option value="">Everything you can read</option></select>
           <label class="check"><input type="checkbox" id="addMine"> Only my content</label>
           <!-- ADR-271: the portal's search answers a box, so the list can follow the view. -->
           <label class="check"><input type="checkbox" id="addInView"> Only within the current view</label>
@@ -506,6 +508,8 @@
           <option value="medium" selected>Medium</option>
           <option value="high">High — sharper, heavier</option>
         </select>
+        <label class="check"><input type="checkbox" id="navWheel" checked> Zoom with the mouse wheel</label>
+        <label class="check"><input type="checkbox" id="navTouch" checked> Pan with one finger on a touch screen</label>
 
         <div id="groundControls">
         <label class="field" for="groundSelect">Elevation</label>
@@ -571,6 +575,13 @@
             <option value="global">Global — the whole earth</option>
             <option value="local">Local — a flat area, which can be clipped</option>
           </select>
+        </div>
+        <!-- ADR-270 §5.23: Scene Viewer's Create web app — an app item that opens the scene's viewer-only address. -->
+        <div id="appPart" hidden>
+          <h3 class="subhead">Web app</h3>
+          <p class="hint">An app of this scene alone, with its tools and slides and nothing that changes it: an item of its own in Content, shared as any item is.</p>
+          <div class="row"><button type="button" id="appCreate">Create a web app</button></div>
+          <p class="said" id="appSaid"></p>
         </div>
         <!-- ADR-275: the embed code, offered once the scene is saved and the operator has named a site that may frame it. -->
         <details id="embedPart" hidden>

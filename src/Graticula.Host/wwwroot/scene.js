@@ -562,7 +562,7 @@ function scFillLayerDetails() {
 function scReadStyle(layer) {
   const geometry = scGeometry(layer);
   const style = { shape: scDefaultShape(geometry), color: "#3a7bd5", size: geometry === "point" ? 10 : 2,
-    sizeField: "", sizeScale: 1, colorBy: "single", colorField: "", own: false };
+    sizeField: "", sizeScale: 1, colorBy: "single", colorField: "", groups: 0, own: false };
   const renderer = layer.renderer;
   if (!renderer) return style;
   // A colour for each value, or classes of a number field (ADR-270 §5.15): the symbol of the first value or class carries
@@ -573,6 +573,7 @@ function scReadStyle(layer) {
   if (grouped && renderer.field && symbol && symbol.symbolLayers) {
     style.colorBy = renderer.type === "unique-value" ? "unique" : "classes";
     style.colorField = renderer.field;
+    style.groups = grouped.length;
   } else if (renderer.type !== "simple" || !symbol || !symbol.symbolLayers) { style.own = renderer.type !== "simple"; return style; }
   const symbolLayer = symbol.symbolLayers.getItemAt(0);
   if (!symbolLayer) return style;
@@ -627,7 +628,9 @@ function scStyleForm(layer) {
     }).join("")}</select>
     <div data-part="colorField" ${style.colorBy === "single" ? "hidden" : ""}>
       <label class="field" for="cf-${id}">By field</label>
-      <select data-style="colorField" id="cf-${id}">${scColorFieldOptions(layer, style.colorBy)}</select></div>
+      <select data-style="colorField" id="cf-${id}">${scColorFieldOptions(layer, style.colorBy)}</select>
+      <label class="field" for="cg-${id}" data-part="groupsLabel">${style.colorBy === "unique" ? "Most common values shown" : "Classes"}</label>
+      <input type="number" data-style="groups" id="cg-${id}" min="2" max="10" step="1" value="${style.groups || (style.colorBy === "unique" ? 10 : 5)}"></div>
     <div data-part="colorSwatch" ${style.colorBy === "unique" ? "hidden" : ""}>
       <label class="field" for="co-${id}" data-part="colorSwatchLabel">${SC_SWATCH_LABELS[style.colorBy] || "Colour"}</label>
       <input type="color" data-style="color" id="co-${id}" value="${scEscape(style.color)}"></div>
@@ -679,6 +682,9 @@ scOnLayers("change", event => {
   row.hidden = event.target.value === "single";
   row.querySelector("select").innerHTML = scColorFieldOptions(layer, event.target.value);
   detail.querySelector("[data-part=colorSwatch]").hidden = event.target.value === "unique";
+  // How many: the ten most common values, or five classes, unless the reader says otherwise (2 to 10).
+  detail.querySelector("[data-part=groupsLabel]").textContent = event.target.value === "unique" ? "Most common values shown" : "Classes";
+  detail.querySelector("[data-style=groups]").value = event.target.value === "unique" ? "10" : "5";
   detail.querySelector("[data-part=colorSwatchLabel]").textContent = SC_SWATCH_LABELS[event.target.value] || "Colour";
 }, true);
 
@@ -697,7 +703,8 @@ function scFormStyle(detail) {
   const colorBy = read("colorBy") || "single";
   return { shape: read("shape"), color: read("color") || "#3a7bd5", size: Number(read("size")) || 0,
     sizeField: read("sizeField"), sizeScale: Number(read("sizeScale")) || 1, colorBy,
-    colorField: colorBy === "single" ? "" : read("colorField") };
+    colorField: colorBy === "single" ? "" : read("colorField"),
+    groups: Math.min(10, Math.max(2, Math.round(Number(read("groups")) || (colorBy === "unique" ? 10 : 5)))) };
 }
 
 /** The renderer a style asks for, as the JSON the SDK autocasts — the same JSON a web scene keeps. */
@@ -711,7 +718,7 @@ async function scRendererFor(layer, style) {
     const [uniqueValues] = await scRequire(["esri/smartMapping/statistics/uniqueValues"]);
     const found = await uniqueValues({ layer, field: style.colorField, view: scState.view });
     const common = (found.uniqueValueInfos || []).filter(info => info.value !== null && info.value !== undefined)
-      .sort((a, b) => b.count - a.count).slice(0, SC_CATEGORIES.length);
+      .sort((a, b) => b.count - a.count).slice(0, Math.min(style.groups || SC_CATEGORIES.length, SC_CATEGORIES.length));
     if (common.length === 0) throw new Error(`${style.colorField} has no values to colour by`);
     return { type: "unique-value", field: style.colorField, visualVariables,
       defaultSymbol: symbolOf("#c9ced4"), defaultLabel: "Other",
@@ -720,7 +727,7 @@ async function scRendererFor(layer, style) {
 
   if (style.colorBy === "classes" && style.colorField) {
     const [classBreaks] = await scRequire(["esri/smartMapping/statistics/classBreaks"]);
-    const found = await classBreaks({ layer, field: style.colorField, classificationMethod: "natural-breaks", numClasses: 5, view: scState.view });
+    const found = await classBreaks({ layer, field: style.colorField, classificationMethod: "natural-breaks", numClasses: style.groups || 5, view: scState.view });
     const classes = found.classBreakInfos || [];
     if (classes.length === 0) throw new Error(`${style.colorField} has no values to class`);
     return { type: "class-breaks", field: style.colorField, visualVariables,
@@ -1103,6 +1110,7 @@ async function scSearchAdd() {
   const parts = [`type:(${types.map(t => `"${t}"`).join(" OR ")})`];
   if (words) parts.push(`title:${JSON.stringify(words)}`);
   if (sc$("addMine").checked && scState.user) parts.push(`owner:${scState.user}`);
+  if (sc$("addFrom").value) parts.push(sc$("addFrom").value);
   const asked = (scState.addAsked = (scState.addAsked || 0) + 1);
   try {
     const box = sc$("addInView").checked ? await scViewBox() : null;
@@ -1174,6 +1182,7 @@ let scAddTimer = 0;
 sc$("addFilter").addEventListener("input", () => { clearTimeout(scAddTimer); scAddTimer = setTimeout(scSearchAdd, 250); });
 sc$("addType").addEventListener("change", scSearchAdd);
 sc$("addMine").addEventListener("change", scSearchAdd);
+sc$("addFrom").addEventListener("change", scSearchAdd);
 sc$("addInView").addEventListener("change", scSearchAdd);
 sc$("addShowAll").addEventListener("click", () => {
   scState.showAll = true;
@@ -1496,6 +1505,26 @@ sc$("sceneQuality").addEventListener("change", event => {
   try { localStorage.setItem("graticula-scene-quality", event.target.value); } catch { /* private mode */ }
   scSay(`Drawing quality is ${event.target.value}.`);
 });
+
+// Scene Viewer's navigation settings, this reader's too: zooming with the mouse wheel, and one finger panning on a touch
+// screen — off where the scene sits in a page that scrolls (ADR-270 §5.21, the SDK's view.navigation).
+function scNavigation() {
+  const read = (key, fallback) => { try { const v = localStorage.getItem(key); return v === null ? fallback : v === "true"; } catch { return fallback; } };
+  const wheel = read("graticula-scene-wheel", true), touch = read("graticula-scene-touch", true);
+  sc$("navWheel").checked = wheel;
+  sc$("navTouch").checked = touch;
+  if (scState.view) {
+    scState.view.navigation.mouseWheelZoomEnabled = wheel;
+    scState.view.navigation.browserTouchPanEnabled = touch;
+  }
+}
+for (const [id, key, said] of [["navWheel", "graticula-scene-wheel", "Zooming with the mouse wheel"], ["navTouch", "graticula-scene-touch", "Panning with one finger"]]) {
+  sc$(id).addEventListener("change", event => {
+    try { localStorage.setItem(key, String(event.target.checked)); } catch { /* private mode */ }
+    scNavigation();
+    scSay(`${said} is ${event.target.checked ? "on" : "off"}.`);
+  });
+}
 
 sc$("groundUnder").addEventListener("change", event => {
   // Below the ground only when asked: Scene Viewer's own default keeps the camera above it.
@@ -2201,7 +2230,29 @@ function scHideSide() {
 // ---------------------------------------------------------------------------------------------------------------------
 // Embedding (ADR-275): the code for a saved scene, when the operator has named a site that may frame it.
 
+sc$("appCreate").addEventListener("click", async () => {
+  const title = `${sc$("sceneTitle").value.trim() || "Scene"} — app`;
+  const said = sc$("appSaid");
+  said.className = "said";
+  said.textContent = "Creating the app…";
+  try {
+    const made = await scPortal(`/content/users/${encodeURIComponent(scState.user)}/addItem`, {
+      type: "Web Mapping Application", title,
+      url: `${location.origin}/studio/scene-embed.html?id=${encodeURIComponent(scState.id)}`,
+      typeKeywords: "JavaScript,Map,Mapping Site,Online Map,Ready To Use,Scene",
+      snippet: `The scene ${sc$("sceneTitle").value.trim() || ""} as an app.`.replace("  ", " "),
+    });
+    said.innerHTML = `Created <a href="/studio/#/item/${scEscape(made.id)}">${scEscape(title)}</a>. It opens <a href="/studio/scene-embed.html?id=${encodeURIComponent(scState.id)}" target="_blank" rel="noopener">the scene alone</a>.`;
+    scSay(`${title} was created.`);
+  } catch (e) {
+    said.className = "said bad";
+    said.textContent = `Not created: ${e.message}`;
+  }
+});
+
 function scDrawEmbed() {
+  // The app needs a saved scene, and is its owner's to make.
+  sc$("appPart").hidden = !scCanEdit() || !scState.id;
   const sites = window.GRATICULA_EMBED_ORIGINS || [];
   const part = sc$("embedPart");
   part.hidden = !scCanEdit() || !scState.id || sites.length === 0;
@@ -2289,6 +2340,11 @@ async function scStart() {
     scPortal("/community/self").catch(() => null),
   ]);
   scState.user = me && me.username ? me.username : null;
+  // ADR-270 §5.22: whose layers the Add list shows — the reader's favourites and groups, as Scene Viewer's Browse does.
+  scState.me = me;
+  const from = sc$("addFrom");
+  if (me && me.favGroupId) from.insertAdjacentHTML("beforeend", `<option value="group:${scEscape(me.favGroupId)}">My favourites</option>`);
+  for (const g of (me && me.groups) || []) from.insertAdjacentHTML("beforeend", `<option value="group:${scEscape(g.id)}">Group: ${scEscape(g.title)}</option>`);
   // Signed in by the cookie alone (a new tab): a token of this tab's own, so Save can write.
   if (scState.user && !scToken) await scExchangeSession();
   if (!scState.user) sc$("studio").hidden = false;
@@ -2365,6 +2421,7 @@ async function scStart() {
   scState.view = new SceneView({ container: "viewDiv", map: scState.scene, qualityProfile: sc$("sceneQuality").value,
     viewingMode: scState.mode,
     clippingArea: scState.mode === "local" && scState.scene.clippingEnabled ? scState.scene.clippingArea : null });
+  scNavigation();
   // A camera the reader moved is a change worth saving; one the view settled on its own — a resize, a phone's first
   // layout — is not (design review: a reopened scene read "Not saved" on a phone with nothing done).
   for (const kind of ["pointerdown", "wheel", "keydown"]) {

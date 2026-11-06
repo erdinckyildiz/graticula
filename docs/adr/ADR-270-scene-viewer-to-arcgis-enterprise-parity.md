@@ -228,6 +228,16 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     basemap this server offers is Web Mercator, and the offer says so. To a scene with layers, it says why it was not
     added. *Measured: a public voxel sample in EPSG:2056 (Swiss LV95), used locally and not committed, was offered, the
     scene started in 2056 and the voxel drawn.*
+21. **Navigation settings** (2026-11-07, the comparison's §C *Scene Viewer settings*): the reader's own, beside drawing
+    quality and kept in the browser. *Zoom with the mouse wheel* and *Pan with one finger on a touch screen* are the
+    SDK's `view.navigation`; both are on by default.
+22. **Favourites and groups in the Add list** (§E): *From* lists everything the reader can read, their favourites
+    (`favGroupId`) or one of their groups, as a `group:` clause of the portal's search.
+23. **A web app from a saved scene** (§H): *Create a web app* makes a `Web Mapping Application` item whose address is
+    the scene's viewer-only one ([ADR-275](ADR-275-a-scene-may-be-embedded-by-the-sites-the-operator-lists.md)), an
+    item of its own and shared as any item is. *(INFERRED: Scene Viewer's own creates an Instant Apps app; this is the
+    smallest app that shows a scene and nothing that changes it.)* §15 is amended: the number of values (up to ten)
+    and classes (two to ten) is the reader's to choose.
 
 ## 6. Consequences
 

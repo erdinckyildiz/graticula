@@ -824,6 +824,13 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             Assert.True(await Browser.EvaluateAsync<bool>("document.querySelector('[data-detail] [data-part=colorSwatch]').hidden"),
                 "A colour each still offered a colour well that does nothing.");
             Assert.Equal(8, await Browser.EvaluateAsync<int>("scState.scene.layers.getItemAt(0).renderer.uniqueValueInfos.length"));
+            // How many values: the reader's choice, the rest grey as Other (ADR-270 §5.15, amended).
+            await Browser.EvaluateAsync<bool>("(() => { const g = document.querySelector('[data-detail] [data-style=groups]'); g.value = '3';"
+                + " g.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("scState.scene.layers.getItemAt(0).renderer.uniqueValueInfos.length === 3", "Choosing three values did not colour three.");
+            await Browser.EvaluateAsync<bool>("(() => { const g = document.querySelector('[data-detail] [data-style=groups]'); g.value = '10';"
+                + " g.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("scState.scene.layers.getItemAt(0).renderer.uniqueValueInfos.length === 8", "Choosing ten values did not colour every one of eight.");
             Assert.False(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('[data-detail] [data-style=colorField] option')].some(o => /objectid|globalid/.test(o.value))"),
                 "An id field was offered to colour by.");
 
@@ -1037,5 +1044,58 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         await WaitForAsync($"scState.view.popup.visible && String(scState.view.popup.features[0]?.getObjectId()) === '{feature}'",
             "Going to the slide did not open its pop-up on the same feature.");
         NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// ADR-270 §5.21–5.23: the reader's navigation settings, the Add list's favourites and groups, and a web app made from
+    /// a saved scene that opens its viewer-only address.
+    /// </summary>
+    [Fact]
+    public async Task Navigation_favourites_and_a_web_app_from_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null, app = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            Assert.True(await Browser.EvaluateAsync<bool>("[...document.getElementById('addFrom').options].some(o => o.textContent === 'My favourites')"),
+                "The Add list offered no favourites.");
+            await Browser.EvaluateAsync<bool>("(() => { const f = document.getElementById('addFrom'); f.value = [...f.options].find(o => o.textContent === 'My favourites').value;"
+                + " f.dispatchEvent(new Event('change')); return true; })()");
+            await WaitForAsync("/group:/.test(performance.getEntriesByType('resource').map(e => decodeURIComponent(e.name)).filter(n => /\\/search\\?/.test(n)).pop() || '')",
+                "Choosing favourites did not search the favourites group.");
+
+            await ClickAsync("#tab-ground");
+            await ClickAsync("#navWheel");
+            await WaitForAsync("scState.view.navigation.mouseWheelZoomEnabled === false", "Turning the mouse wheel off did not reach the view.");
+            await ClickAsync("#navWheel");
+            await WaitForAsync("scState.view.navigation.mouseWheelZoomEnabled === true", "Turning the mouse wheel on again did not reach the view.");
+
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            id = await SaveAsAsync("zz console scene app");
+            await ClickAsync("#tab-scene");
+            await WaitForAsync("!document.getElementById('appPart').hidden", "A saved scene offered no web app.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/addItem'], true)");
+            await ClickAsync("#appCreate");
+            await WaitForAsync("/was created|Created/.test(document.getElementById('appSaid').textContent)", "The web app was not created.");
+            app = await Browser.EvaluateAsync<string>("(document.querySelector('#appSaid a').getAttribute('href').match(/item\\/([0-9a-f]{32})/) || [])[1]");
+            (int status, string item) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/content/items/{app}?f=json");
+            Assert.Equal(200, status);
+            JsonElement made = JsonDocument.Parse(item).RootElement;
+            Assert.Equal("Web Mapping Application", made.GetProperty("type").GetString());
+            Assert.EndsWith($"/studio/scene-embed.html?id={id}", made.GetProperty("url").GetString());
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            foreach (string? each in new[] { app, id })
+            {
+                if (each is not null)
+                {
+                    await AdminAsync(HttpMethod.Delete, $"/content/documents/{each}");
+                }
+            }
+        }
     }
 }

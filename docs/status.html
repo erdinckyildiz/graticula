@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>60750b0c</code> · 2026-11-06 14:34</p>
+<p class="stamp">Generated from commit <code>b28bb33e</code> · 2026-11-06 14:38</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">277</div><div class="kpi-l">ADRs</div><div class="kpi-n">93 accepted outright</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open debts</div><div class="kpi-n">330 repaid · 22 waiting on a trigger</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">6094</div><div class="kpi-l">tests</div><div class="kpi-n">673 source files, 297,822 lines</div></div>
+<div class="kpi good"><div class="kpi-v">6095</div><div class="kpi-l">tests</div><div class="kpi-n">673 source files, 297,822 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -588,7 +588,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.8%"></div></div><div class="bar-n">971</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.5%"></div></div><div class="bar-n">966</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.7%"></div></div><div class="bar-n">579</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.2%"></div></div><div class="bar-n">482</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.3%"></div></div><div class="bar-n">483</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.7%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.4%"></div></div><div class="bar-n">131</div></div>
@@ -646,6 +646,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b28bb33e</code><time>2026-11-06</time><span>A slide&#x27;s slice and pop-up are tested: captured, left, and put back on the same feature (ADR-270 §5.19)</span></li>
 <li><code>60750b0c</code><time>2026-11-06</time><span>The site-sweep test counts every sweep&#x27;s lock from SiteSingletons.Names</span></li>
 <li><code>8b2de809</code><time>2026-11-06</time><span>The scene viewer passes its third look; a local scene in a layer&#x27;s own projected system; large packages across a site</span></li>
 <li><code>72286d5b</code><time>2026-11-06</time><span>Create a layer to draw in, from the scene (ADR-276 condition 2)</span></li>
@@ -659,7 +660,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>03f00cbd</code><time>2026-11-06</time><span>Where the document limit is described, the scene package exception is named (ADR-274)</span></li>
 <li><code>507d59b0</code><time>2026-11-06</time><span>A scene layer package above the document limit is a file in the server directories (ADR-274, D-386 closed)</span></li>
 <li><code>c3dbae8f</code><time>2026-11-06</time><span>A slide keeps its slice, legend and pop-up, and is played as a caption, a cover or the scene alone (ADR-270 §5.19)</span></li>
-<li><code>42e51f69</code><time>2026-11-06</time><span>The Maps SDK is 4.34, and the scene gains Volume, Viewshed and Dimensions (ADR-273, ADR-270 §5.18)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
