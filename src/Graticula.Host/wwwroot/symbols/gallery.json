@@ -1,0 +1,90 @@
+{
+ "name": "Graticula",
+ "licence": "the product's own, made by tools/scene-symbols.py",
+ "items": [
+  {
+   "name": "tree",
+   "title": "Tree",
+   "category": "Vegetation",
+   "href": "tree.glb",
+   "height": 6.2
+  },
+  {
+   "name": "conifer",
+   "title": "Conifer",
+   "category": "Vegetation",
+   "href": "conifer.glb",
+   "height": 7.4
+  },
+  {
+   "name": "bush",
+   "title": "Bush",
+   "category": "Vegetation",
+   "href": "bush.glb",
+   "height": 1.11
+  },
+  {
+   "name": "bench",
+   "title": "Bench",
+   "category": "Street furniture",
+   "href": "bench.glb",
+   "height": 0.95
+  },
+  {
+   "name": "street-lamp",
+   "title": "Street lamp",
+   "category": "Street furniture",
+   "href": "street-lamp.glb",
+   "height": 6.0
+  },
+  {
+   "name": "bollard",
+   "title": "Bollard",
+   "category": "Street furniture",
+   "href": "bollard.glb",
+   "height": 0.9
+  },
+  {
+   "name": "bin",
+   "title": "Litter bin",
+   "category": "Street furniture",
+   "href": "bin.glb",
+   "height": 0.95
+  },
+  {
+   "name": "bus-stop",
+   "title": "Bus stop",
+   "category": "Street furniture",
+   "href": "bus-stop.glb",
+   "height": 2.58
+  },
+  {
+   "name": "hydrant",
+   "title": "Fire hydrant",
+   "category": "Street furniture",
+   "href": "hydrant.glb",
+   "height": 0.75
+  },
+  {
+   "name": "traffic-cone",
+   "title": "Traffic cone",
+   "category": "Traffic",
+   "href": "traffic-cone.glb",
+   "height": 0.74
+  },
+  {
+   "name": "car",
+   "title": "Car",
+   "category": "Traffic",
+   "href": "car.glb",
+   "height": 1.65
+  },
+  {
+   "name": "person",
+   "title": "Person",
+   "category": "People",
+   "href": "person.glb",
+   "height": 1.72
+  }
+ ]
+}

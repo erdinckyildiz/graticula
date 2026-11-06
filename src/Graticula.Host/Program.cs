@@ -1981,6 +1981,8 @@ public static class Program
         // web was worth fixing for its own sake.
         Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider contentTypes = new();
         contentTypes.Mappings[".geojson"] = "application/geo+json";
+        // The scene viewer's own 3D symbols (ADR-281 §5.3); without it a .glb answers 404, as .geojson did.
+        contentTypes.Mappings[".glb"] = "model/gltf-binary";
 
         // <b>Two paths, one directory, since ADR-034.</b> The application used to be *the
         // console* and lived at `/console`; it is now two surfaces — Server for the operator

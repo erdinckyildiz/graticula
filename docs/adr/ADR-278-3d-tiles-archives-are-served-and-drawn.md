@@ -28,7 +28,7 @@ it by entry from its zip ([ADR-269](ADR-269-scenes-web-scenes-scene-packages-and
 
 A `.3tz` (a zip so named) is a document kind. Above the document limit it is a file, as
 [ADR-274](ADR-274-scene-packages-above-the-document-limit-are-files.md) keeps a large package. It is listed as a
-**`3D Tiles Service`** item whose `url` is `…/rest/services/hosted/{id}/3DTilesServer/tileset.json`. Every path below
+**`3DTiles Service`** item *(spelled `3D Tiles Service` until 2026-11-07, see §5.1)* whose `url` is `…/rest/services/hosted/{id}/3DTilesServer/tileset.json`. Every path below
 `3DTilesServer/` is the archive entry of that path, served as it is: nothing is rewritten, and a path with `..` is
 refused. The same reader indexes the zip once and seeks per request. The scene adds it from the list by its kind, or
 from an address naming a tileset or a `3DTilesServer`, as the SDK's 3D tiles layer.
@@ -52,7 +52,7 @@ directly.
 `TilesArchiveTests` (console, on the fixture 2026-11-07). The test makes its own archive, one 50 m glTF box placed by
 the tileset's east-north-up transform, so nothing of anyone else's is in it.
 
-- The archive is uploaded and listed as `3D Tiles Service` with its tileset address.
+- The archive is uploaded and listed as `3DTiles Service` with its tileset address.
 - `tileset.json` is served, and a `..` path is refused.
 - The box is served as `model/gltf-binary`.
 - In a scene, the archive is offered among *3D tiles layers*, added, loaded as `integrated-mesh-3dtiles`, and its view
@@ -61,8 +61,11 @@ the tileset's east-north-up transform, so nothing of anyone else's is in it.
 
 ## 5. Decision
 
-1. Document kind `3tz`, recognised by a zip head and the `.3tz` name, listed as `3D Tiles Service`. `INFERRED`: that is
-   the name ArcGIS Online gives a hosted 3D tiles layer.
+1. Document kind `3tz`, recognised by a zip head and the `.3tz` name, listed as ~~`3D Tiles Service`~~ **`3DTiles Service`**. ~~`INFERRED`: that is
+   the name ArcGIS Online gives a hosted 3D tiles layer.~~ *(Corrected 2026-11-07: the inference was wrong. A public
+   ArcGIS Online 3D tiles item's type is `3DTiles Service`, with no space, read from the item itself
+   ([ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §4). The kind, the scene viewer's list and its test
+   now say so.)*
 2. `GET /rest/services/hosted/{id}/3DTilesServer/{path}` serves the entry at that path, under the item's sharing.
 3. Above the document limit, the archive is a file (ADR-274), checked to hold a `tileset.json`.
 4. The scene viewer adds it as `IntegratedMesh3DTilesLayer`. The web scene keeps it as the SDK writes it.
@@ -88,10 +91,13 @@ ADR-269, ADR-272 §5.5, ADR-273, ADR-274.
    added. *(Discharged 2026-11-07: an archive of the same box as b3dm in a 1.0 tileset was kept, served and loaded, and
    SDK 4.34 created no layer view for it. 1.0 content is not drawn, and adding one now says so. Drawing it is a
    conversion to glTF, or an SDK that draws b3dm.)*
+   *(Answered again 2026-11-07 on SDK 5.2 ([ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §4): the
+   same archive is drawn. 1.0 content is drawn as 1.1 is.)*
 3. **Gaussian splat**: the SDK 4.34 has `GaussianSplatLayer`. What it reads, and whether this server can host it the
    same way, needs its own measurement. *(Measured 2026-11-07: 4.34's published typings have no `GaussianSplatLayer`;
    a module of that name is on the CDN but not public API. Gaussian splat waits on the move to SDK 5.x, ADR-273's
-   revisit trigger. **Deferred** with that decision.)*
+   revisit trigger. ~~Deferred with that decision.~~)* *(Taken up again 2026-11-07, ADR-281 §5.2: on 5.2 the scene viewer adds a splat tileset as a
+   splat layer, and Esri's sample is drawn. A splat archive of our own is refused, and is ADR-281 condition 2's rest.)*
 4. **An archive's extent** from its root bounding volume, for the portal's `bbox` search. *(Discharged 2026-11-07 for a
    root `region`: `TilesetExtentAsync`, and `TilesArchiveTests` finds the archive by a box around it and not by one far
    away. A root bounded by a box or a sphere still has no extent, since placing it needs the root's transform.)*

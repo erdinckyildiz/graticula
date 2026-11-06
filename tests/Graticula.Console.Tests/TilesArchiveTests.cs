@@ -46,15 +46,15 @@ public sealed class TilesArchiveTests : ConsoleTest
             (int status, string item) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
             Assert.Equal(200, status);
             JsonElement described = JsonDocument.Parse(item).RootElement;
-            Assert.Equal("3D Tiles Service", described.GetProperty("type").GetString());
+            Assert.Equal("3DTiles Service", described.GetProperty("type").GetString());
             string tileset = described.GetProperty("url").GetString()!;
             Assert.EndsWith($"/rest/services/hosted/{id}/3DTilesServer/tileset.json", tileset);
 
             // ADR-278 condition 4: the portal's bbox search finds the archive by its root region, and not elsewhere.
-            (status, string near) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=type:%223D%20Tiles%20Service%22&bbox=28.9,40.9,29.1,41.1&f=json");
+            (status, string near) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=type:%223DTiles%20Service%22&bbox=28.9,40.9,29.1,41.1&f=json");
             Assert.Equal(200, status);
             Assert.Contains(id!, near, StringComparison.Ordinal);
-            (_, string far) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=type:%223D%20Tiles%20Service%22&bbox=-10,-10,-9,-9&f=json");
+            (_, string far) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=type:%223DTiles%20Service%22&bbox=-10,-10,-9,-9&f=json");
             Assert.DoesNotContain(id!, far, StringComparison.Ordinal);
 
             (status, string read) = await AdminAsync(HttpMethod.Get, $"/rest/services/hosted/{id}/3DTilesServer/tileset.json");
@@ -73,7 +73,7 @@ public sealed class TilesArchiveTests : ConsoleTest
             await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The scene viewer did not open.");
 
             // From the add list, by its kind: the layer the SDK makes of it is its 3D tiles layer.
-            await Browser.EvaluateAsync<bool>("(document.getElementById('addType').value = '3D Tiles Service', document.getElementById('addType').dispatchEvent(new Event('change')), true)");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('addType').value = '3DTiles Service', document.getElementById('addType').dispatchEvent(new Event('change')), true)");
             await WaitForAsync($"!!document.querySelector('#addList [data-item=\"{id}\"]')", "The archive was not offered among 3D tiles layers.");
             await ClickAsync($"#addList [data-item=\"{id}\"]");
             await WaitForAsync("scState.scene.layers.length === 1 && scState.scene.layers.getItemAt(0).loadStatus === 'loaded'",

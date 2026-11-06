@@ -796,6 +796,82 @@ public sealed class SceneViewerToolsTests : ConsoleTest
     }
 
     /// <summary>
+    /// ADR-281 §5.4: Terrain drapes the slope of one of this server's image services on the scene, as an imagery layer
+    /// with the server's raster function, and the server answers that function.
+    /// </summary>
+    [Fact]
+    public async Task Terrain_drapes_a_surfaces_slope_on_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        await OpenNewSceneAsync(token, cookie);
+        await OpenToolAsync("terrain");
+        await WaitForAsync("[...document.querySelectorAll('#trSource option')].some(o => /ci_imagery/.test(o.value))",
+            "Terrain did not offer the server's image service.");
+        await Browser.EvaluateAsync<bool>("(() => { const s = document.getElementById('trSource'); s.value = [...s.options].find(o => /ci_imagery/.test(o.value)).value;"
+            + " const f = document.getElementById('trFunction'); f.value = 'slope'; f.dispatchEvent(new Event('change')); return true; })()");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('trLight').hidden"), "Slope offered the hillshade's light.");
+        Assert.True(await Browser.EvaluateAsync<bool>("!!document.getElementById('trSays')"), "Terrain's panel has no line to answer on.");
+        await ClickAsync("#trAdd");
+        await WaitForAsync("/was added/.test(document.getElementById('trSays').textContent)",
+            "Terrain did not add the layer: " + await Browser.EvaluateAsync<string>("document.getElementById('trSays')?.textContent || ''"));
+        Assert.Equal("imagery", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).type"));
+        Assert.Equal("Slope", await Browser.EvaluateAsync<string>("scState.scene.layers.getItemAt(0).rasterFunction.functionName"));
+        await WaitForAsync("performance.getEntriesByType('resource').some(e => e.name.includes('/ImageServer/exportImage') && /Slope/.test(decodeURIComponent(e.name)))",
+            "The scene never asked the server for the slope.");
+
+        string rule = Uri.EscapeDataString("""{"rasterFunction":"Slope","rasterFunctionArguments":{"SlopeType":1,"ZFactor":1}}""");
+        (int status, _) = await AdminAsync(HttpMethod.Get,
+            $"/rest/services/hosted/ci_imagery/ImageServer/exportImage?bbox=-180,-90,180,90&size=64,64&format=png&renderingRule={rule}&f=image");
+        Assert.Equal(200, status);
+
+        // The scene keeps the layer with its function, as any imagery layer with a raster function is kept.
+        string id = await SaveAsAsync("zz console scene terrain");
+        try
+        {
+            Assert.Contains("Slope", (await SavedSceneAsync(id)).GetProperty("operationalLayers").GetRawText(), StringComparison.Ordinal);
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+        }
+    }
+
+    /// <summary>
+    /// ADR-281 §5.3: a point layer is drawn as one of the product's own 3D models, at the model's height, and the form
+    /// reads the model back; the model is served beside the page as glTF.
+    /// </summary>
+    [Fact]
+    public async Task A_point_layer_is_drawn_as_a_model_from_the_gallery()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string editable = (Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE") ?? "hosted/ci_editable").Trim('/');
+
+        await OpenNewSceneAsync(token, cookie);
+        await AddByAddressAsync($"{Root}/rest/services/{editable}/FeatureServer/0", 1);
+        await ClickAsync("#tab-layers");
+        await ClickAsync("#layerList [data-layer] [data-act=select]");
+        await WaitForAsync("!!document.querySelector('[data-detail] [data-style=shape]')", "The point layer's settings offered no look.");
+        Assert.True(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('[data-detail] [data-style=shape] option')].filter(o => o.value.startsWith('model:')).length >= 10"),
+            "The gallery's models were not offered as shapes.");
+
+        await Browser.EvaluateAsync<bool>("(() => { const c = document.querySelector('[data-detail] [data-style=shape]'); c.value = 'model:tree';"
+            + " c.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await WaitForAsync("/symbols\\/tree\\.glb$/.test(scState.scene.layers.getItemAt(0).renderer?.symbol?.symbolLayers?.getItemAt(0)?.resource?.href || '')",
+            "Choosing the tree did not draw the layer with the tree model.");
+        Assert.Equal(6.2, await Browser.EvaluateAsync<double>("scState.scene.layers.getItemAt(0).renderer.symbol.symbolLayers.getItemAt(0).height"), 2);
+
+        // Read back: the form says tree, from the symbol's address.
+        Assert.Equal("model:tree", await Browser.EvaluateAsync<string>("scReadStyle(scState.scene.layers.getItemAt(0)).shape"));
+
+        using HttpResponseMessage model = await Http.GetAsync(new Uri($"{Root}/studio/symbols/tree.glb"));
+        Assert.Equal(System.Net.HttpStatusCode.OK, model.StatusCode);
+        Assert.Equal("model/gltf-binary", model.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("glTF", Encoding.ASCII.GetString((await model.Content.ReadAsByteArrayAsync())[..4]));
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
     /// ADR-270 §5.15: a layer is coloured by a field's values, a colour each, or by classes of a number field, as Scene
     /// Viewer's styles colour one; the web scene keeps the renderer and the form reads it back.
     /// </summary>

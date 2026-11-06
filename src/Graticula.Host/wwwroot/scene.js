@@ -95,8 +95,11 @@ function scLoadSdk() {
     const dark = document.documentElement.dataset.theme === "dark";
     document.body.classList.toggle("calcite-mode-dark", dark);
     document.body.classList.toggle("calcite-mode-light", !dark);
+    // ADR-281: 5.x is loaded as a module (core.js), which still answers `require`; 4.x by its classic init.
     const script = document.createElement("script");
-    script.src = url;
+    const modular = !/\/4\.\d+\/$/.test(url);
+    if (modular) script.type = "module";
+    script.src = modular ? url + "core.js" : url;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error("it could not be fetched from " + url));
     document.head.append(script);
@@ -117,7 +120,8 @@ function scKind(layer) {
   if (layer.type === "scene" && layer.geometryType === "point") return "Points";
   return ({ "feature": "Features", "scene": "3D objects", "point-cloud": "Point cloud", "building-scene": "Buildings",
     "integrated-mesh": "Mesh", "imagery": "Imagery", "imagery-tile": "Imagery", "map-image": "Map image",
-    "vector-tile": "Vector tiles", "elevation": "Elevation", "voxel": "Voxels", "csv": "CSV points", "geojson": "GeoJSON" })[layer.type] || layer.type;
+    "vector-tile": "Vector tiles", "elevation": "Elevation", "voxel": "Voxels", "csv": "CSV points", "geojson": "GeoJSON",
+    "integrated-mesh-3dtiles": "3D tiles", "gaussian-splat": "Gaussian splats" })[layer.type] || layer.type;
 }
 
 function scMarkDirty() {
@@ -605,7 +609,9 @@ function scReadStyle(layer) {
   const color = symbolLayer.material && symbolLayer.material.color;
   if (color) style.color = color.toHex();
   style.shape = ({ extrude: "extrude", fill: geometry === "mesh" ? "mesh" : "flat", icon: "icon", line: "line", path: "tube" })[symbolLayer.type]
-    || (symbolLayer.type === "object" ? (symbolLayer.resource && symbolLayer.resource.primitive) || "sphere" : style.shape);
+    || (symbolLayer.type === "object" && symbolLayer.resource && symbolLayer.resource.href && scGalleryModel(symbolLayer.resource.href)
+      ? `model:${scGalleryModel(symbolLayer.resource.href).name}`
+      : symbolLayer.type === "object" ? (symbolLayer.resource && symbolLayer.resource.primitive) || "sphere" : style.shape);
   if (symbolLayer.size) style.size = symbolLayer.size;
   if (symbolLayer.width) style.size = symbolLayer.width;
   if (symbolLayer.height && symbolLayer.type === "object") style.size = symbolLayer.height;
@@ -624,11 +630,28 @@ function scDefaultShape(geometry) {
   return ({ polygon: "flat", point: "icon", polyline: "line", mesh: "mesh" })[geometry] || "flat";
 }
 
+/**
+ * The scene viewer's own 3D symbols (ADR-281 §5.3): glTF models this product makes (tools/scene-symbols.py), served
+ * beside the page. A point drawn as one keeps the model's address in the web scene, as any glTF symbol is kept.
+ */
+let SC_GALLERY = [];
+const SC_GALLERY_BASE = new URL("symbols/", location.href).href;
+const scGalleryReady = fetch(SC_GALLERY_BASE + "gallery.json")
+  .then(r => (r.ok ? r.json() : { items: [] }))
+  .then(g => { SC_GALLERY = g.items || []; })
+  .catch(() => { SC_GALLERY = []; });
+
+/** The gallery model a symbol layer draws, by its address. */
+function scGalleryModel(href) {
+  return SC_GALLERY.find(m => href && href.replace(/[?#].*$/, "") === SC_GALLERY_BASE + m.href) || null;
+}
+
 /** The shapes a geometry may be drawn as. */
 function scShapes(geometry) {
   if (geometry === "polygon") return [["flat", "Flat, draped"], ["extrude", "Extruded"]];
   if (geometry === "point") return [["icon", "Icon"], ["sphere", "Sphere"], ["cylinder", "Cylinder"], ["cone", "Cone"],
-    ["cube", "Cube"], ["diamond", "Diamond"]];
+    ["cube", "Cube"], ["diamond", "Diamond"],
+    ...SC_GALLERY.map(m => [`model:${m.name}`, `${m.title} (${m.category.toLowerCase()})`])];
   if (geometry === "polyline") return [["line", "Line"], ["tube", "Tube"]];
   return [["mesh", "Solid colour"]];
 }
@@ -696,6 +719,14 @@ function scBlend(from, to, share) {
   const a = from.match(/\w\w/g).map(h => parseInt(h, 16)), b = to.match(/\w\w/g).map(h => parseInt(h, 16));
   return "#" + a.map((v, i) => Math.round(v + (b[i] - v) * share).toString(16).padStart(2, "0")).join("");
 }
+
+// A model chosen is drawn at its own height until the reader says otherwise (ADR-281 §5.3).
+scOnLayers("change", event => {
+  if (!event.target.matches("[data-style=shape]")) return;
+  const model = SC_GALLERY.find(m => `model:${m.name}` === event.target.value);
+  const size = event.target.closest("[data-detail]")?.querySelector("[data-style=size]");
+  if (model && size) size.value = String(model.height);
+}, true);
 
 // The field list follows the colouring chosen, before the look is applied with it.
 scOnLayers("change", event => {
@@ -777,7 +808,12 @@ function scSymbolFor(geometry, style, material) {
       ? { type: "extrude", size: style.size || 10, material, edges: { type: "solid", color: [0, 0, 0, 0.35], size: 0.5 } }
       : { type: "fill", material, outline: { color: [0, 0, 0, 0.4], size: 0.75 } }] };
   } else if (geometry === "point") {
-    symbol = { type: "point-3d", symbolLayers: [style.shape === "icon"
+    const model = style.shape && style.shape.startsWith("model:") ? SC_GALLERY.find(m => `model:${m.name}` === style.shape) : null;
+    symbol = { type: "point-3d", symbolLayers: [model
+      // A model keeps its own colours under one colour, and is tinted when the layer is coloured by a field.
+      ? { type: "object", resource: { href: SC_GALLERY_BASE + model.href }, height: style.size || model.height, anchor: "bottom",
+        ...(style.colorBy && style.colorBy !== "single" ? { material } : {}) }
+      : style.shape === "icon"
       ? { type: "icon", resource: { primitive: "circle" }, material, size: style.size || 10, outline: { color: "white", size: 1 } }
       : { type: "object", resource: { primitive: style.shape }, material, width: style.size || 10, depth: style.size || 10,
         height: style.size || 10, anchor: "bottom" }] };
@@ -1083,6 +1119,18 @@ scOnLayers("change", event => {
  * one, so the web scene names the item, and a scene layer's associated feature layer is found through the item's
  * `Service2Service` relationship (ADR-270 §5.4). The SDK works out what kind it is.
  */
+/** Whether a tileset's content is Gaussian splats: its glTF content declares KHR_gaussian_splatting. */
+async function scIsSplatTileset(tileset) {
+  try {
+    const response = await fetch(tileset, { headers: scToken && new URL(tileset, location.href).origin === location.origin ? { Authorization: "Bearer " + scToken } : {} });
+    const doc = await response.json();
+    const content = (doc.extensions && doc.extensions["3DTILES_content_gltf"]) || {};
+    return [...(content.extensionsUsed || []), ...(content.extensionsRequired || [])].some(e => /^KHR_gaussian_splatting/.test(e));
+  } catch {
+    return false;
+  }
+}
+
 async function scAddUrl(url, title, itemId, kind) {
   const said = sc$("addSaid");
   said.className = "said";
@@ -1090,10 +1138,13 @@ async function scAddUrl(url, title, itemId, kind) {
   try {
     // ADR-278: a 3D Tiles tileset is drawn by the SDK's 3D tiles layer, from its tileset.json — by its kind from the list,
     // or by an address that names a tileset or a 3DTilesServer.
-    const tiles = kind === "3D Tiles Service" || /\/3DTilesServer(\/tileset\.json)?\/?$|\/tileset\.json$/i.test(url);
+    const tiles = kind === "3DTiles Service" || /\/3DTilesServer(\/tileset\.json)?\/?$|\/tileset\.json$/i.test(url);
     const tileset = tiles && !/tileset\.json$/i.test(url) ? `${url.replace(/\/+$/, "")}/tileset.json` : url;
+    // ADR-281 §5.2: a tileset of Gaussian splats (glTF content with KHR_gaussian_splatting, as ArcGIS hosts them) is
+    // drawn by the SDK's splat layer, from SDK 5; any other by its 3D tiles layer.
+    const splats = tiles && await scIsSplatTileset(tileset);
     const layer = tiles
-      ? new (await scRequire(["esri/layers/IntegratedMesh3DTilesLayer"]))[0]({ url: tileset, title })
+      ? new (await scRequire([splats ? "esri/layers/GaussianSplatLayer" : "esri/layers/IntegratedMesh3DTilesLayer"]))[0]({ url: tileset, title })
       : SC_FILES[kind]
       ? new (await scRequire([SC_FILES[kind]]))[0]({ url, title })
       : itemId
@@ -1137,11 +1188,13 @@ async function scAddUrl(url, title, itemId, kind) {
       console.warn("Layer view not created", layer.title, e);
       if (!scFindLayer(layer.id)) return false;
       // Measured 2026-11-07 (ADR-270 §5.17, ADR-278): a voxel layer is drawn in a local scene in its own coordinate
-      // system — this viewer's local scenes are Web Mercator — and the SDK draws 3D Tiles 1.1 (glTF), not 1.0 (b3dm).
+      // system — this viewer's local scenes are Web Mercator. SDK 5.2 draws 3D Tiles 1.0 (b3dm) as well (ADR-281 §4).
       const why = layer.type === "voxel"
         ? `${layer.title || "The layer"} was added but can't be drawn here: a voxel layer is drawn in a local scene in its own coordinate system, and this viewer's local scenes are Web Mercator (EPSG:3857). Remove it from Layers.`
+        : layer.type === "gaussian-splat"
+        ? `${layer.title || "The layer"} was added but can't be drawn: the map SDK did not accept its tileset. Splats it draws are glTF with Gaussian splatting, as ArcGIS hosts them. Remove it from Layers.`
         : layer.type === "integrated-mesh-3dtiles"
-        ? `${layer.title || "The layer"} was added but can't be drawn: the map SDK this server uses draws 3D Tiles 1.1 (glTF content), and this may be 3D Tiles 1.0 (b3dm). Remove it from Layers.`
+        ? `${layer.title || "The layer"} was added but can't be drawn: the map SDK could not read its tiles. Remove it from Layers.`
         : `${layer.title || "The layer"} was added but can't be drawn in this scene. Remove it from Layers, or try it in a ${scState.mode === "local" ? "global" : "local"} scene.`;
       said.className = "said bad";
       said.textContent = why;
@@ -1189,7 +1242,7 @@ sc$("addUrlButton").addEventListener("click", () => {
 });
 sc$("addUrl").addEventListener("keydown", event => { if (event.key === "Enter") sc$("addUrlButton").click(); });
 
-const SC_ADDABLE = ["Feature Service", "Scene Service", "3D Tiles Service", "Image Service", "Map Service", "Vector Tile Service", "CSV", "GeoJson"];
+const SC_ADDABLE = ["Feature Service", "Scene Service", "3DTiles Service", "Image Service", "Map Service", "Vector Tile Service", "CSV", "GeoJson"];
 
 /**
  * A CSV or GeoJSON file in the portal is a document, with no service address: it is drawn from the document's own data,
@@ -1274,7 +1327,7 @@ function scDrawAddItems() {
 
 /** The portal's item types, as Studio's rows name them. */
 function scTypeLabel(type) {
-  return ({ "Scene Service": "Scene layer", "3D Tiles Service": "3D tiles layer", "Feature Service": "Feature layer", "Image Service": "Imagery layer",
+  return ({ "Scene Service": "Scene layer", "3DTiles Service": "3D tiles layer", "Feature Service": "Feature layer", "Image Service": "Imagery layer",
     "Map Service": "Map image layer", "Vector Tile Service": "Vector tile layer", "CSV": "CSV file", "GeoJson": "GeoJSON file" })[type] || type;
 }
 
@@ -1421,6 +1474,24 @@ sc$("createGo").addEventListener("click", async () => {
   }
   said.textContent = `Creating ${name}…`;
   try {
+    // ADR-280: a 3D object layer and its scene layer, made together; the scene layer is added by its item, so the SDK
+    // finds the 3D object layer it edits through.
+    if (sc$("createKind").value === "mesh") {
+      const response = await fetch("/content/meshes", { method: "POST", headers: { Authorization: "Bearer " + scToken, "Content-Type": "application/json" },
+        body: JSON.stringify({ title: name }) });
+      const mesh = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error((mesh.error && mesh.error.message) || `the server answered ${response.status}`);
+      await scAddUrl(mesh.scene.url, name, mesh.scene.id, "Scene Service");
+      const layer = scLeaves().find(l => (l.url || "").includes(mesh.scene.id) || l.portalItem?.id === mesh.scene.id);
+      if (layer) {
+        layer.scSourceAsked = true;
+        layer.scSource = { id: mesh.scene.id, url: mesh.url + "/0", mesh: mesh.id };
+        scDrawConditionalTools();
+        scOpenGroup("edit");
+      }
+      sc$("createName").value = "";
+      return;
+    }
     const made = await scPortal(`/content/users/${encodeURIComponent(scState.user)}/createService`, {
       outputType: "featureService",
       createParameters: JSON.stringify({ name, spatialReference: { wkid: 4326 }, layers: [{
@@ -1955,6 +2026,9 @@ const SC_TOOLS = [
     says: "Draw an area on the ground: the volume above and below a flat surface at its average height — cut, fill and net." },
   { key: "viewshed", group: "analyze", label: "Viewshed", analysis: "esri/analysis/ViewshedAnalysis",
     says: "Click where an observer stands, then where they look: what they can see is green, what is hidden is red. Add as many as you need." },
+  // ADR-281 §5.4: slope, aspect and hillshade of one of this server's image services, worked out by the server's own
+  // raster functions and draped on the scene as a layer.
+  { key: "terrain", group: "analyze", label: "Terrain", custom: true },
   { key: "dimension", group: "measure", label: "Dimensions", analysis: "esri/analysis/DimensionAnalysis",
     says: "Click two points to put a length on the scene: between buildings, along a wall, up a height. Add as many as you need." },
   { key: "search", group: "search", label: "Search", module: "esri/widgets/Search", when: l => l.type === "feature" },
@@ -2004,7 +2078,7 @@ function scLearnSources() {
       .then(source => {
         if (!source || !source.exists) return;
         const service = source.service.split("/").map(encodeURIComponent).join("/");
-        layer.scSource = { id: hosted[1], url: `${location.origin}/rest/services/${service}/FeatureServer/${source.layer}` };
+        layer.scSource = { id: hosted[1], url: `${location.origin}/rest/services/${service}/FeatureServer/${source.layer}`, mesh: source.mesh || null };
         scDrawConditionalTools();
       })
       .catch(() => null);
@@ -2014,7 +2088,12 @@ function scLearnSources() {
 /** Adds, for the editor, each scene layer's own feature layer this reader may edit, and offers a rebuild after an edit. */
 async function scAttachSources(panel) {
   const [FeatureLayer] = await scRequire(["esri/layers/FeatureLayer"]);
-  const made = scLeaves().filter(l => l.scSource && !scLeaves(true).some(f => f.scSourceOf === l));
+  // A 3D object layer's scene layer is edited itself, through its associated layer (ADR-280); it needs no stand-in.
+  for (const scene of scLeaves().filter(l => l.scSource && l.scSource.mesh && !l.scEditsWatched)) {
+    scene.scEditsWatched = true;
+    try { scene.on("edits", () => scOfferRebuild(scene, panel)); } catch { /* an SDK without the event: Rebuild stays in Studio */ }
+  }
+  const made = scLeaves().filter(l => l.scSource && !l.scSource.mesh && !scLeaves(true).some(f => f.scSourceOf === l));
   for (const scene of made) {
     const layer = new FeatureLayer({ url: scene.scSource.url, title: `${scene.title || "Scene layer"} — features`,
       listMode: "hide", elevationInfo: { mode: "on-the-ground" }, opacity: 0.6 });
@@ -2150,7 +2229,8 @@ function scDrawToolbar() {
 function scGroupTools(group) {
   if (group === "server") return scCanEdit() && scToken && window.GraticulaAnalysis ? [{ key: "server", label: "Analysis" }] : [];
   const layers = scLeaves();
-  return SC_TOOLS.filter(t => t.group === group && (!t.when || layers.some(t.when)));
+  // Terrain adds a layer, so it is the scene's editor's, as Add is; a reader and the embed view are not offered it.
+  return SC_TOOLS.filter(t => t.group === group && (!t.when || layers.some(t.when)) && (!t.custom || (scCanEdit() && !SC_EMBED)));
 }
 
 /** Opens the right panel on a group of tools, its first (or last used) tool open. */
@@ -2248,8 +2328,8 @@ async function scToggleTool(key, options = {}) {
   // Said while the SDK's widget loads, so the panel is never blank (design review).
   panel.innerHTML = `<p class="hint" role="status">Opening ${scEscape(tool.label)}…</p>`;
   try {
-    if (tool.analysis) {
-      const made = await scAnalysisTool(tool, panel);
+    if (tool.analysis || tool.custom) {
+      const made = tool.custom ? await scTerrainTool(panel) : await scAnalysisTool(tool, panel);
       if (ticket !== scState.toolTicket) { made.destroy(); return; }
       panel.querySelector("p[role=status]")?.remove();
       scState.tools[key] = made;
@@ -2282,8 +2362,8 @@ async function scToggleTool(key, options = {}) {
       await scAttachSources(panel);
       if (ticket !== scState.toolTicket) { scDetachSources(); return; }
       // Only the layers this reader may edit; the rest of the scene is drawn, not offered.
-      options.layerInfos = scLeaves(true).filter(l => l.type === "feature")
-        .map(layer => ({ layer, enabled: scEditable(layer) }));
+      options.layerInfos = [...scLeaves().filter(l => l.scSource && l.scSource.mesh).map(layer => ({ layer, enabled: true })),
+        ...scLeaves(true).filter(l => l.type === "feature").map(layer => ({ layer, enabled: scEditable(layer) }))];
     }
     if (key === "building") {
       options.layers = scLeaves().filter(l => l.type === "building-scene");
@@ -2304,6 +2384,73 @@ async function scToggleTool(key, options = {}) {
   } catch (e) {
     scSay(`${tool.label} could not be opened: ${e.message}`, true);
   }
+}
+
+/** The raster functions the Terrain tool offers, as the server's ImageServer answers them (RasterFunction.cs). */
+const SC_TERRAIN = {
+  hillshade: { label: "Hillshade", name: "Hillshade", args: a => ({ Azimuth: a.azimuth, Altitude: a.altitude, ZFactor: a.z }) },
+  slope: { label: "Slope (degrees)", name: "Slope", args: a => ({ SlopeType: 1, ZFactor: a.z }) },
+  slopePercent: { label: "Slope (percent rise)", name: "Slope", args: a => ({ SlopeType: 2, ZFactor: a.z }) },
+  aspect: { label: "Aspect", name: "Aspect", args: () => ({}) },
+};
+
+/**
+ * ADR-281 §5.4: the Terrain tool. A surface — one of this server's image services, the elevation surfaces first — and a
+ * function; *Add to scene* drapes the server's answer as an imagery layer the scene keeps, with its raster function.
+ * Returns what scToggleTool destroys: nothing stays in the view but the layers added on purpose.
+ */
+async function scTerrainTool(panel) {
+  const found = await scPortal(`/search?num=100&sortField=title&sortOrder=asc&q=${encodeURIComponent('type:"Image Service"')}`).catch(() => ({ results: [] }));
+  const own = (found.results || []).filter(i => i.url && /\/ImageServer\/?$/i.test(i.url));
+  own.sort((a, b) => Number((b.typeKeywords || []).includes("Elevation 3D Layer")) - Number((a.typeKeywords || []).includes("Elevation 3D Layer")));
+  const ground = scState.scene.ground.layers.getItemAt(0);
+  const box = document.createElement("div");
+  box.className = "esri-widget sc-analysis";
+  box.innerHTML = own.length === 0
+    ? `<h3>Terrain</h3><p class="hint">No image service of this server is readable here. Publish an elevation model as an image service, and its slope, aspect and hillshade can be added to the scene.</p>`
+    : `<h3>Terrain</h3>
+    <p class="hint">Slope, aspect or hillshade of a surface, worked out by the server and draped on the scene as a layer.</p>
+    <label class="field" for="trSource">Surface</label>
+    <select id="trSource">${own.map(i => `<option value="${scEscape(i.url)}">${scEscape(i.title)}${(i.typeKeywords || []).includes("Elevation 3D Layer") ? " (elevation)" : ""}</option>`).join("")}</select>
+    <label class="field" for="trFunction">Function</label>
+    <select id="trFunction">${Object.entries(SC_TERRAIN).map(([k, f]) => `<option value="${k}">${scEscape(f.label)}</option>`).join("")}</select>
+    <div id="trLight"><div class="row">
+      <label class="field" for="trAzimuth" style="flex:1">Light from (°)<input type="number" id="trAzimuth" min="0" max="360" step="1" value="315"></label>
+      <label class="field" for="trAltitude" style="flex:1">Light height (°)<input type="number" id="trAltitude" min="0" max="90" step="1" value="45"></label></div></div>
+    <label class="field" for="trZ">Z factor <span class="hint">— metres of height per unit of the surface's ground</span></label>
+    <input type="number" id="trZ" min="0" step="any" value="1">
+    <div class="row"><button type="button" class="primary" id="trAdd">Add to scene</button></div>
+    <p class="said" id="trSays" role="status" aria-live="polite"></p>`;
+  // Appended after the panel's "Opening…" line, which scToggleTool removes as the first status in the panel.
+  panel.append(box);
+  if (own.length) {
+    if (ground && own.some(i => i.url.replace(/\/$/, "") === (ground.url || "").replace(/\/$/, ""))) box.querySelector("#trSource").value = own.find(i => i.url.replace(/\/$/, "") === ground.url.replace(/\/$/, "")).url;
+    const light = () => { box.querySelector("#trLight").hidden = box.querySelector("#trFunction").value !== "hillshade"; };
+    box.querySelector("#trFunction").addEventListener("change", light);
+    light();
+    box.querySelector("#trAdd").addEventListener("click", async () => {
+      const says = box.querySelector("#trSays");
+      const url = box.querySelector("#trSource").value;
+      const key = box.querySelector("#trFunction").value;
+      const fn = SC_TERRAIN[key];
+      const args = fn.args({ azimuth: Number(box.querySelector("#trAzimuth").value) || 315, altitude: Number(box.querySelector("#trAltitude").value) || 45,
+        z: Number(box.querySelector("#trZ").value) || 1 });
+      const source = own.find(i => i.url === url);
+      says.textContent = `Adding ${fn.label.toLowerCase()} of ${source.title}…`;
+      try {
+        const [ImageryLayer] = await scRequire(["esri/layers/ImageryLayer"]);
+        const layer = new ImageryLayer({ url, title: `${source.title} — ${fn.label}`, opacity: key === "hillshade" ? 0.6 : 0.75,
+          rasterFunction: { functionName: fn.name, functionArguments: args } });
+        await layer.load();
+        scState.scene.layers.add(layer);
+        scMarkDirty();
+        says.textContent = `${layer.title} was added. It is a layer of the scene: its look and its place are in Layers.`;
+      } catch (e) {
+        says.textContent = `Not added: ${e.message}`;
+      }
+    });
+  }
+  return { destroy() { box.remove(); } };
 }
 
 /**
@@ -2523,6 +2670,8 @@ window.addEventListener("beforeunload", event => {
 async function scStart() {
   try {
     await scLoadSdk();
+    // The gallery's models are among the shapes the first style form offers (ADR-281 §5.3).
+    await scGalleryReady;
   } catch (e) {
     scSay(`The scene cannot be drawn: the map SDK ${e.message}.`, true);
     return;

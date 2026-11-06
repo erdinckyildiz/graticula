@@ -21,7 +21,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | A new scene is global or local, chosen at creation [1] | the same; a local scene is Web Mercator, or a 3D layer's own projected system when one is added to a new local scene (ADR-270 §5.7, §5.20) | Built |
 | Layer Manager: order, visibility, group layers [2] | order, visibility, opacity, title, zoom to, remove (§5.1), and group layers (§5.24) | Built |
-| Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15) | Partly built — no web style gallery (Owner) |
+| Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15); and this product's own gallery of twelve 3D models (trees, street furniture, a car, a person) to draw points as (ADR-281 §5.3) | Built |
 | Layer properties: pop-ups, visibility ranges, filters [2] | pop-up title and fields; a range from Scene Viewer's named scales; a filter, tried before it is kept (§5.1, §5.9) | Built |
 | Configure ground: elevation layers, how the ground is shown and navigated [2] | elevation from an elevation layer, ground opacity, underground navigation (§5.1, §5.8) | Built |
 | Basemap gallery [1] | the portal's gallery, the map ground, OpenStreetMap, none | Built |
@@ -59,7 +59,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 
 | ArcGIS | Graticula | State |
 |---|---|---|
-| Feature and raster analysis tools run from the scene, results added to it [5] | *Analysis*: the server's feature tools, the ones Studio's map runs, on a scene's hosted feature layer or a scene layer's own; the result joins the scene (ADR-270 §5.14) | Partly built — no raster analysis, which the server's Spatial Analysis Service does not offer |
+| Feature and raster analysis tools run from the scene, results added to it [5] | *Analysis*: the server's feature tools on a scene's hosted layers, the result joining the scene (ADR-270 §5.14); *Terrain*: hillshade, slope and aspect of the server's image services, draped as a layer (ADR-281 §5.4). A raster result saved as a new image service is not offered | Built — raster analysis as the owner scoped it (ADR-281 §5.4) |
 
 ## E. Adding layers
 
@@ -80,8 +80,8 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Rebuild cache: selected layers, partial update of what changed [6] | *Rebuild* per layer; scheduled rebuilds when the layer changes; a 3D object layer's rebuild rewrites only the leaves of changed features and their ancestors, by fingerprints kept in the package, and an unchanged layer is not written again (ADR-277 §4b) | Built |
 | Scheduled rebuilds, job status [6] | *Rebuild on its own when the layer changes*: a site sweep every five minutes, its last outcome on the item and in Studio (ADR-277) | Built |
 | Replace a layer's package [6] | a document's *Replace file* | Built |
-| Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers, and over a scene layer's own features for its owner, with *Rebuild* offered after an edit (ADR-276 §5.4) | Partly built — no mesh (3D object) editing yet: designed in ADR-280, which needs a prototype |
-| Create an empty 3D object layer to edit [7] | *Create a layer to draw in*: an empty hosted layer of 3D points, lines or polygons, opened in Edit (ADR-276) | Partly built — no empty mesh layer, which waits on mesh geometry |
+| Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers and a scene layer's own features (ADR-276), and over a 3D object layer's scene layer, which takes glb models placed, moved and deleted, and is rebuilt with them (ADR-280 §5.4) | Partly built — glb only until the converter (ADR-282), and a person's own placing through the Editor widget is not yet measured (ADR-280 condition 5) |
+| Create an empty 3D object layer to edit [7] | *Create a layer to draw in*: an empty hosted layer of 3D points, lines or polygons (ADR-276), or *3D objects*, an empty 3D object layer with its scene layer (ADR-280) | Built |
 | Levels of detail for large layers | inner nodes carry the largest buildings as simpler blocks (D-386) | Built |
 | Package size | up to `ScenePackageMaxMB` (4 GB): above the document limit a package is a file in the server directories (ADR-274); Esri's 286 MB mesh sample served and drawn whole | Built |
 
@@ -93,7 +93,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
 | Mesh (integrated mesh), point cloud | served by the same path rule and drawn; Esri's whole 286 MB mesh drawn textured (ADR-274), the point cloud measured on its subset | Built |
 | Voxel | served as ArcGIS serves one, and drawn in a local scene in its own system: Web Mercator and EPSG:2056 measured (ADR-270 §5.17, §5.20) | Built — a WGS 84 voxel is drawn in neither kind of scene by SDK 4.34 |
-| 3D tiles, `.3tz`, Gaussian splat | a `.3tz` archive is kept, served and drawn when its content is 3D Tiles 1.1 (glTF); 1.0 (b3dm) is loaded but not drawn by SDK 4.34, and Gaussian splat has no public API before SDK 5 (ADR-278) | Partly built — waits on an SDK that draws b3dm and splats |
+| 3D tiles, `.3tz`, Gaussian splat | a `.3tz` archive is kept, served and drawn, its content 3D Tiles 1.1 (glTF) or 1.0 (b3dm), on SDK 5.2 (ADR-281); a splat tileset is added as a splat layer, and Esri's are drawn | Partly built — a splat archive of our own is refused by the SDK; SPZ-compressed splats are the next step (ADR-281 condition 2) |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
 | Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); each seen drawn on Esri's sample 2026-11-07, elevation over the heights the layer's statistics give | Built |
 
