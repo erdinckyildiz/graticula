@@ -25,7 +25,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Layer properties: pop-ups, visibility ranges, filters [2] | pop-up title and fields; a range from Scene Viewer's named scales; a filter, tried before it is kept (§5.1, §5.9) | Built |
 | Configure ground: elevation layers, how the ground is shown and navigated [2] | elevation from an elevation layer, ground opacity, underground navigation (§5.1, §5.8) | Built |
 | Basemap gallery [1] | the portal's gallery, the map ground, OpenStreetMap, none | Built |
-| Feature search in a scene [1] | — | Owed |
+| Feature search in a scene [1] | *Search*, over the scene's feature layers; no geocoder, which this server has none of (§5.10) | Built |
 
 ## B. Slides and presentation
 
@@ -52,8 +52,8 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Viewshed, Dimensions [3] | not in the Maps SDK 4.29 | Owner — an SDK upgrade |
 | Time slider [1] | *Time*, offered with a time-aware layer (§5.9) | Built |
 | Building explorer [1] | offered with a building scene layer (§5.9); the layer drawn from Esri's sample, the explorer itself not yet tested | Partly built |
-| Location: coordinates, elevation [1] | — | Owed |
-| Scene Viewer settings: quality, navigation [1] | a fixed medium quality | Owed |
+| Location: coordinates, elevation [1] | *Location*, the SDK's coordinate widget (§5.10) | Built |
+| Scene Viewer settings: quality, navigation [1] | *Drawing quality*, the reader's own (§5.10); navigation is the SDK's default | Partly built |
 
 ## D. Spatial analysis from Scene Viewer
 
@@ -68,7 +68,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Browse My content, favourites, groups, organisation, Living Atlas, ArcGIS Online [3] | the portal's search by title and kind, everything shared or only mine (§5.1) | Partly built — no favourites or groups filter; Living Atlas and ArcGIS Online are not this portal's |
 | Only content within the map area [3] | — the portal's search refuses `bbox` by name (PortalEndpoints, the 2026-11-02 review's E), so this needs the search first | Owed |
 | A layer from a URL [3] | the same | Built |
-| GeoJSON and CSV files [3] | — | Owed |
+| GeoJSON and CSV files [3] | from the reader's content, drawn from the document's data (§5.11); a file elsewhere on the web is not, as the console's policy names no other origin | Built |
 
 ## F. Hosted 3D layers
 

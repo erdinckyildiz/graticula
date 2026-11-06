@@ -104,7 +104,7 @@ function scKind(layer) {
   if (layer.type === "scene" && layer.geometryType === "point") return "Points";
   return ({ "feature": "Features", "scene": "3D objects", "point-cloud": "Point cloud", "building-scene": "Buildings",
     "integrated-mesh": "Mesh", "imagery": "Imagery", "imagery-tile": "Imagery", "map-image": "Map image",
-    "vector-tile": "Vector tiles", "elevation": "Elevation", "voxel": "Voxels" })[layer.type] || layer.type;
+    "vector-tile": "Vector tiles", "elevation": "Elevation", "voxel": "Voxels", "csv": "CSV points", "geojson": "GeoJSON" })[layer.type] || layer.type;
 }
 
 function scMarkDirty() {
@@ -160,8 +160,13 @@ sc$("tabs").addEventListener("keydown", event => {
 // Layers: visibility, order, opacity, removal, and each layer's settings — its look, its height and its pop-ups.
 
 /** The geometry a layer draws, as the style choices need it: "polygon", "point", "polyline", "mesh" or null. */
+/** A layer of features the SDK holds or queries: a feature service's, or a CSV or GeoJSON file's. */
+function scFeatureLike(layer) {
+  return layer.type === "feature" || layer.type === "csv" || layer.type === "geojson";
+}
+
 function scGeometry(layer) {
-  if (layer.type === "feature") return layer.geometryType || null;
+  if (scFeatureLike(layer)) return layer.geometryType || null;
   if (layer.type === "scene") return layer.geometryType === "point" ? "point" : "mesh";
   return null;
 }
@@ -224,14 +229,14 @@ function scLayerDetail(layer) {
 
   if (scStylable(layer)) {
     html += `<h3>Look</h3><div data-part="style"></div>`;
-    if (layer.type === "feature" || geometry === "point") {
+    if (scFeatureLike(layer) || geometry === "point") {
       html += `<h3>Position</h3>
         <label class="field" for="em-${id}">Sits</label>
         <select id="em-${id}" data-act="elevation">
-          ${layer.type === "feature" ? `<option value="on-the-ground">Draped on the ground</option>` : ""}
+          ${scFeatureLike(layer) ? `<option value="on-the-ground">Draped on the ground</option>` : ""}
           <option value="relative-to-ground">Above the ground</option>
           <option value="absolute-height">At its own height</option>
-          ${layer.type === "feature" ? `<option value="relative-to-scene">On top of buildings and meshes</option>` : ""}
+          ${scFeatureLike(layer) ? `<option value="relative-to-scene">On top of buildings and meshes</option>` : ""}
         </select>
         <div data-part="offset"><label class="field" for="eo-${id}">Raised by (metres)</label>
         <input type="number" id="eo-${id}" data-act="offset" step="any" value="${(layer.elevationInfo && layer.elevationInfo.offset) || 0}"></div>`;
@@ -259,7 +264,7 @@ function scVisibilityForm(layer) {
     ${custom(layer.minScale) || custom(layer.maxScale) ? `<p class="hint">This layer's range was set elsewhere (1:${Math.round(layer.minScale || 0)} to 1:${Math.round(layer.maxScale || 0)}); choosing here replaces it.</p>` : ""}
     ${scales(layer.minScale, "Shown when zoomed in beyond", "minScale")}
     ${scales(layer.maxScale, "Hidden when zoomed in beyond", "maxScale")}
-    ${layer.type === "feature" ? `<label class="field" for="flt-${id}">Filter — which features are shown</label>
+    ${scFeatureLike(layer) ? `<label class="field" for="flt-${id}">Filter — which features are shown</label>
       <input type="text" id="flt-${id}" data-vis="filter" value="${scEscape(layer.definitionExpression || "")}" placeholder="e.g. floors >= 5" autocomplete="off">
       <p class="hint">A condition on the layer's fields, as a query's <code>where</code> is written. Press Enter to apply; empty shows every feature.</p>` : ""}`;
 }
@@ -295,7 +300,7 @@ function scFillLayerDetails() {
     if (!layer) continue;
     const elevation = detail.querySelector("[data-act=elevation]");
     if (elevation) {
-      const mode = (layer.elevationInfo && layer.elevationInfo.mode) || (layer.type === "feature" ? "on-the-ground" : "relative-to-ground");
+      const mode = (layer.elevationInfo && layer.elevationInfo.mode) || (scFeatureLike(layer) ? "on-the-ground" : "relative-to-ground");
       elevation.value = mode;
       if (!elevation.value) elevation.selectedIndex = 0;
       // Draped features ignore an offset, so it is not offered (design review).
@@ -611,12 +616,14 @@ sc$("layerList").addEventListener("change", event => {
  * one, so the web scene names the item, and a scene layer's associated feature layer is found through the item's
  * `Service2Service` relationship (ADR-270 §5.4). The SDK works out what kind it is.
  */
-async function scAddUrl(url, title, itemId) {
+async function scAddUrl(url, title, itemId, kind) {
   const said = sc$("addSaid");
   said.className = "said";
   said.textContent = `Adding ${title || "the layer"}…`;
   try {
-    const layer = itemId
+    const layer = SC_FILES[kind]
+      ? new (await scRequire([SC_FILES[kind]]))[0]({ url, title })
+      : itemId
       ? await scState.sdk.Layer.fromPortalItem({ portalItem: { id: itemId, portal: { url: SC_PORTAL } } })
       : await scState.sdk.Layer.fromArcGISServerUrl({ url });
     await layer.load();
@@ -672,7 +679,17 @@ sc$("addUrlButton").addEventListener("click", () => {
 });
 sc$("addUrl").addEventListener("keydown", event => { if (event.key === "Enter") sc$("addUrlButton").click(); });
 
-const SC_ADDABLE = ["Feature Service", "Scene Service", "Image Service", "Map Service", "Vector Tile Service"];
+const SC_ADDABLE = ["Feature Service", "Scene Service", "Image Service", "Map Service", "Vector Tile Service", "CSV", "GeoJson"];
+
+/**
+ * A CSV or GeoJSON file in the portal is a document, with no service address: it is drawn from the document's own data,
+ * which is this server's, so the console's policy admits it (ADR-270 §5.11, Scene Viewer's "add a file" from content).
+ */
+const SC_FILES = { "CSV": "esri/layers/CSVLayer", "GeoJson": "esri/layers/GeoJSONLayer" };
+
+function scAddressOf(item) {
+  return SC_FILES[item.type] ? `${location.origin}/content/documents/${encodeURIComponent(item.id)}/data` : item.url;
+}
 
 /** Asks the portal for what can be added, by the search box's words, the kind and whose content. */
 async function scSearchAdd() {
@@ -689,7 +706,8 @@ async function scSearchAdd() {
     if (asked !== scState.addAsked) return;
     // The portal's title search is by word; the filter here is by any part of the title, as the old list's was.
     const lowered = words.toLowerCase();
-    scState.addItems = (found.results || []).filter(item => item.url && types.includes(item.type)
+    scState.addItems = (found.results || []).map(item => ({ ...item, url: scAddressOf(item) }))
+      .filter(item => item.url && types.includes(item.type)
       && (!lowered || (item.title || "").toLowerCase().includes(lowered)));
     scDrawAddItems();
   } catch (e) {
@@ -708,7 +726,7 @@ function scDrawAddItems() {
     : shown.map(item => `
       <li><span class="lname">${scEscape(item.title)}<span class="lkind">${scEscape(scTypeLabel(item.type))}${
         item.owner && item.owner !== scState.user ? ` · ${scEscape(item.owner)}` : ""}</span></span>
-        ${scHasLayer(item.url) ? `<span class="hint" style="margin:0">Added</span>` : `<button type="button" class="tiny" data-add="${scEscape(item.url)}" data-title="${scEscape(item.title)}" data-item="${scEscape(item.id)}"
+        ${scHasLayer(item.url) ? `<span class="hint" style="margin:0">Added</span>` : `<button type="button" class="tiny" data-add="${scEscape(item.url)}" data-title="${scEscape(item.title)}" data-item="${scEscape(item.id)}" data-kind="${scEscape(item.type)}"
           aria-label="Add ${scEscape(item.title)}">Add</button>`}</li>`).join("");
   const more = sc$("addShowAll");
   more.hidden = shown.length >= items.length;
@@ -718,7 +736,7 @@ function scDrawAddItems() {
 /** The portal's item types, as Studio's rows name them. */
 function scTypeLabel(type) {
   return ({ "Scene Service": "Scene layer", "Feature Service": "Feature layer", "Image Service": "Imagery layer",
-    "Map Service": "Map image layer", "Vector Tile Service": "Vector tile layer" })[type] || type;
+    "Map Service": "Map image layer", "Vector Tile Service": "Vector tile layer", "CSV": "CSV file", "GeoJson": "GeoJSON file" })[type] || type;
 }
 
 let scAddTimer = 0;
@@ -736,7 +754,7 @@ sc$("addList").addEventListener("click", event => {
   if (!button) return;
   button.disabled = true;
   button.textContent = "Adding…";
-  scAddUrl(button.dataset.add, button.dataset.title, button.dataset.item);
+  scAddUrl(button.dataset.add, button.dataset.title, button.dataset.item, button.dataset.kind);
 });
 
 /**

@@ -510,6 +510,73 @@ public sealed class SceneViewerToolsTests : ConsoleTest
         }
     }
 
+    /// <summary>Uploads a document as an administrator, as Content's upload does, and answers its id.</summary>
+    private async Task<string> UploadAsync(string fileName, string mediaType, string content, string title)
+    {
+        (string token, _) = await SignInAsync();
+        using MultipartFormDataContent form = new();
+        ByteArrayContent file = new(Encoding.UTF8.GetBytes(content));
+        file.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+        form.Add(file, "file", fileName);
+        form.Add(new StringContent(title), "title");
+        using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"{Root}/content/documents")) { Content = form };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.IsSuccessStatusCode, $"Uploading {fileName} answered {(int)response.StatusCode}: {body}");
+        return JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+    }
+
+    /// <summary>
+    /// ADR-270 §5.11: a CSV or GeoJSON file in the reader's content is offered in the add list, drawn from the document's
+    /// own data, and kept in the web scene as a CSV or GeoJSON layer — Scene Viewer's adding a file.
+    /// </summary>
+    [Fact]
+    public async Task A_csv_or_geojson_file_from_content_is_added_and_kept()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string csv = await UploadAsync("zz-scene-points.csv", "text/csv",
+            "name,latitude,longitude\nAnkara,39.93,32.86\nIstanbul,41.01,28.98\n", "zz console scene csv");
+        string geojson = await UploadAsync("zz-scene-area.geojson", "application/geo+json",
+            """{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"a square"},"geometry":{"type":"Polygon","coordinates":[[[32.8,39.9],[32.9,39.9],[32.9,40.0],[32.8,40.0],[32.8,39.9]]]}}]}""",
+            "zz console scene geojson");
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await Browser.EvaluateAsync<bool>("(document.getElementById('addType').value = 'CSV', document.getElementById('addType').dispatchEvent(new Event('change')), true)");
+            await WaitForAsync($"!!document.querySelector('#addList [data-item=\"{csv}\"]')", "The CSV file was not offered among CSV files.");
+            await ClickAsync($"#addList [data-item=\"{csv}\"]");
+            await WaitForAsync("scState.scene.layers.length === 1 && scState.scene.layers.getItemAt(0).type === 'csv' && scState.scene.layers.getItemAt(0).loadStatus === 'loaded'",
+                "The CSV file was not added as a CSV layer.");
+
+            await Browser.EvaluateAsync<bool>("(document.getElementById('addType').value = 'GeoJson', document.getElementById('addType').dispatchEvent(new Event('change')), true)");
+            await WaitForAsync($"!!document.querySelector('#addList [data-item=\"{geojson}\"]')", "The GeoJSON file was not offered among GeoJSON files.");
+            await ClickAsync($"#addList [data-item=\"{geojson}\"]");
+            await WaitForAsync("scState.scene.layers.length === 2 && scState.scene.layers.getItemAt(1).type === 'geojson' && scState.scene.layers.getItemAt(1).loadStatus === 'loaded'",
+                "The GeoJSON file was not added as a GeoJSON layer.");
+
+            id = await SaveAsAsync("zz console scene files");
+            JsonElement[] layers = (await SavedSceneAsync(id)).GetProperty("operationalLayers").EnumerateArray().ToArray();
+            Assert.Equal("CSV", layers[0].GetProperty("layerType").GetString());
+            Assert.Contains($"/content/documents/{csv}/data", layers[0].GetProperty("url").GetString());
+            Assert.Equal("GeoJSON", layers[1].GetProperty("layerType").GetString());
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            foreach (string? made in new[] { id, csv, geojson })
+            {
+                if (made is not null)
+                {
+                    await AdminAsync(HttpMethod.Delete, $"/content/documents/{made}");
+                }
+            }
+        }
+    }
+
     /// <summary>Every analysis tool opens its widget in the scene and closes again; the legend names a layer; the add list searches.</summary>
     [Fact]
     public async Task Every_analysis_tool_opens_and_the_legend_and_search_answer()
