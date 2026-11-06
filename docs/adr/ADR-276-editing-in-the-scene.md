@@ -80,7 +80,8 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-023 §4c.
 ## 9. Conditions
 
 1. **Meshes**: a 3D object layer's feature layer holds mesh geometry. It is edited in the scene and rebuilt into its
-   scene layer. This needs its own ADR. *(Open.)*
+   scene layer. This needs its own ADR. *(Open. The ADR is [ADR-280](ADR-280-3d-object-layers-hold-meshes.md),
+   `REQUIRES PROTOTYPE`, 2026-11-07.)*
 2. **An empty 3D object or 3D point layer is created from the scene**, ready to edit, as Scene Viewer's *Create layer*
    does. *(Partly discharged 2026-11-07: the Add panel's *Create a layer to draw in* makes an empty hosted layer of 3D
    points, lines or polygons, with heights and a label field, through the portal's own `createService`. It adds the
