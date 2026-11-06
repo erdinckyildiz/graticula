@@ -196,10 +196,13 @@ public sealed class ThePortalAnswersAsArcGisDoesTests : ArcGisClient
     }
 
     [Fact]
-    public async Task A_search_narrowed_by_what_this_portal_cannot_read_is_refused_and_by_categories_is_narrowed()
+    public async Task A_search_narrowed_by_a_filter_is_refused_and_by_a_box_or_categories_is_narrowed()
     {
-        JsonElement bbox = await SendAsync(HttpMethod.Get, "/sharing/rest/search?q=&bbox=-10,-10,10,10&f=json");
+        // ADR-271: a box is answered, and one that is not a box is refused by name.
+        JsonElement bbox = await SendAsync(HttpMethod.Get, "/sharing/rest/search?q=&bbox=10,-10,-10,10&f=json");
         Assert.Contains("'bbox'", bbox.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        JsonElement nowhere = await SendAsync(HttpMethod.Get, "/sharing/rest/search?q=&bbox=-179.9,-89.9,-179.8,-89.8&f=json");
+        Assert.Equal(0, nowhere.GetProperty("total").GetInt32());
 
         JsonElement filter = await SendAsync(HttpMethod.Get, "/sharing/rest/search?q=&filter=title%3Aroads&f=json");
         Assert.Contains("'filter'", filter.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);

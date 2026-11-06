@@ -93,18 +93,44 @@ public sealed class ThePortalAnswersAnArcGisClientAsArcGisDoesTests
             .Select(item => item.Title)];
 
     [Theory]
-    [InlineData("?bbox=-10,-10,10,10", "'bbox'")]
-    [InlineData("?filter=title:%22roads%22", "'filter'")]
-    [InlineData("?bbox=1,2,3,4&filter=x", "'bbox' or 'filter'")]
-    public void A_bbox_or_a_filter_is_refused_by_name_rather_than_answered_with_everything(string query, string named)
+    [InlineData("?filter=title:%22roads%22")]
+    [InlineData("?bbox=1,2,3,4&filter=x")]
+    public void A_filter_is_refused_by_name_rather_than_answered_with_everything(string query)
     {
-        Assert.Contains(named, Narrowing(query).Refused, StringComparison.Ordinal);
+        Assert.Contains("'filter'", Narrowing(query).Refused, StringComparison.Ordinal);
+    }
+
+    /// <summary>ADR-271: a box in degrees is read, and one that is not four numbers with min below max is refused by name.</summary>
+    [Fact]
+    public void A_bbox_is_read_in_degrees_and_a_malformed_one_is_refused()
+    {
+        Assert.Null(Narrowing("?bbox=-10,-10.5,10,10").Refused);
+        Assert.Equal([-10, -10.5, 10, 10], Narrowing("?bbox=-10,-10.5,10,10").Box!);
+
+        foreach (string bad in new[] { "?bbox=1,2,3", "?bbox=a,b,c,d", "?bbox=10,0,-10,5", "?bbox=0,0,1,NaN" })
+        {
+            Assert.Contains("'bbox'", Narrowing(bad).Refused, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>ADR-271: an extent meets a box when they overlap or touch; an item with no extent meets none.</summary>
+    [Fact]
+    public void An_item_is_found_by_a_box_its_extent_meets()
+    {
+        double[] box = [0, 0, 10, 10];
+
+        Assert.True(PortalSpatialSearch.Meets([[5, 5], [20, 20]], box));
+        Assert.True(PortalSpatialSearch.Meets([[10, 10], [11, 11]], box));
+        Assert.True(PortalSpatialSearch.Meets([[-50, -50], [50, 50]], box));
+        Assert.False(PortalSpatialSearch.Meets([[11, 0], [12, 5]], box));
+        Assert.False(PortalSpatialSearch.Meets([], box));
     }
 
     [Fact]
     public void An_empty_bbox_or_filter_asks_nothing_and_is_not_refused()
     {
         Assert.Null(Narrowing("?bbox=&filter=&q=x").Refused);
+        Assert.Null(Narrowing("?bbox=&filter=&q=x").Box);
         Assert.Equal(["rivers", "roads", "bridges", "none"], Found("?categories="));
     }
 

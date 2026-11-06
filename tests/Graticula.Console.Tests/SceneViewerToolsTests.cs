@@ -620,4 +620,43 @@ public sealed class SceneViewerToolsTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// ADR-271: "Only within the current view" asks the portal's search for a box, so a layer far from the view is not
+    /// offered and one under it is, and the list follows the camera when it settles.
+    /// </summary>
+    [Fact]
+    public async Task The_add_list_follows_the_view_when_asked_to()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        (int status, string search) = await AdminAsync(HttpMethod.Get, "/sharing/rest/search?q=title:ci_buildings&f=json");
+        Assert.Equal(200, status);
+        string item = JsonDocument.Parse(search).RootElement.GetProperty("results").EnumerateArray()
+            .First(r => r.GetProperty("type").GetString() == "Feature Service").GetProperty("id").GetString()!;
+        (status, string described) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/content/items/{item}?f=json");
+        Assert.Equal(200, status);
+        double[][] extent = [.. JsonDocument.Parse(described).RootElement.GetProperty("extent").EnumerateArray()
+            .Select(corner => corner.EnumerateArray().Select(v => v.GetDouble()).ToArray())];
+        Assert.True(extent.Length == 2, "ci_buildings has no extent to look at.");
+        string centre = FormattableString.Invariant($"[{(extent[0][0] + extent[1][0]) / 2}, {(extent[0][1] + extent[1][1]) / 2}]");
+
+        await OpenNewSceneAsync(token, cookie);
+        await Browser.EvaluateAsync<bool>("(document.getElementById('addType').value = 'Feature Service', document.getElementById('addType').dispatchEvent(new Event('change')), true)");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('addFilter').value = 'ci_buildings', document.getElementById('addFilter').dispatchEvent(new Event('input')), true)");
+        await WaitForAsync($"!!document.querySelector('#addList [data-item=\"{item}\"]')", "ci_buildings was not offered before the view narrowed the list.");
+
+        // The view far from it, over the South Pacific: the list says nothing lies within the view.
+        await Browser.EvaluateAsync<bool>("(scState.view.goTo({ center: [-150, -50], zoom: 9 }, { animate: false }), true)");
+        await WaitForAsync("scState.view.stationary && Math.abs(scState.view.center.longitude + 150) < 1", "The view did not move to the South Pacific.");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('addInView').checked = true, document.getElementById('addInView').dispatchEvent(new Event('change')), true)");
+        await WaitForAsync("/within the current view/.test(document.getElementById('addList').textContent) && !document.querySelector('#addList [data-add]')",
+            "A layer far from the view was still offered, or the list did not say why it was empty.");
+
+        // The camera over the layer: it is offered again when the view settles.
+        await Browser.EvaluateAsync<bool>($"(scState.moved = true, scState.view.goTo({{ center: {centre}, zoom: 14 }}, {{ animate: false }}), true)");
+        await WaitForAsync($"!!document.querySelector('#addList [data-item=\"{item}\"]')", "The layer under the view was not offered when the camera settled over it.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

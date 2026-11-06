@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>7ff0733d</code> · 2026-11-06 02:35</p>
+<p class="stamp">Şu commit’ten üretildi: <code>a69ac996</code> · 2026-11-06 02:41</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">268</div><div class="kpi-l">ADR</div><div class="kpi-n">91 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">657/692</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">25 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">269</div><div class="kpi-l">ADR</div><div class="kpi-n">91 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">657/694</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">27 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık borç</div><div class="kpi-n">328 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6060</div><div class="kpi-l">test</div><div class="kpi-n">669 kaynak dosya, 296,388 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6062</div><div class="kpi-l">test</div><div class="kpi-n">670 kaynak dosya, 296,584 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">31 madde</span></div><p><b>25 ADR conditions</b> outstanding across 20 decisions — the largest commitment on this page.</p><p><b>2 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">33 madde</span></div><p><b>27 ADR conditions</b> outstanding across 21 decisions — the largest commitment on this page.</p><p><b>2 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -134,6 +134,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-269 · Scenes: web scenes are saved, scen</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-271 · The portal&#x27;s search answers `bbox`</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -437,6 +438,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">268</td><td>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the payload and the isolation, measured, and for the width, which the owner…</td><td class="num">2/2</td></tr>
 <tr><td class="id">269</td><td>Scenes: web scenes are saved, scene layer packages are served, and the server writes I3S from hosted layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/4</td></tr>
 <tr><td class="id">270</td><td>Scenes to ArcGIS Enterprise&#x27;s level: Scene Viewer&#x27;s tools, and what a scene layer is made from</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
+<tr><td class="id">271</td><td>The portal&#x27;s search answers `bbox`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -570,11 +572,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1748</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1749</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">971</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.3%"></div></div><div class="bar-n">966</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.1%"></div></div><div class="bar-n">578</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.0%"></div></div><div class="bar-n">472</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.2%"></div></div><div class="bar-n">966</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:33.0%"></div></div><div class="bar-n">578</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.0%"></div></div><div class="bar-n">473</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.7%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.9%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.5%"></div></div><div class="bar-n">131</div></div>
@@ -632,6 +634,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>a69ac996</code><time>2026-11-06</time><span>The parity table after the second pass: Building explorer measured, what waits on the SDK or a sample, what is left</span></li>
+<li><code>d2a08f13</code><time>2026-11-06</time><span>A point cloud is coloured by its RGB, elevation, class or intensity (ADR-270 §5.12)</span></li>
 <li><code>7ff0733d</code><time>2026-11-06</time><span>A CSV or GeoJSON file from content is added to a scene and kept (ADR-270 §5.11)</span></li>
 <li><code>90d27a4d</code><time>2026-11-06</time><span>An integrated mesh and a point cloud package are served and drawn, measured on subsets of Esri&#x27;s samples (ADR-270)</span></li>
 <li><code>622fc795</code><time>2026-11-06</time><span>The Create scene layer dialog and a scene layer&#x27;s page pass their review (ADR-269 condition 4 discharged)</span></li>
@@ -644,8 +648,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4970e2fd</code><time>2026-11-05</time><span>A 3D object layer&#x27;s inner nodes carry a coarse city, so a client far away loads no leaf (D-386 narrowed, ADR-270)</span></li>
 <li><code>dcd99cda</code><time>2026-11-05</time><span>A scene layer made here keeps its feature layer and is rebuilt from it in place (ADR-270 §5.4)</span></li>
 <li><code>3adfd164</code><time>2026-11-05</time><span>Scene Viewer&#x27;s tools in Studio&#x27;s scene viewer: layers, look, pop-ups, slides, basemap, ground, legend, analysis (ADR-270)</span></li>
-<li><code>e81bbab4</code><time>2026-11-05</time><span>The raster suite is in the solution, so CI&#x27;s raster step runs it, and a test keeps every project there</span></li>
-<li><code>b6a12b31</code><time>2026-11-05</time><span>Point layers become point scene layers, in Draco written here (D-386 narrowed, ADR-269)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

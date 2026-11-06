@@ -759,7 +759,9 @@ async function scSearchAdd() {
   if (sc$("addMine").checked && scState.user) parts.push(`owner:${scState.user}`);
   const asked = (scState.addAsked = (scState.addAsked || 0) + 1);
   try {
-    const found = await scPortal(`/search?num=100&sortField=modified&sortOrder=desc&q=${encodeURIComponent(parts.join(" AND "))}`);
+    const box = sc$("addInView").checked ? await scViewBox() : null;
+    const found = await scPortal(`/search?num=100&sortField=modified&sortOrder=desc&q=${encodeURIComponent(parts.join(" AND "))}`
+      + (box ? `&bbox=${box.join(",")}` : ""));
     if (asked !== scState.addAsked) return;
     // The portal's title search is by word; the filter here is by any part of the title, as the old list's was.
     const lowered = words.toLowerCase();
@@ -772,13 +774,35 @@ async function scSearchAdd() {
   }
 }
 
+/**
+ * The view's extent in degrees, as the portal's search reads a box (ADR-271), or null when the view has none or it
+ * crosses the antimeridian, which one box cannot say. A tilted camera's extent reaches to the horizon, which is what
+ * ArcGIS's own "within the map area" sees too.
+ */
+async function scViewBox() {
+  const extent = scState.view && scState.view.extent;
+  if (!extent) return null;
+  let geographic = extent;
+  if (extent.spatialReference.isWebMercator) {
+    const [webMercatorUtils] = await scRequire(["esri/geometry/support/webMercatorUtils"]);
+    geographic = webMercatorUtils.webMercatorToGeographic(extent);
+  } else if (!extent.spatialReference.isWGS84) {
+    return null;
+  }
+  const clamp = (v, limit) => Math.max(-limit, Math.min(limit, v));
+  const box = [clamp(geographic.xmin, 180), clamp(geographic.ymin, 90), clamp(geographic.xmax, 180), clamp(geographic.ymax, 90)];
+  return box.every(Number.isFinite) && box[0] <= box[2] && box[1] <= box[3] ? box.map(v => +v.toFixed(6)) : null;
+}
+
 /** The add list, eight rows until the reader asks for all (design review). */
 function scDrawAddItems() {
   const items = scState.addItems || [];
   const words = sc$("addFilter").value.trim();
   const shown = scState.showAll || words ? items : items.slice(0, 8);
   sc$("addList").innerHTML = items.length === 0
-    ? `<li class="hint" style="border:0;padding:0">${words ? `No layer's title has “${scEscape(words)}” in it.`
+    ? `<li class="hint" style="border:0;padding:0">${sc$("addInView").checked
+      ? `No layer of this kind${words ? ` with “${scEscape(words)}” in its title` : ""} lies within the current view. Move the view, or clear “Only within the current view”.`
+      : words ? `No layer's title has “${scEscape(words)}” in it.`
       : "No layers of this kind are shared with you yet. Publish one in Content, or add one by its address."}</li>`
     : shown.map(item => `
       <li><span class="lname">${scEscape(item.title)}<span class="lkind">${scEscape(scTypeLabel(item.type))}${
@@ -800,6 +824,7 @@ let scAddTimer = 0;
 sc$("addFilter").addEventListener("input", () => { clearTimeout(scAddTimer); scAddTimer = setTimeout(scSearchAdd, 250); });
 sc$("addType").addEventListener("change", scSearchAdd);
 sc$("addMine").addEventListener("change", scSearchAdd);
+sc$("addInView").addEventListener("change", scSearchAdd);
 sc$("addShowAll").addEventListener("click", () => {
   scState.showAll = true;
   scDrawAddItems();
@@ -1471,6 +1496,8 @@ async function scStart() {
   }
   scState.view.watch("stationary", stationary => {
     if (stationary && scState.moved && scState.opened && scCanEdit()) scMarkDirty();
+    // The list that follows the view follows it when the camera settles.
+    if (stationary && sc$("addInView").checked && scCanEdit()) scSearchAdd();
   });
   try {
     await scState.view.when();

@@ -66,7 +66,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | ArcGIS | Graticula | State |
 |---|---|---|
 | Browse My content, favourites, groups, organisation, Living Atlas, ArcGIS Online [3] | the portal's search by title and kind, everything shared or only mine (§5.1) | Partly built — no favourites or groups filter; Living Atlas and ArcGIS Online are not this portal's |
-| Only content within the map area [3] | — the portal's search refuses `bbox` by name (PortalEndpoints, the 2026-11-02 review's E), so this needs the search first | Owed |
+| Only content within the map area [3] | *Only within the current view*: the portal's search answers `bbox` since ADR-271, and the list follows the camera | Built |
 | A layer from a URL [3] | the same | Built |
 | GeoJSON and CSV files [3] | from the reader's content, drawn from the document's data (§5.11); a file elsewhere on the web is not, as the console's policy names no other origin | Built |
 
@@ -107,12 +107,11 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 
 ## Still to do
 
-Two gaps need no decision and were too large to finish well the same night:
+One gap needs no decision and was too large to finish well the same night. The second, *only content within the map
+area*, was built the next night (ADR-271):
 
 - **Running the server's analysis from the scene** (§D): the analysis Studio's 2D map runs, offered on a scene's
   feature layers with its results added to the scene.
-- **Only content within the map area** (§E): the portal's search must first answer `bbox`, which needs an extent for
-  every kind of item, documents included.
 
 ## For the owner
 

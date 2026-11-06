@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -98,6 +99,55 @@ internal static class SceneServerEndpoints
 
         byte[] bytes = Plain(name, await package.ReadAsync(name, cancellation).ConfigureAwait(false));
         return JsonNode.Parse(bytes) as JsonObject;
+    }
+
+    /// <summary>
+    /// A scene layer package's extent in WGS 84 — its layer document's <c>fullExtent</c>, in the reference that names, or
+    /// its <c>store.extent</c>, which I3S writes in degrees — or empty when it says neither (ADR-271).
+    /// </summary>
+    internal static async Task<double[][]> PackageExtentAsync(
+        HttpContext context, Document document, Graticula.Geometries.IProjector projector, CancellationToken cancellation)
+    {
+        IDocumentStore? documents = context.RequestServices.GetService<IDocumentStore>();
+        ScenePackages? packages = context.RequestServices.GetService<ScenePackages>();
+
+        if (documents is null || packages is null
+            || await packages.OpenAsync(document, documents, cancellation).ConfigureAwait(false) is not { } package
+            || await LayerDocumentAsync(package, cancellation).ConfigureAwait(false) is not { } layer)
+        {
+            return [];
+        }
+
+        static double? Number(JsonNode? node) => node is JsonValue value && value.TryGetValue(out double read) && double.IsFinite(read) ? read : null;
+
+        int srid = 4326;
+        double?[] corners;
+
+        if (layer["fullExtent"] is JsonObject full)
+        {
+            corners = [Number(full["xmin"]), Number(full["ymin"]), Number(full["xmax"]), Number(full["ymax"])];
+            JsonNode? reference = full["spatialReference"];
+            srid = (int)(Number(reference?["latestWkid"]) ?? Number(reference?["wkid"]) ?? 4326);
+        }
+        else if (layer["store"]?["extent"] is JsonArray box && box.Count == 4)
+        {
+            corners = [Number(box[0]), Number(box[1]), Number(box[2]), Number(box[3])];
+        }
+        else
+        {
+            return [];
+        }
+
+        if (corners.Any(c => c is null) || corners[0] > corners[2] || corners[1] > corners[3])
+        {
+            return [];
+        }
+
+        IReadOnlyList<Graticula.Geometries.Envelope?> geographic = await Graticula.Geometries.GeographicExtents
+            .InWgs84Async(projector, [(srid == 102100 ? 3857 : srid, new Graticula.Geometries.Envelope(corners[0]!.Value, corners[1]!.Value, corners[2]!.Value, corners[3]!.Value))], cancellation)
+            .ConfigureAwait(false);
+
+        return geographic is [{ } wgs] ? [[wgs.MinX, wgs.MinY], [wgs.MaxX, wgs.MaxY]] : [];
     }
 
     private static async Task<IResult> ServiceAsync(HttpContext context, string id, CancellationToken cancellation)

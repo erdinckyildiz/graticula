@@ -281,6 +281,8 @@
             <option value="GeoJson">GeoJSON files</option>
           </select>
           <label class="check"><input type="checkbox" id="addMine"> Only my content</label>
+          <!-- ADR-271: the portal's search answers a box, so the list can follow the view. -->
+          <label class="check"><input type="checkbox" id="addInView"> Only within the current view</label>
           <!-- Above the list, so it is not below the fold of eight rows (design review). -->
           <details id="addByAddress">
             <summary>Add by service address</summary>

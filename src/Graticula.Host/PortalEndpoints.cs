@@ -1909,7 +1909,7 @@ internal static partial class PortalEndpoints
             query = form["q"].ToString();
         }
 
-        // The ArcGIS veteran's review of 2026-11-02, E: categories narrow, bbox and filter are refused by name.
+        // The ArcGIS veteran's review of 2026-11-02, E: categories and (ADR-271) bbox narrow; filter is refused by name.
         PortalSearchParameters.Narrowing narrowing = PortalSearchParameters.Of(context, form);
 
         if (narrowing.Refused is { } refusedWhy)
@@ -1929,7 +1929,15 @@ internal static partial class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> results = [.. listed.Select(entry => entry.Item).Where(item => PortalSearchParameters.InCategories(item, narrowing.Categories))];
+        // ADR-271: the box is the last narrowing, so its extents are read for what q and categories already matched.
+        IReadOnlyList<PortalListed> narrowed = [.. listed.Where(entry => PortalSearchParameters.InCategories(entry.Item, narrowing.Categories))];
+
+        if (narrowing.Box is { } box)
+        {
+            narrowed = await PortalSpatialSearch.WithinAsync(context, narrowed, box, cancellation).ConfigureAwait(false);
+        }
+
+        List<object> results = [.. narrowed.Select(entry => entry.Item)];
         PortalPage.Page page = PortalPage.Of(results, context, form);
 
         return Results.Ok(new
@@ -2007,7 +2015,15 @@ internal static partial class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> results = [.. listed.Select(entry => entry.Item).Where(item => PortalSearchParameters.InCategories(item, narrowing.Categories))];
+        // ADR-271: the box is the last narrowing, so its extents are read for what q and categories already matched.
+        IReadOnlyList<PortalListed> narrowed = [.. listed.Where(entry => PortalSearchParameters.InCategories(entry.Item, narrowing.Categories))];
+
+        if (narrowing.Box is { } box)
+        {
+            narrowed = await PortalSpatialSearch.WithinAsync(context, narrowed, box, cancellation).ConfigureAwait(false);
+        }
+
+        List<object> results = [.. narrowed.Select(entry => entry.Item)];
         PortalPage.Page page = PortalPage.Of(results, context, form);
 
         return Results.Ok(new
