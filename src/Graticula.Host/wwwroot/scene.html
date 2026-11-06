@@ -167,6 +167,8 @@
   #slideList img, #slideList .noimg { width: 72px; height: 48px; object-fit: cover; border-radius: 3px; background: var(--surface-3);
                     grid-row: span 2; cursor: pointer; border: 0; padding: 0; }
   #slideList .row { gap: 3px; grid-column: 1 / -1; }
+  /* Delete apart from the rest, so a tap meant for "In presentation" does not land on it (review). */
+  #slideList .row .danger { margin-left: auto; }
   #slideList li.current { border-color: var(--accent); }
   #baseList > li > button { width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 6px; }
   #baseList > li > button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }

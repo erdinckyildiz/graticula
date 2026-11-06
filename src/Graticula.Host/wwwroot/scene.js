@@ -119,6 +119,8 @@ function scDrawSaved() {
   saved.className = scState.dirty ? "dirty" : "";
   const button = sc$("headSave");
   button.hidden = !scCanEdit();
+  // Bright only when there is something to save: a saved, unchanged scene's Save read as a change waiting (review).
+  button.classList.toggle("primary", scState.dirty || !scState.id);
   button.disabled = scState.saving
     || (!scState.id && !sc$("sceneTitle").value.trim() && (!scState.scene || scState.scene.layers.length === 0));
   button.title = button.disabled && !scState.saving ? "Add a layer or name the scene to save it" : "";

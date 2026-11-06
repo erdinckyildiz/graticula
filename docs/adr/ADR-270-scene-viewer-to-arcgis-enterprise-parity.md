@@ -194,7 +194,10 @@ viewer authors lives in the web scene item ADR-269 keeps.
    confirming review said **not pass** and found a second blocker the first had not — the tab row, a flex child with
    `overflow-x`, shrank to nothing whenever the pane was taller than the screen, the first run included — and the phone's
    open tool list running past the scene; both fixed, with a test that the row stays 30 px tall and a reader test on a
-   fresh page as a real second member. A third look at the fixed screens is owed before this is discharged.)*
+   fresh page as a real second member.)* *(Discharged 2026-11-06: a third look at the fixed screens — first run, a
+   layer's settings, slides, the phone with its tools open, and a real second member's fresh page — passed, with two
+   minors applied (Save bright only when there is something to save; Delete set apart on a slide's row). The icon rail
+   stays deferred, §5.11.)*
 2. **A web scene authored here — a styled layer, a pop-up, slides — opens in Pro as it was authored.** Owed by the owner:
    it needs the desktop.
 3. **The parity with ArcGIS Online and Enterprise is written down**, item by item, with what is built, what is not and
