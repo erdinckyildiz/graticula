@@ -513,8 +513,19 @@ public sealed class SceneLayerSourceTests : ConsoleTest
                 "Close to the place, the Editor did not ask for the click: " + await Browser.EvaluateAsync<string>("document.getElementById('toolPanel').innerText.slice(0, 200)"));
             await Task.Delay(2000);
             string view = await Browser.EvaluateAsync<string>("JSON.stringify(document.getElementById('viewDiv').getBoundingClientRect())") ?? "{}";
-            await MouseClickAsync(view);
-            await WaitForAsync("/\\bCreate\\b/.test(document.getElementById('toolPanel').innerText) || /Rebuild/.test(document.getElementById('toolPanel').innerText)",
+            const string Placed = "/\\bCreate\\b/.test(document.getElementById('toolPanel').innerText) || /Rebuild/.test(document.getElementById('toolPanel').innerText)";
+            // A click the Editor does not take while its preview is still being drawn is clicked again, as a person
+            // would (CI run 42302982644: one click, no form, on the runner's slower software rendering).
+            for (int attempt = 0; attempt < 3 && !await Browser.EvaluateAsync<bool>(Placed); attempt++)
+            {
+                await MouseClickAsync(view);
+                for (int waited = 0; waited < 30 && !await Browser.EvaluateAsync<bool>(Placed); waited++)
+                {
+                    await Task.Delay(500);
+                }
+            }
+
+            Assert.True(await Browser.EvaluateAsync<bool>(Placed),
                 "Placing the model did not lead to its form: " + await Browser.EvaluateAsync<string>("document.getElementById('toolPanel').innerText.slice(0, 200)"));
             string create = await DeepRectAsync("c => (c.tagName.toLowerCase() === 'calcite-button' || c.tagName.toLowerCase() === 'button') && /^\\s*Create\\s*$/.test(c.textContent || '')");
             if (create.Length > 0)
