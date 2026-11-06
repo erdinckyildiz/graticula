@@ -66,18 +66,20 @@ internal static partial class AdminEndpoints
     {
         app.MapPost("/content/meshes", CreateMeshLayerAsync);
 
-        app.MapMethods(MeshRoot, ["GET", "POST"], MeshServiceAsync);
-        app.MapMethods(MeshRoot + "/0", ["GET", "POST"], MeshLayerAsync);
-        app.MapMethods(MeshRoot + "/layers", ["GET", "POST"], MeshLayersAsync);
-        app.MapMethods(MeshRoot + "/uploads/info", ["GET", "POST"], MeshUploadsInfoAsync);
-        app.MapPost(MeshRoot + "/0/uploadAssets", MeshUploadAssetsAsync).DisableAntiforgery();
-        app.MapPost(MeshRoot + "/0/applyEdits", MeshApplyEditsAsync).DisableAntiforgery();
-        app.MapPost(MeshRoot + "/applyEdits", MeshServiceApplyEditsAsync).DisableAntiforgery();
-        app.MapMethods(MeshRoot + "/extractChanges", ["GET", "POST"], MeshExtractChangesAsync).DisableAntiforgery();
-        app.MapMethods(MeshRoot + "/0/query", ["GET", "POST"], (HttpContext c, string id, IDocumentStore d, CancellationToken t) => MeshQueryAsync(c, id, d, false, t)).DisableAntiforgery();
-        app.MapMethods(MeshRoot + "/0/query3D", ["GET", "POST"], (HttpContext c, string id, IDocumentStore d, CancellationToken t) => MeshQueryAsync(c, id, d, true, t)).DisableAntiforgery();
-        app.MapMethods(MeshRoot + "/0/queryAssets", ["GET", "POST"], MeshQueryAssetsAsync).DisableAntiforgery();
-        app.MapGet(MeshRoot + "/0/assets/{hash}", MeshAssetAsync);
+        // Under /rest/services, so each says what governs it: the item's own sharing, checked in every handler
+        // (ReadableMeshAsync, EditableMeshAsync), as a scene layer package's SceneServer is (ADR-018 condition 5).
+        app.MapMethods(MeshRoot, ["GET", "POST"], MeshServiceAsync).Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/0", ["GET", "POST"], MeshLayerAsync).Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/layers", ["GET", "POST"], MeshLayersAsync).Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/uploads/info", ["GET", "POST"], MeshUploadsInfoAsync).Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/0/uploadAssets", MeshUploadAssetsAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/0/applyEdits", MeshApplyEditsAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/applyEdits", MeshServiceApplyEditsAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/extractChanges", ["GET", "POST"], MeshExtractChangesAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/0/query", ["GET", "POST"], (HttpContext c, string id, IDocumentStore d, CancellationToken t) => MeshQueryAsync(c, id, d, false, t)).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/0/query3D", ["GET", "POST"], (HttpContext c, string id, IDocumentStore d, CancellationToken t) => MeshQueryAsync(c, id, d, true, t)).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/0/queryAssets", ["GET", "POST"], MeshQueryAssetsAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapGet(MeshRoot + "/0/assets/{hash}", MeshAssetAsync).Governed(SharingGovernedExtensions.ByService);
     }
 
     // ------------------------------------------------------------------------------------------------ the layer's state
