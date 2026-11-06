@@ -24,7 +24,7 @@ a decision the screen may change — it is what the screen has to show and send.
 | Action | Call | A refusal the screen must show |
 |---|---|---|
 | list | `GET /content/documents` | 401 when signed out |
-| upload | `POST /content/documents`, multipart `file`, `title`, `snippet`, `sharing` | **415** not an accepted kind, or not what its name says (the sentence names the real kind); **413** over `Graticula:DocumentMaxMB`; 403 when the sharing level needs a privilege the person lacks |
+| upload | `POST /content/documents`, multipart `file`, `title`, `snippet`, `sharing` | **415** not an accepted kind, or not what its name says (the sentence names the real kind); **413** over `Graticula:DocumentMaxMB` — except a scene layer package (`.slpk`), which up to `Graticula:ScenePackageMaxMB` (4 GB) is streamed to the server directories and recorded by reference ([ADR-274](../adr/ADR-274-scene-packages-above-the-document-limit-are-files.md)); 403 when the sharing level needs a privilege the person lacks |
 | read | `GET /content/documents/{id}` | 404 for one that is not there **or not shared with them** — the same answer by design |
 | download | `GET /content/documents/{id}/data` | always a download; never open it in a frame or a new tab as a page |
 | change | `PUT /content/documents/{id}` `{title, snippet, sharing}` | 403 for a reader who is not the owner |
