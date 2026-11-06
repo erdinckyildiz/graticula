@@ -97,6 +97,8 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/rebuild'], true)");
             await ClickAsync("#docSceneRebuild");
             await WaitForAsync("/was rebuilt with 8 buildings/.test(document.getElementById('docSays').textContent)", "Rebuild did not say it rebuilt the layer.");
+            // ADR-277 §5.2: made from the package this server wrote, and the layer unchanged, nothing is written again.
+            Assert.Contains("nothing had changed", await Browser.EvaluateAsync<string>("document.getElementById('docSays').textContent") ?? string.Empty);
 
             (int status, string after) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
             Assert.Equal(200, status);
@@ -228,6 +230,67 @@ public sealed class SceneLayerSourceTests : ConsoleTest
                 using HttpResponseMessage _ = await Http.SendAsync(undo);
             }
 
+            await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+        }
+    }
+    /// <summary>
+    /// ADR-276 condition 3: Edit, in a scene holding a scene layer its owner made here, edits the layer it was made from,
+    /// kept out of the scene's own list, and offers to rebuild the scene layer after an edit.
+    /// </summary>
+    [Fact]
+    public async Task A_scene_layer_is_edited_through_its_features_and_rebuilt_from_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string editable = (Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE") ?? "hosted/ci_editable").Trim('/');
+        string folder = editable.Contains('/') ? editable[..editable.IndexOf('/')] : string.Empty;
+        string name = editable[(editable.IndexOf('/') + 1)..];
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/scenes",
+            JsonSerializer.Serialize(new { service = name, folder, layer = 0, title = "zz console scene edit through" }));
+        Assert.True(status == 201, $"Making the point scene layer answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await DrawInSoftwareAsync();
+            await OpenAsync($"/studio/scene.html?layer={System.Uri.EscapeDataString($"{Root}/rest/services/hosted/{id}/SceneServer")}&title=zz", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true && scState.scene.layers.length === 1"
+                + " && scState.scene.layers.getItemAt(0).loadStatus === 'loaded'", "The scene layer did not open.");
+            await WaitForAsync("!!document.querySelector('#tools [data-group=edit]') && !document.querySelector('#tools [data-group=edit]').hidden",
+                "A scene layer made from an editable layer did not offer Edit to its owner.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/applyEdits', '/rebuild'], true)");
+            await ClickAsync("#tools [data-group=edit]");
+            await WaitForAsync("scState.tool === 'edit' && !!document.querySelector('#toolPanel .esri-editor')", "Edit did not open the editor.");
+            Assert.True(await Browser.EvaluateAsync<bool>("scState.tools.edit.layerInfos.some(i => i.enabled && i.layer.scSourceOf === scState.scene.layers.getItemAt(0))"),
+                "The editor was not offered the scene layer's own feature layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.querySelectorAll('#layerList > li').length === 1"),
+                "The editor's feature layer was listed among the scene's layers: " + await Browser.EvaluateAsync<string>("[...document.querySelectorAll('#layerList > li')].map(li => li.dataset.layer + ':' + li.textContent.trim().slice(0, 60)).join(' | ')"));
+
+            await Browser.EvaluateAsync<bool>("(scRequire(['esri/Graphic']).then(([Graphic]) => { const l = scLeaves(true).find(l => l.scSourceOf);"
+                + " return l.applyEdits({ addFeatures: [new Graphic({ geometry: { type: 'point', longitude: 29.02, latitude: 41.02 }, attributes: { label: 'zz edit through' } })] }); })"
+                + ".then(r => window.__edited = r.addFeatureResults[0], e => window.__edited = { error: e.message }), true)");
+            await WaitForAsync("!!window.__edited", "The edit was not answered.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!window.__edited.error && window.__edited.objectId > 0"),
+                "The edit through the scene layer was refused: " + await Browser.EvaluateAsync<string>("JSON.stringify(window.__edited)"));
+
+            await WaitForAsync("!!document.querySelector('#toolPanel [data-rebuild] button')", "No rebuild was offered after the edit.");
+            await ClickAsync("#toolPanel [data-rebuild] button");
+            await WaitForAsync("/was rebuilt/.test(document.querySelector('#toolPanel [data-rebuild]').textContent)",
+                "The scene layer was not rebuilt from the scene: " + await Browser.EvaluateAsync<string>("document.querySelector('#toolPanel [data-rebuild]')?.textContent || ''"));
+            await WaitForAsync("scLeaves().length === 1 && !!scLeaves()[0].customParameters?.built && scLeaves()[0].loadStatus === 'loaded'",
+                "The rebuilt scene layer was not put back in its place.");
+            Assert.True(await Browser.EvaluateAsync<bool>("scState.tool === 'edit' && scLeaves(true).find(l => l.scSourceOf).scSourceOf === scLeaves()[0]"),
+                "Edit did not stay open on the rebuilt scene layer.");
+
+            await Browser.EvaluateAsync<bool>("(scLeaves(true).find(l => l.scSourceOf).applyEdits({ deleteFeatures: [{ objectId: window.__edited.objectId }] })"
+                + ".then(r => window.__removed = r.deleteFeatureResults[0]), true)");
+            await WaitForAsync("!!window.__removed && !window.__removed.error", "The feature the test added was not removed.");
+
+            await ClickAsync("#tools [data-group=edit]");
+            await WaitForAsync("scState.tool === null && !scLeaves(true).some(l => l.scSourceOf)", "Closing Edit left the feature layer in the scene.");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
             await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
         }
     }

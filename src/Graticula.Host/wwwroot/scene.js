@@ -169,8 +169,19 @@ function scShowTab(name) {
 
 // The Layers panel's own buttons, as Studio's map has them.
 sc$("layersAdd").addEventListener("click", () => { scShowTab("add"); sc$("addFilter").focus(); });
+// Scene Viewer's group layers (ADR-270 §5.24): a group to put layers in, from the Layers panel.
+sc$("layersGroup").addEventListener("click", async () => {
+  const [GroupLayer] = await scRequire(["esri/layers/GroupLayer"]);
+  const n = scState.scene.layers.filter(l => l.type === "group").length + 1;
+  const group = new GroupLayer({ title: `Group ${n}`, visibilityMode: "independent" });
+  scState.scene.layers.add(group);
+  scMarkDirty();
+  scDrawLayers();
+  scSay(`Group ${n} was made. Put a layer in it from the layer's ⋯ menu.`);
+});
+
 sc$("layersZoomAll").addEventListener("click", () => {
-  const extents = scState.scene.layers.toArray().map(l => l.fullExtent).filter(Boolean);
+  const extents = scLeaves().map(l => l.fullExtent).filter(Boolean);
   if (extents.length === 0) { scSay("No layer says where it is.", true); return; }
   scState.view.goTo({ target: extents, tilt: 55 }).catch(() => {});
 });
@@ -239,7 +250,7 @@ function scDrawLayers() {
   // The tools' list of layers follows the scene's, when they are open.
   if (!sc$("pane-analysis").hidden && scState.group === "server") scDrawAnalysis();
   const list = sc$("layerList");
-  const layers = scState.scene.layers.toArray().slice().reverse();
+  const layers = scState.scene.layers.toArray().filter(l => !l.scSourceOf && !scWidgetsOwn(l)).slice().reverse();
   sc$("layersActions").hidden = !scCanEdit();
   if (layers.length === 0) {
     sc$("layersCount").textContent = "0";
@@ -249,34 +260,47 @@ function scDrawLayers() {
     return;
   }
   const edit = scCanEdit();
-  sc$("layersCount").textContent = String(layers.length);
+  sc$("layersCount").textContent = String(scLeaves().length);
   // ADR-279, as Studio's map draws a layer (ADR-259): show it, select it by its name, and ⋯ for what is done to it; what
-  // it is given is in the right toolbar's panel.
+  // it is given is in the right toolbar's panel. ADR-270 §5.24: a group is a row too, its layers inside it.
   const selected = scSelectedLayer();
-  list.innerHTML = layers.map((layer, at) => {
+  const groups = scState.scene.layers.toArray().filter(l => l.type === "group");
+  const row = (layer, at, siblings, inGroup) => {
     const k = scEscape(layer.id);
-    const title = scEscape(layer.title || "Untitled layer");
-    const mine = selected && selected.id === layer.id;
+    const title = scEscape(layer.title || (layer.type === "group" ? "Untitled group" : "Untitled layer"));
+    const group = layer.type === "group";
+    const mine = !group && selected && selected.id === layer.id;
+    const children = group ? layer.layers.toArray().slice().reverse() : [];
     return `
-    <li class="${layer.visible ? "" : "off"}${mine ? " sel" : ""}" data-layer="${k}">
+    <li class="${layer.visible ? "" : "off"}${mine ? " sel" : ""}${group ? " group" : ""}" data-layer="${k}">
       <div class="lhead">
         <input type="checkbox" data-act="visible" aria-label="Show ${title}" ${layer.visible ? "checked" : ""}>
-        <button type="button" class="lname" data-act="select" aria-pressed="${mine ? "true" : "false"}" aria-controls="side">
+        ${group ? `<span class="lname gname"><span class="ltitle">${title}</span><span class="lkind">Group · ${children.length} ${children.length === 1 ? "layer" : "layers"}</span></span>`
+          : `<button type="button" class="lname" data-act="select" aria-pressed="${mine ? "true" : "false"}" aria-controls="side">
           <span class="ltitle">${title}</span><span class="lkind">${scEscape(scKind(layer))}${
-            layer.loadStatus === "failed" ? ` · <span class="lnote">could not be read</span>` : ""}</span></button>
+            layer.loadStatus === "failed" ? ` · <span class="lnote">could not be read</span>` : ""}</span></button>`}
         <button type="button" class="lmore" data-act="menu" aria-expanded="${scState.menu === layer.id}" aria-controls="menu-${k}"
           aria-label="Actions for ${title}">&hellip;</button>
       </div>
       <div class="lmenu" id="menu-${k}" role="group" aria-label="Actions for ${title}"${scState.menu === layer.id ? "" : " hidden"}>
-        <button type="button" data-act="zoom">Zoom to</button>
-        <button type="button" data-act="settings" aria-controls="side">Properties</button>
+        ${group ? (edit ? `<button type="button" data-act="rename">Rename</button>` : "") : `<button type="button" data-act="zoom">Zoom to</button>
+        <button type="button" data-act="settings" aria-controls="side">Properties</button>`}
         ${edit ? `<button type="button" data-act="up" ${at === 0 ? "disabled" : ""}>Move up</button>
-        <button type="button" data-act="down" ${at === layers.length - 1 ? "disabled" : ""}>Move down</button>
+        <button type="button" data-act="down" ${at === siblings - 1 ? "disabled" : ""}>Move down</button>
+        ${!group && inGroup ? `<button type="button" data-act="ungroup">Out of the group</button>` : ""}
+        ${!group && !inGroup ? groups.map(g => `<button type="button" data-act="into" data-group-id="${scEscape(g.id)}">Into ${scEscape(g.title || "the group")}</button>`).join("") : ""}
+        ${group ? `<button type="button" data-act="dissolve">Ungroup its layers</button>` : ""}
         <hr>
-        <button type="button" class="danger" data-act="remove">Remove</button>` : ""}
+        <button type="button" class="danger" data-act="remove">${group ? "Remove the group and its layers" : "Remove"}</button>` : ""}
       </div>
+      ${group ? `<ul class="glist">${children.map((c, i) => row(c, i, children.length, true)).join("")}</ul>` : ""}
     </li>`;
-  }).join("");
+  };
+  list.innerHTML = layers.map((layer, at) => row(layer, at, layers.length, false)).join("");
+  // A group's own changes redraw the list, as the scene's do.
+  for (const g of groups) {
+    if (!g.__watched) { g.__watched = true; g.layers.on("change", () => { if (scState.opened) { scDrawLayers(); scDrawConditionalTools(); } }); }
+  }
 
   // The right panel follows the scene's layers while it shows one of them.
   if (scState.side === "layer") scDrawLayerTool();
@@ -291,9 +315,10 @@ const SC_LAYER_PARTS = [["props", "Properties", "sliders"], ["look", "Styles", "
 
 /** The layer the right panel's settings are of: the one chosen, or the top of the list. */
 function scSelectedLayer() {
-  const layers = scState.scene ? scState.scene.layers : null;
-  if (!layers || layers.length === 0) return null;
-  return layers.find(l => l.id === scState.selected) || layers.getItemAt(layers.length - 1);
+  const leaves = scLeaves();
+  if (leaves.length === 0) return null;
+  const chosen = scFindLayer(scState.selected);
+  return chosen && chosen.type !== "group" ? chosen : leaves[leaves.length - 1];
 }
 
 function scDrawLayerTool() {
@@ -306,7 +331,7 @@ function scDrawLayerTool() {
     return;
   }
   scState.selected = layer.id;
-  const layers = scState.scene.layers.toArray().slice().reverse();
+  const layers = scLeaves().slice().reverse();
   // Which layer, and which of its parts — the parts switch inside the panel too, since a phone's toolbar has one button
   // for all four (ADR-259 §3.5's pattern).
   box.innerHTML = `<div class="lhead"><label for="layerPick">Layer</label>
@@ -535,7 +560,7 @@ scOnLayers("change", async event => {
 /** Fills each open layer's style and pop-up parts, which need the layer's fields and current renderer. */
 function scFillLayerDetails() {
   for (const detail of document.querySelectorAll("[data-detail]")) {
-    const layer = scState.scene.layers.find(l => l.id === detail.dataset.detail);
+    const layer = scFindLayer(detail.dataset.detail);
     if (!layer) continue;
     const elevation = detail.querySelector("[data-act=elevation]");
     if (elevation) {
@@ -843,10 +868,42 @@ async function scApplyPopup(layer, detail) {
 
 // --- the list's events -----------------------------------------------------------------------------------------------
 
+/**
+ * Every layer of the scene that draws, inside groups too (ADR-270 §5.24): what the tools, the pickers and the lookups
+ * read. A group is a folder of the list, not a layer a tool can use.
+ */
+/**
+ * A layer a widget put in the map for itself, never the scene's (measured: the Editor's sketch layer, a hidden graphics
+ * layer). A layer of the scene's own that is hidden from lists is still the scene's, and is kept.
+ */
+function scWidgetsOwn(layer) {
+  return !layer.scSourceOf && (layer.internal === true || (layer.type === "graphics" && layer.listMode === "hide"));
+}
+
+function scLeaves(withSources = false) {
+  if (!scState.scene) return [];
+  const out = [];
+  // A scene layer's feature layer, added while Edit is open (ADR-276 §5.4), is the editor's and not the scene's; so is
+  // a layer a widget adds for itself, as the SDK's Editor adds its sketch layer.
+  const walk = collection => collection.forEach(l => (l.type === "group" ? walk(l.layers)
+    : (l.scSourceOf ? withSources : !scWidgetsOwn(l)) && out.push(l)));
+  walk(scState.scene.layers);
+  return out;
+}
+
+/** Any layer of the scene by its id, a group or one inside a group. */
+function scFindLayer(id) {
+  if (!scState.scene || !id) return null;
+  let found = null;
+  const walk = collection => collection.forEach(l => { if (!found && l.id === id) found = l; else if (!found && l.type === "group") walk(l.layers); });
+  walk(scState.scene.layers);
+  return found;
+}
+
 function scLayerOf(element) {
   const row = element.closest("[data-layer]") || element.closest("[data-detail]");
   const id = row && (row.dataset.layer || row.dataset.detail);
-  return id ? scState.scene.layers.find(l => l.id === id) : null;
+  return id ? scFindLayer(id) : null;
 }
 
 /** The layer list and the right panel's settings answer the same controls (ADR-279). */
@@ -875,6 +932,17 @@ scOnLayers("change", event => {
   }
 });
 
+// A group's new name, as it is typed and when it is done.
+sc$("layerList").addEventListener("change", event => {
+  if (event.target.dataset.act !== "grouptitle") return;
+  const group = scLayerOf(event.target);
+  if (!group) return;
+  group.title = event.target.value.trim() || group.title;
+  scMarkDirty();
+  scDrawLayers();
+  scSay(`The group is called ${group.title}.`);
+});
+
 scOnLayers("input", event => {
   if (event.target.dataset.act !== "opacity") return;
   const layer = scLayerOf(event.target);
@@ -890,7 +958,39 @@ scOnLayers("click", async event => {
   const layer = scLayerOf(button);
   if (!layer) return;
   const act = button.dataset.act;
-  const layers = scState.scene.layers;
+  // A layer moves among its own group's layers, or the scene's (ADR-270 §5.24).
+  const owner = layer.parent && layer.parent.type === "group" ? layer.parent : scState.scene;
+  const layers = owner.layers;
+  if (act === "into" || act === "ungroup" || act === "dissolve" || act === "rename" || act === "newgroup") {
+    scState.menu = null;
+    if (act === "into") {
+      const target = scFindLayer(button.dataset.groupId);
+      scState.scene.layers.remove(layer);
+      target.layers.add(layer);
+      scSay(`${layer.title || "The layer"} is in ${target.title || "the group"}.`);
+    } else if (act === "ungroup") {
+      const group = layer.parent;
+      group.layers.remove(layer);
+      scState.scene.layers.add(layer, scState.scene.layers.indexOf(group) + 1);
+      scSay(`${layer.title || "The layer"} is out of ${group.title || "the group"}.`);
+    } else if (act === "dissolve") {
+      const at = scState.scene.layers.indexOf(layer);
+      const inside = layer.layers.toArray();
+      layer.layers.removeAll();
+      scState.scene.layers.remove(layer);
+      scState.scene.layers.addMany(inside, at);
+      scSay(`${layer.title || "The group"} was ungrouped.`);
+    } else if (act === "rename") {
+      const row = button.closest("[data-layer]");
+      const name = row.querySelector(".gname .ltitle");
+      name.innerHTML = `<input type="text" data-act="grouptitle" value="${scEscape(layer.title || "")}" maxlength="120" aria-label="Group name">`;
+      name.querySelector("input").focus();
+      return;
+    }
+    scMarkDirty();
+    scDrawLayers();
+    return;
+  }
   if (act === "up" || act === "down") {
     // The list is drawn top first, so "up" is a higher index in the scene's collection.
     const at = layers.indexOf(layer);
@@ -918,14 +1018,14 @@ scOnLayers("click", async event => {
   } else if (act === "remove") {
     const title = layer.title || "The layer";
     const at = layers.indexOf(layer);
-    scState.scene.remove(layer);
+    owner.layers.remove(layer);
     scState.menu = null;
     // The panel does not slide onto another layer, where the same Remove would act on it (design review).
     if (scState.selected === layer.id) { scState.selected = null; if (scState.side === "layer") scOpenSide(false); }
     scMarkDirty();
     scDrawLayers();
     scSaySummary();
-    scOfferUndo(`${title} was removed.`, () => { scState.scene.add(layer, at); scMarkDirty(); scDrawLayers(); scSay(`${title} is back.`); });
+    scOfferUndo(`${title} was removed.`, () => { owner.layers.add(layer, at); scMarkDirty(); scDrawLayers(); scSay(`${title} is back.`); });
     (sc$("layerList").querySelector("[data-act=select]") || sc$("tab-add")).focus();
   }
 });
@@ -1035,7 +1135,7 @@ async function scAddUrl(url, title, itemId, kind) {
     layer.__drawable = scState.view.whenLayerView(layer).then(() => true, e => {
       // The SDK's own words are for a developer: kept in the console, not shown (design review).
       console.warn("Layer view not created", layer.title, e);
-      if (!scState.scene.layers.includes(layer)) return false;
+      if (!scFindLayer(layer.id)) return false;
       // Measured 2026-11-07 (ADR-270 §5.17, ADR-278): a voxel layer is drawn in a local scene in its own coordinate
       // system — this viewer's local scenes are Web Mercator — and the SDK draws 3D Tiles 1.1 (glTF), not 1.0 (b3dm).
       const why = layer.type === "voxel"
@@ -1069,7 +1169,7 @@ async function scAddUrl(url, title, itemId, kind) {
 /** Whether a service is already a layer of the scene, so the add list says so rather than adding it twice. */
 function scHasLayer(url) {
   const plain = String(url || "").replace(/\/+$/, "");
-  return !!scState.scene && scState.scene.layers.some(l => (l.url || "").replace(/\/+$/, "") === plain
+  return !!scState.scene && scLeaves().some(l => (l.url || "").replace(/\/+$/, "") === plain
     || (l.parsedUrl && `${l.url}/${l.layerId}` === plain));
 }
 
@@ -1239,7 +1339,7 @@ function scAnalysable() {
     } catch { return false; }
   };
   const found = [];
-  for (const layer of scState.scene.layers.toArray()) {
+  for (const layer of scLeaves()) {
     const source = layer.type === "feature" ? layer : layer.type === "scene" ? layer.associatedLayer : null;
     const url = scFeatureAddress(source);
     if (url && hosted(url) && !found.some(f => f.url === url)) {
@@ -1329,7 +1429,7 @@ sc$("createGo").addEventListener("click", async () => {
     });
     const url = `${String(made.serviceurl || made.encodedServiceURL).replace(/\/+$/, "")}/0`;
     await scAddUrl(url, name, null, "Feature Service");
-    const layer = scState.scene.layers.toArray().find(l => scFeatureAddress(l) === url || l.url === url);
+    const layer = scLeaves().find(l => scFeatureAddress(l) === url || l.url === url);
     if (layer) {
       layer.elevationInfo = { mode: "absolute-height" };
       await layer.load();
@@ -1684,7 +1784,7 @@ async function scApplyElements(slide) {
   if (info && info.features && info.features.length) {
     const found = [];
     for (const ref of info.features) {
-      const layer = scState.scene.layers.find(l => l.id === (ref.layerReference && ref.layerReference.layerId));
+      const layer = scFindLayer(ref.layerReference && ref.layerReference.layerId);
       if (!layer || typeof layer.queryFeatures !== "function" || !ref.id) continue;
       const result = await layer.queryFeatures({ objectIds: [ref.id.value], outFields: ["*"], returnGeometry: true }).catch(() => null);
       if (result) found.push(...result.features);
@@ -1863,7 +1963,7 @@ const SC_TOOLS = [
   { key: "time", group: "time", label: "Time", module: "esri/widgets/TimeSlider", when: l => !!(l.timeInfo && l.timeInfo.fullTimeExtent) },
   // ADR-276: Scene Viewer's Edit — the SDK's editor over the scene's layers the reader may edit, features placed in 3D
   // (with their height where the layer keeps one). The server decides who may edit; the layer's capabilities say it.
-  { key: "edit", group: "edit", label: "Edit", module: "esri/widgets/Editor", when: l => scEditable(l) },
+  { key: "edit", group: "edit", label: "Edit", module: "esri/widgets/Editor", when: l => scEditable(l) || !!l.scSource },
 ];
 
 /**
@@ -1889,9 +1989,95 @@ function scEditable(layer) {
     && !!(layer.capabilities && layer.capabilities.operations && layer.capabilities.operations.supportsEditing);
 }
 
+/**
+ * ADR-276 §5.4: the feature layer a scene layer was made from here, for the scene layer's owner — the one who may rebuild
+ * it. Asked once per layer; anyone else is answered no, and nothing is offered.
+ */
+function scLearnSources() {
+  if (SC_EMBED || !scToken) return;
+  for (const layer of scLeaves()) {
+    const hosted = /\/rest\/services\/hosted\/([0-9a-f]{32})\/SceneServer/i.exec(layer.url || "");
+    if (!hosted || layer.scSourceAsked) continue;
+    layer.scSourceAsked = true;
+    fetch(`/content/scenes/${hosted[1]}/source`, { headers: { Authorization: "Bearer " + scToken } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(source => {
+        if (!source || !source.exists) return;
+        const service = source.service.split("/").map(encodeURIComponent).join("/");
+        layer.scSource = { id: hosted[1], url: `${location.origin}/rest/services/${service}/FeatureServer/${source.layer}` };
+        scDrawConditionalTools();
+      })
+      .catch(() => null);
+  }
+}
+
+/** Adds, for the editor, each scene layer's own feature layer this reader may edit, and offers a rebuild after an edit. */
+async function scAttachSources(panel) {
+  const [FeatureLayer] = await scRequire(["esri/layers/FeatureLayer"]);
+  const made = scLeaves().filter(l => l.scSource && !scLeaves(true).some(f => f.scSourceOf === l));
+  for (const scene of made) {
+    const layer = new FeatureLayer({ url: scene.scSource.url, title: `${scene.title || "Scene layer"} — features`,
+      listMode: "hide", elevationInfo: { mode: "on-the-ground" }, opacity: 0.6 });
+    layer.scSourceOf = scene;
+    try { await layer.load(); } catch { continue; }
+    if (!scEditable(layer)) continue;
+    scState.scene.layers.add(layer);
+    layer.on("edits", () => scOfferRebuild(layer.scSourceOf, panel));
+  }
+}
+
+function scDetachSources() {
+  for (const layer of scLeaves(true).filter(l => l.scSourceOf)) scState.scene.layers.remove(layer);
+}
+
+/** After an edit through a scene layer's features: the scene layer is a cache, made again when its owner says so. */
+function scOfferRebuild(scene, panel) {
+  let box = panel.querySelector(`[data-rebuild="${scene.scSource.id}"]`);
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "esri-widget sc-rebuild";
+    box.dataset.rebuild = scene.scSource.id;
+    box.innerHTML = `<p class="said" role="status"></p><button type="button" class="primary">Rebuild</button>`;
+    panel.prepend(box);
+    box.querySelector("button").addEventListener("click", () => scRebuildFromScene(box));
+  }
+  box.querySelector("button").disabled = false;
+  box.querySelector("p").textContent = `${scene.title || "The scene layer"} does not show this edit until it is rebuilt from its features.`;
+  box.scScene = scene;
+}
+
+async function scRebuildFromScene(box) {
+  const scene = box.scScene;
+  const button = box.querySelector("button");
+  const says = box.querySelector("p");
+  button.disabled = true;
+  says.textContent = `Rebuilding ${scene.title || "the scene layer"}…`;
+  try {
+    const response = await fetch(`/content/scenes/${scene.scSource.id}/rebuild`, { method: "POST", headers: { Authorization: "Bearer " + scToken } });
+    const made = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error((made.error && made.error.message) || `the server answered ${response.status}`);
+    // The same layer, read again past the browser's cache of its nodes, where it stood.
+    const fresh = scene.clone();
+    fresh.customParameters = { ...(scene.customParameters || {}), built: String(Date.now()) };
+    fresh.scSource = scene.scSource;
+    fresh.scSourceAsked = true;
+    const parent = scene.parent && scene.parent.layers ? scene.parent.layers : scState.scene.layers;
+    const at = parent.indexOf(scene);
+    for (const f of scLeaves(true).filter(l => l.scSourceOf === scene)) f.scSourceOf = fresh;
+    box.scScene = fresh;
+    // Added before the old one leaves, so Edit always has a layer to be offered for.
+    parent.add(fresh, at);
+    parent.remove(scene);
+    says.textContent = `${fresh.title || "The scene layer"} was rebuilt${made.partial ? ` — ${made.partial}` : ""}.`;
+  } catch (e) {
+    button.disabled = false;
+    says.textContent = `Not rebuilt: ${e.message}`;
+  }
+}
+
 /** Shows a conditional tool's button only while a layer it works on is in the scene, closing it when the last goes. */
 function scDrawConditionalTools() {
-  const layers = scState.scene ? scState.scene.layers.toArray() : [];
+  const layers = scLeaves();
   for (const tool of SC_TOOLS.filter(t => t.when)) {
     const offered = layers.some(tool.when);
     if (!offered && scState.tool === tool.key) scToggleTool(tool.key);
@@ -1963,7 +2149,7 @@ function scDrawToolbar() {
 /** The tools of a group the scene offers now. */
 function scGroupTools(group) {
   if (group === "server") return scCanEdit() && scToken && window.GraticulaAnalysis ? [{ key: "server", label: "Analysis" }] : [];
-  const layers = scState.scene ? scState.scene.layers.toArray() : [];
+  const layers = scLeaves();
   return SC_TOOLS.filter(t => t.group === group && (!t.when || layers.some(t.when)));
 }
 
@@ -2029,6 +2215,7 @@ async function scToggleTool(key, options = {}) {
       if (open.viewModel && typeof open.viewModel.clear === "function") open.viewModel.clear();
       open.destroy();
     }
+    if (scState.tool === "edit") scDetachSources();
     delete scState.tools[scState.tool];
     scState.tool = null;
   }
@@ -2081,26 +2268,29 @@ async function scToggleTool(key, options = {}) {
       options.profiles = [{ type: "ground" }, { type: "input" }];
     }
     if (key === "search") {
-      const searchable = scState.scene.layers.filter(l => l.type === "feature");
+      const searchable = scLeaves().filter(l => l.type === "feature");
       options.includeDefaultSources = false;
       options.sources = searchable.map(layer => {
         const text = (layer.fields || []).filter(f => f.type === "string").map(f => f.name);
         return { layer, searchFields: text.length ? text : [layer.displayField || layer.objectIdField],
           displayField: layer.displayField || text[0] || layer.objectIdField, exactMatch: false, outFields: ["*"],
           name: layer.title, placeholder: `Search ${layer.title || "the layer"}` };
-      }).toArray();
+      });
     }
     if (key === "edit") {
+      // ADR-276 §5.4: a scene layer made here is edited through the layer it was made from, added for the editor.
+      await scAttachSources(panel);
+      if (ticket !== scState.toolTicket) { scDetachSources(); return; }
       // Only the layers this reader may edit; the rest of the scene is drawn, not offered.
-      options.layerInfos = scState.scene.layers.toArray().filter(l => l.type === "feature")
+      options.layerInfos = scLeaves(true).filter(l => l.type === "feature")
         .map(layer => ({ layer, enabled: scEditable(layer) }));
     }
     if (key === "building") {
-      options.layers = scState.scene.layers.filter(l => l.type === "building-scene");
+      options.layers = scLeaves().filter(l => l.type === "building-scene");
     }
     if (key === "time") {
       // The extent of every time-aware layer, stepped as the first one's own interval would be.
-      const timed = scState.scene.layers.filter(l => l.timeInfo && l.timeInfo.fullTimeExtent);
+      const timed = scLeaves().filter(l => l.timeInfo && l.timeInfo.fullTimeExtent);
       const start = Math.min(...timed.map(l => l.timeInfo.fullTimeExtent.start.getTime()));
       const end = Math.max(...timed.map(l => l.timeInfo.fullTimeExtent.end.getTime()));
       options.fullTimeExtent = { start: new Date(start), end: new Date(end) };
@@ -2296,7 +2486,11 @@ async function scSave() {
   try {
     // Where the camera is now is where the scene opens next time.
     scState.scene.initialViewProperties.viewpoint = scState.view.viewpoint.clone();
-    const text = JSON.stringify(scState.scene.toJSON());
+    const json = scState.scene.toJSON();
+    // The editor's feature layers (ADR-276 §5.4) are never part of the scene.
+    const editorOnly = new Set(scState.scene.allLayers.toArray().filter(l => l.scSourceOf || scWidgetsOwn(l)).map(l => l.id));
+    if (json.operationalLayers) json.operationalLayers = json.operationalLayers.filter(l => !editorOnly.has(l.id));
+    const text = JSON.stringify(json);
     const owner = encodeURIComponent(scState.owner || scState.user);
     if (scState.id) {
       await scPortal(`/content/users/${owner}/items/${encodeURIComponent(scState.id)}/update`, { title, text });
@@ -2439,7 +2633,7 @@ async function scStart() {
     scSay(`This browser cannot draw a 3D scene: ${e.message || "WebGL is not available"}. The scene itself is unharmed.`, true);
     return;
   }
-  await Promise.all(scState.scene.layers.toArray().map(l => l.load().catch(() => null)));
+  await Promise.all(scLeaves().map(l => l.load().catch(() => null)));
   scDrawToolbar();
   scDrawConditionalTools();
   await scLoadGallery(self);
@@ -2454,7 +2648,8 @@ async function scStart() {
   scSaySummary();
   if (scCanEdit()) { scSearchAdd(); scFillGroundChoices(); }
   // A layer's look or a slide applied elsewhere changes what the panel says; a removed layer leaves the list.
-  scState.scene.layers.on("change", () => { if (scState.opened) { scDrawLayers(); scDrawConditionalTools(); } });
+  scState.scene.layers.on("change", () => { if (scState.opened) { scDrawLayers(); scDrawConditionalTools(); scLearnSources(); } });
+  scLearnSources();
   scState.scene.watch("basemap", () => scDrawBasemaps());
 
   // ADR-269: opened from a scene layer's page (`?layer=`), a new scene starts with that layer, framed.

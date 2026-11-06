@@ -238,6 +238,11 @@ fetch from `js.arcgis.com` (ADR-253's dependency, widened rather than created).
     item of its own and shared as any item is. *(INFERRED: Scene Viewer's own creates an Instant Apps app; this is the
     smallest app that shows a scene and nothing that changes it.)* §15 is amended: the number of values (up to ten)
     and classes (two to ten) is the reader's to choose.
+24. **Group layers** (2026-11-07, the comparison's §A *Layer Manager*): *New group* in the Layers panel. A layer's ⋯
+    menu has *Into …* each group and *Out of the group*; a group's has *Rename*, *Ungroup its layers* and *Remove the
+    group and its layers*. A group shows its layers inside it, set in, and moves as one. The web scene keeps it as a
+    `GroupLayer` with its layers inside. Every tool, picker and lookup reads the layers inside groups too (`scLeaves`):
+    a group is a folder of the list, not a layer a tool can use.
 
 ## 6. Consequences
 

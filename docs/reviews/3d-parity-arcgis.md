@@ -20,7 +20,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | ArcGIS | Graticula | State |
 |---|---|---|
 | A new scene is global or local, chosen at creation [1] | the same; a local scene is Web Mercator, or a 3D layer's own projected system when one is added to a new local scene (ADR-270 §5.7, §5.20) | Built |
-| Layer Manager: order, visibility, group layers [2] | order, visibility, opacity, title, zoom to, remove (§5.1) | Partly built — no group layers |
+| Layer Manager: order, visibility, group layers [2] | order, visibility, opacity, title, zoom to, remove (§5.1), and group layers (§5.24) | Built |
 | Layer style: smart mapping styles [2] | one colour, a ramp, a colour for each value, classes of a number field; a size by field, 3D shapes, extrusion (§5.1, §5.15) | Partly built — no web style gallery (Owner) |
 | Layer properties: pop-ups, visibility ranges, filters [2] | pop-up title and fields; a range from Scene Viewer's named scales; a filter, tried before it is kept (§5.1, §5.9) | Built |
 | Configure ground: elevation layers, how the ground is shown and navigated [2] | elevation from an elevation layer, ground opacity, underground navigation (§5.1, §5.8) | Built |
@@ -77,10 +77,10 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Publish from a scene layer package [6][7] | ADR-269 §5.2 | Built |
 | Publish from a hosted feature layer, associating the two [6][7] | 3D object and point scene layers, related as `Service2Service` (ADR-270 §5.4); the SDK finds the feature layer | Built |
 | Rebuild cache: full [6] | *Rebuild* in Studio and `POST /content/scenes/{id}/rebuild` | Built |
-| Rebuild cache: selected layers, partial update of what changed [6] | designed (ADR-277): nodes of changed features rewritten, once hosted layers record which rows changed | Owed — ADR-277 |
+| Rebuild cache: selected layers, partial update of what changed [6] | *Rebuild* per layer; scheduled rebuilds when the layer changes; a 3D object layer's rebuild rewrites only the leaves of changed features and their ancestors, by fingerprints kept in the package, and an unchanged layer is not written again (ADR-277 §4b) | Built |
 | Scheduled rebuilds, job status [6] | *Rebuild on its own when the layer changes*: a site sweep every five minutes, its last outcome on the item and in Studio (ADR-277) | Built |
 | Replace a layer's package [6] | a document's *Replace file* | Built |
-| Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers (ADR-276) | Partly built — no mesh (3D object) editing yet, ADR-276 condition 1 |
+| Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers, and over a scene layer's own features for its owner, with *Rebuild* offered after an edit (ADR-276 §5.4) | Partly built — no mesh (3D object) editing yet, ADR-276 condition 1 |
 | Create an empty 3D object layer to edit [7] | *Create a layer to draw in*: an empty hosted layer of 3D points, lines or polygons, opened in Edit (ADR-276) | Partly built — no empty mesh layer, which waits on mesh geometry |
 | Levels of detail for large layers | inner nodes carry the largest buildings as simpler blocks (D-386) | Built |
 | Package size | up to `ScenePackageMaxMB` (4 GB): above the document limit a package is a file in the server directories (ADR-274); Esri's 286 MB mesh sample served and drawn whole | Built |

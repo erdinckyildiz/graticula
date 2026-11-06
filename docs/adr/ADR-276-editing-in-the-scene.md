@@ -55,6 +55,12 @@ from it. That is a new geometry type through the whole stack. **Deferred to its 
 2. The SDK's requests to this origin carry the tab's token (`esriConfig.request.interceptors`).
 3. Editing a scene layer made here goes through its feature layer, in Studio's map or this scene, followed by
    *Rebuild*. The scene layer itself is a cache.
+4. *(Added 2026-11-07, condition 3.)* In the scene, for the scene layer's owner, *Edit* adds the layer it was made from
+   for the editor: half transparent on the ground, out of the scene's layer list, never saved with the scene, and taken
+   out when Edit closes. After an edit the panel offers *Rebuild*, which makes the scene layer again (in part where it
+   can, [ADR-277](ADR-277-scene-caches-rebuilt-on-schedule-and-in-part.md) §4b) and puts it back in its place, read
+   past the browser's cache of its nodes. The owner is learned from the scene source endpoint, which answers only
+   whoever may rebuild; anyone else is offered nothing more than before.
 
 ## 6. Consequences
 
@@ -81,4 +87,8 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-023 §4c.
    layer to the scene with Edit open. `SceneViewerToolsTests.An_empty_3d_layer_is_created_from_the_scene_and_edited`
    places a point at 42 m and reads 42 back. A 3D object (mesh) layer waits on condition 1.)*
 3. **Editing through a scene layer made here**: the scene layer's associated feature layer is offered to the editor,
-   and the cache is rebuilt afterwards. *(Open.)*
+   and the cache is rebuilt afterwards. *(Discharged 2026-11-07, §5.4:
+   `SceneLayerSourceTests.A_scene_layer_is_edited_through_its_features_and_rebuilt_from_the_scene` makes a point scene
+   layer, opens it in a scene, edits through its features, rebuilds from the panel, and finds the layer back in place
+   with Edit still open and the feature layer gone when Edit closes. A 3D object layer is edited the same way, as its
+   footprints; editing its meshes is condition 1.)*

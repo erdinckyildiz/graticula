@@ -1098,4 +1098,54 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             }
         }
     }
+
+    /// <summary>
+    /// ADR-270 §5.24: Scene Viewer's group layers — a group is made, a layer put into it and taken out again, and the web
+    /// scene keeps the group with its layer inside it.
+    /// </summary>
+    [Fact]
+    public async Task Layers_are_grouped_and_the_group_is_kept()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_EarlyAlert/FeatureServer/0", 2);
+            await ClickAsync("#tab-layers");
+            await ClickAsync("#layersGroup");
+            await WaitForAsync("scState.scene.layers.some(l => l.type === 'group')", "New group made no group.");
+
+            // The buildings into the group, from their ⋯ menu.
+            string buildings = await Browser.EvaluateAsync<string>("scState.scene.layers.find(l => /buildings/i.test(l.title)).id") ?? string.Empty;
+            await ClickAsync($"#layerList [data-layer=\"{buildings}\"] [data-act=into]");
+            await WaitForAsync("scState.scene.layers.find(l => l.type === 'group').layers.length === 1 && scState.scene.layers.length === 2",
+                "Into the group did not move the layer into it.");
+            Assert.True(await Browser.EvaluateAsync<bool>($"!!document.querySelector('#layerList li.group ul.glist [data-layer=\"{buildings}\"]')"),
+                "The list did not draw the layer inside its group.");
+
+            id = await SaveAsAsync("zz console scene groups");
+            JsonElement saved = await SavedSceneAsync(id);
+            JsonElement group = saved.GetProperty("operationalLayers").EnumerateArray().First(l => l.GetProperty("layerType").GetString() == "GroupLayer");
+            Assert.Equal(1, group.GetProperty("layers").GetArrayLength());
+
+            await OpenAsync($"/studio/scene.html?id={id}", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true && scState.scene.layers.some(l => l.type === 'group')", "The saved scene lost its group.");
+            await ClickAsync("#tab-layers");
+            string inside = await Browser.EvaluateAsync<string>("scState.scene.layers.find(l => l.type === 'group').layers.getItemAt(0).id") ?? string.Empty;
+            await ClickAsync($"#layerList [data-layer=\"{inside}\"] [data-act=ungroup]");
+            await WaitForAsync("scState.scene.layers.find(l => l.type === 'group').layers.length === 0 && scState.scene.layers.length === 3",
+                "Out of the group did not take the layer out.");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
 }

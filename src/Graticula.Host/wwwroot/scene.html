@@ -190,6 +190,12 @@
   /* ADR-279: a layer's row as Studio's map draws one (webmap.html) — show it, select it by its name, ⋯ for the rest. */
   #layerList > li { border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px; margin-bottom: 7px; background: var(--surface); }
   #layerList > li.off { background: var(--surface-2); }
+  /* A group: its layers inside it, set in (ADR-270 §5.24). */
+  #layerList ul.glist { list-style: none; margin: 8px 0 0 14px; padding: 0; }
+  #layerList ul.glist > li { border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; background: var(--surface); }
+  #layerList ul.glist > li.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
+  #layerList li.group > .lhead .gname { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 600; }
+  #layerList li.group > .lhead .gname input { font-weight: 400; }
   #layerList > li.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
   .lhead { display: flex; align-items: flex-start; gap: 7px; }
   .lhead input[type="checkbox"] { margin-top: 3px; flex: none; }
@@ -434,7 +440,7 @@
       </div>
       <div class="tabpanel" role="tabpanel" id="pane-layers" aria-labelledby="tab-layers">
         <h2 id="layersHead" class="sr-only">Layers</h2>
-        <div class="row" id="layersActions"><button type="button" id="layersAdd">Add layer</button><button type="button" id="layersZoomAll">Zoom to all</button></div>
+        <div class="row" id="layersActions"><button type="button" id="layersAdd">Add layer</button><button type="button" id="layersGroup">New group</button><button type="button" id="layersZoomAll">Zoom to all</button></div>
         <h3 class="cap">Layers <span class="count" id="layersCount">0</span></h3>
         <ul id="layerList" aria-labelledby="layersHead"></ul>
       </div>
