@@ -1585,7 +1585,16 @@ const SC_TOOLS = [
   // Offered only when the scene has a layer they work on (scDrawConditionalTools).
   { key: "building", label: "Building explorer", module: "esri/widgets/BuildingExplorer", when: l => l.type === "building-scene" },
   { key: "time", label: "Time", module: "esri/widgets/TimeSlider", when: l => !!(l.timeInfo && l.timeInfo.fullTimeExtent) },
+  // ADR-276: Scene Viewer's Edit — the SDK's editor over the scene's layers the reader may edit, features placed in 3D
+  // (with their height where the layer keeps one). The server decides who may edit; the layer's capabilities say it.
+  { key: "edit", label: "Edit", module: "esri/widgets/Editor", when: l => scEditable(l) },
 ];
+
+/** Whether the reader may edit a layer's features here: a feature layer whose service says it takes edits from them. */
+function scEditable(layer) {
+  return !SC_EMBED && !!scToken && layer.type === "feature" && layer.loaded && layer.editingEnabled !== false
+    && !!(layer.capabilities && layer.capabilities.operations && layer.capabilities.operations.supportsEditing);
+}
 
 /** Shows a conditional tool's button only while a layer it works on is in the scene, closing it when the last goes. */
 function scDrawConditionalTools() {
@@ -1680,6 +1689,11 @@ async function scToggleTool(key) {
           displayField: layer.displayField || text[0] || layer.objectIdField, exactMatch: false, outFields: ["*"],
           name: layer.title, placeholder: `Search ${layer.title || "the layer"}` };
       }).toArray();
+    }
+    if (key === "edit") {
+      // Only the layers this reader may edit; the rest of the scene is drawn, not offered.
+      options.layerInfos = scState.scene.layers.toArray().filter(l => l.type === "feature")
+        .map(layer => ({ layer, enabled: scEditable(layer) }));
     }
     if (key === "building") {
       options.layers = scState.scene.layers.filter(l => l.type === "building-scene");
@@ -1903,6 +1917,14 @@ async function scStart() {
     "esri/config", "esri/layers/WebTileLayer", "esri/webscene/Slide"]);
   esriConfig.request.useIdentity = false;
   esriConfig.portalUrl = SC_PORTAL;
+  // ADR-276: the SDK's own writes to this server — an edit's applyEdits — carry this tab's token, as console.js's map
+  // does; the server honours the cookie for reads only (ADR-023 §4c). Read when sent, so a token exchanged later counts.
+  esriConfig.request.interceptors.push({
+    urls: location.origin,
+    before: params => {
+      if (scToken) params.requestOptions.headers = { ...(params.requestOptions.headers || {}), Authorization: "Bearer " + scToken };
+    },
+  });
   scState.sdk = { Layer, ElevationLayer, Basemap, WebTileLayer, Slide };
 
   if (scState.id) {

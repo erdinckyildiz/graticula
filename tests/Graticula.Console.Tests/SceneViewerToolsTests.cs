@@ -886,4 +886,41 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             }
         }
     }
+
+    /// <summary>
+    /// ADR-276: Scene Viewer's Edit — the SDK's editor over the scene's layers the reader may edit, and an edit the SDK
+    /// sends reaches the layer with the reader's token (the server takes writes on a token only).
+    /// </summary>
+    [Fact]
+    public async Task An_editable_layer_is_edited_in_the_scene()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string editable = (Environment.GetEnvironmentVariable("GRATICULA_TEST_EDITABLE") ?? "hosted/ci_editable").Trim('/');
+
+        await OpenNewSceneAsync(token, cookie);
+        await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/applyEdits'], true)");
+        await AddByAddressAsync($"{Root}/rest/services/{editable}/FeatureServer/0", 1);
+        await WaitForAsync("!!document.querySelector('#tools [data-tool=edit]') && !document.querySelector('#tools [data-tool=edit]').hidden",
+            "An editable layer in the scene did not offer Edit.");
+        await ClickAsync("#tools [data-tool=edit]");
+        await WaitForAsync("scState.tool === 'edit' && !!document.querySelector('#toolPanel .esri-editor')", "Edit did not open the editor.");
+        Assert.True(await Browser.EvaluateAsync<bool>("scState.tools.edit.layerInfos.some(i => i.enabled && i.layer === scState.scene.layers.getItemAt(0))"),
+            "The editor did not offer the scene's editable layer.");
+
+        // What the editor sends when a feature is placed: the layer's applyEdits, through the SDK, with this tab's token.
+        await Browser.EvaluateAsync<bool>("(scRequire(['esri/Graphic']).then(([Graphic]) => { const l = scState.scene.layers.getItemAt(0); const c = scState.view.center;"
+            + " return l.applyEdits({ addFeatures: [new Graphic({ geometry: { type: 'point', longitude: c.longitude, latitude: c.latitude }, attributes: { label: 'zz scene edit' } })] }); })"
+            + ".then(r => window.__edited = r.addFeatureResults[0], e => window.__edited = { error: e.message }), true)");
+        await WaitForAsync("!!window.__edited", "The edit was not answered.");
+        Assert.True(await Browser.EvaluateAsync<bool>("!window.__edited.error && window.__edited.objectId > 0"),
+            "The scene's edit was refused: " + await Browser.EvaluateAsync<string>("JSON.stringify(window.__edited)"));
+
+        await Browser.EvaluateAsync<bool>("(scState.scene.layers.getItemAt(0).applyEdits({ deleteFeatures: [{ objectId: window.__edited.objectId }] })"
+            + ".then(r => window.__removed = r.deleteFeatureResults[0]), true)");
+        await WaitForAsync("!!window.__removed && !window.__removed.error", "The feature the test added was not removed.");
+
+        await ClickAsync("#tools [data-tool=edit]");
+        await WaitForAsync("scState.tool === null", "Edit did not close.");
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

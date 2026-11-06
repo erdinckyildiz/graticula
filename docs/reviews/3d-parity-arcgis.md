@@ -80,8 +80,8 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Rebuild cache: selected layers, partial update of what changed [6] | — | Owner — a partial update needs to know which features changed since a build |
 | Scheduled rebuilds, job status [6] | a rebuild is synchronous and bounded | Owner |
 | Replace a layer's package [6] | a document's *Replace file* | Built |
-| Edit 3D object and 3D point layers in Scene Viewer [7] | — | Owner — 3D editing is a new surface |
-| Create an empty 3D object layer to edit [7] | — | Owner |
+| Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers (ADR-276) | Partly built — no mesh (3D object) editing yet, ADR-276 condition 1 |
+| Create an empty 3D object layer to edit [7] | — | Owed — ADR-276 condition 2 |
 | Levels of detail for large layers | inner nodes carry the largest buildings as simpler blocks (D-386) | Built |
 | Package size | up to `ScenePackageMaxMB` (4 GB): above the document limit a package is a file in the server directories (ADR-274); Esri's 286 MB mesh sample served and drawn whole | Built |
 
