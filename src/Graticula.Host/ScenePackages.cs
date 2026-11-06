@@ -35,11 +35,16 @@ internal sealed class ScenePackages
 
     /// <summary>Creates the cache under a state directory.</summary>
     /// <param name="statePath">The server's state path.</param>
-    public ScenePackages(string statePath)
+    /// <param name="files">Packages kept as files in the server directories (ADR-274), or null where there are none.</param>
+    public ScenePackages(string statePath, ScenePackageFiles? files = null)
     {
         ArgumentNullException.ThrowIfNull(statePath);
         _directory = Path.Combine(statePath, "scene-packages");
+        _files = files;
     }
+
+    /// <summary>Packages above the document limit, already files in the server directories (ADR-274).</summary>
+    private readonly ScenePackageFiles? _files;
 
     /// <summary>The package a document holds, written to this node's disk on first use.</summary>
     /// <param name="document">The document, a scene layer package.</param>
@@ -48,6 +53,27 @@ internal sealed class ScenePackages
     /// <returns>The package, or null when the store no longer has it or it is not a readable zip.</returns>
     public async Task<Package?> OpenAsync(Document document, IDocumentStore documents, CancellationToken cancellation)
     {
+        // ADR-274: a package kept as a file is read where it is — no copy, and never as one array.
+        if (document.ContentFile is { } recorded)
+        {
+            if (_files?.PathOf(recorded) is not { } path || !File.Exists(path))
+            {
+                return null;
+            }
+
+            Lazy<Task<Package>> reading = _open.GetOrAdd("file:" + recorded,
+                _ => new Lazy<Task<Package>>(() => Task.Run(() => new Package(path, ReadDirectory(path)))));
+            try
+            {
+                return await reading.Value.WaitAsync(cancellation).ConfigureAwait(false);
+            }
+            catch (InvalidDataException)
+            {
+                _open.TryRemove("file:" + recorded, out _);
+                return null;
+            }
+        }
+
         string key = $"{document.Id}-{document.Modified.UtcTicks}";
         Lazy<Task<Package>> opening = _open.GetOrAdd(key, _ => new Lazy<Task<Package>>(() => WriteAsync(document, documents, key)));
 

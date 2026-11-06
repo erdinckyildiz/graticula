@@ -775,8 +775,20 @@ internal sealed record HostSettings(
             keys.Value("WebhooksAllowPrivate", false))
         {
             ServerDirectories = serverDirectories,
+            // ADR-274: the largest scene layer package kept as a file; never below the document limit, which a package
+            // under it stays inside.
+            ScenePackageMaximumBytes = Math.Max(1L, keys.Value("ScenePackageMaxMB", DefaultScenePackageMaximumBytes / 1048576)) * 1048576,
         };
     }
+
+    /// <summary>The default of <see cref="ScenePackageMaximumBytes"/>: 4 GB.</summary>
+    public const long DefaultScenePackageMaximumBytes = 4096L * 1048576;
+
+    /// <summary>
+    /// The largest scene layer package this server keeps — ADR-274. Above <see cref="DocumentMaximumBytes"/> a package
+    /// is streamed to a file in the server directories rather than kept in the store (<c>Graticula:ScenePackageMaxMB</c>).
+    /// </summary>
+    public long ScenePackageMaximumBytes { get; init; } = DefaultScenePackageMaximumBytes;
 
     /// <summary>
     /// The site's server directories, one path every node mounts — ADR-012 phase 1, ArcGIS's shared server directories;

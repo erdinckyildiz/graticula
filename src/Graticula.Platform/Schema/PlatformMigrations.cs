@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(133);
+    public static SchemaVersion ComponentSchemaVersion => new(134);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -162,7 +162,35 @@ public static class PlatformMigrations
         AnItemCarriesMetadataAndCommentsV131,
         ADocumentsPictureMayBeDrawnFromItsFirstPageV132,
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
+        AScenePackageAboveTheDocumentLimitIsAFileV134,
     ]);
+
+    /// <summary>
+    /// A scene layer package above the document limit is a file in the server directories, and its row says which —
+    /// ADR-274, by owner decision ADR-272 §5.3.
+    /// </summary>
+    /// <remarks>
+    /// <b>The file's path relative to the server directories, and its SHA-256</b>, both null for every document already
+    /// kept, whose bytes stay in <c>content</c>. The size check (a document's size is its bytes') is widened to a row that
+    /// names a file, and such a row must hold no bytes and name its hash. <b>Expand</b>: a node older than this never reads the columns, and a
+    /// file-held row it lists has a size and empty content — it would answer such a package as unreadable, which is what
+    /// it is to that node.
+    /// </remarks>
+    private static Migration AScenePackageAboveTheDocumentLimitIsAFileV134 => Migration.Expand(
+        new SchemaVersion(134),
+        "A scene layer package above the document limit is a file in the server directories (ADR-274).",
+
+        "alter table document add column if not exists content_file text",
+
+        "alter table document add column if not exists content_sha256 text",
+
+        // Migration 121's rule that a document's size is its bytes' holds for every row with its bytes in the store; a
+        // row whose bytes are a file has none here, its size is the file's, and it must name the file's hash.
+        "alter table document drop constraint if exists document_size_matches",
+
+        "alter table document add constraint document_size_matches check (size = octet_length(content) or content_file is not null)",
+
+        "alter table document add constraint document_file_is_whole check (content_file is null or (octet_length(content) = 0 and content_sha256 is not null))");
 
     /// <summary>
     /// A scene layer this server made is related to the feature layer it was made from, as ArcGIS's

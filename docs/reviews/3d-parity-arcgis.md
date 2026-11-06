@@ -83,7 +83,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Edit 3D object and 3D point layers in Scene Viewer [7] | — | Owner — 3D editing is a new surface |
 | Create an empty 3D object layer to edit [7] | — | Owner |
 | Levels of detail for large layers | inner nodes carry the largest buildings as simpler blocks (D-386) | Built |
-| Package size | up to the document limit, 64 MB unless configured (D-386) | Owner — the samples Esri links for mesh and point cloud are 286 and 578 MB |
+| Package size | up to `ScenePackageMaxMB` (4 GB): above the document limit a package is a file in the server directories (ADR-274); Esri's 286 MB mesh sample served and drawn whole | Built |
 
 ## G. Layer types [7]
 
@@ -91,7 +91,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | 3D object, 3D point | served from packages, and made from feature layers | Built |
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
-| Mesh (integrated mesh), point cloud | served by the same path rule and drawn — Esri's samples, each cut to its first levels because the whole exceeds the document limit (ADR-270 §4) | Built — whole packages wait on D-386 |
+| Mesh (integrated mesh), point cloud | served by the same path rule and drawn; Esri's whole 286 MB mesh drawn textured (ADR-274), the point cloud measured on its subset | Built |
 | Voxel | served as ArcGIS serves one, and loaded by the SDK as a voxel layer; not drawn: SDK 4.29 drew no WGS 84 voxel sample in either kind of scene (ADR-270 §5.17) | Partly built — drawing needs a projected sample and a local scene in its system |
 | 3D tiles, `.3tz`, Gaussian splat | out of v1-scope | Owner |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |

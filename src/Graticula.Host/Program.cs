@@ -787,7 +787,12 @@ public static class Program
         // ADR-094: the external origins a style may fetch from, in the same store.
         builder.Services.AddSingleton<StyleOriginList>();
         // ADR-269: each node's copy of the scene layer packages it serves.
-        builder.Services.AddSingleton(new ScenePackages(settings.StatePath));
+        // ADR-274: scene layer packages above the document limit, as files in the server directories; an upload that
+        // died is swept at start.
+        ScenePackageFiles scenePackageFiles = new(settings.ServerDirectoryRoot);
+        scenePackageFiles.SweepPartials(TimeSpan.FromDays(1));
+        builder.Services.AddSingleton(scenePackageFiles);
+        builder.Services.AddSingleton(new ScenePackages(settings.StatePath, scenePackageFiles));
 
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage

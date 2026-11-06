@@ -31,6 +31,10 @@ namespace Graticula.Platform.Catalog;
 /// <param name="Description">What it is about at length, or null.</param>
 /// <param name="HasThumbnail">Whether its owner gave it a picture — D-321, migration 121.</param>
 /// <param name="Url">An app's or a link's address (ADR-264), or null.</param>
+/// <param name="ContentFile">
+/// Where a scene layer package above the document limit is, relative to the server directories; null for every
+/// document whose bytes are in the store (ADR-274).
+/// </param>
 /// <param name="TypeKeywords">An app's or a link's type keywords (ADR-264), or null for its kind's own.</param>
 public sealed record Document(
     string Id,
@@ -52,7 +56,8 @@ public sealed record Document(
     string? Description = null,
     bool HasThumbnail = false,
     string? Url = null,
-    IReadOnlyList<string>? TypeKeywords = null);
+    IReadOnlyList<string>? TypeKeywords = null,
+    string? ContentFile = null);
 
 /// <summary>What a document is, decided by this server from its first bytes and its name — ADR-188 §5.3.</summary>
 /// <param name="Name">The short name stored with it: <c>pdf</c>, <c>xlsx</c> and so on.</param>
@@ -457,6 +462,25 @@ public interface IDocumentStore
         DocumentKind kind,
         byte[] content,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Keeps a new document whose bytes are a file in the server directories rather than in the store — a scene layer
+    /// package above the document limit (ADR-274). The file is complete and named by its hash before this is called.
+    /// </summary>
+    Task<Document> CreateFileAsync(
+        string title,
+        string? snippet,
+        Guid owner,
+        SharingScope sharing,
+        string fileName,
+        DocumentKind kind,
+        long size,
+        string contentFile,
+        string sha256,
+        CancellationToken cancellationToken);
+
+    /// <summary>Every file the store's rows name (ADR-274), relative to the server directories, for the sweep.</summary>
+    Task<IReadOnlySet<string>> ContentFilesAsync(CancellationToken cancellationToken);
 
     /// <summary>Replaces a document's title, snippet and scope; null when there is no such document.</summary>
     /// <param name="id">Its id.</param>
