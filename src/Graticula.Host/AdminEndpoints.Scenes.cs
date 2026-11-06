@@ -266,7 +266,9 @@ internal static partial class AdminEndpoints
         }
 
         string title = string.IsNullOrWhiteSpace(request.Title) ? $"{layer.Definition.Name} (3D)" : request.Title.Trim();
-        SceneField[] sceneFields = [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))];
+        // ADR-280 §4: the layer's GlobalID is typed GlobalID in the scene layer, as the SDK edits by it.
+        string? globalId = GlobalIds.FieldOf(carried);
+        SceneField[] sceneFields = [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias, f.Name == globalId))];
 
         // ADR-277 §5.2: made again from a package this server wrote, only the nodes whose buildings changed are written
         // again; when too much changed, or the package has no plan, it is made whole.
@@ -363,7 +365,7 @@ internal static partial class AdminEndpoints
         SceneElevation elevation = height is null && anyZ ? SceneElevation.AbsoluteHeight : SceneElevation.RelativeToGround;
         string title = string.IsNullOrWhiteSpace(request.Title) ? $"{layer.Definition.Name} (3D)" : request.Title.Trim();
         byte[] package = SceneLayerPackageWriter.WritePoints(
-            title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias))], made, colour, 8, elevation, DateTimeOffset.UtcNow);
+            title, [.. carried.Select(f => new SceneField(f.Name, f.Type, f.Alias, f.Name == GlobalIds.FieldOf(carried)))], made, colour, 8, elevation, DateTimeOffset.UtcNow);
 
         return (new SceneMade(package, title, $"{made.Count:N0} points", "points", made.Count, service, index), null);
     }

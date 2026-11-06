@@ -17,7 +17,9 @@ namespace Graticula.Scenes;
 /// <param name="Name">The field's name.</param>
 /// <param name="Type">Its type; a type I3S has no buffer for is left out by the writer.</param>
 /// <param name="Alias">What it is called on screen.</param>
-public sealed record SceneField(string Name, FieldType Type, string? Alias = null);
+/// <param name="GlobalId">Whether it is the layer's GlobalID, which a client edits the layer by (ADR-280 §4: Maps SDK 5.2
+/// refuses to edit a 3D object layer whose GlobalID is typed a plain GUID).</param>
+public sealed record SceneField(string Name, FieldType Type, string? Alias = null, bool GlobalId = false);
 
 /// <summary>One building: its footprint in WGS 84, where it stands and how tall it is.</summary>
 /// <param name="Id">Its object id.</param>
@@ -25,9 +27,11 @@ public sealed record SceneField(string Name, FieldType Type, string? Alias = nul
 /// <param name="Base">The height its floor stands at, in metres.</param>
 /// <param name="Height">How tall it is, in metres; zero or less draws the footprint flat.</param>
 /// <param name="Values">Its values, in the order of the fields.</param>
+/// <param name="Model">A 3D object's own model (ADR-280), drawn instead of the extruded footprint. Its footprint, base and
+/// height are the model's when <paramref name="Polygons"/> is empty.</param>
 public sealed record SceneBuilding(
     long Id, IReadOnlyList<IReadOnlyList<IReadOnlyList<(double Lon, double Lat)>>> Polygons, double Base, double Height,
-    IReadOnlyList<object?> Values);
+    IReadOnlyList<object?> Values, SceneModel? Model = null);
 
 /// <summary>
 /// An I3S 3D object scene layer package of extruded footprints — ADR-269 §5.3, written from the public I3S specification.
@@ -83,6 +87,7 @@ public static partial class SceneLayerPackageWriter
         ArgumentNullException.ThrowIfNull(fields);
         ArgumentNullException.ThrowIfNull(buildings);
 
+        buildings = Placed(buildings);
         List<(SceneField Field, int Index)> stored = [.. fields.Select((f, i) => (f, i)).Where(p => Buffered(p.f.Type))];
         List<Mesh> meshes = [.. buildings.Select(Build).Where(m => m.Points.Count > 0)];
 
@@ -192,10 +197,83 @@ public static partial class SceneLayerPackageWriter
     // ------------------------------------------------------------------------------------------------- the meshes
 
     /// <summary>One building as triangles: positions in degrees and metres, three to a triangle.</summary>
-    private sealed record Mesh(SceneBuilding Building, List<(double Lon, double Lat, double Z)> Points, double CenterLon, double CenterLat);
+    private sealed record Mesh(
+        SceneBuilding Building, List<(double Lon, double Lat, double Z)> Points, double CenterLon, double CenterLat,
+        List<(byte R, byte G, byte B, byte A)>? Colours = null);
+
+    /// <summary>
+    /// Buildings with a model and no footprint given the model's (ADR-280 condition 2): the rectangle its triangles cover,
+    /// standing from their lowest point to their highest, so the coarse levels, the node boxes and the partial update
+    /// treat a model as they treat a building.
+    /// </summary>
+    internal static IReadOnlyList<SceneBuilding> Placed(IReadOnlyList<SceneBuilding> buildings) =>
+        buildings.Any(b => b.Model is not null && b.Polygons.Count == 0) ? [.. buildings.Select(Placed)] : buildings;
+
+    private static SceneBuilding Placed(SceneBuilding building)
+    {
+        if (building.Model is null || building.Polygons.Count > 0)
+        {
+            return building;
+        }
+
+        Mesh mesh = BuildModel(building);
+        if (mesh.Points.Count == 0)
+        {
+            return building;
+        }
+
+        double w = mesh.Points.Min(p => p.Lon), e = mesh.Points.Max(p => p.Lon), s = mesh.Points.Min(p => p.Lat), n = mesh.Points.Max(p => p.Lat);
+        double low = mesh.Points.Min(p => p.Z), high = mesh.Points.Max(p => p.Z);
+        return building with { Polygons = [[[(w, s), (e, s), (e, n), (w, n), (w, s)]]], Base = low, Height = high - low };
+    }
+
+    /// <summary>
+    /// A model's triangles placed on the earth: glTF's axes turned to east, north and up (glTF's Y is up, its −Z north), then
+    /// scaled, rotated about the axis, translated, and laid on the plane that touches the earth at the origin — the same
+    /// local plane a building's footprint is drawn on.
+    /// </summary>
+    private static Mesh BuildModel(SceneBuilding building)
+    {
+        SceneModel model = building.Model!;
+        GltfTriangles triangles;
+        try
+        {
+            triangles = GltfTriangles.Read(model.Glb);
+        }
+        catch (FormatException)
+        {
+            return new Mesh(building, [], model.OriginLon, model.OriginLat);
+        }
+
+        double kx = Math.PI / 180 * EarthRadius * Math.Cos(model.OriginLat * Math.PI / 180), ky = Math.PI / 180 * EarthRadius;
+        (double ax, double ay, double az) = model.Axis;
+        double length = Math.Sqrt((ax * ax) + (ay * ay) + (az * az));
+        (ax, ay, az) = length > 0 ? (ax / length, ay / length, az / length) : (0, 0, 1);
+        double angle = model.Degrees * Math.PI / 180, c = Math.Cos(angle), sn = Math.Sin(angle), t = 1 - c;
+        List<(double Lon, double Lat, double Z)> points = new(triangles.Points.Count);
+        foreach ((double gx, double gy, double gz) in triangles.Points)
+        {
+            double x = gx * model.Scale.X, y = -gz * model.Scale.Y, z = gy * model.Scale.Z;
+            // Rodrigues' rotation about the unit axis.
+            double rx = ((t * ax * ax) + c) * x + ((t * ax * ay) - (sn * az)) * y + ((t * ax * az) + (sn * ay)) * z;
+            double ry = ((t * ax * ay) + (sn * az)) * x + ((t * ay * ay) + c) * y + ((t * ay * az) - (sn * ax)) * z;
+            double rz = ((t * ax * az) - (sn * ay)) * x + ((t * ay * az) + (sn * ax)) * y + ((t * az * az) + c) * z;
+            rx += model.Translation.X;
+            ry += model.Translation.Y;
+            rz += model.Translation.Z;
+            points.Add((model.OriginLon + (rx / kx), model.OriginLat + (ry / ky), model.OriginZ + rz));
+        }
+
+        return new Mesh(building, points, model.OriginLon, model.OriginLat, [.. triangles.Colours]);
+    }
 
     private static Mesh Build(SceneBuilding building)
     {
+        if (building.Model is not null)
+        {
+            return BuildModel(building);
+        }
+
         List<(double Lon, double Lat, double Z)> points = [];
         double sumLon = 0, sumLat = 0;
         int n = 0;
@@ -298,7 +376,7 @@ public static partial class SceneLayerPackageWriter
             .OrderByDescending(Volume)
             .ThenBy(b => b.Id)
             .Take(MaximumPerNode)
-            .Select(b => Build(b with { Polygons = [[Hull(b)]] }))
+            .Select(b => Build(b with { Polygons = [[Hull(b)]], Model = null }))
             .Where(m => m.Points.Count > 0)];
 
     private static double Volume(SceneBuilding building)
@@ -500,16 +578,20 @@ public static partial class SceneLayerPackageWriter
 
         foreach (Mesh m in meshes)
         {
-            foreach ((double lon, double lat, double z) in m.Points)
+            for (int k = 0; k < m.Points.Count; k++)
             {
+                (double lon, double lat, double z) = m.Points[k];
                 BinaryPrimitives.WriteSingleLittleEndian(span[position..], (float)(lon - box.Lon));
                 BinaryPrimitives.WriteSingleLittleEndian(span[(position + 4)..], (float)(lat - box.Lat));
                 BinaryPrimitives.WriteSingleLittleEndian(span[(position + 8)..], (float)(z - box.Z));
                 position += 12;
-                span[colours] = (byte)colour[0];
-                span[colours + 1] = (byte)colour[1];
-                span[colours + 2] = (byte)colour[2];
-                span[colours + 3] = 255;
+                // A model keeps its materials' colours; a building is the layer's colour.
+                (byte r, byte g, byte b, byte a) = m.Colours is { } own && k < own.Count
+                    ? own[k] : ((byte)colour[0], (byte)colour[1], (byte)colour[2], (byte)255);
+                span[colours] = r;
+                span[colours + 1] = g;
+                span[colours + 2] = b;
+                span[colours + 3] = a;
                 colours += 4;
             }
 
@@ -623,7 +705,7 @@ public static partial class SceneLayerPackageWriter
         for (int k = 1; k <= stored.Count; k++)
         {
             SceneField field = stored[k - 1].Field;
-            (string type, string? value) = I3sType(field.Type);
+            (string type, string? value) = field.GlobalId ? ("esriFieldTypeGlobalID", "String") : I3sType(field.Type);
             fields.Add(new JsonObject { ["name"] = field.Name, ["type"] = type, ["alias"] = field.Alias ?? field.Name });
             JsonObject entry = new() { ["key"] = $"f_{k}", ["name"] = field.Name };
 

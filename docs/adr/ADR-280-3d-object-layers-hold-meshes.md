@@ -85,12 +85,45 @@ contract cannot be met without the unconfirmed half.
 
 ## 4. Evidence
 
-None yet. This ADR is a design and a list of what the prototype has to measure (§9).
+**The prototype, 2026-11-07** ([experiments/mesh-editing](../../experiments/mesh-editing/README.md), SDK 5.2.0). It
+used a stub in front of the fixture server, which faked only the associated multipatch layer. Measured:
+
+- **What the SDK needs before it treats a scene layer as editable meshes.**
+  - The item relates to a feature service whose service document lists no tables. Listed tables made it a group
+    layer.
+  - The layer is multipatch, with `infoFor3D` in the public sample's shape.
+  - The scene layer's own fields type the GlobalID `esriFieldTypeGlobalID`. Graticula's writer types it GUID, and the
+    SDK refused.
+- **On load** the SDK calls `extractChanges` from the cache's `serviceUpdateTimeStamp`, comparing the transform
+  fields. This answers §1's unconfirmed fourth point.
+- **Add.**
+  1. `uploads/info`.
+  2. `uploadAssets` (base64 glb).
+  3. `applyEdits` with `useGlobalIds=true`: attributes and the transform fields, no geometry, and an `assetMaps.adds`
+     entry naming the glb's SHA-256.
+- **Move.** The model is uploaded again, and the update gives the new origin and a new asset map. A move that keeps
+  the geometry sends only the transform attributes.
+- **Delete.** By GlobalID.
+
+Not measured:
+
+- whether the Editor widget offers the layer (on the prototype's bare page it drew nothing);
+- whether the edit is drawn over the cache: no request for the new feature came back in 15 seconds, so the SDK draws
+  what it sent, or nothing until a rebuild;
+- what another client asks for after an edit.
 
 ## 5. Decision
 
-None until the prototype (§9 condition 1). Until then [ADR-276](ADR-276-editing-in-the-scene.md) §5.4 stands: a 3D
-object layer made here is edited as its footprints.
+1. **Alternative A**, to the contract the prototype measured (§4). **The first step is the owner's: glb and a
+   converter** ([ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §5.1).
+2. **The order**:
+   1. a mesh kind of hosted layer with the contract above (`uploadAssets`, `applyEdits` with asset maps by GlobalID,
+      `query3D`, `queryAssets`, `extractChanges`);
+   2. the scene layer writer's GlobalID typed `esriFieldTypeGlobalID` for a 3D object layer;
+   3. the mesh scene layer (condition 2);
+   4. the converter, as its own ADR (condition 4).
+3. Until a mesh layer exists, [ADR-276](ADR-276-editing-in-the-scene.md) §5.4 stands: a 3D object layer made here is
+   edited as its footprints.
 
 ## 6. Consequences
 
@@ -117,12 +150,24 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
    - deletes it;
    - draws the edit over the cache.
 
-   It also records every request the SDK sends. *(Open.)*
+   It also records every request the SDK sends. *(Partly discharged 2026-11-07, §4: placing, moving and deleting are
+   measured and every request is recorded. The Editor widget's offer, and drawing over the cache, are not.)*
 2. **The mesh scene layer**: the writer makes I3S 3D object nodes from glb assets and their transforms, and a rebuild
-   picks up an edited model. *(Open.)*
+   picks up an edited model. *(Partly discharged 2026-11-07, the writer's half.* `SceneBuilding.Model` carries a glb and
+   its transform. `GltfTriangles` reads the glb's triangles by the glTF specification: node transforms, indexed or not,
+   with materials' base colours, and no textures or compression. The writer places them as §4 measured the SDK writing
+   them: glTF's Y up, then scale, rotation about the axis, translation, from the origin. The model's own colours are kept
+   per vertex. A model's footprint, base and height are its triangles' box, so the coarse levels and the partial update
+   take it as a building; its fingerprint is its asset hash and transform. A GlobalID field is typed
+   `esriFieldTypeGlobalID` (§4). `SceneModelTests` covers the reading, the placing, the colours, a scale, a turn and a
+   move, and a moved model as a changed feature. *A rebuild from a mesh layer waits on the layer.)*
 3. **An empty 3D object layer from the scene** (ADR-276 condition 2's remaining half). *(Open.)*
+4. **The converter** from OBJ, FBX, COLLADA, IFC and USD to glb: a Tier 2 library behind our port, with its licence
+   read against [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) and
+   [ADR-254](ADR-254-gdal-without-poppler.md) (no GPL linked), and run where a malformed file cannot take the server
+   down. Its own ADR. *(Open.)*
 
 ## 10. For the owner
 
-How large the first step is: **glb only, placed and moved** (recommended), or with the server-side conversion of other
-formats, which needs a converter library (Tier 2, its own ADR and licence check).
+How large the first step is: ~~glb only, placed and moved (recommended), or with the server-side conversion of other
+formats~~. **Answered 2026-11-07: glb and a converter** ([ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §5.1).

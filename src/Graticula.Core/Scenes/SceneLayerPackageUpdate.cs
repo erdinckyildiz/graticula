@@ -81,6 +81,14 @@ public static partial class SceneLayerPackageWriter
             text.Append('|').Append(Convert.ToString(value, CultureInfo.InvariantCulture));
         }
 
+        // A model is its asset and where it stands (ADR-280): moved, turned or replaced, it is a changed feature.
+        if (building.Model is { } m)
+        {
+            text.Append("|M").Append(m.Hash).Append('@').Append(string.Join(',', new[] { m.OriginLon, m.OriginLat, m.OriginZ,
+                m.Translation.X, m.Translation.Y, m.Translation.Z, m.Scale.X, m.Scale.Y, m.Scale.Z, m.Axis.X, m.Axis.Y, m.Axis.Z, m.Degrees }
+                .Select(v => v.ToString("R", CultureInfo.InvariantCulture))));
+        }
+
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text.ToString())))[..16];
     }
 
@@ -101,6 +109,7 @@ public static partial class SceneLayerPackageWriter
         ArgumentNullException.ThrowIfNull(previous);
         ArgumentNullException.ThrowIfNull(fields);
         ArgumentNullException.ThrowIfNull(buildings);
+        buildings = Placed(buildings);
 
         using ZipArchive old = new(new MemoryStream(previous), ZipArchiveMode.Read);
         if (old.GetEntry(PlanEntry) is not { } planEntry || ReadJson(planEntry) is not JsonObject plan
