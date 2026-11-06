@@ -7,6 +7,7 @@
 | **Decided** | 2026-11-07, overnight, under [ADR-270](ADR-270-scene-viewer-to-arcgis-enterprise-parity.md)'s direction from the owner (*"aynı arcgis enterprise'da olduğu gibi"*). The comparison with ArcGIS Online ([3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md) §E) listed Scene Viewer's *only content within the map area* as owed, blocked on the search. **Which items a box finds, and that an item without an extent is not one of them, is this ADR's reading of ArcGIS's behaviour** and is marked `INFERRED` in §5. |
 | **Supersedes** | The refusal of `bbox` in `PortalSearchParameters` (the ArcGIS veteran's review of 2026-11-02, E). `filter` stays refused. |
 | **Superseded by** | — |
+| **Confirmed** | 2026-11-07: the owner confirmed every `INFERRED` reading here (§5.2 and §7) — [ADR-272](ADR-272-owner-decisions-on-3d-scope.md) §5.8. The markers are left in place so the reading can be told from the confirmation. |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -88,7 +89,7 @@ than a slow right one.
 ## 9. Conditions
 
 1. **The owner confirms §5.2 and §7**: that an item with no extent is not found by a box, and that the box is in
-   degrees. *(Open.)*
+   degrees. *(Discharged 2026-11-07: confirmed by the owner, ADR-272 §5.8.)*
 2. **The cost of an empty-`q` box is measured** on a catalogue at the scale target, cold and warm, before any viewer
    sends one without a `q`. The scene viewer always sends a type clause. *(Open.)*
 
