@@ -110,6 +110,21 @@ public static class Documents
     // a SceneServer from it. Listed as the scene service it serves; Pro adds it as a "Scene Package" (ScenePackageType).
     private static readonly DocumentKind ScenePackage = new("slpk", "application/octet-stream", "Scene Service", ".slpk");
 
+    // ADR-278: a 3D Tiles archive — a zip of an OGC 3D Tiles tileset, tileset.json at its root — kept as a file and served
+    // from it. Listed as the 3D tiles service it serves, as a scene layer package is listed as its scene service.
+    // `INFERRED`: "3D Tiles Service" is the name ArcGIS Online gives a hosted 3D tiles layer, read from its item types.
+    private static readonly DocumentKind TilesArchive = new("3tz", "application/octet-stream", "3D Tiles Service", ".3tz");
+
+    /// <summary>Whether a kind is a 3D Tiles archive, served as a 3DTilesServer (ADR-278).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for an archive.</returns>
+    public static bool IsTilesArchive(DocumentKind kind) => kind == TilesArchive;
+
+    /// <summary>Whether a kind is a 3D package served from its zip — a scene layer package or a 3D Tiles archive.</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for either.</returns>
+    public static bool IsThreeDPackage(DocumentKind kind) => kind == ScenePackage || kind == TilesArchive;
+
     /// <summary>The item type Pro and the portal API add a scene layer package as (ADR-269).</summary>
     public const string ScenePackageType = "Scene Package";
 
@@ -146,7 +161,7 @@ public static class Documents
         : null;
 
     /// <summary>Every kind accepted, by its stored name.</summary>
-    public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP, ScenePackage];
+    public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP, ScenePackage, TilesArchive];
 
     /// <summary>
     /// The data kinds kept only when the upload names its item type (ADR-257): a zipped shapefile, a zipped file
@@ -241,6 +256,12 @@ public static class Documents
         if (head.StartsWith(ZipSignature) && extension == ".slpk")
         {
             return ScenePackage;
+        }
+
+        // ADR-278: a 3D Tiles archive is a zip named .3tz.
+        if (head.StartsWith(ZipSignature) && extension == ".3tz")
+        {
+            return TilesArchive;
         }
 
         if (head.StartsWith(ZipSignature) && extension == ".zip")

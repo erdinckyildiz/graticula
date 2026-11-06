@@ -803,7 +803,13 @@ async function scAddUrl(url, title, itemId, kind) {
   said.className = "said";
   said.textContent = `Adding ${title || "the layer"}…`;
   try {
-    const layer = SC_FILES[kind]
+    // ADR-278: a 3D Tiles tileset is drawn by the SDK's 3D tiles layer, from its tileset.json — by its kind from the list,
+    // or by an address that names a tileset or a 3DTilesServer.
+    const tiles = kind === "3D Tiles Service" || /\/3DTilesServer(\/tileset\.json)?\/?$|\/tileset\.json$/i.test(url);
+    const tileset = tiles && !/tileset\.json$/i.test(url) ? `${url.replace(/\/+$/, "")}/tileset.json` : url;
+    const layer = tiles
+      ? new (await scRequire(["esri/layers/IntegratedMesh3DTilesLayer"]))[0]({ url: tileset, title })
+      : SC_FILES[kind]
       ? new (await scRequire([SC_FILES[kind]]))[0]({ url, title })
       : itemId
       ? await scState.sdk.Layer.fromPortalItem({ portalItem: { id: itemId, portal: { url: SC_PORTAL } } })
@@ -875,7 +881,7 @@ sc$("addUrlButton").addEventListener("click", () => {
 });
 sc$("addUrl").addEventListener("keydown", event => { if (event.key === "Enter") sc$("addUrlButton").click(); });
 
-const SC_ADDABLE = ["Feature Service", "Scene Service", "Image Service", "Map Service", "Vector Tile Service", "CSV", "GeoJson"];
+const SC_ADDABLE = ["Feature Service", "Scene Service", "3D Tiles Service", "Image Service", "Map Service", "Vector Tile Service", "CSV", "GeoJson"];
 
 /**
  * A CSV or GeoJSON file in the portal is a document, with no service address: it is drawn from the document's own data,
@@ -959,7 +965,7 @@ function scDrawAddItems() {
 
 /** The portal's item types, as Studio's rows name them. */
 function scTypeLabel(type) {
-  return ({ "Scene Service": "Scene layer", "Feature Service": "Feature layer", "Image Service": "Imagery layer",
+  return ({ "Scene Service": "Scene layer", "3D Tiles Service": "3D tiles layer", "Feature Service": "Feature layer", "Image Service": "Imagery layer",
     "Map Service": "Map image layer", "Vector Tile Service": "Vector tile layer", "CSV": "CSV file", "GeoJson": "GeoJSON file" })[type] || type;
 }
 

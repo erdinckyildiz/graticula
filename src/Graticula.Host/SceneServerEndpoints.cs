@@ -51,6 +51,38 @@ internal static class SceneServerEndpoints
         app.MapGet(Root + "/layers/{layer:int}/{**path}", ResourceAsync).Governed(SharingGovernedExtensions.ByService);
         // A voxel layer's resources are below the service itself, not below layers/{id} (ADR-270 §5.17).
         app.MapGet(Root + "/{**path}", VoxelResourceAsync).Governed(SharingGovernedExtensions.ByService);
+
+        // ADR-278: a 3D Tiles archive, its tileset and every file it names, by their paths in the archive.
+        app.MapGet(TilesRoot + "/{**path}", TilesResourceAsync).Governed(SharingGovernedExtensions.ByService);
+    }
+
+    private const string TilesRoot = "/rest/services/hosted/{id}/3DTilesServer";
+
+    /// <summary>The address a 3D Tiles archive's tileset answers at, on this request's host (ADR-278).</summary>
+    public static string TilesetAddressOf(HttpRequest request, string id) =>
+        $"{request.Scheme}://{request.Host}{request.PathBase}/rest/services/hosted/{id}/3DTilesServer/tileset.json";
+
+    /// <summary>
+    /// One file of a 3D Tiles archive, by its path in the archive — <c>tileset.json</c> and whatever it names, relative
+    /// to it, as the 3D Tiles specification resolves a content URI. Nothing is rewritten: an archive is served as it is.
+    /// </summary>
+    private static async Task<IResult> TilesResourceAsync(HttpContext context, string id, string path, CancellationToken cancellation)
+    {
+        (ScenePackages.Package? package, _, IResult? refusal) =
+            await OpenAsync(context, id, cancellation, Documents.IsTilesArchive).ConfigureAwait(false);
+        if (refusal is not null)
+        {
+            return refusal;
+        }
+
+        string below = Uri.UnescapeDataString(path ?? string.Empty).Trim('/');
+        if (below.Length == 0 || below.Contains("..", StringComparison.Ordinal))
+        {
+            return NotFound();
+        }
+
+        string? name = package!.Find(below.ToLowerInvariant(), below.ToLowerInvariant() + ".gz");
+        return name is null ? NotFound() : await EntryAsync(context, package!, name, cancellation).ConfigureAwait(false);
     }
 
     /// <summary>The address a package's scene service answers at, on this request's host.</summary>
@@ -61,8 +93,9 @@ internal static class SceneServerEndpoints
         $"{request.Scheme}://{request.Host}{request.PathBase}/rest/services/hosted/{id}/SceneServer";
 
     private static async Task<(ScenePackages.Package? Package, Document? Document, IResult? Refusal)> OpenAsync(
-        HttpContext context, string id, CancellationToken cancellation)
+        HttpContext context, string id, CancellationToken cancellation, Func<DocumentKind, bool>? accepts = null)
     {
+        accepts ??= Documents.IsScenePackage;
         string lower = (id ?? string.Empty).ToLowerInvariant();
         IDocumentStore? documents = context.RequestServices.GetService<IDocumentStore>();
         ScenePackages? packages = context.RequestServices.GetService<ScenePackages>();
@@ -73,7 +106,7 @@ internal static class SceneServerEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        if (document is null || !Documents.IsScenePackage(document.Kind) || documents is null || packages is null
+        if (document is null || !accepts(document.Kind) || documents is null || packages is null
             || !LayerAccess.Evaluate(document.Sharing, document.Owner, current.Principal, current.Authorization, document.SharedWith).IsAllowed())
         {
             // The same answer for a package that is private and one that does not exist (TokenRequired).
@@ -331,6 +364,7 @@ internal static class SceneServerEndpoints
         bool gzipped = name.EndsWith(".gz", StringComparison.Ordinal);
         string inner = gzipped ? name[..^3] : name;
         string type = inner.EndsWith(".json", StringComparison.Ordinal) ? "application/json; charset=utf-8"
+            : inner.EndsWith(".glb", StringComparison.Ordinal) ? "model/gltf-binary"
             : inner.EndsWith(".jpg", StringComparison.Ordinal) ? "image/jpeg"
             : inner.EndsWith(".png", StringComparison.Ordinal) ? "image/png"
             : inner.EndsWith(".ktx2", StringComparison.Ordinal) ? "image/ktx2"

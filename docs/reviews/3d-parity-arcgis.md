@@ -77,8 +77,8 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Publish from a scene layer package [6][7] | ADR-269 §5.2 | Built |
 | Publish from a hosted feature layer, associating the two [6][7] | 3D object and point scene layers, related as `Service2Service` (ADR-270 §5.4); the SDK finds the feature layer | Built |
 | Rebuild cache: full [6] | *Rebuild* in Studio and `POST /content/scenes/{id}/rebuild` | Built |
-| Rebuild cache: selected layers, partial update of what changed [6] | — | Owner — a partial update needs to know which features changed since a build |
-| Scheduled rebuilds, job status [6] | a rebuild is synchronous and bounded | Owner |
+| Rebuild cache: selected layers, partial update of what changed [6] | designed (ADR-277): nodes of changed features rewritten, once hosted layers record which rows changed | Owed — ADR-277 |
+| Scheduled rebuilds, job status [6] | designed (ADR-277): a site sweep rebuilds as the owner when the layer changed; Studio already says when a cache is behind | Owed — ADR-277 |
 | Replace a layer's package [6] | a document's *Replace file* | Built |
 | Edit 3D object and 3D point layers in Scene Viewer [7] | *Edit*: the SDK's editor over the scene's editable feature layers (ADR-276) | Partly built — no mesh (3D object) editing yet, ADR-276 condition 1 |
 | Create an empty 3D object layer to edit [7] | — | Owed — ADR-276 condition 2 |
@@ -93,7 +93,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 | Building | served from packages, drawn (ADR-270 §5.6) | Built |
 | Mesh (integrated mesh), point cloud | served by the same path rule and drawn; Esri's whole 286 MB mesh drawn textured (ADR-274), the point cloud measured on its subset | Built |
 | Voxel | served as ArcGIS serves one, and loaded by the SDK as a voxel layer; not drawn: SDK 4.29 drew no WGS 84 voxel sample in either kind of scene (ADR-270 §5.17) | Partly built — drawing needs a projected sample and a local scene in its system |
-| 3D tiles, `.3tz`, Gaussian splat | out of v1-scope | Owner |
+| 3D tiles, `.3tz`, Gaussian splat | a `.3tz` archive is kept, listed as a 3D Tiles Service, served from its zip and drawn in a scene (ADR-278) | Partly built — Gaussian splat and 1.0 (b3dm) content not yet measured |
 | Elevation layer from a DEM | an elevation image service (ADR-182), offered as the ground by its keyword (§5.8) | Built |
 | Point cloud renderers: stretch, classify, unique values, RGB [7] | RGB, elevation, LAS class, intensity (§5.12); each seen drawn on Esri's sample 2026-11-07, elevation over the heights the layer's statistics give | Built |
 

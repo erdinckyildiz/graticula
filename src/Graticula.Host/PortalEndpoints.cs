@@ -2282,7 +2282,7 @@ internal static partial class PortalEndpoints
             // ADR-270 §5.4: a scene layer package is listed as the Scene Service it serves, and a Scene Service item's data is
             // its layer's settings, not a file — the Maps SDK reads it as JSON when a scene layer is added by its item, and
             // refused the package's bytes ("PK…" is not valid JSON). The package downloads from the document's own address.
-            if (Documents.IsScenePackage(document.Kind))
+            if (Documents.IsThreeDPackage(document.Kind))
             {
                 return Results.Content("{}", "application/json; charset=utf-8");
             }
@@ -2642,6 +2642,7 @@ internal static partial class PortalEndpoints
             // ADR-264: an app's or a link's own, which its client reads; a file's are what they always were.
             typeKeywords = document.TypeKeywords ?? (Documents.IsScenePackage(document.Kind)
                 ? new[] { "Hosted Service", "Scene", "Scene Service", "Scene Layer Package" }
+                : Documents.IsTilesArchive(document.Kind) ? new[] { "Hosted Service", "3D Tiles", "3DTiles Service", "IntegratedMesh" }
                 : Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
             description = document.Description ?? document.Snippet,
             thumbnail = document.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
@@ -2650,7 +2651,8 @@ internal static partial class PortalEndpoints
             categories = Annotations(context).CategoriesOf(Guid.Parse(document.Id)),
             licenseInfo = Annotations(context).LicenseOf(Guid.Parse(document.Id)),
             // ADR-269: a scene layer package is the scene service it serves, at its own address.
-            url = Documents.IsScenePackage(document.Kind) ? SceneServerEndpoints.AddressOf(context.Request, document.Id) : document.Url,
+            url = Documents.IsScenePackage(document.Kind) ? SceneServerEndpoints.AddressOf(context.Request, document.Id)
+                : Documents.IsTilesArchive(document.Kind) ? SceneServerEndpoints.TilesetAddressOf(context.Request, document.Id) : document.Url,
             access = Access(document.Sharing),
             @protected = document.DeleteProtected,
             spatialReference = (string?)null,

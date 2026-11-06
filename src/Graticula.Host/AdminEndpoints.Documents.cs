@@ -714,7 +714,8 @@ internal static partial class AdminEndpoints
 
         if (file.Length > limit)
         {
-            bool package = file.FileName.EndsWith(".slpk", StringComparison.OrdinalIgnoreCase);
+            bool package = file.FileName.EndsWith(".slpk", StringComparison.OrdinalIgnoreCase)
+                || file.FileName.EndsWith(".3tz", StringComparison.OrdinalIgnoreCase);
 
             if (!package || file.Length > packageLimit)
             {
@@ -811,9 +812,9 @@ internal static partial class AdminEndpoints
             await peek.ReadExactlyAsync(head, cancellation).ConfigureAwait(false);
         }
 
-        if (Documents.Recognise(file.FileName, head, out string? why) is not { } kind || !Documents.IsScenePackage(kind))
+        if (Documents.Recognise(file.FileName, head, out string? why) is not { } kind || !Documents.IsThreeDPackage(kind))
         {
-            await Refuse(context, 415, why ?? "Only a scene layer package (.slpk) may be larger than a document.").ConfigureAwait(false);
+            await Refuse(context, 415, why ?? "Only a scene layer package (.slpk) or a 3D Tiles archive (.3tz) may be larger than a document.").ConfigureAwait(false);
             return null;
         }
 
@@ -828,10 +829,13 @@ internal static partial class AdminEndpoints
         try
         {
             var entries = ScenePackages.ReadDirectory(files.PathOf(kept.Recorded)!);
-            if (!entries.ContainsKey("3dscenelayer.json.gz") && !entries.ContainsKey("3dscenelayer.json")
-                && !entries.ContainsKey("layer.json.gz") && !entries.ContainsKey("layer.json"))
+            if (Documents.IsTilesArchive(kind) ? !entries.ContainsKey("tileset.json")
+                : !entries.ContainsKey("3dscenelayer.json.gz") && !entries.ContainsKey("3dscenelayer.json")
+                    && !entries.ContainsKey("layer.json.gz") && !entries.ContainsKey("layer.json"))
             {
-                await Refuse(context, 415, "The file is a zip, but not a scene layer package: it has no layer document (3dSceneLayer.json).").ConfigureAwait(false);
+                await Refuse(context, 415, Documents.IsTilesArchive(kind)
+                    ? "The file is a zip, but not a 3D Tiles archive: it has no tileset.json at its root."
+                    : "The file is a zip, but not a scene layer package: it has no layer document (3dSceneLayer.json).").ConfigureAwait(false);
                 return null;
             }
         }

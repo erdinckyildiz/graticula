@@ -58,6 +58,14 @@ The owner's selections, 2026-11-07, in this session.
 10. **Pro validations** (ADR-269 conditions 1–3, Pro half; ADR-270 condition 2) stay the owner's, to be done when the
     owner can. They stay open until then.
 
+**Followed by, 2026-11-07:**
+- §5.2: [ADR-273](ADR-273-the-maps-sdk-is-4-34.md), the SDK 4.34.
+- §5.3: [ADR-274](ADR-274-scene-packages-above-the-document-limit-are-files.md), large packages as files.
+- §5.4: [ADR-275](ADR-275-a-scene-may-be-embedded-by-the-sites-the-operator-lists.md), embedding.
+- §5.5: [ADR-278](ADR-278-3d-tiles-archives-are-served-and-drawn.md), 3D Tiles archives.
+- §5.6: [ADR-276](ADR-276-editing-in-the-scene.md), the first step of editing.
+- §5.7: [ADR-277](ADR-277-scene-caches-rebuilt-on-schedule-and-in-part.md), rebuilds, designed but not built.
+
 ## 6. Consequences
 
 - New ADRs are owed, one per item: SDK upgrade, large packages, embed address, 3D Tiles, 3D editing, cache rebuilds.
