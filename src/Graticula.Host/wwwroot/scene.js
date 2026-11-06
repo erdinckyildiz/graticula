@@ -32,8 +32,16 @@ function scEscape(value) {
 }
 
 /** Whether this reader may change the scene: signed in, and its owner (or a new scene of theirs). */
+/** The embed view (ADR-275): another site frames the scene, and nothing in it changes the scene. */
+const SC_EMBED = document.body.classList.contains("embed");
+if (SC_EMBED) {
+  // The scene's own page, for whoever wants more than the frame shows.
+  const asked = new URLSearchParams(location.search);
+  document.getElementById("embedOpen").href = `/studio/scene.html${asked.get("id") ? `?id=${encodeURIComponent(asked.get("id"))}` : ""}${location.hash}`;
+}
+
 function scCanEdit() {
-  return !!scState.user && scState.manages;
+  return !SC_EMBED && !!scState.user && scState.manages;
 }
 
 // A GET carries the session cookie on its own; a write needs the bearer token the console keeps in sessionStorage,
@@ -1795,6 +1803,29 @@ document.addEventListener("keydown", event => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Embedding (ADR-275): the code for a saved scene, when the operator has named a site that may frame it.
+
+function scDrawEmbed() {
+  const sites = window.GRATICULA_EMBED_ORIGINS || [];
+  const part = sc$("embedPart");
+  part.hidden = !scCanEdit() || !scState.id || sites.length === 0;
+  if (part.hidden) return;
+  const address = `${location.origin}/studio/scene-embed.html?id=${encodeURIComponent(scState.id)}`;
+  sc$("embedCode").value = `<iframe src="${address}" width="800" height="500" style="border:0" allowfullscreen title="${scEscape(sc$("sceneTitle").value.trim() || "Scene")}"></iframe>`;
+  sc$("embedSites").textContent = sites.join(", ");
+}
+
+sc$("embedCopy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(sc$("embedCode").value);
+    sc$("embedSaid").textContent = "Copied.";
+  } catch {
+    sc$("embedCode").select();
+    sc$("embedSaid").textContent = "Selected: copy it with your keyboard.";
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Saving.
 
 sc$("sceneTitle").addEventListener("input", () => {
@@ -1830,6 +1861,7 @@ async function scSave() {
       history.replaceState(null, "", `?id=${encodeURIComponent(added.id)}`);
     }
     scState.dirty = false;
+    scDrawEmbed();
     scSay(`Saved as “${title}”.`);
   } catch (e) {
     scSay(`Not saved: ${e.message}`, true);
@@ -1912,6 +1944,7 @@ async function scStart() {
   sc$("addNotYours").hidden = scCanEdit();
   // A reader who cannot change the scene has nothing to add: no Add tab (confirming review).
   sc$("tab-add").hidden = !scCanEdit();
+  scDrawEmbed();
   // A result is a hosted layer of the reader's own added to this scene: offered to whoever may change the scene.
   sc$("tab-analysis").hidden = !scCanEdit() || !scToken || !window.GraticulaAnalysis;
 

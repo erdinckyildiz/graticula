@@ -194,6 +194,14 @@
   .sc-analysis dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
   .sc-analysis dt { color: var(--muted); }
   .sc-analysis dd { margin: 0; }
+  /* ADR-275: the embed view — the scene alone, for another site to frame. Studio's bar, the title row and the panel are
+     not drawn; a link opens the scene in Graticula, in a new tab, since the frame is someone else's page. */
+  body.embed #studioBar, body.embed #maphead, body.embed #panel { display: none; }
+  body.embed #body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); position: relative; }
+  body.embed #frame { grid-template-rows: minmax(0, 1fr); }
+  #embedOpen { position: absolute; right: 12px; bottom: 28px; z-index: 5; background: var(--surface); color: var(--accent-ink);
+    border: 1px solid var(--rule-strong); border-radius: 4px; padding: 5px 10px; font-size: 13px; text-decoration: none; box-shadow: var(--float); }
+  body:not(.embed) #embedOpen { display: none; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
              white-space: nowrap; border: 0; }
   /* WCAG 2.2 SC 2.5.8: no target smaller than 24 px (design review). */
@@ -306,6 +314,14 @@
             <option value="local">Local — a flat area, which can be clipped</option>
           </select>
         </div>
+        <!-- ADR-275: the embed code, offered once the scene is saved and the operator has named a site that may frame it. -->
+        <details id="embedPart" hidden>
+          <summary>Embed in a website</summary>
+          <label class="field" for="embedCode">Paste this into a page on <span id="embedSites"></span></label>
+          <textarea id="embedCode" rows="3" readonly></textarea>
+          <div class="row"><button type="button" class="tiny" id="embedCopy">Copy</button><span class="said" id="embedSaid" role="status"></span></div>
+          <p class="hint">The scene shows as everyone who opens it is allowed to see it: share it with everyone for a public site.</p>
+        </details>
       </div>
       <div id="tabs" role="tablist" aria-label="Scene panel">
         <button type="button" role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true">Layers</button>
@@ -418,6 +434,7 @@
         <div class="azfoot" id="analyzeFoot"></div>
       </div>
     </section>
+    <a id="embedOpen" href="#" target="_blank" rel="noopener">Open in Graticula</a>
     <div id="viewDiv" role="region" aria-label="The scene. Drag to move, right-drag to turn, scroll to zoom."></div>
   </div>
 </div>

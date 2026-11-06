@@ -73,6 +73,12 @@ network. It must be an absolute `http`/`https` URL **ending in a slash**; the se
 start otherwise and says which key. Nothing else about the console needs it: the map is the only
 thing that does, and everything else works with the library unreachable.
 
+`Graticula:EmbedOrigins` lists the sites that may frame a scene's embed address, `/studio/scene-embed.html?id=…`
+([ADR-275](adr/ADR-275-a-scene-may-be-embedded-by-the-sites-the-operator-lists.md)): origins only, such as
+`https://maps.example.org`, separated by commas. It is empty by default, and then nothing of this server's may be
+framed. `Graticula:ScenePackageMaxMB` (4096) bounds a scene layer package above `Graticula:DocumentMaxMB`, which is
+kept as a file in the server directories ([ADR-274](adr/ADR-274-scene-packages-above-the-document-limit-are-files.md)).
+
 **`Graticula__CorsOrigins`** decides which web pages on other addresses may read the service
 responses — [ADR-072](adr/ADR-072-cross-origin-reads-without-credentials.md). The default is `*`,
 which is ArcGIS Server's default too, and it never allows credentials: a page on another origin

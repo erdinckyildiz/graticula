@@ -1760,7 +1760,7 @@ public static class Program
                 context.Response.ContentLength));
         }
 
-        app.UseSecurityHeaders(settings.RequireHttps, settings.MapSdkOrigin);
+        app.UseSecurityHeaders(settings.RequireHttps, settings.MapSdkOrigin, settings.EmbedOrigins);
 
         // <b>Before authentication, so that a request cannot outlive its deadline by
         // hanging in a place the deadline has not started yet.</b> Signing in reads the
@@ -2081,13 +2081,29 @@ public static class Program
             {
                 context.Response.Headers.CacheControl = "no-store";
 
+                // ADR-275: the sites that may frame a scene's embed address, so Studio offers the embed code only when
+                // there is a site it would work on.
                 return Results.Text(
                     "window.GRATICULA_MAP_SDK = "
                     + System.Text.Json.JsonSerializer.Serialize(host.MapSdkUrl)
+                    + ";\nwindow.GRATICULA_EMBED_ORIGINS = "
+                    + System.Text.Json.JsonSerializer.Serialize(host.EmbedOrigins)
                     + ";\n",
                     "application/javascript");
             });
         }
+
+        // <b>A scene's embed address — ADR-275, by owner decision ADR-272 §5.4.</b> The scene viewer's own page, marked
+        // as the embed view so that it draws the scene and nothing that changes it; it is the one address another site
+        // may frame (SecurityHeaders.EmbedPath), and only the sites Graticula:EmbedOrigins names. Served from scene.html
+        // itself rather than a copy, so the two cannot drift (D-130); no file of this name exists on disk.
+        app.MapGet(SecurityHeaders.EmbedPath, async (HttpContext context) =>
+        {
+            string page = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "wwwroot", "scene.html"), context.RequestAborted)
+                .ConfigureAwait(false);
+            context.Response.Headers.CacheControl = "no-cache";
+            return Results.Content(page.Replace("<body>", "<body class=\"embed\">", StringComparison.Ordinal), "text/html; charset=utf-8");
+        });
 
         // <b>The old address keeps working.</b> ADR-020 §5c took *frozen URLs* from the
         // reference as a rule, and a rename is exactly the case that rule is about: anybody

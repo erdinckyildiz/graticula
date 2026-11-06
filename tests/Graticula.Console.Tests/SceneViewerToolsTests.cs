@@ -823,4 +823,67 @@ public sealed class SceneViewerToolsTests : ConsoleTest
             }
         }
     }
+
+    /// <summary>
+    /// ADR-275: a scene's embed address draws the scene and nothing that changes it, links to the scene's own page, and
+    /// is the one address another site may frame — the sites Graticula:EmbedOrigins names, and none when it names none.
+    /// </summary>
+    [Fact]
+    public async Task The_embed_address_shows_the_scene_alone_and_only_it_may_be_framed()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? id = null;
+
+        try
+        {
+            await OpenNewSceneAsync(token, cookie);
+            await AddByAddressAsync($"{Root}/rest/services/hosted/ci_buildings/FeatureServer/0", 1);
+            id = await SaveAsAsync("zz console scene embed");
+
+            // ADR-275 condition 2: the saved scene offers its embed code exactly when a site may frame it.
+            string? named = Environment.GetEnvironmentVariable("GRATICULA_TEST_EMBED_ORIGIN");
+            Assert.Equal(string.IsNullOrEmpty(named), await Browser.EvaluateAsync<bool>("document.getElementById('embedPart').hidden"));
+            if (!string.IsNullOrEmpty(named))
+            {
+                Assert.Contains($"/studio/scene-embed.html?id={id}", await Browser.EvaluateAsync<string>("document.getElementById('embedCode').value") ?? string.Empty);
+            }
+
+            await OpenAsync($"/studio/scene-embed.html?id={id}", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true && scState.scene.layers.length === 1",
+                "The embed address did not open the scene.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.body.classList.contains('embed') && SC_EMBED && !scCanEdit()"),
+                "The embed address was not the embed view, or offered to change the scene.");
+            Assert.Equal("none", await Browser.EvaluateAsync<string>("getComputedStyle(document.getElementById('panel')).display"));
+            Assert.Equal("none", await Browser.EvaluateAsync<string>("getComputedStyle(document.getElementById('studioBar')).display"));
+            Assert.EndsWith($"/studio/scene.html?id={id}", await Browser.EvaluateAsync<string>("document.getElementById('embedOpen').href") ?? string.Empty);
+            NothingWentWrong(await PageErrorsAsync());
+
+            using HttpResponseMessage embed = await Http.GetAsync($"{Root}/studio/scene-embed.html?id={id}");
+            using HttpResponseMessage page = await Http.GetAsync($"{Root}/studio/scene.html");
+            string embedPolicy = string.Join(';', embed.Headers.GetValues("Content-Security-Policy"));
+            Assert.Contains("DENY", string.Join(',', page.Headers.GetValues("X-Frame-Options")));
+            Assert.Contains("frame-ancestors 'none'", string.Join(';', page.Headers.GetValues("Content-Security-Policy")), StringComparison.Ordinal);
+
+            // The fixture names a site when GRATICULA_TEST_EMBED_ORIGIN says which; CI's names none, and then the embed
+            // address is as unframable as every other.
+            string? site = Environment.GetEnvironmentVariable("GRATICULA_TEST_EMBED_ORIGIN");
+            if (string.IsNullOrEmpty(site))
+            {
+                Assert.Contains("frame-ancestors 'none'", embedPolicy, StringComparison.Ordinal);
+                Assert.True(embed.Headers.Contains("X-Frame-Options"), "With no site named, the embed address was framable.");
+            }
+            else
+            {
+                Assert.Contains($"frame-ancestors {site}", embedPolicy, StringComparison.Ordinal);
+                Assert.False(embed.Headers.Contains("X-Frame-Options"), "The embed address said DENY beside the sites that may frame it.");
+            }
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
 }

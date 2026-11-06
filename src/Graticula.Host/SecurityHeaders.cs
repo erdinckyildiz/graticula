@@ -219,14 +219,26 @@ internal static class SecurityHeaders
         || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/system", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The one address another site may frame: a scene's embed view (ADR-275). Everything else stays unframable.
+    /// </summary>
+    internal const string EmbedPath = "/studio/scene-embed.html";
+
+    /// <summary>A policy's <c>frame-ancestors</c> widened to the operator's list, for the embed address only.</summary>
+    internal static string Framable(string policy, IReadOnlyList<string> embedOrigins) =>
+        embedOrigins.Count == 0 ? policy
+            : policy.Replace("frame-ancestors 'none'", "frame-ancestors " + string.Join(' ', embedOrigins), StringComparison.Ordinal);
+
     /// <summary>Stamps the headers on every response.</summary>
     /// <param name="app">The application.</param>
     /// <param name="https">Whether this server requires HTTPS, for HSTS.</param>
     /// <param name="mapSdkOrigin">
     /// Where the console's map SDK is fetched from — <c>Graticula:MapSdkUrl</c>'s origin.
     /// </param>
-    public static void UseSecurityHeaders(this WebApplication app, bool https, string mapSdkOrigin)
+    /// <param name="embedOrigins">The sites that may frame the embed address (ADR-275); none frames anything otherwise.</param>
+    public static void UseSecurityHeaders(this WebApplication app, bool https, string mapSdkOrigin, IReadOnlyList<string>? embedOrigins = null)
     {
+        IReadOnlyList<string> embedders = embedOrigins ?? [];
         ArgumentNullException.ThrowIfNull(app);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapSdkOrigin);
 
@@ -287,7 +299,15 @@ internal static class SecurityHeaders
                 // X-Frame-Options as well as frame-ancestors, because they are
                 // not the same age and not every proxy and browser in a
                 // ten-year-old estate honours the newer one.
-                Set(headers, "X-Frame-Options", "DENY");
+                // ADR-275: the embed address, framed by the operator's sites, says so in frame-ancestors alone —
+                // X-Frame-Options cannot name a list, and a browser that reads both obeys the stricter.
+                bool embed = embedders.Count > 0
+                    && context.Request.Path.Equals(EmbedPath, StringComparison.OrdinalIgnoreCase);
+
+                if (!embed)
+                {
+                    Set(headers, "X-Frame-Options", "DENY");
+                }
 
                 bool html = headers.ContentType.ToString()
                     .StartsWith("text/html", StringComparison.OrdinalIgnoreCase);
@@ -303,7 +323,7 @@ internal static class SecurityHeaders
                 bool console = IsSurface(context.Request.Path);
 
                 Set(headers, "Content-Security-Policy",
-                    console ? surfacePolicy : html ? HtmlPolicy : DocumentPolicy);
+                    embed ? Framable(surfacePolicy, embedders) : console ? surfacePolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
                 {

@@ -103,7 +103,7 @@ not yet done), *Owner* (a decision of scope, cost or direction — listed at the
 |---|---|---|
 | Share with groups, the organisation, everyone | a web scene is an item, shared as any item (ADR-269 §5.1) | Built |
 | Email or social media link | the scene's address | Built |
-| Embed in a website, create a web app from the scene | — | Owner — the console's pages answer `frame-ancestors 'none'`, so a scene cannot be framed by another site; allowing it is a security decision |
+| Embed in a website, create a web app from the scene | `/studio/scene-embed.html?id=…`, framable by the sites `Graticula:EmbedOrigins` lists (ADR-275) | Partly built — the embed code is offered in Studio; no web app is made from a scene |
 
 ## Still to do
 

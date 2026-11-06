@@ -778,7 +778,52 @@ internal sealed record HostSettings(
             // ADR-274: the largest scene layer package kept as a file; never below the document limit, which a package
             // under it stays inside.
             ScenePackageMaximumBytes = Math.Max(1L, keys.Value("ScenePackageMaxMB", DefaultScenePackageMaximumBytes / 1048576)) * 1048576,
+            EmbedOrigins = ParseEmbedOrigins(keys.Text("EmbedOrigins")),
         };
+    }
+
+    /// <summary>
+    /// The sites that may frame a scene's embed address — ADR-275, by owner decision ADR-272 §5.4. Empty is the default,
+    /// and then nothing may frame anything of this server's, as before (<c>Graticula:EmbedOrigins</c>).
+    /// </summary>
+    public IReadOnlyList<string> EmbedOrigins { get; init; } = [];
+
+    /// <summary>
+    /// <c>Graticula:EmbedOrigins</c>, a list of origins separated by commas or spaces. Each must be an http or https
+    /// origin and nothing more — no path, no query, no wildcard — because it is written into a Content-Security-Policy,
+    /// where a mistyped source would admit more than the operator meant. A wrong one stops the server at start, naming it.
+    /// </summary>
+    internal static IReadOnlyList<string> ParseEmbedOrigins(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        List<string> origins = [];
+
+        foreach (string named in text.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!Uri.TryCreate(named, UriKind.Absolute, out Uri? uri)
+                || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
+                || named.Contains('*', StringComparison.Ordinal)
+                || (uri.AbsolutePath != "/" ) || uri.Query.Length > 0 || uri.Fragment.Length > 0
+                || !string.IsNullOrEmpty(uri.UserInfo))
+            {
+                throw new InvalidOperationException(
+                    $"Graticula:EmbedOrigins names '{named}', which is not an origin. Each is a scheme and a host, and a port "
+                    + "when it is not the scheme's own — 'https://maps.example.org' — with no path, query or wildcard, because "
+                    + "it is written into the Content-Security-Policy of a scene's embed address (ADR-275).");
+            }
+
+            string origin = uri.GetLeftPart(UriPartial.Authority);
+            if (!origins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+            {
+                origins.Add(origin);
+            }
+        }
+
+        return origins;
     }
 
     /// <summary>The default of <see cref="ScenePackageMaximumBytes"/>: 4 GB.</summary>

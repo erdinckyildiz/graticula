@@ -8,6 +8,9 @@
 | **Answers** | [ADR-017](ADR-017-admin-api.md) §7's deferred *whether there is a web console* · owner request for start/stop |
 
 
+> **Amended 2026-11-07 by [ADR-275](ADR-275-a-scene-may-be-embedded-by-the-sites-the-operator-lists.md):** one address, a scene's
+> embed view, may be framed by the sites `Graticula:EmbedOrigins` lists; every other page keeps `frame-ancestors 'none'`.
+
 > **Amended 2026-11-07 by [ADR-273](ADR-273-the-maps-sdk-is-4-34.md):** the ArcGIS Maps SDK this console loads from Esri's CDN is
 > pinned to **4.34**, raised from 4.29 by owner decision (ADR-272 §5.2). §4's choice of the SDK and of the CDN stands.
 
