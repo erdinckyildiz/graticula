@@ -62,6 +62,7 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
 
     private long _queued;
     private long _dropped;
+    private int _disposed;
 
     /// <summary>Creates the log and starts its flusher.</summary>
     /// <param name="dataSource">The platform store pool.</param>
@@ -106,9 +107,21 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
     /// <remarks>
     /// <b>One last flush on the way out.</b> A shutdown is exactly when the last few
     /// requests are the interesting ones.
+    /// <para>
+    /// <b>Once, however often it is asked.</b> The host registers the log as its concrete type and forwards
+    /// <c>IRequestLog</c> to it, and the container disposes what each factory returned — so this is called twice at
+    /// every shutdown. The second call reached a disposed token source and took the process down with
+    /// <c>ObjectDisposedException</c> (seen on the scenes fixture, 2026-11-07). <c>GeometryWorkerPool</c>, forwarded the
+    /// same way, already guarded; <c>PostgresRoleGrants</c> disposes a semaphore, which tolerates it.
+    /// </para>
     /// </remarks>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         await _stopping.CancelAsync().ConfigureAwait(false);
 
         try
