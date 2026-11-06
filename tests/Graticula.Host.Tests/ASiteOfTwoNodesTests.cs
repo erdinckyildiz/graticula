@@ -108,14 +108,15 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
 
         Assert.Equal(all.Count, all.Distinct().Count());
 
-        // And in the store: one backend per sweep's lock, never two.
+        // And in the store: one backend per sweep's lock, never two — every sweep's, read from the one list
+        // (SiteSingletons.Names): a copy of it here missed the two ADR-274 and ADR-277 added, and the count disagreed.
+        string names = string.Join(',', SiteSingletons.Names.Select(n => $"'{n}'"));
         long locks = (long)(await Site.ScalarAsync(
-            """
+            $"""
             select count(*) from pg_locks
              where locktype = 'advisory' and objsubid = 2 and classid = hashtext(current_schema())::oid
                and objid in (select hashtext('graticula.singleton:' || s)::oid
-                               from unnest(array['log-retention','history-retention','attachment-sweep','recycle-expiry',
-                                                 'coverage-pyramids','backup-schedule']) s)
+                               from unnest(array[{names}]) s)
             """))!;
         Assert.Equal(all.Count, (int)locks);
     }
