@@ -110,33 +110,33 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d33f7c33</code> · 2026-11-06 21:24</p>
+<p class="stamp">Generated from commit <code>40266f07</code> · 2026-11-06 21:36</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">280</div><div class="kpi-l">ADRs</div><div class="kpi-n">93 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">679/728</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">38 live · 11 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">680/728</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">37 live · 11 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">234 answered</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">open debts</div><div class="kpi-n">330 repaid · 22 waiting on a trigger</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">6114</div><div class="kpi-l">tests</div><div class="kpi-n">678 source files, 299,834 lines</div></div>
+<div class="kpi good"><div class="kpi-v">6115</div><div class="kpi-l">tests</div><div class="kpi-n">678 source files, 300,105 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">44 items</span></div><p><b>38 ADR conditions</b> outstanding across 28 decisions — the largest commitment on this page.</p><p><b>2 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">43 items</span></div><p><b>37 ADR conditions</b> outstanding across 28 decisions — the largest commitment on this page.</p><p><b>2 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-269 · Scenes: web scenes are saved, scen</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-280 · A 3D object feature layer holds me</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-280 · A 3D object feature layer holds me</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -454,7 +454,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">277</td><td>A scene layer&#x27;s cache is rebuilt on a schedule, and in part</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">LOW</td><td class="num">3/4</td></tr>
 <tr><td class="id">278</td><td>A 3D Tiles archive is served from its zip and drawn in a scene</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">279</td><td>The scene viewer takes Scene Viewer&#x27;s and Studio&#x27;s map&#x27;s shape</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/1</td></tr>
-<tr><td class="id">280</td><td>A 3D object feature layer holds meshes, and the scene edits them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">LOW</td><td class="num">2/5</td></tr>
+<tr><td class="id">280</td><td>A 3D object feature layer holds meshes, and the scene edits them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">LOW</td><td class="num">3/5</td></tr>
 <tr><td class="id">281</td><td>The owner&#x27;s four answers on what 3D left partly built</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">282</td><td>3D models are converted to glb by Assimp, in a process of its own</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 </tbody></table></div></section>
@@ -594,7 +594,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:55.2%"></div></div><div class="bar-n">979</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">966</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.6%"></div></div><div class="bar-n">579</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.6%"></div></div><div class="bar-n">490</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">491</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.7%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.4%"></div></div><div class="bar-n">131</div></div>
@@ -652,6 +652,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>40266f07</code><time>2026-11-06</time><span>The 3D object layer&#x27;s routes say their sharing decision; its locks and the converter&#x27;s formats say their bounds</span></li>
+<li><code>834218b3</code><time>2026-11-06</time><span>The Editor offers a 3D object layer to create in: it carries a feature template (ADR-280 condition 5)</span></li>
 <li><code>d33f7c33</code><time>2026-11-06</time><span>A 3D object layer converts OBJ, COLLADA and FBX models to glb (ADR-282)</span></li>
 <li><code>cd2181e4</code><time>2026-11-06</time><span>Gaussian splat archives are drawn from this server, tested with splats of our own (ADR-281 condition 2)</span></li>
 <li><code>930caa4a</code><time>2026-11-06</time><span>Our own 3D symbol gallery, Terrain, splat layers and b3dm on SDK 5.2 (ADR-281)</span></li>
@@ -664,8 +666,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>584eac8c</code><time>2026-11-06</time><span>Group layers in the scene; a scene layer edited through its features (ADR-270 §5.24, ADR-276 §5.4)</span></li>
 <li><code>774d8a01</code><time>2026-11-06</time><span>A scene layer&#x27;s rebuild rewrites only what changed (ADR-277 §4b)</span></li>
 <li><code>90d7c2f4</code><time>2026-11-06</time><span>Values and classes chosen, navigation settings, favourites and groups in Add, a web app from a scene (ADR-270 §5.15, §5.21-5.23)</span></li>
-<li><code>b28bb33e</code><time>2026-11-06</time><span>A slide&#x27;s slice and pop-up are tested: captured, left, and put back on the same feature (ADR-270 §5.19)</span></li>
-<li><code>60750b0c</code><time>2026-11-06</time><span>The site-sweep test counts every sweep&#x27;s lock from SiteSingletons.Names</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

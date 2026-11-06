@@ -454,4 +454,97 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             await AdminAsync(HttpMethod.Delete, $"/content/documents/{meshId}");
         }
     }
+    /// <summary>
+    /// ADR-280 condition 5: a person places a model with the Maps SDK's Editor — its file chosen in the browser's dialog
+    /// (here, the product's own tree from the gallery), a click where it stands, and Create — and the 3D object layer
+    /// keeps it with its asset map, through the upload items, the asset table and applyEdits the Editor was measured using.
+    /// </summary>
+    [Fact]
+    public async Task A_person_places_a_model_with_the_editor_and_the_layer_keeps_it()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? meshId = null, sceneId = null;
+        try
+        {
+            await DrawInSoftwareAsync();
+            await OpenAsync("/studio/scene.html", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The scene viewer did not open.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/content/meshes', '/uploads', '/uploadAssets', '/applyEdits'], true)");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('createLayer').open = true, document.getElementById('createName').value = 'zz_placed',"
+                + " document.getElementById('createKind').value = 'mesh', true)");
+            await ClickAsync("#createGo");
+            await WaitForAsync("scLeaves().length === 1 && !!scLeaves()[0].scSource?.mesh && scState.tool === 'edit'", "The 3D object layer was not made with Edit open.");
+            meshId = await Browser.EvaluateAsync<string>("scLeaves()[0].scSource.mesh");
+            sceneId = await Browser.EvaluateAsync<string>("scLeaves()[0].scSource.id");
+            await WaitForAsync("/Create features[\\s\\S]*zz_placed/.test(document.getElementById('toolPanel').innerText)", "The Editor offered nothing to create.");
+
+            // The browser's file dialog, answered with the gallery's tree as the file the person chose.
+            await Browser.EvaluateAsync<bool>("(HTMLInputElement.prototype.__click = HTMLInputElement.prototype.click, HTMLInputElement.prototype.click = function () {"
+                + " if (this.type !== 'file') return this.__click(); const input = this;"
+                + " fetch('/studio/symbols/tree.glb').then(r => r.blob()).then(b => { const dt = new DataTransfer(); dt.items.add(new File([b], 'tree.glb', { type: 'model/gltf-binary' }));"
+                + " input.files = dt.files; input.dispatchEvent(new Event('change', { bubbles: true })); }); }, true)");
+            await MouseClickAsync(await DeepRectAsync("c => c.tagName.toLowerCase() === 'calcite-icon' && c.getAttribute('icon') === 'upload-to'"));
+            await WaitForAsync("/Click in the scene to place the model/.test(document.getElementById('toolPanel').innerText)",
+                "The Editor did not take the model: " + await Browser.EvaluateAsync<string>("document.getElementById('toolPanel').innerText.slice(0, 200)"));
+
+            // The model is made ready to show under the pointer before the view moves (measured: moved at once, the Editor
+            // asked to zoom in and took no click).
+            await Task.Delay(8000);
+            // Close to where it will stand, and a click there.
+            await Browser.EvaluateAsync<bool>("(scState.view.goTo({ center: [29.01, 41.01], zoom: 18, tilt: 45 }, { animate: false }), true)");
+            await Task.Delay(6000);
+            string view = await Browser.EvaluateAsync<string>("JSON.stringify(document.getElementById('viewDiv').getBoundingClientRect())") ?? "{}";
+            await MouseClickAsync(view);
+            await WaitForAsync("/\\bCreate\\b/.test(document.getElementById('toolPanel').innerText) || /Rebuild/.test(document.getElementById('toolPanel').innerText)",
+                "Placing the model did not lead to its form: " + await Browser.EvaluateAsync<string>("document.getElementById('toolPanel').innerText.slice(0, 200)"));
+            string create = await DeepRectAsync("c => (c.tagName.toLowerCase() === 'calcite-button' || c.tagName.toLowerCase() === 'button') && /^\\s*Create\\s*$/.test(c.textContent || '')");
+            if (create.Length > 0)
+            {
+                await MouseClickAsync(create);
+            }
+
+            int count = 0;
+            for (int waited = 0; waited < 30 && count == 0; waited++)
+            {
+                (_, string answered) = await AdminAsync(HttpMethod.Get, $"/rest/services/meshes/{meshId}/FeatureServer/0/query?where=1%3D1&returnCountOnly=true&f=json");
+                count = JsonDocument.Parse(answered).RootElement.GetProperty("count").GetInt32();
+                if (count == 0)
+                {
+                    await Task.Delay(1000);
+                }
+            }
+
+            Assert.Equal(1, count);
+            (_, string features) = await AdminAsync(HttpMethod.Get, $"/rest/services/meshes/{meshId}/FeatureServer/0/query3D?where=1%3D1&outFields=*&f=json");
+            JsonElement feature = JsonDocument.Parse(features).RootElement.GetProperty("features")[0];
+            Assert.Equal(29.01, feature.GetProperty("attributes").GetProperty("ESRI3DO_OX").GetDouble(), 3);
+            Assert.Equal(41.01, feature.GetProperty("attributes").GetProperty("ESRI3DO_OY").GetDouble(), 3);
+            Assert.Equal(1, feature.GetProperty("assetMaps").GetArrayLength());
+            await WaitForAsync("!!document.querySelector('#toolPanel [data-rebuild]')", "No rebuild was offered after the model was placed.");
+        }
+        finally
+        {
+            if (sceneId is not null) await AdminAsync(HttpMethod.Delete, $"/content/documents/{sceneId}");
+            if (meshId is not null) await AdminAsync(HttpMethod.Delete, $"/content/documents/{meshId}");
+        }
+    }
+
+    /// <summary>The rectangle of the first element in the tool panel, shadow roots included, that the test picks.</summary>
+    private async Task<string> DeepRectAsync(string picks) =>
+        await Browser.EvaluateAsync<string>("(() => { const pick = " + picks + "; const find = n => { for (const c of n.children || []) { if (pick(c)) return c;"
+            + " const r = (c.shadowRoot && find(c.shadowRoot)) || find(c); if (r) return r; } return null; };"
+            + " const el = find(document.getElementById('toolPanel')); return el ? JSON.stringify(el.getBoundingClientRect()) : ''; })()") ?? string.Empty;
+
+    /// <summary>A person's click in the middle of a rectangle, as the browser's input sends it.</summary>
+    private async Task MouseClickAsync(string rect)
+    {
+        Assert.False(string.IsNullOrEmpty(rect), "There was nothing to click.");
+        JsonElement r = JsonDocument.Parse(rect).RootElement;
+        double x = r.GetProperty("x").GetDouble() + (r.GetProperty("width").GetDouble() / 2), y = r.GetProperty("y").GetDouble() + (r.GetProperty("height").GetDouble() / 2);
+        await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x, y });
+        // The Editor shows the model under the pointer before it takes a click (measured).
+        await Task.Delay(1500);
+        await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x, y, button = "left", clickCount = 1 });
+        await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseReleased", x, y, button = "left", clickCount = 1 });
+    }
 }

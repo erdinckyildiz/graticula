@@ -189,6 +189,20 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
    layer now carries one template, the transform at rest, as Esri's public sample has. The Editor lists the layer
    under *Create features* with its upload button, asserted in the end-to-end test. What is left: a person choosing a
    file in the browser's dialog and clicking where it stands, which the headless suite does not drive yet.)*
+   *(Discharged the same night. Driving the Editor as a person does found four more things the SDK needs:
+   - **The upload items**: `uploads/register`, `uploads/{id}/uploadPart` (numbered from **0**), then `uploadAssets`
+     naming the upload by `assetUploadId`, without always committing, and `uploads/{id}/delete` after. The layer now
+     answers all of them, joining the parts when no commit came.
+   - **`connect-src blob:`**: the Editor reads the chosen file through a `blob:` address. Refused by the console's
+     policy, every upload failed with "an error occurred while fetching a linked resource" after the server had kept
+     the model.
+   - **The asset map table** (`FeatureServer/1/query`, `ESRI3DO_PID IN (…)`), read before the feature is saved. It is
+     now answered from the layer's asset maps.
+   - **The camera**: the model is placed by a click once the view is close to it.
+
+   `SceneLayerSourceTests.A_person_places_a_model_with_the_editor_and_the_layer_keeps_it` chooses the gallery's tree in
+   the file dialog, clicks the scene at 29.01°E 41.01°N and presses Create. The layer keeps one feature there with its
+   asset map, and Rebuild is offered.)*
 4. **The converter** from OBJ, FBX, COLLADA, IFC and USD to glb: a Tier 2 library behind our port, with its licence
    read against [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) and
    [ADR-254](ADR-254-gdal-without-poppler.md) (no GPL linked), and run where a malformed file cannot take the server

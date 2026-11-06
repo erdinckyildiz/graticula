@@ -181,7 +181,11 @@ internal static class SecurityHeaders
         + $"script-src 'self' {mapSdkOrigin} 'wasm-unsafe-eval'; "
         + $"style-src 'self' 'unsafe-inline' {mapSdkOrigin}; "
         + $"img-src 'self' data: blob: {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
-        + $"connect-src 'self' {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
+        // <b>blob:, since 2026-11-07 (ADR-280 condition 5).</b> The map SDK's Editor reads a 3D model the person
+        // chose through a blob: address of that file, and with connect-src refusing it every upload said "an error
+        // occurred while fetching a linked resource" after the server had kept the model. A blob: address names
+        // bytes this page already holds; admitting it lets nothing leave the page that could not already.
+        + $"connect-src 'self' blob: {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
         + $"font-src {mapSdkOrigin}; "
         + "worker-src blob:; "
         + "form-action 'self'; "

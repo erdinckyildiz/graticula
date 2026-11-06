@@ -80,6 +80,19 @@ internal static partial class AdminEndpoints
         app.MapMethods(MeshRoot + "/0/query3D", ["GET", "POST"], (HttpContext c, string id, IDocumentStore d, CancellationToken t) => MeshQueryAsync(c, id, d, true, t)).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
         app.MapMethods(MeshRoot + "/0/queryAssets", ["GET", "POST"], MeshQueryAssetsAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
         app.MapGet(MeshRoot + "/0/assets/{hash}", MeshAssetAsync).Governed(SharingGovernedExtensions.ByService);
+
+        // The asset map and asset tables infoFor3D names (1 and 2): the SDK reads a feature's asset maps from table 1 before
+        // it saves the feature (measured on 5.2). Listed in infoFor3D only, not among the service's tables (ADR-280 §4).
+        app.MapMethods(MeshRoot + "/{table:int:range(1,2)}", ["GET", "POST"], MeshTableAsync).Governed(SharingGovernedExtensions.ByService);
+        app.MapMethods(MeshRoot + "/{table:int:range(1,2)}/query", ["GET", "POST"], MeshTableQueryAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+
+        // The upload items the SDK's Editor sends a model through before naming it in uploadAssets (measured on 5.2):
+        // register, its parts, and the commit — or the whole file at once.
+        app.MapPost(MeshRoot + "/uploads/register", MeshUploadRegisterAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/uploads/upload", MeshUploadWholeAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/uploads/{upload}/uploadPart", MeshUploadPartAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/uploads/{upload}/commit", MeshUploadCommitAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
+        app.MapPost(MeshRoot + "/uploads/{upload}/delete", MeshUploadDeleteAsync).DisableAntiforgery().Governed(SharingGovernedExtensions.ByService);
     }
 
     // ------------------------------------------------------------------------------------------------ the layer's state
@@ -498,6 +511,12 @@ internal static partial class AdminEndpoints
         {
             string? type = asset?["assetType"]?.GetValue<string>();
             string? data = asset?["assetData"]?.GetValue<string>();
+            // An asset sent as an upload item (the Editor's way) rather than inline: its committed bytes, as base64.
+            if (data is null && asset?["assetUploadId"]?.ToString() is { Length: > 0 } uploadId && MeshUploadName(uploadId) is { } uploadName
+                && await MeshUploadedAsync(resources, Guid.Parse(mesh.Id), uploadName, cancellation).ConfigureAwait(false) is { } uploaded)
+            {
+                data = Convert.ToBase64String(uploaded);
+            }
             IModelConverter converter = context.RequestServices.GetRequiredService<IModelConverter>();
             bool glbAsset = string.Equals(type, "3D_glb", StringComparison.OrdinalIgnoreCase);
             if (data is null || (!glbAsset && !converter.Formats.Contains(type ?? string.Empty, StringComparer.OrdinalIgnoreCase)))
@@ -714,6 +733,252 @@ internal static partial class AdminEndpoints
         }
 
         return kept;
+    }
+
+    // ------------------------------------------------------------------------------------------------- upload items
+
+    private const string MeshUploadPrefix = "graticula/mesh/uploads/";
+
+    /// <summary>An upload id as this layer writes them (32 hex digits), or null for anything else.</summary>
+    private static string? MeshUploadName(string upload) =>
+        Guid.TryParseExact(upload ?? string.Empty, "N", out Guid g) ? g.ToString("N") : null;
+
+    private static object MeshUploadItem(string id, string name, bool committed) => new
+    {
+        success = true,
+        item = new { itemID = id, itemName = name, description = string.Empty, date = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), committed },
+    };
+
+    /// <summary>Registers an upload in parts: an id the parts and the commit name.</summary>
+    private static async Task<IResult> MeshUploadRegisterAsync(HttpContext context, string id, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await EditableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is null)
+        {
+            return Results.Empty;
+        }
+
+        Dictionary<string, string> p = await MeshParamsAsync(context).ConfigureAwait(false);
+        return Results.Json(MeshUploadItem(Guid.NewGuid().ToString("N"), p.GetValueOrDefault("itemName") ?? "model", committed: false));
+    }
+
+    /// <summary>The whole file at once, committed as it arrives.</summary>
+    private static async Task<IResult> MeshUploadWholeAsync(HttpContext context, string id, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await EditableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is not { } mesh)
+        {
+            return Results.Empty;
+        }
+
+        if (!context.Request.HasFormContentType || (await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)).Files is not { Count: > 0 } wholeFiles)
+        {
+            return MeshError(400, "Send the file as multipart form data, in a field named file.");
+        }
+
+        IFormFile file = wholeFiles[0];
+        if (file.Length > MaximumDocumentBytes(context))
+        {
+            return MeshError(413, $"The file is more than the {MaximumDocumentBytes(context) / (1 << 20)} MB a model may be here.");
+        }
+
+        string upload = Guid.NewGuid().ToString("N");
+        using System.IO.MemoryStream copy = new();
+        await file.CopyToAsync(copy, cancellation).ConfigureAwait(false);
+        await context.RequestServices.GetRequiredService<IItemResourceStore>().WriteAsync(
+            Guid.Parse(mesh.Id), MeshUploadPrefix + upload, "application/octet-stream", copy.ToArray(), "private", replace: false, limit: long.MaxValue, cancellation).ConfigureAwait(false);
+        return Results.Json(MeshUploadItem(upload, file.FileName, committed: true));
+    }
+
+    /// <summary>One part of a registered upload, kept until the commit joins them.</summary>
+    private static async Task<IResult> MeshUploadPartAsync(HttpContext context, string id, string upload, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await EditableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is not { } mesh)
+        {
+            return Results.Empty;
+        }
+
+        if (MeshUploadName(upload) is not { } name || !context.Request.HasFormContentType)
+        {
+            return MeshError(400, "No such upload, or the part was not sent as multipart form data.");
+        }
+
+        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        if (!int.TryParse(form["partId"].ToString() is { Length: > 0 } given ? given : form["partNum"].ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int part)
+            || part < 0 || part > 10_000 || form.Files.Count == 0)
+        {
+            // Maps SDK 5.2 numbers its parts from 0 (measured); ArcGIS's reference counts from 1. Both are taken.
+            return MeshError(400, "A part names its partId (0 to 10,000) and carries its bytes as a file.");
+        }
+
+        using System.IO.MemoryStream copy = new();
+        await form.Files[0].CopyToAsync(copy, cancellation).ConfigureAwait(false);
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        string path = $"{MeshUploadPrefix}{name}.part{part:D5}";
+        bool kept = await resources.FindAsync(Guid.Parse(mesh.Id), path, cancellation).ConfigureAwait(false) is not null;
+        await resources.WriteAsync(Guid.Parse(mesh.Id), path, "application/octet-stream", copy.ToArray(), "private", replace: kept, limit: long.MaxValue, cancellation).ConfigureAwait(false);
+        return Results.Json(new { success = true });
+    }
+
+    /// <summary>
+    /// An upload's bytes: the committed whole, or — as Maps SDK 5.2 names an upload in uploadAssets without committing
+    /// it (measured) — its parts joined in order. Null when there are none.
+    /// </summary>
+    private static async Task<byte[]?> MeshUploadedAsync(IItemResourceStore resources, Guid item, string name, CancellationToken cancellation)
+    {
+        if (await resources.FindAsync(item, MeshUploadPrefix + name, cancellation).ConfigureAwait(false) is { } whole)
+        {
+            return whole.Content;
+        }
+
+        (IReadOnlyList<ItemResource> page, _) = await resources.ListAsync(item, 0, 10_000, cancellation).ConfigureAwait(false);
+        string prefix = $"{MeshUploadPrefix}{name}.part";
+        List<string> parts = [.. page.Select(r => r.Path).Where(path => path.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal)];
+        if (parts.Count == 0)
+        {
+            return null;
+        }
+
+        using System.IO.MemoryStream joined = new();
+        foreach (string part in parts)
+        {
+            joined.Write((await resources.FindAsync(item, part, cancellation).ConfigureAwait(false))?.Content ?? []);
+        }
+
+        return joined.ToArray();
+    }
+
+    /// <summary>Removes an upload, its parts and its whole, as the SDK asks once it has named it in uploadAssets.</summary>
+    private static async Task<IResult> MeshUploadDeleteAsync(HttpContext context, string id, string upload, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await EditableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is not { } mesh)
+        {
+            return Results.Empty;
+        }
+
+        if (MeshUploadName(upload) is not { } name)
+        {
+            return MeshError(404, "No such upload.");
+        }
+
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        Guid item = Guid.Parse(mesh.Id);
+        (IReadOnlyList<ItemResource> page, _) = await resources.ListAsync(item, 0, 10_000, cancellation).ConfigureAwait(false);
+        foreach (string path in page.Select(r => r.Path).Where(p => p == MeshUploadPrefix + name || p.StartsWith($"{MeshUploadPrefix}{name}.part", StringComparison.Ordinal)))
+        {
+            await resources.RemoveAsync(item, path, cancellation).ConfigureAwait(false);
+        }
+
+        return Results.Json(new { success = true });
+    }
+
+    /// <summary>Joins a registered upload's parts in order, within the size a model may be.</summary>
+    private static async Task<IResult> MeshUploadCommitAsync(HttpContext context, string id, string upload, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await EditableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is not { } mesh)
+        {
+            return Results.Empty;
+        }
+
+        if (MeshUploadName(upload) is not { } name)
+        {
+            return MeshError(404, "No such upload.");
+        }
+
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        Guid item = Guid.Parse(mesh.Id);
+        (IReadOnlyList<ItemResource> page, _) = await resources.ListAsync(item, 0, 10_000, cancellation).ConfigureAwait(false);
+        string prefix = $"{MeshUploadPrefix}{name}.part";
+        List<string> parts = [.. page.Select(r => r.Path).Where(path => path.StartsWith(prefix, StringComparison.Ordinal)).Order(StringComparer.Ordinal)];
+        if (parts.Count == 0)
+        {
+            return MeshError(400, "The upload has no parts to commit.");
+        }
+
+        using System.IO.MemoryStream whole = new();
+        foreach (string part in parts)
+        {
+            byte[] bytes = (await resources.FindAsync(item, part, cancellation).ConfigureAwait(false))?.Content ?? [];
+            whole.Write(bytes);
+            await resources.RemoveAsync(item, part, cancellation).ConfigureAwait(false);
+            if (whole.Length > MaximumDocumentBytes(context))
+            {
+                return MeshError(413, $"The file is more than the {MaximumDocumentBytes(context) / (1 << 20)} MB a model may be here.");
+            }
+        }
+
+        await resources.WriteAsync(item, MeshUploadPrefix + name, "application/octet-stream", whole.ToArray(), "private", replace: false, limit: long.MaxValue, cancellation).ConfigureAwait(false);
+        return Results.Json(MeshUploadItem(name, name, committed: true));
+    }
+
+    // --------------------------------------------------------------------------------------------- the asset tables
+
+    private static readonly (string Name, string Type)[] MeshMapColumns =
+    [
+        ("OBJECTID", "esriFieldTypeOID"), ("GlobalID", "esriFieldTypeGlobalID"), ("ESRI3DO_PID", "esriFieldTypeGUID"),
+        ("ESRI3DO_NAME", "esriFieldTypeString"), ("ESRI3DO_TYPE", "esriFieldTypeString"), ("ESRI3DO_AHASH", "esriFieldTypeString"),
+        ("ESRI3DO_FLAGS", "esriFieldTypeInteger"), ("ESRI3DO_STATUS", "esriFieldTypeInteger"), ("ESRI3DO_SEQNO", "esriFieldTypeInteger"),
+    ];
+
+    private static async Task<IResult> MeshTableAsync(HttpContext context, string id, int table, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await ReadableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is not { } mesh)
+        {
+            return Results.Empty;
+        }
+
+        return Results.Json(new
+        {
+            currentVersion = 11.3, id = table, name = table == 1 ? "assetMaps" : "assets", type = "Table", serviceItemId = mesh.Id,
+            objectIdField = "OBJECTID", globalIdField = "GlobalID", capabilities = "Query",
+            fields = MeshMapColumns.Select(c => new { name = c.Name, type = c.Type, alias = c.Name }).ToArray(),
+        });
+    }
+
+    /// <summary>
+    /// Table 1's rows are the layer's asset maps, read by <c>1=1</c> or by <c>ESRI3DO_PID IN ('{…}', …)</c> — the one
+    /// question the SDK was measured asking. Table 2, the assets, answers no rows: a model is fetched by its address.
+    /// </summary>
+    private static async Task<IResult> MeshTableQueryAsync(HttpContext context, string id, int table, IDocumentStore documents, CancellationToken cancellation)
+    {
+        if (await ReadableMeshAsync(context, id, documents, cancellation).ConfigureAwait(false) is not { } mesh)
+        {
+            return Results.Empty;
+        }
+
+        Dictionary<string, string> p = await MeshParamsAsync(context).ConfigureAwait(false);
+        MeshState state = await ReadMeshAsync(context.RequestServices, mesh.Id, cancellation).ConfigureAwait(false);
+        string where = (p.GetValueOrDefault("where") ?? "1=1").Trim();
+        IEnumerable<MeshMap> maps = table == 1 ? state.Maps : [];
+        if (where.Replace(" ", string.Empty, StringComparison.Ordinal) != "1=1")
+        {
+            if (!where.Contains("ESRI3DO_PID", StringComparison.OrdinalIgnoreCase))
+            {
+                return MeshError(400, "This table answers where=1=1 and ESRI3DO_PID IN (…).");
+            }
+
+            HashSet<string> parents = [.. System.Text.RegularExpressions.Regex.Matches(where, @"\{?[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}\}?")
+                .Select(m => Gid(m.Value)).OfType<string>()];
+            maps = maps.Where(m => parents.Contains(m.Parent));
+        }
+
+        if (string.Equals(p.GetValueOrDefault("returnCountOnly"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Json(new { count = maps.Count() });
+        }
+
+        int row = 0;
+        return Results.Json(new
+        {
+            objectIdFieldName = "OBJECTID", globalIdFieldName = "GlobalID",
+            fields = MeshMapColumns.Select(c => new { name = c.Name, type = c.Type, alias = c.Name }).ToArray(),
+            features = maps.Select(m => new
+            {
+                attributes = new Dictionary<string, object?>
+                {
+                    ["OBJECTID"] = ++row, ["GlobalID"] = m.Gid, ["ESRI3DO_PID"] = m.Parent, ["ESRI3DO_NAME"] = m.Name, ["ESRI3DO_TYPE"] = "3D_glb",
+                    ["ESRI3DO_AHASH"] = m.Hash, ["ESRI3DO_FLAGS"] = 0, ["ESRI3DO_STATUS"] = 0, ["ESRI3DO_SEQNO"] = 0,
+                },
+            }).ToArray(),
+        });
     }
 
     // --------------------------------------------------------------------------------------------------------- reads
