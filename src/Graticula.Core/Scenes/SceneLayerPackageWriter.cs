@@ -209,6 +209,19 @@ public static partial class SceneLayerPackageWriter
     internal static IReadOnlyList<SceneBuilding> Placed(IReadOnlyList<SceneBuilding> buildings) =>
         buildings.Any(b => b.Model is not null && b.Polygons.Count == 0) ? [.. buildings.Select(Placed)] : buildings;
 
+    /// <summary>
+    /// Where a model stands once placed (ADR-280): the box of its triangles in WGS 84 and metres, or null when its glb has
+    /// none this writer reads. What a 3D object layer answers as a feature's envelope.
+    /// </summary>
+    public static (double West, double South, double East, double North, double Low, double High)? ExtentOf(SceneModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+        Mesh mesh = BuildModel(new SceneBuilding(0, [], 0, 0, [], model));
+        return mesh.Points.Count == 0 ? null
+            : (mesh.Points.Min(p => p.Lon), mesh.Points.Min(p => p.Lat), mesh.Points.Max(p => p.Lon), mesh.Points.Max(p => p.Lat),
+               mesh.Points.Min(p => p.Z), mesh.Points.Max(p => p.Z));
+    }
+
     private static SceneBuilding Placed(SceneBuilding building)
     {
         if (building.Model is null || building.Polygons.Count > 0)

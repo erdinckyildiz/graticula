@@ -399,6 +399,42 @@ internal static partial class AdminEndpoints
         return Results.Json(Answer(context, kept, made), statusCode: StatusCodes.Status201Created);
     }
 
+    /// <summary>Makes a 3D object layer's scene layer again from its models (ADR-280), in part where it can (ADR-277).</summary>
+    private static async Task<IResult> RebuildFromMeshAsync(
+        HttpContext context, Document scene, string meshId, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    {
+        if (await documents.FindAsync(meshId, cancellation).ConfigureAwait(false) is not { } mesh || !Documents.IsMeshLayer(mesh.Kind))
+        {
+            return Refuse(409, $"The 3D object layer '{scene.Title}' was made from no longer exists, so it cannot be made again.");
+        }
+
+        byte[]? previous = await documents.ContentAsync(scene.Id, cancellation).ConfigureAwait(false);
+        if (await MeshPackageAsync(context.RequestServices, mesh, previous, cancellation).ConfigureAwait(false) is not { } made)
+        {
+            return Refuse(500, "The 3D object layer could not be read.");
+        }
+
+        if (made.Package.Length > MaximumDocumentBytes(context))
+        {
+            return Refuse(413, $"The scene layer came to {made.Package.Length / (1 << 20)} MB, more than the {MaximumDocumentBytes(context) / (1 << 20)} MB a package may be here.");
+        }
+
+        if (!await documents.ReplaceAsync(scene.Id, scene.FileName, scene.Kind, made.Package, cancellation).ConfigureAwait(false)
+            || await documents.FindAsync(scene.Id, cancellation).ConfigureAwait(false) is not { } after)
+        {
+            return Refuse(404, NoDocument(scene.Id));
+        }
+
+        await AuditAsync(context, audit, "document.replace", scene.Id,
+            Detail(new { rebuilt = true, from = $"meshes/{mesh.Id}", features = made.Count, of = made.Noun, bytes = after.Size }), succeeded: true, cancellation).ConfigureAwait(false);
+        return Results.Json(new
+        {
+            id = after.Id, title = after.Title, features = made.Count, of = made.Noun, bytes = after.Size,
+            url = SceneServerEndpoints.AddressOf(context.Request, after.Id), source = new { service = $"meshes/{mesh.Id}", layer = 0 },
+            partial = made.Partial,
+        });
+    }
+
     private static object Answer(HttpContext context, Document kept, SceneMade made) => new
     {
         id = kept.Id, title = kept.Title, features = made.Count, of = made.Noun,
@@ -483,6 +519,16 @@ internal static partial class AdminEndpoints
             is not { } document)
         {
             return Results.Empty;
+        }
+
+        if (await MeshSourceAsync(context.RequestServices, id, cancellation).ConfigureAwait(false) is { } meshId)
+        {
+            Document? mesh = await documents.FindAsync(meshId, cancellation).ConfigureAwait(false);
+            return Results.Json(new
+            {
+                service = $"meshes/{meshId}", layer = 0, exists = mesh is not null, mesh = meshId, built = document.Modified.ToUnixTimeMilliseconds(),
+                autoRebuild = false,
+            });
         }
 
         if (await ReadSourceAsync(context, id, cancellation).ConfigureAwait(false) is not { } source)
@@ -630,6 +676,12 @@ internal static partial class AdminEndpoints
             is not { } document)
         {
             return Results.Empty;
+        }
+
+        // ADR-280: the scene layer of a 3D object layer is made again from its models.
+        if (await MeshSourceAsync(context.RequestServices, id, cancellation).ConfigureAwait(false) is { } meshId)
+        {
+            return await RebuildFromMeshAsync(context, document, meshId, documents, audit, cancellation).ConfigureAwait(false);
         }
 
         if (await ReadSourceAsync(context, id, cancellation).ConfigureAwait(false) is not { } source)

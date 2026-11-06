@@ -2643,6 +2643,8 @@ internal static partial class PortalEndpoints
             typeKeywords = document.TypeKeywords ?? (Documents.IsScenePackage(document.Kind)
                 ? new[] { "Hosted Service", "Scene", "Scene Service", "Scene Layer Package" }
                 : Documents.IsTilesArchive(document.Kind) ? new[] { "Hosted Service", "3D Tiles", "3DTiles Service", "IntegratedMesh" }
+                // ADR-280: a 3D object layer, the associated layer of its scene layer.
+                : Documents.IsMeshLayer(document.Kind) ? new[] { "Hosted Service", "Feature Service", "Data", "Service", "3DObject" }
                 : Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
             description = document.Description ?? document.Snippet,
             thumbnail = document.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
@@ -2652,7 +2654,8 @@ internal static partial class PortalEndpoints
             licenseInfo = Annotations(context).LicenseOf(Guid.Parse(document.Id)),
             // ADR-269: a scene layer package is the scene service it serves, at its own address.
             url = Documents.IsScenePackage(document.Kind) ? SceneServerEndpoints.AddressOf(context.Request, document.Id)
-                : Documents.IsTilesArchive(document.Kind) ? SceneServerEndpoints.TilesetAddressOf(context.Request, document.Id) : document.Url,
+                : Documents.IsTilesArchive(document.Kind) ? SceneServerEndpoints.TilesetAddressOf(context.Request, document.Id)
+                : Documents.IsMeshLayer(document.Kind) ? AdminEndpoints.MeshAddressOf(context.Request, document.Id) : document.Url,
             access = Access(document.Sharing),
             @protected = document.DeleteProtected,
             spatialReference = (string?)null,

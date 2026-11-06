@@ -294,4 +294,90 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             await AdminAsync(HttpMethod.Delete, $"/content/documents/{id}");
         }
     }
+    /// <summary>
+    /// ADR-280: a 3D object layer is created from the scene with its scene layer; the Maps SDK places a model in it through
+    /// the scene layer, the server keeps it and says it changed, Rebuild puts it in the scene layer, and deleting it takes
+    /// it out again.
+    /// </summary>
+    [Fact]
+    public async Task A_3d_object_layer_takes_a_model_from_the_scene_and_its_scene_layer_is_rebuilt_with_it()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string? meshId = null, sceneId = null;
+        try
+        {
+            await DrawInSoftwareAsync();
+            await OpenAsync("/studio/scene.html", token, cookie);
+            await WaitForAsync("typeof scState !== 'undefined' && scState.opened === true", "The scene viewer did not open.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/content/meshes', '/applyEdits', '/uploadAssets', '/rebuild'], true)");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('createLayer').open = true, document.getElementById('createName').value = 'zz_models',"
+                + " document.getElementById('createKind').value = 'mesh', true)");
+            await ClickAsync("#createGo");
+            await WaitForAsync("scLeaves().length === 1 && scLeaves()[0].loadStatus === 'loaded' && !!scLeaves()[0].scSource?.mesh",
+                "Creating a 3D object layer did not add its scene layer: " + await Browser.EvaluateAsync<string>("document.getElementById('addSaid').textContent"));
+            meshId = await Browser.EvaluateAsync<string>("scLeaves()[0].scSource.mesh");
+            sceneId = await Browser.EvaluateAsync<string>("scLeaves()[0].scSource.id");
+
+            (int status, string layer) = await AdminAsync(HttpMethod.Get, $"/rest/services/meshes/{meshId}/FeatureServer/0?f=json");
+            Assert.Equal(200, status);
+            Assert.Equal("esriGeometryMultiPatch", JsonDocument.Parse(layer).RootElement.GetProperty("geometryType").GetString());
+
+            // The SDK finds the 3D object layer from the scene layer's item, as a mesh layer it can edit.
+            await WaitForAsync("!!scLeaves()[0].associatedLayer && scLeaves()[0].associatedLayer.loaded && scLeaves()[0].associatedLayer.geometryType === 'mesh'",
+                "The Maps SDK did not find the 3D object layer behind the scene layer.");
+            await WaitForAsync("scState.tool === 'edit'", "Edit was not opened on the new layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("scState.tools.edit.layerInfos.some(i => i.enabled && i.layer === scLeaves()[0])"),
+                "The editor was not offered the 3D object layer's scene layer.");
+
+            // A 10 by 20 by 10 m box placed through the scene layer, as the SDK's editor places a model.
+            await Browser.EvaluateAsync<bool>("(scRequire(['esri/geometry/Mesh', 'esri/geometry/Point', 'esri/Graphic']).then(([Mesh, Point, Graphic]) => {"
+                + " const mesh = Mesh.createBox(new Point({ longitude: 29.01, latitude: 41.01, z: 0 }), { size: { width: 10, height: 20, depth: 10 } });"
+                + " return scLeaves()[0].applyEdits({ addFeatures: [new Graphic({ geometry: mesh, attributes: { name: 'zz box' } })] }); })"
+                + ".then(r => window.__placed = r.addFeatureResults[0], e => window.__placed = { error: e.message }), true)");
+            await WaitForAsync("!!window.__placed", "Placing the model was not answered.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!window.__placed.error && window.__placed.objectId > 0"),
+                "The model was refused: " + await Browser.EvaluateAsync<string>("JSON.stringify(window.__placed)"));
+
+            (status, string features) = await AdminAsync(HttpMethod.Get, $"/rest/services/meshes/{meshId}/FeatureServer/0/query3D?where=1%3D1&outFields=*&f=json");
+            Assert.Equal(200, status);
+            JsonElement feature = JsonDocument.Parse(features).RootElement.GetProperty("features")[0];
+            Assert.Equal("zz box", feature.GetProperty("attributes").GetProperty("name").GetString());
+            Assert.Equal(29.01, feature.GetProperty("attributes").GetProperty("ESRI3DO_OX").GetDouble(), 6);
+            Assert.Equal(1, feature.GetProperty("assetMaps").GetArrayLength());
+            Assert.Equal(20, feature.GetProperty("geometry").GetProperty("zmax").GetDouble() - feature.GetProperty("geometry").GetProperty("zmin").GetDouble(), 1);
+
+            string gens = Uri.EscapeDataString("[{\"id\":0,\"serverGen\":1}]");
+            (status, string changes) = await AdminAsync(HttpMethod.Get,
+                $"/rest/services/meshes/{meshId}/FeatureServer/extractChanges?layers=%5B0%5D&layerServerGens={gens}&returnIdsOnly=true&f=json");
+            Assert.Equal(200, status);
+            Assert.Equal(1, JsonDocument.Parse(changes).RootElement.GetProperty("edits")[0].GetProperty("objectIds").GetProperty("adds").GetArrayLength());
+
+            // Rebuild: the scene layer holds the box.
+            (status, string rebuilt) = await AdminAsync(HttpMethod.Post, $"/content/scenes/{sceneId}/rebuild");
+            Assert.True(status == 200, rebuilt);
+            Assert.Equal(1, JsonDocument.Parse(rebuilt).RootElement.GetProperty("features").GetInt32());
+            (status, string page) = await AdminAsync(HttpMethod.Get, $"/rest/services/hosted/{sceneId}/SceneServer/layers/0/nodepages/0?f=json");
+            Assert.Equal(200, status);
+            Assert.True(JsonDocument.Parse(page).RootElement.GetProperty("nodes").GetArrayLength() >= 2, "The rebuilt scene layer has no node holding the model.");
+
+            // Deleted through the scene layer, by its GlobalID, and gone from the store.
+            await Browser.EvaluateAsync<bool>("(scLeaves()[0].applyEdits({ deleteFeatures: [{ objectId: window.__placed.objectId, globalId: window.__placed.globalId }] })"
+                + ".then(r => window.__gone = r.deleteFeatureResults[0], e => window.__gone = { error: e.message }), true)");
+            await WaitForAsync("!!window.__gone", "Deleting the model was not answered.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!window.__gone.error"), await Browser.EvaluateAsync<string>("JSON.stringify(window.__gone)"));
+            (status, string count) = await AdminAsync(HttpMethod.Get, $"/rest/services/meshes/{meshId}/FeatureServer/0/query?where=1%3D1&returnCountOnly=true&f=json");
+            Assert.Equal(0, JsonDocument.Parse(count).RootElement.GetProperty("count").GetInt32());
+            NothingWentWrong(await PageErrorsAsync());
+
+            // Its item in Studio: a page like any item's, naming what it is.
+            await OpenAsync($"/studio/#/item/{meshId}", token, cookie);
+            await WaitForAsync("/zz_models/.test(document.body.innerText)", "Studio did not open the 3D object layer's item.");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            if (sceneId is not null) await AdminAsync(HttpMethod.Delete, $"/content/documents/{sceneId}");
+            if (meshId is not null) await AdminAsync(HttpMethod.Delete, $"/content/documents/{meshId}");
+        }
+    }
 }

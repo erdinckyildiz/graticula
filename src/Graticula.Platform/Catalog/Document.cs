@@ -112,8 +112,21 @@ public static class Documents
 
     // ADR-278: a 3D Tiles archive — a zip of an OGC 3D Tiles tileset, tileset.json at its root — kept as a file and served
     // from it. Listed as the 3D tiles service it serves, as a scene layer package is listed as its scene service.
-    // `INFERRED`: "3D Tiles Service" is the name ArcGIS Online gives a hosted 3D tiles layer, read from its item types.
-    private static readonly DocumentKind TilesArchive = new("3tz", "application/octet-stream", "3D Tiles Service", ".3tz");
+    // "3DTiles Service", with no space: the type of ArcGIS Online's hosted 3D tiles items, read from a public one on
+    // 2026-11-07 (ADR-281 §4). It was "3D Tiles Service" until then, an inference that was wrong.
+    private static readonly DocumentKind TilesArchive = new("3tz", "application/octet-stream", "3DTiles Service", ".3tz");
+
+    // ADR-280: a 3D object layer — models placed in the scene and edited there — whose features and models are the item's
+    // own resources, served as a FeatureServer of multipatch features. Made by the server, never uploaded.
+    private static readonly DocumentKind MeshLayer = new("meshlayer", "application/json", "Feature Service", ".json");
+
+    /// <summary>Whether a kind is a 3D object layer (ADR-280).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for a mesh layer.</returns>
+    public static bool IsMeshLayer(DocumentKind kind) => kind == MeshLayer;
+
+    /// <summary>The kind a 3D object layer is kept as (ADR-280).</summary>
+    public static DocumentKind MeshLayerKind => MeshLayer;
 
     /// <summary>Whether a kind is a 3D Tiles archive, served as a 3DTilesServer (ADR-278).</summary>
     /// <param name="kind">The kind.</param>
@@ -206,7 +219,7 @@ public static class Documents
     /// <returns>The kind.</returns>
     public static DocumentKind? Named(string? name)
     {
-        foreach (DocumentKind kind in Accepted.Concat(Data).Concat(Exports).Concat(Apps))
+        foreach (DocumentKind kind in Accepted.Concat(Data).Concat(Exports).Concat(Apps).Append(MeshLayer))
         {
             if (string.Equals(kind.Name, name, StringComparison.Ordinal))
             {

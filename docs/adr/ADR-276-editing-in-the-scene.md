@@ -80,13 +80,16 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-023 §4c.
 ## 9. Conditions
 
 1. **Meshes**: a 3D object layer's feature layer holds mesh geometry. It is edited in the scene and rebuilt into its
-   scene layer. This needs its own ADR. *(Open. The ADR is [ADR-280](ADR-280-3d-object-layers-hold-meshes.md),
-   `REQUIRES PROTOTYPE`, 2026-11-07.)*
+   scene layer. This needs its own ADR. *(Partly discharged 2026-11-07 by [ADR-280](ADR-280-3d-object-layers-hold-meshes.md)
+   §5.4: a 3D object layer made from the scene takes glb models through its scene layer, keeps them, and is rebuilt
+   with them. Other formats wait on ADR-282's converter, and a person's own placing through the Editor widget is
+   ADR-280 condition 5.)*
 2. **An empty 3D object or 3D point layer is created from the scene**, ready to edit, as Scene Viewer's *Create layer*
    does. *(Partly discharged 2026-11-07: the Add panel's *Create a layer to draw in* makes an empty hosted layer of 3D
    points, lines or polygons, with heights and a label field, through the portal's own `createService`. It adds the
    layer to the scene with Edit open. `SceneViewerToolsTests.An_empty_3d_layer_is_created_from_the_scene_and_edited`
-   places a point at 42 m and reads 42 back. A 3D object (mesh) layer waits on condition 1.)*
+   places a point at 42 m and reads 42 back. A 3D object (mesh) layer waits on condition 1.)* *(Discharged 2026-11-07:
+   *3D objects* among its kinds makes an empty 3D object layer and its scene layer, ADR-280 §5.4.)*
 3. **Editing through a scene layer made here**: the scene layer's associated feature layer is offered to the editor,
    and the cache is rebuilt afterwards. *(Discharged 2026-11-07, §5.4:
    `SceneLayerSourceTests.A_scene_layer_is_edited_through_its_features_and_rebuilt_from_the_scene` makes a point scene
