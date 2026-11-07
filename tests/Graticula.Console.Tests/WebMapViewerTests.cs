@@ -176,6 +176,69 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// A map saved from ArcGIS Pro holds each service as a group layer, and it is drawn here: the group is opened as its
+    /// layers, carrying the group's opacity, and the reader is told.
+    /// </summary>
+    /// <remarks>Written 2026-11-05 (ADR-079 condition 1): a map Pro shared with <i>Share › Web Map</i> opened here with
+    /// nothing drawn and "GroupLayer is not one this viewer draws".</remarks>
+    [Fact]
+    public async Task A_group_layer_from_pro_is_drawn_as_its_layers()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "Group layer console test",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new
+                    {
+                        id = "group", layerType = "GroupLayer", title = "From Pro", visibility = true, opacity = 0.5,
+                        layers = new object[]
+                        {
+                            new { id = "inner", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Inner", visibility = true, opacity = 1 },
+                        },
+                    },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+            await WaitForAsync("!!wmState.doc && wmLayers().length > 0 && (wmRuntime.get(wmLayers()[0]) || {}).status === 'ok'",
+                "The group's feature layer was not drawn.");
+
+            Assert.Equal(1, await Browser.EvaluateAsync<int>("wmLayers().length"));
+            Assert.Equal("inner", await Browser.EvaluateAsync<string>("wmLayers()[0].id"));
+            Assert.Equal(0.5, await Browser.EvaluateAsync<double>("wmLayers()[0].opacity"));
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('layerList').textContent.includes('not one this viewer draws')"),
+                "The layer list still says the group is not drawn.");
+            // Said once when it opens, and kept beside the list until the map is saved.
+            await WaitForAsync("document.body.textContent.includes('Group layer “From Pro” is shown as its layer, and saving the map replaces the group with it.')",
+                "The reader was not told the group was opened as its layer.");
+            Assert.True(await Browser.EvaluateAsync<bool>("!document.getElementById('groupNote').hidden && document.getElementById('groupNote').textContent.includes('replaces its group layers')"),
+                "The layer list does not say what saving will do to the group.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>ADR-104: a layer is styled in the map, saved in its document, and can become the layer's default.</summary>
     [Fact]
     public async Task A_layer_is_styled_in_the_map_and_can_become_its_default()
@@ -450,6 +513,10 @@ public sealed class WebMapViewerTests : ConsoleTest
             // (asserted in A_layer_is_labelled_in_the_map_and_drawn_from_it).
             await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
             await WaitForAsync("typeof wmSendThumbnail === 'function' && !!wmMap.getSize()", "The Map Viewer did not open the map.");
+            // A map with no picture is given one when its manager opens it, and that send can take up to three seconds;
+            // it is let finish before the writes are counted, or it lands among this call's (CI, 2026-11-05).
+            await Browser.EvaluateAsync<bool>("(window.__opened = Date.now(), true)");
+            await WaitForAsync("wmState.meta.thumbnail || Date.now() - window.__opened > 3500", "The map's own picture never settled.");
             await Browser.EvaluateAsync<bool>($"(window.__writes = [], window.__thumb = null, wmSendThumbnail('{id}').then(r => window.__thumb = r), true)");
             await WaitForAsync("window.__thumb !== null", "Taking the map's picture never finished.");
             // It finishes even though this map holds a layer it cannot read, whose drawing never completes; and it

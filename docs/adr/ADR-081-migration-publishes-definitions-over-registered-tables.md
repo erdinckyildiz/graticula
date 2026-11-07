@@ -100,7 +100,7 @@ drawing and its field labels.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | A layer is usually published under its feature class's name | Unmeasured — condition 1 |
+| — | A layer is usually published under its feature class's name | **False for nearly half — measured 2026-11-05, 54% of 788 layers (condition 1, D-385)** |
 
 ## 8. Dependencies
 
@@ -112,6 +112,18 @@ publish endpoint, the symbology conversion, the field overrides.
 ## 9. Conditions
 
 1. **A real ArcGIS Server is planned against, and the share of layers matched by name is recorded.** If it
-   is low, the name rule is the wrong rule. *(Open — needs a source server this repository does not have.)*
+   is low, the name rule is the wrong rule. **DISCHARGED 2026-11-05: measured, and it is low — 54%.** With
+   the owner's permission for that day, a working ArcGIS Enterprise site was read, read-only (GET, and one
+   token request), and only aggregates were kept: no service, layer, table, server or person name was
+   recorded. Its single federated server's services were taken as `plan` takes them (a FeatureServer in
+   place of the same MapServer; the `Hosted`, `System` and `Utilities` folders left out), 400 services were
+   read, and each layer's name was compared with the datasets in **its own service's manifest** under §3's
+   rule. **Of 788 layers, 428 matched exactly one dataset (54.3%), 36 tied, and 324 matched none**; 57 of
+   those 324 had a near name — a dataset name containing the layer name, or the reverse. Two manifests were
+   unreadable, one of them refused. **The figure is an upper bound for the rule as built**: the shipped
+   `plan` compares against every table of the target data source, not the few a service's manifest names,
+   so it can only tie more often. **By the condition's own test the name rule is the wrong rule.** The same
+   measurement shows the better one is readable: the manifest named the service's datasets for 398 of 400
+   services, which is Alternative C. That follow-up is [D-385](../architecture-debt.md).
 
 **State.** None.

@@ -28,6 +28,8 @@ internal static partial class AdminEndpoints
     {
         app.MapGet("/content/documents", ListDocumentsAsync);
         app.MapPost("/content/documents", CreateDocumentAsync).DisableAntiforgery();
+        MapScenes(app);
+        MapMeshes(app);
         app.MapGet("/content/documents/{id}", GetDocumentAsync);
         app.MapPut("/content/documents/{id}", UpdateDocumentAsync);
         app.MapDelete("/content/documents/{id}", DeleteDocumentAsync);
@@ -110,6 +112,17 @@ internal static partial class AdminEndpoints
         if (context.Request.Query["check"] == "1")
         {
             await Results.Json(new { fileName = document.FileName, bytes = document.Size }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-274: a scene layer package kept as a file is streamed from it.
+        if (document.ContentFile is not null)
+        {
+            if (!await DocumentDownload.WriteFileAsync(context, document, cancellation).ConfigureAwait(false))
+            {
+                await Refuse(context, 404, $"The scene layer package's file is missing from the server directories ({document.ContentFile}).").ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -252,7 +265,7 @@ internal static partial class AdminEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        if (await ReadDocumentUploadAsync(context, cancellation).ConfigureAwait(false) is not { } upload)
+        if (await ReadDocumentUploadAsync(context, cancellation, mayBeLargePackage: true).ConfigureAwait(false) is not { } upload)
         {
             return;
         }
@@ -262,9 +275,14 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        Document made = await documents.CreateAsync(
-            upload.Title, upload.Snippet, current.Principal.Id, upload.Sharing, upload.FileName, upload.Kind, upload.Content,
-            cancellation).ConfigureAwait(false);
+        // ADR-274: a scene layer package above the document limit is already a file; its row names it.
+        Document made = upload.File is { } kept
+            ? await documents.CreateFileAsync(
+                upload.Title, upload.Snippet, current.Principal.Id, upload.Sharing, upload.FileName, upload.Kind, kept.Size,
+                kept.Recorded, kept.Sha256, cancellation).ConfigureAwait(false)
+            : await documents.CreateAsync(
+                upload.Title, upload.Snippet, current.Principal.Id, upload.Sharing, upload.FileName, upload.Kind, upload.Content,
+                cancellation).ConfigureAwait(false);
 
         // ADR-268: a PDF is given its first page as its picture; a failure leaves it without one and the upload kept.
         await DocumentPictures.DrawAsync(context.RequestServices, made, upload.Content, cancellation).ConfigureAwait(false);
@@ -632,9 +650,14 @@ internal static partial class AdminEndpoints
         };
     }
 
-    /// <summary>What an upload carries, once it has been read and recognised.</summary>
+    /// <summary>
+    /// What an upload carries, once it has been read and recognised. <c>File</c> is set for a scene layer package above
+    /// the document limit, already kept as a file (ADR-274) — its recorded name, hash and size — and the content is
+    /// empty then.
+    /// </summary>
     private sealed record DocumentUpload(
-        string Title, string? Snippet, SharingScope Sharing, string FileName, DocumentKind Kind, byte[] Content);
+        string Title, string? Snippet, SharingScope Sharing, string FileName, DocumentKind Kind, byte[] Content,
+        (string Recorded, string Sha256, long Size)? File = null);
 
     /// <summary>This deployment's document limit.</summary>
     internal static long MaximumDocumentBytes(HttpContext context) =>
@@ -645,9 +668,16 @@ internal static partial class AdminEndpoints
     /// Reads a multipart upload, recognises its file and checks the fields around it; writes the refusal and answers
     /// null when any of it fails.
     /// </summary>
-    private static async Task<DocumentUpload?> ReadDocumentUploadAsync(HttpContext context, CancellationToken cancellation)
+    private static async Task<DocumentUpload?> ReadDocumentUploadAsync(
+        HttpContext context, CancellationToken cancellation, bool mayBeLargePackage = false)
     {
         long limit = MaximumDocumentBytes(context);
+
+        // ADR-274: a scene layer package may be larger than a document, up to its own limit, and is kept as a file.
+        HostSettings? hostSettings = context.RequestServices?.GetService(typeof(HostSettings)) as HostSettings;
+        long packageLimit = mayBeLargePackage && hostSettings is not null
+            ? Math.Max(limit, hostSettings.ScenePackageMaximumBytes) : limit;
+        long bodyMaximum = packageLimit;
 
         if (!context.Request.HasFormContentType)
         {
@@ -658,7 +688,7 @@ internal static partial class AdminEndpoints
         // The document's own limit, not the data upload's: the two are separate settings.
         if (context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bodyLimit)
         {
-            bodyLimit.MaxRequestBodySize = limit + (1024 * 1024);
+            bodyLimit.MaxRequestBodySize = bodyMaximum + (1024 * 1024);
         }
 
         IFormCollection form;
@@ -666,7 +696,7 @@ internal static partial class AdminEndpoints
         try
         {
             form = await context.Request.ReadFormAsync(
-                new FormOptions { MultipartBodyLengthLimit = limit + (1024 * 1024), ValueLengthLimit = 64 * 1024 },
+                new FormOptions { MultipartBodyLengthLimit = bodyMaximum + (1024 * 1024), ValueLengthLimit = 64 * 1024 },
                 cancellation).ConfigureAwait(false);
         }
         catch (Exception e) when (e is InvalidDataException or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
@@ -681,10 +711,30 @@ internal static partial class AdminEndpoints
             return null;
         }
 
+        (string Recorded, string Sha256, long Size)? kept = null;
+
         if (file.Length > limit)
         {
-            await Refuse(context, 413, DocumentTooLarge(limit)).ConfigureAwait(false);
-            return null;
+            bool package = file.FileName.EndsWith(".slpk", StringComparison.OrdinalIgnoreCase)
+                || file.FileName.EndsWith(".3tz", StringComparison.OrdinalIgnoreCase);
+
+            if (!package || file.Length > packageLimit)
+            {
+                await Refuse(context, 413, package && packageLimit > limit
+                    ? $"A scene layer package may be at most {packageLimit / 1048576} MB on this server. A deployment raises the limit with Graticula:ScenePackageMaxMB."
+                    : DocumentTooLarge(limit)).ConfigureAwait(false);
+                return null;
+            }
+
+            if (await KeepLargePackageAsync(context, file, cancellation).ConfigureAwait(false) is not { } large)
+            {
+                return null;
+            }
+
+            kept = large.Kept;
+            return Described(context, form, file, large.Kind, [], kept) is { } describedLarge
+                ? describedLarge
+                : await RefuseDescribedAsync(context, form).ConfigureAwait(false);
         }
 
         byte[] content = new byte[file.Length];
@@ -710,6 +760,16 @@ internal static partial class AdminEndpoints
             return null;
         }
 
+        return Described(context, form, file, kind, content, null) is { } described
+            ? described
+            : await RefuseDescribedAsync(context, form).ConfigureAwait(false);
+    }
+
+    /// <summary>The fields around an upload's file — title, snippet, sharing — or null when one is refused.</summary>
+    private static DocumentUpload? Described(
+        HttpContext context, IFormCollection form, IFormFile file, DocumentKind kind, byte[] content,
+        (string Recorded, string Sha256, long Size)? kept)
+    {
         string fileName = Documents.CleanFileName(file.FileName, kind);
         string title = form["title"].ToString().Trim() is { Length: > 0 } named ? named : Path.GetFileNameWithoutExtension(fileName);
         string? snippet = form["snippet"].ToString().Trim() is { Length: > 0 } said ? said : null;
@@ -719,26 +779,74 @@ internal static partial class AdminEndpoints
             title = fileName;
         }
 
-        if (DescribedRefusal(title, snippet) is { } refusal)
+        if (DescribedRefusal(title, snippet) is not null
+            || (form["sharing"].ToString() is { Length: > 0 } wanted && ScopeNamed(wanted) is null))
         {
-            await Refuse(context, 400, refusal).ConfigureAwait(false);
             return null;
         }
 
-        SharingScope sharing = SharingScope.Private;
+        SharingScope sharing = form["sharing"].ToString() is { Length: > 0 } asked ? ScopeNamed(asked)!.Value : SharingScope.Private;
+        return new DocumentUpload(title, snippet, sharing, fileName, kind, content, kept);
+    }
 
-        if (form["sharing"].ToString() is { Length: > 0 } wanted)
+    /// <summary>Writes why the fields around an upload were refused; answers null.</summary>
+    private static async Task<DocumentUpload?> RefuseDescribedAsync(HttpContext context, IFormCollection form)
+    {
+        string title = form["title"].ToString().Trim();
+        string? snippet = form["snippet"].ToString().Trim() is { Length: > 0 } said ? said : null;
+        string refusal = DescribedRefusal(title, snippet)
+            ?? "A document's sharing is 'private', 'group', 'organization' or 'public'.";
+        await Refuse(context, 400, refusal).ConfigureAwait(false);
+        return null;
+    }
+
+    /// <summary>
+    /// Streams a scene layer package above the document limit to the server directories (ADR-274), checks it is a
+    /// package — a zip with a layer document — and answers its kind and where it was kept; writes the refusal otherwise.
+    /// </summary>
+    private static async Task<(DocumentKind Kind, (string Recorded, string Sha256, long Size) Kept)?> KeepLargePackageAsync(
+        HttpContext context, IFormFile file, CancellationToken cancellation)
+    {
+        byte[] head = new byte[(int)Math.Min(4096, file.Length)];
+        await using (Stream peek = file.OpenReadStream())
         {
-            if (ScopeNamed(wanted) is not { } scope)
-            {
-                await Refuse(context, 400, "A document's sharing is 'private', 'group', 'organization' or 'public'.").ConfigureAwait(false);
-                return null;
-            }
-
-            sharing = scope;
+            await peek.ReadExactlyAsync(head, cancellation).ConfigureAwait(false);
         }
 
-        return new DocumentUpload(title, snippet, sharing, fileName, kind, content);
+        if (Documents.Recognise(file.FileName, head, out string? why) is not { } kind || !Documents.IsThreeDPackage(kind))
+        {
+            await Refuse(context, 415, why ?? "Only a scene layer package (.slpk) or a 3D Tiles archive (.3tz) may be larger than a document.").ConfigureAwait(false);
+            return null;
+        }
+
+        ScenePackageFiles files = (ScenePackageFiles)context.RequestServices.GetService(typeof(ScenePackageFiles))!;
+        (string Recorded, string Sha256, long Size) kept;
+
+        await using (Stream stream = file.OpenReadStream())
+        {
+            kept = await files.KeepAsync(stream, cancellation).ConfigureAwait(false);
+        }
+
+        try
+        {
+            var entries = ScenePackages.ReadDirectory(files.PathOf(kept.Recorded)!);
+            if (Documents.IsTilesArchive(kind) ? !entries.ContainsKey("tileset.json")
+                : !entries.ContainsKey("3dscenelayer.json.gz") && !entries.ContainsKey("3dscenelayer.json")
+                    && !entries.ContainsKey("layer.json.gz") && !entries.ContainsKey("layer.json"))
+            {
+                await Refuse(context, 415, Documents.IsTilesArchive(kind)
+                    ? "The file is a zip, but not a 3D Tiles archive: it has no tileset.json at its root."
+                    : "The file is a zip, but not a scene layer package: it has no layer document (3dSceneLayer.json).").ConfigureAwait(false);
+                return null;
+            }
+        }
+        catch (InvalidDataException e)
+        {
+            await Refuse(context, 415, $"The file is not a readable scene layer package: {e.Message}").ConfigureAwait(false);
+            return null;
+        }
+
+        return (kind, kept);
     }
 
     internal static string? DescribedRefusal(string title, string? snippet) =>

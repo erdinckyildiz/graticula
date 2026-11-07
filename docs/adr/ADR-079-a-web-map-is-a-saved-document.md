@@ -196,7 +196,24 @@ services directory), ADR-034 (Server and Studio).
    the showcase, which this session may not touch. Saving a web map from Pro is *Share › Web Map* in Pro's window;
    arcpy has no sharing draft for one. **Still owed, by a person**: in Pro signed in to dev's portal
    (`https://dev.graticula.com/studio`), Catalog › Portal › My Content › open a web map saved in Studio and see its
-   layers drawn in their saved style; then *Share › Web Map* a map from Pro and open it in Studio's Map viewer.)* **PARTLY DISCHARGED 2026-11-01 — the first half.** At the showcase's second organisation `kontrol`, with Pro's active portal set there by the owner: a web map saved through the portal's `addItem` — the call Studio's Save makes — holding the private `Kontrol_Cities` layer drawn as 12 px red circles at 50% opacity was read back from `items/{id}/data` and handed to Pro 3.7's own reader, `arcpy.mp.ConvertWebMapToArcGISProject`. It made a map whose layer has 50% transparency and four features, and exported it drawn: four red dots where Istanbul, Ankara, Izmir and Trabzon are. The public address is what made it possible — the converter refuses a loopback one before it asks anything. **What remains is the other half**, *Share › Web Map* from Pro: arcpy has no sharing draft for a web map (`CreateSharingDraft` answers nothing for one), so it is Pro's window.
+   layers drawn in their saved style; then *Share › Web Map* a map from Pro and open it in Studio's Map viewer.)* **PARTLY DISCHARGED 2026-11-01 — the first half.** At the showcase's second organisation `kontrol`, with Pro's active portal set there by the owner: a web map saved through the portal's `addItem` — the call Studio's Save makes — holding the private `Kontrol_Cities` layer drawn as 12 px red circles at 50% opacity was read back from `items/{id}/data` and handed to Pro 3.7's own reader, `arcpy.mp.ConvertWebMapToArcGISProject`. It made a map whose layer has 50% transparency and four features, and exported it drawn: four red dots where Istanbul, Ankara, Izmir and Trabzon are. The public address is what made it possible — the converter refuses a loopback one before it asks anything. **What remains is the other half**, *Share › Web Map* from Pro: arcpy has no sharing draft for a web map (`CreateSharingDraft` answers nothing for one), so it is Pro's window. *(2026-11-05: **the Pro half is done, through Pro's window** (UI automation, owner's permission), on dev with
+   Pro's active portal `https://dev.graticula.com/studio`: a map holding a private hosted layer drawn with a unique-value
+   renderer was shared with *Share › Web Map*; Pro answered *Web map shared successfully* and the portal holds the item,
+   type `Web Map`, its operational layer a group layer whose feature layer names
+   `https://dev.graticula.com/studio/rest/services/…/FeatureServer/0` with its `uniqueValue` renderer and pop-up. Pro's
+   analyzer refused it first with 00230 (a basemap in a different projection than the map), Pro's own setting, fixed by
+   its own quick fix. That run also found a defect: before it, adding the private layer from Pro's portal pane opened
+   Pro's own sign-in dialog, because `/studio/rest/info` named the root as the owning portal and Pro was signed in to
+   `/studio`; fixed the same day, and recorded in ADR-191. **DISCHARGED 2026-11-05 — the second half, after one more
+   defect.** Opened in Studio's Map Viewer (headless Chrome, signed in on dev), the map Pro saved drew nothing: Pro's
+   *Share › Web Map* writes each hosted service as a `GroupLayer` holding its feature layers, and the viewer kept the
+   group as a row *not drawn here*. A top-level group with layers now opens as its layers, in order, with its
+   visibility and opacity folded in; an empty group stays a row that is not drawn. The document changes only if the map
+   is saved, and a note beside the layer list says until then that saving replaces the group with its layers (the
+   design review's copy: the status line alone is replaced by the next thing said). The same map then opened with its
+   layer loaded, 50 features, under that note. `WebMapViewerTests.A_group_layer_from_pro_is_drawn_as_its_layers` fails
+   without the change (measured) and passes with it. Both directions are now met: a map saved here opens in Pro
+   (2026-11-01) and a map saved by Pro opens here.)*
 2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services). *(2026-10-14: the review was
    run on both states — a server with no service and no map, and the fixture — and it did not pass: no blocker, six
    major and nine minor findings. **Repaired the same day:** My content's first run said *everything here belongs to

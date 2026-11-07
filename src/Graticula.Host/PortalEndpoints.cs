@@ -771,7 +771,8 @@ internal static partial class PortalEndpoints
             // permanentDelete and deletes into it believing the item gone (the Python API warns and drops the flag).
             recycleBinSupported = true,
             recycleBinEnabled = true,
-            supportsSceneServices = false,
+            // ADR-269: a scene layer package is served as a SceneServer.
+            supportsSceneServices = true,
             supports3DTilesServices = false,
             supportsHostedNotebooks = false,
             featuredGroups = Array.Empty<object>(),
@@ -1908,7 +1909,7 @@ internal static partial class PortalEndpoints
             query = form["q"].ToString();
         }
 
-        // The ArcGIS veteran's review of 2026-11-02, E: categories narrow, bbox and filter are refused by name.
+        // The ArcGIS veteran's review of 2026-11-02, E: categories and (ADR-271) bbox narrow; filter is refused by name.
         PortalSearchParameters.Narrowing narrowing = PortalSearchParameters.Of(context, form);
 
         if (narrowing.Refused is { } refusedWhy)
@@ -1928,7 +1929,15 @@ internal static partial class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> results = [.. listed.Select(entry => entry.Item).Where(item => PortalSearchParameters.InCategories(item, narrowing.Categories))];
+        // ADR-271: the box is the last narrowing, so its extents are read for what q and categories already matched.
+        IReadOnlyList<PortalListed> narrowed = [.. listed.Where(entry => PortalSearchParameters.InCategories(entry.Item, narrowing.Categories))];
+
+        if (narrowing.Box is { } box)
+        {
+            narrowed = await PortalSpatialSearch.WithinAsync(context, narrowed, box, cancellation).ConfigureAwait(false);
+        }
+
+        List<object> results = [.. narrowed.Select(entry => entry.Item)];
         PortalPage.Page page = PortalPage.Of(results, context, form);
 
         return Results.Ok(new
@@ -2006,7 +2015,15 @@ internal static partial class PortalEndpoints
             return Unavailable();
         }
 
-        List<object> results = [.. listed.Select(entry => entry.Item).Where(item => PortalSearchParameters.InCategories(item, narrowing.Categories))];
+        // ADR-271: the box is the last narrowing, so its extents are read for what q and categories already matched.
+        IReadOnlyList<PortalListed> narrowed = [.. listed.Where(entry => PortalSearchParameters.InCategories(entry.Item, narrowing.Categories))];
+
+        if (narrowing.Box is { } box)
+        {
+            narrowed = await PortalSpatialSearch.WithinAsync(context, narrowed, box, cancellation).ConfigureAwait(false);
+        }
+
+        List<object> results = [.. narrowed.Select(entry => entry.Item)];
         PortalPage.Page page = PortalPage.Of(results, context, form);
 
         return Results.Ok(new
@@ -2262,6 +2279,14 @@ internal static partial class PortalEndpoints
             && context.RequestServices.GetService(typeof(IDocumentStore)) is IDocumentStore documents
             && await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) is { } content)
         {
+            // ADR-270 §5.4: a scene layer package is listed as the Scene Service it serves, and a Scene Service item's data is
+            // its layer's settings, not a file — the Maps SDK reads it as JSON when a scene layer is added by its item, and
+            // refused the package's bytes ("PK…" is not valid JSON). The package downloads from the document's own address.
+            if (Documents.IsThreeDPackage(document.Kind))
+            {
+                return Results.Content("{}", "application/json; charset=utf-8");
+            }
+
             // ADR-264: an app's data is its JSON, read by its client as a web map's is; a link with none is an empty object.
             return Documents.IsApp(document.Kind)
                 ? Results.Content(content.Length == 0 ? "{}" : System.Text.Encoding.UTF8.GetString(content), "application/json; charset=utf-8")
@@ -2615,14 +2640,22 @@ internal static partial class PortalEndpoints
             name = document.FileName,
             type = document.Kind.ArcGisType,
             // ADR-264: an app's or a link's own, which its client reads; a file's are what they always were.
-            typeKeywords = document.TypeKeywords ?? (Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
+            typeKeywords = document.TypeKeywords ?? (Documents.IsScenePackage(document.Kind)
+                ? new[] { "Hosted Service", "Scene", "Scene Service", "Scene Layer Package" }
+                : Documents.IsTilesArchive(document.Kind) ? new[] { "Hosted Service", "3D Tiles", "3DTiles Service", "IntegratedMesh" }
+                // ADR-280: a 3D object layer, the associated layer of its scene layer.
+                : Documents.IsMeshLayer(document.Kind) ? new[] { "Hosted Service", "Feature Service", "Data", "Service", "3DObject" }
+                : Documents.IsApp(document.Kind) ? [] : new[] { "Data", "Document" }),
             description = document.Description ?? document.Snippet,
             thumbnail = document.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = document.Snippet,
             tags = document.Tags ?? [],
             categories = Annotations(context).CategoriesOf(Guid.Parse(document.Id)),
             licenseInfo = Annotations(context).LicenseOf(Guid.Parse(document.Id)),
-            url = document.Url,
+            // ADR-269: a scene layer package is the scene service it serves, at its own address.
+            url = Documents.IsScenePackage(document.Kind) ? SceneServerEndpoints.AddressOf(context.Request, document.Id)
+                : Documents.IsTilesArchive(document.Kind) ? SceneServerEndpoints.TilesetAddressOf(context.Request, document.Id)
+                : Documents.IsMeshLayer(document.Kind) ? AdminEndpoints.MeshAddressOf(context.Request, document.Id) : document.Url,
             access = Access(document.Sharing),
             @protected = document.DeleteProtected,
             spatialReference = (string?)null,

@@ -80,7 +80,7 @@ public sealed class WebhooksScreenTests : ConsoleTest
     private async Task ConfirmAsync(string mustSay)
     {
         await WaitForAsync("document.getElementById('serverConfirm')?.open", "Delete asked nothing.");
-        Assert.Contains(mustSay, await TextAsync("document.getElementById('serverConfirmBody').textContent"), StringComparison.Ordinal);
+        Assert.Contains(mustSay, await TextAsync("document.getElementById('serverConfirmTitle').textContent + ' ' + document.getElementById('serverConfirmBody').textContent"), StringComparison.Ordinal);
         await ClickAsync("#serverConfirmGo");
     }
 
@@ -610,6 +610,17 @@ public sealed class WebhooksScreenTests : ConsoleTest
                 "[...document.querySelectorAll('#whSent-org .pill')].some(p => p.textContent === 'Failed, retrying' && p.classList.contains('p-stopped'))"),
                 "Failed, retrying is not the amber pill.");
             Assert.Contains("Items: added", await TextAsync("document.getElementById('whSent-org').innerText"), StringComparison.Ordinal);
+
+            // The list says it too, without Deliveries being opened: a webhook still Active whose every message bounces
+            // looked healthy in its row.
+            await OpenAsync("/studio/webhooks", token);
+            await WaitForAsync(
+                $"(document.querySelector(\"#whList tr[data-wh-row='{id}'] .whlastretry\")?.textContent || '').startsWith('Last delivery failed, retrying')",
+                "The row does not say its last delivery failed and is being tried again.");
+            Assert.Contains("receiver answered 500", await TextAsync($"document.querySelector(\"#whList tr[data-wh-row='{id}'] .whlastretry\").textContent"),
+                StringComparison.Ordinal);
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('whSent-org')"),
+                "The note was read from an opened Deliveries region rather than the list.");
 
             // The server switches a webhook off after its failures and gives the reason; reaching that takes days of
             // failures, so the row is drawn from such a webhook's document as the list reads it.

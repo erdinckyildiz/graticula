@@ -31,6 +31,10 @@ namespace Graticula.Platform.Catalog;
 /// <param name="Description">What it is about at length, or null.</param>
 /// <param name="HasThumbnail">Whether its owner gave it a picture — D-321, migration 121.</param>
 /// <param name="Url">An app's or a link's address (ADR-264), or null.</param>
+/// <param name="ContentFile">
+/// Where a scene layer package above the document limit is, relative to the server directories; null for every
+/// document whose bytes are in the store (ADR-274).
+/// </param>
 /// <param name="TypeKeywords">An app's or a link's type keywords (ADR-264), or null for its kind's own.</param>
 public sealed record Document(
     string Id,
@@ -52,7 +56,8 @@ public sealed record Document(
     string? Description = null,
     bool HasThumbnail = false,
     string? Url = null,
-    IReadOnlyList<string>? TypeKeywords = null);
+    IReadOnlyList<string>? TypeKeywords = null,
+    string? ContentFile = null);
 
 /// <summary>What a document is, decided by this server from its first bytes and its name — ADR-188 §5.3.</summary>
 /// <param name="Name">The short name stored with it: <c>pdf</c>, <c>xlsx</c> and so on.</param>
@@ -100,6 +105,49 @@ public static class Documents
     private static readonly DocumentKind WebMappingApplication = new("webmappingapplication", "application/json", "Web Mapping Application", ".json");
     private static readonly DocumentKind Form = new("form", "application/json", "Form", ".json");
     private static readonly DocumentKind StoryMap = new("storymap", "application/json", "StoryMap", ".json");
+
+    // ADR-269: a scene layer package — a zip of I3S resources, Pro's or this server's own — kept as a file and served as
+    // a SceneServer from it. Listed as the scene service it serves; Pro adds it as a "Scene Package" (ScenePackageType).
+    private static readonly DocumentKind ScenePackage = new("slpk", "application/octet-stream", "Scene Service", ".slpk");
+
+    // ADR-278: a 3D Tiles archive — a zip of an OGC 3D Tiles tileset, tileset.json at its root — kept as a file and served
+    // from it. Listed as the 3D tiles service it serves, as a scene layer package is listed as its scene service.
+    // "3DTiles Service", with no space: the type of ArcGIS Online's hosted 3D tiles items, read from a public one on
+    // 2026-11-07 (ADR-281 §4). It was "3D Tiles Service" until then, an inference that was wrong.
+    private static readonly DocumentKind TilesArchive = new("3tz", "application/octet-stream", "3DTiles Service", ".3tz");
+
+    // ADR-280: a 3D object layer — models placed in the scene and edited there — whose features and models are the item's
+    // own resources, served as a FeatureServer of multipatch features. Made by the server, never uploaded.
+    private static readonly DocumentKind MeshLayer = new("meshlayer", "application/json", "Feature Service", ".json");
+
+    /// <summary>Whether a kind is a 3D object layer (ADR-280).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for a mesh layer.</returns>
+    public static bool IsMeshLayer(DocumentKind kind) => kind == MeshLayer;
+
+    /// <summary>The kind a 3D object layer is kept as (ADR-280).</summary>
+    public static DocumentKind MeshLayerKind => MeshLayer;
+
+    /// <summary>Whether a kind is a 3D Tiles archive, served as a 3DTilesServer (ADR-278).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for an archive.</returns>
+    public static bool IsTilesArchive(DocumentKind kind) => kind == TilesArchive;
+
+    /// <summary>Whether a kind is a 3D package served from its zip — a scene layer package or a 3D Tiles archive.</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for either.</returns>
+    public static bool IsThreeDPackage(DocumentKind kind) => kind == ScenePackage || kind == TilesArchive;
+
+    /// <summary>The item type Pro and the portal API add a scene layer package as (ADR-269).</summary>
+    public const string ScenePackageType = "Scene Package";
+
+    /// <summary>Whether a kind is a scene layer package, served as a SceneServer (ADR-269).</summary>
+    /// <param name="kind">The kind.</param>
+    /// <returns>True for a package.</returns>
+    public static bool IsScenePackage(DocumentKind kind) => kind == ScenePackage;
+
+    // ADR-269: a web scene is the 3D twin of a web map, a JSON document the Maps SDK and Pro read and write as an item.
+    private static readonly DocumentKind WebScene = new("webscene", "application/json", "Web Scene", ".json");
     private static readonly DocumentKind FeatureServiceLink = new("featureservicelink", "application/json", "Feature Service", ".json");
     private static readonly DocumentKind MapServiceLink = new("mapservicelink", "application/json", "Map Service", ".json");
     private static readonly DocumentKind VectorTileServiceLink = new("vectortileservicelink", "application/json", "Vector Tile Service", ".json");
@@ -126,7 +174,7 @@ public static class Documents
         : null;
 
     /// <summary>Every kind accepted, by its stored name.</summary>
-    public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP];
+    public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP, ScenePackage, TilesArchive];
 
     /// <summary>
     /// The data kinds kept only when the upload names its item type (ADR-257): a zipped shapefile, a zipped file
@@ -142,7 +190,7 @@ public static class Documents
     /// and documents elsewhere, registered by their address.
     /// </summary>
     public static IReadOnlyList<DocumentKind> Apps { get; } =
-        [Dashboard, WebExperience, WebMappingApplication, Form, StoryMap, FeatureServiceLink, MapServiceLink,
+        [Dashboard, WebExperience, WebMappingApplication, Form, StoryMap, WebScene, FeatureServiceLink, MapServiceLink,
          VectorTileServiceLink, ImageServiceLink, DocumentLink];
 
     /// <summary>The app or link kind an ArcGIS item type names, or null for one that is not (ADR-264).</summary>
@@ -171,7 +219,7 @@ public static class Documents
     /// <returns>The kind.</returns>
     public static DocumentKind? Named(string? name)
     {
-        foreach (DocumentKind kind in Accepted.Concat(Data).Concat(Exports).Concat(Apps))
+        foreach (DocumentKind kind in Accepted.Concat(Data).Concat(Exports).Concat(Apps).Append(MeshLayer))
         {
             if (string.Equals(kind.Name, name, StringComparison.Ordinal))
             {
@@ -216,6 +264,18 @@ public static class Documents
         refusal = null;
         string extension = Path.GetExtension(fileName).ToLowerInvariant();
         string declared = (declaredType ?? string.Empty).Trim();
+
+        // ADR-269: a scene layer package is a zip named .slpk, whatever type it was added as.
+        if (head.StartsWith(ZipSignature) && extension == ".slpk")
+        {
+            return ScenePackage;
+        }
+
+        // ADR-278: a 3D Tiles archive is a zip named .3tz.
+        if (head.StartsWith(ZipSignature) && extension == ".3tz")
+        {
+            return TilesArchive;
+        }
 
         if (head.StartsWith(ZipSignature) && extension == ".zip")
         {
@@ -436,6 +496,28 @@ public interface IDocumentStore
         DocumentKind kind,
         byte[] content,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Keeps a new document whose bytes are a file in the server directories rather than in the store — a scene layer
+    /// package above the document limit (ADR-274). The file is complete and named by its hash before this is called.
+    /// </summary>
+    Task<Document> CreateFileAsync(
+        string title,
+        string? snippet,
+        Guid owner,
+        SharingScope sharing,
+        string fileName,
+        DocumentKind kind,
+        long size,
+        string contentFile,
+        string sha256,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every file the store's rows name (ADR-274), relative to the server directories, for the sweep — every
+    /// organisation's documents and the recycle bin's copies of deleted ones.
+    /// </summary>
+    Task<IReadOnlySet<string>> ContentFilesAsync(CancellationToken cancellationToken);
 
     /// <summary>Replaces a document's title, snippet and scope; null when there is no such document.</summary>
     /// <param name="id">Its id.</param>

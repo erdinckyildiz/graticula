@@ -4641,7 +4641,9 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* The view dialog's own layout (design review 2026-10-01): a label over its control, an option's name over its hint. */
-#createView .stacked, #analyzeDialog .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#createView .stacked, #analyzeDialog .stacked, #createScene .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#createScene .dialogfoot .fill { flex: 1; margin: 0; }
+#createScene input[type=text], #createScene input[type=number], #createScene select { width: 100%; font: inherit; }
 #createView .check > span, #analyzeDialog .check > span { display: flex; flex-direction: column; }
 #createView .check .hint, #createView .dialogfoot .fill, #analyzeDialog .check .hint, #analyzeDialog .dialogfoot .fill { margin: 0; }
 #createView .dialogfoot .fill, #analyzeDialog .dialogfoot .fill { flex: 1; }
@@ -5513,7 +5515,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #serviceOverview h4 {
   text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--ink);
 }
-#newMap .plus { margin-right: 4px; }
+#newMap .plus, #newScene .plus { margin-right: 4px; }
 input[type="checkbox"] { accent-color: var(--accent); }
 .facets input[type="checkbox"] { width: 16px; height: 16px; }
 
@@ -6676,7 +6678,10 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
   #view-content .pagehead .right { display: none; }
   /* Any page with a sub-page menu button: its title and the button or buttons share the row, wrapping when they cannot. */
   .pagehead:has(> .navmenubtn) { flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .pagehead:has(> .navmenubtn) > div:first-child { flex: 1 1 12rem; }
+  .pagehead:has(> .navmenubtn) > div:first-child { flex: 1 1 100%; }
+  /* The menus lead the row and the action keeps to its right end, or to a row of its own where they cannot fit
+     (UX review, 2026-11-05: Settings and its page were two rows apart, around a lede). */
+  .pagehead:has(> .navmenubtn) > .right { margin-left: auto; }
   #view-content .pagehead .phonebtn, #view-members .pagehead > .phonebtn, #view-group .pagehead > .phonebtn,
   #view-groups .pagehead > .phonebtn { flex: none; }
 
@@ -6749,8 +6754,8 @@ tr:not(.pick) > td.name:has(> .rowmeta) > a { text-decoration: underline; text-u
   #contentToolbar > #contentFilter { order: 1; flex: 1 1 0; min-width: 0; width: auto; min-height: 44px; margin-bottom: 8px; box-sizing: border-box; }
   #contentToolbar > #contentFilterBtn { order: 2; flex: none; margin-bottom: 8px; }
   #contentToolbar > #contentCount { order: 4; flex: 1 1 0; min-width: 0; font-size: 13px; color: var(--muted); }
-  #contentToolbar > #newMap { order: 5; flex: none; min-height: 44px; padding: 0 8px; }
-  #contentToolbar > #newMap[hidden] { display: none; }
+  #contentToolbar > #newMap, #contentToolbar > #newScene { order: 5; flex: none; min-height: 44px; padding: 0 8px; }
+  #contentToolbar > #newMap[hidden], #contentToolbar > #newScene[hidden] { display: none; }
   /* The order select is the native one, drawn as an icon with the choice beside it: the control is still a select
      (a phone's own picker, a name, a value) laid over a picture of it. */
   #contentToolbar > .sortwrap { order: 6; flex: none; display: grid; }
@@ -7801,8 +7806,8 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 :is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(1) { width: 19%; }
 :is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(2) { width: 22%; }
 :is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(3) { width: 20%; }
-:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(4) { width: 12%; }
-:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(5) { width: 27%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(4) { width: 22%; }
+:is(#view-webhooks, #page-webhooks) .whtable > thead th:nth-child(5) { width: 17%; }
 /* A delivery's time leads its row, at the table's own weight rather than a name's. */
 :is(#view-webhooks, #page-webhooks) table.whsent td.whtime { font-weight: 400; font-size: inherit; }
 :is(#view-webhooks, #page-webhooks) table.whsent td { background: transparent; }
@@ -7815,6 +7820,10 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 :is(#view-webhooks, #page-webhooks) td.whacts details.rowmenu > summary { display: inline-flex; align-items: center;
                                                     justify-content: center; min-width: 32px; min-height: 30px; box-sizing: border-box; }
 :is(#view-webhooks, #page-webhooks) .whwhy { display: block; margin-top: var(--gap-1); }
+/* A row whose newest delivery failed says so in the list, in the alert colour, before Deliveries is opened. */
+:is(#view-webhooks, #page-webhooks) .whlastbad { color: var(--alert); }
+/* Still being tried again: amber, as the Deliveries panel's Failed, retrying pill. */
+:is(#view-webhooks, #page-webhooks) .whlastretry { color: var(--warn); }
 :is(#view-webhooks, #page-webhooks) tr.whsentrow > td { background: var(--surface-2); padding: var(--gap-3) var(--gap-4); }
 :is(#view-webhooks, #page-webhooks) .whsenthead { display: flex; align-items: center; justify-content: space-between;
                                                   gap: var(--gap-3); margin-bottom: var(--gap-2); }
@@ -7855,3 +7864,13 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
   :is(#view-webhooks, #page-webhooks) button.tiny, #page-webhooks #svcWhNew, #view-webhooks #whNew { min-height: 44px; }
   #whDialog label.check { min-height: 44px; }
 }
+
+/* The console's one confirmation (askServerConfirm) has a reading width; it grew to its sentence, 1,146 px at 1,440
+   (UX review, 2026-11-05). */
+#serverConfirm { width: min(480px, calc(100vw - 32px)); }
+
+/* ADR-270 §5.4: a scene layer made here — what it was made from, and Rebuild. */
+.scenesource { border: 1px solid var(--rule); border-radius: var(--round); padding: 16px; margin: 0 0 14px; background: var(--surface); }
+.scenesource h3 { margin: 0 0 8px; font-size: 15px; }
+.scenesource p { margin: 0 0 8px; }
+.scenesource code { font-family: var(--mono); font-size: .95em; }

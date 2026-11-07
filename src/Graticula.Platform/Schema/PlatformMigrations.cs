@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(132);
+    public static SchemaVersion ComponentSchemaVersion => new(134);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -161,7 +161,53 @@ public static class PlatformMigrations
         AWebhookTellsAnotherSystemWhatChangedV130,
         AnItemCarriesMetadataAndCommentsV131,
         ADocumentsPictureMayBeDrawnFromItsFirstPageV132,
+        AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
+        AScenePackageAboveTheDocumentLimitIsAFileV134,
     ]);
+
+    /// <summary>
+    /// A scene layer package above the document limit is a file in the server directories, and its row says which —
+    /// ADR-274, by owner decision ADR-272 §5.3.
+    /// </summary>
+    /// <remarks>
+    /// <b>The file's path relative to the server directories, and its SHA-256</b>, both null for every document already
+    /// kept, whose bytes stay in <c>content</c>. The size check (a document's size is its bytes') is widened to a row that
+    /// names a file, and such a row must hold no bytes and name its hash. <b>Expand</b>: a node older than this never reads the columns, and a
+    /// file-held row it lists has a size and empty content — it would answer such a package as unreadable, which is what
+    /// it is to that node.
+    /// </remarks>
+    private static Migration AScenePackageAboveTheDocumentLimitIsAFileV134 => Migration.Expand(
+        new SchemaVersion(134),
+        "A scene layer package above the document limit is a file in the server directories (ADR-274).",
+
+        "alter table document add column if not exists content_file text",
+
+        "alter table document add column if not exists content_sha256 text",
+
+        // Migration 121's rule that a document's size is its bytes' holds for every row with its bytes in the store; a
+        // row whose bytes are a file has none here, its size is the file's, and it must name the file's hash.
+        "alter table document drop constraint if exists document_size_matches",
+
+        "alter table document add constraint document_size_matches check (size = octet_length(content) or content_file is not null)",
+
+        "alter table document add constraint document_file_is_whole check (content_file is null or (octet_length(content) = 0 and content_sha256 is not null))");
+
+    /// <summary>
+    /// A scene layer this server made is related to the feature layer it was made from, as ArcGIS's
+    /// <c>Service2Service</c> relates a hosted scene layer to its hosted feature layer — ADR-270 §5.4.
+    /// </summary>
+    /// <remarks>
+    /// <b>One more relationship type admitted by migration 126's check</b>, and nothing else: the same table, the same
+    /// keys, the same floor. <b>Expand</b>: a node older than this never writes the new type, and reads relationships only
+    /// by the type it asks for, so it never meets one.
+    /// </remarks>
+    private static Migration AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133 => Migration.Expand(
+        new SchemaVersion(133),
+        "A scene layer made here is related to the feature layer it was made from, as ArcGIS's Service2Service (ADR-270).",
+
+        "alter table item_relationship drop constraint if exists item_relationship_type_known",
+
+        "alter table item_relationship add constraint item_relationship_type_known check (relationship_type in ('Service2Data', 'Service2Service'))");
 
     /// <summary>
     /// A document's picture may be drawn from its first page, and says so — ADR-268, D-321.

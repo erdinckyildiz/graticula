@@ -82,7 +82,7 @@ internal static class PlatformStoreRole
             Log.PlatformStoreRoleIsNotBound(logger, role, why);
             return false;
         }
-        catch (Exception e) when (e is NpgsqlException or InvalidOperationException or OperationCanceledException)
+        catch (Exception e) when (StoreOutage.Is(e) || e is InvalidOperationException or OperationCanceledException)
         {
             return null;
         }

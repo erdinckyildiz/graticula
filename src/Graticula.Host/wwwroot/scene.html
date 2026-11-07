@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scene · Graticula</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<!--
+  The scene viewer — ADR-269.
+
+  <b>A web scene a user keeps</b>: the 3D twin of webmap.html. It opens a saved ArcGIS Web Scene item (`?id=`) or starts
+  a new one, draws it with the ArcGIS Maps SDK for JavaScript (ADR-253: OpenLayers draws 2D, the SDK draws scenes), and
+  saves it back through the portal. The SDK is loaded from `Graticula:MapSdkUrl`, which surface.js carries.
+
+  <b>No inline script</b>: the console's policy has no `'unsafe-inline'`. The style block is allowed.
+-->
+
+<script src="surface.js"></script>
+<!-- The remembered theme, set before the first paint exactly as the console sets it (ADR-187 step 4). -->
+<script src="session.js"></script>
+
+<style>
+  /* TOKENS-FROM: console.css. Every --name here that console.css also declares is a copy of its :root (light) and
+     :root[data-theme="dark"] value, made by hand because these pages are outside the console's stylesheet; the rest
+     (--veil, --map-bg, --float, --ol-*) are the map pages' own. The copies are
+     webmap.html, view.html, map.html and scene.html; this line, the same in each, is what a test finds them by. */
+  :root {
+    --paper: #f4f6f9; --surface: #ffffff; --surface-2: #f1f4f8; --surface-3: #e7ecf3;
+    --ink: #101826; --muted: #566275; --faint: #616b7a;
+    --rule: #e3e8ef; --rule-strong: #cfd7e3; --control-edge: #7e889a;
+    --accent: #1565d8; --accent-soft: #e8f0fe; --accent-ink: #1257c2; --accent-line: #bcd2fa; --on-accent: #ffffff;
+    --alert: #a5342a; --alert-soft: #fceceb; --alert-line: #edc4c0;
+    --warn: #8a5a08; --warn-soft: #fdf2e0; --warn-line: #e8d3a8;
+    --veil: rgba(255, 255, 255, .94); --map-bg: #dce7ec;
+    --lift: 0 1px 2px rgba(16, 24, 38, .05); --float: 0 8px 24px -12px rgba(16, 24, 38, .35);
+    --round: 5px; --round-lg: 8px;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --ol-background-color: var(--surface); --ol-accent-background-color: var(--surface-2);
+    --ol-partial-background-color: var(--veil); --ol-foreground-color: var(--ink);
+    --ol-subtle-foreground-color: var(--muted); --ol-subtle-background-color: transparent;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0a1120; --surface: #0f1828; --surface-2: #142034; --surface-3: #1b2840;
+    --ink: #e6ebf4; --muted: #9aa7bd; --faint: #8592aa;
+    --rule: #1f2b40; --rule-strong: #2b3a55; --control-edge: #62739a;
+    --accent: #2563eb; --accent-soft: #11264a; --accent-ink: #6aa6ff; --accent-line: #24497f;
+    --alert: #f58a7f; --alert-soft: #3a1714; --alert-line: #6a2a24;
+    --warn: #f0bd5c; --warn-soft: #33260c; --warn-line: #5a4416;
+    --veil: rgba(15, 24, 40, .94); --map-bg: #13233a;
+    --lift: 0 1px 2px rgba(0, 0, 0, .4); --float: 0 8px 24px -10px rgba(0, 0, 0, .7);
+  }
+  * { box-sizing: border-box; }
+  /* As the console has it: an element given `hidden` stays hidden whatever display its own rule gives it. */
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; font: 14px/1.45 var(--sans);
+               color: var(--ink); background: var(--paper); }
+  #frame { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+  #studioBar { display: flex; align-items: stretch; gap: 12px; padding: 0 20px; min-height: 52px; min-width: 0;
+               background: var(--surface); border-bottom: 1px solid var(--rule); }
+  #brand { display: flex; align-items: center; gap: 10px; flex: none; color: var(--ink); text-decoration: none; }
+  #brand .mark { width: 28px; height: 28px; flex: none; display: grid; place-items: center; }
+  :root[data-theme="dark"] #brand .mark .m-a { stroke: #dbe8ff; }
+  :root[data-theme="dark"] #brand .mark .m-b { stroke: #7ea6e6; }
+  #brand .mark svg { width: 28px; height: 28px; display: block; }
+  #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  #brand .surf { font-size: 14px; font-weight: 500; color: var(--muted); }
+  #studioNav { display: flex; gap: 2px; margin-left: 12px; min-width: 0; }
+  #studioNav a { display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 15px;
+                 font-weight: 500; text-decoration: none; white-space: nowrap;
+                 border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  #studioNav a:hover { color: var(--ink); }
+  #studioNav a[aria-current="page"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
+  #studioNav a:focus-visible { outline-offset: -4px; }
+  #studioBar .end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+
+  /* The map's own line: what it is, whether it is saved, and what the last action did. */
+  #maphead { display: flex; align-items: center; gap: 4px 12px; padding: 8px 20px; min-width: 0; min-height: 50px;
+             background: var(--surface); border-bottom: 1px solid var(--rule); }
+  #maphead h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  #saved { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  #saved.dirty { color: var(--warn); }
+  #headSave { flex: none; padding: 5px 14px; }
+  a { color: var(--accent-ink); }
+  #status { font-size: 13px; color: var(--muted); flex: 1 1 0; min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  #studio { flex: none; display: inline-flex; align-items: center; min-height: 36px; font-size: 14px;
+            color: var(--ink); text-decoration: none; padding: 0 14px; border: 1px solid var(--rule-strong);
+            border-radius: var(--round); white-space: nowrap; background: var(--surface); }
+  #studio:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 10px; }
+  .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
+  .said.bad { color: var(--alert); }
+  button, select, input, textarea { font: inherit; font-size: 13px; }
+  button { padding: 4px 10px; cursor: pointer; border: 1px solid var(--rule); border-radius: 3px;
+           background: var(--surface); color: var(--ink); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.1); }
+  button.danger { color: var(--alert); }
+  button.tiny { padding: 1px 7px; font-size: 12px; }
+  input[type="text"], input[type="search"], textarea, select {
+    border: 1px solid var(--control-edge); border-radius: 3px; padding: 5px 7px; background: var(--surface);
+    color: var(--ink); width: 100%; }
+  label.field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  /* ADR-279: Scene Viewer's and Studio's map's shape (ADR-259) — the scene's toolbar and its panel at the left, the
+     scene, then the panel the right toolbar opens and that toolbar. A panel closed by its tool gives its column back. */
+  svg.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+          stroke-linecap: round; stroke-linejoin: round; }
+  #body { position: relative; display: grid; min-height: 0; --lw: 320px; --rw: 0px;
+          grid-template-columns: 76px var(--lw) minmax(0, 1fr) var(--rw) 76px; }
+  body.lclosed #body { --lw: 0px; }
+  @media (min-width: 761px) { body.lclosed #panel { display: none; } }
+  body.ropen #body { --rw: 340px; }
+  #tabs { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; min-height: 0;
+          overflow: auto; background: var(--surface); border-right: 1px solid var(--rule); }
+  #tabs button, #tools button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+          min-height: 60px; padding: 6px 2px; border: 0; border-radius: 0; background: none; flex: none;
+          font: inherit; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+  #tabs button:hover:not(:disabled), #tools button:hover:not(:disabled) { color: var(--ink); border: 0; }
+  #tabs button[aria-selected="true"] { color: var(--accent-ink); font-weight: 600; background: var(--accent-soft);
+          box-shadow: inset 3px 0 0 var(--accent); }
+  #tabs button:focus-visible, #tools button:focus-visible { outline-offset: -3px; }
+  #panel { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+           background: var(--surface); border-right: 1px solid var(--rule); }
+  #viewWrap { grid-column: 3; grid-row: 1; position: relative; min-height: 0; min-width: 0; }
+  #viewDiv { position: absolute; inset: 0; background: var(--paper); }
+  #side { grid-column: 4; grid-row: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+          background: var(--surface); border-left: 1px solid var(--rule); }
+  #tools { grid-column: 5; grid-row: 1; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; min-height: 0;
+           overflow: auto; background: var(--surface); border-left: 1px solid var(--rule); }
+  #tools button[aria-expanded="true"] { color: var(--accent-ink); font-weight: 600; background: var(--accent-soft);
+          box-shadow: inset -3px 0 0 var(--accent); }
+  #tools button[aria-disabled="true"] { opacity: .45; }
+  #tools .rsep { flex: none; height: 1px; margin: 6px 12px; background: var(--rule-strong); }
+  .panelhead, .sidehead { display: flex; align-items: center; gap: 8px; padding: 10px 10px 0 16px; flex: none; }
+  .panelhead h2, .sidehead h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: 650; color: var(--ink);
+          text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }
+  #panelClose, #sideClose { width: 32px; height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 20px; flex: none; }
+  .tabpanel { padding: 12px 16px 18px; overflow: auto; flex: 1; min-height: 0; }
+  #side .tabpanel { padding-top: 8px; }
+  .tabpanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px; }
+  /* What a group of tools holds: one at a time, as Scene Viewer's measure and analysis panels offer theirs. */
+  #toolPick { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 16px 0; flex: none; }
+  #toolPick button { padding: 4px 10px; border-radius: 999px; font-size: 12.5px; }
+  #toolPick button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  #toolPanel .esri-widget { box-shadow: none; width: auto !important; max-width: none; }
+  /* The SDK's widgets in Studio's accent, not the SDK's own blue (confirming review). */
+  #toolPanel, #legendBox { --calcite-color-brand: var(--accent); --calcite-color-brand-hover: var(--accent-ink); --calcite-color-brand-press: var(--accent-ink);
+    --calcite-color-foreground-1: var(--surface); --calcite-color-background: var(--surface); --calcite-color-text-1: var(--ink); --calcite-color-text-2: var(--muted); }
+  /* A short laptop screen: the toolbars' buttons are shorter, so all of them fit (confirming review). */
+  @media (max-height: 860px) and (min-width: 761px) { #tabs button, #tools button { min-height: 50px; } }
+  #toolPanel:empty { display: none; }
+  /* The selected layer's settings, one part at a time — the part its toolbar button names. */
+  #layerTool[data-show] .lsec:not([data-on]) { display: none; }
+  #layerTool .lhead { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+  #layerTool .lhead { flex-direction: column; align-items: stretch; gap: 3px; }
+  #layerTool .lhead label { font-size: 12px; color: var(--muted); }
+  #layerTool .lhead select { flex: 1; }
+  .lsource { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+  .lsource summary { cursor: pointer; color: var(--accent-ink); }
+  .lsource code { display: block; font: 12px var(--mono); overflow-wrap: anywhere; margin-top: 4px; color: var(--ink); }
+  .lremove { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); }
+  /* A closed panel's tab is not shown as open (design review). */
+  @media (min-width: 761px) {
+    body.lclosed #tabs button[aria-selected="true"] { background: none; box-shadow: none; color: var(--muted); font-weight: 400; }
+    #tab-more, #pane-more { display: none !important; }
+  }
+  .morelist { display: flex; flex-direction: column; gap: 6px; }
+  .morelist button { display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; }
+  /* Edges a control can be told by (WCAG 1.4.11; design review). */
+  #toolPick button, #layerParts button, #addList button, #layersActions button { border-color: var(--rule-strong); }
+  #toolPanel .esri-button--secondary, #toolPanel .esri-button--tertiary { border-color: var(--control-edge); }
+  #layerParts { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+  #layerParts button { padding: 4px 10px; border-radius: 999px; font-size: 12.5px; }
+  #layerParts button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  /* The pills repeat the right toolbar on a wide screen; they are the phone's way between a layer's parts. After the
+     rule above, so it wins (ADR-279's third look: placed before it, it lost at every width). */
+  @media (min-width: 761px) { #layerParts { display: none; } }
+  #layerList, #addList { list-style: none; margin: 0; padding: 0; }
+  #addList > li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule);
+           border-radius: 4px; padding: 7px 8px; margin-bottom: 6px; background: var(--surface); }
+  #addList .lname { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #addList .lkind { display: block; color: var(--muted); font-size: 12px; }
+  /* ADR-279: a layer's row as Studio's map draws one (webmap.html) — show it, select it by its name, ⋯ for the rest. */
+  #layerList > li { border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px; margin-bottom: 7px; background: var(--surface); }
+  #layerList > li.off { background: var(--surface-2); }
+  /* A group: its layers inside it, set in (ADR-270 §5.24). */
+  #layerList ul.glist { list-style: none; margin: 8px 0 0 14px; padding: 0; }
+  #layerList ul.glist > li { border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; background: var(--surface); }
+  #layerList ul.glist > li.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
+  #layerList li.group > .lhead .gname { flex: 1; min-width: 0; display: flex; flex-direction: column; font-weight: 600; }
+  #layerList li.group > .lhead .gname input { font-weight: 400; }
+  #layerList > li.sel { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
+  .lhead { display: flex; align-items: flex-start; gap: 7px; }
+  .lhead input[type="checkbox"] { margin-top: 3px; flex: none; }
+  .lhead .lname { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+                  padding: 0; border: 0; background: none; text-align: left; color: var(--ink); font: inherit; overflow-wrap: anywhere; }
+  .lhead .lname:hover { color: var(--accent-ink); border: 0; }
+  .lhead .lkind { font-size: 11px; color: var(--faint); white-space: normal; }
+  .lhead .lmore { flex: none; width: 28px; height: 28px; padding: 0; border: 0; background: none; color: var(--muted);
+                  font-size: 18px; line-height: 1; border-radius: var(--round); }
+  .lhead .lmore[aria-expanded="true"], .lhead .lmore:hover { background: var(--surface-3); color: var(--ink); }
+  .lmenu { display: flex; flex-direction: column; margin: 6px 0 2px 22px; padding: 4px; background: var(--surface);
+           border: 1px solid var(--rule-strong); border-radius: var(--round-lg); box-shadow: var(--float); }
+  .lmenu button { border: 0; border-radius: var(--round); background: none; text-align: left; padding: 6px 8px; }
+  .lmenu button:hover:not(:disabled) { background: var(--surface-2); border: 0; }
+  .lmenu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 2px; }
+  h3.cap { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 14px 0 6px;
+           display: flex; justify-content: space-between; }
+  #undoLast { flex: none; }
+  #addUrl { margin-bottom: 6px; }
+  .lnote { color: var(--warn); font-size: 12px; }
+  #sceneTitleField { margin-top: 0; }
+
+  .tabpanel h2:first-child { margin-top: 2px; }
+  /* The analysis tools (analysis.js), as Studio's map draws them (webmap.html), in this panel's tokens. */
+  #pane-analysis .stacked { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+  #pane-analysis .stacked .hint { margin: 0; }
+  #pane-analysis fieldset.offered { border: 0; padding: 0; margin: 10px 0; }
+  #pane-analysis fieldset.offered legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
+  #pane-analysis label.check { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+  #pane-analysis label.check > span > .hint { display: block; margin: 2px 0 0; }
+  #pane-analysis .azrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+  #pane-analysis .azrow > .stacked { margin: 0; }
+  #pane-analysis .fielderror { color: var(--alert); font-size: 12.5px; }
+  /* Run stays in reach while the questions scroll: pinned to the bottom of the panel, over its 18px bottom padding. */
+  #pane-analysis .azfoot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
+    border-top: 1px solid var(--rule); padding: 10px 0 28px; margin: 10px 0 -18px; position: sticky; bottom: -18px;
+    background: var(--surface); }
+  #pane-analysis .azfoot .fill { flex: 1 1 100%; margin: 0; }
+  #pane-analysis #analyzeButtons { display: flex; gap: 8px; }
+  #pane-analysis .azfoot:empty { display: none; }
+  #pane-analysis .bad { color: var(--alert); }
+  #pane-analysis button.ghost { border-color: transparent; background: none; color: var(--muted); }
+  #pane-analysis select, #pane-analysis input[type=text], #pane-analysis input[type=number] { max-width: 100%; }
+  /* Play's caption over the scene (ADR-270 §5.16): the slide's title and description, and where it is. */
+  /* Placed by hand in the view's UI: a caption sits bottom left; a cover fills the scene; "scene only" keeps just Stop. */
+  #slideCaption { position: absolute; left: 15px; bottom: 30px; }
+  #slideCaption.cover { inset: 0; max-width: none; max-height: none; border: 0; border-radius: 0; justify-content: center;
+    align-items: center; text-align: center; background: color-mix(in srgb, var(--surface) 88%, transparent); font-size: 18px; }
+  #slideCaption.cover > div { flex: 0 1 640px; }
+  #slideCaption.cover strong { font-size: 30px; line-height: 1.2; }
+  #slideCaption.cover p { -webkit-line-clamp: 8; font-size: 17px; }
+  #slideCaption.cover #captionStop { position: absolute; top: 12px; right: 12px; }
+  #slideCaption.bare { padding: 4px; }
+  #slideCaption.bare > div { display: none; }
+  #slideCaption { max-width: min(440px, 70vw); max-height: 40%; overflow: auto; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--rule-strong); border-radius: 4px; padding: 10px 14px; box-shadow: var(--float); font-size: 14px;
+    display: flex; gap: 12px; align-items: flex-start; }
+  #slideCaption > div { flex: 1; min-width: 0; }
+  #slideCaption p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #slideCaption strong { display: block; font-size: 15px; }
+  #slideCaption p { margin: 4px 0 0; color: var(--muted); }
+  #slideCaption .where { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  button.linkish { border: 0; background: none; padding: 0; color: var(--accent-ink); text-decoration: underline; font: inherit; cursor: pointer; }
+  @media (max-width: 760px) {
+    .check { min-height: 44px; }
+    input[type=color] { height: 44px; }
+    #pane-analysis .azfoot { padding-bottom: 12px; }
+    #pane-analysis .azfoot .fill:empty { display: none; }
+    #slideCaption button { min-height: 44px; }
+  }
+  /* ADR-270 §5.18: the analyses SDK 4.34 has without a widget, in a panel of this page's. */
+  .sc-analysis { padding: 0; position: relative; }
+  .sc-analysis h3 { display: none; }
+  .sc-analysis dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+  .sc-analysis dt { color: var(--muted); }
+  .sc-analysis dd { margin: 0; }
+  /* ADR-275: the embed view — the scene alone, for another site to frame. Studio's bar, the title row and the panel are
+     not drawn; a link opens the scene in Graticula, in a new tab, since the frame is someone else's page. */
+  body.embed #studioBar, body.embed #maphead, body.embed #panel, body.embed #tabs { display: none; }
+  body.embed #body { grid-template-columns: minmax(0, 1fr) var(--rw) 76px; grid-template-rows: minmax(0, 1fr); position: relative; }
+  body.embed #viewWrap { grid-column: 1; } body.embed #side { grid-column: 2; } body.embed #tools { grid-column: 3; }
+  body.embed #frame { grid-template-rows: minmax(0, 1fr); }
+  #embedOpen { position: absolute; right: 12px; bottom: 28px; z-index: 5; background: var(--surface); color: var(--accent-ink);
+    border: 1px solid var(--rule-strong); border-radius: 4px; padding: 5px 10px; font-size: 13px; text-decoration: none; box-shadow: var(--float); }
+  body:not(.embed) #embedOpen { display: none; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0);
+             white-space: nowrap; border: 0; }
+  /* WCAG 2.2 SC 2.5.8: no target smaller than 24 px (design review). */
+  button.tiny { min-height: 24px; min-width: 24px; }
+  button.linkish { border: 0; background: none; padding: 0; color: var(--accent-ink); text-align: left; text-decoration: underline; }
+  fieldset.fields { margin: 6px 0 0; }
+  fieldset.fields legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
+  #addByAddress { margin: 8px 0; }
+  #addByAddress summary, #createLayer summary { cursor: pointer; color: var(--accent-ink); font-size: 13px; }
+  #createLayer { margin: 8px 0; }
+  /* The SDK widgets' buttons in Studio's accent rather than the SDK's own blue (design review). */
+  #toolPanel .esri-button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  #toolPanel .esri-button--secondary, #toolPanel .esri-button--tertiary { background: var(--surface); color: var(--accent-ink); }
+
+  .ldetail { width: 100%; border-top: 1px solid var(--rule); margin-top: 6px; padding-top: 4px; }
+  .ldetail h3 { font-size: 12px; margin: 10px 0 2px; color: var(--ink); }
+  .ldetail .fields { max-height: 160px; overflow: auto; border: 1px solid var(--rule); border-radius: 3px; padding: 4px 6px; }
+  .ldetail .fields label { display: flex; gap: 6px; align-items: center; font-size: 12.5px; }
+  input[type="range"] { width: 100%; }
+  input[type="number"] { border: 1px solid var(--control-edge); border-radius: 3px; padding: 4px 6px; width: 100%;
+                         background: var(--surface); color: var(--ink); }
+  input[type="color"] { width: 44px; height: 28px; padding: 0 2px; border: 1px solid var(--control-edge); background: var(--surface); }
+  .check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  #slideList, #baseList { list-style: none; margin: 0; padding: 0; }
+  #slideList > li { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 4px 8px; border: 1px solid var(--rule);
+                    border-radius: 4px; padding: 6px; margin-bottom: 6px; }
+  #slideList img, #slideList .noimg { width: 72px; height: 48px; object-fit: cover; border-radius: 3px; background: var(--surface-3);
+                    grid-row: span 2; cursor: pointer; border: 0; padding: 0; }
+  #slideList .row { gap: 3px; grid-column: 1 / -1; }
+  /* Delete apart from the rest, so a tap meant for "In presentation" does not land on it (review). */
+  #slideList .row .danger { margin-left: auto; }
+  #slideList li.current { border-color: var(--accent); }
+  #baseList > li > button { width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 6px; }
+  #baseList > li > button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  #legendBox { min-height: 40px; }
+  #legendBox .esri-legend { background: none; padding: 0; }
+
+  h3.subhead { font-size: 12px; margin: 14px 0 2px; }
+  #backContent { display: none; align-items: center; min-height: 36px; padding: 0 10px; color: var(--accent-ink); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (max-width: 900px) {
+    #studioNav { display: none; }
+    #backContent { display: inline-flex; }
+    #studioBar { padding: 0 12px; }
+    #maphead { flex-wrap: wrap; padding: 8px 12px; }
+    #status { order: 10; flex: 1 0 100%; text-align: left; white-space: normal; }
+  }
+  /* A phone (ADR-259's): the scene whole, the scene's toolbar along the bottom, its panel a sheet over the scene; the
+     right toolbar's icons at the scene's top right, its panel a sheet too. Targets of at least 44 px (WCAG 2.5.5). */
+  @media (max-width: 760px) {
+    #body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #viewWrap { grid-column: 1; grid-row: 1; }
+    #tabs { grid-row: 2; grid-column: 1; flex-direction: row; padding: 0; border-right: 0; border-top: 1px solid var(--rule); overflow-x: auto; }
+    #tabs button { min-width: 0; min-height: 56px; font-size: 11px; }
+    #tabs button[aria-selected="true"] { box-shadow: inset 0 3px 0 var(--accent); }
+    body:not(.sheet) #tabs button[aria-selected="true"] { background: none; box-shadow: none; color: var(--muted); font-weight: 400; }
+    #panel { position: absolute; z-index: 60; left: 0; right: 0; bottom: 57px; max-height: 55%; grid-column: auto; grid-row: auto;
+             border-right: 0; border-top: 1px solid var(--rule-strong); }
+    body:not(.sheet) #panel { display: none; }
+    #tools { position: absolute; z-index: 31; top: 12px; right: 12px; grid-column: auto; grid-row: auto; padding: 2px;
+             max-height: calc(100% - 90px); border: 1px solid var(--rule); border-radius: var(--round); box-shadow: var(--float); }
+    #tools button { width: 44px; min-height: 44px; padding: 0; }
+    #tools .tl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    #tools .rsep { margin: 2px 6px; }
+    /* One button for the layer's settings on a phone; the panel switches between its parts. */
+    #tools [data-part-tool]:not([data-part-tool="props"]) { display: none; }
+    /* Five at the bottom: Add, Layers, Basemap, Slides and More (design review: two tabs fell off a 390 px bar). */
+    #tabs { overflow: hidden; }
+    #tabs button { flex: 1 1 0; }
+    #tab-ground, #tab-legend, #tab-scene { display: none !important; }
+    #tools { max-height: calc(100% - 140px); scrollbar-width: none; }
+    #tools::-webkit-scrollbar { display: none; }
+    /* The status on the title's line, so the scene starts higher (confirming review). */
+    #maphead { flex-wrap: nowrap; }
+    #status { order: 0; flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+    body.ropen #tools, body.sheet #tools { max-height: calc(45% - 24px); }
+    #side .tabpanel, #panel .tabpanel { flex: 0 1 auto; }
+    #panel, #side { border-radius: 12px 12px 0 0; box-shadow: var(--float); }
+    #panelClose, #sideClose { width: 44px; height: 44px; font-size: 22px; }
+    .panelhead h2, .sidehead h2 { font-size: 16px; }
+    #side { position: absolute; z-index: 60; left: 0; right: 0; bottom: 57px; max-height: 55%; grid-column: auto; grid-row: auto;
+            border-left: 0; border-top: 1px solid var(--rule-strong); }
+    body.ropen #body { --rw: 0px; }
+    button, #headSave, #studio { min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21l-4-4Z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></symbol>
+  <symbol id="i-analysis" viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><circle cx="15" cy="14" r="5"/><path d="M3 21h18"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+  <symbol id="i-add" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></symbol>
+  <symbol id="i-basemap" viewBox="0 0 24 24"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z"/><path d="M9 4v14M15 6v14"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-style" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10Z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15.5" cy="8" r="1"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z"/></symbol>
+  <symbol id="i-popup" viewBox="0 0 24 24"><path d="M4 4h16v12H10l-4 4v-4H4V4Z"/><path d="M8 9h8M8 12h5"/></symbol>
+  <symbol id="i-ground" viewBox="0 0 24 24"><path d="m2 19 6-9 4 5 3-4 7 8H2Z"/><path d="M2 21h20"/></symbol>
+  <symbol id="i-slides" viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="10" rx="1"/><path d="M7 19h14V9"/></symbol>
+  <symbol id="i-legend" viewBox="0 0 24 24"><rect x="4" y="5" width="4" height="4" rx=".5"/><rect x="4" y="15" width="4" height="4" rx=".5"/><path d="M11 7h9M11 17h9"/></symbol>
+  <symbol id="i-sight" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.3-7-12a7 7 0 0 1 14 0c0 5.7-7 12-7 12Z"/><circle cx="12" cy="9" r="2.5"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><path d="M4 21V5l8-3v19M12 9l8 3v9M2 21h20M7 8h2M7 12h2M7 16h2M15 14h2M15 18h2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+</svg>
+<div id="frame">
+  <header id="studioBar">
+    <a id="brand" href="/studio/content" aria-label="Graticula Studio, Content">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 32 32" focusable="false"><g fill="none"><circle class="m-a" cx="16" cy="16" r="13.5" stroke="#1565d8" stroke-width="2"/><ellipse class="m-b" cx="16" cy="16" rx="6.5" ry="13.5" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-b" d="M2.5 16h27M4.3 9.3h23.4M4.3 22.7h23.4" stroke="#8fb4ea" stroke-width="1.2"/><path class="m-a" d="M3.4 20.6 28.6 11.4" stroke="#1565d8" stroke-width="2"/></g></svg></span>
+      <span class="name">Graticula</span>
+      <span class="surf">Studio</span>
+    </a>
+    <nav id="studioNav" aria-label="Studio">
+      <a href="/studio/content">Content</a>
+      <a href="/studio/webmap.html">Map</a>
+      <a href="/studio/scene.html" aria-current="page">Scene</a>
+      <a href="/studio/groups">Groups</a>
+      <a href="/studio/members" id="navOrganization" hidden>Organization</a>
+    </nav>
+    <!-- On a narrow screen the sections are hidden; Content is the way back (design review). -->
+    <span class="end"><a id="backContent" href="/studio/content">Content</a><a id="studio" href="/studio/" hidden>Sign in</a></span>
+  </header>
+
+  <div id="maphead">
+    <h1 id="title">New scene</h1>
+    <span id="saved"></span>
+    <button class="primary" id="headSave" hidden>Save</button>
+    <span id="status" role="status" aria-live="polite">Loading the scene&hellip;</span>
+  </div>
+
+  <div id="body">
+    <!-- ADR-279: Scene Viewer's designer and Studio's map (ADR-259). This toolbar holds what the scene has; #tools, at the
+         right, the selected layer's settings and the scene's tools. -->
+    <div id="tabs" role="tablist" aria-label="Scene contents" aria-orientation="vertical">
+      <button type="button" role="tab" id="tab-add" aria-controls="pane-add" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-add"/></svg><span class="tl">Add</span></button>
+      <button type="button" role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg><span class="tl">Layers</span></button>
+      <button type="button" role="tab" id="tab-basemap" aria-controls="pane-basemap" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-basemap"/></svg><span class="tl">Basemap</span></button>
+      <button type="button" role="tab" id="tab-ground" aria-controls="pane-ground" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-ground"/></svg><span class="tl">Ground</span></button>
+      <button type="button" role="tab" id="tab-slides" aria-controls="pane-slides" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-slides"/></svg><span class="tl">Slides</span></button>
+      <button type="button" role="tab" id="tab-legend" aria-controls="pane-legend" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-legend"/></svg><span class="tl">Legend</span></button>
+      <button type="button" role="tab" id="tab-scene" aria-controls="pane-scene" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span class="tl">Scene</span></button>
+      <button type="button" role="tab" id="tab-more" aria-controls="pane-more" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-more"/></svg><span class="tl">More</span></button>
+    </div>
+
+    <aside id="panel" aria-labelledby="panelTitle">
+      <div class="panelhead">
+        <h2 id="panelTitle">Layers</h2>
+        <button type="button" id="panelClose" aria-label="Close the panel">&times;</button>
+      </div>
+      <div class="tabpanel" role="tabpanel" id="pane-layers" aria-labelledby="tab-layers">
+        <h2 id="layersHead" class="sr-only">Layers</h2>
+        <div class="row" id="layersActions"><button type="button" id="layersAdd">Add layer</button><button type="button" id="layersGroup">New group</button><button type="button" id="layersZoomAll">Zoom to all</button></div>
+        <h3 class="cap">Layers <span class="count" id="layersCount">0</span></h3>
+        <ul id="layerList" aria-labelledby="layersHead"></ul>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-add" aria-labelledby="tab-add" hidden>
+        <div id="addPart">
+          <h2 id="addHead" class="sr-only">Add a layer</h2>
+          <p class="hint" id="addStart" hidden><b>Start here:</b> add a layer from the list, or give the scene a title under Scene.</p>
+          <label class="field" for="addFilter">Search layers</label>
+          <input type="search" id="addFilter" placeholder="Search by title" autocomplete="off">
+          <label class="field" for="addType">Kind</label>
+          <select id="addType">
+            <option value="">Every kind</option>
+            <option value="Scene Service">Scene layers</option>
+            <option value="3DTiles Service">3D tiles layers</option>
+            <option value="Feature Service">Feature layers</option>
+            <option value="Image Service">Imagery layers</option>
+            <option value="Map Service">Map image layers</option>
+            <option value="Vector Tile Service">Vector tile layers</option>
+            <option value="CSV">CSV files</option>
+            <option value="GeoJson">GeoJSON files</option>
+          </select>
+          <label class="field" for="addFrom">From</label>
+          <select id="addFrom"><option value="">Everything you can read</option></select>
+          <label class="check"><input type="checkbox" id="addMine"> Only my content</label>
+          <!-- ADR-271: the portal's search answers a box, so the list can follow the view. -->
+          <label class="check"><input type="checkbox" id="addInView"> Only within the current view</label>
+          <!-- Above the list, so it is not below the fold of eight rows (design review). -->
+          <details id="addByAddress">
+            <summary>Add by service address</summary>
+            <label class="field" for="addUrl">Service address</label>
+            <input type="text" id="addUrl" placeholder="https://…/FeatureServer/0, …/SceneServer" autocomplete="off">
+            <div class="row"><button type="button" id="addUrlButton">Add</button></div>
+          </details>
+          <!-- Not a live region: the header's status says the same, and a screen reader heard it twice (confirming review). -->
+          <p class="said" id="addSaid"></p>
+          <ul id="addList" aria-labelledby="addHead"></ul>
+          <div class="row"><button type="button" id="addShowAll" hidden></button></div>
+          <!-- After the list, since making a layer is not a filter of it (ADR-279's third look). ADR-276 condition 2: Scene Viewer's Create layer — an empty hosted layer with heights, ready to edit. -->
+          <details id="createLayer">
+            <summary>Create a layer to draw in</summary>
+            <label class="field" for="createName">Name</label>
+            <input type="text" id="createName" maxlength="60" autocomplete="off" placeholder="e.g. street_trees" spellcheck="false">
+            <label class="field" for="createKind">It holds</label>
+            <select id="createKind">
+              <option value="esriGeometryPoint">3D points — trees, lamps, sensors</option>
+              <option value="esriGeometryPolyline">3D lines — pipes, cables, routes</option>
+              <option value="esriGeometryPolygon">3D polygons — areas, roofs</option>
+              <option value="mesh">3D objects — glb models placed in the scene</option>
+            </select>
+            <p class="hint">An empty hosted layer of yours, with heights and a <i>label</i> field, added to the scene with Edit open. Letters, digits and _ in the name.</p>
+            <div class="row"><button type="button" id="createGo">Create and edit</button></div>
+          </details>
+
+        </div>
+        <p class="hint" id="addNotYours" hidden>Only the scene's owner can add layers to it.</p>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-basemap" aria-labelledby="tab-basemap" hidden>
+        <h2 id="baseHead" class="sr-only">Basemap</h2>
+        <ul id="baseList" aria-labelledby="baseHead"></ul>
+        <p class="hint" id="baseReadOnly" hidden></p>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-ground" aria-labelledby="tab-ground" hidden>
+        <h2 id="groundHead" class="sr-only">Ground</h2>
+        <p class="hint" id="groundReadOnly" hidden></p>
+        <!-- The reader's own, not the scene's: everyone may set it (ADR-270 §5.10). -->
+        <label class="field" for="sceneQuality">Drawing quality</label>
+        <select id="sceneQuality">
+          <option value="low">Low — for a slow computer</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High — sharper, heavier</option>
+        </select>
+        <label class="check"><input type="checkbox" id="navWheel" checked> Zoom with the mouse wheel</label>
+        <label class="check"><input type="checkbox" id="navTouch" checked> Pan with one finger on a touch screen</label>
+
+        <div id="groundControls">
+        <label class="field" for="groundSelect">Elevation</label>
+        <select id="groundSelect"><option value="">Flat — no elevation</option></select>
+        <p class="hint">Elevation comes from an image service whose owner marked it as ground (Studio › the service › Settings).</p>
+        <p class="hint" id="groundNone" hidden>No elevation surface is shared with you yet.</p>
+        <label class="field" for="groundOpacity">Ground opacity <span id="groundOpacitySays"></span></label>
+        <input type="range" id="groundOpacity" min="0" max="100" step="5" value="100">
+        <label class="check"><input type="checkbox" id="groundUnder"> Let the camera go below the ground</label>
+        <p class="hint">Lower the opacity to see what lies under the surface — pipes, basements, the bottom of a mesh.</p>
+        <div id="clipPart" hidden>
+          <h3 class="subhead">Clipping</h3>
+          <p class="hint" id="clipSays"></p>
+          <div class="row"><button type="button" id="clipToView">Clip to the current view</button>
+            <button type="button" id="clipNone">Show all</button></div>
+        </div>
+        </div>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-slides" aria-labelledby="tab-slides" hidden>
+        <h2 id="slidesHead" class="sr-only">Slides</h2>
+        <p class="hint">A slide keeps the camera, which layers are on, the basemap and the ground. Click its picture to go there.</p>
+        <div class="row">
+          <button type="button" id="slideAdd">Capture slide</button>
+          <button type="button" id="slidePlay">Play</button>
+        </div>
+        <ul id="slideList" aria-labelledby="slidesHead" style="margin-top:8px"></ul>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-legend" aria-labelledby="tab-legend" hidden>
+        <h2 id="legendHead" class="sr-only">Legend</h2>
+        <div id="legendBox"></div>
+      </div>
+
+      <!-- ADR-270 §5.13: the Spatial Analysis Service's tools, run on a layer of this scene; the result joins the scene.
+           The tools and their questions are analysis.js's, shared with Studio's map and an item's Analyze… dialog. -->
+      <div id="pane-analysis" aria-labelledby="sideTitle" hidden>
+        <h2 class="sr-only">Analysis</h2>
+        <div class="stacked" id="azPick"><label for="azLayer">Layer to analyze</label>
+          <select id="azLayer"></select></div>
+        <p class="hint" id="azNone" hidden></p>
+        <div id="analyzeBody"></div>
+        <div class="azfoot" id="analyzeFoot"></div>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-more" aria-labelledby="tab-more" hidden>
+        <div id="paneMore" class="morelist">
+          <button type="button" data-goto="ground"><svg class="i" aria-hidden="true"><use href="#i-ground"/></svg>Ground</button>
+          <button type="button" data-goto="legend"><svg class="i" aria-hidden="true"><use href="#i-legend"/></svg>Legend</button>
+          <button type="button" data-goto="scene"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg>Scene properties</button>
+        </div>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="pane-scene" aria-labelledby="tab-scene" hidden>
+        <h2 class="sr-only">Scene</h2>
+        <div id="sceneDetails" hidden>
+        <label class="field" for="sceneTitle" id="sceneTitleField">Title</label>
+        <input type="text" id="sceneTitle" maxlength="250" autocomplete="off" placeholder="Name this scene">
+        <!-- ADR-270 §5.7: global or local, chosen when a scene is new, as Scene Viewer asks it. -->
+        <div id="sceneModeRow">
+          <label class="field" for="sceneMode">Scene type</label>
+          <select id="sceneMode">
+            <option value="global">Global — the whole earth</option>
+            <option value="local">Local — a flat area, which can be clipped</option>
+          </select>
+        </div>
+        <!-- ADR-270 §5.23: Scene Viewer's Create web app — an app item that opens the scene's viewer-only address. -->
+        <div id="appPart" hidden>
+          <h3 class="subhead">Web app</h3>
+          <p class="hint">An app of this scene alone, with its tools and slides and nothing that changes it: an item of its own in Content, shared as any item is.</p>
+          <div class="row"><button type="button" id="appCreate">Create a web app</button></div>
+          <p class="said" id="appSaid"></p>
+        </div>
+        <!-- ADR-275: the embed code, offered once the scene is saved and the operator has named a site that may frame it. -->
+        <details id="embedPart" hidden>
+          <summary>Embed in a website</summary>
+          <label class="field" for="embedCode">Paste this into a page on <span id="embedSites"></span></label>
+          <textarea id="embedCode" rows="3" readonly></textarea>
+          <div class="row"><button type="button" class="tiny" id="embedCopy">Copy</button><span class="said" id="embedSaid" role="status"></span></div>
+          <p class="hint">The scene shows as everyone who opens it is allowed to see it: share it with everyone for a public site.</p>
+        </details>
+      </div>
+        <p class="hint" id="sceneAbout"></p>
+      </div>
+    </aside>
+
+    <div id="viewWrap">
+      <a id="embedOpen" href="#" target="_blank" rel="noopener">Open in Graticula</a>
+      <div id="viewDiv" role="region" aria-label="The scene. Drag to move, right-drag to turn, scroll to zoom."></div>
+    </div>
+
+    <!-- The panel the right toolbar opens: the selected layer's settings, or a tool of the scene's. -->
+    <aside id="side" aria-labelledby="sideTitle" hidden>
+      <div class="sidehead">
+        <h2 id="sideTitle">Properties</h2>
+        <button type="button" id="sideClose" aria-label="Close the panel">&times;</button>
+      </div>
+      <div id="toolPick" role="group" aria-label="Tools" hidden></div>
+      <div class="tabpanel" id="sideBody">
+        <div id="layerTool" hidden></div>
+        <div id="toolPanel"></div>
+      </div>
+    </aside>
+
+    <div id="tools" role="toolbar" aria-label="Layer settings and scene tools" aria-orientation="vertical"></div>
+  </div>
+</div>
+<script src="analysis.js"></script>
+<script src="scene.js"></script>
+</body>
+</html>

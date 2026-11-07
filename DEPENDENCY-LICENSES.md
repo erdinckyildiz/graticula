@@ -385,6 +385,42 @@ off. One library per platform, pinned by SHA-256 in
 needs more, and refuses an archive whose checksum differs from the lock. `tools/gdal-natives.py` still refuses a PDFium
 inside GDAL's closure: GDAL has no PDF driver, and this is not one.
 
+## Assimp — the 3D model converter, added 2026-11-07
+
+[ADR-282](docs/adr/ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md): a 3D object layer's models in
+OBJ, COLLADA or FBX are converted to glb by the Open Asset Import Library's **command-line tool**. The server image
+installs it from the distribution (`assimp-utils`, and Debian bookworm's 5.2.5 was the one measured). It is run as a
+process of its own per file and **is not linked** into anything of ours.
+
+| Component | Licence | Notes |
+|---|---|---|
+| assimp-utils, libassimp5 | BSD-3-Clause (Assimp's own `LICENSE`, read 2026-11-07) | The tool and its library |
+| libdraco | Apache-2.0 | Assimp's glTF Draco support |
+| libminizip1, zlib1g | zlib | |
+
+**Nothing here is copyleft.**
+
+## IfcConvert and tinyusdz — the IFC and USD converters, added 2026-11-07
+
+[ADR-283](docs/adr/ADR-283-owner-decisions-on-conversion-and-one-writer-per-site.md) §5.2, by owner decision: a 3D
+object layer's IFC and USD models are converted to glb as Assimp's are. Each runs as **a process of its own per file
+and is not linked** into anything of ours. `tools/ifcconvert-fetch.sh` pins IfcConvert's release by SHA-256 and keeps
+only what converting to glb loads. `tools/usd2glb/` is our own converter, built against tinyusdz at the commit
+`tools/usd2glb/TINYUSDZ` names.
+
+| Component | Licence | Notes |
+|---|---|---|
+| IfcOpenShell `IfcConvert` 0.9.0post1 and its `libifcopenshell.*` and `ifcopenshell_*` plugins | **LGPL-3.0-or-later** (the repository's `COPYING.LESSER` and `COPYING` at the release tag, read 2026-11-07; both ship beside it as `LICENSE-IfcOpenShell-*.txt`) | Unmodified binaries from the project's own release. Run, not linked; replaceable by any build of the same release |
+| Open CASCADE Technology 7.8 (`libTK*`) | LGPL-2.1 with the Open CASCADE exception | Inside IfcConvert's release |
+| Boost.Program_options 1.86 | BSL-1.0 | Inside IfcConvert's release |
+| manifold 3 | Apache-2.0 | Inside IfcConvert's release |
+| **CGAL, GMP, MPFR** | GPL-3.0-or-later (CGAL's 3D packages), LGPL | **Left out**: the release's two CGAL kernels and the two libraries only they use are not copied, and the image build fails if a CGAL file is in it (ADR-254's rule) |
+| libsqlite3-0 | Public domain | From the distribution; IfcConvert's glb writer links it |
+| tinyusdz (commit `a04ee0bc`, tag v0.9.1) | **Apache-2.0** (its `LICENSE`, read 2026-11-07; ships as `LICENSE-tinyusdz.txt`) | Compiled into our `usd2glb`, statically |
+
+**Copyleft here is LGPL only, in an unmodified program run as a separate process.** Its obligations are its licence
+text and the means to replace the program, which the first two cells give.
+
 ## ⚠ Verification status
 
 Every entry below is marked `UNVERIFIED`. The licences are recorded from general

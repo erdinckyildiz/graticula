@@ -40,8 +40,14 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
     /// <summary>The sweeps that run once per site, by the name each is locked under.</summary>
     public static readonly IReadOnlyList<string> Names =
     [
-        Backup, LogRetention, HistoryRetention, AttachmentSweep, RecycleBinExpiry, CoveragePyramids,
+        Backup, LogRetention, HistoryRetention, AttachmentSweep, RecycleBinExpiry, CoveragePyramids, SceneRebuilds, ScenePackageFiles,
     ];
+
+    /// <summary>Scene layer package files nothing names any more (D-389).</summary>
+    public const string ScenePackageFiles = "scene-package-files";
+
+    /// <summary>Scene layers made again when their layer changed (ADR-277).</summary>
+    public const string SceneRebuilds = "scene-rebuilds";
 
     /// <summary>The scheduled backup (ADR-193): one per site per day, not one per node.</summary>
     public const string Backup = "backup-schedule";
@@ -195,7 +201,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
                 }
             }
         }
-        catch (Exception failure) when (failure is NpgsqlException or System.IO.IOException or InvalidOperationException)
+        catch (Exception failure) when (StoreOutage.Is(failure) || failure is InvalidOperationException)
         {
             // A connection that fails here has released everything anyway.
             if (_connection is { } broken)
@@ -257,7 +263,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
 
             return taken;
         }
-        catch (Exception failure) when (failure is NpgsqlException or System.IO.IOException or InvalidOperationException)
+        catch (Exception failure) when (StoreOutage.Is(failure) || failure is InvalidOperationException)
         {
             // <b>Every lock went with the connection</b>, so nothing is held until a new one takes it again.
             bool lost;

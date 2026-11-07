@@ -56,6 +56,37 @@ internal static class DocumentDownload
         await response.Body.WriteAsync(content, cancellation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// A scene layer package kept as a file (ADR-274), streamed from the server directories rather than read into memory;
+    /// false when its file is missing, and nothing has been written.
+    /// </summary>
+    public static async Task<bool> WriteFileAsync(HttpContext context, Document document, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(document);
+
+        if (context.RequestServices.GetService(typeof(ScenePackageFiles)) is not ScenePackageFiles files
+            || files.PathOf(document.ContentFile) is not { } path || !System.IO.File.Exists(path))
+        {
+            return false;
+        }
+
+        HttpResponse response = context.Response;
+        ContentDispositionHeaderValue disposition = new("attachment");
+        disposition.SetHttpFileName(document.FileName);
+
+        response.StatusCode = StatusCodes.Status200OK;
+        response.ContentType = document.Kind.MediaType;
+        response.ContentLength = new System.IO.FileInfo(path).Length;
+        response.Headers.ContentDisposition = disposition.ToString();
+        response.Headers.XContentTypeOptions = "nosniff";
+        response.Headers.ContentSecurityPolicy = "sandbox; default-src 'none'";
+        response.Headers.CacheControl = "private, no-cache";
+
+        await response.SendFileAsync(path, cancellation).ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>The same download as an <see cref="IResult"/>, for a handler that answers with one.</summary>
     /// <param name="document">The document.</param>
     /// <param name="content">Its bytes.</param>

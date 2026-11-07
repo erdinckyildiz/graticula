@@ -112,9 +112,36 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
             await ClickAsync("#docImc [data-imc-add]");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/addComment'))",
                 "Add comment did not send the comment.");
+            // Add ends by putting the cursor in the text box once the list is read again; wait for it, or that read can
+            // land after Cancel below and take the cursor from Delete (CI, 2026-11-05).
+            await WaitForAsync("(document.getElementById('docImc')?.textContent || '').includes('Your comment is added.')",
+                "Add never said the comment was added.");
 
             await WaitForAsync(Shown($"#docImc [data-imc-delete=\"{comment}\"]"), "The owner is not offered Delete on a comment.");
+            // Asked in the console's own dialog (UX review, m11), and Cancel sends nothing.
             await ClickAsync($"#docImc [data-imc-delete=\"{comment}\"]");
+            await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask in the console's dialog.");
+            Assert.Contains("comment", await Browser.EvaluateAsync<string>("document.getElementById('serverConfirmTitle').textContent"),
+                StringComparison.Ordinal);
+            await ClickAsync("#serverConfirmCancel");
+            await WaitForAsync("!document.getElementById('serverConfirm').open", "Cancel did not close the dialog.");
+            Assert.False(await Browser.EvaluateAsync<bool>($"window.__writes.some(w => w.includes('/comments/{comment}/delete'))"),
+                "Cancel deleted the comment.");
+            await WaitForAsync($"document.activeElement?.matches('#docImc [data-imc-delete=\"{comment}\"]') === true",
+                "Cancel did not give the cursor back to Delete.");
+
+            // Pressed again where the cursor now is, as a keyboard reader does: the Delete Cancel gave the cursor back to.
+            Assert.True(await Browser.EvaluateAsync<bool>("(document.activeElement.click(), true)"));
+            await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask a second time.");
+
+            // Cancel and the same Delete at once: the first question's `close` arrives after the second has opened, and
+            // used to shut it before anybody saw it.
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                $"(document.getElementById('serverConfirmCancel').click(), document.querySelector('#docImc [data-imc-delete=\"{comment}\"]').click(), true)"));
+            await Task.Delay(500);
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('serverConfirm').open"),
+                "A question asked again at once was shut by the one before's close.");
+            await ClickAsync("#serverConfirmGo");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/comments/{comment}/delete'))",
                 "Delete did not delete the comment.");
 
@@ -256,6 +283,8 @@ public sealed class ItemMetadataCommentsScreenTests : ConsoleTest
 
             await WaitForAsync(Shown($"#serviceImc [data-imc-delete=\"{comment}\"]"), "The owner is not offered Delete on the service's comment.");
             await ClickAsync($"#serviceImc [data-imc-delete=\"{comment}\"]");
+            await WaitForAsync("document.getElementById('serverConfirm').open", "Delete did not ask in the console's dialog.");
+            await ClickAsync("#serverConfirmGo");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('POST /sharing/rest/content/items/{id}/comments/{comment}/delete'))",
                 "Delete did not delete the service's comment.");
 

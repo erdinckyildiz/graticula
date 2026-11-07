@@ -71,4 +71,61 @@ public sealed class BasicOnTheOgcFacesTests : ArcGisClient
         (HttpStatusCode elsewhere, _, _) = await SendAsync("/rest/services?f=json", Basic(name!, password + "-not"));
         Assert.Equal(HttpStatusCode.OK, elsewhere);
     }
+
+    /// <summary>
+    /// A private service's own WFS address challenges a stranger, so a client that sends its password only when asked
+    /// — ArcGIS Pro — sends it; <c>/wfs</c> itself still answers a stranger.
+    /// </summary>
+    /// <remarks>Written 2026-11-05 (ADR-178 condition 1): Pro, given a name and password in <i>New WFS Server</i>, sent
+    /// them only after a 401, measured through a relay, and this server never sent one.</remarks>
+    [Fact]
+    public async Task A_private_services_own_wfs_address_asks_a_stranger_to_sign_in()
+    {
+        string root = await RequireServerAsync();
+        string? name = Environment.GetEnvironmentVariable(UserVariable);
+        string? password = Environment.GetEnvironmentVariable(PasswordVariable);
+        string? token = await TokenAsync(root);
+        Assert.False(string.IsNullOrEmpty(name) || string.IsNullOrEmpty(password) || token is null, "No account is configured to sign in with.");
+
+        if (root.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return; // Basic is refused over plain HTTP, so nothing would be gained by asking for it.
+        }
+
+        string layer = "zz_wfs_challenge_" + Guid.NewGuid().ToString("N")[..8];
+        (HttpStatusCode defined, string design) = await RequestAsync(HttpMethod.Post, $"{root}/admin/hosted/define", token!,
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                name = layer, geometryType = "Point", srid = 4326, sharing = "private",
+                fields = new[] { new { name = "label", type = "text", nullable = true } },
+            }));
+        Assert.True(defined == HttpStatusCode.Created, $"Defining a private layer answered {(int)defined}: {design}");
+        string feature = System.Text.Json.JsonDocument.Parse(design).RootElement.GetProperty("services").GetProperty("feature").GetString()!;
+        string[] parts = feature.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string own = $"/rest/services/{parts[2]}/{parts[3]}/FeatureServer/WFSServer?SERVICE=WFS&REQUEST=GetCapabilities&VERSION=2.0.0";
+
+        try
+        {
+            (HttpStatusCode stranger, HttpResponseMessage asked, _) = await SendAsync(own, null);
+            Assert.Equal(HttpStatusCode.Unauthorized, stranger);
+            Assert.Contains(asked.Headers.WwwAuthenticate, h => h.Scheme == "Basic");
+
+            (HttpStatusCode signedIn, _, string body) = await SendAsync(own, Basic(name!, password!));
+            Assert.Equal(HttpStatusCode.OK, signedIn);
+            Assert.Contains(layer, body, StringComparison.Ordinal);
+
+            // An address naming no service is asked the same way, so the challenge says nothing about what exists.
+            (HttpStatusCode none, _, _) = await SendAsync(own.Replace(parts[3], parts[3] + "_none", StringComparison.Ordinal), null);
+            Assert.Equal(HttpStatusCode.Unauthorized, none);
+
+            // /wfs answers a stranger, without the private type.
+            (HttpStatusCode open, _, string anonymous) = await SendAsync(Capabilities, null);
+            Assert.Equal(HttpStatusCode.OK, open);
+            Assert.DoesNotContain(layer, anonymous, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token!, json: null);
+        }
+    }
 }

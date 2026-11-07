@@ -108,6 +108,70 @@ public sealed class ASiteSharesItsServerDirectoriesTests(TwoSharingNodes nodes) 
         Assert.True(fromB == 200, $"node share-b answered {fromB} for the file uploaded through share-a: {said}");
     }
 
+    /// <summary>
+    /// ADR-274 condition 1: a scene layer package above the document limit, uploaded through one node, is kept under the
+    /// shared server directories and served by the other.
+    /// </summary>
+    [Fact]
+    public async Task A_large_scene_package_uploaded_through_one_node_is_served_by_the_other()
+    {
+        string token = await nodes.A.SignInAsync();
+        byte[] package = LargePackage(65 * 1024 * 1024 + 4096);
+
+        using MultipartFormDataContent form = new();
+        ByteArrayContent file = new(package);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(file, "file", "zz-site.slpk");
+        form.Add(new StringContent("zz site large package"), "title");
+        using HttpRequestMessage upload = new(HttpMethod.Post, "/content/documents") { Content = form };
+        upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage uploaded = await nodes.A.Http.SendAsync(upload);
+        string body = await uploaded.Content.ReadAsStringAsync();
+        Assert.True(uploaded.IsSuccessStatusCode, $"upload answered {(int)uploaded.StatusCode}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            Assert.True(Directory.EnumerateFiles(Path.Combine(nodes.Shared, "scene-package-files"), "*.slpk").Any(),
+                "The package is not under the shared server directories.");
+            (int fromB, string said) = await nodes.B.SendAsync(HttpMethod.Get, $"/rest/services/hosted/{id}/SceneServer/layers/0?f=json", await nodes.B.SignInAsync());
+            Assert.True(fromB == 200, $"node share-b answered {fromB} for the package uploaded through share-a: {said}");
+        }
+        finally
+        {
+            await nodes.A.SendAsync(HttpMethod.Delete, $"/content/documents/{id}", token);
+        }
+    }
+
+    /// <summary>A stored zip: a gzipped layer document and a filler entry that takes it past the default limit.</summary>
+    private static byte[] LargePackage(int size)
+    {
+        byte[] layer = System.Text.Encoding.UTF8.GetBytes("""{"id":0,"layerType":"3DObject","name":"zz site","store":{"version":"1.8"}}""");
+        using MemoryStream gz = new();
+        using (System.IO.Compression.GZipStream zip = new(gz, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+        {
+            zip.Write(layer);
+        }
+
+        byte[] filler = new byte[size];
+        new Random(274).NextBytes(filler);
+        using MemoryStream archive = new();
+        using (System.IO.Compression.ZipArchive written = new(archive, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (Stream entry = written.CreateEntry("3dSceneLayer.json.gz", System.IO.Compression.CompressionLevel.NoCompression).Open())
+            {
+                entry.Write(gz.ToArray());
+            }
+
+            using (Stream entry = written.CreateEntry("nodes/0/geometries/0.bin.gz", System.IO.Compression.CompressionLevel.NoCompression).Open())
+            {
+                entry.Write(filler);
+            }
+        }
+
+        return archive.ToArray();
+    }
+
     /// <summary>Phase 1's check from every node: each sees the other's check file, and the Machines page says so.</summary>
     [Fact]
     public async Task Each_machine_sees_the_others_check_file()

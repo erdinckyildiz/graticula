@@ -23,7 +23,7 @@ public sealed class OrganizationTests : ConsoleTest
         + ".map(a => (a.getAttribute('aria-current') ? '*' : '') + a.textContent.trim()).join('|')";
 
     [Fact]
-    public async Task Studios_bar_is_content_map_groups_and_organization()
+    public async Task Studios_bar_is_content_map_scene_groups_and_organization()
     {
         (string token, _) = await SignInAsync();
 
@@ -31,7 +31,7 @@ public sealed class OrganizationTests : ConsoleTest
 
         await WaitForAsync("document.querySelectorAll('#tabs a').length > 0", "Studio drew no section bar.");
 
-        Assert.Equal("Content,Map,Groups,Organization", await Browser.EvaluateAsync<string>(
+        Assert.Equal("Content,Map,Scene,Groups,Organization", await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a')].map(a => a.textContent.trim()).join(',')"));
 
         NothingWentWrong(await PageErrorsAsync());

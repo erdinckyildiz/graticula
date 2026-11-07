@@ -159,8 +159,17 @@ public abstract class PostgresFixture : IAsyncLifetime
             return;
         }
 
+        // Under the migrations' lock: a schema dropped with cascade takes the same kind of locks a migration's foreign
+        // keys and triggers do, and one test's drop beside another's migration met 40P01 (CI run 42371127474, "waits
+        // for ShareRowExclusiveLock ... blocked by" the other). The lock is the session's, so closing the connection
+        // releases it too.
         await using (NpgsqlConnection connection = await _dataSource.OpenConnectionAsync())
         {
+            await using (NpgsqlCommand take = new("select pg_advisory_lock(hashtextextended('tests:migrate', 0))", connection))
+            {
+                await take.ExecuteNonQueryAsync();
+            }
+
             await using NpgsqlCommand drop = new($"drop schema if exists \"{_schema}\" cascade", connection);
             await drop.ExecuteNonQueryAsync();
         }

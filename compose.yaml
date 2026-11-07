@@ -150,6 +150,13 @@ services:
     # file.
     restart: on-failure:5
 
+    # An init as PID 1, so a crash ends the container and the restart above can act. Without it the server is PID 1,
+    # and the kernel does not deliver a default-action signal to PID 1 from inside its namespace: on 2026-11-07 the
+    # showcase's host stopped on an unhandled exception, its abort() did nothing, and the process sat for an hour with
+    # nothing listening — "unhealthy", never restarted, because Docker restarts a container that exits and not one
+    # that fails its health check. `docker run` users get the same with --init.
+    init: true
+
 volumes:
   datastore:
   server-state:

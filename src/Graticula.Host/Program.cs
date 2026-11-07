@@ -786,6 +786,14 @@ public static class Program
 
         // ADR-094: the external origins a style may fetch from, in the same store.
         builder.Services.AddSingleton<StyleOriginList>();
+        // ADR-269: each node's copy of the scene layer packages it serves.
+        // ADR-274: scene layer packages above the document limit, as files in the server directories; an upload that
+        // died is swept at start.
+        ScenePackageFiles scenePackageFiles = new(settings.ServerDirectoryRoot);
+        builder.Services.AddSingleton(scenePackageFiles);
+        builder.Services.AddSingleton(new ScenePackages(settings.StatePath, scenePackageFiles));
+        // ADR-282: a 3D object layer's models in other formats than glb, converted by Assimp in a process of its own.
+        builder.Services.AddSingleton<Graticula.Scenes.IModelConverter, ModelConverters>();
 
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage
@@ -919,6 +927,12 @@ public static class Program
 
         // ADR-207: attachments a registered layer keeps in the datastore, for features another tool deleted.
         builder.Services.AddHostedService<AttachmentSweep>();
+
+        // ADR-277: scene layers made again when the layer they were made from changed, where their owner asked.
+        builder.Services.AddHostedService<SceneRebuilds>();
+
+        // D-389: scene package files nothing names any more, swept hourly once per site.
+        builder.Services.AddHostedService<ScenePackageFileSweep>();
 
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
@@ -1432,8 +1446,13 @@ public static class Program
                 context.Request.Path = new PathString("/sharing").Add(studioSharing);
             }
             // An item's URL is built on the portal's base; under /studio the services answer at the server's root.
+            // <b>With /studio as their base, since 2026-11-05</b> (ADR-178 condition 1's Pro run): Pro, signed in to
+            // https://host/studio and adding a private hosted layer from its portal, asks /studio/rest/info which
+            // portal owns the server. Without the base it was told the root's, a portal Pro is not signed in to, and
+            // Pro opened its own sign-in dialog. /portal already answered with its base; /studio now does the same.
             else if (context.Request.Path.StartsWithSegments("/studio/rest", out PathString studioRest))
             {
+                context.Request.PathBase = context.Request.PathBase.Add("/studio");
                 context.Request.Path = new PathString("/rest").Add(studioRest);
             }
             else if (context.Request.Path.Equals("/studio/arcgisuris.xml", StringComparison.OrdinalIgnoreCase))
@@ -1748,7 +1767,7 @@ public static class Program
                 context.Response.ContentLength));
         }
 
-        app.UseSecurityHeaders(settings.RequireHttps, settings.MapSdkOrigin);
+        app.UseSecurityHeaders(settings.RequireHttps, settings.MapSdkOrigin, settings.EmbedOrigins);
 
         // <b>Before authentication, so that a request cannot outlive its deadline by
         // hanging in a place the deadline has not started yet.</b> Signing in reads the
@@ -1964,6 +1983,8 @@ public static class Program
         // web was worth fixing for its own sake.
         Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider contentTypes = new();
         contentTypes.Mappings[".geojson"] = "application/geo+json";
+        // The scene viewer's own 3D symbols (ADR-281 §5.3); without it a .glb answers 404, as .geojson did.
+        contentTypes.Mappings[".glb"] = "model/gltf-binary";
 
         // <b>Two paths, one directory, since ADR-034.</b> The application used to be *the
         // console* and lived at `/console`; it is now two surfaces — Server for the operator
@@ -2069,13 +2090,29 @@ public static class Program
             {
                 context.Response.Headers.CacheControl = "no-store";
 
+                // ADR-275: the sites that may frame a scene's embed address, so Studio offers the embed code only when
+                // there is a site it would work on.
                 return Results.Text(
                     "window.GRATICULA_MAP_SDK = "
                     + System.Text.Json.JsonSerializer.Serialize(host.MapSdkUrl)
+                    + ";\nwindow.GRATICULA_EMBED_ORIGINS = "
+                    + System.Text.Json.JsonSerializer.Serialize(host.EmbedOrigins)
                     + ";\n",
                     "application/javascript");
             });
         }
+
+        // <b>A scene's embed address — ADR-275, by owner decision ADR-272 §5.4.</b> The scene viewer's own page, marked
+        // as the embed view so that it draws the scene and nothing that changes it; it is the one address another site
+        // may frame (SecurityHeaders.EmbedPath), and only the sites Graticula:EmbedOrigins names. Served from scene.html
+        // itself rather than a copy, so the two cannot drift (D-130); no file of this name exists on disk.
+        app.MapGet(SecurityHeaders.EmbedPath, async (HttpContext context) =>
+        {
+            string page = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "wwwroot", "scene.html"), context.RequestAborted)
+                .ConfigureAwait(false);
+            context.Response.Headers.CacheControl = "no-cache";
+            return Results.Content(page.Replace("<body>", "<body class=\"embed\">", StringComparison.Ordinal), "text/html; charset=utf-8");
+        });
 
         // <b>The old address keeps working.</b> ADR-020 §5c took *frozen URLs* from the
         // reference as a rule, and a rename is exactly the case that rule is about: anybody
@@ -3056,6 +3093,8 @@ public static class Program
         // with a different discovery document, and a client pastes one address for
         // the whole server rather than one per service (ADR-039 §5).
         WfsEndpoints.Map(app);
+        // ADR-269: a scene layer package served as a SceneServer.
+        SceneServerEndpoints.Map(app);
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
         ExportOutputs.Map(app);

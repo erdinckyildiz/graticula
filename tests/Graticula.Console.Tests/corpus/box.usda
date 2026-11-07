@@ -1,0 +1,23 @@
+#usda 1.0
+(
+    defaultPrim = "Root"
+    metersPerUnit = 0.01
+    upAxis = "Z"
+)
+
+def Xform "Root"
+{
+    def Xform "Moved"
+    {
+        double3 xformOp:translate = (100, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
+        def Mesh "Box"
+        {
+            int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
+            int[] faceVertexIndices = [0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 1, 2, 6, 5, 2, 3, 7, 6, 3, 0, 4, 7]
+            point3f[] points = [(0, 0, 0), (200, 0, 0), (200, 100, 0), (0, 100, 0), (0, 0, 300), (200, 0, 300), (200, 100, 300), (0, 100, 300)]
+            color3f[] primvars:displayColor = [(0.8, 0.2, 0.1)]
+        }
+    }
+}

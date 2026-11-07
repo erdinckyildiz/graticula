@@ -135,7 +135,7 @@
 
   /*
     <b>The SDK's address comes from the server — ADR-034 condition 3.</b> This page used to
-    carry `https://js.arcgis.com/4.29/` twice in its own head, as a blocking script and a
+    carry `https://js.arcgis.com/4.34/` (4.29 before ADR-273) twice in its own head, as a blocking script and a
     stylesheet, while the Content-Security-Policy that has to allow it carried a third copy.
     An operator who moved the SDK would have changed one of the three; §5e's word for that is
     *trap*. `surface.js` is generated from `Graticula:MapSdkUrl`, the same value the policy is
@@ -164,8 +164,11 @@
       css.href = url + `esri/themes/${document.documentElement.dataset.theme === "dark" ? "dark" : "light"}/main.css`;
       document.head.append(css);
 
+      // ADR-281: 5.x is loaded as a module (core.js), which still answers `require`; 4.x by its classic init.
       const script = document.createElement("script");
-      script.src = url;
+      const modular = !/\/4\.\d+\/$/.test(url);
+      if (modular) script.type = "module";
+      script.src = modular ? url + "core.js" : url;
       script.onload = () => resolve();
       script.onerror = () => reject(new Error("it could not be fetched from " + url));
       document.head.append(script);

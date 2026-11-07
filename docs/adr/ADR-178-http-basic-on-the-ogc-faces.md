@@ -110,7 +110,21 @@ ordinary rows in the session store.
 1. ArcGIS Pro, added to `/wfs` with a name and password, reads a private layer. *(2026-10-14: tried through arcpy and it cannot be done that way. Pro 3.7's *WFS To Feature Class*, given `http://user:password@…/wfs`, sends no `Authorization` header (read through a recording relay), reads the anonymous capabilities, which leave the private type out, and stops with ERROR 000228. arcpy has no tool that makes a WFS connection with stored credentials. So this needs Pro's own *Add WFS Server* dialog with a user name, which is a person at the screen. Two things this server can see from here: anonymous GetCapabilities answers 200 rather than challenging, so a client that sends Basic only after a 401 would never send it; and Pro asks `/wfs/rest/info?f=json` first, which is a harmless 404.)* *(2026-10-31: no arcpy tool makes a WFS connection with stored credentials in Pro 3.7 either — the only WFS tool
    is *WFS To Feature Class*. **Owed, by a person:** Pro › Insert › Connections › Server › New WFS Server ›
    Server URL `https://dev.graticula.com/wfs`, a member's user name and password › OK; open the connection in
-   Catalog and add the member's private layer to a map; it must list and draw.)*
+   Catalog and add the member's private layer to a map; it must list and draw.)* **DISCHARGED 2026-11-05, with a server change it
+   needed.** Driven through Pro 3.7's window by UI automation with the owner's permission, against dev and a throwaway
+   member who could read one private hosted layer through a group. **At `/wfs` Pro listed only the public types**: its
+   GetCapabilities carried no `Authorization`, measured through a relay that logged only whether the header was there.
+   With the relay answering 401 and a Basic challenge to a request without one, Pro sent Basic on the retry, listed the
+   private type and drew it. So Pro sends its stored credential only when challenged, and this server never challenged.
+   **Now a service's own WFS address challenges an anonymous caller who can see nothing there** (401,
+   `WWW-Authenticate: Basic`, over HTTPS only; an address naming no service is challenged the same way, so the answer
+   says nothing about what exists). `/wfs` still answers a stranger, because it is every service's document and a
+   challenge there would put a prompt in front of every public reader. On dev, Pro given
+   `…/rest/services/hosted/<service>/MapServer/WFSServer` with the member's name and password was refused once, sent
+   Basic, listed the private type and drew its polygons, with no relay in between.
+   `BasicOnTheOgcFacesTests.A_private_services_own_wfs_address_asks_a_stranger_to_sign_in` fails without the challenge
+   (measured: 200 where 401 was expected) and passes with it. **What a Pro user is told is therefore the service's own
+   address, not `/wfs`**, which is also how ArcGIS Server gives WFS: per service.
 
 ## 9. Revisit triggers
 

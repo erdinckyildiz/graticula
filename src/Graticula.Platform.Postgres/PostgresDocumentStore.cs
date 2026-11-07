@@ -22,7 +22,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
         + "d.created_at, d.modified_at, "
         + "coalesce((select array_agg(gm.group_id) from item_group gm where gm.item_id = i.id), '{}'::uuid[]), "
         + "coalesce((select array_agg(g.name order by g.name) from item_group gm join sharing_group g on g.id = gm.group_id where gm.item_id = i.id), '{}'::text[]), "
-        + "i.delete_protected, i.tags, i.content_folder_id, i.description, d.thumbnail is not null, d.url, d.type_keywords";
+        + "i.delete_protected, i.tags, i.content_folder_id, i.description, d.thumbnail is not null, d.url, d.type_keywords, d.content_file";
 
     private const string From =
         "from item i join document d on d.item_id = i.id join principal p on p.id = i.owner_principal_id "
@@ -91,6 +91,70 @@ public sealed class PostgresDocumentStore : IDocumentStore
         command.Parameters.AddWithValue("id", id);
 
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as byte[];
+    }
+
+    /// <inheritdoc/>
+    public async Task<Document> CreateFileAsync(
+        string title,
+        string? snippet,
+        Guid owner,
+        SharingScope sharing,
+        string fileName,
+        DocumentKind kind,
+        long size,
+        string contentFile,
+        string sha256,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentFile);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sha256);
+
+        Guid id = Guid.NewGuid();
+
+        // ADR-274: the row names the file and holds no bytes; `content` is empty rather than null, as the column requires.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "with made as (insert into item (id, kind, title, snippet, owner_principal_id, sharing) "
+            + "values (@id, 'document', @title, @snippet, @owner, @sharing) returning id) "
+            + "insert into document (item_id, file_name, kind, size, content, content_file, content_sha256) "
+            + "select id, @file, @kind, @size, ''::bytea, @path, @sha from made");
+
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("title", title);
+        command.Parameters.AddWithValue("snippet", (object?)snippet ?? DBNull.Value);
+        command.Parameters.AddWithValue("owner", owner);
+        command.Parameters.AddWithValue("sharing", PostgresAdminCatalog.Wire(sharing));
+        command.Parameters.AddWithValue("file", fileName);
+        command.Parameters.AddWithValue("kind", kind.Name);
+        command.Parameters.AddWithValue("size", size);
+        command.Parameters.AddWithValue("path", contentFile);
+        command.Parameters.AddWithValue("sha", sha256);
+
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        return (await FindAsync(id.ToString("N"), cancellationToken).ConfigureAwait(false))!;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlySet<string>> ContentFilesAsync(CancellationToken cancellationToken)
+    {
+        // Every tenant's rows, as the sweep is of the one shared folder: read through the root source, not the route.
+        HashSet<string> named = new(StringComparer.Ordinal);
+        // A file is named by a live document or by one in the recycle bin, whose row is kept whole (ADR-203); with no
+        // tenant set the store's floor (graticula_tenant() is null) shows every organisation's rows, which this must.
+        await using NpgsqlCommand command = _root.CreateCommand(
+            "select content_file from document where content_file is not null "
+            + "union select row->>'content_file' from recycle_row where table_name = 'document' and row->>'content_file' is not null");
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            named.Add(reader.GetString(0));
+        }
+
+        return named;
     }
 
     /// <inheritdoc/>
@@ -407,6 +471,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
             reader.IsDBNull(16) ? null : reader.GetString(16),
             reader.GetBoolean(17),
             reader.IsDBNull(18) ? null : reader.GetString(18),
-            reader.IsDBNull(19) ? null : reader.GetFieldValue<string[]>(19));
+            reader.IsDBNull(19) ? null : reader.GetFieldValue<string[]>(19),
+            reader.IsDBNull(20) ? null : reader.GetString(20));
     }
 }

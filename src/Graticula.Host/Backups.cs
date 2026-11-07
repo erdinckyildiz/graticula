@@ -53,6 +53,9 @@ internal sealed class Backups
     private readonly string _keyFingerprint;
     private readonly string _stateDirectory;
     private readonly string _imageryDirectory;
+
+    /// <summary>Scene layer packages kept as files (ADR-274): beside the imagery, in the server directories.</summary>
+    private string PackageFilesDirectory => Path.Combine(Path.GetDirectoryName(_imageryDirectory)!, ScenePackageFiles.Folder);
     private readonly string? _toolDirectory;
     private readonly NpgsqlConnectionStringBuilder? _maintenance;
 
@@ -200,9 +203,13 @@ internal sealed class Backups
         {
             string imagery = _imageryDirectory;
             string copiedImagery = Path.Combine(partial, "state", "imagery");
+            // ADR-274: scene layer packages kept as files sit beside the imagery in the server directories.
+            string packages = PackageFilesDirectory;
+            string copiedPackages = Path.Combine(partial, "state", ScenePackageFiles.Folder);
 
             log.WriteLine("Copying the state files (first pass)…");
             CopyNew(imagery, copiedImagery);
+            CopyNew(packages, copiedPackages);
 
             // <b>Through the maintenance connection when there is one — D-315.</b> The whole database is dumped, and a
             // serving role row-level security binds may not read every schema in it: on the showcase pg_dump stopped
@@ -228,6 +235,7 @@ internal sealed class Backups
 
             log.WriteLine("Copying the state files (second pass)…");
             CopyNew(imagery, copiedImagery);
+            CopyNew(packages, copiedPackages);
 
             string certificate = Path.Combine(_stateDirectory, Certificate);
             if (File.Exists(certificate))
@@ -421,6 +429,9 @@ internal sealed class Backups
         }
 
         CopyNew(Path.Combine(folder, "state", "imagery"), imagery);
+
+        // ADR-274: package files are named by their hash, so one already here is the same file; only the missing are copied.
+        CopyNew(Path.Combine(folder, "state", ScenePackageFiles.Folder), PackageFilesDirectory);
 
         string certificate = Path.Combine(_stateDirectory, Certificate);
         string savedCertificate = Path.Combine(folder, "state", Certificate);

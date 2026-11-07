@@ -653,7 +653,8 @@
         review measured it as a scroll that grows with the content. Maps are rows of the one list now.
       -->
       <div class="right"><button class="ghost" id="newMap" type="button"><span
-        class="plus" aria-hidden="true">+</span>New map</button></div>
+        class="plus" aria-hidden="true">+</span>New map</button><!-- ADR-269: a scene beside a map. --><button class="ghost"
+        id="newScene" type="button"><span class="plus" aria-hidden="true">+</span>New scene</button></div>
     </div>
 
     <!--
@@ -1999,6 +2000,8 @@
       <nav class="segmented solid" id="docTabs" aria-label="Item"></nav>
     </div>
     <p class="hint" id="docSays" role="status" aria-live="polite"></p>
+    <!-- ADR-270 §5.4: a scene layer made here says what it was made from, and is made again from it. -->
+    <div class="scenesource" id="docScene" hidden></div>
     <input type="file" id="docReplaceFile" hidden>
     <input type="file" id="docThumbFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
     <div class="mapitem" id="docOverview">
@@ -3364,6 +3367,16 @@
   </header>
   <div class="dialogbody" id="createViewBody"></div>
   <footer class="dialogfoot" id="createViewFoot"></footer>
+</dialog>
+
+<!-- ADR-269: a polygon layer's footprints, extruded, made into a scene layer the caller owns. -->
+<dialog id="createScene" aria-labelledby="createSceneTitle">
+  <header class="dialoghead">
+    <h3 id="createSceneTitle" tabindex="-1">Create scene layer</h3>
+    <button class="tiny ghost" id="createSceneClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+  <div class="dialogbody" id="createSceneBody"></div>
+  <footer class="dialogfoot" id="createSceneFoot"></footer>
 </dialog>
 
 <dialog id="analyzeDialog" aria-labelledby="analyzeTitle">

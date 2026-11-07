@@ -66,9 +66,13 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
+        ["ModelConverters.Extensions"] = "fixed: the model formats the converters offer (ADR-282, ADR-283)",
+        ["ModelConverters.tools"] = "fixed: the converter programs found on the path when the server starts, three at most (ADR-283)",
+        ["AdminEndpoints.Meshes.MeshLocks"] = "one lock per 3D object layer this node has edited — a count of layers (ADR-280 §5.4; between nodes, ADR-283 §5.1)",
         ["ArcGisAdminEndpoints.Service.NotKept"] = "fixed: the documented updateDefinition keys this server does not keep (ADR-257 §13)",
         ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: one (ADR-204)",
         ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
+        ["ScenePackages._open"] = "one per version of a scene layer package this node has served, each a document in the store (ADR-269)",
         ["WebhookedServices._known"] = "one per published service an edit has reached, at most MaximumEntries (10,000), forgotten whole when a webhook is written (ADR-266 condition 5)",
         ["PrintEndpoints.Jobs"] = "at most MaximumJobs (1,024) finished print jobs, each kept ten minutes, oldest forgotten first (ADR-265)",
         ["ExportOutputs.Pictures"] = "at most MaximumPictures (1,024) and MaximumBytes (256 MB), each kept ten minutes, oldest forgotten first (D-299)",

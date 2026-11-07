@@ -108,14 +108,15 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
 
         Assert.Equal(all.Count, all.Distinct().Count());
 
-        // And in the store: one backend per sweep's lock, never two.
+        // And in the store: one backend per sweep's lock, never two — every sweep's, read from the one list
+        // (SiteSingletons.Names): a copy of it here missed the two ADR-274 and ADR-277 added, and the count disagreed.
+        string names = string.Join(',', SiteSingletons.Names.Select(n => $"'{n}'"));
         long locks = (long)(await Site.ScalarAsync(
-            """
+            $"""
             select count(*) from pg_locks
              where locktype = 'advisory' and objsubid = 2 and classid = hashtext(current_schema())::oid
                and objid in (select hashtext('graticula.singleton:' || s)::oid
-                               from unnest(array['log-retention','history-retention','attachment-sweep','recycle-expiry',
-                                                 'coverage-pyramids','backup-schedule']) s)
+                               from unnest(array[{names}]) s)
             """))!;
         Assert.Equal(all.Count, (int)locks);
     }
@@ -366,6 +367,61 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
         string body = await answer.Content.ReadAsStringAsync();
         Assert.True(answer.IsSuccessStatusCode && body.Contains("\"success\":true", StringComparison.Ordinal),
             $"addFeatures on {on.Name} answered {(int)answer.StatusCode}: {body}");
+    }
+
+    /// <summary>
+    /// D-390: two nodes applying edits to one 3D object layer at the same moment keep every edit. Its features are one
+    /// resource of its item, read, changed and written back; before the conditional write, each node's lock held only its
+    /// own requests, and a node could write back what it read over what the other had just written.
+    /// </summary>
+    [Fact]
+    public async Task Two_nodes_editing_one_3D_object_layer_at_once_lose_no_edit()
+    {
+        string tokenA = await A.SignInAsync();
+        string tokenB = await B.SignInAsync();
+        (int made, string created) = await A.SendAsync(HttpMethod.Post, "/content/meshes", tokenA, new { title = "Both machines" });
+        Assert.True(made == 201, $"making the layer answered {made}: {created}");
+        string id = JsonDocument.Parse(created).RootElement.GetProperty("id").GetString()!;
+        string layer = $"/rest/services/meshes/{id}/FeatureServer/0";
+
+        async Task AddAsync(TwoNodeSite.Node on, string token, int n)
+        {
+            using HttpRequestMessage add = new(HttpMethod.Post, layer + "/applyEdits")
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["f"] = "json",
+                    ["useGlobalIds"] = "true",
+                    ["adds"] = JsonSerializer.Serialize(new[]
+                    {
+                        new
+                        {
+                            geometry = new { x = 29.0 + (n * 0.0001), y = 41.0, z = 0.0, spatialReference = new { wkid = 4326 } },
+                            attributes = new Dictionary<string, object> { ["name"] = $"{on.Name}-{n}" },
+                        },
+                    }),
+                }),
+            };
+            add.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage answer = await on.Http.SendAsync(add);
+            string body = await answer.Content.ReadAsStringAsync();
+            Assert.True(answer.IsSuccessStatusCode && body.Contains("\"success\":true", StringComparison.Ordinal),
+                $"applyEdits on {on.Name} answered {(int)answer.StatusCode}: {body}");
+        }
+
+        const int Each = 15;
+        await Task.WhenAll(Enumerable.Range(0, Each).SelectMany(n => new[] { AddAsync(A, tokenA, n), AddAsync(B, tokenB, n) }));
+
+        foreach (TwoNodeSite.Node on in (TwoNodeSite.Node[])[A, B])
+        {
+            (int status, string body) = await on.SendAsync(
+                HttpMethod.Get, layer + "/query?where=1%3D1&outFields=name&returnGeometry=false&f=json", on == A ? tokenA : tokenB);
+            Assert.True(status == 200, $"query on {on.Name} answered {status}: {body}");
+            string[] names = [.. JsonDocument.Parse(body).RootElement.GetProperty("features").EnumerateArray()
+                .Select(f => f.GetProperty("attributes").GetProperty("name").GetString()!)];
+            Assert.Equal(2 * Each, names.Length);
+            Assert.Equal(2 * Each, names.Distinct().Count());
+        }
     }
 
     /// <summary>

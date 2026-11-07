@@ -22,3 +22,4 @@ Planned:
 | `geometry-oracle/` | Correctness corpus with the adopted engine as oracle. **Scope set by [geometry-crs-policy.md](../docs/geometry-crs-policy.md):** real pathological data — self-intersecting rings, wrong SRIDs, mixed types, Z/M, curves, oversized features — not synthetic adversarial data. Must also cover the three engines' *differing definitions of validity* | ADR-003, Q-20, G4 |
 | `worker-isolation/` | What does process isolation actually cost per worker? | ADR-007, A-007 |
 | `affinity-routing/` | Does warmth-aware routing beat blind routing, and where does it break under skew? | ADR-007, ADR-010, A-014 |
+| `mesh-editing/` | **Run 2026-11-07.** What does Maps SDK 5.2 ask of a server to add, move and delete a 3D object (mesh)? A stub in front of a Graticula server, faking only the multipatch layer | ADR-280 condition 1 |

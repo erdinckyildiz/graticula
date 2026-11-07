@@ -3405,7 +3405,9 @@ const SURFACES = {
     // Map beside Content; here the map viewer was reachable only from a button under the content table or
     // a row's ⋯ menu. It is a link out of this app to the viewer (ADR-079), not a screen of it, so it is
     // not a tab: a tab is an address this app routes, and the surface table holds only those (D-115).
-    links: [{ after: "content", key: "map", label: "Map", href: "/studio/webmap.html" }],
+    // ADR-269: Scene beside Map, as Portal's top bar has them.
+    links: [{ after: "content", key: "map", label: "Map", href: "/studio/webmap.html" },
+      { after: "content", key: "scene", label: "Scene", href: "/studio/scene.html" }],
   },
 };
 
@@ -4450,8 +4452,11 @@ function loadSdk() {
     css.href = SDK + "esri/themes/light/main.css";
     document.head.append(css);
 
+    // ADR-281: 5.x is loaded as a module (core.js), which still answers `require`; 4.x by its classic init.
     const script = document.createElement("script");
-    script.src = SDK;
+    const modular = !/\/4\.\d+\/$/.test(SDK);
+    if (modular) script.type = "module";
+    script.src = modular ? SDK + "core.js" : SDK;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(
       "The map library could not be loaded from " + SDK + ". Everything else in this "
@@ -5582,6 +5587,13 @@ async function loadMyContent() {
   for (const i of answer.items || []) if (i.itemId) itemIds.set(i.name, i.itemId);
 
   const button = $("newMap");
+  // ADR-269: New scene follows New map's rules — a scene is saved content too.
+  const scene = $("newScene");
+  if (scene) {
+    scene.hidden = isOutsider();
+    scene.disabled = maps.mayCreate === false;
+    scene.title = maps.mayCreate === false ? "Your role cannot create content, so it cannot save a scene." : "";
+  }
 
   if (button) {
     // Not offered at all to a member of another organization, who can save nothing here; disabled for a member whose
@@ -6890,6 +6902,10 @@ document.addEventListener("click", async event => {
 
   if (target.closest("#newMap")) {
     location.href = "/studio/webmap.html";
+  }
+
+  if (target.closest("#newScene")) {
+    location.href = "/studio/scene.html";
   }
 
   // A map's Delete was a button on its row; it is on the map's Settings now, behind its lock, as a layer's is.
@@ -8362,6 +8378,9 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
       ${!knownKind && may("content:publishFeatures") && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="analyzeOpen">Analyze…</button>` : ""}
+      ${!knownKind && may("content:create") && serviceLayers.some(sceneSource)
+        // ADR-269: footprints extruded, or points placed (D-386), into a scene layer of the reader's own.
+        ? `<button type="button" id="createSceneOpen">Create scene layer…</button>` : ""}
       ${serviceOpenKind === "ImageServer" && manages
         // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
         // says the image was uploaded here, with the Download button.
@@ -23310,7 +23329,10 @@ function askServerConfirm(asked) {
       if (back instanceof HTMLElement && back.isConnected) back.focus();
       resolve(yes);
     };
-    const onClose = () => end(false);
+    // `close` is dispatched after `dialog.close()` returns, as a task of its own. A question asked again at once — Cancel,
+    // then the same Delete — used to catch the first one's late `close` and shut itself before it was seen. A `close`
+    // that finds the dialog open again belongs to the question before, and is not this one's answer.
+    const onClose = () => { if (!dialog.open) end(false); };
 
     go.onclick = () => end(true);
     $("serverConfirmCancel").onclick = () => end(false);
@@ -34793,7 +34815,9 @@ $("analyzeDialog")?.addEventListener("close", () => {
 const DOCUMENT_TYPES = new Set(["PDF", "Microsoft Word", "Microsoft Excel", "Microsoft Powerpoint", "CSV", "Image",
   // ADR-263, ADR-264: an export's file, and an app kept for the client that reads it.
   "Shapefile", "File Geodatabase", "GeoJson", "GeoPackage", "KML", "CSV Collection", "Feature Collection",
-  "Dashboard", "Web Experience", "Web Mapping Application", "Form", "StoryMap", "Document Link"]);
+  "Dashboard", "Web Experience", "Web Mapping Application", "Form", "StoryMap", "Document Link",
+  // ADR-269: a web scene is kept as an app is, and opens in the scene viewer; a scene layer package is the scene service.
+  "Web Scene", "Scene Service"]);
 
 /** The document whose item page is open, as the server last described it. */
 let docOpen = null;
@@ -34817,10 +34841,11 @@ const DOC_KINDS = {
   // ADR-264's review: a registered service is named as Studio names a layer, with where it is said beside it.
   featureservicelink: "Feature layer (by URL)", mapservicelink: "Map image layer (by URL)",
   vectortileservicelink: "Vector tile layer (by URL)", imageservicelink: "Imagery layer (by URL)", documentlink: "Document link",
+  webscene: "Web scene", slpk: "Scene layer",
 };
 
 /** The few letters a document's tile carries, so a PDF and a workbook differ at a glance. */
-const docBadge = d => d.link ? "LINK" : d.app ? "APP"
+const docBadge = d => d.link ? "LINK" : d.kind === "webscene" || d.kind === "slpk" ? "3D" : d.app ? "APP"
   : ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
 
 /** Where a link points, as its host — what a reader needs to tell two links apart (ADR-264). */
@@ -34956,13 +34981,16 @@ async function showDocumentItem(id) {
   // ADR-264: an item with an address opens there first, as Portal's app page does; its JSON downloads from More, and
   // neither an app nor a link has a file of its own to replace.
   $("docActions").innerHTML = `
-    ${doc.url ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
+    ${doc.kind === "webscene" ? `<a class="btn primary" id="docOpenScene" href="/studio/scene.html?id=${encodeURIComponent(doc.id)}">Open in Scene Viewer</a>` : ""}
+    ${doc.kind === "slpk" ? `<a class="btn primary" id="docOpenScene"
+      href="/studio/scene.html?layer=${encodeURIComponent(`${location.origin}/rest/services/hosted/${doc.id}/SceneServer`)}&title=${encodeURIComponent(doc.title || "")}">Open in Scene Viewer</a>` : ""}
+    ${doc.url && doc.kind !== "slpk" ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
-    ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url ? "" : "primary"}" id="docDownload">Download</button>`}
+    ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
     <button type="button" id="docFavorite" data-of="doc" hidden></button>
-    ${doc.manages && !doc.app ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
+    ${doc.manages && !doc.app && !doc.sceneSource ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
     ${more ? `<details class="menu itemmore">
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
       <div class="sheet">${more}</div>
@@ -34977,6 +35005,7 @@ async function showDocumentItem(id) {
   drawDocSettings();
   drawDocTabs();
   loadDocExtras(doc);
+  if (!again) drawDocScene(doc);
   imcMount("doc");   // ADR-267: its metadata and comments
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
   if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
@@ -35031,6 +35060,85 @@ function contentCrumb(item, title) {
  * A document's terms of use and the reader's favourite (D-321), from its portal item and the reader's list, as a web
  * map's are. Drawn when they arrive; the page is already up without them.
  */
+/**
+ * A scene layer made here from a layer — ADR-270 §5.4, Enterprise's *Rebuild cache*: what it was made from, when, whether
+ * that layer has been edited since, and a button that makes it again in place. Its owner's and an administrator's; a
+ * package uploaded rather than made here has no source and shows nothing.
+ */
+async function drawDocScene(doc) {
+  const box = $("docScene");
+  box.hidden = true;
+  box.innerHTML = "";
+  if (doc.kind !== "slpk" || !doc.manages) return;
+  const source = await api(`/content/scenes/${encodeURIComponent(doc.id)}/source`).catch(() => null);
+  if (docOpen !== doc || !source) return;
+  // The source's own record of its last edit (editingInfo, migration 127), to say whether the scene is behind it.
+  const layer = source.exists
+    ? await api(`/rest/services/${source.service.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${source.layer}?f=json`).catch(() => null)
+    : null;
+  if (docOpen !== doc) return;
+  const edited = Number(layer?.editingInfo?.dataLastEditDate || layer?.editingInfo?.lastEditDate || 0);
+  const behind = edited > Number(source.built);
+  const how = source.heightField
+    ? ` — height from <code>${h(source.heightField)}</code>${Number(source.heightScale) && Number(source.heightScale) !== 1 ? ` × ${h(String(source.heightScale))} m` : ""}`
+    : "";
+  // A heading, as every card on the page has one (ADR-269 condition 4's review), and the page's own date.
+  const built = new Date(Number(source.built));
+  box.innerHTML = `
+    <h3>Source</h3>
+    <p>Made from <a href="#/service/${h(source.service)}">${h(source.service)}</a>, layer ${h(String(source.layer))}${how}.
+      Built ${h(day(built))}, ${h(built.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }))}.
+      ${!source.exists ? `<span class="warn-inline">That layer no longer exists, so this scene layer cannot be made again.</span>`
+        : behind ? `<span class="warn-inline" id="docSceneBehind">The layer has been edited since, so this scene layer is behind it.</span>` : "It is up to date with the layer."}</p>
+    ${source.exists ? `<button type="button" id="docSceneRebuild" class="${behind ? "primary" : ""}">Rebuild</button>
+      <span class="hint">Makes it again from the layer as it is now. Its address, sharing and the scenes that use it stay.</span>
+      <label class="check"><input type="checkbox" id="docSceneAuto" ${source.autoRebuild ? "checked" : ""}>
+        Rebuild on its own when the layer changes <span class="hint">— within a few minutes of an edit (ADR-277).</span></label>
+      ${source.lastAutomatic ? `<p class="hint" id="docSceneAutomatic">${source.lastAutomatic.made
+        ? `Last rebuilt on its own ${h(day(new Date(source.lastAutomatic.at)))}, ${h(new Date(source.lastAutomatic.at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }))}${source.lastAutomatic.features ? `, ${h(source.lastAutomatic.features.toLocaleString())} features` : ""}${source.lastAutomatic.partial ? ` — ${h(source.lastAutomatic.partial)}` : ""}.`
+        : `<span class="warn-inline">Not rebuilt on its own: ${h(source.lastAutomatic.why || "the server did not say why")}</span>`}</p>` : ""}` : ""}`;
+  box.hidden = false;
+  // A scene layer made from a layer is made again from it: a file put in by hand would be overwritten by the next
+  // Rebuild, so Replace file is not offered beside it — as Enterprise offers Replace layer only without an associated
+  // feature layer.
+  doc.sceneSource = source;
+  $("docSceneAuto")?.addEventListener("change", async event => {
+    const on = event.target.checked;
+    try {
+      await api(`/content/scenes/${encodeURIComponent(doc.id)}/source`, { method: "PUT", body: JSON.stringify({ autoRebuild: on }), headers: { "Content-Type": "application/json" } });
+      $("docSays").textContent = on ? "It will be rebuilt on its own when the layer changes." : "It will be rebuilt only when you press Rebuild.";
+    } catch (e) {
+      event.target.checked = !on;
+      $("docSays").textContent = `Not changed: ${e.message}`;
+    }
+  });
+  const replace = $("docReplace");
+  if (replace) replace.hidden = true;
+}
+
+document.addEventListener("click", async event => {
+  const button = event.target.closest("#docSceneRebuild");
+  if (!button || !docOpen) return;
+  const doc = docOpen;
+  button.disabled = true;
+  button.textContent = "Rebuilding…";
+  $("docSays").textContent = "";
+  try {
+    const made = await api(`/content/scenes/${encodeURIComponent(doc.id)}/rebuild`, { method: "POST" });
+    const count = Number(made.features);
+    const noun = made.of === "points" ? (count === 1 ? "point" : "points") : (count === 1 ? "building" : "buildings");
+    if (docOpen !== doc) return;
+    $("docSays").textContent = `${doc.title} was rebuilt with ${count.toLocaleString()} ${noun}${made.partial ? ` — ${made.partial}` : ""}.`;
+    await drawDocScene(doc);
+    $("docSceneRebuild")?.focus();
+  } catch (e) {
+    if (docOpen !== doc) return;
+    button.disabled = false;
+    button.textContent = "Rebuild";
+    $("docSays").textContent = `Not rebuilt: ${e.message}`;
+  }
+});
+
 async function loadDocExtras(doc) {
   const [item] = await Promise.all([
     api(`/sharing/rest/content/items/${encodeURIComponent(doc.id)}?f=json`).catch(() => null),
@@ -35067,7 +35175,9 @@ function drawDocSide() {
       <dt>Created</dt><dd>${h(day(doc.created))}</dd>
       <dt>Updated</dt><dd>${h(day(doc.modified))}</dd>
     </dl>
-    ${doc.app ? `<p class="hint">${doc.link
+    ${doc.app ? `<p class="hint">${doc.kind === "webscene"
+      ? "A 3D scene: its layers, its ground and where the camera looks. Open it in Scene Viewer to look around or change it."
+      : doc.link
       ? `This item points to ${doc.type === "Document Link" ? "a document" : "a service"} on ${h(docHost(doc) || "another server")}. That server answers requests; this one keeps only the item.`
       : `Kept for the ${h(doc.type || "app")} client that opens it. This server stores the item and its resources; it does
         not run ${h(doc.type || "the app")} itself.`}</p>` : ""}
@@ -35101,12 +35211,14 @@ function drawDocAbout(editing = false) {
   $("docAbout").innerHTML = `
     <h4>Summary</h4>
     <p>${doc.snippet ? h(doc.snippet) : `<span class="hint">No summary yet. ${doc.link
-      ? "A line on what this points to and who runs it" : doc.app ? "A line on what this app shows and who uses it"
+      ? "A line on what this points to and who runs it" : doc.kind === "webscene" ? "A line on what this scene shows and who uses it"
+      : doc.app ? "A line on what this app shows and who uses it"
       : "A line on what the file is"} makes it easier to find.</span>`}</p>
     ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet.<span class="widewords"> ${doc.link ? "What it is, who runs it and what it is for."
+        : doc.kind === "webscene" ? "What the scene is for, which layers it draws and where its data comes from."
         : doc.app ? "What the app is for, who uses it and what it reads." : "What the file is, where it came from and how current it is."}</span></p>`}
     ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
     ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
@@ -35888,6 +36000,168 @@ const VIEW_ALLOWS = {
     capabilities: ["Create"] },
 };
 
+// ---------------------------------------------------------------- scene layers (ADR-269)
+
+/** Whether a layer can be made a scene layer: footprints become buildings, points become points (ADR-269, D-386). */
+const sceneSource = one => one.geometryType === "esriGeometryPolygon" || one.geometryType === "esriGeometryPoint";
+
+/** The layers a scene layer can be made from, as the service document lists them. */
+const sceneSources = () => serviceLayers.filter(sceneSource);
+
+/** The layer the dialog has chosen. */
+const sceneChosen = () => {
+  const id = $("csLayer")?.value;
+  const all = sceneSources();
+  return all.find(one => String(one.id) === String(id)) || all[0];
+};
+
+function openCreateScene() {
+  const item = serviceItem;
+  const sources = sceneSources();
+  if (!item || sources.length === 0) return;
+
+  $("createSceneBody").innerHTML = `
+    <p class="hint" id="csSays"></p>
+    ${sources.length > 1 ? `<div class="stacked"><label for="csLayer">Layer</label>
+      <select id="csLayer">${sources.map(one => `<option value="${one.id}">${h(sceneLayerName(one))}</option>`).join("")}</select></div>` : ""}
+    <div class="stacked"><label for="csHeight">Height</label>
+      <select id="csHeight" aria-describedby="csHeightHint"></select>
+      <span class="hint" id="csHeightHint"></span></div>
+    <div class="stacked" id="csScaleRow"><label for="csScale">Metres per unit</label>
+      <input type="number" id="csScale" min="0.01" max="1000" step="any" value="1" aria-describedby="csScaleHint">
+      <span class="hint" id="csScaleHint"></span></div>
+    <div class="stacked"><label for="csTitle">Title</label>
+      <input type="text" id="csTitle" maxlength="250" autocomplete="off"></div>`;
+  $("createSceneFoot").innerHTML = `<p class="hint fill" id="createSceneSays" role="status" aria-live="polite"></p>
+    <span class="sr-only" id="createSceneDone" role="status" aria-live="polite"></span>
+    <span id="createSceneButtons" style="display:contents"><button type="button" class="ghost" id="createSceneCancel">Cancel</button>
+    <button type="button" class="primary" id="createSceneGo">Create scene layer</button></span>`;
+  $("createScene").setAttribute("aria-describedby", "csSays");
+  $("createScene").showModal();
+  // The title follows the chosen layer until it is typed in (design review 2026-11-05).
+  $("csTitle").addEventListener("input", () => { $("csTitle").dataset.typed = "1"; });
+  $("csLayer")?.addEventListener("change", offerSceneHeights);
+  $("csHeight").addEventListener("change", sceneScaleApplies);
+  offerSceneHeights();
+  ($("csLayer") || $("csHeight")).focus();
+}
+
+/** A layer as the dialog names it: its own name when the service has more than one to choose from. */
+const sceneLayerName = one => one.shown || one.name || `layer ${one.id}`;
+
+/** Metres per unit scales a field, so it is shown only when a field is chosen. */
+function sceneScaleApplies() {
+  const field = $("csHeight")?.value || "";
+  $("csScaleRow").hidden = !field || field.startsWith("@");
+}
+
+/**
+ * The chosen layer's number fields, as the height to raise its footprints by or to stand its points at; one that
+ * sounds like a height first. A point layer's first choice is where its points stand without a field: at their own
+ * z when the layer has one (or on the ground, if asked), on the ground when it has not.
+ */
+async function offerSceneHeights() {
+  const select = $("csHeight");
+  if (!select || !serviceOpen) return;
+  const chosen = sceneChosen();
+  const points = chosen?.geometryType === "esriGeometryPoint";
+  const item = serviceItem;
+  $("csSays").innerHTML = points
+    ? `Each point is placed in the scene as a symbol, at the height you choose. This makes a copy: later edits to
+       <b>${h(item?.bare || "")}</b> do not appear until you create the scene layer again.`
+    : `Each footprint becomes a building, raised by the height field you choose. This makes a copy: later edits to
+       <b>${h(item?.bare || "")}</b> do not appear until you create the scene layer again.`;
+  const fieldsHint = points
+    ? "A number field is read as the height above the ground. Only number fields are listed."
+    : "The field to raise each footprint by. Only number fields are listed.";
+  const scaleHint = points
+    ? "1 when the field is in metres; 0.3048 when it is in feet."
+    : "1 when the field is in metres; 3 when it counts floors.";
+  if (!$("csTitle").dataset.typed) {
+    $("csTitle").value = `${sceneSources().length > 1 ? sceneLayerName(chosen) : item?.bare || ""} (3D)`;
+  }
+  // Reset before the read, so nothing of the previous layer stands if it fails.
+  $("csHeightHint").textContent = fieldsHint;
+  $("csScale").value = "1";
+  $("csScaleHint").textContent = scaleHint;
+  select.innerHTML = `<option value="">${points ? "On the ground" : "Flat — no height"}</option>`;
+  sceneScaleApplies();
+  try {
+    const doc = await api(`/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+      + `/FeatureServer/${encodeURIComponent(String(chosen.id))}?f=json`);
+    if (sceneChosen() !== chosen) return; // another layer was chosen while this one was read
+    const numbers = (doc.fields || []).filter(f => /Integer|SmallInteger|Double|Single|BigInteger/.test(f.type || "")
+      && !/OID/.test(f.type || ""));
+    const z = points && doc.hasZ === true;
+    // A point layer with z stands its points there unless told otherwise; only footprints guess a field.
+    const likely = points ? null : numbers.find(f => /height|yukseklik|yükseklik|floors|kat/i.test(f.name));
+    select.innerHTML = (z
+      ? `<option value="">Z-values (absolute height)</option><option value="@ground">On the ground</option>`
+      : `<option value="">${points ? "On the ground" : "Flat — no height"}</option>`)
+      + numbers.map(f => `<option value="${h(f.name)}"${f === likely ? " selected" : ""}>${h(f.alias || f.name)}</option>`).join("");
+    if (likely && /floors|kat/i.test(likely.name)) {
+      $("csScale").value = "3";
+      $("csScaleHint").textContent = `Set to 3 because ${likely.alias || likely.name} counts floors. 1 when the field is in metres.`;
+    }
+    sceneScaleApplies();
+  } catch {
+    if (points) select.options[0].textContent = "Own z if present, otherwise on the ground";
+    $("csHeightHint").textContent = points
+      ? "The layer's fields could not be read; points stand at their own z if they have one."
+      : "The layer's fields could not be read; the footprints are drawn flat.";
+  }
+}
+
+async function createScene() {
+  const says = $("createSceneSays");
+  const title = ($("csTitle")?.value || "").trim();
+  const field = $("csHeight").value || "";
+  const scale = Number($("csScale")?.value);
+  if (!title) { says.textContent = "Give the scene layer a title."; $("csTitle").focus(); return; }
+  if (field && !field.startsWith("@") && !(scale > 0 && scale <= 1000)) {
+    says.textContent = "Metres per unit is a number above 0, at most 1000."; $("csScale").focus(); return;
+  }
+
+  const go = $("createSceneGo");
+  go.disabled = true;
+  // While it is being made the dialog stays: closed half-way it hid the result, and a second try made a duplicate
+  // (ADR-269 condition 4's review). Cancel, × and Escape come back with the answer.
+  const holding = [$("createSceneCancel"), $("createSceneClose")].filter(Boolean);
+  holding.forEach(b => { b.disabled = true; });
+  $("createScene").oncancel = event => { if (go.isConnected && go.disabled) event.preventDefault(); };
+  says.textContent = "Creating the scene layer…";
+  try {
+    const parts = serviceOpen.qualified.split("/");
+    const bare = parts.pop();
+    const made = await api("/content/scenes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        service: bare, folder: parts.join("/"), layer: Number(sceneChosen().id),
+        heightField: field && !field.startsWith("@") ? field : null, heightScale: field && !field.startsWith("@") ? scale : 1,
+        onTheGround: field === "@ground", title,
+      }),
+    });
+    const open = `/studio/scene.html?layer=${encodeURIComponent(made.url)}&title=${encodeURIComponent(made.title)}`;
+    const count = Number(made.features ?? made.buildings);
+    const noun = made.of === "points" ? (count === 1 ? "point" : "points") : (count === 1 ? "building" : "buildings");
+    // Done: the form goes, so the same layer cannot be made twice by a second press (design review). The sentence
+    // goes into the live region that is already there, so a screen reader announces it (design review 2026-11-05).
+    const done = `“${made.title}” was created with ${count.toLocaleString()} ${noun}.`;
+    $("createSceneBody").innerHTML = `<p id="createSceneMade">${h(done)} It is in Content, private until you share it.</p>`;
+    $("createSceneButtons").innerHTML = `<button type="button" class="ghost" id="createSceneCancel">Close</button>
+      <a class="btn primary" href="${h(open)}" id="createSceneOpenViewer">Open in Scene Viewer</a>`;
+    says.textContent = "";
+    $("createSceneDone").textContent = done;
+    $("createSceneOpenViewer").focus();
+  } catch (e) {
+    says.textContent = `Not created: ${e.message}`;
+    go.disabled = false;
+  } finally {
+    holding.forEach(b => { b.disabled = false; });
+  }
+}
+
 function openCreateView() {
   const item = serviceItem;
   const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")
@@ -36036,6 +36310,9 @@ document.addEventListener("click", e => {
   const t = e.target instanceof Element ? e.target.closest("button") : null;
   if (!t) return;
   if (t.id === "createViewOpen") { $("createViewTitle").textContent = "Create view"; openCreateView(); return; }
+  if (t.id === "createSceneOpen") { t.closest("details")?.removeAttribute("open"); openCreateScene(); return; }
+  if (t.id === "createSceneGo") { createScene(); return; }
+  if (t.id === "createSceneClose" || t.id === "createSceneCancel") { $("createScene").close(); return; }
   if (t.id === "createViewGo") { createView(); return; }
   if (t.dataset.viewFilter !== undefined) {
     openViewFilter(t.dataset.viewFilter, t.dataset.viewFilterText || "", t.dataset.viewFilterName || "");
@@ -39865,6 +40142,43 @@ async function webhookReadDeliveries(scope, id) {
   }
 }
 
+/**
+ * Each webhook's newest delivery, so a row can say its last one failed without the Deliveries panel being opened: a
+ * webhook that stays Active while every message bounces looked healthy in the list. Read side by side; a webhook whose
+ * deliveries cannot be read simply says nothing, since the list itself was read.
+ */
+async function webhookReadLast(scope, hooks) {
+  await Promise.all(hooks.map(async w => {
+    try {
+      const a = await api(`${webhookBase(scope)}/${encodeURIComponent(w.id)}/notificationStatus?f=json&num=1`);
+      const rows = a?.error ? [] : Array.isArray(a) ? a : a?.notifications || a?.WebhookStatus || [];
+      w.last = rows.length ? webhookDeliveryOf(rows[0]) : null;
+    } catch {
+      w.last = null;
+    }
+  }));
+}
+
+/**
+ * A row's note on its newest delivery when that failed: amber while the server is still trying it again, as the
+ * Deliveries panel's *Failed, retrying* is, and the alert colour once it has given up (UX review, 2026-11-05).
+ */
+function webhookLastMarkup(last) {
+  const retrying = last.state === "pending";
+  const at = last.at ? new Date(last.at) : null;
+  const when = at && !Number.isNaN(at.getTime())
+    ? ` · <time datetime="${h(at.toISOString())}">${h(at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }))}</time>`
+    : "";
+  const code = last.code ? ` · receiver answered ${h(String(last.code))}` : "";
+  return `<span class="rowmeta whwhy ${retrying ? "whlastretry" : "whlastbad"}">${
+    retrying ? "Last delivery failed, retrying" : "Last delivery failed"}${when}${code}</span>`;
+}
+
+/** Whether a webhook's newest delivery failed, or is being tried again after failing. */
+function webhookLastFailed(w) {
+  return !!w.last && (w.last.state === "failed" || (w.last.state === "pending" && w.last.attempts > 0));
+}
+
 /** Reads a list and draws it; the open row's deliveries are read again with it. */
 async function webhookRead(scope, focus) {
   const s = webhookLists[scope];
@@ -39883,6 +40197,23 @@ async function webhookRead(scope, focus) {
   if (s.open && !s.hooks.some(w => w.id === s.open)) s.open = null;
   if (s.open) await webhookReadDeliveries(scope, s.open);
   webhookDraw(scope, focus);
+  // The rows' last-delivery notes come after the list, so it is drawn as fast as it is read rather than as fast as the
+  // slowest of one question per webhook (UX review, 2026-11-05); drawn again once, with the cursor kept where it is.
+  // Not awaited: whoever read the list goes on — says *is created*, moves the cursor — without waiting for the notes.
+  const hooks = s.hooks;
+  if (!s.failed && hooks.length) {
+    webhookReadLast(scope, hooks).then(() => {
+      if (s.hooks === hooks && hooks.some(webhookLastFailed)) webhookRedrawKeepingFocus(scope);
+    });
+  }
+}
+
+/** Draws a list again and puts the cursor back on the control it was on, found again by what it does and for which row. */
+function webhookRedrawKeepingFocus(scope) {
+  const was = document.activeElement;
+  const act = was instanceof HTMLElement && was.closest(`#${webhookLists[scope].list}`) ? was.dataset.whAct : null;
+  const id = act ? was.dataset.whId : null;
+  webhookDraw(scope, act && id ? webhookButton(scope, act, id) : null);
 }
 
 /**
@@ -39978,7 +40309,8 @@ function webhookDraw(scope, focus) {
             <td data-l="Payload URL"><span><code class="whurl">${webhookUrlMarkup(w.url)}</code></span></td>
             <td data-l="Events"><span>${h(webhookEventWords(scope, w.events))}${unraised}</span></td>
             <td data-l="Status"><span><span class="pill ${pillClass}">${pillWords}</span>${
-              !w.active && w.reason ? `<span class="rowmeta whwhy">${h(w.reason)}</span>` : ""}</span></td>
+              !w.active && w.reason ? `<span class="rowmeta whwhy">${h(w.reason)}</span>` : ""}${
+              webhookLastFailed(w) ? webhookLastMarkup(w.last) : ""}</span></td>
             <td class="act whacts">
               <button type="button" class="tiny" data-wh-act="deliveries" ${here}
                 aria-expanded="${open}" aria-controls="whSent-${scope}" aria-label="Recent deliveries of ${named}">Deliveries</button>
@@ -40067,8 +40399,8 @@ async function webhookDelete(scope, id) {
   const w = s.hooks[at];
   if (!w) return;
   const yes = await askServerConfirm({
-    title: "Delete webhook",
-    body: `Delete the webhook ${w.name}? Nothing more is sent to ${w.url}, and its delivery history goes with it. It cannot be restored.`,
+    title: `Delete the webhook ${w.name}?`,
+    body: `Nothing more is sent to ${w.url}, and its delivery history goes with it. It cannot be restored.`,
     action: "Delete webhook",
   });
   if (!yes) {
@@ -41374,12 +41706,18 @@ function phoneNavMenus() {
       focusable="false"><path d="M6 9l6 6 6-6"/></svg>`;
 
     // In the page head where there is one (the title and this, side by side); in front of the strip where the strip
-    // is already in a head.
+    // is already in a head. Before the head's actions, so a phone reads and tabs to where it is before what it may do:
+    // appended, Organization's menus came after *Create webhook* and *Start a collaboration* (UX review, 2026-11-04).
     const head = nav.parentElement?.classList.contains("pagehead") ? null : nav.closest(".view")?.querySelector(".pagehead");
-    if (head) head.append(button); else nav.before(button);
+    const acts = head?.querySelector(":scope > .right");
+    if (acts) acts.before(button); else if (head) head.append(button); else nav.before(button);
 
     const label = () => {
-      const here = nav.querySelector("[aria-current]") || nav.querySelector("a");
+      // A page the strip does not list — Collaborations reached by its address on a server of one organization — is
+      // named by its own title; the strip's first page would say the reader is somewhere they are not (UX review,
+      // 2026-11-04: Collaborations' menu said *General*).
+      const here = nav.querySelector("[aria-current]")
+        || nav.closest(".view")?.querySelector(".pagehead h1") || nav.querySelector("a");
       const text = (here?.textContent || "").replace(/\s+/g, " ").trim();
       button.querySelector(".navmenulabel").textContent = text;
       button.setAttribute("aria-label", `${nav.getAttribute("aria-label") || "Pages"}: ${text}`);
@@ -41581,6 +41919,7 @@ phonePark($("userMenu").querySelector(".sheet"), $("drawerAccount"));
 phonePark($("contentIdle").closest("label"), $("contentSheetIdle"));
 phonePark($("pageActionContent"), $("contentToolbar"));
 phonePark($("newMap"), $("contentToolbar"));
+phonePark($("newScene"), $("contentToolbar"));
 phonePark($("memberCount"), $("memberNarrowBar"));
 
 /**
@@ -41764,7 +42103,7 @@ function imcDraw() {
         <div class="imcwho"><b>${h(c.owner || "—")}</b> <time class="hint" datetime="${h(imcIso(c.created))}">${
           h(imcWhen(c.created))}</time>
           ${canDelete(c) ? `<button type="button" class="tiny danger" data-imc-delete="${h(c.id)}"
-            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${h(c.owner || "")}'s comment ${h(imcOpening(c.comment))}, ${h(imcWhen(c.created))}"
+            data-imc-focus="delete-${h(c.id)}" aria-label="Delete ${signedInAs && c.owner === signedInAs ? "your" : `${h(c.owner || "")}'s`} comment ${h(imcOpening(c.comment))}, ${h(imcWhen(c.created))}"
             >Delete</button>` : ""}</div>
         <p class="imctext" id="imcText-${h(c.id)}">${h(c.comment)}</p>
         <button type="button" class="tiny ghost imcmore" data-imc-more="${h(c.id)}" data-imc-focus="more-${h(c.id)}"
@@ -41803,7 +42142,10 @@ function imcWhen(value) {
 /** A comment's first words, quoted, so two left in one minute are told apart by their Delete and its question. */
 function imcOpening(text) {
   const words = String(text || "").replace(/\s+/g, " ").trim();
-  return `“${words.length > 40 ? `${words.slice(0, 40)}…` : words}”`;
+  if (words.length <= 40) return `“${words}”`;
+  // Cut at the last space before the fortieth character, so the quotation does not stop mid-word (UX review, 2026-11-05).
+  const space = words.lastIndexOf(" ", 40);
+  return `“${words.slice(0, space > 20 ? space : 40)}…”`;
 }
 
 /** A comment's time as `<time datetime>` wants it. */
@@ -41895,8 +42237,22 @@ async function imcDelete(commentId) {
   const open = imcOpen;
   if (!open) return;
   const comment = open.comments.find(c => c.id === commentId);
-  if (comment && comment.owner !== signedInAs
-    && !confirm(`Delete ${comment.owner}'s comment ${imcOpening(comment.comment)} of ${imcWhen(comment.created)}? It cannot be restored.`)) return;
+  // Asked in the console's own dialog for every comment, one's own included (UX review, m11): one's own went with no
+  // question and no undo, and somebody else's asked in the browser's `confirm`, unlike every other Delete here. Asked
+  // too when the comment is not in hand — the list is read again after every Add, and a Delete pressed in that moment
+  // used to find nothing and so delete without a question.
+  const mine = comment?.owner === signedInAs;
+  if (!await askServerConfirm({
+    title: !comment ? "Delete this comment?" : mine ? "Delete your comment?" : `Delete ${comment.owner}'s comment?`,
+    body: `${comment ? `${mine ? "Your" : `${comment.owner}'s`} comment ${imcOpening(comment.comment)}, left ${imcWhen(comment.created)},`
+      : "The comment"} will be removed for everyone who can open this item. This cannot be undone.`,
+    action: "Delete comment",
+  })) {
+    // Cancel gives the cursor back to this comment's Delete — the one drawn now, if the list was read again behind the
+    // dialog and the pressed button went with the old drawing.
+    imcOpen?.box.querySelector(`[data-imc-delete="${CSS.escape(commentId)}"]`)?.focus();
+    return;
+  }
   try {
     const answer = await api(`/sharing/rest/content/items/${encodeURIComponent(open.id)}/comments/${
       encodeURIComponent(commentId)}/delete`, {

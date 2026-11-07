@@ -17,6 +17,24 @@ namespace Graticula.Conformance.Tests;
 [Collection("catalogue walk")]
 public sealed class APortalTokenOpensItsServerTests : ArcGisClient
 {
+    /// <summary>
+    /// Each address the portal answers at names itself as the server's owner when the server is asked through it.
+    /// </summary>
+    /// <remarks>Written 2026-11-05 (ADR-178 condition 1's Pro run): Pro, signed in to <c>/studio</c>, asked
+    /// <c>/studio/rest/info</c> which portal owns the server, was told the root's, and opened a sign-in dialog of its own
+    /// for a portal it was not signed in to.</remarks>
+    [Fact]
+    public async Task The_server_asked_through_a_portals_address_names_that_portal_as_its_owner()
+    {
+        string root = (await RequireServerAsync()).TrimEnd('/');
+
+        foreach (string portal in (string[])["", "/studio", "/portal"])
+        {
+            JsonElement info = await GetJsonAsync($"{portal}/rest/info");
+            Assert.Equal(root + portal, info.GetProperty("owningSystemUrl").GetString()!.TrimEnd('/'));
+        }
+    }
+
     [Fact]
     public async Task A_portal_token_is_exchanged_for_this_server_and_for_no_other()
     {

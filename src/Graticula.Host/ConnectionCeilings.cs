@@ -94,7 +94,7 @@ internal static class ConnectionCeilings
             allowed = reader.GetInt32(0);
             reserved = reader.GetInt32(1);
         }
-        catch (Exception e) when (e is NpgsqlException or InvalidOperationException
+        catch (Exception e) when (StoreOutage.Is(e) || e is InvalidOperationException
                                       or OperationCanceledException)
         {
             return;

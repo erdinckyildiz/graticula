@@ -1031,6 +1031,9 @@ const CEILING = 50000;
 let byView = null;
 let viewController = null;
 
+// What the last finished read covered, and whether it held everything there: a view inside it asks for nothing new.
+let lastRead = null;
+
 /** The scale the view is at, as 1:<em>n</em> — 96 pixels to the inch, as ArcGIS reckons it. */
 function viewScale() {
   return map.getView().getResolution() * 96 / 0.0254;
@@ -1045,6 +1048,7 @@ function viewScale() {
  */
 function readByView(at, described, count) {
   byView = { at, count, minScale: described.minScale > 0 ? described.minScale : 0 };
+  lastRead = null;
 
   drawLegend();
   drawGroundPicker();
@@ -1101,6 +1105,7 @@ async function readView() {
   };
 
   if (minScale && viewScale() > minScale) {
+    lastRead = null;
     dataSource.clear();
     facts(`Zoom in to 1:${Math.round(minScale).toLocaleString()} to draw it — the layer's visible range`);
     sayNotDrawn(`Not drawn at this scale. Zoom in past 1:${Math.round(minScale).toLocaleString()} to see it.`);
@@ -1153,6 +1158,7 @@ async function readView() {
 
   if (controller !== viewController) return;
 
+  lastRead = { extent: [xmin, ymin, xmax, ymax], truncated };
   dataSource.clear();
   dataSource.addFeatures(features);
 
@@ -1162,8 +1168,19 @@ async function readView() {
       : ""));
 }
 
+/**
+ * <b>A view inside the last complete read asks for nothing.</b> Its features are already drawn — zooming in, or the map
+ * shrinking — so a read would fetch them again. Without this the page read in a loop: the facts strip says "Reading the
+ * features in view…", which wraps where the count does not, the header grows, the map shrinks by a line, `moveend`
+ * fires, and the next read's answer shrinks the header back. Measured 2026-11-07 at 1280 px: about forty queries a
+ * second for as long as the page was open (CI run 42374405509 counted 395 in ten seconds).
+ */
 map.on("moveend", () => {
-  if (byView) readView();
+  if (!byView) return;
+  const now = map.getView().calculateExtent(map.getSize());
+  if (lastRead && !lastRead.truncated && ol.extent.containsExtent(lastRead.extent, now)
+    && !(byView.minScale && viewScale() > byView.minScale)) return;
+  readView();
 });
 
 /**
