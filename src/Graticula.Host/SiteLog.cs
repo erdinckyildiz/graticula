@@ -44,7 +44,7 @@ internal static class SiteLog
             count.Parameters.AddWithValue("silence", SiteNode.Silence);
             up = Convert.ToInt32(await count.ExecuteScalarAsync(cancellation).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
         }
-        catch (Exception e) when (e is NpgsqlException or InvalidOperationException)
+        catch (Exception e) when (StoreOutage.Is(e) || e is InvalidOperationException)
         {
             return false;
         }
@@ -104,7 +104,7 @@ internal static class SiteLog
                     reader.IsDBNull(5) ? null : reader.GetString(5), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7))));
             }
         }
-        catch (Exception e) when (e is NpgsqlException or InvalidOperationException)
+        catch (Exception e) when (StoreOutage.Is(e) || e is InvalidOperationException)
         {
             return false;
         }

@@ -451,7 +451,7 @@ internal sealed partial class SiteNode : BackgroundService
             {
                 return;
             }
-            catch (Exception failure) when (failure is NpgsqlException or InvalidOperationException or TimeoutException)
+            catch (Exception failure) when (StoreOutage.Is(failure) || failure is InvalidOperationException)
             {
                 // The store may be gone for a while; the node keeps serving what it can and beats again in ten seconds.
                 BeatFailed(_log, failure.Message);

@@ -201,7 +201,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
                 }
             }
         }
-        catch (Exception failure) when (failure is NpgsqlException or System.IO.IOException or InvalidOperationException)
+        catch (Exception failure) when (StoreOutage.Is(failure) || failure is InvalidOperationException)
         {
             // A connection that fails here has released everything anyway.
             if (_connection is { } broken)
@@ -263,7 +263,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
 
             return taken;
         }
-        catch (Exception failure) when (failure is NpgsqlException or System.IO.IOException or InvalidOperationException)
+        catch (Exception failure) when (StoreOutage.Is(failure) || failure is InvalidOperationException)
         {
             // <b>Every lock went with the connection</b>, so nothing is held until a new one takes it again.
             bool lost;
