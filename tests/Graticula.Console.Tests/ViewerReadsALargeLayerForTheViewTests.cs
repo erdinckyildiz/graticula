@@ -116,7 +116,20 @@ public sealed class ViewerReadsALargeLayerForTheViewTests : ConsoleTest
             "window.__queries.length > 0",
             "The page opened outside the layer's range and asked for nothing: it should open where the layer draws.");
 
+        // The opening view's queries settle first: counted while one was still on its way, the zoom-out below was blamed
+        // for it (CI run 42371127474: expected 2, was 3).
         int before = await Browser.EvaluateAsync<int>("window.__queries.length");
+        for (int settled = 0; settled < 20; settled++)
+        {
+            await Task.Delay(500);
+            int now = await Browser.EvaluateAsync<int>("window.__queries.length");
+            if (now == before)
+            {
+                break;
+            }
+
+            before = now;
+        }
 
         await Browser.EvaluateAsync<string>("""
             (() => { const view = map.getView(); view.setResolution(view.getResolution() * 64); return 'out'; })()
