@@ -121,6 +121,55 @@ public sealed class PostgresItemResourceStore : IItemResourceStore
     }
 
     /// <inheritdoc/>
+    public async Task<ItemResourceWrite> ReplaceIfAsync(
+        Guid item, string path, byte[] expected, string mediaType, byte[] content, string access, long limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(content);
+
+        // <b>The comparison is in the update's own condition</b>, not only in the snapshot the sums are read from: an update
+        // that waits on another writer's row lock checks the condition again against the row that writer left, so of two
+        // writers that read the same bytes exactly one replaces them and the other is told the file changed.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            with held as (
+                select coalesce(sum(size) filter (where path <> @path), 0) as others,
+                       bool_or(path = @path) as there
+                  from item_resource where item_id = @item),
+            written as (
+                update item_resource r
+                   set media_type = @media, size = octet_length(@content), content = @content, access = @access,
+                       modified_at = now()
+                  from held
+                 where r.item_id = @item and r.path = @path and r.content = @expected
+                   and held.others + octet_length(@content) <= @limit
+                returning 1)
+            select coalesce(there, false), others + octet_length(@content) <= @limit, exists (select 1 from written)
+              from held
+            """);
+        command.Parameters.AddWithValue("item", item);
+        command.Parameters.AddWithValue("path", path);
+        command.Parameters.AddWithValue("expected", expected);
+        command.Parameters.AddWithValue("media", mediaType);
+        command.Parameters.AddWithValue("content", content);
+        command.Parameters.AddWithValue("access", access);
+        command.Parameters.AddWithValue("limit", limit);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+        bool there = reader.GetBoolean(0);
+        bool fits = reader.GetBoolean(1);
+        bool written = reader.GetBoolean(2);
+
+        return written ? ItemResourceWrite.Replaced
+            : !there ? ItemResourceWrite.NotThere
+            : !fits ? ItemResourceWrite.TooLarge
+            : ItemResourceWrite.Changed;
+    }
+
+    /// <inheritdoc/>
     public async Task<int> RemoveAsync(Guid item, string? path, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(path is null

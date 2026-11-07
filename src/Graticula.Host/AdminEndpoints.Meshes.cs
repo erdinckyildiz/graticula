@@ -42,8 +42,11 @@ namespace Graticula.Host;
 /// </list>
 /// </para>
 /// <para>
-/// <b>One writer at a time per layer, per node</b> (a lock in this process). Two nodes editing one layer at the same
-/// moment can lose an edit: D-390.
+/// <b>One writer at a time per layer, per site.</b> An edit reads the layer's state, changes it and writes it back only
+/// while the store still holds what it read (<see cref="IItemResourceStore.ReplaceIfAsync"/>); when another node wrote
+/// first, it reads again and applies the edit to what that node left, a few times before it answers busy. A lock in this
+/// process keeps the edits of one node from racing each other at all, so the retries are only ever between nodes
+/// (D-390, owner decision 2026-11-07).
 /// </para>
 /// </remarks>
 internal static partial class AdminEndpoints
@@ -130,13 +133,34 @@ internal static partial class AdminEndpoints
 
     private static readonly JsonSerializerOptions MeshJson = new(JsonSerializerDefaults.Web);
 
-    private static async Task<MeshState> ReadMeshAsync(IServiceProvider services, string id, CancellationToken cancellation)
+    private static async Task<MeshState> ReadMeshAsync(IServiceProvider services, string id, CancellationToken cancellation) =>
+        (await ReadMeshAsReadAsync(services, id, cancellation).ConfigureAwait(false)).State;
+
+    /// <summary>The layer's state and the bytes it was read from, which a write back names as what it changed.</summary>
+    private static async Task<(MeshState State, byte[]? Read)> ReadMeshAsReadAsync(IServiceProvider services, string id, CancellationToken cancellation)
     {
         IItemResourceStore resources = services.GetRequiredService<IItemResourceStore>();
         return await resources.FindAsync(Guid.Parse(id), MeshStatePath, cancellation).ConfigureAwait(false) is { } found
-            ? JsonSerializer.Deserialize<MeshState>(found.Content, MeshJson) ?? new MeshState()
-            : new MeshState();
+            ? (JsonSerializer.Deserialize<MeshState>(found.Content, MeshJson) ?? new MeshState(), found.Content)
+            : (new MeshState(), null);
     }
+
+    /// <summary>
+    /// Writes the layer's state back only while the store holds <paramref name="read"/>; false when another writer came
+    /// first (D-390).
+    /// </summary>
+    private static async Task<bool> WriteMeshIfAsync(IServiceProvider services, string id, byte[]? read, MeshState state, CancellationToken cancellation)
+    {
+        IItemResourceStore resources = services.GetRequiredService<IItemResourceStore>();
+        byte[] content = JsonSerializer.SerializeToUtf8Bytes(state, MeshJson);
+        ItemResourceWrite done = read is null
+            ? await resources.WriteAsync(Guid.Parse(id), MeshStatePath, "application/json", content, "private", replace: false, limit: long.MaxValue, cancellation).ConfigureAwait(false)
+            : await resources.ReplaceIfAsync(Guid.Parse(id), MeshStatePath, read, "application/json", content, "private", long.MaxValue, cancellation).ConfigureAwait(false);
+        return done is ItemResourceWrite.Added or ItemResourceWrite.Replaced;
+    }
+
+    /// <summary>How many times an edit is applied again to what another node wrote before it answers busy.</summary>
+    private const int MeshEditAttempts = 8;
 
     private static async Task WriteMeshAsync(IServiceProvider services, string id, MeshState state, CancellationToken cancellation)
     {
@@ -600,108 +624,121 @@ internal static partial class AdminEndpoints
         Dictionary<string, string> p = await MeshParamsAsync(context).ConfigureAwait(false);
         SemaphoreSlim gate = MeshLocks.GetOrAdd(mesh.Id, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellation).ConfigureAwait(false);
+        JsonArray Array(string key)
+        {
+            string text = p.GetValueOrDefault(key) ?? string.Empty;
+            return text.TrimStart().StartsWith('[') ? JsonNode.Parse(text) as JsonArray ?? [] : [];
+        }
+
         try
         {
-            MeshState state = await ReadMeshAsync(context.RequestServices, mesh.Id, cancellation).ConfigureAwait(false);
             IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
-            long gen = NextGen(state);
-            List<object> adds = [], updates = [], deletes = [], mapAdds = [], mapUpdates = [];
-
-            JsonArray Array(string key)
+            for (int attempt = 1; ; attempt++)
             {
-                string text = p.GetValueOrDefault(key) ?? string.Empty;
-                return text.TrimStart().StartsWith('[') ? JsonNode.Parse(text) as JsonArray ?? [] : [];
-            }
+                (MeshState state, byte[]? read) = await ReadMeshAsReadAsync(context.RequestServices, mesh.Id, cancellation).ConfigureAwait(false);
+                long gen = NextGen(state);
+                List<object> adds = [], updates = [], deletes = [], mapAdds = [], mapUpdates = [];
 
-            foreach (JsonNode? add in Array("adds"))
-            {
-                JsonObject attributes = add?["attributes"] as JsonObject ?? [];
-                string gid = Gid(attributes["globalid"]?.ToString() ?? attributes["GlobalID"]?.ToString()) ?? "{" + Guid.NewGuid().ToString("D").ToUpperInvariant() + "}";
-                if (state.Features.Any(f => f.Gid == gid))
+                foreach (JsonNode? add in Array("adds"))
                 {
-                    adds.Add(new { objectId = -1, globalId = gid, success = false, error = new { code = 1000, description = "A feature with this GlobalID exists." } });
-                    continue;
-                }
-
-                MeshFeature feature = new() { Oid = state.Next++, Gid = gid, Created = gen, Gen = gen, A = Kept(attributes) };
-                state.Features.Add(feature);
-                adds.Add(new { objectId = feature.Oid, globalId = gid, success = true });
-            }
-
-            foreach (JsonNode? update in Array("updates"))
-            {
-                JsonObject attributes = update?["attributes"] as JsonObject ?? [];
-                string? gid = Gid(attributes["globalid"]?.ToString() ?? attributes["GlobalID"]?.ToString());
-                long? oid = attributes["OBJECTID"] is JsonValue o && o.TryGetValue(out long l) ? l : null;
-                MeshFeature? feature = state.Features.FirstOrDefault(f => (gid is not null && f.Gid == gid) || (gid is null && f.Oid == oid));
-                if (feature is null)
-                {
-                    updates.Add(new { objectId = oid ?? -1, globalId = gid, success = false, error = new { code = 1019, description = "No feature with this id." } });
-                    continue;
-                }
-
-                foreach (var (key, value) in Kept(attributes))
-                {
-                    feature.A[key] = value;
-                }
-
-                feature.Gen = gen;
-                updates.Add(new { objectId = feature.Oid, globalId = feature.Gid, success = true });
-            }
-
-            string deleted = p.GetValueOrDefault("deletes") ?? string.Empty;
-            IEnumerable<string> deleteIds = deleted.TrimStart().StartsWith('[')
-                ? (JsonNode.Parse(deleted) as JsonArray ?? []).Select(n => n?.ToString() ?? string.Empty)
-                : deleted.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            foreach (string key in deleteIds)
-            {
-                string? gid = Gid(key);
-                long? oid = long.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l) ? l : null;
-                MeshFeature? feature = state.Features.FirstOrDefault(f => (gid is not null && f.Gid == gid) || (oid is not null && f.Oid == oid));
-                if (feature is null)
-                {
-                    deletes.Add(new { objectId = oid ?? -1, globalId = gid, success = false, error = new { code = 1019, description = "No feature with this id." } });
-                    continue;
-                }
-
-                state.Features.Remove(feature);
-                state.Maps.RemoveAll(m => m.Parent == feature.Gid);
-                state.Deleted.Add(new MeshTombstone(feature.Oid, feature.Gid, gen));
-                deletes.Add(new { objectId = feature.Oid, globalId = feature.Gid, success = true });
-            }
-
-            if (p.GetValueOrDefault("assetMaps") is { Length: > 0 } mapsText && JsonNode.Parse(mapsText) is JsonObject maps)
-            {
-                foreach ((string part, List<object> results) in new[] { ("adds", mapAdds), ("updates", mapUpdates) })
-                {
-                    foreach (JsonNode? map in maps[part] as JsonArray ?? [])
+                    JsonObject attributes = add?["attributes"] as JsonObject ?? [];
+                    string gid = Gid(attributes["globalid"]?.ToString() ?? attributes["GlobalID"]?.ToString()) ?? "{" + Guid.NewGuid().ToString("D").ToUpperInvariant() + "}";
+                    if (state.Features.Any(f => f.Gid == gid))
                     {
-                        string? gid = Gid(map?["globalId"]?.ToString());
-                        string? parent = Gid(map?["parentGlobalId"]?.ToString());
-                        string? hash = map?["assetHash"]?.ToString()?.ToLowerInvariant();
-                        bool held = hash is not null && await resources.FindAsync(Guid.Parse(mesh.Id), MeshAssetPrefix + hash, cancellation).ConfigureAwait(false) is not null;
-                        if (gid is null || parent is null || !held || !state.Features.Any(f => f.Gid == parent))
-                        {
-                            return MeshError(400, held || hash is null
-                                ? "An asset map names a feature this edit does not hold."
-                                : "An asset map names a model that was not uploaded to this layer. Nothing was changed.");
-                        }
+                        adds.Add(new { objectId = -1, globalId = gid, success = false, error = new { code = 1000, description = "A feature with this GlobalID exists." } });
+                        continue;
+                    }
 
-                        state.Maps.RemoveAll(m => m.Gid == gid);
-                        state.Maps.Add(new MeshMap(gid, parent, map?["assetName"]?.ToString() ?? "geometry.glb", hash!, gen));
-                        state.Features.First(f => f.Gid == parent).Gen = gen;
-                        results.Add(new { globalId = gid, success = true });
+                    MeshFeature feature = new() { Oid = state.Next++, Gid = gid, Created = gen, Gen = gen, A = Kept(attributes) };
+                    state.Features.Add(feature);
+                    adds.Add(new { objectId = feature.Oid, globalId = gid, success = true });
+                }
+
+                foreach (JsonNode? update in Array("updates"))
+                {
+                    JsonObject attributes = update?["attributes"] as JsonObject ?? [];
+                    string? gid = Gid(attributes["globalid"]?.ToString() ?? attributes["GlobalID"]?.ToString());
+                    long? oid = attributes["OBJECTID"] is JsonValue o && o.TryGetValue(out long l) ? l : null;
+                    MeshFeature? feature = state.Features.FirstOrDefault(f => (gid is not null && f.Gid == gid) || (gid is null && f.Oid == oid));
+                    if (feature is null)
+                    {
+                        updates.Add(new { objectId = oid ?? -1, globalId = gid, success = false, error = new { code = 1019, description = "No feature with this id." } });
+                        continue;
+                    }
+
+                    foreach (var (key, value) in Kept(attributes))
+                    {
+                        feature.A[key] = value;
+                    }
+
+                    feature.Gen = gen;
+                    updates.Add(new { objectId = feature.Oid, globalId = feature.Gid, success = true });
+                }
+
+                string deleted = p.GetValueOrDefault("deletes") ?? string.Empty;
+                IEnumerable<string> deleteIds = deleted.TrimStart().StartsWith('[')
+                    ? (JsonNode.Parse(deleted) as JsonArray ?? []).Select(n => n?.ToString() ?? string.Empty)
+                    : deleted.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (string key in deleteIds)
+                {
+                    string? gid = Gid(key);
+                    long? oid = long.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l) ? l : null;
+                    MeshFeature? feature = state.Features.FirstOrDefault(f => (gid is not null && f.Gid == gid) || (oid is not null && f.Oid == oid));
+                    if (feature is null)
+                    {
+                        deletes.Add(new { objectId = oid ?? -1, globalId = gid, success = false, error = new { code = 1019, description = "No feature with this id." } });
+                        continue;
+                    }
+
+                    state.Features.Remove(feature);
+                    state.Maps.RemoveAll(m => m.Parent == feature.Gid);
+                    state.Deleted.Add(new MeshTombstone(feature.Oid, feature.Gid, gen));
+                    deletes.Add(new { objectId = feature.Oid, globalId = feature.Gid, success = true });
+                }
+
+                if (p.GetValueOrDefault("assetMaps") is { Length: > 0 } mapsText && JsonNode.Parse(mapsText) is JsonObject maps)
+                {
+                    foreach ((string part, List<object> results) in new[] { ("adds", mapAdds), ("updates", mapUpdates) })
+                    {
+                        foreach (JsonNode? map in maps[part] as JsonArray ?? [])
+                        {
+                            string? gid = Gid(map?["globalId"]?.ToString());
+                            string? parent = Gid(map?["parentGlobalId"]?.ToString());
+                            string? hash = map?["assetHash"]?.ToString()?.ToLowerInvariant();
+                            bool held = hash is not null && await resources.FindAsync(Guid.Parse(mesh.Id), MeshAssetPrefix + hash, cancellation).ConfigureAwait(false) is not null;
+                            if (gid is null || parent is null || !held || !state.Features.Any(f => f.Gid == parent))
+                            {
+                                return MeshError(400, held || hash is null
+                                    ? "An asset map names a feature this edit does not hold."
+                                    : "An asset map names a model that was not uploaded to this layer. Nothing was changed.");
+                            }
+
+                            state.Maps.RemoveAll(m => m.Gid == gid);
+                            state.Maps.Add(new MeshMap(gid, parent, map?["assetName"]?.ToString() ?? "geometry.glb", hash!, gen));
+                            state.Features.First(f => f.Gid == parent).Gen = gen;
+                            results.Add(new { globalId = gid, success = true });
+                        }
                     }
                 }
-            }
 
-            await WriteMeshAsync(context.RequestServices, mesh.Id, state, cancellation).ConfigureAwait(false);
-            return Results.Json(new
-            {
-                addResults = adds, updateResults = updates, deleteResults = deletes,
-                assetMaps = new { addResults = mapAdds, updateResults = mapUpdates, deleteResults = System.Array.Empty<object>() },
-                editMoment = gen,
-            });
+                if (await WriteMeshIfAsync(context.RequestServices, mesh.Id, read, state, cancellation).ConfigureAwait(false))
+                {
+                    return Results.Json(new
+                    {
+                        addResults = adds, updateResults = updates, deleteResults = deletes,
+                        assetMaps = new { addResults = mapAdds, updateResults = mapUpdates, deleteResults = System.Array.Empty<object>() },
+                        editMoment = gen,
+                    });
+                }
+
+                // Another node wrote this layer between the read and the write: apply the edit again to what it left.
+                if (attempt == MeshEditAttempts)
+                {
+                    return MeshError(503, "The layer is being edited from another machine of this site. Nothing was changed; try again.");
+                }
+
+                await Task.Delay(Random.Shared.Next(5, 20 * attempt), cancellation).ConfigureAwait(false);
+            }
         }
         catch (JsonException)
         {

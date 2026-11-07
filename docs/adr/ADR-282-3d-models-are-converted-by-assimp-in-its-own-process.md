@@ -6,6 +6,7 @@
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-11-07. **That a converter is built is the owner's decision** ([ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §5.1, *glb + converter*). The library and how it is run are this ADR's. |
 | **Supersedes** | — |
+| **Amended by** | [ADR-283](ADR-283-owner-decisions-on-conversion-and-one-writer-per-site.md) §5.2, by owner decision: IFC and USD are to be converted too; DWG stays refused. |
 | **Superseded by** | — |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,

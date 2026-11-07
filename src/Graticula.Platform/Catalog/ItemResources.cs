@@ -31,6 +31,12 @@ public enum ItemResourceWrite
 
     /// <summary>Nothing: the item's resources would pass what one item may hold.</summary>
     TooLarge,
+
+    /// <summary>
+    /// Nothing: a conditional replace found the file changed since it was read — another writer, on this node or another,
+    /// wrote first (D-390).
+    /// </summary>
+    Changed,
 }
 
 /// <summary>
@@ -66,6 +72,23 @@ public interface IItemResourceStore
     /// <returns>What was done.</returns>
     Task<ItemResourceWrite> WriteAsync(
         Guid item, string path, string mediaType, byte[] content, string access, bool replace, long limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces a resource only while it still holds what the caller read — a compare-and-replace, so two writers on two
+    /// nodes cannot each write back what they read and lose the other's change (D-390).
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <param name="path">Its path.</param>
+    /// <param name="expected">The bytes the caller read and changed.</param>
+    /// <param name="mediaType">What it is.</param>
+    /// <param name="content">Its new bytes.</param>
+    /// <param name="access"><c>inherit</c> or <c>private</c>.</param>
+    /// <param name="limit">The most bytes the item's resources may hold together after the write.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns><see cref="ItemResourceWrite.Replaced"/>, or why not: <see cref="ItemResourceWrite.Changed"/>,
+    /// <see cref="ItemResourceWrite.NotThere"/> or <see cref="ItemResourceWrite.TooLarge"/>.</returns>
+    Task<ItemResourceWrite> ReplaceIfAsync(
+        Guid item, string path, byte[] expected, string mediaType, byte[] content, string access, long limit, CancellationToken cancellationToken);
 
     /// <summary>Removes one resource, or every one when <paramref name="path"/> is null.</summary>
     /// <param name="item">The item.</param>

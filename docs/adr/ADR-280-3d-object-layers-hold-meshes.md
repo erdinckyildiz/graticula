@@ -139,7 +139,8 @@ Not measured:
      The scene viewer's *Create a layer to draw in* offers it as *3D objects*. *Rebuild* writes the scene layer from
      the models, in part where it can.
    - **Who may do what.** Reads follow the item's sharing; edits are the owner's and an administrator's.
-   - **One writer at a time per node** (D-390).
+   - **One writer at a time per site**: a compare-and-replace of the layer's state, applied again when another node
+     wrote first ([ADR-283](ADR-283-owner-decisions-on-conversion-and-one-writer-per-site.md) §5.1; D-390, closed).
 
 ## 6. Consequences
 

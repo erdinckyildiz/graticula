@@ -67,7 +67,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["AssimpModelConverter.Extensions"] = "fixed: the model formats the converter offers (ADR-282)",
-        ["AdminEndpoints.Meshes.MeshLocks"] = "one lock per 3D object layer this node has edited — a count of layers (ADR-280 §5.4, D-390)",
+        ["AdminEndpoints.Meshes.MeshLocks"] = "one lock per 3D object layer this node has edited — a count of layers (ADR-280 §5.4; between nodes, ADR-283 §5.1)",
         ["ArcGisAdminEndpoints.Service.NotKept"] = "fixed: the documented updateDefinition keys this server does not keep (ADR-257 §13)",
         ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: one (ADR-204)",
         ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
