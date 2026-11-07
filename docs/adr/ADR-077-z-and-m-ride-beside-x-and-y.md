@@ -154,6 +154,25 @@ the binding constraint (A-037). Times overlap the baseline's.
    A sweep of every layer the fixture serves through Pro's search cursor, each value against the server's own `f=json`
    answer, found nothing else: nine layers, 72 rows, points, lines and polygons.
    **Field Maps is still owed**, on a device.
+   **2026-11-08 — Field Maps 26.2.2 on an Android 15 emulator signs in and opens the layer; it has not yet offered to
+   collect.** Three defects came out first, each a wall in front of the next:
+   - **No browser sign-in at `/studio` could succeed.** Since 2026-10-31 the form's cookie was kept for
+     `/studio/sharing` while the form posted to `/sharing/rest/oauth2/signin`, so the cookie never came back and every
+     sign-in was refused *This sign-in form has expired*. The form, the provider links and the out-of-band redirect now
+     carry the path base; `OAuthConformanceTests` follows the page's own form with path-scoped cookies, and fails on
+     the old code with the device's message.
+   - **`oauth2/validateAppAccess` did not exist**, and Field Maps reads anything but `valid: true` as *Access to this
+     application has been blocked*. It answers now, to the public contract (arcgis-rest-js's `IAppAccess`).
+   - **`community/self` put `creatorUT` in `userType` and had no `userLicenseTypeId`**, where `community/users/{name}`
+     already said both correctly; it wrote `unrestrictedUT`, which ArcGIS has no such id for. Both now say
+     `arcgisonly` and `viewerUT`, `editorUT` or `creatorUT`.
+   **What is still in the way.** A layer at the root `/rest/services` is not given the token of a person signed in at
+   `/studio`: its `/rest/info` names `https://host` as its owner, Field Maps compares that with the portal it signed
+   in to and says *Secured layers*. The same layer addressed as `/studio/rest/services/…` is served with the token —
+   [Q-228](../open-questions.md); signed in at the root `https://host` instead, the root layer is served with the token.
+   And with the layer drawn, Field Maps shows no Collect button although the layer says
+   `Create` and has a template; it still asks `community/users/{name}/userLicenseType` and the server's `/rest/self`,
+   both 404 here, and neither has a public description this could be written from.
 
 ## 7. Consequences
 

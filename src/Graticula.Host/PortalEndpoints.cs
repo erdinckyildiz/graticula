@@ -1016,7 +1016,11 @@ internal static partial class PortalEndpoints
             privileges = PrivilegesOf(current, administrator, Publishing(context)),
             access = "private",
             provider = "arcgis",
-            userType = "creatorUT",
+            // <b>`userType` is the account kind and the licence is `userLicenseTypeId`</b>, as `community/users/{name}`
+            // already said. Self wrote `creatorUT` into `userType` and no licence at all, and ArcGIS Field Maps, reading
+            // the licence from self, offered a member who may edit no Collect button (2026-11-08, on an emulator).
+            userType = "arcgisonly",
+            userLicenseTypeId = LicenseTypeIdOf(current.Authorization.UserType),
             level = "2",
             disabled = false,
             units = "metric",
