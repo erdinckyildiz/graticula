@@ -145,6 +145,41 @@ public sealed class ViewerReadsALargeLayerForTheViewTests : ConsoleTest
         Assert.Equal(before, await Browser.EvaluateAsync<int>("window.__queries.length"));
     }
 
+    /// <summary>
+    /// A page left open asks for nothing more once the view is read. It read in a loop until 2026-11-07: the facts strip's
+    /// "Reading…" wrapped where the count did not, the map changed height by a line each time, and every resize read the
+    /// view again — forty queries a second, for as long as the page stayed open.
+    /// </summary>
+    [Fact]
+    public async Task A_page_left_alone_stops_asking_once_the_view_is_read()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string service = await AnyQueryableServiceAsync();
+
+        await Browser.PlantAsync(LargeLayer);
+        await OpenAsync($"/studio/view.html?service={Uri.EscapeDataString(service)}", token, cookie);
+        await WaitForAsync(
+            $"{Facts}.includes('in view') && !{Facts}.includes('Reading')",
+            "The view was never read.");
+
+        await Task.Delay(1000);
+        int read = await Browser.EvaluateAsync<int>("window.__queries.length");
+
+        // What the strip's wrapping did, done on purpose and at any window width: the map loses a line and gets it back.
+        string map = "document.getElementById(map.getTarget())";
+        for (int i = 0; i < 3; i++)
+        {
+            await Browser.EvaluateAsync<bool>($"({map}.style.height = ({map}.getBoundingClientRect().height - 16) + 'px', map.updateSize(), true)");
+            await Task.Delay(600);
+            await Browser.EvaluateAsync<bool>($"({map}.style.height = '', map.updateSize(), true)");
+            await Task.Delay(600);
+        }
+
+        await Task.Delay(2000);
+        Assert.Equal(read, await Browser.EvaluateAsync<int>("window.__queries.length"));
+        Assert.InRange(read, 1, 5);
+    }
+
     /// <summary>The fixture's queryable layer, whose service has features to draw.</summary>
     private static Task<string> AnyQueryableServiceAsync()
     {
