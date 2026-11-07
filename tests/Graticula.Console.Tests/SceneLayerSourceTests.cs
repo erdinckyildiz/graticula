@@ -386,7 +386,7 @@ public sealed class SceneLayerSourceTests : ConsoleTest
         }
     }
     /// <summary>
-    /// ADR-282: a 3D object layer converts a model it is given as OBJ, COLLADA or FBX to glb, keeps it under the hash of what was uploaded,
+    /// ADR-282 and ADR-283: a 3D object layer converts a model it is given as OBJ, COLLADA, FBX, IFC or USD to glb, keeps it under the hash of what was uploaded,
     /// and places it by an asset map naming that hash; a file the converter cannot read is refused with its reason.
     /// </summary>
     [Fact]
@@ -445,7 +445,14 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             // COLLADA and FBX (ASCII) are converted by the same path (ADR-282 condition 1): the same box, in each.
             DirectoryInfo? repository = new(AppContext.BaseDirectory);
             while (repository is not null && repository.GetFiles("*.sln").Length == 0) repository = repository.Parent;
-            foreach ((string type, string file) in new[] { ("3D_dae", "box.dae"), ("3D_fbx", "box-ascii.fbx") })
+            // IFC by IfcConvert and USD, as text and zipped, by usd2glb (ADR-283 conditions 2 and 3): our own wall and box.
+            string editFormats = JsonDocument.Parse(layer).RootElement.GetProperty("infoFor3D").GetProperty("editFormats").GetRawText();
+            foreach (string offered in new[] { "3D_ifc", "3D_usda", "3D_usdz" })
+            {
+                Assert.True(editFormats.Contains(offered, StringComparison.Ordinal), $"{offered} is not offered: {editFormats}");
+            }
+
+            foreach ((string type, string file) in new[] { ("3D_dae", "box.dae"), ("3D_fbx", "box-ascii.fbx"), ("3D_ifc", "wall.ifc"), ("3D_usda", "box.usda"), ("3D_usdz", "box.usdz") })
             {
                 byte[] model = File.ReadAllBytes(Path.Combine(repository!.FullName, "tests", "Graticula.Console.Tests", "corpus", file));
                 JsonElement converted = (await PostAsync($"{root}/0/uploadAssets", new()
@@ -516,10 +523,32 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             const string Placed = "/\\bCreate\\b/.test(document.getElementById('toolPanel').innerText) || /Rebuild/.test(document.getElementById('toolPanel').innerText)";
             // A click the Editor does not take while its preview is still being drawn is clicked again, as a person
             // would (CI run 42302982644: one click, no form, on the runner's slower software rendering).
-            for (int attempt = 0; attempt < 3 && !await Browser.EvaluateAsync<bool>(Placed); attempt++)
+            // Each attempt comes to the point as a pointer does, over a few moves, waits for the view to finish drawing,
+            // hovers longer than the last and lands a little aside of it (CI run 42345957498: three clicks on one point,
+            // each after a single move, and none taken).
+            JsonElement area = JsonDocument.Parse(view).RootElement;
+            double cx = area.GetProperty("x").GetDouble() + (area.GetProperty("width").GetDouble() / 2);
+            double cy = area.GetProperty("y").GetDouble() + (area.GetProperty("height").GetDouble() / 2);
+            for (int attempt = 0; attempt < 5 && !await Browser.EvaluateAsync<bool>(Placed); attempt++)
             {
-                await MouseClickAsync(view);
-                for (int waited = 0; waited < 30 && !await Browser.EvaluateAsync<bool>(Placed); waited++)
+                double x = cx + ((attempt % 2 == 0 ? 1 : -1) * 15 * attempt), y = cy + (10 * attempt);
+                for (int step = 4; step >= 0; step--)
+                {
+                    await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x = x - (step * 12), y = y - (step * 8) });
+                    await Task.Delay(150);
+                }
+
+                for (int waited = 0; waited < 20 && await Browser.EvaluateAsync<bool>("!!scState.view.updating"); waited++)
+                {
+                    await Task.Delay(250);
+                }
+
+                await Task.Delay(1500 + (1000 * attempt));
+                await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x, y });
+                await Task.Delay(300);
+                await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x, y, button = "left", clickCount = 1 });
+                await Browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseReleased", x, y, button = "left", clickCount = 1 });
+                for (int waited = 0; waited < 20 && !await Browser.EvaluateAsync<bool>(Placed); waited++)
                 {
                     await Task.Delay(500);
                 }

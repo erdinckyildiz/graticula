@@ -11,52 +11,77 @@ using Graticula.Scenes;
 namespace Graticula.Host;
 
 /// <summary>
-/// ADR-282: 3D models converted to glb by the Open Asset Import Library's command-line tool, <c>assimp</c> (BSD-3), in
-/// a process of its own per file — a parser fault ends that process, not the server — under a time and a memory limit,
-/// in a scratch directory removed afterwards. Its glb is read back by this server's own reader before it is accepted.
+/// ADR-282 and ADR-283: 3D models converted to glb by a command-line tool in a process of its own per file — a parser
+/// fault ends that process, not the server — under a time and a memory limit, in a scratch directory removed afterwards.
+/// Its glb is read back by this server's own reader before it is accepted.
 /// </summary>
 /// <remarks>
-/// <b>The formats offered are the ones measured to convert</b> (ADR-282 §4): OBJ (alone, or zipped with its materials),
-/// COLLADA and FBX. Assimp reads more; each is offered when it is measured. When the tool is not installed the converter
-/// offers nothing, and an upload in another format than glb says so.
+/// <para>
+/// <b>Three tools, each for the formats measured to convert with it</b>:
+/// <list type="bullet">
+/// <item>the Open Asset Import Library's <c>assimp</c> (BSD-3) for OBJ, alone or zipped with its materials, COLLADA and
+/// FBX (ADR-282 §4);</item>
+/// <item>IfcOpenShell's <c>IfcConvert</c> (LGPL-3.0), with its Open CASCADE kernel and without its CGAL ones, for IFC
+/// (ADR-283 §5.2);</item>
+/// <item>our own <c>usd2glb</c>, built against tinyusdz (Apache-2.0), for USD in its text, binary and zipped forms
+/// (ADR-283 §5.2).</item>
+/// </list>
+/// </para>
+/// <para>
+/// A format is offered only when its tool is installed, and an upload in another format than glb says which are.
+/// </para>
 /// </remarks>
-internal sealed class AssimpModelConverter : IModelConverter
+internal sealed class ModelConverters : IModelConverter
 {
-    private static readonly Dictionary<string, string> Extensions = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>A format's file extension, the tool that converts it, and how the tool is told input and output.</summary>
+    private sealed record Route(string Extension, string Tool, string Arguments);
+
+    private static readonly Dictionary<string, Route> Extensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["3D_obj"] = ".obj", ["3D_dae"] = ".dae", ["3D_fbx"] = ".fbx",
+        ["3D_obj"] = new(".obj", "assimp", "export \"$1\" \"$2\" -fglb2"),
+        ["3D_dae"] = new(".dae", "assimp", "export \"$1\" \"$2\" -fglb2"),
+        ["3D_fbx"] = new(".fbx", "assimp", "export \"$1\" \"$2\" -fglb2"),
+        ["3D_ifc"] = new(".ifc", "IfcConvert", "-y -q \"$1\" \"$2\""),
+        ["3D_usdz"] = new(".usdz", "usd2glb", "\"$1\" \"$2\""),
+        ["3D_usdc"] = new(".usdc", "usd2glb", "\"$1\" \"$2\""),
+        ["3D_usda"] = new(".usda", "usd2glb", "\"$1\" \"$2\""),
     };
 
     private const long MaximumExpandedBytes = 512L * 1024 * 1024;
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(90);
 
-    private readonly string? tool;
+    private readonly Dictionary<string, string> tools;
 
-    public AssimpModelConverter() => tool = Find();
+    public ModelConverters() =>
+        tools = Extensions.Values.Select(r => r.Tool).Distinct(StringComparer.Ordinal)
+            .Select(t => (Name: t, Path: Find(t))).Where(t => t.Path is not null)
+            .ToDictionary(t => t.Name, t => t.Path!, StringComparer.Ordinal);
 
-    public IReadOnlyCollection<string> Formats => tool is null ? [] : Extensions.Keys;
+    public IReadOnlyCollection<string> Formats => [.. Extensions.Where(e => tools.ContainsKey(e.Value.Tool)).Select(e => e.Key)];
 
-    private static string? Find() =>
+    /// <summary>A tool on the path, followed through a link to where it is, so that the libraries beside it are found.</summary>
+    private static string? Find(string name) =>
         (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator)
-            .Select(d => Path.Combine(d, "assimp")).FirstOrDefault(File.Exists);
+            .Select(d => Path.Combine(d, name)).Where(File.Exists)
+            .Select(p => new FileInfo(p).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? p).FirstOrDefault();
 
     public async Task<ModelConversion> ConvertAsync(byte[] content, string format, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(content);
-        if (tool is null)
+        if (!Extensions.TryGetValue(format ?? string.Empty, out Route? route) || !tools.TryGetValue(route.Tool, out string? tool))
         {
-            return new(null, "This server has no 3D model converter installed (ADR-282); upload the model as glb.");
+            return new(null, Formats.Count == 0
+                ? "This server has no 3D model converter installed (ADR-282); upload the model as glb."
+                : $"{format} is not converted here; {string.Join(", ", Formats.Select(f => f[3..].ToUpperInvariant()))} and GLB are. Export the model as one of them.");
         }
 
-        if (!Extensions.TryGetValue(format ?? string.Empty, out string? extension))
-        {
-            return new(null, $"{format} is not converted here; OBJ, COLLADA, FBX and glb are. Export the model as one of them.");
-        }
+        string extension = route.Extension;
 
         string scratch = Directory.CreateTempSubdirectory("graticula-model-").FullName;
         try
         {
-            string? unpacked = Unpacked(content, scratch, extension);
+            // A usdz is a zip by its own definition, read whole by its converter: it is not unpacked here.
+            string? unpacked = extension == ".usdz" ? null : Unpacked(content, scratch, extension);
             if (unpacked is { Length: 0 })
             {
                 return new(null, $"The zip holds no {extension} file.");
@@ -69,9 +94,9 @@ internal sealed class AssimpModelConverter : IModelConverter
             {
                 RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = scratch, UseShellExecute = false,
             };
-            // A memory ceiling of 2 GB of address space for the converter alone.
+            // A memory ceiling of 2 GB of address space for the converter alone, and the libraries beside it found first.
             start.ArgumentList.Add("-c");
-            start.ArgumentList.Add("ulimit -v 2097152; exec \"$0\" export \"$1\" \"$2\" -fglb2");
+            start.ArgumentList.Add("ulimit -v 2097152; LD_LIBRARY_PATH=\"$(dirname \"$0\")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\" exec \"$0\" " + route.Arguments);
             start.ArgumentList.Add(tool);
             start.ArgumentList.Add(input);
             start.ArgumentList.Add(output);
@@ -93,7 +118,9 @@ internal sealed class AssimpModelConverter : IModelConverter
             string all = (await said.ConfigureAwait(false)) + "\n" + (await errors.ConfigureAwait(false));
             if (process.ExitCode != 0 || !File.Exists(output))
             {
-                string why = all.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("ERROR", StringComparison.Ordinal)) ?? "the converter could not read it";
+                string why = all.Split('\n').Select(l => l.Trim())
+                    .LastOrDefault(l => l.StartsWith("ERROR", StringComparison.Ordinal) || l.StartsWith("[error]", StringComparison.Ordinal) || l.StartsWith("The ", StringComparison.Ordinal))
+                    ?? "the converter could not read it";
                 return new(null, $"The model could not be converted: {why}.");
             }
 

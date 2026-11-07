@@ -793,7 +793,7 @@ public static class Program
         builder.Services.AddSingleton(scenePackageFiles);
         builder.Services.AddSingleton(new ScenePackages(settings.StatePath, scenePackageFiles));
         // ADR-282: a 3D object layer's models in other formats than glb, converted by Assimp in a process of its own.
-        builder.Services.AddSingleton<Graticula.Scenes.IModelConverter, AssimpModelConverter>();
+        builder.Services.AddSingleton<Graticula.Scenes.IModelConverter, ModelConverters>();
 
         // <b>Behind the breaker, D-127.</b> A capabilities document needs one projection call
         // per distinct spatial reference and cannot be written without them; during an outage

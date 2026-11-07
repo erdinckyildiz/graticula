@@ -651,6 +651,32 @@ jobs:
       - name: the 3D model converter
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends assimp-utils && assimp version | head -3
 
+      # ADR-283 §5.2: IFC by IfcOpenShell's IfcConvert (the pinned release, without its CGAL kernels) and USD by our own
+      # usd2glb against tinyusdz, as the image carries them. usd2glb is compiled once per change to tools/usd2glb and
+      # kept in the cache, so the four parts do not each spend minutes on it.
+      - name: the IFC and USD converters, as last built
+        uses: actions/cache@v4
+        with:
+          path: ~/usd2glb
+          key: usd2glb-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/usd2glb/**') }}
+
+      - name: the IFC and USD converters
+        run: |
+          sh tools/ifcconvert-fetch.sh amd64 "$HOME/ifcconvert"
+          sudo ln -sf "$HOME/ifcconvert/IfcConvert" /usr/local/bin/IfcConvert
+          if [ ! -x "$HOME/usd2glb/usd2glb" ]; then
+            read -r tag commit < tools/usd2glb/TINYUSDZ
+            git clone --quiet --branch "$tag" https://github.com/lighttransport/tinyusdz "$RUNNER_TEMP/tinyusdz"
+            test "$(git -C "$RUNNER_TEMP/tinyusdz" rev-parse HEAD)" = "$commit"
+            cmake -S tools/usd2glb -B "$RUNNER_TEMP/usd2glb-build" -DCMAKE_BUILD_TYPE=Release -DTINYUSDZ_DIR="$RUNNER_TEMP/tinyusdz" > /dev/null
+            cmake --build "$RUNNER_TEMP/usd2glb-build" --target usd2glb -j"$(nproc)" > /dev/null
+            mkdir -p "$HOME/usd2glb" && cp "$RUNNER_TEMP/usd2glb-build/usd2glb" "$HOME/usd2glb/"
+          fi
+          sudo ln -sf "$HOME/usd2glb/usd2glb" /usr/local/bin/usd2glb
+          IfcConvert --version 2>&1 | head -1
+          usd2glb tests/Graticula.Console.Tests/corpus/box.usda "$RUNNER_TEMP/box.glb" && test -s "$RUNNER_TEMP/box.glb"
+          IfcConvert -y -q tests/Graticula.Console.Tests/corpus/wall.ifc "$RUNNER_TEMP/wall.glb" && test -s "$RUNNER_TEMP/wall.glb"
+
       # ADR-266: the webhook tests post to a listener inside the test on 127.0.0.1, which a webhook refuses unless the
       # deployment allows its own network. On here only so that receiver can be reached; off is the default.
       # ADR-277: the scene rebuild sweep looks every five seconds here, rather than five minutes, so its test is quick.

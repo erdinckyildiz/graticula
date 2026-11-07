@@ -40,6 +40,36 @@ RUN python -I tools/pdfium-natives.py fetch linux-x64 /pdfium/linux-x64 \
  && python -I tools/pdfium-natives.py fetch linux-arm64 /pdfium/linux-arm64
 
 # ---------------------------------------------------------------------------
+# <b>IfcOpenShell's IfcConvert for a 3D object layer's IFC models — ADR-283 §5.2.</b> The release pinned by
+# SHA-256 in tools/ifcconvert-fetch.sh, both architectures, laid out with only what converting to glb loads: none of
+# its CGAL kernels (GPL-3.0-or-later), none of its OpenGL libraries. Nothing runs here; the script downloads, checks
+# and copies.
+FROM --platform=$BUILDPLATFORM python@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17 AS ifcconvert
+RUN apt-get update && apt-get install --yes --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+COPY tools/ifcconvert-fetch.sh tools/ifcconvert-fetch.sh
+RUN sh tools/ifcconvert-fetch.sh amd64 /ifc/amd64 && sh tools/ifcconvert-fetch.sh arm64 /ifc/arm64
+
+# ---------------------------------------------------------------------------
+# <b>usd2glb, our own USD to glb converter, against tinyusdz (Apache-2.0) — ADR-283 §5.2.</b> tinyusdz at the
+# commit tools/usd2glb/TINYUSDZ names, checked after the clone. Cross-compiled on the build machine for the target's
+# architecture rather than compiled under emulation, which would take most of an hour.
+FROM --platform=$BUILDPLATFORM ubuntu:noble AS usd2glb
+ARG TARGETARCH
+RUN apt-get update && apt-get install --yes --no-install-recommends cmake make git ca-certificates binutils \
+      g++-x86-64-linux-gnu g++-aarch64-linux-gnu binutils-x86-64-linux-gnu binutils-aarch64-linux-gnu \
+ && rm -rf /var/lib/apt/lists/*
+COPY tools/usd2glb/ /usd2glb-src/
+RUN set -eu; read -r tag commit < /usd2glb-src/TINYUSDZ; \
+    git clone --quiet --branch "$tag" https://github.com/lighttransport/tinyusdz /tinyusdz; \
+    test "$(git -C /tinyusdz rev-parse HEAD)" = "$commit"; \
+    case "$TARGETARCH" in amd64) triple=x86_64-linux-gnu ;; arm64) triple=aarch64-linux-gnu ;; *) exit 1 ;; esac; \
+    cmake -S /usd2glb-src -B /b -DCMAKE_BUILD_TYPE=Release -DTINYUSDZ_DIR=/tinyusdz \
+      -DCMAKE_CXX_COMPILER="$triple-g++" -DCMAKE_C_COMPILER="$triple-gcc" -DCMAKE_SYSTEM_NAME=Linux > /dev/null; \
+    cmake --build /b --target usd2glb -j"$(nproc)" > /dev/null; \
+    "$triple-strip" /b/usd2glb; \
+    mkdir -p /out && cp /b/usd2glb /out/ && cp /tinyusdz/LICENSE /out/LICENSE-tinyusdz.txt
+
+# ---------------------------------------------------------------------------
 # <b>`$BUILDPLATFORM`, so a two-architecture build compiles once — D-262.</b> The publish
 # below is portable (`UseAppHost=false`, no runtime identifier), so its output runs on amd64
 # and arm64 alike and there is nothing to gain from running the SDK under emulation. Only the
@@ -279,7 +309,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 #
 # assimp-utils, for ADR-282: a 3D object layer's models in OBJ, COLLADA or FBX are converted to glb by Assimp's
 # command-line tool (BSD-3), run as a process of its own per file — nothing of it is linked into the server.
-RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16 assimp-utils  && rm -rf /var/lib/apt/lists/*
+#
+# libsqlite3-0, for ADR-283: IfcConvert's glb writer links it.
+RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16 assimp-utils libsqlite3-0  && rm -rf /var/lib/apt/lists/*
 
 # ADR-223 §5.6: users' Python toolboxes run on this interpreter and this wheel set, fixed when the image is built —
 # nothing is installed at runtime. grapy itself is copied beside the server by the build (src/grapy/grapy).
@@ -337,6 +369,14 @@ COPY --from=build /gdal-out/${TARGETARCH}/ ./importer/gdal/
 
 # ADR-268: this architecture's PDFium for the reader's PDF thumbnails, with its licences.
 COPY --from=build /pdfium-out/${TARGETARCH}/ ./importer/pdfium/
+
+# ADR-283 §5.2: this architecture's IfcConvert and usd2glb, each run as a process of its own per model by
+# ModelConverters, found on the path. IfcConvert's libraries are beside it, where the converter points it.
+COPY --from=ifcconvert /ifc/${TARGETARCH}/ /opt/ifcconvert/
+COPY --from=usd2glb /out/ /opt/usd2glb/
+RUN ln -s /opt/ifcconvert/IfcConvert /usr/local/bin/IfcConvert && ln -s /opt/usd2glb/usd2glb /usr/local/bin/usd2glb \
+ && test -x /opt/ifcconvert/IfcConvert && test -x /opt/usd2glb/usd2glb && test -s /opt/usd2glb/LICENSE-tinyusdz.txt \
+ && ! ls /opt/ifcconvert | grep -qi cgal
 
 # <b>The font is redistributed by this image, so its notice travels with it.</b>
 # DejaVu Sans is compiled into `Graticula.Render.Skia.dll` rather than sitting beside
