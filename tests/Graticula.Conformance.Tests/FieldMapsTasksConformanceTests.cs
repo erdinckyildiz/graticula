@@ -112,6 +112,39 @@ public sealed class FieldMapsTasksConformanceTests : ArcGisClient
             Assert.True(first.GetProperty("editors").GetArrayLength() > 0, after);
             Assert.Empty(first.GetProperty("sharedUpdateGroups").EnumerateArray());
             Assert.Equal(Types, first.GetProperty("types").EnumerateArray().Select(t => t.GetString()));
+            Assert.Empty(first.GetProperty("alsoTasksFor").EnumerateArray());
+
+            // A second map with tasks on the same layer: each names the other, since the lists are the layer's.
+            (int second, string secondBody) = await AdminAsync(HttpMethod.Post, "/content/webmaps", JsonSerializer.Serialize(new
+            {
+                title = "zz tasks map two", sharing = "private",
+                document = new
+                {
+                    operationalLayers = new[] { new { id = "t", title = "Tasks", layerType = "ArcGISFeatureLayer", url = $"{root}{feature}" } },
+                    baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                    version = "2.31",
+                },
+            }));
+            Assert.True(second == 201, secondBody);
+            string map2 = JsonDocument.Parse(secondBody).RootElement.GetProperty("id").GetString()!;
+
+            try
+            {
+                (int on2, string on2Body) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map2}/tasks",
+                    JsonSerializer.Serialize(new { layer = "t", types = Types, assignees = new[] { new { username = "zz_worker" } } }));
+                Assert.True(on2 == 200, on2Body);
+                (_, string mine) = await AdminAsync(HttpMethod.Get, $"/content/webmaps/{map}/tasks");
+                Assert.Contains("zz tasks map two", JsonDocument.Parse(mine).RootElement.GetProperty("layers")[0]
+                    .GetProperty("alsoTasksFor").EnumerateArray().Select(t => t.GetString()));
+            }
+            finally
+            {
+                (_, string gone2) = await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{map2}");
+                if (JsonDocument.Parse(gone2).RootElement.TryGetProperty("recycled", out JsonElement e2) && e2.ValueKind == JsonValueKind.String)
+                {
+                    await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{e2.GetString()}");
+                }
+            }
 
             // One task layer per map: another layer is refused while tasks are on this one.
             (int other, string otherBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}/tasks",
@@ -135,6 +168,7 @@ public sealed class FieldMapsTasksConformanceTests : ArcGisClient
             (_, string orphan) = await AdminAsync(HttpMethod.Get, $"/content/webmaps/{map}/tasks");
             JsonElement left = JsonDocument.Parse(orphan).RootElement;
             Assert.True(left.GetProperty("orphaned").GetBoolean(), orphan);
+            Assert.Equal(parts[3], left.GetProperty("orphanTitle").GetString());
             Assert.False(left.GetProperty("enabled").GetBoolean(), orphan);
 
             (int blocked, string blockedBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}/tasks",

@@ -884,24 +884,29 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .checklist label { display: flex; align-items: center; gap: var(--gap-2); padding: 5px 0; font-size: var(--t-body); }
 .checklist .hint { margin: -4px 0 4px 26px; }
 /* ADR-286: a whole organization to choose task assignees from scrolls inside its box. */
-#mapTasksPeople { max-height: 280px; overflow-y: auto; border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; margin-top: 6px; }
+#mapTasksPeople { display: flex; flex-direction: column; max-height: 280px; overflow-y: auto; border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; margin-top: 6px; }
 /* ADR-286, after the design review: the section reads as the layer's Settings do — a heading with its rule, small
    semibold labels over their controls, links underlined, and the error at the field it is about. */
 #mapSettings h4 { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule); margin-bottom: var(--gap-3); }
 #mapTasks { margin-bottom: var(--gap-6); max-width: 40rem; }
-#mapTasks .taskform { display: grid; gap: 8px; margin: var(--gap-3) 0; }
+#mapTasks .taskform { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: var(--gap-3) 0; }
 #mapTasks .taskform .hint { margin: 0; }
-#mapTasks label.field select { max-width: 360px; }
-#mapTasks textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+#mapTasks label.field select { width: 100%; max-width: 360px; }
+#mapTasks textarea { width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit; }
 #mapTasks fieldset.taskpeople { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 6px; }
 #mapTasks .fieldname { font-size: 13px; font-weight: 600; color: var(--muted); padding: 0; }
-#mapTasks .field-static { margin: 0; }
+#mapTasks .field-static { margin: 0; display: grid; gap: 3px; }
+#mapTasks .field-static .hint { margin: 0; }
 #mapTasks #mapTasksFind { width: 100%; max-width: 360px; box-sizing: border-box; }
 #mapTasks .fielderror { color: var(--alert); font-size: var(--t-small); margin: 0; }
 #mapTasks [aria-invalid="true"] { border-color: var(--alert); }
 #mapTasks .hint a, #mapTasks p a { text-decoration: underline; }
-#mapTasks .warn-inline { margin: 4px 0; }
+#mapTasks .warn-inline { margin: 4px 0; max-width: 40rem; }
+#mapTasks h4:focus { outline: none; }
 #mapTasks .tasksfacts { margin: 0 0 var(--gap-3); }
+#mapTasksPeople label { flex: none; }
+#mapTasksPeople label > span { min-width: 0; }
+#mapTasksPeople .rowmeta { overflow-wrap: anywhere; min-width: 0; }
 
 .toolbar {
   display: flex; align-items: center; gap: var(--gap-3);
@@ -4626,6 +4631,9 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #mapSide, #docSide { padding: 22px; }
 .maplayers .kindtag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #667);
   border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; }
+/* The shared update mark in the Share dialog: an outlined muted chip, in the words it means. */
+#share .kindtag { font-size: 11px; color: var(--muted); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 1px 6px; white-space: nowrap; font-weight: 400; }
 dialog h3[tabindex="-1"]:focus { outline: none; }
 #exportData .formats .check > span { display: flex; flex-direction: column; }
 #exportData .formats .hint { margin: 0; }

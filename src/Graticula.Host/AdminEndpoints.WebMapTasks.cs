@@ -80,8 +80,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        string? configured = await resources.FindAsync(Guid.Parse(map.Id), FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false)
-            is { } stored ? FieldMapsTasks.LayerIdOf(stored.Content) ?? string.Empty : null;
+        byte[]? file = (await resources.FindAsync(Guid.Parse(map.Id), FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false))?.Content;
+        string? configured = file is null ? null : FieldMapsTasks.LayerIdOf(file) ?? string.Empty;
 
         (string Id, string Title, string? Url)[] operational = [.. OperationalFeatureLayers(map.Document)];
 
@@ -89,6 +89,39 @@ internal static partial class AdminEndpoints
         // does not remove them either, and Designer then asks to *update the map to remove task settings*. Said here as
         // `orphaned`, with no layer, so the page can offer the same removal (ADR-286 §5.7).
         bool orphaned = configured is not null && !operational.Any(l => l.Id == configured);
+
+        // The layer the left-behind settings were for, by name, when this server wrote them (the review's 13).
+        string? orphanTitle = orphaned && file is not null && FieldMapsTasks.LayerOf(file) is { } gone
+            && await layers.FindByIdAsync(gone, cancellation).ConfigureAwait(false) is { } was
+                ? was.Definition.Name
+                : null;
+
+        // <b>A layer can hold the tasks of more than one map</b>, and the lists are the layer's: changing them here changes
+        // what every such map shows. The other maps are named so that is not a surprise (the review's 16).
+        Dictionary<Guid, List<string>> alsoIn = [];
+
+        if (LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization))
+        {
+            IReadOnlyList<WebMap> all = await maps.ListAsync(cancellation).ConfigureAwait(false);
+            WebMap[] others = [.. all.Where(m => m.Id != map.Id && Guid.TryParse(m.Id, out _) && Readable(current, m))];
+            IReadOnlySet<Guid> tasked = await resources.ItemsHoldingAsync(
+                [.. others.Select(m => Guid.Parse(m.Id))], FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false);
+
+            foreach (WebMap other in others.Where(m => tasked.Contains(Guid.Parse(m.Id))))
+            {
+                if ((await resources.FindAsync(Guid.Parse(other.Id), FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false))
+                        is { } theirs
+                    && FieldMapsTasks.LayerOf(theirs.Content) is { } shared)
+                {
+                    if (!alsoIn.TryGetValue(shared, out List<string>? titles))
+                    {
+                        alsoIn[shared] = titles = [];
+                    }
+
+                    titles.Add(other.Title);
+                }
+            }
+        }
 
         bool manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization);
         Access access = manages ? await AccessAsync(groups, members, cancellation).ConfigureAwait(false) : Access.None;
@@ -144,7 +177,8 @@ internal static partial class AdminEndpoints
                     ? [.. people.Codes.Select(c => new TaskAssigneeAnswer(c.Code.Text ?? string.Empty, c.Name))]
                     : [],
                 [.. sharedUpdate.Select(g => new TaskGroupAnswer(g.Name, g.Title ?? g.Name))],
-                manages ? [.. editors.Order(StringComparer.OrdinalIgnoreCase)] : null));
+                manages ? [.. editors.Order(StringComparer.OrdinalIgnoreCase)] : null,
+                layer is not null && alsoIn.TryGetValue(layer.Id, out List<string>? elsewhere) ? [.. elsewhere] : []));
         }
 
         // Who the map reaches: everyone signed in when it is shared with the organization or everyone, and otherwise its
@@ -170,6 +204,7 @@ internal static partial class AdminEndpoints
         {
             enabled = configured is not null && !orphaned,
             orphaned,
+            orphanTitle,
             layer = string.IsNullOrEmpty(configured) ? null : configured,
             types = on?.Types ?? [],
             assignees = on?.Assignees ?? [],
@@ -247,7 +282,8 @@ internal static partial class AdminEndpoints
         [property: JsonPropertyName("types")] string[] Types,
         [property: JsonPropertyName("assignees")] TaskAssigneeAnswer[] Assignees,
         [property: JsonPropertyName("sharedUpdateGroups")] TaskGroupAnswer[] SharedUpdateGroups,
-        [property: JsonPropertyName("editors")] string[]? Editors);
+        [property: JsonPropertyName("editors")] string[]? Editors,
+        [property: JsonPropertyName("alsoTasksFor")] string[] AlsoTasksFor);
 
     /// <summary>One assignee in a layer's list.</summary>
     internal sealed record TaskAssigneeAnswer(

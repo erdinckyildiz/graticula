@@ -102,7 +102,9 @@ tasks are for, so it is kept and not argued here.
    administrator, not in such a group — ADR-075), and which ones the map's sharing does not reach; and it opens the
    layer's Share dialog, where a shared update group is now marked as one. The answer behind it is computed by the
    server: per layer `sharedUpdateGroups` and `editors`, and for the map `readers` (null when it is shared with the
-   organization or everyone).
+   organization or everyone). When the layer holds the tasks of other maps too, the section names them, since the
+   lists are the layer's and a change here changes them there (`alsoTasksFor`, read from the list names this server
+   writes); and settings left by a removed layer are said with that layer's name (`orphanTitle`).
 6. **A token sent as a part of a multipart form under 8 MB authenticates**, as ArcGIS reads one: the ArcGIS API for
    Python sends `addResources` that way, and it arrived anonymous.
 7. **Disabling is ArcGIS's** (owner decision, *"ArcGIS ile aynı olsun"*). Esri's *Prepare tasks*: *"When you disable
@@ -113,9 +115,10 @@ tasks are for, so it is kept and not argued here.
    settings are not fully removed from the map … you will prompted to Update map to remove task settings. Until this
    is update is completed, no other layer in the map can be enabled for tasks."* So when the configuration names a layer
    the map no longer holds, the answer says `orphaned`, the section offers *Remove task settings*, and enabling any other
-   layer is refused until they are removed. **INFERRED:** that the refusal applies here as Designer applies it — Esri's
-   sentence describes Designer's prompt, not a server rule. **INFERRED:** saving the map in the Map Viewer without the
-   task layer does not remove the settings by itself, because ArcGIS's own Map Viewer does not; only this section does.
+   layer is refused until they are removed — **confirmed by the owner 2026-11-08:** *"arcgis ile aynı olsun"* ("the same
+   as ArcGIS"), Designer's behaviour applied here. Saving the map in the Map Viewer without the task layer does not
+   remove the settings by itself, because ArcGIS's own Map Viewer does not; only this section does — **confirmed by the
+   owner the same day:** *"ArcGIS gibi bıraksın"* ("let it leave them, as ArcGIS does").
 
 ## 6. Consequences
 
@@ -158,6 +161,7 @@ condition 5 (Field Maps' sign-in and Collect), [ADR-215](ADR-215-what-arcgis-ign
    and is condition 4.
 4. **The owner confirms §5.7's two INFERRED points**: the refusal to enable another layer while orphaned settings remain,
    and that the Map Viewer does not remove the settings when the task layer is taken out of the map.
+   **DISCHARGED 2026-11-08:** *"arcgis ile aynı olsun"* for the refusal, *"ArcGIS gibi bıraksın"* for the Map Viewer.
 
 ## 10. Revisit triggers
 

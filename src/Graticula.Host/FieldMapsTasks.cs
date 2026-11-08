@@ -259,6 +259,36 @@ internal static class FieldMapsTasks
         }
     }
 
+    /// <summary>
+    /// The layer a configuration written here is about, read from its task type list's name (<see cref="DomainName"/>),
+    /// or null for a file this server did not write. The file names its layer only by the map's operational layer id,
+    /// which says nothing once the layer has left the map.
+    /// </summary>
+    public static Guid? LayerOf(byte[] configuration)
+    {
+        try
+        {
+            using JsonDocument read = JsonDocument.Parse(configuration);
+            string? name = read.RootElement.ValueKind == JsonValueKind.Object
+                && read.RootElement.TryGetProperty("fieldSchema", out JsonElement schema) && schema.ValueKind == JsonValueKind.Object
+                && schema.TryGetProperty("taskTypeField", out JsonElement field) && field.ValueKind == JsonValueKind.Object
+                && field.TryGetProperty("codedValueDomain", out JsonElement domain) && domain.ValueKind == JsonValueKind.Object
+                && domain.TryGetProperty("name", out JsonElement named) && named.ValueKind == JsonValueKind.String
+                    ? named.GetString()
+                    : null;
+
+            string prefix = TypeField + "_";
+            return name is not null && name.StartsWith(prefix, StringComparison.Ordinal)
+                && Guid.TryParseExact(name[prefix.Length..], "N", out Guid layer)
+                    ? layer
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>A map's type keywords with <see cref="Keyword"/> added when it has tasks.</summary>
     public static string[] WithTasks(string[] keywords, bool tasks) =>
         tasks && !keywords.Contains(Keyword, StringComparer.Ordinal)

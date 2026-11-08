@@ -37,6 +37,18 @@ public sealed class MapTasksScreenTests : ConsoleTest
         return (JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!, folder, service, layerUrl);
     }
 
+    private static string MapBodyOf(string name, params (string Id, string Title, string Url)[] layers) => JsonSerializer.Serialize(new
+    {
+        title = "zz tasks screen " + name,
+        sharing = "private",
+        document = new
+        {
+            operationalLayers = layers.Select(l => new { id = l.Id, title = l.Title, layerType = "ArcGISFeatureLayer", url = l.Url }).ToArray(),
+            baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+            version = "2.31",
+        },
+    });
+
     private static string MapBody(string name, string? layerUrl) => JsonSerializer.Serialize(new
     {
         title = "zz tasks screen " + name,
@@ -255,6 +267,170 @@ public sealed class MapTasksScreenTests : ConsoleTest
         finally
         {
             await CleanUpAsync(map, folder, service);
+        }
+    }
+
+    /// <summary>
+    /// Protect from deletion changes in place: what is being typed in the task form above it stays (design review 2).
+    /// </summary>
+    [Fact]
+    public async Task Protecting_the_map_keeps_the_task_form()
+    {
+        (string token, _) = await SignInAsync();
+        (string map, string folder, string service, _) = await MapWithALayerAsync(withLayer: true);
+
+        try
+        {
+            await OpenSettingsAsync(map, token, "!!document.getElementById('mapTasksTypes')");
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  window.__letWritesTo = ['/protection'];
+                  const types = document.getElementById('mapTasksTypes');
+                  types.value = 'Typed before protecting';
+                  types.dispatchEvent(new Event('input', { bubbles: true }));
+                  window.__says = document.getElementById('mapTasksSays');
+                  document.getElementById('mapProtect').click();
+                  return true;
+                })()
+                """);
+            await WaitForAsync("document.getElementById('mapDelete').disabled", "Protecting the map never took.");
+
+            Assert.Equal("Typed before protecting", await Browser.EvaluateAsync<string>("document.getElementById('mapTasksTypes').value"));
+            Assert.True(await Browser.EvaluateAsync<bool>("window.__says === document.getElementById('mapTasksSays')"),
+                "Protecting the map replaced the task section's status line.");
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}/protection", "{\"protected\":false}");
+            await CleanUpAsync(map, folder, service);
+        }
+    }
+
+    /// <summary>
+    /// Choosing another layer keeps what was typed when that layer has no lists of its own (design review 3); and at
+    /// phone width, two layers with a long title and the member list fit without sideways scroll (design review 1).
+    /// </summary>
+    [Fact]
+    public async Task Choosing_another_layer_keeps_what_was_typed_and_two_layers_fit_a_phone()
+    {
+        (string token, _) = await SignInAsync();
+        (string map, string folder, string service, string url) = await MapWithALayerAsync(withLayer: true);
+
+        try
+        {
+            string title = "A layer of hydrant inspections with a title long enough to push a select past a phone's width";
+            (int saved, string savedBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}",
+                MapBodyOf("two", ("tasks1", "Hydrant checks", url), ("tasks2", title, url)));
+            Assert.True(saved == 200, savedBody);
+
+            await OpenSettingsAsync(map, token, "!!document.getElementById('mapTasksLayer')");
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const types = document.getElementById('mapTasksTypes');
+                  types.value = 'Kept across the change';
+                  types.dispatchEvent(new Event('input', { bubbles: true }));
+                  const layer = document.getElementById('mapTasksLayer');
+                  layer.value = 'tasks2';
+                  layer.dispatchEvent(new Event('change', { bubbles: true }));
+                  return true;
+                })()
+                """);
+
+            Assert.Equal("tasks2", await Browser.EvaluateAsync<string>("document.getElementById('mapTasksLayer').value"));
+            Assert.Equal("Kept across the change", await Browser.EvaluateAsync<string>("document.getElementById('mapTasksTypes').value"));
+
+            await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new { width = 390, height = 844, deviceScaleFactor = 1, mobile = false });
+
+            try
+            {
+                await WaitForAsync("!!document.querySelector('#mapTasksPeople [data-map-task-person]')", "The members were never listed.");
+                int[] widths = await Browser.EvaluateAsync<int[]>(
+                    "[document.documentElement.scrollWidth, document.documentElement.clientWidth]") ?? [];
+                Assert.True(widths.Length == 2 && widths[0] <= widths[1],
+                    $"At 390 the page is {widths[0]} wide in a {widths[1]} window: two layers with a long title push it sideways.");
+
+                int over = await Browser.EvaluateAsync<int>(
+                    "(() => { const l = document.getElementById('mapTasksPeople'); return l.scrollWidth - l.clientWidth; })()");
+                Assert.True(over <= 0, $"The member list is {over}px wider than its box at 390.");
+            }
+            finally
+            {
+                await Browser.CallAsync("Emulation.clearDeviceMetricsOverride", new { });
+            }
+        }
+        finally
+        {
+            await CleanUpAsync(map, folder, service);
+        }
+    }
+
+    /// <summary>
+    /// Removing settings left by a removed layer, on a map where no other layer can hold tasks, says only what is true and
+    /// leaves focus on the section's heading rather than on nothing (design review 4).
+    /// </summary>
+    [Fact]
+    public async Task Removing_left_settings_with_nothing_to_enable_keeps_focus_and_says_what_is_true()
+    {
+        (string token, _) = await SignInAsync();
+        (string map, string folder, string service, _) = await MapWithALayerAsync(withLayer: true);
+
+        try
+        {
+            (int on, string onBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}/tasks", JsonSerializer.Serialize(new
+            {
+                layer = "tasks1", types = Inspection, assignees = new[] { new { username = "zz_worker" } },
+            }));
+            Assert.True(on == 200, onBody);
+            (int saved, string savedBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}", MapBody("emptied", null));
+            Assert.True(saved == 200, savedBody);
+
+            await OpenSettingsAsync(map, token, "!!document.getElementById('mapTasksClear')");
+            Assert.Contains(service, await Browser.EvaluateAsync<string>("document.getElementById('mapTasksBody').textContent") ?? "", StringComparison.Ordinal);
+
+            await Browser.EvaluateAsync<bool>("(() => { window.__letWritesTo = ['/tasks']; document.getElementById('mapTasksClear').click(); return true; })()");
+            await WaitForAsync("(document.getElementById('mapTasksBody').textContent || '').includes('Not available')", "Removing the settings never finished.");
+
+            Assert.Equal("mapTasksHead", await Browser.EvaluateAsync<string>("document.activeElement && document.activeElement.id"));
+            string says = await Browser.EvaluateAsync<string>("document.getElementById('mapTasksSays').textContent") ?? "";
+            Assert.Contains("The task settings are removed.", says, StringComparison.Ordinal);
+            Assert.DoesNotContain("Enable tasks", says, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await CleanUpAsync(map, folder, service);
+        }
+    }
+
+    /// <summary>
+    /// Going from phone width back to desktop throws nothing — it threw <i>Cannot read properties of null (reading
+    /// 'insertBefore')</i> every time, because the account sheet was looked for before it came back from the drawer
+    /// (found by the design review on this screen, 2026-11-08).
+    /// </summary>
+    [Fact]
+    public async Task Returning_from_phone_width_throws_nothing()
+    {
+        (string token, _) = await SignInAsync();
+        (string map, _, _, _) = await MapWithALayerAsync(withLayer: false);
+
+        try
+        {
+            await OpenSettingsAsync(map, token, "!!document.getElementById('mapTasksBody')");
+
+            for (int i = 0; i < 2; i++)
+            {
+                await Browser.CallAsync("Emulation.setDeviceMetricsOverride", new { width = 390, height = 844, deviceScaleFactor = 1, mobile = false });
+                await Browser.EvaluateAsync<bool>("new Promise(r => setTimeout(() => r(true), 300))");
+                await Browser.CallAsync("Emulation.clearDeviceMetricsOverride", new { });
+                await Browser.EvaluateAsync<bool>("new Promise(r => setTimeout(() => r(true), 300))");
+            }
+
+            string[] errors = await PageErrorsAsync();
+            Assert.DoesNotContain(errors, e => e.Contains("insertBefore", StringComparison.Ordinal));
+        }
+        finally
+        {
+            await Browser.CallAsync("Emulation.clearDeviceMetricsOverride", new { });
+            await CleanUpAsync(map, string.Empty, string.Empty);
         }
     }
 
