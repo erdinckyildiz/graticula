@@ -185,7 +185,7 @@ internal static partial class AdminEndpoints
         // owner and the members of the groups it is shared with. Null is *everyone*.
         string[]? readers = null;
 
-        if (manages && map.Sharing == SharingScope.Private)
+        if (manages && map.Sharing is SharingScope.Private or SharingScope.Group)
         {
             HashSet<string> reach = new(StringComparer.OrdinalIgnoreCase) { map.OwnerName };
 
@@ -208,11 +208,14 @@ internal static partial class AdminEndpoints
             layer = string.IsNullOrEmpty(configured) ? null : configured,
             types = on?.Types ?? [],
             assignees = on?.Assignees ?? [],
+            // Every scope by name (D-74). `allorganizations` reaches every member of this organization and more, so the
+            // question this answers — can an assignee open the map — has the organization's answer.
             sharing = map.Sharing switch
             {
                 SharingScope.Public => "public",
-                SharingScope.Organization => "organization",
-                _ => (map.SharedWith ?? []).Count > 0 ? "groups" : "private",
+                SharingScope.Organization or SharingScope.AllOrganizations => "organization",
+                SharingScope.Private or SharingScope.Group => (map.SharedWith ?? []).Count > 0 ? "groups" : "private",
+                _ => throw new InvalidOperationException($"Sharing scope {map.Sharing} is not handled."),
             },
             readers,
             layers = candidates,
@@ -226,6 +229,7 @@ internal static partial class AdminEndpoints
         public static readonly Access None = new([], [], new Dictionary<Guid, string>(), null);
 
         private readonly IGroupDirectory? _groups;
+        // Bounded by the organization's groups, and it lives for one request: an Access is built per tasks answer.
         private readonly Dictionary<string, string[]> _members = new(StringComparer.Ordinal);
 
         public Access(IReadOnlyList<GroupSummary> groups, string[] administrators, IReadOnlyDictionary<Guid, string> names, IGroupDirectory? directory)
