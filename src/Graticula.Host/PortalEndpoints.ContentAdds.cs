@@ -1146,4 +1146,11 @@ internal static partial class PortalEndpoints
     /// <summary>A Studio handler run inside a request that is not its own: its status and refusal, for a door (ADR-257 §11).</summary>
     internal static Task<(int Status, string? Message)> InnerStatusAsync(HttpContext context, Func<Task> handler) =>
         InnerAsync(context, handler);
+
+    /// <summary>
+    /// A Studio handler run inside a request that is not its own, with what it answered as well as its status — ADR-287
+    /// reads the id and address of each layer it defines for a form from <see cref="HostedDataEndpoints.DefineAsync"/>'s own answer.
+    /// </summary>
+    internal static Task<(int Status, string? Message, System.Text.Json.JsonElement Answer)> InnerAnswerOfAsync(HttpContext context, Func<Task> handler) =>
+        InnerAnswerAsync(context, handler);
 }

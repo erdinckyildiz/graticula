@@ -118,11 +118,11 @@ public sealed partial class FormDefinition
             if (typeColumn < 0 || nameColumn < 0)
             {
                 Refuse("survey", 1, null, "The survey sheet needs a 'type' and a 'name' column.");
-                return new FormTable("", null, 0, null, [], []);
+                return new FormTable("", null, 0, null, [], [], [], null, []);
             }
 
             Stack<Frame> open = new();
-            open.Push(new Frame(FrameKind.Root, "", 0, [], [], null, null));
+            open.Push(new Frame(FrameKind.Root, "", 0, [], [], null, null, [], null, []));
             Dictionary<Frame, int> locations = new(ReferenceEqualityComparer.Instance);
 
             for (int r = 0; r < sheet.Rows.Count; r++)
@@ -166,14 +166,19 @@ public sealed partial class FormDefinition
 
                     if (closed.Kind == FrameKind.Repeat)
                     {
-                        open.Peek().Repeats.Add(new FormTable(closed.Name, closed.Label, closed.Row, closed.RepeatCount,
-                            closed.Questions, closed.Repeats));
+                        FormTable repeat = new(closed.Name, closed.Label, closed.Row, closed.RepeatCount,
+                            closed.Questions, closed.Repeats, closed.Body, closed.Relevant, closed.Appearance);
+                        open.Peek().Repeats.Add(repeat);
+                        open.Peek().Body.Add(repeat);
                     }
                     else
                     {
-                        // A group draws a screen; its questions belong to the table around it.
+                        // A group draws a screen; its questions belong to the table around it, and the body keeps the
+                        // group so the client can hide it as one and give it a page.
                         open.Peek().Questions.AddRange(closed.Questions);
                         open.Peek().Repeats.AddRange(closed.Repeats);
+                        open.Peek().Body.Add(new FormGroup(closed.Name, closed.Label ?? new Dictionary<string, string>(), closed.Row,
+                            closed.Relevant, closed.Appearance, closed.Body));
                     }
 
                     continue;
@@ -205,7 +210,8 @@ public sealed partial class FormDefinition
 
                     Relevance(row, columns, at);
                     open.Push(new Frame(type == "begin group" ? FrameKind.Group : FrameKind.Repeat, name, at, [], [],
-                        labels.Count > 0 ? labels : null, count));
+                        labels.Count > 0 ? labels : null, count, [], columns.Value(row, "relevant"),
+                        (columns.Value(row, "appearance") ?? string.Empty).ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries)));
                     continue;
                 }
 
@@ -273,6 +279,7 @@ public sealed partial class FormDefinition
                 FormQuestion question = Question(row, columns, type, argument, name, labels, at);
                 names[name] = question;
                 open.Peek().Questions.Add(question);
+                open.Peek().Body.Add(question);
             }
 
             while (open.Count > 1)
@@ -282,7 +289,7 @@ public sealed partial class FormDefinition
             }
 
             Frame top = open.Pop();
-            return new FormTable("", null, 0, null, top.Questions, top.Repeats);
+            return new FormTable("", null, 0, null, top.Questions, top.Repeats, top.Body, null, []);
         }
 
         private bool Named(string name, int at)
@@ -369,7 +376,15 @@ public sealed partial class FormDefinition
                 Parameters: parameters,
                 EsriFieldType: fieldType,
                 FieldLength: length,
-                FieldAlias: alias);
+                FieldAlias: alias)
+            {
+                Hints = columns.Translations(row, "hint"),
+                RequiredMessages = columns.Translations(row, "required_message"),
+                ConstraintMessages = columns.Translations(row, "constraint_message"),
+                Visible = columns.Value(row, "body::esri:visible"),
+                AccuracyThreshold = columns.Value(row, "body::accuracyThreshold"),
+                Accept = columns.Value(row, "body::accept"),
+            };
         }
 
         private void Relevance(IReadOnlyList<string> row, Columns columns, int at)
@@ -922,7 +937,7 @@ public sealed partial class FormDefinition
     }
 
     private sealed record Frame(FrameKind Kind, string Name, int Row, List<FormQuestion> Questions, List<FormTable> Repeats,
-        Dictionary<string, string>? Label, string? RepeatCount);
+        Dictionary<string, string>? Label, string? RepeatCount, List<object> Body, string? Relevant, IReadOnlyList<string> Appearance);
 
     /// <summary>A sheet's columns by base name and language.</summary>
     private sealed class Columns
@@ -998,13 +1013,20 @@ public sealed partial class FormDefinition
 }
 
 /// <summary>A table of the form: the top level is the layer, each repeat a related table.</summary>
+/// <remarks>
+/// <see cref="Questions"/> and <see cref="Repeats"/> are what is stored; <see cref="Body"/> is what is drawn, in form
+/// order: <see cref="FormQuestion"/>s, <see cref="FormGroup"/>s and repeats (<see cref="FormTable"/>s).
+/// </remarks>
 public sealed record FormTable(
     string Name,
     IReadOnlyDictionary<string, string>? Label,
     int Row,
     string? RepeatCount,
     IReadOnlyList<FormQuestion> Questions,
-    IReadOnlyList<FormTable> Repeats)
+    IReadOnlyList<FormTable> Repeats,
+    IReadOnlyList<object> Body,
+    string? Relevant,
+    IReadOnlyList<string> Appearance)
 {
     /// <summary>This table and every table under it, parents before children.</summary>
     public IEnumerable<FormTable> AllTables => new[] { this }.Concat(Repeats.SelectMany(r => r.AllTables));
@@ -1015,6 +1037,15 @@ public sealed record FormTable(
     /// </summary>
     public FormQuestion? Location => Questions.FirstOrDefault(q => FormCatalog.LocationTypes.Contains(q.Type));
 }
+
+/// <summary>A group: questions drawn together, hidden together by its relevant, and a page when the style is <c>pages</c>.</summary>
+public sealed record FormGroup(
+    string Name,
+    IReadOnlyDictionary<string, string> Labels,
+    int Row,
+    string? Relevant,
+    IReadOnlyList<string> Appearance,
+    IReadOnlyList<object> Body);
 
 /// <summary>One question, as the form states it.</summary>
 public sealed record FormQuestion(
@@ -1034,7 +1065,26 @@ public sealed record FormQuestion(
     IReadOnlyDictionary<string, string> Parameters,
     string? EsriFieldType,
     int? FieldLength,
-    string? FieldAlias);
+    string? FieldAlias)
+{
+    /// <summary>The hint per language.</summary>
+    public IReadOnlyDictionary<string, string> Hints { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The message shown when a required question is left empty, per language.</summary>
+    public IReadOnlyDictionary<string, string> RequiredMessages { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The message shown when the constraint fails, per language.</summary>
+    public IReadOnlyDictionary<string, string> ConstraintMessages { get; init; } = new Dictionary<string, string>();
+
+    /// <summary><c>body::esri:visible</c>: hidden when false, and still stored.</summary>
+    public string? Visible { get; init; }
+
+    /// <summary><c>body::accuracyThreshold</c>, in metres.</summary>
+    public string? AccuracyThreshold { get; init; }
+
+    /// <summary><c>body::accept</c>: the file types an attachment question takes.</summary>
+    public string? Accept { get; init; }
+}
 
 /// <summary>One choice of a list: its name, its labels per language, and the values a choice_filter may read.</summary>
 public sealed record FormChoice(string Name, IReadOnlyDictionary<string, string> Labels, IReadOnlyDictionary<string, string> Filters, int Row);

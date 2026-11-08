@@ -62,7 +62,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Switches a registered layer's attachments on, in the place asked, or off.</summary>
-    private static async Task SwitchAttachmentsAsync(
+    internal static async Task SwitchAttachmentsAsync(
         HttpContext context,
         string name,
         AttachmentsSwitchRequest request,

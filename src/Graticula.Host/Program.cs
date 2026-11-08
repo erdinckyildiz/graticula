@@ -3082,6 +3082,7 @@ public static class Program
         VectorTileExportEndpoints.Map(app);  // ADR-098: exportTiles, its job and its package
         AttachmentEndpoints.Map(app);
         RelationshipEndpoints.Map(app);
+        Graticula.Host.Forms.FormEndpoints.Map(app);  // ADR-287: forms as items, published to hosted layers
         GeometryServerEndpoints.Map(app);
         Graticula.Host.Geocoding.GeocodeServerEndpoints.Map(
             app, app.Services.GetService<Graticula.Host.Geocoding.GeocoderSettings>());  // ADR-258: absent unless configured
