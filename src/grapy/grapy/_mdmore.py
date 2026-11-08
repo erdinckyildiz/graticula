@@ -426,14 +426,17 @@ class NetCDFFileProperties:
             raise ValueError(f"NetCDFFileProperties: the file has no variable '{name}'.")
         return self._variables[name]
 
+    # The coordinate variables (a dimension's own variable, as lat, lon or time) are variables too: ArcGIS Pro 3.7
+    # lists them in getVariables and getVariablesByDimension (measured 2026-11-08).
+
     def getVariables(self):
-        return [n for n in self._variables if n not in self._dimensions]
+        return list(self._variables)
 
     def getDimensions(self):
         return list(self._dimensions)
 
     def getVariablesByDimension(self, dimension_name):
-        return [n for n, v in self._variables.items() if dimension_name in v["dims"] and n not in self._dimensions]
+        return [n for n, v in self._variables.items() if dimension_name in v["dims"]]
 
     def getDimensionsByVariable(self, variable_name):
         return list(self._variable(variable_name)["dims"])
@@ -467,6 +470,10 @@ class NetCDFFileProperties:
             if name in self._dimensions:
                 return "Integer"
             raise ValueError(f"NetCDFFileProperties: the file has no variable or dimension '{name}'.")
+        if "since" in str(v["attrs"].get("units", "")).lower() and v["type"] not in ("c",):
+            # A CF time variable ("days since 2000-01-01") is a Date, as ArcGIS Pro 3.7 types one (measured
+            # 2026-11-08).
+            return "Date"
         return _FIELD_TYPES.get(v["type"], "Double")
 
     def getAttributeNames(self, variable_name=None):

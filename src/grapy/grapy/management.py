@@ -140,8 +140,14 @@ def GetCount(in_rows):
 
 def CopyFeatures(in_features, out_feature_class, *_, **__):
     """The features copied to a new feature class — of a layer, its selected features; of a joined layer, its own
-    fields and the join tables' (see ``_joined_columns``)."""
+    fields and the join tables' (see ``_joined_columns``). An empty ``arcpy.Geometry()`` as the output answers the
+    features' geometries as a list, as the Geometry page documents and ArcGIS Pro 3.7 does (measured 2026-11-08)."""
     from . import da
+    from ._geometry import Geometry
+    if isinstance(out_feature_class, Geometry):
+        source, where = _source(in_features) if _joined_layer(in_features) is None else (in_features, None)
+        with da.SearchCursor(source, ["SHAPE@"], where) as rows:
+            return [row[0] for row in rows]
     if _joined_layer(in_features) is not None:
         return _copy_joined(in_features, _path(out_feature_class), True)
     in_features, where = _source(in_features)
@@ -2771,7 +2777,12 @@ def CreateSQLiteDatabase(out_database_name, spatial_type="ST_GEOMETRY"):
 def CreateFolder(out_folder_path, out_name):
     """A new folder. Its name must be new, as documented."""
     from ._runtime import ExecuteError
+    from ._runtime import env
     path = os.path.join(_text(out_folder_path), _text(out_name))
+    if os.path.isdir(path) and env.overwriteOutput:
+        # ArcGIS Pro 3.7 succeeds on a folder that exists when outputs may be overwritten (measured 2026-11-08).
+        # INFERRED: the folder is kept as it is.
+        return Result(path)
     if os.path.exists(path):
         raise ExecuteError(f"ERROR 000258: {path} already exists.")
     os.makedirs(path)

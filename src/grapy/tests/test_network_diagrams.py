@@ -130,7 +130,8 @@ class Diagrams(unittest.TestCase):
                                    ["ASSOCGLOBALID", "FROMID", "TOID", "SHAPE@WKT", "ISREDUCTION"], where) as read:
             for globalid, a, b, wkt, reduction in read:
                 import shapely
-                coords = [tuple(round(c, 6) for c in xy) for xy in shapely.from_wkt(wkt).coords]
+                # get_coordinates: SHAPE@WKT writes a MULTILINESTRING, as Pro 3.7 does (measured 2026-11-08).
+                coords = [tuple(round(c, 6) for c in xy) for xy in shapely.get_coordinates(shapely.from_wkt(wkt))]
                 out["E"].append(("R" if reduction else self.name_of(globalid), ids.get(a), ids.get(b), coords))
         return out
 

@@ -972,8 +972,9 @@ class ContingentFieldValue:
 
 
 class ContingentValue:
-    """A contingent value, as ListContingentValues answers it: ``id``, ``fieldGroupName``, ``subtype`` (its code, or
-    None), ``isRetired`` and ``values`` (ContingentFieldValue objects, in the group's field order)."""
+    """A contingent value, as ListContingentValues answers it: ``id``, ``fieldGroupName``, ``subtype`` (its code, or 0
+    for a table without subtypes), ``isRetired`` and ``values`` (ContingentFieldValue objects, in the group's field
+    order)."""
 
     def __init__(self, id, fieldGroupName, subtype, isRetired, values):
         self.id, self.fieldGroupName, self.subtype, self.isRetired = id, fieldGroupName, subtype, isRetired
@@ -996,7 +997,8 @@ def ListContingentValues(table, field_group_name=None, subtype_code=None):
             continue
         if subtype_code not in (None, "", "All") and code != int(subtype_code):
             continue
-        out.append(ContingentValue(cv_id, group, code, retired, [
+        # A table without subtypes answers subtype 0, as ArcGIS Pro 3.7 does (measured 2026-11-08).
+        out.append(ContingentValue(cv_id, group, 0 if code is None else code, retired, [
             ContingentFieldValue(e[0], e[1], e[2] if e[1] == "CODED_VALUE" else None,
                                  list(e[2]) if e[1] == "RANGE" else None) for e in entries]))
     return out

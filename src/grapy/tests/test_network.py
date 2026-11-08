@@ -88,8 +88,9 @@ class Network(unittest.TestCase):
         self.assertEqual(result[1], "true")
         # (2,0) → B 8 → C 10 → (20,4) 4: 22. Through D it would be 8 + 10 + 14.14 + 6.
         routes = na.GetNASublayer(layer, "Routes")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
         self.assertEqual(self.rows(routes, ["Name", "StopCount", "FirstStopID", "LastStopID", "Total_Length", "SHAPE@WKT"]),
-                         [("start - end", 2, 1, 2, 22.0, "LINESTRING (2 0, 10 0, 20 0, 20 4)")])
+                         [("start - end", 2, 1, 2, 22.0, "MULTILINESTRING ((2 0, 10 0, 20 0, 20 4))")])
         stops = na.GetNASublayer(layer, "Stops")
         self.assertEqual(self.rows(stops, ["Name", "Sequence", "Cumul_Length", "Status", "SourceOID", "SnapX", "SnapY"]),
                          [("start", 1, 0.0, 0, 1, 2.0, 0.0), ("end", 2, 22.0, 0, 5, 20.0, 4.0)])

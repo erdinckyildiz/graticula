@@ -27,6 +27,17 @@ MESSAGES: list[dict] = []
 PARAMETERS: list = []
 
 
+def wildcard(name, wild_card):
+    """Whether ``name`` matches a List function's ``wild_card``, without regard to case. Only ``*`` is a wildcard:
+    ArcGIS Pro 3.7 finds nothing for "[dz]*" or "de?.tif" where "d*" finds dem.tif (measured 2026-11-08), so brackets
+    and question marks are ordinary characters."""
+    import re
+    if wild_card in (None, "", "*"):
+        return True
+    pattern = ".*".join(re.escape(part) for part in str(wild_card).split("*"))
+    return re.fullmatch(pattern, str(name), re.IGNORECASE | re.DOTALL) is not None
+
+
 def _say(kind: str, text) -> None:
     MESSAGES.append({"type": kind, "description": str(text)})
 
@@ -74,24 +85,53 @@ def ResetProgressor():
     pass
 
 
+# Outside a tool run — a script run from a command line — the parameters are the script's arguments, as ArcGIS Pro 3.7
+# reads them: GetParameterAsText(0) is sys.argv[1], GetArgumentCount the number of arguments, and SetParameter and
+# SetParameterAsText do nothing (measured 2026-11-08).
+
+
+def _arguments():
+    import sys
+    return [str(a) for a in sys.argv[1:]]
+
+
 def GetParameterAsText(index):
+    if not PARAMETERS:
+        arguments = _arguments()
+        return arguments[index] if index < len(arguments) else ""
     value = PARAMETERS[index].valueAsText if index < len(PARAMETERS) else ""
     return value or ""
 
 
 def GetParameter(index):
+    if not PARAMETERS:
+        arguments = _arguments()
+        return arguments[index] if index < len(arguments) else None
     return PARAMETERS[index].value if index < len(PARAMETERS) else None
 
 
 def GetParameterCount(tool_name=None):
+    """The number of parameters of the tool named — a Python toolbox's tool's, or grapy's own tool's function's —
+    or, with no name, of the tool running. ArcGIS Pro 3.7 answers 8 for Buffer_analysis and 4 for Clip (measured
+    2026-11-08). INFERRED: one of grapy's own tools counts its function's named parameters, which follow arcpy's."""
+    if tool_name not in (None, "", "#"):
+        from ._toolboxes import _resolve, _syntax_of
+        kind, where, name, target = _resolve(tool_name)
+        if kind == "pyt":
+            return len(list(target().getParameterInfo() or []))
+        return len(_syntax_of(kind, where, name, target))
     return len(PARAMETERS)
 
 
 def SetParameter(index, value):
+    if not PARAMETERS:
+        return
     PARAMETERS[index].value = value
 
 
 def SetParameterAsText(index, text):
+    if not PARAMETERS:
+        return
     PARAMETERS[index].value = text
 
 
@@ -148,8 +188,7 @@ env = _Environment()
 
 def ListEnvironments(wild_card=None):
     """The names of the environment settings grapy holds, filtered by a case-insensitive wildcard."""
-    import fnmatch
-    return [n for n in env.keys() if wild_card in (None, "", "*") or fnmatch.fnmatch(n.lower(), str(wild_card).lower())]
+    return [n for n in env.keys() if wildcard(n, wild_card)]
 
 
 def ClearEnvironment(environment_name):
@@ -262,8 +301,8 @@ def GetSeverityLevel():
 
 
 def GetArgumentCount():
-    """The number of parameters passed to the tool."""
-    return len(PARAMETERS)
+    """The number of parameters passed to the tool; outside a tool run, the script's arguments."""
+    return len(PARAMETERS) if PARAMETERS else len(_arguments())
 
 
 class ExecuteError(Exception):

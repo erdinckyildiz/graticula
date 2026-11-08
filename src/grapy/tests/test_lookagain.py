@@ -178,16 +178,18 @@ class Multidimensional(Base):
         path = cube([variable("temp", t, [[1, 2], [3, 4]], attrs={"units": "K"})]).save(
             os.path.join(self.directory, "t.nc"))
         p = arcpy.NetCDFFileProperties(path)
-        self.assertEqual(sorted(p.getVariables()), ["crs", "temp"])
+        # The coordinate variables are variables too, and a CF time is a Date, as ArcGIS Pro 3.7 answers (measured
+        # 2026-11-08, the Pro sweep); this test left them out and said Double before.
+        self.assertEqual(sorted(p.getVariables()), sorted(["crs", "temp", "x", "y", "StdTime"]))
         self.assertEqual(p.getDimensions(), ["x", "y", "StdTime"])
         self.assertEqual(p.getDimensionsByVariable("temp"), ["StdTime", "y", "x"])
-        self.assertEqual(p.getVariablesByDimension("StdTime"), ["temp"])
+        self.assertEqual(sorted(p.getVariablesByDimension("StdTime")), ["StdTime", "temp"])
         self.assertEqual(p.getDimensionSize("StdTime"), 2)
         self.assertEqual(p.getDimensionValue("StdTime", 1), 10959.0)  # 2000-01-03, in days since 1970-01-01
         self.assertEqual(p.getDimensionIndex("StdTime", 10959), 1)
         self.assertEqual(p.getFieldType("temp"), "Double")
         self.assertEqual(p.getFieldType("crs"), "Integer")
-        self.assertEqual(p.getFieldType("StdTime"), "Double")
+        self.assertEqual(p.getFieldType("StdTime"), "Date")
         self.assertEqual(p.getAttributeValue("temp", "units"), "K")
         self.assertIn("Conventions", p.getAttributeNames())
         self.assertEqual(p.getSpatialReference("temp", "x", "y").factoryCode, 3857)

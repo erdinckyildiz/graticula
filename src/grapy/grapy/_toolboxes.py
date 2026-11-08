@@ -19,7 +19,6 @@ What stays refused, each by its own reason:
 """
 from __future__ import annotations
 
-import fnmatch
 import importlib
 import importlib.machinery
 import importlib.util
@@ -39,6 +38,15 @@ SYSTEM = {
     "stats": "Spatial Statistics Tools", "na": "Network Analyst Tools", "nd": "Network Diagram Tools",
     "un": "Utility Network Tools",
 }
+
+# The alias a tool's name carries where it is not the module's: the 3D Analyst tools are arcpy.ddd's, but ArcGIS Pro 3.7
+# names them Buffer3D_3d and its toolbox "3D Analyst Tools(3d)" (measured 2026-11-08).
+_NAME_ALIAS = {"ddd": "3d"}
+
+
+def _named(alias):
+    return _NAME_ALIAS.get(alias, alias)
+
 
 # Imported toolboxes, by the absolute path of their file: {"alias", "label", "path", "tools": {name: class}}.
 _SESSION: dict = {}
@@ -76,7 +84,7 @@ def _resolve(tool_name):
         alias, tool = text.split(".", 1)
     elif "_" in text:
         head, tail = text.rsplit("_", 1)
-        known = {r["alias"].lower() for r in _SESSION.values()} | set(SYSTEM)
+        known = {r["alias"].lower() for r in _SESSION.values()} | set(SYSTEM) | set(_NAME_ALIAS.values())
         if tail.lower() in known:
             tool, alias = head, tail
     for record in _SESSION.values():
@@ -85,7 +93,7 @@ def _resolve(tool_name):
                 if name.lower() == tool.lower():
                     return "pyt", record, name, cls
     for each in SYSTEM:
-        if alias is None or each == alias.lower():
+        if alias is None or alias.lower() in (each, _named(each)):
             for name, function in _system_tools(each).items():
                 if name.lower() == tool.lower():
                     return "system", each, name, function
@@ -95,8 +103,8 @@ def _resolve(tool_name):
 def _match(names, wild_card):
     if wild_card is None or str(wild_card).strip() in ("", "*"):
         return list(names)
-    pattern = str(wild_card).lower()
-    return [n for n in names if fnmatch.fnmatchcase(n.lower(), pattern)]
+    from ._runtime import wildcard
+    return [n for n in names if wildcard(n, wild_card)]
 
 
 # ---- importing ------------------------------------------------------------------------------------------------------
@@ -257,7 +265,7 @@ def RemoveToolbox(toolbox):
 def ListToolboxes(wild_card=None):
     """The toolboxes of the session, each as ``"<toolbox name>(<alias>)"`` — the form the page *List tools, toolboxes
     and environment settings* gives — grapy's own and then those imported, filtered by a case-insensitive wildcard."""
-    names = [f"{label}({alias})" for alias, label in SYSTEM.items()]
+    names = [f"{label}({_named(alias)})" for alias, label in SYSTEM.items()]
     names += [f"{r['label']}({r['alias']})" for r in _SESSION.values()]
     return _match(names, wild_card)
 
@@ -267,7 +275,7 @@ def ListTools(wild_card=None):
     (``"*_analysis"``, as the page's example)."""
     names = []
     for alias in SYSTEM:
-        names += sorted(f"{name}_{alias}" for name in _system_tools(alias))
+        names += sorted(f"{name}_{_named(alias)}" for name in _system_tools(alias))
     for record in _SESSION.values():
         names += sorted(f"{name}_{record['alias']}" for name in record["tools"])
     return _match(names, wild_card)
@@ -291,7 +299,7 @@ def Usage(tool_name):
     syntax notation, which the page does not show; for grapy's own tools the parameters are those its function names,
     which can be fewer than arcpy's where grapy accepts a trailing parameter without naming it."""
     kind, where, name, target = _resolve(tool_name)
-    alias = where["alias"] if kind == "pyt" else where
+    alias = where["alias"] if kind == "pyt" else _named(where)
     return f"{name}_{alias}({', '.join(_syntax_of(kind, alias, name, target))})"
 
 
