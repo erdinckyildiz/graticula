@@ -47,7 +47,11 @@ public sealed class FieldMapsTasksConformanceTests : ArcGisClient
                 title = "zz tasks map", sharing = "private",
                 document = new
                 {
-                    operationalLayers = new[] { new { id = "tasks1", title = "Tasks", layerType = "ArcGISFeatureLayer", url = $"{root}{feature}" } },
+                    operationalLayers = new[]
+                    {
+                        new { id = "tasks1", title = "Tasks", layerType = "ArcGISFeatureLayer", url = $"{root}{feature}" },
+                        new { id = "tasks2", title = "Same layer again", layerType = "ArcGISFeatureLayer", url = $"{root}{feature}" },
+                    },
                     baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
                     version = "2.31",
                 },
@@ -97,6 +101,45 @@ public sealed class FieldMapsTasksConformanceTests : ArcGisClient
                 config.GetProperty("fieldSchema").GetProperty("assigneeField").GetProperty("codedValueDomain").GetProperty("name").GetString());
 
             Assert.Contains("Tasks", await KeywordsAsync(root, token!, map));
+
+            // Who the answer says can work the tasks: the owner edits the layer; a private map reaches its owner.
+            (_, string after) = await AdminAsync(HttpMethod.Get, $"/content/webmaps/{map}/tasks");
+            JsonElement told = JsonDocument.Parse(after).RootElement;
+            Assert.Equal("private", told.GetProperty("sharing").GetString());
+            Assert.Equal(JsonValueKind.Array, told.GetProperty("readers").ValueKind);
+            JsonElement first = told.GetProperty("layers")[0];
+            Assert.Equal(JsonValueKind.Array, first.GetProperty("editors").ValueKind);
+            Assert.True(first.GetProperty("editors").GetArrayLength() > 0, after);
+            Assert.Empty(first.GetProperty("sharedUpdateGroups").EnumerateArray());
+            Assert.Equal(Types, first.GetProperty("types").EnumerateArray().Select(t => t.GetString()));
+
+            // One task layer per map: another layer is refused while tasks are on this one.
+            (int other, string otherBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}/tasks",
+                JsonSerializer.Serialize(new { layer = "tasks2", types = Types, assignees = new[] { new { username = "zz_worker" } } }));
+            Assert.True(other == 409 && otherBody.Contains("disable tasks first", StringComparison.Ordinal), $"{other} {otherBody}");
+
+            // The task layer taken out of the map elsewhere leaves the settings behind, as ArcGIS's Map Viewer does: the
+            // answer says so, and no other layer is enabled until they are removed.
+            (int saved, string savedBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}", JsonSerializer.Serialize(new
+            {
+                title = "zz tasks map", sharing = "private",
+                document = new
+                {
+                    operationalLayers = new[] { new { id = "tasks2", title = "Same layer again", layerType = "ArcGISFeatureLayer", url = $"{root}{feature}" } },
+                    baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                    version = "2.31",
+                },
+            }));
+            Assert.True(saved == 200, $"saving the map without its task layer: {saved} {savedBody}");
+
+            (_, string orphan) = await AdminAsync(HttpMethod.Get, $"/content/webmaps/{map}/tasks");
+            JsonElement left = JsonDocument.Parse(orphan).RootElement;
+            Assert.True(left.GetProperty("orphaned").GetBoolean(), orphan);
+            Assert.False(left.GetProperty("enabled").GetBoolean(), orphan);
+
+            (int blocked, string blockedBody) = await AdminAsync(HttpMethod.Put, $"/content/webmaps/{map}/tasks",
+                JsonSerializer.Serialize(new { layer = "tasks2", types = Types, assignees = new[] { new { username = "zz_worker" } } }));
+            Assert.True(blocked == 409 && blockedBody.Contains("no longer in it", StringComparison.Ordinal), $"{blocked} {blockedBody}");
 
             // What Field Maps sends to fill the task list.
             (HttpStatusCode curves, string answer) = await RequestAsync(

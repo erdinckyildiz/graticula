@@ -70,7 +70,7 @@ internal static partial class AdminEndpoints
     /// <summary>The map's tasks, if it has them, and the layers they could be put on.</summary>
     private static async Task GetWebMapTasksAsync(
         HttpContext context, string id, IWebMapStore maps, PostgresLayerCatalog layers,
-        IItemResourceStore resources, ServiceContexts contexts, CancellationToken cancellation)
+        IItemResourceStore resources, IGroupDirectory groups, IMemberDirectory members, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -80,14 +80,22 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        string? on = await resources.FindAsync(Guid.Parse(map.Id), FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false)
+        string? configured = await resources.FindAsync(Guid.Parse(map.Id), FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false)
             is { } stored ? FieldMapsTasks.LayerIdOf(stored.Content) ?? string.Empty : null;
 
-        List<object> candidates = [];
-        string[] types = [];
-        object[] assignees = [];
+        (string Id, string Title, string? Url)[] operational = [.. OperationalFeatureLayers(map.Document)];
 
-        foreach ((string layerId, string title, string? url) in OperationalFeatureLayers(map.Document))
+        // <b>The settings outlive their layer when the layer is taken out of the map elsewhere</b> — ArcGIS's Map Viewer
+        // does not remove them either, and Designer then asks to *update the map to remove task settings*. Said here as
+        // `orphaned`, with no layer, so the page can offer the same removal (ADR-286 §5.7).
+        bool orphaned = configured is not null && !operational.Any(l => l.Id == configured);
+
+        bool manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization);
+        Access access = manages ? await AccessAsync(groups, members, cancellation).ConfigureAwait(false) : Access.None;
+
+        List<TaskLayerAnswer> candidates = [];
+
+        foreach ((string layerId, string title, string? url) in operational)
         {
             (PublishedLayer? layer, string? why) = await TaskLayerOfAsync(context, layers, url, cancellation).ConfigureAwait(false);
 
@@ -96,38 +104,160 @@ internal static partial class AdminEndpoints
                 why = "it is not yours, so its fields are not yours to add to.";
             }
 
-            // The layer's own service, so the page can link to where it is shared for editing (ADR-075).
-            string? service = layer is null ? null : layer.Folder is { Length: > 0 } f ? $"{f}/{layer.ServiceName}" : layer.ServiceName;
-            candidates.Add(new { id = layerId, title, eligible = why is null, why, service });
-
-            if (layer is not null && layerId == on)
-            {
-                Dictionary<string, FieldDomain> domains = layer.FieldOverrides
-                    .Where(o => o.Domain is not null)
+            Dictionary<string, FieldDomain> lists = layer is null
+                ? []
+                : layer.FieldOverrides.Where(o => o.Domain is not null)
                     .ToDictionary(o => o.Column, o => o.Domain!, StringComparer.Ordinal);
 
-                if (domains.TryGetValue(FieldMapsTasks.TypeField, out FieldDomain? typeList))
-                {
-                    types = [.. typeList.Codes.OrderBy(c => c.Code.Number).Select(c => c.Name)];
-                }
+            // ADR-075: who may change a task on this layer — its owner, an administrator, and the members of a shared
+            // update group it is shared with. Field Maps refuses a Start or a Finish to anybody else.
+            GroupSummary[] sharedUpdate = layer is null
+                ? []
+                : [.. access.Groups.Where(g => g.ItemUpdate == GroupItemUpdate.AllItems && layer.SharedWith.Contains(g.Id))];
 
-                if (domains.TryGetValue(FieldMapsTasks.AssigneeField, out FieldDomain? people))
-                {
-                    assignees = [.. people.Codes.Select(c => (object)new { username = c.Code.Text, label = c.Name })];
-                }
+            HashSet<string> editors = new(access.Administrators, StringComparer.OrdinalIgnoreCase);
+
+            if (layer?.Owner is { } owner && access.NameOf.TryGetValue(owner, out string? ownerName))
+            {
+                editors.Add(ownerName);
             }
+
+            foreach (GroupSummary group in sharedUpdate)
+            {
+                editors.UnionWith(await access.MembersOfAsync(group.Name).ConfigureAwait(false));
+            }
+
+            candidates.Add(new TaskLayerAnswer(
+                layerId,
+                title,
+                why is null,
+                why,
+
+                // The layer's own service, so the page can open its Share dialog.
+                layer is null ? null : layer.Folder is { Length: > 0 } f ? $"{f}/{layer.ServiceName}" : layer.ServiceName,
+
+                // The lists the layer already holds, so turning tasks on again starts from them (the review's M4).
+                lists.TryGetValue(FieldMapsTasks.TypeField, out FieldDomain? typeList)
+                    ? [.. typeList.Codes.OrderBy(c => c.Code.Number).Select(c => c.Name)]
+                    : [],
+                lists.TryGetValue(FieldMapsTasks.AssigneeField, out FieldDomain? people)
+                    ? [.. people.Codes.Select(c => new TaskAssigneeAnswer(c.Code.Text ?? string.Empty, c.Name))]
+                    : [],
+                [.. sharedUpdate.Select(g => new TaskGroupAnswer(g.Name, g.Title ?? g.Name))],
+                manages ? [.. editors.Order(StringComparer.OrdinalIgnoreCase)] : null));
         }
+
+        // Who the map reaches: everyone signed in when it is shared with the organization or everyone, and otherwise its
+        // owner and the members of the groups it is shared with. Null is *everyone*.
+        string[]? readers = null;
+
+        if (manages && map.Sharing == SharingScope.Private)
+        {
+            HashSet<string> reach = new(StringComparer.OrdinalIgnoreCase) { map.OwnerName };
+
+            foreach (GroupSummary group in access.Groups.Where(g => (map.SharedWith ?? []).Contains(g.Id)))
+            {
+                reach.UnionWith(await access.MembersOfAsync(group.Name).ConfigureAwait(false));
+            }
+
+            reach.UnionWith(access.Administrators);
+            readers = [.. reach.Order(StringComparer.OrdinalIgnoreCase)];
+        }
+
+        TaskLayerAnswer? on = configured is null || orphaned ? null : candidates.FirstOrDefault(c => c.Id == configured);
 
         await Results.Json(new
         {
-            enabled = on is not null,
-            layer = string.IsNullOrEmpty(on) ? null : on,
-            types,
-            assignees,
+            enabled = configured is not null && !orphaned,
+            orphaned,
+            layer = string.IsNullOrEmpty(configured) ? null : configured,
+            types = on?.Types ?? [],
+            assignees = on?.Assignees ?? [],
+            sharing = map.Sharing switch
+            {
+                SharingScope.Public => "public",
+                SharingScope.Organization => "organization",
+                _ => (map.SharedWith ?? []).Count > 0 ? "groups" : "private",
+            },
+            readers,
             layers = candidates,
-            manages = LayerAccess.MayManage(map.Owner, current.Principal, current.Authorization),
+            manages,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>The organization's groups, administrators and names, read once for a tasks answer.</summary>
+    private sealed class Access
+    {
+        public static readonly Access None = new([], [], new Dictionary<Guid, string>(), null);
+
+        private readonly IGroupDirectory? _groups;
+        private readonly Dictionary<string, string[]> _members = new(StringComparer.Ordinal);
+
+        public Access(IReadOnlyList<GroupSummary> groups, string[] administrators, IReadOnlyDictionary<Guid, string> names, IGroupDirectory? directory)
+        {
+            Groups = groups;
+            Administrators = administrators;
+            NameOf = names;
+            _groups = directory;
+        }
+
+        public IReadOnlyList<GroupSummary> Groups { get; }
+
+        public string[] Administrators { get; }
+
+        public IReadOnlyDictionary<Guid, string> NameOf { get; }
+
+        public async Task<string[]> MembersOfAsync(string group)
+        {
+            if (_groups is null)
+            {
+                return [];
+            }
+
+            if (!_members.TryGetValue(group, out string[]? names))
+            {
+                names = [.. (await _groups.MembersAsync(group, CancellationToken.None).ConfigureAwait(false))
+                    .Where(m => m.Standing != GroupStanding.Outside)
+                    .Select(m => m.Name)];
+                _members[group] = names;
+            }
+
+            return names;
+        }
+    }
+
+    private static async Task<Access> AccessAsync(IGroupDirectory groups, IMemberDirectory members, CancellationToken cancellation)
+    {
+        IReadOnlyList<Member> everyone = await members.ListMembersAsync(cancellation).ConfigureAwait(false);
+
+        return new Access(
+            await groups.ListAsync(Guid.Empty, all: true, cancellation).ConfigureAwait(false),
+            [.. everyone.Where(m => !m.IsDisabled && m.Roles.Contains(Roles.Administrator, StringComparer.Ordinal)).Select(m => m.Name)],
+            everyone.ToDictionary(m => m.Id, m => m.Name),
+            groups);
+    }
+
+    /// <summary>One feature layer of a map, as the tasks answer describes it.</summary>
+    internal sealed record TaskLayerAnswer(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("title")] string Title,
+        [property: JsonPropertyName("eligible")] bool Eligible,
+        [property: JsonPropertyName("why")] string? Why,
+        [property: JsonPropertyName("service")] string? Service,
+        [property: JsonPropertyName("types")] string[] Types,
+        [property: JsonPropertyName("assignees")] TaskAssigneeAnswer[] Assignees,
+        [property: JsonPropertyName("sharedUpdateGroups")] TaskGroupAnswer[] SharedUpdateGroups,
+        [property: JsonPropertyName("editors")] string[]? Editors);
+
+    /// <summary>One assignee in a layer's list.</summary>
+    internal sealed record TaskAssigneeAnswer(
+        [property: JsonPropertyName("username")] string Username,
+        [property: JsonPropertyName("label")] string Label);
+
+    /// <summary>A shared update group a layer is shared with.</summary>
+    internal sealed record TaskGroupAnswer(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("title")] string Title);
 
     /// <summary>Turns tasks on, or changes their lists: adds what the layer lacks, then writes the map's configuration.</summary>
     private static async Task SetWebMapTasksAsync(
@@ -169,6 +299,22 @@ internal static partial class AdminEndpoints
             await Refuse(context, 400,
                 $"Name the layer of '{map.Title}' that holds the tasks, by its id in the map. "
                 + "Only a feature layer of this map can hold them.").ConfigureAwait(false);
+            return;
+        }
+
+        // <b>One task layer per map, as ArcGIS has it</b> — a map with tasks on another layer is changed by turning them off
+        // first; and a map whose settings name a layer it no longer holds is cleared first, as Designer asks before it lets
+        // any other layer be enabled (ADR-286 §5.7, INFERRED from Esri's *Prepare tasks*).
+        if (await resources.FindAsync(Guid.Parse(map.Id), FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false) is { } existing
+            && FieldMapsTasks.LayerIdOf(existing.Content) is var held && held != request.Layer)
+        {
+            bool gone = !OperationalFeatureLayers(map.Document).Any(l => l.Id == held);
+
+            await Refuse(context, 409, gone
+                ? $"'{map.Title}' still holds task settings for a layer that is no longer in it. Remove those settings "
+                  + "first; until then no other layer of this map can be enabled for tasks."
+                : $"Tasks are enabled on another layer of '{map.Title}'. A map has one task layer: disable tasks first "
+                  + "to enable them on this one.").ConfigureAwait(false);
             return;
         }
 

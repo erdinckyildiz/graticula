@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-11-08, **by owner decision**, in three answers the same afternoon. Asked whether Field Maps tasks were supported, the owner said *"Yap evet"* ("do it, yes") to measuring them. Asked how a map should be given tasks once Designer was found not to work against this server, the owner chose *"Studio'da görev ekranı"* ("a task screen in Studio") from three options (§2). Asked whether `returnTrueCurves=true` should be accepted, the owner answered *"Returntruecurves artık desteklensin"* ("let returnTrueCurves be supported now"), which reverses one line of [ADR-215](ADR-215-what-arcgis-ignores-is-not-refused.md) §5. Where Studio's screen sits and what it writes are this ADR's. |
+| **Decided** | 2026-11-08, **by owner decision**, in three answers the same afternoon. Asked whether Field Maps tasks were supported, the owner said *"Yap evet"* ("do it, yes") to measuring them. Asked how a map should be given tasks once Designer was found not to work against this server, the owner chose *"Studio'da görev ekranı"* ("a task screen in Studio") from three options (§2). Asked whether `returnTrueCurves=true` should be accepted, the owner answered *"Returntruecurves artık desteklensin"* ("let returnTrueCurves be supported now"), which reverses one line of [ADR-215](ADR-215-what-arcgis-ignores-is-not-refused.md) §5. **Four more answers later the same day**, to the questions this ADR first left INFERRED (§5.7): *"Yazsın"* ("let it write") — Graticula writes the configuration as recorded, derivation disclosed; the screen's place, *"ArcGIS ile aynı olsun"* ("let it be the same as ArcGIS") — per map, as Designer has it; disabling, *"ArcGIS ile aynı olsun"* again — as Esri's *Prepare tasks* describes it; and the list names are kept as they are. |
 | **Supersedes** | — It reverses [ADR-215](ADR-215-what-arcgis-ignores-is-not-refused.md) §5's *`returnTrueCurves=true` stays refused*. |
 | **Superseded by** | — |
 
@@ -95,11 +95,27 @@ tasks are for, so it is kept and not argued here.
    naming the layer's own lists.
 4. **A web map carrying the configuration has the type keyword `Tasks`**, in its item, in My Content and in search —
    asked once per listing (`IItemResourceStore.ItemsHoldingAsync`).
-5. **Studio: a map's Settings › Tasks for ArcGIS Field Maps** — the layer, task types one per line, the members to
-   assign to (the organization's members, from the portal's user search), *Turn on tasks*, *Change types or people*,
-   *Turn off tasks*, and a sentence that editors need the layer shared with an editing group, linked to the layer.
+5. **Studio: a map's Settings › Tasks for ArcGIS Field Maps** — the layer, task types one per line, the assignees
+   (the organization's members, from the portal's user search), *Enable tasks*, *Change task types or assignees*,
+   *Disable tasks* — ArcGIS's words. Enabling again starts from the lists the layer still holds. The section says which
+   shared update groups the layer is in, which assignees cannot change their tasks yet (not the layer's owner, not an
+   administrator, not in such a group — ADR-075), and which ones the map's sharing does not reach; and it opens the
+   layer's Share dialog, where a shared update group is now marked as one. The answer behind it is computed by the
+   server: per layer `sharedUpdateGroups` and `editors`, and for the map `readers` (null when it is shared with the
+   organization or everyone).
 6. **A token sent as a part of a multipart form under 8 MB authenticates**, as ArcGIS reads one: the ArcGIS API for
    Python sends `addResources` that way, and it arrived anonymous.
+7. **Disabling is ArcGIS's** (owner decision, *"ArcGIS ile aynı olsun"*). Esri's *Prepare tasks*: *"When you disable
+   tasks, features in the layer are no longer available in a to-do list in the Field Maps mobile app and while the task
+   fields remain in the form, the layouts and feature actions do not."* So disabling removes the configuration and keeps
+   the fields and every task in them. A map has one task layer: enabling another while tasks are on is refused until
+   they are disabled. And *"If a task-enabled layer is removed from the map outside of Field Maps Designer, the tasks
+   settings are not fully removed from the map … you will prompted to Update map to remove task settings. Until this
+   is update is completed, no other layer in the map can be enabled for tasks."* So when the configuration names a layer
+   the map no longer holds, the answer says `orphaned`, the section offers *Remove task settings*, and enabling any other
+   layer is refused until they are removed. **INFERRED:** that the refusal applies here as Designer applies it — Esri's
+   sentence describes Designer's prompt, not a server rule. **INFERRED:** saving the map in the Map Viewer without the
+   task layer does not remove the settings by itself, because ArcGIS's own Map Viewer does not; only this section does.
 
 ## 6. Consequences
 
@@ -137,6 +153,11 @@ condition 5 (Field Maps' sign-in and Collect), [ADR-215](ADR-215-what-arcgis-ign
    Maps upgrade on the emulator.
 3. **The owner confirms the INFERRED parts**: where the screen sits (the map's Settings, not the layer's), the domain
    naming `<field>_<layer id>`, that turning off removes only the configuration, and the clean-room reading of §3.
+   **DISCHARGED 2026-11-08:** *"Yazsın"* for the configuration and its disclosed derivation; *"ArcGIS ile aynı olsun"*
+   for the screen's place (per map) and for disabling (§5.7); the list names kept. What §5.7 still marks INFERRED is new
+   and is condition 4.
+4. **The owner confirms §5.7's two INFERRED points**: the refusal to enable another layer while orphaned settings remain,
+   and that the Map Viewer does not remove the settings when the task layer is taken out of the map.
 
 ## 10. Revisit triggers
 
@@ -147,5 +168,5 @@ condition 5 (Field Maps' sign-in and Collect), [ADR-215](ADR-215-what-arcgis-ign
 
 ## 11. Dissent
 
-None recorded. The clean-room reading in §3 is the part a reviewer is most likely to dispute, and it is listed for the
-owner in condition 3 rather than taken as settled.
+None recorded. The clean-room reading in §3, the part a reviewer was most likely to dispute, was put to the owner and
+answered *"Yazsın"*.
