@@ -74,7 +74,10 @@ class EditEquivalents(unittest.TestCase):
         result = edit.GenerateRubbersheetLinks(source, target, os.path.join(self.directory, "links.gpkg"), 2)
         self.assertEqual(sorted(self.coords(result[0], ["SRC_FID", "TGT_FID"])),
                          [(1, 1, [(0, 0), (0, 1)]), (1, 1, [(10, 0), (10, 1)]), (2, 2, [(30, 0), (30, 0.5)])])
-        self.assertEqual(self.xy(result[1]), [(20.0, 0.0)])
+        # The identity links are the third output, after the (empty) match table, as in ArcGIS Pro 3.7 (measured
+        # 2026-11-08).
+        self.assertEqual(result[1], "")
+        self.assertEqual(self.xy(result[2]), [(20.0, 0.0)])
 
     def test_edgematch_links_and_features(self):
         # Source (0,0)–(5,0)–(10,0) and adjacent (10.5,0.2)–(20,0): the dangles (10,0) and (10.5,0.2) are 0.54 apart.

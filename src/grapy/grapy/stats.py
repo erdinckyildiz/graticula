@@ -423,11 +423,12 @@ def HotSpots(Input_Feature_Class, Input_Field, Output_Feature_Class,
     ``S = sqrt(Σx_j²/n − X̄²)``, the sums over every feature j, the feature itself included. Standardization has no
     effect, as documented.
 
-    Writes SOURCE_ID, the input field, GiZScore, GiPValue and Gi_Bin. Outputs, in order: the output feature class,
-    "GiZScore", "GiPValue", "SOURCE_ID".
+    Writes SOURCE_ID, the input field, GiZScore, GiPValue, NNeighbors and Gi_Bin. Outputs, in order: the output feature
+    class, "GiZScore", "GiPValue", "SOURCE_ID".
     INFERRED: a feature's weight on itself is 1 — the coincident-point weight of the distance conceptualizations and
     the self potential an .swm file defaults to — or its Self_Potential_Field value when one is given.
-    INFERRED: the output carries no NNeighbors field, which the documentation does not name.
+    NNeighbors is the number of features with a weight other than zero, the feature itself counted — measured in
+    ArcGIS Pro 3.7, 2026-11-08 (until then grapy did not write the field).
     """
     import numpy as np
     fdr = _wants_fdr(Apply_False_Discovery_Rate__FDR__Correction)
@@ -458,6 +459,7 @@ def HotSpots(Input_Feature_Class, Input_Field, Output_Feature_Class,
         bins = [_bin(float(v), q) for v, q in zip(z, p)]
     out = _local_output(Input_Feature_Class, Output_Feature_Class, features, columns, kind, srid, Input_Field,
                         [("GiZScore", "Double", [float(v) for v in z]), ("GiPValue", "Double", p),
+                         ("NNeighbors", "Integer", [int(v) for v in (w != 0).sum(axis=1)]),
                          ("Gi_Bin", "Integer", bins)])
     return Result(out, "GiZScore", "GiPValue", "SOURCE_ID")
 
@@ -470,18 +472,24 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
     """Anselin Local Moran's I, from "How Cluster and Outlier Analysis (Anselin Local Moran's I) works":
     ``I_i = (x_i − X̄)/S² Σ_{j≠i} w_ij (x_j − X̄)``, ``S² = Σ(x_i − X̄)²/(n−1)``, ``E[I_i] = −Σ_{j≠i} w_ij/(n−1)``,
     ``V[I_i] = E[I_i²] − E[I_i]²`` and, from its additional mathematics, ``E[I_i²] = A − B`` with
-    ``A = (n − b2i) Σ_{j≠i} w_ij² / (n−1)``, ``B = (2 b2i − n) Σ_{k≠i} Σ_{h≠i} w_ik w_ih / ((n−1)(n−2))``.
+    ``A = (n − b2i) Σ_{j≠i} w_ij² / (n−1)``, ``B = (2 b2i − n) Σ_{k≠i} Σ_{h≠i, h≠k} w_ik w_ih / ((n−1)(n−2))``.
 
     With ``Number_of_Permutations=0`` the p-value is the traditional one, as documented. With more, LMiPValue is a
     conditional-permutation pseudo p-value — an EQUIVALENT (see ``_pseudo_p``), seeded from env.randomGenerator, so its
     numbers differ from Pro's draws. APPLY_FDR is the Benjamini–Hochberg rate at 0.05 — an EQUIVALENT (see
     ``_bh_significant``), which does not adjust for spatial dependence as Esri's correction is said to.
 
-    Writes SOURCE_ID, the input field, LMiIndex, LMiZScore, LMiPValue and COType. COType is HH, LL, HL or LH for a
+    Writes SOURCE_ID, the input field, LMiIndex, LMiZScore, LMiPValue, COType, NNeighbors (the neighbours with a weight
+    other than zero), ZTransform ((x − X̄)/σ, σ the population standard deviation) and SpatialLag (the weighted sum
+    of the neighbours' ZTransform) — the last three measured in ArcGIS Pro 3.7, 2026-11-08 (until then grapy wrote
+    none of them). COType is HH, LL, HL or LH for a
     feature significant at p < 0.05, NN for a feature with no neighbours, and empty otherwise. Outputs, in order: the
     output feature class, "LMiIndex", "LMiZScore", "LMiPValue", "COType", "SOURCE_ID".
-    INFERRED: ``b2i = Σ_{k≠i} (x_k − X̄)⁴ / (Σ_{k≠i} (x_k − X̄)²)²`` — equation (9) exactly as printed, its index
-    read as "every feature but i"; Anselin (1995) scales the same ratio by the count, and the page does not.
+    Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned (Pro's z-scores to 1e-10 on 60 points): ``b2i = (n − 1)
+    Σ_k (x_k − X̄)⁴ / (Σ_k (x_k − X̄)²)²`` over every feature, B's double sum leaves out k = h, and B is added:
+    ``V[I_i] = A + B − E[I_i]²`` — the conditional-randomisation variance of Sokal, Oden and Thomson (1998). Until then
+    grapy read equation (9) as printed — the sums without feature i, no factor, k = h kept, B subtracted — and its
+    z-scores were up to 0.25 off Pro's.
     INFERRED: the index, z-score and p-value field names, which the page lists only as "Index field name" and so on.
     INFERRED: the first letter of COType is the sign of x_i − X̄ and the second the opposite of it when I_i < 0.
     """
@@ -501,21 +509,27 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
     s2 = float((dev * dev).sum()) / (n - 1)
     if s2 == 0:
         raise ValueError("arcpy.stats.ClustersOutliers: the Input Field has one value everywhere.")
-    index, zs, ps, types = [], [], [], []
+    b2i = (n - 1) * float((dev ** 4).sum()) / float((dev ** 2).sum()) ** 2
+    index, zs, ps, types, vanished = [], [], [], [], set()
     for i in range(n):
         row = w[i]
-        others = np.arange(n) != i
         ii = dev[i] / s2 * float(row @ dev)
         expected = -float(row.sum()) / (n - 1)
-        b2i = float((dev[others] ** 4).sum()) / float((dev[others] ** 2).sum()) ** 2
         a = (n - b2i) * float((row * row).sum()) / (n - 1)
-        b = (2 * b2i - n) * float(row.sum()) ** 2 / ((n - 1) * (n - 2))
-        variance = a - b - expected ** 2
+        b = (2 * b2i - n) * (float(row.sum()) ** 2 - float((row * row).sum())) / ((n - 1) * (n - 2))
+        variance = a + b - expected ** 2
         if not row.any():
             index.append(ii)
             zs.append(None)
             ps.append(None)
             types.append("NN")
+            continue
+        if variance <= 1e-15:   # the conditional variance vanishes (three features, say): no z-score
+            index.append(ii)
+            zs.append(None)
+            ps.append(1.0)     # a placeholder the permutations replace; None below when there are none
+            vanished.add(i)
+            types.append("")
             continue
         z = (ii - expected) / math.sqrt(variance)
         index.append(ii)
@@ -524,6 +538,8 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
         types.append("")
     if permutations:
         ps = _pseudo_p(dev, w, s2, index, ps, permutations)
+    else:
+        ps = [None if i in vanished else p for i, p in enumerate(ps)]
     significant = _bh_significant(ps, 0.05) if fdr else [p is not None and p < 0.05 for p in ps]
     if fdr:
         _say_fdr()
@@ -533,7 +549,10 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
             types[i] = ("HH" if high else "LL") if index[i] > 0 else ("HL" if high else "LH")
     out = _local_output(Input_Feature_Class, Output_Feature_Class, features, columns, kind, srid, Input_Field,
                         [("LMiIndex", "Double", index), ("LMiZScore", "Double", zs), ("LMiPValue", "Double", ps),
-                         ("COType", "String", types)])
+                         ("COType", "String", types),
+                         ("NNeighbors", "Integer", [int((w[i] != 0).sum() - (w[i, i] != 0)) for i in range(n)]),
+                         ("ZTransform", "Double", [float(v) for v in dev / dev.std()]),
+                         ("SpatialLag", "Double", [float(v) for v in w @ (dev / dev.std())])])
     return Result(out, "LMiIndex", "LMiZScore", "LMiPValue", "COType", "SOURCE_ID")
 
 
@@ -945,7 +964,7 @@ def MultiDistanceSpatialClustering(Input_Feature_Class, Output_Table, Number_of_
             pairs = int(((d <= distance) & off).sum())
             observed = math.sqrt(area * pairs / (math.pi * n * (n - 1)))
             rows.insertRow((distance, observed, observed - distance, None))
-    return Result(out)
+    return Result(out, "")  # the outputs ArcGIS Pro 3.7 answers (measured 2026-11-08)
 
 
 def _delaunay_neighbours(tool, xy):
@@ -996,21 +1015,33 @@ def _quantile(values, weights, p):
 def _local_statistics(values, weights):
     """Mean, median, standard deviation, interquartile range, skewness and quantile imbalance, by the formulas of
     "How Neighborhood Summary Statistics works"."""
+    import numpy as np
     order = sorted(range(len(values)), key=lambda i: values[i])
     x = [float(values[i]) for i in order]
     total = sum(weights)
-    w = [weights[i] / total for i in order]
+    raw = [float(weights[i]) for i in order]
+    w = [r / total for r in raw]
     mean = sum(wi * xi for wi, xi in zip(w, x))
-    std = math.sqrt(sum(wi * (xi - mean) ** 2 for wi, xi in zip(w, x)))
-    third = sum(wi * (xi - mean) ** 3 for wi, xi in zip(w, x))
+    # The standard deviation and skewness weigh by the weights as they are, not normalised — measured in ArcGIS Pro
+    # 3.7, 2026-11-08: unweighted, its STD over seven values is sqrt(Σ(x − x̄)²), √7 times the normalised form grapy
+    # wrote until then, and its skewness 7^(−1/6) times.
+    std = math.sqrt(sum(ri * (xi - mean) ** 2 for ri, xi in zip(raw, x)))
+    third = sum(ri * (xi - mean) ** 3 for ri, xi in zip(raw, x))
     skew = math.copysign(abs(third) ** (1 / 3), third) / std if std > 0 else None
-    median, q1, q3 = (_quantile(x, w, p) for p in (0.5, 0.25, 0.75))
+    if len(set(raw)) == 1:
+        # Equal weights: the quartiles interpolate linearly between order statistics (Hyndman and Fan's definition 7),
+        # as Pro 3.7's do (measured 2026-11-08 on all 60 neighbourhoods of a run); until then grapy used the weighted
+        # quantile below for them too.
+        median, q1, q3 = (float(v) for v in np.quantile(x, [0.5, 0.25, 0.75]))
+    else:
+        median, q1, q3 = (_quantile(x, w, p) for p in (0.5, 0.25, 0.75))
     iqr = q3 - q1
     imbalance = (2 * median - (q1 + q3)) / iqr if iqr != 0 else None
     return {"MEAN": mean, "MEDIAN": median, "STD_DEV": std, "IQR": iqr, "SKEWNESS": skew, "QUANTILE_IMBALANCE": imbalance}
 
 
-_NSS = {"MEAN": "MEAN", "MEDIAN": "MED", "STD_DEV": "STD", "IQR": "IQR", "SKEWNESS": "SKEW", "QUANTILE_IMBALANCE": "QIMB"}
+# The field suffixes, in the order ArcGIS Pro 3.7 writes them (measured 2026-11-08).
+_NSS = {"MEAN": "Mean", "STD_DEV": "STD", "SKEWNESS": "SKWNS", "MEDIAN": "MED", "IQR": "IQR", "QUANTILE_IMBALANCE": "QIMBL"}
 
 
 def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=None, local_summary_statistic="ALL",
@@ -1018,9 +1049,10 @@ def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=
                                   neighborhood_type=None, distance_band=None, number_of_neighbors=8,
                                   weights_matrix_file=None, local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None):
     """Local summary statistics of each feature's neighbourhood, by the formulas of "How Neighborhood Summary Statistics
-    works": the weighted mean, standard deviation ``sqrt(Σw(x − x̄)²)``, skewness ``cbrt(Σw(x − x̄)³)/s``, and the
-    weighted p-quantile's median, interquartile range and quantile imbalance ``(2 Med − (Q1 + Q3))/IQR``, weights
-    normalised to sum to one (1/n unweighted). Kernels: bisquare ``(1 − (d/b)²)²`` and Gaussian ``exp(−½(d/b)²)``.
+    works": the weighted mean ``Σwx/Σw``, standard deviation ``sqrt(Σw(x − x̄)²)``, skewness ``cbrt(Σw(x − x̄)³)/s``
+    (both with the weights as they are, 1 unweighted — measured in ArcGIS Pro 3.7, 2026-11-08), and the median,
+    interquartile range and quantile imbalance ``(2 Med − (Q1 + Q3))/IQR`` from the quartiles — linear between order
+    statistics when the weights are equal (measured), the weighted p-quantile otherwise (unmeasured). Kernels: bisquare ``(1 − (d/b)²)²`` and Gaussian ``exp(−½(d/b)²)``.
 
     Neighbourhoods: DISTANCE_BAND (default band: the shortest that gives every feature one other neighbour; at most
     the 1,000 nearest), NUMBER_OF_NEIGHBORS (8 by default, the focal feature not counted), CONTIGUITY_EDGES_ONLY,
@@ -1033,9 +1065,9 @@ def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=
     estimated by Kernel Density's rule, not built here); a bisquare kernel reaching a neighbour beyond its bandwidth
     (the formula as written turns positive again there); a Delaunay triangulation that is not unique.
 
-    INFERRED: the field names — MEAN_, MED_, STD_, IQR_, SKEW_ and QIMB_ before the analysis field's name, NUM_NBRS_
-    before it for the count used, and the same with DIST for the distances — which the documentation does not give.
-    INFERRED: the output carries the analysis fields and these, not the input's other fields. INFERRED: a feature
+    The fields, as ArcGIS Pro 3.7 writes them (measured 2026-11-08; until then grapy wrote MEAN_y, MED_y …): SOURCE_ID,
+    then per analysis field the field, and its name in capitals with _Mean, _STD, _SKWNS, _MED, _IQR, _QIMBL and
+    _NNBRS (the count used), then the same with DIST for the distances. The input's other fields are not written. INFERRED: a feature
     exactly at the band's distance is inside it; neighbours tied at the k-th distance are taken by object id; a skewness
     with s = 0 and an imbalance with IQR = 0 are null.
     """
@@ -1082,18 +1114,18 @@ def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=
         ratio = (distance / bandwidth) ** 2
         return (1 - ratio) ** 2 if scheme == "BISQUARE" else math.exp(-0.5 * ratio)
 
-    out_columns = []
+    out_columns = [_gpkg.Column("SOURCE_ID", "Integer")]
     for field in fields:
-        name = by_name[field.lower()].name
-        out_columns += [by_name[field.lower()], *[_gpkg.Column(f"{_NSS[s]}_{name}", "Double") for s in wanted],
-                        _gpkg.Column(f"NUM_NBRS_{name}", "Integer")]
-    out_columns += [*[_gpkg.Column(f"{_NSS[s]}_DIST", "Double") for s in wanted], _gpkg.Column("NUM_NBRS_DIST", "Integer")]
+        name = by_name[field.lower()].name.upper()
+        out_columns += [by_name[field.lower()], *[_gpkg.Column(f"{name}_{_NSS[s]}", "Double") for s in wanted],
+                        _gpkg.Column(f"{name}_NNBRS", "Integer")]
+    out_columns += [*[_gpkg.Column(f"DIST_{_NSS[s]}", "Double") for s in wanted], _gpkg.Column("DIST_NNBRS", "Integer")]
     out = _out(output_features)
     _gpkg.create(out, kind, srid, out_columns)
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as rows:
         for i, f in enumerate(features):
             members = ([i] if focal else []) + list(neighbours[i])
-            row = []
+            row = [f[0]]
             for field in fields:
                 key = field.lower()
                 pairs = [(features[j][1][key], kernel(d[i, j])) for j in members]
@@ -1148,7 +1180,10 @@ def SimilaritySearch(Input_Features_To_Match, Candidate_Features, Output_Feature
     INFERRED: the standard deviation is the population one (divided by n); with ATTRIBUTE_VALUES and NO_SCALE_DATA the
     values are compared as they are. INFERRED: a feature with a null attribute of interest is left out; candidates
     with equal SIMINDEX are ranked by object id; the attribute values written are the original ones; the features to
-    match carry no SIMINDEX; LABELRANK, a display field whose values are not documented, is not written.
+    match carry no SIMINDEX under ATTRIBUTE_PROFILES. Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned (until then
+    grapy wrote neither): under ATTRIBUTE_VALUES the features to match carry rank 0 and SIMINDEX 0, and every row
+    carries LABELRANK, its rank (0 for the features to match). INFERRED: LABELRANK is the DSIMRANK of a least similar
+    row, which was not measured.
     """
     import numpy as np
     tool = "SimilaritySearch"
@@ -1223,6 +1258,8 @@ def SimilaritySearch(Input_Features_To_Match, Candidate_Features, Output_Feature
     if least:
         extra.append(_gpkg.Column("DSIMRANK", "Integer"))
     extra.append(_gpkg.Column("SIMINDEX", "Double"))
+    extra.append(_gpkg.Column("LABELRANK", "Integer"))
+    values_method = "PROFILES" not in _keyword(Match_Method or "ATTRIBUTE_VALUES")
     out = _out(Output_Features)
     _gpkg.create(out, kind, srid, [*columns, *extra])
     names = [col.name.lower() for col in columns]
@@ -1232,16 +1269,19 @@ def SimilaritySearch(Input_Features_To_Match, Candidate_Features, Output_Feature
 
     with da.InsertCursor(out, [*[col.name for col in columns], *[e.name for e in extra], "SHAPE@"]) as rows:
         for oid, values, shape in targets:
-            ranks = [None] * (bool(most) + bool(least))
-            rows.insertRow((*[values[n] for n in names], oid, None, *ranks, None, shape_of(shape)))
+            ranks = [0 if values_method else None] * (bool(most) + bool(least))
+            rows.insertRow((*[values[n] for n in names], oid, None, *ranks, 0.0 if values_method else None, 0,
+                            shape_of(shape)))
         for position, i in enumerate(most, start=1):
             oid, values, shape = candidates[i]
             ranks = [position] + ([None] if least else [])
-            rows.insertRow((*[values[n] for n in names], None, oid, *ranks, float(index[i]), shape_of(shape)))
+            rows.insertRow((*[values[n] for n in names], None, oid, *ranks, float(index[i]), position,
+                            shape_of(shape)))
         for position, i in enumerate(least, start=1):
             oid, values, shape = candidates[i]
             ranks = ([None] if most else []) + [position]
-            rows.insertRow((*[values[n] for n in names], None, oid, *ranks, float(index[i]), shape_of(shape)))
+            rows.insertRow((*[values[n] for n in names], None, oid, *ranks, float(index[i]), position,
+                            shape_of(shape)))
     return Result(out)
 
 
@@ -1387,8 +1427,10 @@ def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, perc
     Refused: an omitted n_neighbors or percent_outlier (they are then estimated by a
     t-statistic search over a domain the page does not give); a percent_outlier that does not make m a whole number of
     points (the page does not say how m is rounded); output_raster (the cells' grid is not specified).
-    INFERRED: the output keeps the input's fields and adds LOF (Double) and IS_OUTLIER (1 or 0) — the page names the
-    contents, not the fields. INFERRED: N(A) holds every point within the k-distance, ties included, as Breunig et al.
+    LOCAL's output is SOURCE_ID, OUTLIER_ID (1 or 0) and LOF, without the input's fields, and the outputs are the
+    features and the (empty) raster — as ArcGIS Pro 3.7 writes and answers them (measured 2026-11-08, its LOF to 1e-6
+    on 60 points); until then grapy kept the input's fields and wrote IS_OUTLIER. GLOBAL's fields are not measured.
+    INFERRED: N(A) holds every point within the k-distance, ties included, as Breunig et al.
     define it; coincident points, whose reachability density is infinite, are refused.
     """
     import numpy as np
@@ -1435,17 +1477,14 @@ def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, perc
     outlier = lof >= threshold - 1e-12 * abs(threshold)
     keep_all = _keyword(keep_type) not in ("KEEP_OUTLIER", "FALSE")
     out = _out(output_features)
-    names = [c.name for c in columns]
-    _gpkg.create(out, kind, srid, [*columns, _gpkg.Column("LOF", "Double"), _gpkg.Column("IS_OUTLIER", "Integer")])
-    by_oid = {f[0]: i for i, f in enumerate(features)}
-    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
-            da.InsertCursor(out, [*names, "LOF", "IS_OUTLIER", "SHAPE@"]) as written:
-        for row in rows:
-            i = by_oid.get(row[0])
-            if i is None or (not keep_all and not outlier[i]):
+    fields = [_gpkg.Column("SOURCE_ID", "Integer"), _gpkg.Column("OUTLIER_ID", "Integer"), _gpkg.Column("LOF", "Double")]
+    _gpkg.create(out, kind, srid, fields)
+    with da.InsertCursor(out, [*[c.name for c in fields], "SHAPE@"]) as written:
+        for i, f in enumerate(features):
+            if not keep_all and not outlier[i]:
                 continue
-            written.insertRow((*row[1:-1], float(lof[i]), int(outlier[i]), row[-1]))
-    return Result(out)
+            written.insertRow((f[0], int(outlier[i]), float(lof[i]), f[4]))
+    return Result(out, "")
 
 
 # ---- Regression: equivalents (ADR-224 §5.6) -----------------------------------------------------------------------
@@ -1548,13 +1587,19 @@ def OrdinaryLeastSquares(Input_Feature_Class, Unique_ID_Field, Output_Feature_Cl
         for i, f in enumerate(kept):
             written.insertRow((*[f[1][c.name.lower()] for c in keep], float(fitted[i]), float(residual[i]),
                                float(residual[i] / math.sqrt(sigma2)), f[4]))
-    names = ["Intercept", *explanatory]
+    # The variables in capitals and StdCoef, the coefficient times sd(x)/sd(y) (0 for the intercept), as ArcGIS Pro 3.7
+    # writes them (measured 2026-11-08 to 1e-6; until then grapy wrote the names as given and no StdCoef).
+    names = ["Intercept", *[e.upper() for e in explanatory]]
+    spread_y = float(np.std(y))
+    standardized = [0.0] + [float(beta[j] * np.std(x[:, j]) / spread_y) if spread_y else None for j in range(1, k)]
     coefficient = ""
     if _given(Coefficient_Output_Table):
         coefficient = _write_table(Coefficient_Output_Table, [
             _gpkg.Column("Variable", "String"), *[_gpkg.Column(c, "Double") for c in
-                                                  ("Coef", "StdError", "t_Stat", "Prob", "Robust_SE", "Robust_t", "Robust_Pr")]],
-            [(names[j], *[float(v[j]) for v in (beta, se, t, p, robust_se, robust_t, robust_p)]) for j in range(k)])
+                                                  ("Coef", "StdError", "t_Stat", "Prob", "Robust_SE", "Robust_t", "Robust_Pr",
+                                                   "StdCoef")]],
+            [(names[j], *[float(v[j]) for v in (beta, se, t, p, robust_se, robust_t, robust_p)], standardized[j])
+             for j in range(k)])
     diagnostics = [("AIC", aic), ("AICc", aicc), ("R2", r2), ("AdjR2", adjusted), ("F-Stat", f_stat),
                    ("F-Prob", float(distributions.f.sf(f_stat, k - 1, n - k))), ("Wald", wald),
                    ("Wald-Prob", float(distributions.chi2.sf(wald, k - 1))), ("K(BP)", koenker),
@@ -1663,12 +1708,19 @@ def GeneralizedLinearRegression(in_features, dependent_variable, model_type, out
     by_name = {c.name.lower(): c for c in columns}
     keep = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory]]
     out = _out(output_features)
-    added = [_gpkg.Column("PREDICTED", "Double"), _gpkg.Column("RESIDUAL", "Double")]
-    _gpkg.create(out, kind, srid, [*keep, *added])
-    with da.InsertCursor(out, [*[c.name for c in keep], *[c.name for c in added], "SHAPE@"]) as written:
+    # SOURCE_ID first and STDRESID last, and the outputs (the features, then the two optional outputs, empty), as
+    # ArcGIS Pro 3.7 writes and answers them — measured 2026-11-08 for CONTINUOUS, where STDRESID is the residual over
+    # sqrt(RSS/(n − k)), as OLS's StdResid. Until then grapy wrote neither field and answered the coefficients, which
+    # are in the messages. INFERRED: for BINARY and COUNT, STDRESID is the Pearson residual (y − μ)/sqrt(V(μ)).
+    variance = {"gaussian": np.full(len(mu), dispersion), "binomial": mu * (1 - mu), "poisson": mu}[family]
+    std = (y - mu) / np.sqrt(np.where(variance > 0, variance, np.nan))
+    added = [_gpkg.Column("PREDICTED", "Double"), _gpkg.Column("RESIDUAL", "Double"), _gpkg.Column("STDRESID", "Double")]
+    _gpkg.create(out, kind, srid, [_gpkg.Column("SOURCE_ID", "Integer"), *keep, *added])
+    with da.InsertCursor(out, ["SOURCE_ID", *[c.name for c in keep], *[c.name for c in added], "SHAPE@"]) as written:
         for i, f in enumerate(kept):
-            written.insertRow((*[f[1][c.name.lower()] for c in keep], float(mu[i]), float(y[i] - mu[i]), f[4]))
-    return Result(out, *[float(b) for b in beta])
+            written.insertRow((f[0], *[f[1][c.name.lower()] for c in keep], float(mu[i]), float(y[i] - mu[i]),
+                               float(std[i]) if np.isfinite(std[i]) else None, f[4]))
+    return Result(out, "", "")
 
 
 def _gwr_weights(d, bandwidth, kernel, adaptive):
@@ -1768,11 +1820,18 @@ def GWR(in_features, dependent_variable, model_type, explanatory_variables, outp
     distance (or count) at which every feature has 5 percent of the features as neighbours to that at which every
     feature has half, narrowed by the minimum and maximum given.
 
-    The output carries the dependent and explanatory variables, INTERCEPT, SE_INTERCEPT, C_<variable> and SE_<variable>
-    (√diag(C_iC_i')·σ, C_i = (X'W_iX)⁻¹X'W_i), PREDICTED, RESIDUAL, STDRESID (e_i/(σ√(1−S_ii))), INFLUENCE (S_ii),
-    COOKSD (STDRESID²·S_ii/(tr S·(1−S_ii))) — null where S_ii is 1 — LOCALR2 (weighted) and COND (the condition number of the weighted
-    explanatory columns). σ² = RSS/(n − tr S). The bandwidth, tr S, AICc, R² and σ² are written as messages.
-    INFERRED: those field names and these formulas for the ones the page names without formulas.
+    The output carries SOURCE_ID, the dependent and explanatory variables, then for the intercept and each variable
+    (its name in capitals) INTRCPT/C_<VAR>, SE_ (√diag(C_iC_i')·σ, C_i = (X'W_iX)⁻¹X'W_i), T_ (the coefficient over
+    its standard error) and SG_ (1 where |T| exceeds the two-sided t at α = 0.05/(tr S/k), the multiple-test
+    adjustment of da Silva and Fotheringham 2016), then PREDICTED, RESIDUAL, STDRESID (e_i/(σ√(1−S_ii))), INFLUENCE
+    (S_ii), COOKS_D (STDRESID²·S_ii/(tr S·(1−S_ii))) — null where S_ii is 1 — CND_NUMBER (the condition number of the
+    weighted explanatory columns) and LOCALR2 (weighted). σ² = RSS/(n − 2 tr S + tr S'S). The outputs are the
+    features and two optional outputs, empty. The bandwidth, tr S, AICc, R² and σ² are written as messages.
+    Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned: the field names and order, T_ and SG_, σ² (Pro's standard
+    errors and STDRESID to 1e-10 on 60 points) and the outputs; until then grapy wrote INTERCEPT, SE_<var>, COOKSD,
+    COND, no SOURCE_ID, T_ or SG_, took σ² = RSS/(n − tr S) and answered the features alone. INFERRED: SG_'s degrees
+    of freedom, n − k (n − 1 and n fit the measurement as well; n − tr S does not). Not aligned, and recorded: Pro's
+    LOCALR2 and CND_NUMBER differ from these (0.95 against 0.94, 189 against 3.5 at the first of the 60 points).
 
     Refused: BINARY and COUNT (local GLMs are not built in this equivalent), prediction locations, coefficient rasters.
     INFERRED: SCALE_DATA does not change the fit, the predictions or the bandwidth chosen; its scaled coefficients are
@@ -1840,7 +1899,7 @@ def GWR(in_features, dependent_variable, model_type, explanatory_variables, outp
     residual = y - fitted
     trace = float(np.trace(s))
     rss = float(residual @ residual)
-    sigma2 = rss / (n - trace)
+    sigma2 = rss / (n - 2 * trace + float((s * s).sum()))
     influence = np.diag(s)
     with np.errstate(divide="ignore", invalid="ignore"):
         std_residual = residual / np.sqrt(sigma2 * (1 - influence))
@@ -1855,17 +1914,30 @@ def GWR(in_features, dependent_variable, model_type, explanatory_variables, outp
     AddMessage(f"Sigma-squared: {sigma2}")
     by_name = {c.name.lower(): c for c in columns}
     keep = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory]]
-    labels = ["INTERCEPT", "SE_INTERCEPT"] + [name for e in explanatory for name in (f"C_{e}", f"SE_{e}")]
-    labels += ["PREDICTED", "RESIDUAL", "STDRESID", "INFLUENCE", "COOKSD", "LOCALR2", "COND"]
+    keep = [c for c in keep if c.name.upper() != "SOURCE_ID"]
+    from scipy.stats import t as _t
+    critical = float(_t.ppf(1 - 0.05 / (trace / x.shape[1]) / 2, n - x.shape[1]))
+    terms = ["INTRCPT", *[e.upper() for e in explanatory]]
+    columns_out = [_gpkg.Column("SOURCE_ID", "Integer"), *keep]
+    for j, term in enumerate(terms):
+        columns_out += [_gpkg.Column("INTRCPT" if j == 0 else f"C_{term}", "Double"),
+                        _gpkg.Column(f"SE_{term}", "Double"), _gpkg.Column(f"T_{term}", "Double"),
+                        _gpkg.Column(f"SG_{term}", "SmallInteger")]
+    columns_out += [_gpkg.Column(name, "Double") for name in
+                    ("PREDICTED", "RESIDUAL", "STDRESID", "INFLUENCE", "COOKS_D", "CND_NUMBER", "LOCALR2")]
     out = _out(output_features)
-    _gpkg.create(out, kind, srid, [*keep, *[_gpkg.Column(name, "Double") for name in labels]])
-    with da.InsertCursor(out, [*[c.name for c in keep], *labels, "SHAPE@"]) as written:
+    _gpkg.create(out, kind, srid, columns_out)
+    with da.InsertCursor(out, [*[c.name for c in columns_out], "SHAPE@"]) as written:
         for i, f in enumerate(kept):
-            pairs = [float(v) for j in range(x.shape[1]) for v in (betas[i, j], se[i, j])]
-            written.insertRow((*[f[1][c.name.lower()] for c in keep], *pairs, float(fitted[i]), float(residual[i]),
-                               finite(std_residual[i]), float(influence[i]), finite(cooks[i]), float(local_r2[i]),
-                               finite(conditions[i]), f[4]))
-    return Result(out)
+            local = []
+            for j in range(x.shape[1]):
+                t_value = float(betas[i, j] / se[i, j]) if se[i, j] > 0 else None
+                local += [float(betas[i, j]), float(se[i, j]), t_value,
+                          int(abs(t_value) > critical) if t_value is not None else None]
+            written.insertRow((f[0], *[f[1][c.name.lower()] for c in keep], *local, float(fitted[i]),
+                               float(residual[i]), finite(std_residual[i]), float(influence[i]), finite(cooks[i]),
+                               finite(conditions[i]), float(local_r2[i]), f[4]))
+    return Result(out, "", "")
 
 
 @_equivalent("Global Moran's I over a series of fixed distance bands, its peaks read as distances",
@@ -1879,7 +1951,9 @@ def IncrementalSpatialAutocorrelation(Input_Features, Input_Field, Number_of_Dis
     sample reads ``getOutput(2)`` as the distance to use next: grapy answers as the sample reads — the outputs, in
     order, are the output table, the report (empty), the first peak's distance and the highest peak's distance (empty
     when there is no peak). A peak is a band whose z-score is higher than the bands either side of it. The table has
-    Distance, MoransI, ExpectedI, Variance, ZScore and PValue (INFERRED names).
+    Distance, MoransI, ExpectedI, Variance, z_score and p_value. At each distance the features with no neighbour
+    within it are left out of that band's statistic. Both measured in ArcGIS Pro 3.7, 2026-11-08 (at 80 m, three of
+    60 points had none, and Pro's ExpectedI was −1/56); until then grapy wrote ZScore and PValue and kept them.
 
     The beginning distance defaults, as documented, to the largest nearest-neighbour distance. Refused: an omitted
     Distance_Increment (its default rests on a "maximum threshold distance" the page does not define) and the report.
@@ -1903,9 +1977,13 @@ def IncrementalSpatialAutocorrelation(Input_Features, Input_Field, Number_of_Dis
     rows = []
     for k in range(int(Number_of_Distance_Bands)):
         distance = begin + k * step
-        w = _standardized(_weights(tool, features, srid, "FIXED_DISTANCE_BAND", method, distance, None), standardize)
+        w = _weights(tool, features, srid, "FIXED_DISTANCE_BAND", method, distance, None)
+        off = w.copy()
+        np.fill_diagonal(off, 0)
+        kept = off.sum(axis=1) > 0
+        w = _standardized(w[np.ix_(kept, kept)], standardize)
         try:
-            i, expected, variance, z = _moran(x, w)
+            i, expected, variance, z = _moran(x[kept], w)
             rows.append((distance, i, expected, variance, z, _p(z)))
         except ValueError:  # Every feature the neighbour of every other: the variance is zero and z undefined.
             rows.append((distance, None, None, None, None, None))
@@ -1916,7 +1994,7 @@ def IncrementalSpatialAutocorrelation(Input_Features, Input_Field, Number_of_Dis
     table = ""
     if _given(Output_Table):
         table = _write_table(Output_Table, [_gpkg.Column(name, "Double") for name in
-                                            ("Distance", "MoransI", "ExpectedI", "Variance", "ZScore", "PValue")], rows)
+                                            ("Distance", "MoransI", "ExpectedI", "Variance", "z_score", "p_value")], rows)
     return Result(table, "", first, highest)
 
 
@@ -2024,8 +2102,11 @@ def DensityBasedClustering(in_features, output_features, cluster_method, min_fea
     within search_distance, itself included, is a core point; a cluster is the core points reachable from one another
     and the points within reach of them; the rest are noise. Points are visited in object id order, and a border point
     joins the first cluster to reach it, as in the paper. With no search_distance, the page's default: the highest core
-    distance after the top 1 percent are set aside — INFERRED: the floor(n/100) largest. Writes the input's fields and
-    CLUSTER_ID, −1 for noise (INFERRED), clusters numbered in the order they are found.
+    distance after the top 1 percent are set aside — INFERRED: the floor(n/100) largest. Writes SOURCE_ID, CLUSTER_ID
+    (−1 for noise) and COLOR_ID, not the input's fields, clusters numbered in the order they are found — measured in
+    ArcGIS Pro 3.7, 2026-11-08 (its clusters equal to grapy's on 60 points; until then grapy kept the input's fields and
+    wrote no SOURCE_ID or COLOR_ID). INFERRED: COLOR_ID is the cluster's number, as it was for all six clusters
+    measured; how Pro assigns it beyond that is not known.
 
     Refused: HDBSCAN and OPTICS (not in this equivalent) and a time field (space-time clusters are not built).
     """
@@ -2070,16 +2151,13 @@ def DensityBasedClustering(in_features, output_features, cluster_method, min_fea
             labels[j] = cluster
             if len(neighbours[j]) >= k:
                 queue.extend(int(m) for m in sorted(neighbours[j], key=lambda m: features[m][0]))
-    names = [c.name for c in columns]
     out = _out(output_features)
-    _gpkg.create(out, kind, srid, [*columns, _gpkg.Column("CLUSTER_ID", "Integer")])
-    by_oid = {f[0]: i for i, f in enumerate(features)}
-    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
-            da.InsertCursor(out, [*names, "CLUSTER_ID", "SHAPE@"]) as written:
-        for row in rows:
-            i = by_oid.get(row[0])
-            if i is not None:
-                written.insertRow((*row[1:-1], labels[i], row[-1]))
+    fields = [_gpkg.Column("SOURCE_ID", "Integer"), _gpkg.Column("CLUSTER_ID", "Integer"),
+              _gpkg.Column("COLOR_ID", "Integer")]
+    _gpkg.create(out, kind, srid, fields)
+    with da.InsertCursor(out, [*[c.name for c in fields], "SHAPE@"]) as written:
+        for i, f in enumerate(features):
+            written.insertRow((f[0], labels[i], labels[i], f[4]))
     return Result(out)
 
 
@@ -2237,8 +2315,9 @@ def OptimizedHotSpotAnalysis(Input_Features, Output_Features, Analysis_Field=Non
                                                Bounding_Polygons_Defining_Where_Incidents_Are_Possible,
                                                Polygons_For_Aggregating_Incidents_Into_Counts, Cell_Size, Distance_Band,
                                                AddMessage)
-    return HotSpots(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE", distance, None,
-                    None, "APPLY_FDR")
+    result = HotSpots(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE", distance, None,
+                      None, "APPLY_FDR")
+    return Result(result[0], "")  # the outputs ArcGIS Pro 3.7 answers: the features and the density surface (2026-11-08)
 
 
 @_equivalent("Optimized Outlier Analysis's documented steps over grapy's Local Moran's I with seeded permutations, "
@@ -2267,8 +2346,9 @@ def OptimizedOutlierAnalysis(Input_Features, Output_Features, Analysis_Field=Non
                                                AddMessage)
     features, _, _, _ = _features("OptimizedOutlierAnalysis", path, [field])
     distance = max(distance, float(_nearest(_distances([(f[2], f[3]) for f in features])).max()))
-    return ClustersOutliers(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "ROW", distance,
-                            None, "APPLY_FDR", permutations)
+    result = ClustersOutliers(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "ROW", distance,
+                              None, "APPLY_FDR", permutations)
+    return Result(result[0])  # the one output ArcGIS Pro 3.7 answers (measured 2026-11-08)
 
 
 def _univariate_fit(column, target, weights):
@@ -2436,8 +2516,10 @@ def GeographicallyWeightedRegression(in_features, dependent_field, explanatory_f
                                      bandwidth_method, distance=None, number_of_neighbors=None, weight_field=None,
                                      coefficient_raster_workspace=None, cell_size=None, in_prediction_locations=None,
                                      prediction_explanatory_field=None, out_prediction_featureclass=None):
-    """EQUIVALENT: GWR as stats.GWR computes it, with the Gaussian kernel this tool documents — FIXED a distance,
-    ADAPTIVE a number of neighbours — and the bandwidth given (BANDWIDTH_PARAMETER) or chosen by golden-section search
+    """EQUIVALENT: GWR as stats.GWR computes it — FIXED a distance with a Gaussian kernel, ADAPTIVE a number of
+    neighbours with a bisquare kernel (measured in ArcGIS Pro 3.7, 2026-11-08: ADAPTIVE at 25 neighbours gave the
+    coefficients of stats.GWR's bisquare at 25 to 1e-10; until then grapy used the Gaussian for both) — and the
+    bandwidth given (BANDWIDTH_PARAMETER) or chosen by golden-section search
     on AICc (eq. 2.33) or on the cross-validation score (eq. 2.30) between 5 percent and half of the features. The
     summary table is written beside the output with ``_supp`` appended, as documented, as Diag_Name and Diag_Value
     (INFERRED fields): Bandwidth, ResidualSquares, EffectiveNumber, Sigma, AICc, R2, R2Adjusted. Output fields as
@@ -2453,6 +2535,7 @@ def GeographicallyWeightedRegression(in_features, dependent_field, explanatory_f
     adaptive = _keyword(kernel_type) == "ADAPTIVE"
     if not adaptive and _keyword(kernel_type) != "FIXED":
         raise ValueError(f"arcpy.stats.{tool}: kernel_type is FIXED or ADAPTIVE.")
+    kernel = "BISQUARE" if adaptive else "GAUSSIAN"
     method = _keyword(bandwidth_method)
     explanatory = [e for e in _list(explanatory_field) if _given(e)]
     kept, y, x, xy, _, _, srid = _regression_data(tool, in_features, dependent_field, explanatory)
@@ -2464,8 +2547,8 @@ def GeographicallyWeightedRegression(in_features, dependent_field, explanatory_f
             raise ValueError(f"arcpy.stats.{tool}: BANDWIDTH_PARAMETER needs {'number_of_neighbors' if adaptive else 'distance'}.")
         bandwidth = int(given) if adaptive else _threshold(given, srid)
     elif method in ("AICC", "CV"):
-        score = (lambda b: _gwr_aicc(x, y, d, b, "GAUSSIAN", adaptive)) if method == "AICC" else \
-            (lambda b: _gwr_cv(x, y, d, b, "GAUSSIAN", adaptive))
+        score = (lambda b: _gwr_aicc(x, y, d, b, kernel, adaptive)) if method == "AICC" else \
+            (lambda b: _gwr_cv(x, y, d, b, kernel, adaptive))
         sorted_d = np.sort(d, axis=1)
         if adaptive:
             low, high = max(int(math.ceil(0.05 * n)), x.shape[1] + 1), max(x.shape[1] + 2, n // 2)
@@ -2478,14 +2561,14 @@ def GeographicallyWeightedRegression(in_features, dependent_field, explanatory_f
     out = GWR(in_features, dependent_field, "CONTINUOUS", explanatory, out_featureclass,
               "NUMBER_OF_NEIGHBORS" if adaptive else "DISTANCE_BAND", "USER_DEFINED",
               number_of_neighbors=bandwidth if adaptive else None, distance_band=None if adaptive else bandwidth,
-              local_weighting_scheme="GAUSSIAN").getOutput(0)
-    betas, s, *_ = _gwr_fit(x, y, d, bandwidth, "GAUSSIAN", adaptive)
+              local_weighting_scheme=kernel).getOutput(0)
+    betas, s, *_ = _gwr_fit(x, y, d, bandwidth, kernel, adaptive)
     residual = y - (x * betas).sum(axis=1)
     rss, trace = float(residual @ residual), float(np.trace(s))
     tss = float(((y - y.mean()) ** 2).sum())
     r2 = 1 - rss / tss
     rows = [("Bandwidth", float(bandwidth)), ("ResidualSquares", rss), ("EffectiveNumber", trace),
-            ("Sigma", math.sqrt(rss / (n - trace))), ("AICc", _gwr_aicc(x, y, d, bandwidth, "GAUSSIAN", adaptive)),
+            ("Sigma", math.sqrt(rss / (n - trace))), ("AICc", _gwr_aicc(x, y, d, bandwidth, kernel, adaptive)),
             ("R2", r2), ("R2Adjusted", 1 - (1 - r2) * (n - 1) / (n - trace - 1))]
     supp = _out(out)[:-5] + "_supp.gpkg" if _out(out).lower().endswith(".gpkg") else _out(out) + "_supp"
     table = _write_table(supp, [_gpkg.Column("Diag_Name", "String"), _gpkg.Column("Diag_Value", "Double")], rows)
@@ -2565,16 +2648,32 @@ def _rows_with_oids(tool, path, fields):
     return out, columns, kind, srid
 
 
-def _appended(tool, in_table, append, out_table, new_columns, values_by_oid):
+def _appended(tool, in_table, append, out_table, new_columns, values_by_oid, keep=None):
     """The new fields written beside the input's own: on the input itself when ``append``, otherwise on a copy at
     ``out_table`` (CopyFeatures for features, CopyRows for a table). ``values_by_oid`` maps an input object id to the
-    row of new values. INFERRED: a field already there of the same name is overwritten, and the copy's rows follow the
+    row of new values. With ``keep`` (field names), the copy holds SOURCE_ID (the input's object id) and those fields
+    only, as the new outputs of ArcGIS Pro 3.7's Calculate Composite Index and Calculate Rates do (measured
+    2026-11-08). INFERRED: a field already there of the same name is overwritten, and the copy's rows follow the
     input's in object id order."""
     from . import management
-    _, kind, srid, _ = _schema(in_table)
+    columns, kind, srid, _ = _schema(in_table)
     if append:
         target = in_table
         mapping = {oid: oid for oid in values_by_oid}
+    elif keep is not None:
+        if not _given(out_table):
+            raise ValueError(f"arcpy.stats.{tool}: an output is needed when the fields are not appended to the input.")
+        target = _out(out_table)
+        by_name = {c.name.lower(): c for c in columns}
+        kept = [by_name[f.lower()] for f in keep if f.lower() in by_name and f.upper() != "SOURCE_ID"]
+        shape_kind, shape_srid = (kind, srid) if not (kind == "Geometry" and srid == 0) else ("Geometry", 0)
+        _gpkg.create(target, shape_kind, shape_srid, [_gpkg.Column("SOURCE_ID", "Integer"), *kept])
+        with da.SearchCursor(in_table, ["OID@", *[c.name for c in kept], "SHAPE@"]) as rows, \
+                da.InsertCursor(target, ["SOURCE_ID", *[c.name for c in kept], "SHAPE@"]) as written:
+            for row in rows:
+                written.insertRow(row)
+        with da.SearchCursor(target, ["SOURCE_ID", "OID@"]) as rows:
+            mapping = {r[0]: r[1] for r in rows}
     else:
         if not _given(out_table):
             raise ValueError(f"arcpy.stats.{tool}: an output is needed when the fields are not appended to the input.")
@@ -2944,7 +3043,7 @@ def ColocationAnalysis(input_type, in_features_of_interest, output_features, fie
         table = _write_table(output_table, [_gpkg.Column("CATEGORY_OF_INTEREST", "String"),
                                             _gpkg.Column("NEIGHBORING_CATEGORY", "String"),
                                             _gpkg.Column("GLOBAL_CLQ", "Double")], rows)
-    return Result(out, table) if table else Result(out)
+    return Result(out, table or "")  # the outputs ArcGIS Pro 3.7 answers (measured 2026-11-08)
 
 
 # ---- Mapping Clusters: Calculate Rates ----------------------------------------------------------------------------
@@ -2987,7 +3086,12 @@ def CalculateRates(in_table, rate_fields, append_to_input="NO_APPEND", out_table
     Refused: BINOMIAL for the empirical Bayes methods (Marshall's estimator is for Poisson counts); BISQUARE and
     GAUSSIAN (how a kernel weights a rate is not documented); GET_SPATIAL_WEIGHTS_FROM_FILE.
 
-    INFERRED: the new fields are RATE_<count field>, and for the local methods NBRS_<count field> (the neighbourhood's
+    Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned (until then grapy copied every input field and wrote
+    RATE_<count field>): a new output holds SOURCE_ID and the rate fields' count and population fields, and the k-th
+    pair's rate is R<k>, followed by R<k>_CR, its crude rate times the multiplier. Not written, and recorded: Pro's
+    R<k>_SD and R<k>_XS, whose contents are not documented (null and 1 under GLOBAL_EMPIRICAL_BAYES in the run
+    measured).
+    INFERRED: for the local methods NBRS_<count field> (the neighbourhood's
     features with valid values, the feature included) and, for the locally weighted ones, FILLED_<count field>;
     number_of_neighbors is 8 when not given; the default band is the shortest that gives every feature a neighbour.
     """
@@ -3032,8 +3136,8 @@ def CalculateRates(in_table, rate_fields, append_to_input="NO_APPEND", out_table
         return y is not None and n is not None and y >= 0 and n >= 0
 
     new_columns, results = [], {oid: [] for oid, _ in records}
-    for count, population in pairs:
-        new_columns.append(_gpkg.Column(f"RATE_{count}", "Double"))
+    for position, (count, population) in enumerate(pairs, start=1):
+        new_columns += [_gpkg.Column(f"R{position}", "Double"), _gpkg.Column(f"R{position}_CR", "Double")]
         if local:
             new_columns.append(_gpkg.Column(f"NBRS_{count}", "Integer"))
         if method in ("LOCALLY_WEIGHTED_AVERAGE", "LOCALLY_WEIGHTED_MEDIAN"):
@@ -3048,6 +3152,7 @@ def CalculateRates(in_table, rate_fields, append_to_input="NO_APPEND", out_table
             members = [i, *neighbours[i]] if local else []
             usable = [j for j in members if ok[j] and ns[j] > 0]
             rate = ys[i] / ns[i] if ok[i] and ns[i] > 0 else None
+            crude = rate * multiplier if rate is not None else None
             row = []
             if method == "CRUDE_RATE":
                 row.append(rate * multiplier if rate is not None else None)
@@ -3077,9 +3182,10 @@ def CalculateRates(in_table, rate_fields, append_to_input="NO_APPEND", out_table
                                * multiplier)
                 row.append(len([j for j in members if ok[j]]))
                 row.append(0 if ok[i] else 1)
-            results[oid].extend(row)
-    target = _appended(tool, in_table, _wants_append(append_to_input), out_table, new_columns, results)
-    return Result(target)
+            results[oid].extend([row[0], crude, *row[1:]])
+    target = _appended(tool, in_table, _wants_append(append_to_input), out_table, new_columns, results,
+                       keep=fields)
+    return Result(target, "", "")  # the outputs ArcGIS Pro 3.7 answers (measured 2026-11-08)
 
 
 # ---- Mapping Clusters: Calculate Composite Index ------------------------------------------------------------------
@@ -3160,8 +3266,11 @@ def CalculateCompositeIndex(in_table, in_variables, append_to_input="NEW_FEATURE
     Classes: EQINTERVAL and CUST. Refused: QUANTILE and STDDEV (how a value on a class edge is placed is not documented).
     A record with a null in any variable gets a null index and is left out of the scaling.
 
-    INFERRED: the new fields are <field>_SCALED for each variable, COMP_INDEX, COMP_PCTL (the index's percentile, which
-    the page's percentile layer shows), COMP_EQINT and COMP_CUST; ZSCORE divides by the population standard deviation;
+    The new output holds SOURCE_ID, the variables, <field>_PREPROCESSED for each, INDEX, INDEX_RANK (1 for the lowest)
+    and INDEX_PCTL (the percentile, in percent), as ArcGIS Pro 3.7 writes them (measured 2026-11-08; until then grapy
+    copied every input field and wrote <field>_SCALED, COMP_INDEX and COMP_PCTL as a fraction). Not written: the
+    group layer Pro answers as its third output.
+    INFERRED: the class fields COMP_EQINT and COMP_CUST (not measured); ZSCORE divides by the population standard deviation;
     an equal interval class is ``min(k, ⌊(x − min)/((max − min)/k)⌋ + 1)`` with k = 5 when not given; a custom class is
     the value of the first upper bound at or above x, null above the last.
     """
@@ -3243,8 +3352,14 @@ def CalculateCompositeIndex(in_table, in_variables, append_to_input="NEW_FEATURE
         low, high = min(index), max(index)
         index = [a + (v - low) * (b - a) / (high - low) if high > low else a for v in index]
     percentile = _percentiles(index)
-    new_columns = [_gpkg.Column(f"{by_name[f.lower()]}_SCALED", "Double") for f, _ in variables]
-    new_columns += [_gpkg.Column("COMP_INDEX", "Double"), _gpkg.Column("COMP_PCTL", "Double")]
+    # <field>_PREPROCESSED, INDEX, INDEX_RANK (1 for the lowest) and INDEX_PCTL (in percent), as ArcGIS Pro 3.7 writes
+    # them (measured 2026-11-08, its values to 1e-6 on 36 records; until then grapy wrote <field>_SCALED, COMP_INDEX
+    # and COMP_PCTL as a fraction, and no rank).
+    new_columns = [_gpkg.Column(f"{by_name[f.lower()]}_PREPROCESSED", "Double") for f, _ in variables]
+    new_columns += [_gpkg.Column("INDEX", "Double"), _gpkg.Column("INDEX_RANK", "Integer"),
+                    _gpkg.Column("INDEX_PCTL", "Double")]
+    ascending = sorted(index)
+    rank = [ascending.index(v) + 1 for v in index]
     k = int(post_num_classes) if _given(post_num_classes) else 5
     custom = sorted(((float(r[0]), r[1]) for r in _pairs(post_custom_classes, 2)), key=lambda r: r[0])
     if "EQINTERVAL" in classes:
@@ -3257,14 +3372,16 @@ def CalculateCompositeIndex(in_table, in_variables, append_to_input="NEW_FEATURE
     low, high = min(index), max(index)
     results = {r[0]: [None] * len(new_columns) for r in records}
     for i, record in enumerate(complete):
-        row = [scaled_by_field[f.lower()][i] for f, _ in variables] + [index[i], percentile[i]]
+        row = [scaled_by_field[f.lower()][i] for f, _ in variables] + [index[i], rank[i],
+                                                                        100.0 * percentile[i]]
         if "EQINTERVAL" in classes:
             row.append(min(k, int((index[i] - low) // ((high - low) / k)) + 1) if high > low else 1)
         if "CUST" in classes:
             value = next((v for upper, v in custom if index[i] <= upper), None)
             row.append(float(value) if value is not None and numeric else value)
         results[record[0]] = row
-    target = _appended(tool, in_table, _wants_append(append_to_input), out_table, new_columns, results)
+    target = _appended(tool, in_table, _wants_append(append_to_input), out_table, new_columns, results,
+                       keep=[f for f, _ in variables])
     return Result(target)
 
 
@@ -3383,7 +3500,7 @@ def TimeSeriesSmoothing(in_features, time_field, analysis_field, group_method="L
             results[oid][:2] = [sum(float(v) for v in inside) / len(inside) if inside else None, len(inside)]
     target = _appended(tool, in_features, _wants_append(append_to_input, ("APPEND_TO_INPUT", "TRUE")),
                        output_features, new_columns, results)
-    return Result(target)
+    return Result(target, "")  # the outputs ArcGIS Pro 3.7 answers (measured 2026-11-08)
 
 
 # ---- Modeling Spatial Relationships: Spatial Autoregression -------------------------------------------------------
@@ -3611,9 +3728,13 @@ def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", sc
     min_variance nor min_components (the tool then takes the largest of several stopping rules whose combination is
     named but not specified), with which number_of_permutations does nothing.
 
-    INFERRED: the standard deviation and covariance divide by n − 1; an eigenvector's sign makes its largest-magnitude
-    loading positive; the components are PC_1, PC_2, …; the output holds the analysis fields (all fields with APPEND)
-    and the components; the eigenvalues table has COMPONENT, EIGENVALUE, PCT_VAR and CUM_VAR, and the eigenvectors
+    Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned (its scores to 1e-14 on 36 records): the standard deviation
+    and covariance divide by n; a component's sign makes the record with its largest-magnitude score positive (the
+    convention of scikit-learn's svd_flip on the scores); the components are PCA1, PCA2, …; the output holds SOURCE_ID,
+    the analysis fields (all fields with APPEND) and the components; the outputs are the output, the eigenvalues
+    table, the eigenvectors table and the appended input, empty when not asked for. Until then grapy divided by n − 1,
+    made the largest loading positive, wrote PC_1 … and no SOURCE_ID, and answered the output alone.
+    INFERRED: the eigenvalues table has COMPONENT, EIGENVALUE, PCT_VAR and CUM_VAR, and the eigenvectors
     table FIELD and one column per component; records with a null analysis value get null components and are left out
     of the fit.
     """
@@ -3638,16 +3759,17 @@ def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", sc
     data = np.array([[float(r[1][f.lower()]) for f in names] for r in complete])
     centred = data - data.mean(axis=0)
     if _keyword(scale or "SCALE_DATA") in ("SCALE_DATA", "TRUE") or scale is True:
-        deviation = data.std(axis=0, ddof=1)
+        deviation = data.std(axis=0)
         if (deviation == 0).any():
             raise ValueError(f"arcpy.stats.{tool}: a constant field cannot be scaled.")
         centred = centred / deviation
-    covariance = centred.T @ centred / (len(complete) - 1)
+    covariance = centred.T @ centred / len(complete)
     values, vectors = np.linalg.eigh(covariance)
     order = np.argsort(values)[::-1]
     values, vectors = np.clip(values[order], 0, None), vectors[:, order]
     for c in range(vectors.shape[1]):
-        if vectors[np.argmax(np.abs(vectors[:, c])), c] < 0:
+        projected = centred @ vectors[:, c]
+        if projected[np.argmax(np.abs(projected))] < 0:
             vectors[:, c] = -vectors[:, c]
     percent = 100 * values / values.sum()
     cumulative = np.cumsum(percent)
@@ -3658,7 +3780,7 @@ def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", sc
     if not 1 <= wanted <= len(names):
         raise ValueError(f"arcpy.stats.{tool}: min_components must be between 1 and {len(names)}.")
     scores = centred @ vectors[:, :wanted]
-    component_columns = [_gpkg.Column(f"PC_{c + 1}", "Double") for c in range(wanted)]
+    component_columns = [_gpkg.Column(f"PCA{c + 1}", "Double") for c in range(wanted)]
     position = {r[0]: i for i, r in enumerate(complete)}
     results = {r[0]: ([float(v) for v in scores[position[r[0]]]] if r[0] in position else [None] * wanted)
                for r in records}
@@ -3670,25 +3792,27 @@ def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", sc
             raise ValueError(f"arcpy.stats.{tool}: output_data is needed when the components are not appended.")
         everything = _keyword(append_fields) in ("APPEND", "TRUE") or append_fields is True
         kept = list(columns) if everything else [by_name[f.lower()] for f in names]
+        kept = [c for c in kept if c.name.upper() != "SOURCE_ID"]
         target = _out(output_data)
         shape_kind, shape_srid = (kind, srid) if not (kind == "Geometry" and srid == 0) else ("Geometry", 0)
-        _gpkg.create(target, shape_kind, shape_srid, [*kept, *component_columns])
+        _gpkg.create(target, shape_kind, shape_srid, [_gpkg.Column("SOURCE_ID", "Integer"), *kept, *component_columns])
         kept_names = [c.name for c in kept]
         with da.SearchCursor(in_table, ["OID@", *kept_names, "SHAPE@"]) as rows, \
-                da.InsertCursor(target, [*kept_names, *[c.name for c in component_columns], "SHAPE@"]) as written:
+                da.InsertCursor(target, ["SOURCE_ID", *kept_names, *[c.name for c in component_columns],
+                                         "SHAPE@"]) as written:
             for row in rows:
-                written.insertRow((*row[1:-1], *results[row[0]], row[-1]))
-    outputs = [target]
+                written.insertRow((row[0], *row[1:-1], *results[row[0]], row[-1]))
+    outputs = [target, "", "", ""] if not append else ["", "", "", target]
     if _given(output_eigenvalues_table):
-        outputs.append(_write_table(output_eigenvalues_table,
+        outputs[1] = (_write_table(output_eigenvalues_table,
                                     [_gpkg.Column("COMPONENT", "Integer"), _gpkg.Column("EIGENVALUE", "Double"),
                                      _gpkg.Column("PCT_VAR", "Double"), _gpkg.Column("CUM_VAR", "Double")],
                                     [(c + 1, float(values[c]), float(percent[c]), float(cumulative[c]))
                                      for c in range(len(names))]))
     if _given(output_eigenvectors_table):
-        outputs.append(_write_table(output_eigenvectors_table,
+        outputs[2] = (_write_table(output_eigenvectors_table,
                                     [_gpkg.Column("FIELD", "String"),
-                                     *[_gpkg.Column(f"PC_{c + 1}", "Double") for c in range(len(names))]],
+                                     *[_gpkg.Column(f"PCA{c + 1}", "Double") for c in range(len(names))]],
                                     [(by_name[f.lower()].name, *[float(v) for v in vectors[i]])
                                      for i, f in enumerate(names)]))
     return Result(*outputs)
@@ -3698,7 +3822,7 @@ def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", sc
 
 @_equivalent("Moran eigenvector maps: the eigenvectors of the doubly centred, symmetric spatial weights matrix",
              "Griffith 1996; Dray, Legendre and Peres-Neto 2006")
-def DecomposeSpatialStructure(in_features, out_features, append_all_fields="APPEND_ALL", min_autocorrelation=0.25,
+def DecomposeSpatialStructure(in_features, out_features, append_all_fields="ALL", min_autocorrelation=0.25,
                               max_components=15, neighborhood_type=None, distance_band=None, number_of_neighbors=None,
                               weights_matrix_file=None, local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None,
                               out_swm=None, id_field=None):
@@ -3778,7 +3902,9 @@ def DecomposeSpatialStructure(in_features, out_features, append_all_fields="APPE
             AddMessage(f"SPCOMP_{position}: Moran's I {float(morans[c])}, p-value {_p(z)}")
         except ValueError:
             AddMessage(f"SPCOMP_{position}: Moran's I {float(morans[c])}")
-    keep_all = append_all_fields is True or _keyword(append_all_fields) in ("APPEND_ALL", "TRUE")
+    # ALL and NO_FIELDS are the keywords ArcGIS Pro 3.7 takes (measured 2026-11-08: it refuses APPEND_ALL, which grapy
+    # took until then and still reads).
+    keep_all = append_all_fields is True or _keyword(append_all_fields) in ("ALL", "APPEND_ALL", "TRUE")
     kept_columns = list(columns) if keep_all else []
     new_columns = [_gpkg.Column(f"SPCOMP_{p}", "Double") for p in range(1, len(kept) + 1)]
     out = _out(out_features)
@@ -3846,8 +3972,9 @@ def ExportXYv(Input_Feature_Class, Value_Field, Delimiter="SPACE", Output_ASCII_
     The format chosen where the documentation is silent — INFERRED, each of it:
 
     - x and y are the feature's centroid (a point is itself), as the other Spatial Statistics tools locate a feature;
-    - "significant digits" is Python's ``g`` format (``format(v, ".8g")`` and ``".6g"``), which drops trailing zeros
-      and writes an exponent below 1e-4 or from 1e8 (x, y) and 1e6 (values) up;
+    - x and y are written with eight decimal places and floating-point values with six (``"%.8f"``, ``"%.6f"``), as
+      ArcGIS Pro 3.7 writes them (measured 2026-11-08: ``500170.37600000``, ``1.314800``) — the page's "significant
+      digits" read as decimals; until then grapy wrote eight and six significant digits;
     - the header line is ``XCoord``, ``YCoord`` and the value fields' names as stored;
     - integers are written whole, text as it is (no quotes), a date as the cursor reads it (``YYYY-MM-DD HH:MM:SS``);
     - lines end with a line feed and the file is UTF-8; features without a shape are skipped.
@@ -3877,7 +4004,7 @@ def ExportXYv(Input_Feature_Class, Value_Field, Delimiter="SPACE", Output_ASCII_
         if isinstance(value, int):
             return str(value)
         if isinstance(value, float):
-            return format(value, ".6g")
+            return format(value, ".6f")
         return str(value)
 
     lines = []
@@ -3889,7 +4016,7 @@ def ExportXYv(Input_Feature_Class, Value_Field, Delimiter="SPACE", Output_ASCII_
             if shape is None or shape.is_empty:
                 continue
             c = shape if shape.geom_type == "Point" else shape.centroid
-            lines.append(separator.join([format(c.x, ".8g"), format(c.y, ".8g"), *[written(v) for v in row[:-1]]]))
+            lines.append(separator.join([format(c.x, ".8f"), format(c.y, ".8f"), *[written(v) for v in row[:-1]]]))
     with open(Output_ASCII_File, "w", encoding="utf-8", newline="\n") as out:
         out.write("".join(line + "\n" for line in lines))
     return Result(Output_ASCII_File)

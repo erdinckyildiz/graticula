@@ -102,8 +102,9 @@ class Edit(unittest.TestCase):
         tee = self.make("t", "POLYLINE", [line((0, 0), (100, 0)), line((50, 0), (50, 30)), line((80, -10), (80, 10))])
         grapy.edit.TrimLine(tee)
         # E meets D at 50 and F at 80: its dangles 0–50 and 80–100 go. F meets E at its middle: both of its dangles
-        # would meet, so F stays. D meets E at its start: its other end has nothing to be trimmed back to.
-        self.assertEqual(self.coordinates(tee), [[(50, 0), (80, 0)], [(50, 0), (50, 30)], [(80, -10), (80, 10)]])
+        # go, which leaves nothing, and it is deleted. D meets E at its start only: the whole of it is a dangle, and
+        # it goes. Measured in ArcGIS Pro 3.7, 2026-11-08, on these three lines (grapy kept D and F until then).
+        self.assertEqual(self.coordinates(tee), [[(50, 0), (80, 0)]])
 
     def test_extend_line_reaches_the_first_line_within_the_length(self):
         lines = self.make("l", "POLYLINE", [line((0, 0), (100, 0)), line((50, 10), (50, 5))])
