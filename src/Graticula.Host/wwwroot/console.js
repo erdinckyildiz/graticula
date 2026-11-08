@@ -6564,11 +6564,15 @@ async function loadMapTasks(map) {
 /** The members, after the section is drawn: an organization of hundreds should not hold up what the map says. */
 async function loadMapTaskPeople(map) {
   const state = mapTasksState;
+  const failedBefore = state.peopleError;
   state.peopleError = null;
   try {
     const people = await loadTaskPeople();
     if (mapOpen !== map || mapTasksState !== state) return;
     state.people = people;
+    // A retry that works takes the failure off the status line too, which still said it under a full list (design
+    // review 4).
+    if (failedBefore && $("mapTasksSays")?.textContent === failedBefore) sayMapTasks("");
   } catch (e) {
     if (mapTasksState !== state) return;
     state.peopleError = "The members could not be listed. Check the connection and try again.";
@@ -6967,7 +6971,8 @@ document.addEventListener("click", async event => {
     ($(state.tasks.enabled ? "mapTasksEdit" : state.tasks.orphaned ? "mapTasksClear" : "mapTasksOn") || $("mapTasksHead"))?.focus();
   } catch (e) {
     t.removeAttribute("aria-disabled");
-    const act = t.id === "mapTasksOff" ? "disabled" : t.id === "mapTasksClear" ? "removed" : "saved";
+    const act = t.id === "mapTasksOff" ? "disabled" : t.id === "mapTasksClear" ? "removed"
+      : t.id === "mapTasksOn" ? "enabled" : "saved";
     sayMapTasks(e.status ? (e.message || String(e)) : `The tasks could not be ${act}. Check the connection and try again.`);
     t.focus();
   }

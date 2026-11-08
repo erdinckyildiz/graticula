@@ -464,7 +464,7 @@ public sealed class MapTasksScreenTests : ConsoleTest
                   return true;
                 })()
                 """);
-            await WaitForAsync("(document.getElementById('mapTasksSays').textContent || '').includes('could not be saved')",
+            await WaitForAsync("(document.getElementById('mapTasksSays').textContent || '').includes('could not be enabled')",
                 "A failed request never said what failed.");
 
             string says = await Browser.EvaluateAsync<string>("document.getElementById('mapTasksSays').textContent") ?? "";
