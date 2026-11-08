@@ -61,13 +61,16 @@ class RasterAndFeatures(unittest.TestCase):
         arcpy.management.CreateFeatureclass(self.directory, "pts.gpkg", "POINT", spatial_reference=3857)
         arcpy.management.AddField(points, "v", "LONG")
         with arcpy.da.InsertCursor(points, ["v", "SHAPE@XY"]) as rows:
-            # Extent x 0–20, y 0–10 at 10 m: two cells. Left cell holds 1, 1, 3; the right one holds 5 (on the edge).
+            # Extent x 0–20, y 0–10, widened by half a cell as Pro 3.7 lays a point raster (measured 2026-11-08;
+            # this test pinned the bare extent's 2 × 1 cells): x −5–25, y −5–15 at 10 m, 3 × 2 cells. (0, 0) and
+            # (2, 2) fall in the lower left; (8, 8) in the upper middle; (20, 10) in the upper right.
             for v, xy in ((1, (0, 0)), (1, (2, 2)), (3, (8, 8)), (5, (20, 10))):
                 rows.insertRow((v, xy))
+        nd = -2147483648
         frequent = arcpy.conversion.PointToRaster(points, "v", self.out("f.tif"), cellsize=10).getOutput(0)
-        self.assertEqual(arcpy.RasterToNumPyArray(arcpy.Raster(frequent)).tolist(), [[1, 5]])
+        self.assertEqual(arcpy.RasterToNumPyArray(arcpy.Raster(frequent)).tolist(), [[nd, 3, 5], [1, nd, nd]])
         summed = arcpy.conversion.PointToRaster(points, "v", self.out("s.tif"), "SUM", cellsize=10).getOutput(0)
-        self.assertEqual(arcpy.RasterToNumPyArray(arcpy.Raster(summed)).tolist(), [[5, 5]])
+        self.assertEqual(arcpy.RasterToNumPyArray(arcpy.Raster(summed)).tolist(), [[nd, 3, 5], [2, nd, nd]])
 
 
 if __name__ == "__main__":

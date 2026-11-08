@@ -205,7 +205,8 @@ class Round3(unittest.TestCase):
         points = gpkg + "/Placemarks/Points"
         self.assertEqual(self.rows(points, ["Name", "FolderPath", "PopupInfo", "SHAPE@WKT"]),
                          [("w1", "Doc/Wells", "deep", "MULTIPOINT ((30 40))"), ("pair", "Doc", None, "MULTIPOINT ((1 1), (2 2))")])
-        self.assertEqual(self.rows(gpkg + "/Placemarks/Lines", ["Name", "SHAPE@LENGTH"]), [("road", 5.0)])
+        # Polylines, as Pro 3.7 names the class (measured 2026-11-08; this test pinned "Lines").
+        self.assertEqual(self.rows(gpkg + "/Placemarks/Polylines", ["Name", "SHAPE@LENGTH"]), [("road", 5.0)])
         self.assertEqual(self.rows(gpkg + "/Placemarks/Polygons", ["Name", "SHAPE@AREA"]), [("lot", 96.0)])
         self.assertEqual(arcpy.Describe(points).spatialReference.factoryCode, 4326)
 

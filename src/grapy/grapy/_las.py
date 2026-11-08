@@ -554,9 +554,11 @@ def _grid(found, dataset, sampling_type, sampling_value):
 
 
 def _cells(found, grid):
-    """The row and column of each point; a point on the grid's right or top edge falls in the last cell (INFERRED)."""
+    """The row and column of each point: a cell holds its left and bottom edges, so a point on the line between two
+    rows falls in the row above it — measured in ArcGIS Pro 3.7, 2026-11-08, over 900 binned cells (grapy put it in
+    the row below until then). A point on the grid's right or top edge falls in the last cell (INFERRED)."""
     columns = np.clip(np.floor((found["x"] - grid.left) / grid.width).astype(np.int64), 0, grid.columns - 1)
-    rows = np.clip(np.floor((grid.top - found["y"]) / grid.height).astype(np.int64), 0, grid.rows - 1)
+    rows = np.clip(np.ceil((grid.top - found["y"]) / grid.height).astype(np.int64) - 1, 0, grid.rows - 1)
     return rows, columns
 
 

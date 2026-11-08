@@ -233,9 +233,12 @@ class Multipatch(Base):
         mp = self.multipatch("b", [box((0, 0, 1), (4, 2, 3)), box((6, 0, 0), (8, 2, 5))])
         high = arcpy.conversion.MultipatchToRaster(mp, os.path.join(self.directory, "high.tif"), 1)[0]
         cells = arcpy.RasterToNumPyArray(high, nodata_to_value=-1).tolist()
-        self.assertEqual(cells, [[3, 3, 3, 3, -1, -1, 5, 5], [3, 3, 3, 3, -1, -1, 5, 5]])
+        # The grid is the 8 × 2 extent widened by half a cell, as Pro 3.7 lays it (measured 2026-11-08; this test
+        # pinned the bare extent's 8 × 2 cells): 9 × 3 cells centred on x = 0 … 8, y = 0 … 2. A centre on a box's side
+        # (x = 4, x = 6) meets it.
+        self.assertEqual(cells, [[3, 3, 3, 3, 3, -1, 5, 5, 5]] * 3)
         low = arcpy.conversion.MultipatchToRaster(mp, os.path.join(self.directory, "low.tif"), 1, "MINIMUM_HEIGHT")[0]
-        self.assertEqual(arcpy.RasterToNumPyArray(low, nodata_to_value=-1).tolist()[0], [1, 1, 1, 1, -1, -1, 0, 0])
+        self.assertEqual(arcpy.RasterToNumPyArray(low, nodata_to_value=-1).tolist()[0], [1, 1, 1, 1, 1, -1, 0, 0, 0])
         # The default cell size: the shorter side of the 8 × 2 extent over 250.
         default = arcpy.conversion.MultipatchToRaster(mp, os.path.join(self.directory, "d.tif"))[0]
         self.assertAlmostEqual(arcpy.Raster(default).meanCellWidth, 2 / 250)

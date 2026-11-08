@@ -313,8 +313,10 @@ def MultipatchToRaster(in_multipatch_features, out_raster, cell_size=None, cell_
     The cell size is the parameter's, else the Cell Size environment's, else the Snap Raster's, else the extent's
     shorter side divided by 250, as documented.
 
-    INFERRED (Q-209 (g)): the grid's top-left corner is the features' extent's, or the snap raster's cell corner at or
-    beyond it; a centre on a face's edge meets it."""
+    Without a snap raster the grid is the features' extent widened by half a cell on every side, laid from its
+    lower-left corner — measured in ArcGIS Pro 3.7, 2026-11-08 (it was the extent's own top-left corner, INFERRED in
+    Q-209 (g), until then). INFERRED: with a snap raster, the snap raster's cell corner at or beyond the extent's
+    top-left; a centre on a face's edge meets it."""
     from ._raster import Raster, _Grid, as_raster
     from ._runtime import env
     tool = "MultipatchToRaster"
@@ -344,8 +346,15 @@ def MultipatchToRaster(in_multipatch_features, out_raster, cell_size=None, cell_
         g = snap._grid
         left = g.left + math.floor((left - g.left) / size + 1e-9) * size
         top = g.top - math.floor((g.top - top) / size + 1e-9) * size
+    if snap is None:
+        # The features' extent widened by half a cell on every side and laid from its lower-left corner, as Pro 3.7
+        # lays it (measured 2026-11-08: a 40 m box at 10 m cells is 5 cells, from 5 m outside it), as its point rasters
+        # are laid (conversion._conversion_grid).
+        left, bottom, right, top = left - size / 2, bottom - size / 2, right + size / 2, top + size / 2
     columns = max(1, int(math.ceil((right - left) / size - 1e-9)))
     count = max(1, int(math.ceil((top - bottom) / size - 1e-9)))
+    if snap is None:
+        top = bottom + count * size
     grid = _Grid(left, top, size, size, count, columns, srid)
     xs, ys = grid.centres()
     high, low = _heights(tris, xs, ys)

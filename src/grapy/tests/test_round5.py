@@ -87,7 +87,8 @@ class Round5(unittest.TestCase):
         points = arcpy.conversion.GTFSStopsToFeatures(stops, self.out("stops.gpkg"))[0]
         got = self.rows(points, ["stop_id", "stop_lat", "location_type", "route_info", "SHAPE@XY"])
         self.assertEqual(len(got), 2)                                       # the node with no coordinates is left out
-        self.assertEqual(got[0][:3], ("s1", 40.5, 0))
+        # location_type is text, as Pro 3.7 writes it (measured 2026-11-08; this test pinned the integer 0).
+        self.assertEqual(got[0][:3], ("s1", 40.5, "0"))
         self.assertEqual(json.loads(got[0][3]), {"route_id": ["r1", "r2"], "route_type": ["0", "3"]})
         self.assertEqual(got[0][4], (30.25, 40.5))
         self.assertEqual(json.loads(got[1][3]), {"route_id": [], "route_type": []})
