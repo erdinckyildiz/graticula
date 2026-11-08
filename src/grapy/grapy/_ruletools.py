@@ -352,9 +352,9 @@ def ExportAttributeRules(in_table, out_csv_file):
             out.writerow([rule.name, rule.description, rule.kind, ";".join(names.get(c, str(c)) for c in rule.subtypeCodes),
                           rule.fieldName, _flag(rule.userEditable), _flag("INSERT" in rule.events),
                           _flag("DELETE" in rule.events), _flag("UPDATE" in rule.events), rule.scriptExpression,
-                          "" if rule.errorNumber in (None, "") else rule.errorNumber, rule.errorMessage,
+                          "" if rule.errorNumber in (None, "", -1) else rule.errorNumber, rule.errorMessage,
                           _flag(rule.excludeFromClientEvaluation), _flag(rule.isEnabled), _flag(rule.batch),
-                          "" if rule.severity is None else rule.severity, rule.tags, "", "",
+                          "" if rule.severity in (None, -1) else rule.severity, rule.tags, "", "",
                           json.dumps(rule.triggeringFields)])
     return Result(_text(out_csv_file))
 
@@ -526,8 +526,8 @@ def EvaluateRules(in_workspace, evaluation_types, extent=None, run_async=None):
                     columns = [n for n, _ in _ERROR_FIELDS]
                     data = [rule.name, rule.id, rule.type, table, row[layout.oid],
                             row.get(global_id) if global_id else None,
-                            None if rule.errorNumber in ("", None) else str(rule.errorNumber), failure,
-                            rule.severity, 1, 1 if rule.kind == "VALIDATION" else 2, rule.description, now]
+                            None if rule.errorNumber in ("", None, -1) else str(rule.errorNumber), failure,
+                            None if rule.severity == -1 else rule.severity, 1, 1 if rule.kind == "VALIDATION" else 2, rule.description, now]
                     error_geometry = [c for c in connection.execute("select column_name, srs_id from "
                                                                     "gpkg_geometry_columns where table_name = ?",
                                                                     (target,))]
@@ -973,10 +973,12 @@ class ContingentFieldValue:
 
 class ContingentValue:
     """A contingent value, as ListContingentValues answers it: ``id``, ``fieldGroupName``, ``subtype`` (its code, or
-    None), ``isRetired`` and ``values`` (ContingentFieldValue objects, in the group's field order)."""
+    0 for a table without subtypes, as Pro answers it -- measured in ArcGIS Pro 3.7, 2026-11-08; None before),
+    ``isRetired`` and ``values`` (ContingentFieldValue objects, in the group's field order)."""
 
     def __init__(self, id, fieldGroupName, subtype, isRetired, values):
-        self.id, self.fieldGroupName, self.subtype, self.isRetired = id, fieldGroupName, subtype, isRetired
+        self.id, self.fieldGroupName, self.isRetired = id, fieldGroupName, isRetired
+        self.subtype = 0 if subtype is None else subtype
         self.values = list(values)
 
     def __repr__(self):

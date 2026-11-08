@@ -1047,7 +1047,8 @@ def ListDomains(workspace):
             else:
                 row = connection.execute("select min, max from gpkg_data_column_constraints where constraint_name = ? "
                                          "and constraint_type = 'range'", (name,)).fetchone()
-                span = (row[0], row[1]) if row else None
+                # A range domain given no range yet answers 0 to 0 (measured in ArcGIS Pro 3.7, 2026-11-08).
+                span = (row[0], row[1]) if row else (0, 0)
             out.append(Domain(name, description or "", "CodedValue" if domain_type.upper() == "CODED" else "Range",
                               _DOMAIN_FIELD_TYPES.get(field_type, field_type), coded, span,
                               _POLICIES.get((split or "DEFAULT").upper(), split), _POLICIES.get((merge or "DEFAULT").upper(), merge)))

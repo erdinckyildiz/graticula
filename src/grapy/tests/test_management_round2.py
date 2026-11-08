@@ -254,8 +254,9 @@ class Round2(unittest.TestCase):
                                            "BOTTOM", "CELLSIZEX", "COLUMNCOUNT", "ROWCOUNT", "BANDCOUNT", "ANYNODATA",
                                            "ALLNODATA")],
                          ["1", "11", "6", "11", "30", "0", "40", "0", "10", "4", "3", "1", "1", "0"])
-        # 1..11: mean 6, squares summing to 110, so the population variance is 10.
-        self.assertAlmostEqual(float(ask("STD")), 10 ** 0.5)
+        # 1..11: mean 6, squares summing to 110. Pro answers the sample form, 110 / 10 = 11 (measured in ArcGIS Pro 3.7,
+        # 2026-11-08: cells 1, 2, 3, 4 give 1.29099); this test pinned the population form, 10, before.
+        self.assertAlmostEqual(float(ask("STD")), 11 ** 0.5)
         with self.assertRaises(arcpy.NotBuiltError):
             ask("CLOUDCOVER")
 
@@ -279,8 +280,10 @@ class Round2(unittest.TestCase):
             self.assertEqual((read.dtypes[0], read.nodata), ("int16", 5.0))
         self.assertEqual(self.cells(copied)[1], [None, 6, 7, 8])
         big = self.raster([[1, 300]], name="big.tif")
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.management.CopyRaster(big, self.out("small.tif"), pixel_type="8_BIT_UNSIGNED")
+        # 300 is clamped to 255, a valid value, as Pro writes it (measured in ArcGIS Pro 3.7, 2026-11-08); this was
+        # refused as not built before.
+        small = arcpy.management.CopyRaster(big, self.out("small.tif"), pixel_type="8_BIT_UNSIGNED")[0]
+        self.assertEqual(self.cells(small), [[1, 255]])
         self.assertEqual(self.cells(arcpy.management.Flip(path, self.out("f.tif"))[0])[0], [9, 10, 11, None])
         self.assertEqual(self.cells(arcpy.management.Mirror(path, self.out("mi.tif"))[0])[0], [4, 3, 2, 1])
         moved = arcpy.Raster(arcpy.management.Shift(path, self.out("s.tif"), 5, -10)[0])

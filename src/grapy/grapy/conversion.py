@@ -1193,7 +1193,7 @@ def _write_shapefile(stem, kind, records, srid):
     import shapely
     contents = [_shape_record(s, kind) for s in records]
     present = [s for s in records if s is not None and not s.is_empty]
-    bounds = shapely.union_all(present).bounds if present else (0.0, 0.0, 0.0, 0.0)
+    bounds = tuple(float(v) for v in shapely.total_bounds(present)) if present else (0.0, 0.0, 0.0, 0.0)
 
     def header(length_words):
         return struct.pack(">7i", 9994, 0, 0, 0, 0, 0, length_words) + struct.pack("<2i4d4d", 1000, kind, *bounds, 0, 0, 0, 0)

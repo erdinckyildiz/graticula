@@ -156,7 +156,8 @@ class ContingentAndSequences(test_attribute_rules._Workspace):
         found = arcpy.da.ListContingentValues(self.parcels)
         self.assertTrue(all(isinstance(c, arcpy.da.ContingentValue) for c in found))
         first, second = found
-        self.assertEqual((first.fieldGroupName, first.subtype, first.isRetired), ("use", None, False))
+        # A table without subtypes answers subtype 0, as Pro does (measured in ArcGIS Pro 3.7, 2026-11-08); None before.
+        self.assertEqual((first.fieldGroupName, first.subtype, first.isRetired), ("use", 0, False))
         kind, value = first.values
         self.assertIsInstance(kind, arcpy.da.ContingentFieldValue)
         self.assertEqual((kind.name, kind.type, kind.code), ("kind", "CODED_VALUE", 1))

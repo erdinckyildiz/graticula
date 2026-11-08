@@ -135,13 +135,16 @@ class Sweep(unittest.TestCase):
     def test_convert_coordinate_notation(self):
         origin = self.table("o", [("lon", "DOUBLE"), ("lat", "DOUBLE")], [(0.0, 0.0), (500.0, 0.0)])
         mgrs = arcpy.management.ConvertCoordinateNotation(origin, self.out("m.gpkg"), "lon", "lat", "DD_2", "MGRS")[0]
-        # 0°, 0° is 166021 m east in UTM zone 31N: square AA, 66021 → 6602 at 10 m.
-        self.assertEqual(self.rows(mgrs, ["MGRS", "SHAPE@XY"]), [("31NAA66020000", (0.0, 0.0))])  # 500° excluded
+        # 0°, 0° is 166021.44 m east in UTM zone 31N: square AA, 66021 at 1 m -- five digits rounded, as Pro writes
+        # MGRS (measured in ArcGIS Pro 3.7, 2026-11-08; this pinned four truncated digits, 6602, before).
+        self.assertEqual(self.rows(mgrs, ["MGRS", "SHAPE@XY"]), [("31NAA6602100000", (0.0, 0.0))])  # 500° excluded
         gars = arcpy.management.ConvertCoordinateNotation(origin, self.out("g.gpkg"), "lon", "lat", "DD_2", "GARS",
                                                           exclude_invalid_records="INCLUDE_INVALID")[0]
         self.assertEqual(self.rows(gars, ["GARS"]), [("361HN37",), (None,)])
         dd = arcpy.management.ConvertCoordinateNotation(origin, self.out("dd.gpkg"), "lon", "lat", "DD_2", "DD_1")[0]
-        self.assertEqual(self.rows(dd, ["DD_1"]), [("0.00000N 0.00000E",)])
+        # Pro names the field DDLatLon and writes eight decimals, degrees padded to 2 and 3 digits (measured
+        # 2026-11-08); this pinned a DD_1 field of five decimals before.
+        self.assertEqual(self.rows(dd, ["DDLatLon"]), [("00.00000000N 000.00000000E",)])
 
     def test_shapefile_and_dbase_writers(self):
         lines = self.make("routes", "POLYLINE", [("averylongname1", "TEXT"), ("averylongname2", "LONG")],

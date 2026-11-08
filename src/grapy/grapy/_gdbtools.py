@@ -296,6 +296,11 @@ def EnableCOGO(in_line_features):
                 found = columns.get(name.lower())
                 if found is None:
                     connection.execute(f'alter table "{table}" add column "{name}" DOUBLE')
+                    if name in _behaviours.COGO_ALIASES:
+                        m._domain_tables(connection)
+                        connection.execute("insert into gpkg_data_columns (table_name, column_name, name, title) "
+                                           "values (?, ?, ?, ?) on conflict (table_name, column_name) do update set "
+                                           "title = excluded.title", (table, name, name, _behaviours.COGO_ALIASES[name]))
                 elif _kind(found[1]) != "Double":
                     raise ExecuteError(f"ERROR 000338: the COGO field '{found[0]}' of '{table}' is {_kind(found[1])}; "
                                        "it must be a double field.")

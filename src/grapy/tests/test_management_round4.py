@@ -74,7 +74,9 @@ class Round4(unittest.TestCase):
         connection = sqlite3.connect(self.parcels)
         self.assertEqual(connection.execute("select title from gpkg_data_columns").fetchall(), [(None,)])
         connection.close()
-        with self.assertRaises(arcpy.NotBuiltError):
+        # A populated table's field keeps its type, as Pro answers (ERROR 001658, measured in ArcGIS Pro 3.7,
+        # 2026-11-08); this was refused as not built before.
+        with self.assertRaisesRegex(arcpy.ExecuteError, "001658"):
             arcpy.management.AlterField(self.parcels, "label", field_type="LONG")
 
     def test_alter_domain_and_coded_value_description(self):

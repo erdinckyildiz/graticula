@@ -826,7 +826,7 @@ def _territory_extent(network):
     finally:
         connection.close()
     shapes = [s for s in shapes if s is not None and not s.is_empty]
-    return unary_union(shapes).bounds if shapes else None
+    return tuple(float(v) for v in shapely.total_bounds(shapes)) if shapes else None
 
 
 def dirty_meets(network, keys, graph):

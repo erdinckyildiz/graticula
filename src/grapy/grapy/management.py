@@ -92,10 +92,17 @@ def _feature_dataset_of(path):
 
 def AddField(in_table, field_name, field_type, field_precision=None, field_scale=None, field_length=None,
              field_alias=None, field_is_nullable="NULLABLE", *_, **__):
+    """A field added. A text field's length (255 when none is given) and the field's alias are kept, as Pro keeps them
+    (measured in ArcGIS Pro 3.7, 2026-11-08: a TEXT field of length 20 with an alias answers both in ListFields; they
+    were dropped before). Precision, scale and nullability are not kept."""
     from ._raster import _is_raster_path
     if _is_raster_path(in_table):
         return _add_rat_field(in_table, field_name, field_type)
-    _gpkg.add_column(in_table, _gpkg.Column(field_name, _FIELD_TYPES.get(field_type.upper(), "String")))
+    kind = _FIELD_TYPES.get(field_type.upper(), "String")
+    length = int(float(field_length)) if kind == "String" and _given(field_length) and float(field_length) > 0 else None
+    _gpkg.add_column(in_table, _gpkg.Column(field_name, kind, length=length))
+    if _given(field_alias) and str(field_alias) != str(field_name):
+        _set_alias(_plain("AddField", in_table), str(field_name), str(field_alias))
     return Result(in_table)
 
 
@@ -227,7 +234,8 @@ def _calculate(in_table, field, expression, code_block, where_clause, field_type
             where = f"({where}) and ({where_clause})" if where else where_clause
         names = [c.name for c in _schema(path)[0]]
     if field.lower() not in (n.lower() for n in names):
-        AddField(path, field, field_type or "TEXT")
+        # A text field the calculation adds is 512 long, as Pro makes it (measured in ArcGIS Pro 3.7, 2026-11-08).
+        AddField(path, field, field_type or "TEXT", field_length=512)
         names.append(field)
     field = next(n for n in names if n.lower() == field.lower())
     if scope is None:
@@ -628,9 +636,18 @@ def _delete_rat_fields(in_table, drop_field, method):
 
 
 def AddFields(in_table, field_description, *_, **__):
-    """Several fields at once, each ``[name, type, alias, length, default, domain]`` as the tool's value table has them."""
+    """Several fields at once, each ``[name, type, alias, length, default, domain]`` as the tool's value table has them:
+    the alias, a text field's length, the default and the domain are kept, as Pro keeps them (measured in ArcGIS Pro
+    3.7, 2026-11-08; only the name and type were kept before)."""
     for described in _pairs(field_description):
-        AddField(in_table, described[0], described[1] if len(described) > 1 else "TEXT")
+        entry = list(described) + [None] * (6 - len(described))
+        name, kind, alias, length, default, domain = entry[:6]
+        AddField(in_table, name, kind if _given(kind) else "TEXT", field_length=length if _given(length) else None,
+                 field_alias=alias if _given(alias) else None)
+        if _given(default):
+            AssignDefaultToField(in_table, name, default)
+        if _given(domain):
+            AssignDomainToField(in_table, name, domain)
     return Result(in_table)
 
 
@@ -710,7 +727,10 @@ def RepairGeometry(in_features, delete_null="DELETE_NULL", validation_method="ES
 def Dissolve(in_features, out_feature_class, dissolve_field=None, statistics_fields=None, multi_part="MULTI_PART",
              unsplit_lines="DISSOLVE_LINES", *_, **__):
     """One feature per distinct value of the dissolve fields, its shape their union and its statistics fields named
-    ``SUM_field`` as arcpy names them."""
+    ``SUM_field`` as arcpy names them. With ``UNSPLIT_LINES`` lines are joined only where two of them share an end
+    vertex, as documented, each joined line its own feature whatever ``multi_part`` says, and lines are not cut where
+    they cross: measured in ArcGIS Pro 3.7, 2026-11-08 — three roads, two crossing and one starting at the crossing,
+    stay three features."""
     from shapely import union_all
     from . import da
     columns, shape_kind, srid, _ = _schema(in_features)
@@ -732,11 +752,15 @@ def Dissolve(in_features, out_feature_class, dissolve_field=None, statistics_fie
     _gpkg.create(out, shape_kind, srid, out_columns)
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         for key, (shapes, values) in groups.items():
-            merged = union_all(shapes) if shapes else None
-            if shape_kind == "Polyline" and merged is not None and str(unsplit_lines).upper() == "UNSPLIT_LINES":
-                from shapely.ops import linemerge
-                merged = linemerge(merged) if merged.geom_type == "MultiLineString" else merged
             summary = [_statistic(s, v) for (_, s), v in zip(statistics, values)]
+            if shape_kind == "Polyline" and shapes and str(unsplit_lines).upper() == "UNSPLIT_LINES":
+                from shapely.geometry import MultiLineString
+                from shapely.ops import linemerge
+                lines = [part for shape in shapes for part in _parts(shape)]
+                for piece in _parts(linemerge(MultiLineString(lines))):
+                    written.insertRow((*key, *summary, piece))
+                continue
+            merged = union_all(shapes) if shapes else None
             pieces = _parts(merged) if merged is not None and str(multi_part).upper() == "SINGLE_PART" else [merged]
             for piece in pieces:
                 written.insertRow((*key, *summary, piece))
@@ -832,7 +856,17 @@ _PROPERTIES = {
     "EXTENT_MAX_X": lambda s: s.bounds[2], "EXTENT_MAX_Y": lambda s: s.bounds[3],
     "LINE_START_X": lambda s: _coordinates(s)[0][0], "LINE_START_Y": lambda s: _coordinates(s)[0][1],
     "LINE_END_X": lambda s: _coordinates(s)[-1][0], "LINE_END_Y": lambda s: _coordinates(s)[-1][1],
+    "LINE_BEARING": lambda s: _line_bearing(s),
 }
+
+
+def _line_bearing(shape):
+    """The planar bearing from a line's first vertex to its last, clockwise from grid north, 0 to 360 — measured in
+    ArcGIS Pro 3.7, 2026-11-08: a line from (0, 0) to (1, 1) answers 45, to (1, 0) 90, on a projected reference."""
+    import math
+    coordinates = _coordinates(shape)
+    (x0, y0), (x1, y1) = coordinates[0][:2], coordinates[-1][:2]
+    return math.degrees(math.atan2(x1 - x0, y1 - y0)) % 360.0
 
 
 def _coordinates(shape):
@@ -849,6 +883,9 @@ def CalculateGeometryAttributes(in_features, geometry_property, length_unit="", 
     from . import da
     from ._reference import SpatialReference
     pairs = [(f, p.upper()) for f, p in _pairs(geometry_property)]
+    for _, prop in pairs:
+        if prop not in _PROPERTIES:
+            raise NotBuiltError(f"arcpy.management.CalculateGeometryAttributes: '{prop}' is not built in grapy.")
     _, _, srid, _ = _schema(in_features)
     existing = {c.name.lower() for c in _schema(in_features)[0]}
     for field, prop in pairs:
@@ -1486,13 +1523,19 @@ def CopyRows(in_rows, out_table, config_keyword=None):
 
 
 def CreateTable(out_path, out_name, template=None, config_keyword=None, out_alias=None, oid_type="SAME_AS_TEMPLATE"):
-    """A new, empty table with the fields of each template, the first template's field winning a repeated name."""
+    """A new, empty table with the fields of each template, in order. A name a template before took is written with
+    ``_1`` (``_2`` …) appended, as Pro writes it: measured in ArcGIS Pro 3.7, 2026-11-08, templates (rid, val, cat)
+    and (gid, cat, val) make rid, val, cat, gid, cat_1, val_1."""
+    import dataclasses
     columns, seen = [], set()
     for each in _list(template):
         for column in _schema(_source(each)[0])[0]:
-            if column.name.lower() not in seen:
-                seen.add(column.name.lower())
-                columns.append(column)
+            name, n = column.name, 0
+            while name.lower() in seen:
+                n += 1
+                name = f"{column.name}_{n}"
+            seen.add(name.lower())
+            columns.append(column if name == column.name else dataclasses.replace(column, name=name))
     out = _table_out("CreateTable", os.path.join(_text(out_path), _text(out_name)))
     _gpkg.create(out, "Geometry", 0, columns)
     return Result(out)
@@ -2053,8 +2096,9 @@ def Adjust3DZ(in_features, reverse_sign="NO_REVERSE", adjust_value=None, from_un
 
     The units are the US survey ones — a foot of 1200/3937 m, a fathom of six of them — as measured in Pro (D-323).
 
-    INFERRED: the order is sign, then shift, then units, the order the parameters come in; a null shift field leaves
-    the feature unshifted.
+    The shift is added before the sign is reversed, then the units converted: measured in ArcGIS Pro 3.7, 2026-11-08,
+    z 10, 20 … with REVERSE and 10, metres to feet, answer -20 m, -30 m … in feet — -(z + shift), not -z + shift as
+    this was INFERRED before. INFERRED: a null shift field leaves the feature unshifted.
     Refused: a 2D feature class; units given one without the other."""
     import shapely
     from . import da
@@ -2085,7 +2129,7 @@ def Adjust3DZ(in_features, reverse_sign="NO_REVERSE", adjust_value=None, from_un
                 continue
             shift = row[1] if shift_field else (float(adjust_value) if _given(adjust_value) else 0.0)
             shift = 0.0 if shift is None else float(shift)
-            changed = _gpkg.rebuild(row[0]._shape, True, has_m, None, lambda z, xy: (sign * z + shift) * factor)
+            changed = _gpkg.rebuild(row[0]._shape, True, has_m, None, lambda z, xy: sign * (z + shift) * factor)
             rows.updateRow([changed, *row[1:]])
     return Result(in_features)
 
@@ -2216,8 +2260,10 @@ def CreateFishnet(out_feature_class, origin_coord, y_axis_coord, cell_width, cel
                   corner_coord=None, labels="LABELS", template=None, geometry_type="POLYLINE"):
     """A grid of rectangular cells from ``origin_coord``, turned so its y-axis points at ``y_axis_coord``; a cell size of
     0 is worked out from the opposite corner and the count, and a count of 0 from the corner and the size. ``LABELS``
-    writes a point at each cell's centre to ``<output>_label``. Only ``POLYGON`` cells are built: the page's
-    ``POLYLINE`` cells — four lines each — leave open whether neighbours share their lines. INFERRED: cells are written
+    writes a point at each cell's centre to ``<output>_label``. ``POLYLINE`` writes the grid's lines, each running the
+    grid's whole width or height and shared by the cells along it — rows + 1 lines along the x-axis, then columns + 1
+    along the y-axis — as Pro writes them (measured in ArcGIS Pro 3.7, 2026-11-08: 2 × 2 cells give 6 lines, not 16
+    edges). INFERRED: cells are written
     row by row from the origin; the reference is the template's, else ``env.outputCoordinateSystem``; a template with
     no origin or corner gives its extent's lower-left and upper-right; a count that does not divide the extent is not
     built."""
@@ -2226,9 +2272,9 @@ def CreateFishnet(out_feature_class, origin_coord, y_axis_coord, cell_width, cel
     from . import da
     from ._runtime import env
     from ._reference import reference_of
-    if str(geometry_type or "POLYLINE").upper() != "POLYGON":
-        raise NotBuiltError(f"arcpy.management.CreateFishnet: geometry_type '{geometry_type or 'POLYLINE'}' is not built "
-                            "in grapy; POLYGON is.")
+    kind = str(geometry_type or "POLYLINE").upper()
+    if kind not in ("POLYGON", "POLYLINE"):
+        raise NotBuiltError(f"arcpy.management.CreateFishnet: geometry_type '{geometry_type}' is not built in grapy.")
     srid = 0
     origin, y_axis, corner = _xy(origin_coord) if _given(origin_coord) else None, \
         _xy(y_axis_coord) if _given(y_axis_coord) else None, _xy(corner_coord) if _given(corner_coord) else None
@@ -2264,11 +2310,20 @@ def CreateFishnet(out_feature_class, origin_coord, y_axis_coord, cell_width, cel
         return (origin[0] + c * width * ux + r * height * vx, origin[1] + c * width * uy + r * height * vy)
 
     out = _path(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, [])
-    with da.InsertCursor(out, ["SHAPE@"]) as written:
-        for r in range(rows):
-            for c in range(cols):
-                written.insertRow((ShapelyPolygon([at(c, r), at(c + 1, r), at(c + 1, r + 1), at(c, r + 1)]),))
+    if kind == "POLYLINE":
+        from shapely.geometry import LineString
+        _gpkg.create(out, "Polyline", srid, [])
+        with da.InsertCursor(out, ["SHAPE@"]) as written:
+            for r in range(rows + 1):
+                written.insertRow((LineString([at(0, r), at(cols, r)]),))
+            for c in range(cols + 1):
+                written.insertRow((LineString([at(c, 0), at(c, rows)]),))
+    else:
+        _gpkg.create(out, "Polygon", srid, [])
+        with da.InsertCursor(out, ["SHAPE@"]) as written:
+            for r in range(rows):
+                for c in range(cols):
+                    written.insertRow((ShapelyPolygon([at(c, r), at(c + 1, r), at(c + 1, r + 1), at(c, r + 1)]),))
     outputs = [out]
     if str(labels or "LABELS").upper() == "LABELS":
         file, table = _gpkg.split(out)
@@ -2475,11 +2530,11 @@ def _problems(shape, resolution):
     import shapely
     from shapely.validation import explain_validity
     if shape is None:
-        return ["Null geometry"]
+        return ["null geometry"]
     found = []
     parts = _parts(shape)
     if shape.is_empty or any(p.is_empty for p in parts):
-        found.append("Empty parts")
+        found.append("empty parts")
     rings = []
     for part in parts:
         if part.is_empty:
@@ -2488,13 +2543,13 @@ def _problems(shape, resolution):
                      [part] if part.geom_type == "LineString" else [])
     coordinates = [list(r.coords) for r in rings]
     if any(a == b for c in coordinates for a, b in zip(c, c[1:])):
-        found.append("Duplicate vertex")
+        found.append("duplicate vertex")
     if any(0 < shapely.LineString([a, b]).length < resolution for c in coordinates for a, b in zip(c, c[1:])):
-        found.append("Short segment")
+        found.append("short segment")
     if not shape.is_empty and not shape.is_valid:
         reason = explain_validity(shape)
         if reason.lower().startswith(("self-intersection", "ring self-intersection")):
-            found.append("Self intersections")
+            found.append("self intersections")
         else:
             raise NotBuiltError(f"arcpy.management.CheckGeometry: naming the problem '{reason}' is not built in grapy.")
     return found
@@ -2502,8 +2557,10 @@ def _problems(shape, resolution):
 
 def CheckGeometry(in_features, out_table=None, validation_method="ESRI"):
     """A table of each problem found: ``CLASS`` (the input's path), ``FEATURE_ID``, ``TEXT_ID`` (a GeoPackage's, as
-    documented) and ``PROBLEM``; valid features write nothing. Problems named: ``Null geometry``, ``Empty parts``,
-    ``Duplicate vertex``, ``Short segment`` and ``Self intersections``; a shape invalid any other way raises rather
+    documented) and ``PROBLEM``; valid features write nothing. Problems named in lower case, as Pro writes them
+    (measured in ArcGIS Pro 3.7, 2026-11-08: ``null geometry``, ``self intersections``; the other three INFERRED to
+    follow): ``null geometry``, ``empty parts``, ``duplicate vertex``, ``short segment`` and ``self intersections``;
+    a shape invalid any other way raises rather
     than going unreported. INFERRED: a segment is short when under the default resolution, 0.0001 m or 1e-9 degrees;
     ``TEXT_ID`` holds the object ID as text. ``OGC`` validation is not built."""
     from . import da
@@ -2538,7 +2595,7 @@ _GEOMETRY_FIELDS = {
     "EXTENT": ["EXT_MIN_X", "EXT_MIN_Y", "EXT_MAX_X", "EXT_MAX_Y"], "LENGTH": ["LENGTH"], "LENGTH_GEODESIC": ["LENGTH_GEO"],
     "LINE_START_MID_END": ["START_X", "START_Y", "MID_X", "MID_Y", "END_X", "END_Y"], "PART_COUNT": ["PART_COUNT"],
     "PERIMETER_LENGTH": ["PERIMETER"], "PERIMETER_LENGTH_GEODESIC": ["PERIM_GEO"], "POINT_COUNT": ["PNT_COUNT"],
-    "POINT_X_Y_Z_M": ["POINT_X", "POINT_Y"],
+    "POINT_X_Y_Z_M": ["POINT_X", "POINT_Y"], "LINE_BEARING": ["BEARING"],
 }
 
 
@@ -2548,8 +2605,9 @@ def AddGeometryAttributes(Input_Features, Geometry_Properties, Length_Unit=None,
     is named; geodesic ones are on the reference's ellipsoid and need a unit. INFERRED: ``POINT_COUNT`` counts a ring's
     closing vertex, as a shape's ``pointCount`` does; a geodesic length runs along the geodesic between each pair of
     vertices. The units are sized as Pro measures them (D-323): ``YARDS`` and ``NAUTICAL_MILES`` are US survey,
-    ``ACRES``, ``SQUARE_YARDS`` and ``SQUARE_NAUTICAL_MILES`` international. ``CENTROID_INSIDE``, ``LINE_BEARING`` and
-    ``LENGTH_3D`` are not built."""
+    ``ACRES``, ``SQUARE_YARDS`` and ``SQUARE_NAUTICAL_MILES`` international. ``LINE_BEARING`` is the planar start-to-end
+    bearing (``BEARING``), as Pro answers it (measured 2026-11-08). ``CENTROID_INSIDE`` and ``LENGTH_3D`` are not
+    built."""
     import shapely
     from . import da
     from ._reference import SpatialReference, reference_of
@@ -2619,6 +2677,8 @@ def AddGeometryAttributes(Input_Features, Geometry_Properties, Length_Unit=None,
             return [len(_parts(shape))]
         if prop == "POINT_COUNT":
             return [len(_coordinates(shape))]
+        if prop == "LINE_BEARING":
+            return [_line_bearing(shape)]
         if prop == "POINT_X_Y_Z_M":
             point = shape if shape.geom_type == "Point" else shape.centroid
             return [point.x, point.y]
@@ -3359,23 +3419,30 @@ def _write_raster(array, mask, grid, path, nodata=None, names=None):
                 if names is not None:
                     out.set_band_description(i, names[i - 1])
         return Result(path)
+    chosen = nodata is not None
     if nodata is None:
         nodata = _nodata_for(array.dtype)
     if numpy.any(array[~mask] == nodata):
-        raise ExecuteError(f"ERROR 999999: a valid cell holds {nodata}, the NoData value the output is written with.")
+        if chosen or mask.any():
+            raise ExecuteError(f"ERROR 999999: a valid cell holds {nodata}, the NoData value the output is written with.")
+        # No cell is NoData and none was asked for: the raster is written without one, so a valid 255 in an 8-bit
+        # output stays a value (Pro's CopyRaster writes 300 into 8_BIT_UNSIGNED as a valid 255, measured 2026-11-08).
+        nodata = None
     profile = {"driver": "GTiff", "height": grid.rows, "width": grid.columns, "count": 1, "dtype": array.dtype.name,
                "transform": grid.transform(), "nodata": nodata}
     if grid.srid:
         profile["crs"] = f"EPSG:{grid.srid}"
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with rasterio.open(path, "w", **profile) as out:
-        out.write(numpy.where(mask, nodata, array).astype(array.dtype), 1)
+        out.write(numpy.where(mask, nodata, array).astype(array.dtype) if nodata is not None else array, 1)
     return Result(path)
 
 
 def _cast(array, mask, pixel_type, tool):
-    """The cells as a pixel type, refused when a valid cell does not fit it: the page says such values are discarded
-    without saying as what."""
+    """The cells as a pixel type. A fractional value becomes an integer rounded half up — floor(v + 0.5) — and a value
+    outside an integer type's range is clamped to it: measured in ArcGIS Pro 3.7, 2026-11-08, CopyRaster to
+    16_BIT_SIGNED takes 1.5, 2.5, -1.5, 2.7, -2.7, 0.5, -0.5, 3.49 to 2, 3, -1, 3, -3, 1, 0, 3, and to 8_BIT_UNSIGNED
+    takes the negatives to 0."""
     import numpy
     name = _PIXEL_TYPES.get(str(pixel_type).upper())
     if name is None:
@@ -3384,10 +3451,9 @@ def _cast(array, mask, pixel_type, tool):
     values = array[~mask]
     if numpy.issubdtype(kind, numpy.integer) and values.size:
         info = numpy.iinfo(kind)
-        if numpy.issubdtype(values.dtype, numpy.floating) and not numpy.all(numpy.equal(numpy.mod(values, 1), 0)):
-            raise NotBuiltError(f"arcpy.management.{tool}: fractional values in an integer pixel type are not built in grapy.")
-        if values.min() < info.min or values.max() > info.max:
-            raise NotBuiltError(f"arcpy.management.{tool}: values outside {pixel_type}'s range are not built in grapy.")
+        if numpy.issubdtype(array.dtype, numpy.floating):
+            array = numpy.floor(array + 0.5)
+        array = numpy.clip(numpy.where(mask, 0, array), info.min, info.max)
     return array.astype(kind)
 
 
@@ -3450,12 +3516,12 @@ def Clip(in_raster, rectangle, out_raster, in_template_dataset=None, nodata_valu
 
 
 def GetRasterProperties(in_raster, property_type=None, band_index=None):
-    """One property of a raster. INFERRED: ``STD`` is the population form, as arcpy's Raster.standardDeviation;
+    """One property of a raster. ``STD`` is the sample form (n - 1), as Pro answers it (measured 2026-11-08);
     ``ANYNODATA`` and ``ALLNODATA`` answer 1 or 0; values are written as text, whole numbers without a decimal point;
     ``band_index`` is one-based or a band's name, and the statistics are the first band's when none is named.
     The sensor and acquisition properties are not built."""
     import numpy
-    from ._raster import _band_number
+    from ._raster import _band_number, sample_std
     whole = _raster_in(in_raster, "GetRasterProperties", bands=True)
     raster = whole
     if _is_given(band_index) or whole.bandCount > 1:
@@ -3469,7 +3535,7 @@ def GetRasterProperties(in_raster, property_type=None, band_index=None):
     codes = {"uint8": 3, "int8": 4, "uint16": 5, "int16": 6, "uint32": 7, "int32": 8, "float32": 9, "float64": 10}
     answers = {
         "MINIMUM": lambda: values.min(), "MAXIMUM": lambda: values.max(), "MEAN": lambda: values.mean(),
-        "STD": lambda: values.std(), "UNIQUEVALUECOUNT": lambda: numpy.unique(values).size,
+        "STD": lambda: sample_std(values), "UNIQUEVALUECOUNT": lambda: numpy.unique(values).size,
         "TOP": lambda: g.top, "LEFT": lambda: g.left, "RIGHT": lambda: g.right, "BOTTOM": lambda: g.bottom,
         "CELLSIZEX": lambda: g.width, "CELLSIZEY": lambda: g.height, "COLUMNCOUNT": lambda: g.columns,
         "ROWCOUNT": lambda: g.rows, "BANDCOUNT": lambda: whole.bandCount, "ANYNODATA": lambda: int(raster._mask.any()),
@@ -3745,8 +3811,9 @@ def CalculateValue(expression, code_block=None, data_type="Variant"):
 
 def ClearWorkspaceCache(in_data=None):
     """Clears the cache of enterprise geodatabase connections. grapy keeps no connection open between tools, so there
-    is nothing to clear and nothing any later answer depends on."""
-    return Result(_text(in_data) if in_data is not None else "")
+    is nothing to clear and nothing any later answer depends on. The output is ``true``, the page's Boolean, as Pro
+    answers it (measured in ArcGIS Pro 3.7, 2026-11-08)."""
+    return Result("true")
 
 
 # ---- tables -------------------------------------------------------------------------------------------------------------
@@ -4063,7 +4130,8 @@ def EliminatePolygonPart(in_features, out_feature_class, condition="AREA", part_
     its share of the feature's total outer area (holes included) under ``part_area_percent``, or both or either, as
     ``condition`` says. A small hole is filled, with any part inside it; with ``CONTAINED_ONLY`` only parts inside
     another part are removed, with ``ANY`` any small part — but when every part is small the largest is kept, as
-    documented. INFERRED: a part's area is its outer ring's; fields are carried as they are."""
+    documented. INFERRED: a part's area is its outer ring's; fields are carried as they are, and ``ORIG_FID`` — the
+    input feature's object ID — is added after them, as Pro writes it (measured in ArcGIS Pro 3.7, 2026-11-08)."""
     import shapely
     from shapely.geometry import Polygon as ShapelyPolygon
     from . import da
@@ -4079,11 +4147,11 @@ def EliminatePolygonPart(in_features, out_feature_class, condition="AREA", part_
                 "AREA_OR_PERCENT": by_area or by_percent}[how]
 
     out = _path(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, columns)
-    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
-        for _, values, shape in _features(in_features):
+    _gpkg.create(out, "Polygon", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer")])
+    with da.InsertCursor(out, [*[c.name for c in columns], "ORIG_FID", "SHAPE@"]) as written:
+        for oid, values, shape in _features(in_features):
             if shape is None or shape.is_empty:
-                written.insertRow((*values, shape))
+                written.insertRow((*values, oid, shape))
                 continue
             parts = _parts(shape)
             total = sum(ShapelyPolygon(p.exterior).area for p in parts)
@@ -4103,7 +4171,7 @@ def EliminatePolygonPart(in_features, out_feature_class, condition="AREA", part_
                 survivors.append(part)
             if not survivors:
                 survivors = [max(kept, key=lambda p: ShapelyPolygon(p.exterior).area)]
-            written.insertRow((*values, shapely.MultiPolygon(survivors) if len(survivors) > 1 else survivors[0]))
+            written.insertRow((*values, oid, shapely.MultiPolygon(survivors) if len(survivors) > 1 else survivors[0]))
     return Result(out)
 
 
@@ -4220,10 +4288,12 @@ def CalculateStatistics(in_raster_dataset, x_skip_factor=1, y_skip_factor=1, ign
                         skip_existing="OVERWRITE", area_of_interest=None):
     """A raster's statistics stored with it — minimum, maximum, mean and standard deviation of every ``x_skip_factor``
     -th column and ``y_skip_factor``-th row, NoData and ``ignore_values`` left out. INFERRED: they are stored as the
-    GeoTIFF band's ``STATISTICS_*`` metadata, which GDAL-based readers use, and the standard deviation is the
-    population form. No cell changes. An area of interest is not built."""
+    GeoTIFF band's ``STATISTICS_*`` metadata, which GDAL-based readers use. The standard deviation is the sample form
+    (n - 1), as Pro stores it (measured in ArcGIS Pro 3.7, 2026-11-08). No cell changes. An area of interest is not
+    built."""
     import numpy
     import rasterio
+    from ._raster import sample_std
     if _given(area_of_interest):
         raise NotBuiltError("arcpy.management.CalculateStatistics: area_of_interest is not built in grapy.")
     raster = _raster_in(in_raster_dataset, "CalculateStatistics")
@@ -4237,7 +4307,7 @@ def CalculateStatistics(in_raster_dataset, x_skip_factor=1, y_skip_factor=1, ign
     values = array[~mask].astype(float)
     tags = {} if values.size == 0 else {
         "STATISTICS_MINIMUM": repr(float(values.min())), "STATISTICS_MAXIMUM": repr(float(values.max())),
-        "STATISTICS_MEAN": repr(float(values.mean())), "STATISTICS_STDDEV": repr(float(values.std()))}
+        "STATISTICS_MEAN": repr(float(values.mean())), "STATISTICS_STDDEV": repr(sample_std(values))}
     with rasterio.open(path, "r+") as dataset:
         dataset.update_tags(1, **tags)
     return Result(_text(in_raster_dataset))
@@ -4291,6 +4361,18 @@ def _set_alias(path, field, alias):
         connection.close()
 
 
+def _field_titles_of(path):
+    """{field (lower case): alias} of the fields of a table that have one."""
+    connection, table = _gpkg.table_of(path)
+    try:
+        if not connection.execute("select 1 from sqlite_master where name = 'gpkg_data_columns'").fetchone():
+            return {}
+        return {c.lower(): t for c, t in connection.execute(
+            "select column_name, title from gpkg_data_columns where table_name = ? and title is not null", (table,))}
+    finally:
+        connection.close()
+
+
 def _rename_field(path, field, new_name):
     connection, table = _gpkg.table_of(path)
     try:
@@ -4306,25 +4388,69 @@ def _rename_field(path, field, new_name):
 def AlterField(in_table, field, new_field_name=None, new_field_alias=None, field_type=None, field_length=None,
                field_is_nullable=None, clear_field_alias=None):
     """A field renamed, and its alias set or cleared (kept as the schema extension's column title, see ``_set_alias``).
-    Changing a field's type, length or nullability is not built."""
-    for name, value in (("field_type", field_type), ("field_length", field_length), ("field_is_nullable", field_is_nullable)):
-        if _given(value):
-            raise NotBuiltError(f"arcpy.management.AlterField: {name} is not built in grapy; a GeoPackage column's type "
-                                "cannot change without rebuilding its table.")
+    Its type and a text field's length change only on an empty table, as Pro allows them: measured in ArcGIS Pro 3.7,
+    2026-11-08, an empty table's SHORT field becomes LONG and a text field's length 10 becomes 40, and a populated
+    table answers ERROR 001658; a type or length equal to the field's own changes nothing. Changing nullability is not
+    built."""
+    from ._runtime import ExecuteError
+    if _given(field_is_nullable):
+        raise NotBuiltError("arcpy.management.AlterField: field_is_nullable is not built in grapy.")
     path = _plain("AlterField", in_table)
-    own = {c.name.lower(): c.name for c in _schema(path)[0]}
-    current = own.get(str(field).lower())
-    if current is None:
-        from ._runtime import ExecuteError
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    found = columns.get(str(field).lower())
+    if found is None:
         raise ExecuteError(f"ERROR 000728: the field '{field}' does not exist.")
+    current = found.name
+    if _given(field_type) or _given(field_length):
+        _retype(path, found, field_type, field_length)
     if _given(new_field_name) and new_field_name != current:
+        titled = _field_titles_of(path).get(current.lower())
         _rename_field(path, current, str(new_field_name))
+        if not titled and not _given(new_field_alias) and str(clear_field_alias or "").upper() not in ("TRUE",
+                                                                                                       "CLEAR_ALIAS"):
+            # A renamed field keeps its old name as its alias, as Pro keeps it (measured in ArcGIS Pro 3.7,
+            # 2026-11-08: cat renamed cat2 with no alias given answers the alias cat).
+            _set_alias(path, str(new_field_name), current)
         current = str(new_field_name)
     if str(clear_field_alias or "").upper() in ("TRUE", "CLEAR_ALIAS"):
         _set_alias(path, current, None)
     elif _given(new_field_alias):
         _set_alias(path, current, str(new_field_alias))
     return Result(_text(in_table))
+
+
+def _retype(path, column, field_type, field_length):
+    """A field's type or length changed on an empty table by dropping it and every field after it and adding them
+    again in order — the table holds no row to lose — the changed one with its new declaration."""
+    import sqlite3
+    from ._runtime import ExecuteError
+    kind = _FIELD_TYPES.get(str(field_type).upper()) if _given(field_type) else column.type
+    if kind is None:
+        raise ExecuteError(f"ERROR 000800: field_type '{field_type}' is not a field type.")
+    length = int(float(field_length)) if kind == "String" and _given(field_length) else (
+        column.length if kind == column.type else None)
+    if kind == column.type and (kind != "String" or (length or 255) == (column.length or 255)):
+        return
+    connection, table = _gpkg.table_of(path)
+    try:
+        if connection.execute(f'select count(*) from "{table}"').fetchone()[0]:
+            raise ExecuteError("ERROR 001658: Cannot alter field types on populated tables.")
+        listed = list(connection.execute(f'pragma table_info("{table}")'))
+        at = next(i for i, r in enumerate(listed) if r[1].lower() == column.name.lower())
+        later = listed[at:]
+        try:
+            for row in reversed(later):
+                connection.execute(f'alter table "{table}" drop column "{row[1]}"')
+            for _, name, declared, notnull, default, _ in later:
+                if name.lower() == column.name.lower():
+                    declared = _gpkg.declared(_gpkg.Column(name, kind, length=length))
+                extra = (f" default {default}" if default is not None else "") + (" not null" if notnull else "")
+                connection.execute(f'alter table "{table}" add column "{name}" {declared}{extra}')
+        except sqlite3.OperationalError as error:
+            raise NotBuiltError(f"arcpy.management.AlterField: the field's type cannot change here ({error}).") from None
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def AlterFields(in_table, field_description=None):
@@ -6170,7 +6296,8 @@ def CreateRandomRaster(out_path, out_name, distribution="UNIFORM 0.0 1.0", raste
                        build_rat="BUILD"):
     """EQUIVALENT: a raster of random values from the documented distributions and their defaults, drawn with NumPy's
     generator from ``env.randomGenerator``'s seed (see ``_seed``) — arcpy's own stream is not published. INFERRED: the
-    integer distributions answer 32-bit integers with an attribute table under ``BUILD``, the others doubles;
+    integer distributions answer 32-bit integers with an attribute table under ``BUILD``; the others answer 32-bit
+    floats, as Pro writes UNIFORM (measured in ArcGIS Pro 3.7, 2026-11-08 — this said doubles before);
     ``INTEGER`` draws its minimum and maximum inclusively; ``GAMMA``'s beta is the scale; with no cell size, the
     extent's shorter side over 250, as the conversion tools document their default. An extent is required."""
     import numpy
@@ -6202,7 +6329,7 @@ def CreateRandomRaster(out_path, out_name, distribution="UNIFORM 0.0 1.0", raste
             "NEGATIVE_BINOMIAL": lambda: random.negative_binomial(p[0], p[1], shape)}[name]
     array = draw()
     integer = name in ("INTEGER", "POISSON", "BINOMIAL", "GEOMETRIC", "NEGATIVE_BINOMIAL")
-    array = array.astype(numpy.int32 if integer else numpy.float64)
+    array = array.astype(numpy.int32 if integer else numpy.float32)
     mask = numpy.zeros(shape, bool)
     grid = _Grid(x0, y0 + rows * size, size, size, rows, columns, srid)
     path = _raster_path(os.path.join(_text(out_path), _text(out_name)), "CreateRandomRaster")
@@ -6519,12 +6646,19 @@ def _utm(lon, lat):
 
 
 def _mgrs(lon, lat, digits, spaced):
+    """MGRS or USNG to ``digits`` per coordinate, rounded to the nearest unit as Pro writes them (measured in ArcGIS
+    Pro 3.7, 2026-11-08: easting 500104.36, northing 4500384.57 give 00104 00385 -- not truncated, as the grid
+    reference standard reads)."""
+    import math
     zone, band, easting, northing = _utm(lon, lat)
+    unit = 10.0 ** (5 - digits)
+    easting = math.floor(easting / unit + 0.5) * unit
+    northing = math.floor(northing / unit + 0.5) * unit
     column = _COLUMN_SETS[(zone - 1) % 3][int(easting // 100000) - 1]
     row = _ROWS[(int(northing // 100000) + (5 if zone % 2 == 0 else 0)) % 20]
     scale = 10 ** (digits - 5)
-    e = int((easting % 100000) * scale) if scale >= 1 else int((easting % 100000) // (10 ** (5 - digits)))
-    n = int((northing % 100000) * scale) if scale >= 1 else int((northing % 100000) // (10 ** (5 - digits)))
+    e = int(round((easting % 100000) * scale)) if scale >= 1 else int(round((easting % 100000) / (10 ** (5 - digits))))
+    n = int(round((northing % 100000) * scale)) if scale >= 1 else int(round((northing % 100000) / (10 ** (5 - digits))))
     parts = [f"{zone}{band}", f"{column}{row}", f"{e:0{digits}d}", f"{n:0{digits}d}"]
     return " ".join(parts) if spaced else "".join(parts)
 
@@ -6542,11 +6676,16 @@ def _gars(lon, lat):
 
 
 def _georef(lon, lat):
+    """GEOREF to a thousandth of a minute -- five digits a coordinate -- rounded, a minute of 60 carried into the
+    degree, as Pro writes it (measured in ArcGIS Pro 3.7, 2026-11-08: latitude 0.9999999999 gives degree letter B and
+    00000)."""
     import math
-    x, y = lon + 180, lat + 90
-    minutes_x, minutes_y = int((x - math.floor(x)) * 60), int((y - math.floor(y)) * 60)
-    return (f"{_LETTERS_24[int(x // 15)]}{'ABCDEFGHJKLM'[int(y // 15)]}{'ABCDEFGHJKLMNPQ'[int(x % 15)]}"
-            f"{'ABCDEFGHJKLMNPQ'[int(y % 15)]}{minutes_x:02d}{minutes_y:02d}")
+    x = int(math.floor((lon + 180) * 60000 + 0.5))
+    y = int(math.floor((lat + 90) * 60000 + 0.5))
+    dx, mx = divmod(x, 60000)
+    dy, my = divmod(y, 60000)
+    return (f"{_LETTERS_24[dx // 15]}{'ABCDEFGHJKLM'[dy // 15]}{'ABCDEFGHJKLMNPQ'[dx % 15]}"
+            f"{'ABCDEFGHJKLMNPQ'[dy % 15]}{mx:05d}{my:05d}")
 
 
 def _hemisphere(value, positive, negative):
@@ -6555,17 +6694,27 @@ def _hemisphere(value, positive, negative):
 
 def _dms(value, positive, negative, kind):
     """A latitude or longitude written as decimal degrees, degrees and decimal minutes, or degrees, minutes and
-    seconds, with its hemisphere letter."""
+    seconds, with its hemisphere letter, as Pro writes them (measured in ArcGIS Pro 3.7, 2026-11-08): degrees two
+    digits for a latitude and three for a longitude, minutes and seconds two, the last unit to eight decimals, rounded
+    with the carry -- '027 00 04.44420000E', and '01 00.00000000N' for 0.9999999999."""
+    import math
     letter = _hemisphere(value, positive, negative)
-    value = abs(value)
+    width = 2 if positive == "N" else 3
+    # The degrees are rounded to eight decimals first, as Pro's carries show: latitude 0.9999999999 is written
+    # 01 00.00000000N, not 00 59.99999999N (measured 2026-11-08).
+    value = math.floor(abs(value) * 10 ** 8 + 0.5) / 10 ** 8
+    scale = 10 ** 8
+    per = {"DD": 1, "DDM": 60, "DMS": 3600}[kind]
+    total = int(math.floor(abs(value) * per * scale + 0.5))
+    degrees, rest = divmod(total, per * scale)
     if kind == "DD":
-        return f"{value:.5f}{letter}"
-    degrees = int(value)
-    minutes = (value - degrees) * 60
+        return f"{degrees:0{width}d}.{rest:08d}{letter}"
     if kind == "DDM":
-        return f"{degrees} {minutes:.4f}{letter}"
-    whole = int(minutes)
-    return f"{degrees} {whole} {(minutes - whole) * 60:.2f}{letter}"
+        minutes, rest = divmod(rest, scale)
+        return f"{degrees:0{width}d} {minutes:02d}.{rest:08d}{letter}"
+    minutes, rest = divmod(rest, 60 * scale)
+    seconds, rest = divmod(rest, scale)
+    return f"{degrees:0{width}d} {minutes:02d} {seconds:02d}.{rest:08d}{letter}"
 
 
 def _parse_dd1(text):
@@ -6599,11 +6748,13 @@ def _notation(kind, lon, lat):
         style = kind.split("_")[0]
         return [f"{_dms(lat, 'N', 'S', style)} {_dms(lon, 'E', 'W', style)}"]
     if kind in ("UTM_ZONES", "UTM_BANDS"):
+        # Truncated to the metre, UTM_BANDS spaced, as Pro writes them (measured 2026-11-08).
         zone, band, easting, northing = _utm(lon, lat)
-        letter = band if kind == "UTM_BANDS" else ("N" if lat >= 0 else "S")
-        return [f"{zone}{letter}{int(round(easting)):06d}{int(round(northing)):07d}"]
+        if kind == "UTM_BANDS":
+            return [f"{zone}{band} {int(easting):06d} {int(northing):07d}"]
+        return [f"{zone}{'N' if lat >= 0 else 'S'}{int(easting):06d}{int(northing):07d}"]
     if kind in ("MGRS", "USNG"):
-        return [_mgrs(lon, lat, 4, kind == "USNG")]
+        return [_mgrs(lon, lat, 5, kind == "USNG")]
     if kind in ("MGRS16", "USNG16"):
         return [_mgrs(lon, lat, 8, kind == "USNG16")]
     if kind == "GARS":
@@ -6617,12 +6768,13 @@ def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, inpu
                               output_coordinate_format="DD_2", id_field=None, spatial_reference=None, in_coor_system=None,
                               exclude_invalid_records="EXCLUDE_INVALID"):
     """EQUIVALENT: a point for each row, carrying all its fields and the new notation, as documented. The grids are the
-    public specifications; the strings, which the page does not define, are INFERRED: DD 5 decimals, DDM 4 decimal
-    minutes and DMS 2 decimal seconds, each with a hemisphere letter, latitude first in the one-field forms (as the
-    page's DD_1 example); UTM as zone, letter, 6-digit easting and 7-digit northing (as the page's examples); MGRS and
-    USNG to 4 digits (10 m) and the 16 forms to 8, truncated, USNG spaced; GARS to its 5-minute key; GEOREF to whole
-    minutes. Two-field forms are named DDLat/DDLon, DDMLat/DDMLon, DMSLat/DMSLon; a name already taken gets a number,
-    as documented. Inputs built: DD_2, DD_NUMERIC, DD_1 and SHAPE; other inputs, GEOREF16 and polar (UPS) grids are not
+    public specifications; the strings are Pro's, measured in ArcGIS Pro 3.7 on 2026-11-08: DD, DDM and DMS to eight
+    decimals of their last unit, degrees padded to two digits (latitude) or three (longitude), minutes and seconds to
+    two, each with a hemisphere letter, latitude first in the one-field forms; UTM_ZONES as zone, N or S, 6-digit
+    easting and 7-digit northing truncated to the metre, UTM_BANDS the same with the band letter and spaces; MGRS and
+    USNG to 5 digits (1 m) rounded, USNG spaced; GARS to its 5-minute key; GEOREF to a thousandth of a minute; and
+    ``ORIG_OID``, the input row's object ID, after the new fields. INFERRED: the 16 forms to 8 digits. Two-field forms
+    are named DDLat/DDLon, DDMLat/DDMLon, DMSLat/DMSLon; a name already taken gets a number, as documented. Inputs built: DD_2, DD_NUMERIC, DD_1 and SHAPE; other inputs, GEOREF16 and polar (UPS) grids are not
     built."""
     import shapely
     from . import da
@@ -6638,7 +6790,10 @@ def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, inpu
     names = [c.name for c in columns]
     taken = {n.lower() for n in names} | {_gpkg.OID.lower(), _gpkg.GEOMETRY.lower()}
     new_names = []
-    for base in (_NOTATIONS_TWO[target_kind] if target_kind in _NOTATIONS_TWO else (target_kind,)):
+    # The one-field latitude-longitude forms are named DDLatLon, DDMLatLon and DMSLatLon, as Pro names them (measured
+    # in ArcGIS Pro 3.7, 2026-11-08); the grids by their keyword.
+    one = {"DD_1": "DDLatLon", "DDM_1": "DDMLatLon", "DMS_1": "DMSLatLon"}.get(target_kind, target_kind)
+    for base in (_NOTATIONS_TWO[target_kind] if target_kind in _NOTATIONS_TWO else (one,)):
         name, i = base, 0
         while name.lower() in taken:
             i += 1
@@ -6648,7 +6803,11 @@ def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, inpu
     new_type = "Double" if target_kind == "DD_NUMERIC" else "String"
     srid = _reference_code(spatial_reference, 4326)
     out = _path(out_featureclass)
-    _gpkg.create(out, "Point", srid, [*columns, *[_gpkg.Column(n, new_type) for n in new_names]])
+    origin = "ORIG_OID"
+    while origin.lower() in taken:
+        origin += "_1"
+    _gpkg.create(out, "Point", srid, [*columns, *[_gpkg.Column(n, new_type) for n in new_names],
+                                      _gpkg.Column(origin, "Integer")])
     if source_kind == "SHAPE":
         from_srid = _reference_code(in_coor_system, own_srid if own_srid > 0 else 4326)
     else:
@@ -6659,7 +6818,7 @@ def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, inpu
     at = {n.lower(): i for i, n in enumerate(names)}
     keep_invalid = str(exclude_invalid_records or "EXCLUDE_INVALID").upper() == "INCLUDE_INVALID"
     with da.SearchCursor(path, ["OID@", *names, "SHAPE@"], where) as rows, \
-            da.InsertCursor(out, [*names, *new_names, "SHAPE@"]) as written:
+            da.InsertCursor(out, [*names, *new_names, origin, "SHAPE@"]) as written:
         for row in rows:
             values = list(row[1:-1])
             try:
@@ -6681,7 +6840,7 @@ def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, inpu
                     AddWarning(f"WARNING 001003: row {row[0]} has no valid {source_kind} notation and was not written.")
                     continue
                 notation, shape = [None] * len(new_names), None
-            written.insertRow((*values, *notation, shape))
+            written.insertRow((*values, *notation, row[0], shape))
     return Result(out)
 
 

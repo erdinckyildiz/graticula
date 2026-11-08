@@ -38,6 +38,11 @@ def _num(v):
 
 
 def _same(a, b):
+    # Lists and dicts — a case's answer of several properties — are compared element by element, with the tolerance.
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_same(_coerce(x), _coerce(y)) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(_coerce(a[k]), _coerce(b[k])) for k in a)
     if _num(a) and _num(b):
         return math.isclose(float(a), float(b), rel_tol=REL, abs_tol=ABS)
     if isinstance(a, str) and isinstance(b, str):

@@ -49,7 +49,8 @@ class Relationships(unittest.TestCase):
                           described.backwardPathLabel, described.notification),
                          ("RelationshipClass", "OneToMany", True, False, ["poles"], ["transformers"], "Holds",
                           "Is mounted on", "None"))
-        self.assertEqual(described.originClassKeys, [("pole_id", "OriginPrimary"), ("pole", "OriginForeign")])
+        # (field, role, "") triples, as Pro answers them (measured in ArcGIS Pro 3.7, 2026-11-08); pairs before.
+        self.assertEqual(described.originClassKeys, [("pole_id", "OriginPrimary", ""), ("pole", "OriginForeign", "")])
 
     def test_search_related_records_both_ways(self):
         rc = self.composite()

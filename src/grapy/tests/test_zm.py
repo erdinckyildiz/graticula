@@ -241,8 +241,9 @@ class ZTools(unittest.TestCase):
             self.assertEqual(next(rows)[0], (1.0, 2.0, 2.0))
         arcpy.management.Adjust3DZ(out, "REVERSE", 1, "METERS", "FEET")
         with arcpy.da.SearchCursor(out, ["SHAPE@Z"]) as rows:
-            # −2 + 1 = −1 m, which is −3937/1200 ft: Adjust3DZ's FEET is the US survey foot, as Pro measures it (D-323).
-            self.assertAlmostEqual(next(rows)[0], -3937 / 1200)
+            # −(2 + 1) = −3 m, which is −3 × 3937/1200 ft: the shift is added before the sign is reversed (measured in
+            # ArcGIS Pro 3.7, 2026-11-08; this pinned −2 + 1 before), and FEET is the US survey foot (D-323).
+            self.assertAlmostEqual(next(rows)[0], -3 * 3937 / 1200)
 
 
     def test_simplify_and_points_along_3d_lines(self):

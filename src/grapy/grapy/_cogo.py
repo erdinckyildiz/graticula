@@ -97,7 +97,7 @@ def UpdateCOGO(in_line_features, distances_type="OVERWRITE", distance_tolerance=
         if _is_given(minimum_direction_lateral_offset) else 0.0
     names = {c.name.lower(): c.name for c in columns}
     cogo = [names[f.lower()] for f in _behaviours.COGO_FIELDS]
-    direction_f, distance_f, arc_f, radius_f, radius2_f = cogo
+    direction_f, distance_f, radius_f, arc_f, radius2_f = cogo
     others = [c.name for c in columns]
     count = 0
     with da.UpdateCursor(in_line_features, [*others, "SHAPE@"]) as rows:
