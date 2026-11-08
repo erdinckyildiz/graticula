@@ -105,6 +105,12 @@ public sealed class WebMapEndpointTests : ArcGisClient
             Assert.Equal("Web Map", single.GetProperty("type").GetString());
             Assert.Equal("ADR-079 round trip", single.GetProperty("title").GetString());
 
+            // A map holding a feature layer says so as ArcGIS's map viewer does, and ArcGIS Field Maps offers Collect
+            // only on a map that does (ADR-077 condition 5, measured on an ArcGIS Enterprise 2025.2 portal).
+            string[] keywords = [.. single.GetProperty("typeKeywords").EnumerateArray().Select(k => k.GetString()!)];
+            Assert.Contains("Collector", keywords);
+            Assert.Contains("Data Editing", keywords);
+
             JsonElement data = await JsonAsync(HttpMethod.Get, $"{root}/sharing/rest/content/items/{id}/data?f=json", token);
 
             Assert.True(
@@ -261,6 +267,40 @@ public sealed class WebMapEndpointTests : ArcGisClient
         string? token = await TokenAsync(root);
         Assert.False(token is null, "No administrator credential; set GRATICULA_TEST_USER and GRATICULA_TEST_PASSWORD.");
         return token!;
+    }
+
+    /// <summary>
+    /// A map with no feature layer does not say it is for editing: ArcGIS Field Maps lists a map that says so under
+    /// <i>Editing</i>, and ArcGIS's own map viewer writes <c>Data Editing</c> only beside feature layers.
+    /// </summary>
+    [Fact]
+    public async Task A_map_without_a_feature_layer_is_not_marked_for_editing()
+    {
+        string root = await RequireServerAsync();
+        string token = await AdministratorTokenAsync(root);
+        const string Basemap = """
+            {"operationalLayers":[{"id":"t","layerType":"ArcGISTiledMapServiceLayer","url":"https://example.test/rest/services/t/MapServer","title":"T"}],
+             "baseMap":{"baseMapLayers":[{"id":"osm","layerType":"OpenStreetMap","title":"OpenStreetMap"}],"title":"OpenStreetMap"},
+             "spatialReference":{"wkid":102100},"version":"2.31"}
+            """;
+
+        (HttpStatusCode status, string body) = await RequestAsync(
+            HttpMethod.Post, $"{root}/content/webmaps", token, Body("ADR-077 no feature layer", "private", Basemap));
+        Assert.True(status == HttpStatusCode.Created, body);
+        string id = Parsed(body).GetProperty("id").GetString()!;
+
+        try
+        {
+            JsonElement single = await JsonAsync(HttpMethod.Get, $"{root}/sharing/rest/content/items/{id}?f=json", token);
+            string[] keywords = [.. single.GetProperty("typeKeywords").EnumerateArray().Select(k => k.GetString()!)];
+            Assert.Contains("Web Map", keywords);
+            Assert.DoesNotContain("Collector", keywords);
+            Assert.DoesNotContain("Data Editing", keywords);
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/content/webmaps/{id}", token, null);
+        }
     }
 
     private async Task<string> CreateAsync(string root, string token, string title, string sharing)

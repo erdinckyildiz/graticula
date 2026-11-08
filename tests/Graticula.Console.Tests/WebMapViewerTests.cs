@@ -239,6 +239,81 @@ public sealed class WebMapViewerTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// ADR-077 condition 5: a feature layer with no pop-up is saved with one, as ArcGIS's map viewer saves it, because
+    /// ArcGIS Field Maps builds its collection form from the pop-up and refused every form of a layer that had none.
+    /// </summary>
+    [Fact]
+    public async Task A_feature_layer_without_a_popup_is_saved_with_one_for_field_apps()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        string layerUrl = await AnyFeatureLayerUrlAsync(token);
+
+        string document = JsonSerializer.Serialize(new
+        {
+            title = "ADR-077 default pop-up",
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = new object[]
+                {
+                    new { id = "bare", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "Bare layer", visibility = true, opacity = 1 },
+                    new { id = "off", layerType = "ArcGISFeatureLayer", url = layerUrl, title = "No pop-ups", visibility = true, opacity = 1, popupEnabled = false },
+                },
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        });
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", document);
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+
+            await WaitForAsync("wmLayers().length === 2 && !!document.querySelector('#layerList button[data-act=select][data-layer=bare]')",
+                "The map's feature layer did not reach the layer list.");
+            await WaitForAsync("(() => { const r = wmRuntime.get(wmLayers()[0]); return !!(r && r.info && r.info.fields); })()",
+                "The layer's fields were never read.");
+
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const inner = window.fetch;
+                  window.__bodies = [];
+                  window.fetch = (input, init) => {
+                    if (init && typeof init.body === 'string') window.__bodies.push(init.body);
+                    return inner(input, init);
+                  };
+                  wmMarkDirty();
+                  return true;
+                })()
+                """);
+
+            await ClickAsync("#headSave");
+
+            await WaitForAsync("(window.__bodies || []).some(b => b.includes('operationalLayers'))", "Saving the map sent no document.");
+
+            string sent = await Browser.EvaluateAsync<string>("window.__bodies.find(b => b.includes('operationalLayers'))") ?? "{}";
+            JsonElement layers = JsonDocument.Parse(sent).RootElement.GetProperty("document").GetProperty("operationalLayers");
+
+            JsonElement popup = layers[0].GetProperty("popupInfo");
+            Assert.True(popup.GetProperty("fieldInfos").GetArrayLength() > 0, $"The default pop-up lists no fields: {popup}");
+            Assert.All(popup.GetProperty("fieldInfos").EnumerateArray(), f => Assert.True(f.GetProperty("visible").GetBoolean()));
+
+            // A layer whose pop-ups were turned off keeps them off.
+            Assert.False(layers[1].TryGetProperty("popupInfo", out _), "A layer with pop-ups turned off was given one.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
     /// <summary>ADR-104: a layer is styled in the map, saved in its document, and can become the layer's default.</summary>
     [Fact]
     public async Task A_layer_is_styled_in_the_map_and_can_become_its_default()

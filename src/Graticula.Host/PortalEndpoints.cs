@@ -2523,6 +2523,45 @@ internal static partial class PortalEndpoints
     /// <b>Not <c>Offline</c>, <c>Collector</c> or <c>Data Editing</c></b>, which say the map was prepared
     /// for a field app; nothing here prepares one, and a client reading them would offer what it cannot do.
     /// </remarks>
+    /// <summary>The type keywords for a web map whose document is at hand: <c>Collector</c> and <c>Data Editing</c> beside
+    /// <see cref="WebMapKeywords"/> when it holds a feature layer or table.</summary>
+    internal static string[] WebMapKeywordsOf(string? document) =>
+        HoldsFeatureLayer(document) ? EditableWebMapKeywords : WebMapKeywords;
+
+    internal static readonly string[] EditableWebMapKeywords =
+        ["ArcGIS Online", "Collector", "Data Editing", "Explorer Web Map", "Map", "Online Map", "Web Map"];
+
+    /// <summary>Whether a Web Map JSON names an <c>ArcGISFeatureLayer</c> among its operational layers or tables.</summary>
+    internal static bool HoldsFeatureLayer(string? document)
+    {
+        if (string.IsNullOrEmpty(document))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument parsed = JsonDocument.Parse(document);
+            return Any(parsed.RootElement, "operationalLayers") || Any(parsed.RootElement, "tables");
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        static bool Any(JsonElement root, string name) =>
+            root.TryGetProperty(name, out JsonElement list) && list.ValueKind == JsonValueKind.Array
+            && list.EnumerateArray().Any(l => l.ValueKind == JsonValueKind.Object
+                && (Feature(l) || (l.TryGetProperty("layers", out JsonElement inner) && inner.ValueKind == JsonValueKind.Array
+                    && inner.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.Object && Feature(x)))));
+
+        static bool Feature(JsonElement l) =>
+            l.TryGetProperty("layerType", out JsonElement t) && t.ValueKind == JsonValueKind.String
+                ? t.GetString() == "ArcGISFeatureLayer"
+                : l.TryGetProperty("url", out JsonElement u) && u.ValueKind == JsonValueKind.String
+                    && u.GetString()!.Contains("/FeatureServer", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static readonly string[] WebMapKeywords =
         ["ArcGIS Online", "Explorer Web Map", "Map", "Online Map", "Web Map"];
 
@@ -2586,7 +2625,7 @@ internal static partial class PortalEndpoints
             title = map.Title,
             name = (string?)null,
             type = "Web Map",
-            typeKeywords = WebMapKeywords,
+            typeKeywords = WebMapKeywordsOf(map.Document),
             // ADR-119: the description when there is one, the summary as before when not; and the picture.
             description = map.Description ?? map.Snippet,
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
