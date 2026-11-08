@@ -192,7 +192,8 @@ public sealed class PortalConformanceTests : ArcGisClient
             // <b>A saved web map is the one item with no service behind it — ADR-079.</b> A client opens
             // it from its data document rather than from a URL, so that is what "one it can open" means
             // for it; WebMapEndpointTests reads the document back.
-            if (item.GetProperty("type").GetString() == "Web Map")
+            // A web scene is the same kind of item since ADR-269, and a catalogue holding one failed here on 2026-11-08.
+            if (item.GetProperty("type").GetString() is "Web Map" or "Web Scene")
             {
                 Assert.Equal(JsonValueKind.Null, item.GetProperty("url").ValueKind);
             }

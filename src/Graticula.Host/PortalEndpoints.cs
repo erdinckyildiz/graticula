@@ -919,6 +919,15 @@ internal static partial class PortalEndpoints
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
 
+        // <b>`userLicensedItems` only when asked for</b>, as a real portal answers (measured 2026-11-08): ArcGIS Field Maps
+        // asks with `returnUserLicensedItems=true` after signing in, and offered no Collect while it was missing.
+        if (string.Equals(context.Request.Query["returnUserLicensedItems"], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            System.Text.Json.Nodes.JsonObject self = System.Text.Json.JsonSerializer.SerializeToNode(Self(context, current, groups))!.AsObject();
+            self["userLicensedItems"] = System.Text.Json.JsonSerializer.SerializeToNode(LicensedItems());
+            return Results.Text(self.ToJsonString(), "application/json; charset=utf-8");
+        }
+
         return Results.Ok(Self(context, current, groups));
     }
 

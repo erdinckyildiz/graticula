@@ -183,40 +183,51 @@ internal static partial class PortalEndpoints
         _ => "creatorUT",
     };
 
+    /// <summary>
+    /// The apps a member's licence carries, as <c>userLicenseType</c> lists them and <c>community/self</c>'s
+    /// <c>userLicensedItems</c> repeats them: the field apps, which are what a client of this server asks about.
+    /// </summary>
+    /// <remarks>
+    /// <b>Names and item ids measured on a real ArcGIS Enterprise portal on 2026-11-08</b> (read only, owner's
+    /// permission): its <c>userLicenseType</c> lists ArcGIS Field Maps as a <c>Mobile Application</c> with the entitlement
+    /// <c>fieldmaps</c> in a <c>Field Apps</c> bundle, and <c>community/self?returnUserLicensedItems=true</c> repeats every
+    /// entitlement as <c>{itemId, entitlements}</c>. Esri's REST reference shows an older example (<c>Collector for
+    /// ArcGIS</c>, <c>collector</c>) that the measured portal no longer lists. <b>No SDK licence level is claimed</b>:
+    /// the measured portal lists one (<c>runtimeadvanced</c>), and what that unlocks in an app is Esri's to grant.
+    /// </remarks>
+    internal static readonly (string ItemId, string Title, string Type, string Entitlement)[] FieldApps =
+    [
+        ("ff54441c792546379cfd3c8f87d9a0b6", "ArcGIS Workforce", "Web Mapping Application", "workforce"),
+        ("7ddebbf72c6f4568a7631c4df3804c1c", "ArcGIS Field Maps", "Mobile Application", "fieldmaps"),
+        ("d95d1f5dafcb461d97493a2d37ba9e78", "ArcGIS Survey123", "Web Mapping Application", "survey123"),
+        ("9c570c552ba54228bd8aee4ed4a79f2c", "ArcGIS QuickCapture", "Mobile Application", "QuickCapture"),
+    ];
+
+    /// <summary><c>community/self</c>'s <c>userLicensedItems</c>, asked for with <c>returnUserLicensedItems=true</c>.</summary>
+    internal static object[] LicensedItems() =>
+        [.. FieldApps.Select(a => (object)new { itemId = a.ItemId, entitlements = new[] { a.Entitlement } })];
+
     /// <summary><c>community/users/{u}/userLicenseType</c> for the caller, in the shape Esri's REST reference documents.</summary>
     private static object LicenseType(HttpContext context)
     {
         string id = LicenseTypeIdOf(context.Features.Get<RequestPrincipal>()!.Authorization.UserType);
         string name = id switch { "viewerUT" => "Viewer", "editorUT" => "Editor", _ => "Creator" };
 
-        static object App(string title, string entitlement) =>
-            new { id = entitlement, title, type = "Mobile Application", entitlements = new[] { entitlement } };
-
-        object[] runtime = id == "viewerUT"
-            ? []
-            : [(object)new { id = "arcgisRuntimeAdvanced", title = "ArcGIS Runtime Advanced", type = "Application SDK", isAppBundle = false, entitlements = new[] { "arcgisRuntimeAdvanced" } }];
-
         return new
         {
             id,
             name,
-            apps = (object[])[
-                .. runtime,
+            apps = new object[]
+            {
                 new
                 {
-                    id = "fieldAppsBundle",
-                    title = "Field Apps Bundle",
+                    id = "fieldApps",
+                    title = "Field Apps",
                     type = "App Bundle",
                     isAppBundle = true,
-                    apps = new[]
-                    {
-                        App("Collector for ArcGIS", "collector"),
-                        App("Survey123 for ArcGIS", "survey123"),
-                        App("Workforce for ArcGIS", "workforce"),
-                        App("ArcGIS QuickCapture", "QuickCapture"),
-                    },
+                    apps = FieldApps.Select(a => new { id = a.ItemId, title = a.Title, type = a.Type, entitlements = new[] { a.Entitlement } }).ToArray(),
                 },
-            ],
+            },
             extensions = Array.Empty<object>(),
         };
     }

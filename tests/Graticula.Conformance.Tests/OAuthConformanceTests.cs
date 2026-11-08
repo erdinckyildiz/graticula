@@ -494,6 +494,15 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
         Assert.NotEmpty(licence.GetProperty("apps").EnumerateArray());
         Assert.Equal(JsonValueKind.Array, licence.GetProperty("extensions").ValueKind);
 
+        // `userLicensedItems` only when asked for, as a real portal answers, and Field Maps among them.
+        JsonElement plain = await GetWithAsync(client, $"{root}/sharing/rest/community/self?f=json", token);
+        Assert.False(plain.TryGetProperty("userLicensedItems", out _));
+        JsonElement asked = await GetWithAsync(client, $"{root}/sharing/rest/community/self?f=json&returnUserLicensedItems=true", token);
+        Assert.Equal(user, asked.GetProperty("username").GetString(), ignoreCase: true);
+        Assert.Contains(asked.GetProperty("userLicensedItems").EnumerateArray(), i =>
+            i.GetProperty("itemId").GetString()!.Length == 32
+            && i.GetProperty("entitlements").EnumerateArray().Any(e => e.GetString() == "fieldmaps"));
+
         // Another member's licence is not the caller's to read, as a portal's user resource is not.
         JsonElement other = await GetWithAsync(client, $"{root}/sharing/rest/community/users/zz-nobody-{Guid.NewGuid():N}/userLicenseType?f=json", token);
         Assert.True(other.TryGetProperty("error", out _), "Another user's licence was answered.");
