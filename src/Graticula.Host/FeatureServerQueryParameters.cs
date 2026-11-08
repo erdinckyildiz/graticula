@@ -137,6 +137,14 @@ internal static class FeatureServerQueryParameters
 
         ["returnExceededLimitFeatures"] = "the transfer limit is reported either way",
 
+        // <b>Accepted when false only until 2026-11-08, and the reason it gave was wrong.</b> It said a curve came back as
+        // the vertices that approximate it, but no curve is served at all: WkbReader refuses a curve geometry on read
+        // (ADR-005 §3.3c), so every geometry in an answer is already the one a true-curve answer would hold, and true
+        // cannot change it. ArcGIS Field Maps sends true on the query that fills a map's task list, and the 400 left the
+        // list at "Assigned to me (0)" with the task drawn nowhere.
+        ["returnTrueCurves"] = "no layer here serves a curve: a curve geometry is refused on read, so every geometry in "
+            + "the answer is the same whether true curves are asked for or not",
+
         // <b>Refused until 2026-09-13, and it cost a map.</b> The ArcGIS Maps SDK 4.29 loads a
         // point layer in one snapshot request carrying `maxRecordCountFactor=4`; the 400 left the
         // owner looking at 3,405 points that did not draw. The factor only raises the ceiling a
@@ -207,8 +215,6 @@ internal static class FeatureServerQueryParameters
     /// </remarks>
     private static readonly Dictionary<string, string> AcceptedWhenFalse = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["returnTrueCurves"] = "curves are returned as the vertices that approximate them",
-
         // N3: sent false by clients that write out every default.
         ["returnUniqueIdsOnly"] = "unique ids are an ArcGIS 12.1 concept with no counterpart in this server",
         ["applyVCSProjection"] = "no layer here has a vertical coordinate system to project",

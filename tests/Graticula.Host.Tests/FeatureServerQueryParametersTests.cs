@@ -141,21 +141,19 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     /// <summary>
-    /// <c>returnZ</c>, <c>returnM</c> and <c>returnTrueCurves</c> are accepted when false and
-    /// refused, with the reason, when true.
+    /// <c>returnTrueCurves</c> is accepted either way, because no answer here can hold a curve.
     /// </summary>
     /// <remarks>
-    /// Written 2026-09-15: <c>returnZ=false</c> was refused as a parameter the server did not
-    /// understand, so a client sending the ArcGIS defaults explicitly could not query at all.
+    /// It was accepted only when false until 2026-11-08, and ArcGIS Field Maps sends true on the query that fills a
+    /// map's task list: the list read "Assigned to me (0)". A curve geometry is refused on read (ADR-005 §3.3c), so true
+    /// asks for nothing the answer does not already give.
     /// </remarks>
-    [Theory]
-    [InlineData("returnTrueCurves")]
-    public void A_parameter_that_asks_for_nothing_extra_when_false_is_accepted_when_false(string name)
+    [Fact]
+    public void ReturnTrueCurves_is_accepted_either_way()
     {
-        Parse((name, "false"));
-        Parse((name, "FALSE"));
-
-        Assert.Contains($"'{name}=false' is accepted", Refuse((name, "true")), StringComparison.Ordinal);
+        Parse(("returnTrueCurves", "false"));
+        Parse(("returnTrueCurves", "true"));
+        Parse(("returnTrueCurves", "TRUE"));
     }
 
     /// <summary>
