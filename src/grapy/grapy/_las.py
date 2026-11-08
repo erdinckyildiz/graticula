@@ -1307,7 +1307,9 @@ def ClassifyLasGround(in_las_dataset, method="STANDARD", reuse_ground="RECLASSIF
 class Described:
     """What Describe answers for a LAS dataset: dataType ``LasDataset`` and the documented properties — constraintCount,
     fileCount, hasStatistics, needsUpdateStatistics, pointCount, usesRelativePath — with the Dataset group's extent and
-    spatial reference. INFERRED: pointCount is 0 until statistics are computed; the extent is the files' headers'."""
+    spatial reference. pointCount is the files' headers' point counts, statistics or none: measured in ArcGIS Pro 3.7,
+    2026-11-08, a dataset of 25 and 16 points made without COMPUTE_STATS answers 41 (this was INFERRED as 0 until
+    statistics are computed). INFERRED: the extent is the files' headers'."""
 
     def __init__(self, path, dataset):
         import laspy
@@ -1322,14 +1324,15 @@ class Described:
         stats = dataset.stats()
         self.hasStatistics = bool(stats) and all(s for _, s in stats)
         self.needsUpdateStatistics = any(_stale(s, p) for p, s in stats)
-        self.pointCount = sum(s["pointCount"] for _, s in stats if s)
         self.usesRelativePath = dataset.relative
         self.spatialReference = SpatialReference(dataset.srid) if dataset.srid > 0 else None
-        boxes = []
+        boxes, points = [], 0
         for p in dataset.file_paths():
             if os.path.exists(p) and p.lower().endswith((".las", ".laz")):
                 with laspy.open(p) as reader:
                     boxes.append((*reader.header.mins[:2], *reader.header.maxs[:2]))
+                    points += int(reader.header.point_count)
+        self.pointCount = points
         self.extent = (Extent(min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes),
                               max(b[3] for b in boxes), self.spatialReference) if boxes else None)
 

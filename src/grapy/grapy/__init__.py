@@ -73,14 +73,16 @@ class _Described:
             columns, shape, srid, geometry = _gpkg.describe(connection, table)
             oid = _gpkg.oid_column(connection, table)
             bounds = None
-            from shapely import union_all
+            from shapely import total_bounds
             own = [r[1] for r in connection.execute(f'pragma table_info("{table}")')]
             has_shape = geometry in own
             shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select "{geometry}" from "{table}"')] \
                 if has_shape else []
             shapes = [s for s in shapes if s is not None and not s.is_empty]
             if shapes:
-                bounds = union_all(shapes).bounds
+                # The envelope of the shapes, not of their union: a union fails on an invalid shape (a bow tie),
+                # and CheckGeometry exists to be given such a class (measured against ArcGIS Pro 3.7, 2026-11-08).
+                bounds = tuple(float(v) for v in total_bounds(shapes))
             domains = _field_domains(connection, table)
             titles = _field_titles(connection, table)
             joined = _joined_fields(path, connection, table, oid, geometry)
@@ -92,9 +94,11 @@ class _Described:
             tracked = _behaviours.tracking(connection, table)  # the editor tracking properties (ADR-240)
             identifier = connection.execute("select identifier from gpkg_contents where table_name = ?",
                                             (table,)).fetchone()
-            spatial_index = _gpkg.has_index(connection, table) if has_shape else False
+            # hasSpatialIndex, isCOGOEnabled and isArchived, as Pro's Describe answers them (sweep, 2026-11-08).
+            spatial_index = has_shape and _gpkg.has_index(connection, table)
+            cogo = _behaviours.cogo_enabled(connection, table)
             from . import _versions
-            versioned = table in _versions.registered(connection)
+            versioning = _versions.kind(connection, table)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -107,7 +111,7 @@ class _Described:
         self.OIDFieldName = oid
         self.hasOID = True
         self.spatialReference = SpatialReference(srid) if srid > 0 else None
-        self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, aliasName=titles.get(c.name.lower()))
+        self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, c.length, aliasName=titles.get(c.name.lower()))
                                                     for c in columns]] + ([Field(geometry, "Geometry")] if has_shape else [])
         global_id, subtype, defaults, relationships = model
         for field in self.fields:
@@ -123,6 +127,10 @@ class _Described:
         self.hasGlobalID = bool(global_id)
         self.relationshipClassNames = relationships
         self.attributeRules = rules
+        self.hasSpatialIndex = bool(spatial_index)
+        self.isCOGOEnabled = bool(cogo)
+        self.isArchived = versioning is not None   # a branch versioned class is archived, as documented
+        self.isVersioned = versioning == "branch"
         self.editorTrackingEnabled = tracked is not None
         self.creatorFieldName, self.createdAtFieldName, self.editorFieldName, self.editedAtFieldName = (
             [name or "" for name in tracked[:4]] if tracked else ["", "", "", ""])
@@ -146,7 +154,6 @@ class _Described:
         self.extension = ""
         self.hasSpatialIndex = bool(spatial_index)
         self.canVersion = False
-        self.isVersioned = versioned
         self.areaFieldName = ""
         self.lengthFieldName = ""
         self.featureType = "Simple"
@@ -223,6 +230,37 @@ class _DescribedRaster:
         self.tableType = "Thematic" if fields else ""
 
 
+class _DescribedFeatureDataset:
+    """What Describe answers for a feature dataset (``<file>.gpkg/<dataset>``, see management.CreateFeatureDataset):
+    its type and its spatial reference, as Pro answers them (sweep, 2026-11-08)."""
+
+    def __init__(self, path, srid):
+        self.catalogPath = path
+        self.name = self.baseName = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        self.path = _gpkg.split(path)[0]
+        self.dataType = self.datasetType = "FeatureDataset"
+        self.spatialReference = SpatialReference(srid) if srid > 0 else None
+        self.children = []
+
+
+def _feature_dataset_srid(path):
+    """The spatial reference code of the feature dataset a path names, or None when it names none."""
+    try:
+        file, table = _gpkg.split(path)
+    except ValueError:
+        return None
+    if not table or "/" in table or not os.path.exists(file):
+        return None
+    connection = _gpkg.connect(file)
+    try:
+        if not connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+            return None
+        row = connection.execute("select srs_id from grapy_feature_datasets where name = ?", (table,)).fetchone()
+        return int(row[0]) if row else None
+    finally:
+        connection.close()
+
+
 class _DescribedWorkspace:
     """What Describe answers for a folder or a GeoPackage of several tables."""
 
@@ -260,6 +298,9 @@ def Describe(value, datatype=None):
         return _DescribedRaster(Raster(path))
     if path.lower().endswith(".gpkg") and os.path.exists(path) and len(_own_tables(_contents(path))) != 1:
         return _DescribedWorkspace(path)
+    dataset_srid = _feature_dataset_srid(path)
+    if dataset_srid is not None:
+        return _DescribedFeatureDataset(path, dataset_srid)
     from . import _network, _relationships, _topology
     for model in (_network, _topology, _relationships):
         described = model.describe(path)
@@ -312,12 +353,16 @@ def _exists(dataset):
         if connection.execute("select 1 from gpkg_contents where table_name = ?", (table,)).fetchone() is not None:
             return True
         # A feature dataset made by management.CreateFeatureDataset is a row of grapy_feature_datasets.
-        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
-            return connection.execute("select 1 from grapy_feature_datasets where name = ?",
-                                      (table.strip("/"),)).fetchone() is not None
-        return False
+        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone() and \
+                connection.execute("select 1 from grapy_feature_datasets where name = ?",
+                                   (table.strip("/"),)).fetchone() is not None:
+            return True
     finally:
         connection.close()
+    # A relationship class (an attachment class among them), a topology or a network dataset held in grapy's tables,
+    # as Pro answers Exists for '<class>__ATTACHREL' (measured in ArcGIS Pro 3.7, 2026-11-08).
+    from . import _network, _relationships, _topology
+    return any(model.describe(os.fspath(dataset)) is not None for model in (_relationships, _topology, _network))
 
 
 # The extension codes CheckExtension documents. ArcGIS Pro 3.7 answers any other with "Unrecognized extension code
@@ -583,6 +628,13 @@ def ListIndexes(dataset, wild_card=None):
             descending = bool(keyed) and all(c[3] for c in keyed)
             if _matches(name, wild_card):
                 found.append(Index(name, [c[2] for c in keyed], bool(unique), not descending))
+        # A full-text index (management.AddFullTextIndex) is listed with the others, as Pro lists one (measured in
+        # ArcGIS Pro 3.7, 2026-11-08, on a mobile geodatabase).
+        from ._storage import _fts_name
+        fts = _fts_name(table)
+        if connection.execute("select 1 from sqlite_master where type = 'trigger' and name = ?",
+                              (f"{fts}_ai",)).fetchone() and _matches(fts, wild_card):
+            found.append(Index(fts, [r[1] for r in connection.execute(f'pragma table_info("{fts}")')], False, True))
         return found
     finally:
         connection.close()

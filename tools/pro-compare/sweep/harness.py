@@ -56,7 +56,7 @@ def _value(v):
 def dump_features(ap, path, out):
     desc = ap.Describe(path)
     fields = [(f.name, f.type) for f in ap.ListFields(path)
-              if f.type not in ("Geometry", "OID", "Raster", "Blob") and f.name.lower() not in ("shape_length",
+              if f.type not in ("Geometry", "OID", "Raster", "Blob", "GlobalID") and f.name.lower() not in ("shape_length",
                                                                                                "shape_area")]
     has_shape = getattr(desc, "shapeType", None) not in (None, "", "Table") and getattr(desc, "dataType", "") != "Table"
     names = [n for n, _ in fields] + (["SHAPE@WKT"] if has_shape else [])

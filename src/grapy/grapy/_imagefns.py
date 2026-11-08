@@ -955,7 +955,7 @@ class PixelBlockCollection:
                 elif np.issubdtype(a.dtype, np.floating):
                     kind, blank = a.dtype, np.nan
                 else:
-                    kind, blank = a.dtype, r.noDataValue
+                    kind, blank = a.dtype, r._fill()
                 plane = np.full((rows, columns), blank, dtype=kind)
                 g = r._grid
                 r0, c0 = int(round((g.top - top) / g.height)), int(round((g.left - left) / g.width))

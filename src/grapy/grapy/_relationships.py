@@ -143,7 +143,7 @@ class Described:
     """What Describe answers for a relationship class. INFERRED throughout — the *Relationship class properties* page
     answered 404 when checked (2026-10-30) — from arcpy's published property names: ``cardinality`` is ``OneToOne``,
     ``OneToMany`` or ``ManyToMany``; ``notification`` ``None``, ``Forward``, ``Backward`` or ``Both``; the class keys are
-    (field, role) pairs, roles ``OriginPrimary``, ``OriginForeign``, ``DestinationPrimary``, ``DestinationForeign``."""
+    (field, role, "") triples — measured in Pro, 2026-11-08 — roles ``OriginPrimary``, ``OriginForeign``, ``DestinationPrimary``, ``DestinationForeign``."""
 
     def __init__(self, path, file, rc, rules):
         self.catalogPath = str(path)
@@ -164,11 +164,35 @@ class Described:
         self.classKey = "Undefined"
         self.notification = {"NONE": "None", "FORWARD": "Forward", "BACKWARD": "Backward", "BOTH": "Both"}.get(
             rc["message_direction"], "None")
-        self.originClassKeys = [(rc["origin_primary_key"], "OriginPrimary"), (rc["origin_foreign_key"], "OriginForeign")]
-        self.destinationClassKeys = [(rc["destination_primary_key"], "DestinationPrimary"),
-                                     (rc["destination_foreign_key"], "DestinationForeign")] if rc["relationship_table"] else []
+        # Each key a (field, role, "") triple, as Pro answers it (measured in ArcGIS Pro 3.7, 2026-11-08).
+        self.originClassKeys = [(rc["origin_primary_key"], "OriginPrimary", ""),
+                                (rc["origin_foreign_key"], "OriginForeign", "")]
+        self.destinationClassKeys = [(rc["destination_primary_key"], "DestinationPrimary", ""),
+                                     (rc["destination_foreign_key"], "DestinationForeign", "")] \
+            if rc["relationship_table"] else []
         self.relationshipRules = rules
 
+
+
+class RelationshipRule:
+    """A relationship rule, as Describe's ``relationshipRules`` answers one: an object with each subtype code and
+    cardinality bound, -1 where none was given — as Pro answers them (measured in ArcGIS Pro 3.7, 2026-11-08: a rule
+    naming only destination bounds answers -1 for the origin's)."""
+
+    def __init__(self, origin_subtype, origin_minimum, origin_maximum, destination_subtype, destination_minimum,
+                 destination_maximum):
+        def number(value):
+            return -1 if value is None else int(value)
+        self.originSubtypeCode = number(origin_subtype)
+        self.originMinimumCardinality = number(origin_minimum)
+        self.originMaximumCardinality = number(origin_maximum)
+        self.destinationSubtypeCode = number(destination_subtype)
+        self.destinationMinimumCardinality = number(destination_minimum)
+        self.destinationMaximumCardinality = number(destination_maximum)
+        self.helpString = ""
+
+    def __repr__(self):
+        return f"<RelationshipRule {self.originSubtypeCode} -> {self.destinationSubtypeCode}>"
 
 def describe(path):
     """A Described for a relationship class path, or None when the path names none."""
@@ -184,10 +208,10 @@ def describe(path):
         found = classes(connection, name=name)
         if not found:
             return None
-        rules = [dict(zip(("originMinimumCardinality", "originMaximumCardinality", "destinationMinimumCardinality",
-                           "destinationMaximumCardinality"), r)) for r in connection.execute(
-            "select origin_minimum, origin_maximum, destination_minimum, destination_maximum from grapy_relationship_rule "
-            "where relationship_class = ?", (name,))] if connection.execute(
+        rules = [RelationshipRule(*r) for r in connection.execute(
+            "select origin_subtype, origin_minimum, origin_maximum, destination_subtype, destination_minimum, "
+            "destination_maximum from grapy_relationship_rule where relationship_class = ? order by rowid", (name,))
+                 ] if connection.execute(
             "select 1 from sqlite_master where name = 'grapy_relationship_rule'").fetchone() else []
     finally:
         connection.close()

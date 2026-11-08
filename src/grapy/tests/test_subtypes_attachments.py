@@ -307,7 +307,8 @@ class Attachments(_Workspace):
         described = arcpy.Describe(self.gpkg + "/pipes__ATTACHREL")
         self.assertEqual((described.isAttachmentRelationship, described.isComposite, described.cardinality,
                           described.originClassKeys),
-                         (True, True, "OneToMany", [("GlobalID", "OriginPrimary"), ("REL_GLOBALID", "OriginForeign")]))
+                         # (field, role, "") triples, as Pro answers them (measured in ArcGIS Pro 3.7, 2026-11-08).
+                         (True, True, "OneToMany", [("GlobalID", "OriginPrimary", ""), ("REL_GLOBALID", "OriginForeign", "")]))
         self.assertEqual(arcpy.Describe(self.pipes).relationshipClassNames, ["pipes__ATTACHREL"])
         connection = sqlite3.connect(self.gpkg)
         try:

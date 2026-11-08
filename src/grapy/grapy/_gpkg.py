@@ -41,6 +41,14 @@ class Column:
     name: str
     type: str   # arcpy's field type word: Integer, Double, String, Date, …
     nullable: bool = True
+    length: int | None = None   # a text field's length, declared TEXT(n) as GeoPackage 1.4 Table 1 allows
+
+
+def declared(column: Column) -> str:
+    """A column's declared SQLite type: TEXT(n) for a text field of a known length, else the type's word."""
+    word = _TYPES.get(column.type.upper(), "TEXT")
+    return f"TEXT({int(column.length)})" if word == "TEXT" and column.length and column.type.upper() in (
+        "STRING", "TEXT") else word
 
 
 def split(path: str) -> tuple[str, str | None]:
@@ -289,7 +297,10 @@ def describe(connection: sqlite3.Connection, table: str) -> tuple[list[Column], 
     for _, name, declared, notnull, _, pk in connection.execute(f'pragma table_info("{table}")'):
         if pk or name == geometry or name == oid:
             continue
-        columns.append(Column(name, _BACK.get((declared or "TEXT").split("(")[0].upper(), "String"), not notnull))
+        word = (declared or "TEXT").upper()
+        inner = word[5:-1].strip() if word.startswith("TEXT(") and word.endswith(")") else ""
+        length = int(inner) if inner.isdigit() else None
+        columns.append(Column(name, _BACK.get(word.split("(")[0], "String"), not notnull, length))
     kind = _SHAPES.get((shape or "GEOMETRY").upper(), "Geometry")
     if kind == "Polygon":  # a multipatch class is a MultiPolygon Z table its extension row marks (ADR-238)
         from ._multipatch import is_registered
@@ -325,7 +336,7 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
         connection.execute(f'drop table if exists "{table}"')
         forget(connection, table)
         stored = _STORED.get(shape, "GEOMETRY")
-        defined = "".join(f', "{c.name}" {_TYPES.get(c.type.upper(), "TEXT")}' for c in columns)
+        defined = "".join(f', "{c.name}" {declared(c)}' for c in columns)
         if stored == "GEOMETRY" and not srid and not has_z and not has_m:
             # A table — grapy's "Geometry with no reference", as _contents reads it — is an attributes table
             # (GeoPackage 1.4 §2.4.2): no geometry column and no gpkg_geometry_columns row. Written as a GEOMETRY
@@ -357,7 +368,7 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
 def add_column(path: str, column: Column) -> None:
     connection, table = table_of(path)
     try:
-        connection.execute(f'alter table "{table}" add column "{column.name}" {_TYPES.get(column.type.upper(), "TEXT")}')
+        connection.execute(f'alter table "{table}" add column "{column.name}" {declared(column)}')
         connection.commit()
     finally:
         connection.close()

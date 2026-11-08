@@ -74,7 +74,8 @@ class Round3(unittest.TestCase):
     def test_calculate_value_and_clear_workspace_cache(self):
         self.assertEqual(arcpy.management.CalculateValue("double(21)", "def double(x):\n    return x * 2", "Long")[0], "42")
         self.assertEqual(arcpy.management.CalculateValue("7 / 2", None, "Double")[0], "3.5")
-        self.assertEqual(arcpy.management.ClearWorkspaceCache()[0], "")
+        # Pro answers "true" (measured in ArcGIS Pro 3.7, 2026-11-08); this pinned "" before.
+        self.assertEqual(arcpy.management.ClearWorkspaceCache()[0], "true")
 
     # ---- tables
 

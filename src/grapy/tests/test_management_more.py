@@ -346,8 +346,11 @@ class ManagementMore(unittest.TestCase):
         x, y = self.rows(turned[1], ["SHAPE@XY"])[0][0]
         self.assertAlmostEqual(x, 10.0)
         self.assertAlmostEqual(y, -5.0)
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.management.CreateFishnet(self.out("net4"), "0 0", "0 10", 10, 20, 2, 3)
+        # POLYLINE (the default) was refused here before; Pro writes the grid's whole lines, rows + 1 across and
+        # columns + 1 up (measured in ArcGIS Pro 3.7, 2026-11-08): 2 rows of 3 cells 10 × 20 give 3 lines 30 long
+        # and 4 lines 40 long.
+        lines = arcpy.management.CreateFishnet(self.out("net4"), "0 0", "0 10", 10, 20, 2, 3)[0]
+        self.assertEqual(sorted(round(r[0], 9) for r in self.rows(lines, ["SHAPE@LENGTH"])), [30.0] * 3 + [40.0] * 4)
 
     def test_generate_tessellation(self):
         grid = arcpy.management.GenerateTessellation(self.out("sq"), "0 0 25 15", "SQUARE", "100 SquareMeters", 3857)[0]
@@ -404,8 +407,9 @@ class ManagementMore(unittest.TestCase):
             written.insertRow(("short", "POLYGON((0 0,10 0,10.00001 0,10 10,0 10,0 0))"))
         out = arcpy.management.CheckGeometry(self.parcels, self.out("check"))[0]
         self.assertEqual(self.rows(out, ["FEATURE_ID", "TEXT_ID", "PROBLEM"]),
-                         [(4, "4", "Self intersections"), (5, "5", "Null geometry"), (6, "6", "Duplicate vertex"),
-                          (7, "7", "Short segment")])
+                         # Lower case, as Pro writes them (measured in ArcGIS Pro 3.7, 2026-11-08); capitalised before.
+                         [(4, "4", "self intersections"), (5, "5", "null geometry"), (6, "6", "duplicate vertex"),
+                          (7, "7", "short segment")])
         self.assertEqual(self.rows(out, ["CLASS"])[0][0], self.parcels)
 
     # ---- geometry attributes and references

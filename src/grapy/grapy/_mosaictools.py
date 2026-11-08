@@ -654,7 +654,8 @@ def BuildFootprints(in_mosaic_dataset, where_clause=None, reset_footprint="RADIO
     excludes cells outside ``min_data_value``–``max_data_value`` (and NoData), ``GEOMETRY`` restores the raster's own
     extent, ``NONE`` changes none. ``shrink_distance`` moves the footprint inward by that distance; ``CONVEX_HULL`` and
     ``ENVELOPE`` simplify it; masked regions smaller than ``min_region_size`` cells are kept in it, as documented. Then
-    the boundary, with ``UPDATE_BOUNDARY``.
+    the boundary, with ``UPDATE_BOUNDARY``. Each item's CenterX and CenterY become its new footprint's centroid, as
+    Pro sets them (measured 2026-11-08).
 
     INFERRED (ADR-230 §5.9 (i)): a cell is valid when any band holds a value in range; with no data values given only
     NoData is excluded; the footprint is the union of the valid cells' squares; a masked region is a 4-connected group
@@ -707,8 +708,12 @@ def BuildFootprints(in_mosaic_dataset, where_clause=None, reset_footprint="RADIO
                     shape = shape.buffer(-float(shrink_distance), join_style="mitre")
                 if shape is not None and not shape.is_empty:
                     shape = _simplified(shape, simplify)
-                _update(connection, mosaic, rec.srid, item["OBJECTID"], shape if shape is not None and not shape.is_empty
-                        else shapely.MultiPolygon(), {})
+                kept = shape is not None and not shape.is_empty
+                # CenterX and CenterY follow the new footprint's centroid, as Pro moves them (measured in ArcGIS Pro
+                # 3.7, 2026-11-08: a RADIOMETRY footprint's centroid is the item's new CenterX, CenterY).
+                centre = shape.centroid if kept else None
+                _update(connection, mosaic, rec.srid, item["OBJECTID"], shape if kept else shapely.MultiPolygon(),
+                        {"CenterX": centre.x, "CenterY": centre.y} if centre is not None else {})
         if _word(update_boundary, "UPDATE_BOUNDARY") in ("UPDATE_BOUNDARY", "TRUE"):
             _boundary(connection, mosaic, rec.srid, None, "OVERWRITE", "NONE")
     finally:
