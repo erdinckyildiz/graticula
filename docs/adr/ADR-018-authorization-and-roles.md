@@ -99,6 +99,10 @@ So it is built now, in its minimal form (§3b).
 
 ### 3a. Effective capability is the intersection
 
+> **Amended 2026-11-08 by [ADR-284](ADR-284-a-mobile-worker-and-a-contributor.md):** five types now, not four.
+> `editor` is ArcGIS's *Contributor* (`editorUT`) and the new `fieldworker` its *Mobile Worker* (`fieldWorkerUT`),
+> with the same ceiling: ArcGIS tells the two apart by apps, not privileges.
+
 ```text
 what you may do  =  what your user type allows  ∩  what your role grants
 ```

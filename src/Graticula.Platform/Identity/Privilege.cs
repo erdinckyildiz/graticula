@@ -605,15 +605,25 @@ public static class UserTypes
     /// <summary>Read only, whatever role is held.</summary>
     public const string Viewer = "viewer";
 
-    /// <summary>Read and edit, but never publish or administer.</summary>
+    /// <summary>
+    /// Read and edit features, and make, share and publish nothing: ArcGIS's <i>Contributor</i>, reported to ArcGIS
+    /// clients as <c>editorUT</c> (ADR-284).
+    /// </summary>
     public const string Editor = "editor";
+
+    /// <summary>
+    /// ArcGIS's <i>Mobile Worker</i>, reported as <c>fieldWorkerUT</c>: the same ceiling as <see cref="Editor"/>. ArcGIS
+    /// tells the two apart by the apps a licence includes, not by what either may do with data (ADR-284); this server
+    /// licenses no apps, so the type is a name kept for what an ArcGIS client and an imported organisation expect.
+    /// </summary>
+    public const string FieldWorker = "fieldworker";
 
     /// <summary>Everything a publisher does, but no administration.</summary>
     public const string Creator = "creator";
 
     /// <summary>Every user type, in increasing order of ceiling.</summary>
     public static ImmutableArray<string> All { get; } =
-        [Viewer, Editor, Creator, Unrestricted];
+        [Viewer, Editor, FieldWorker, Creator, Unrestricted];
 
     /// <summary>What each type permits.</summary>
     public static ImmutableDictionary<string, ImmutableHashSet<Privilege>> Ceilings { get; } =
@@ -636,7 +646,8 @@ public static class UserTypes
     {
         Unrestricted => "No ceiling. Whatever the assigned roles grant.",
         Viewer => "May only read, whatever role is assigned.",
-        Editor => "May read and edit features, but never publish or administer.",
+        Editor => "Contributor: may read and edit features, and make, share and publish nothing.",
+        FieldWorker => "Mobile Worker: may read and edit features, and make, share and publish nothing.",
         Creator => "May do everything a publisher does, but never administer.",
         _ => throw new ArgumentOutOfRangeException(
             nameof(userType), userType, "Not a user type in ADR-018 3a."),
@@ -679,6 +690,7 @@ public static class UserTypes
         {
             [Viewer] = viewer,
             [Editor] = editor,
+            [FieldWorker] = editor,
             [Creator] = creator,
             [Unrestricted] = everything,
         }.ToImmutableDictionary(StringComparer.Ordinal);

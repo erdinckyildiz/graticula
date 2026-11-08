@@ -334,7 +334,7 @@ public sealed class RolesPageTests : ConsoleTest
         [...document.querySelectorAll('#rolePrivileges input[data-privilege]')]
           .filter(box => {
             const said = box.parentElement.innerText || '';
-            return !/(or above|unrestricted only|no user type carries)/.test(said);
+            return !/(or above|unrestricted only|no user type carries)/i.test(said);
           })
           .map(box => box.dataset.privilege)
         """) ?? [];

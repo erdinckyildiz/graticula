@@ -171,16 +171,42 @@ internal static partial class PortalEndpoints
         };
     }
 
-    /// <summary>The ArcGIS user type id for a member's user type: <c>viewerUT</c>, <c>editorUT</c> or <c>creatorUT</c>.</summary>
+    /// <summary>The ArcGIS user type id for a member's user type (ADR-284).</summary>
     /// <remarks>
-    /// <b>Unrestricted is a creator</b>: it may do everything a creator may, and ArcGIS has no <c>unrestrictedUT</c> — the
-    /// id this wrote for it until 2026-11-08, which no client recognises.
+    /// <b><c>editor</c> is ArcGIS's Contributor (<c>editorUT</c>) and <c>fieldworker</c> its Mobile Worker
+    /// (<c>fieldWorkerUT</c>)</b>: both edit data and make nothing, and ArcGIS tells them apart by the apps each licence
+    /// includes. <b>Unrestricted is a creator</b>: ArcGIS has no <c>unrestrictedUT</c>.
     /// </remarks>
     internal static string LicenseTypeIdOf(string? userType) => userType switch
     {
         UserTypes.Viewer => "viewerUT",
         UserTypes.Editor => "editorUT",
+        UserTypes.FieldWorker => "fieldWorkerUT",
         _ => "creatorUT",
+    };
+
+    /// <summary>The name ArcGIS gives a user type id.</summary>
+    internal static string LicenseTypeNameOf(string id) => id switch
+    {
+        "viewerUT" => "Viewer",
+        "editorUT" => "Contributor",
+        "fieldWorkerUT" => "Mobile Worker",
+        _ => "Creator",
+    };
+
+    /// <summary>
+    /// This server's user type for what an ArcGIS client sends as <c>userLicenseType</c> — an id such as
+    /// <c>fieldWorkerUT</c>, or the ArcGIS API for Python's word for one (<c>contributor</c>, <c>fieldworker</c>) —
+    /// or null when it names none. A professional type is a creator: a creator's licence with desktop apps beside it.
+    /// </summary>
+    internal static string? UserTypeOfLicense(string? sent) => sent?.Trim().ToLowerInvariant() switch
+    {
+        "viewerut" or "viewer" => UserTypes.Viewer,
+        "editorut" or "editor" or "contributor" => UserTypes.Editor,
+        "fieldworkerut" or "fieldworker" or "mobileworker" => UserTypes.FieldWorker,
+        "creatorut" or "creator" => UserTypes.Creator,
+        { } professional when professional.StartsWith("gisprofessional", StringComparison.Ordinal) => UserTypes.Creator,
+        _ => null,
     };
 
     /// <summary>
@@ -211,7 +237,7 @@ internal static partial class PortalEndpoints
     private static object LicenseType(HttpContext context)
     {
         string id = LicenseTypeIdOf(context.Features.Get<RequestPrincipal>()!.Authorization.UserType);
-        string name = id switch { "viewerUT" => "Viewer", "editorUT" => "Editor", _ => "Creator" };
+        string name = LicenseTypeNameOf(id);
 
         return new
         {
@@ -320,12 +346,8 @@ internal static partial class PortalEndpoints
             }
 
             string role = OurRoleOf(Text("role") ?? "org_user");
-            string userType = (Text("userLicenseType") ?? Text("userType") ?? UserTypes.Creator)
-                .Replace("UT", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-            if (!UserTypes.All.Contains(userType))
-            {
-                userType = UserTypes.Creator;
-            }
+            // ADR-284: ArcGIS's ids and the Python API's words, to this server's types; anything else is a creator, as before.
+            string userType = UserTypeOfLicense(Text("userLicenseType") ?? Text("userType")) ?? UserTypes.Creator;
 
             (int status, string? message, JsonElement _) = await InnerAnswerAsync(context, () => AdminEndpoints.CreateMemberAsync(
                     context, new MemberRequest(username, string.IsNullOrWhiteSpace(fullName) ? null : fullName, role, userType),
