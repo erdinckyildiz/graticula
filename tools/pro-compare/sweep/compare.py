@@ -175,7 +175,10 @@ def compare_case(pdir, gdir):
         verdicts.append(v)
         notes += [f"{name}: {x}" for x in n]
     pr, gr = _read_json(os.path.join(pdir, "result.json")), _read_json(os.path.join(gdir, "result.json"))
-    if pr is not None and gr is not None and not pfiles and not gfiles:
+    # A tool's answer is compared even when it also wrote outputs; paths are left out, since the two sides write
+    # to different workspaces. (Until 2026-11-08 an answer beside an output was never compared — found by the
+    # top-level sweep.)
+    if pr is not None and gr is not None:
         pv = pr if not isinstance(pr, list) else [x for x in pr if not os.path.sep in str(x) and "/" not in str(x)]
         gv = gr if not isinstance(gr, list) else [x for x in gr if not os.path.sep in str(x) and "/" not in str(x)]
         same = (len(pv) == len(gv) and all(_same(_coerce(a), _coerce(b)) for a, b in zip(pv, gv))) \
