@@ -175,24 +175,28 @@ class Described:
 
 
 class RelationshipRule:
-    """A relationship rule, as Describe's ``relationshipRules`` answers one: an object with each subtype code and
-    cardinality bound, -1 where none was given — as Pro answers them (measured in ArcGIS Pro 3.7, 2026-11-08: a rule
-    naming only destination bounds answers -1 for the origin's)."""
+    """One of Describe's relationshipRules: an object with the subtype codes and cardinalities as attributes, as ArcGIS
+    Pro 3.7 answers them (measured 2026-11-08; grapy answered dictionaries): a side without a subtype has the code 0,
+    and a cardinality bound not given is -1 (a rule naming only destination bounds answers -1 for the origin's)."""
 
     def __init__(self, origin_subtype, origin_minimum, origin_maximum, destination_subtype, destination_minimum,
                  destination_maximum):
-        def number(value):
+        def code(value):
+            return 0 if value is None or str(value) == "" else int(value)
+
+        def bound(value):
             return -1 if value is None else int(value)
-        self.originSubtypeCode = number(origin_subtype)
-        self.originMinimumCardinality = number(origin_minimum)
-        self.originMaximumCardinality = number(origin_maximum)
-        self.destinationSubtypeCode = number(destination_subtype)
-        self.destinationMinimumCardinality = number(destination_minimum)
-        self.destinationMaximumCardinality = number(destination_maximum)
+        self.originSubtypeCode = code(origin_subtype)
+        self.originMinimumCardinality = bound(origin_minimum)
+        self.originMaximumCardinality = bound(origin_maximum)
+        self.destinationSubtypeCode = code(destination_subtype)
+        self.destinationMinimumCardinality = bound(destination_minimum)
+        self.destinationMaximumCardinality = bound(destination_maximum)
         self.helpString = ""
 
     def __repr__(self):
         return f"<RelationshipRule {self.originSubtypeCode} -> {self.destinationSubtypeCode}>"
+
 
 def describe(path):
     """A Described for a relationship class path, or None when the path names none."""
@@ -210,8 +214,8 @@ def describe(path):
             return None
         rules = [RelationshipRule(*r) for r in connection.execute(
             "select origin_subtype, origin_minimum, origin_maximum, destination_subtype, destination_minimum, "
-            "destination_maximum from grapy_relationship_rule where relationship_class = ? order by rowid", (name,))
-                 ] if connection.execute(
+            "destination_maximum from grapy_relationship_rule where relationship_class = ? order by rule_id",
+            (name,))] if connection.execute(
             "select 1 from sqlite_master where name = 'grapy_relationship_rule'").fetchone() else []
     finally:
         connection.close()

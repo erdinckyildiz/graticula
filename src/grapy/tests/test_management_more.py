@@ -218,7 +218,8 @@ class ManagementMore(unittest.TestCase):
         p0 = arcpy.analysis.Select(self.parcels, self.out("p0"), "name = 'p0'")[0]
         faces = arcpy.management.FeatureToPolygon([p0, zone], self.out("faces"))[0]
         self.assertEqual(sorted(r[0] for r in self.rows(faces, ["SHAPE@AREA"])), [1000.0, 1500.0, 5000.0])
-        self.assertEqual({r for r in self.rows(faces, ["FID_p0", "FID_zone", "zone"])}, {(-1, -1, None)})
+        # Empty text is "" (not null): measured in ArcGIS Pro 3.7, 2026-11-08.
+        self.assertEqual({r for r in self.rows(faces, ["FID_p0", "FID_zone", "zone"])}, {(-1, -1, "")})
 
     def test_polygon_to_line_finds_neighbours(self):
         pair = self.make("pair", "POLYGON", [("n", "TEXT")], [("a", box(0, 0, 50, 50)), ("b", box(50, 0, 100, 50))])
@@ -355,7 +356,12 @@ class ManagementMore(unittest.TestCase):
     def test_generate_tessellation(self):
         grid = arcpy.management.GenerateTessellation(self.out("sq"), "0 0 25 15", "SQUARE", "100 SquareMeters", 3857)[0]
         got = self.rows(grid, ["GRID_ID", "SHAPE@AREA"])
-        self.assertEqual([g for g, _ in got], ["A-1", "A-2", "A-3", "B-1", "B-2", "B-3"])
+        # Pro 3.7's lattice (measured 2026-11-08; this pinned grapy's own layout of six cells): a cell centred on the
+        # corner, ceil(25 / 10) + 1 = 4 columns by ceil(15 / 10) + 1 = 3 rows; letters are columns, numbers rows from
+        # the top, written from the bottom row up.
+        self.assertEqual([g for g, _ in got], ["A-3", "B-3", "C-3", "D-3", "A-2", "B-2", "C-2", "D-2",
+                                               "A-1", "B-1", "C-1", "D-1"])
+        self.assertEqual(self.rows(grid, ["SHAPE@WKT"])[0][0], "MULTIPOLYGON (((5 5, -5 5, -5 -5, 5 -5, 5 5)))")
         self.assertEqual({round(a, 9) for _, a in got}, {100.0})
         hexes = arcpy.management.GenerateTessellation(self.out("hx"), "0 0 25 15", "HEXAGON", "100 SquareMeters", 3857)[0]
         cells = [r[0]._shape for r in self.rows(hexes, ["SHAPE@"])]

@@ -929,6 +929,11 @@ class Described:
         for key, val in rec.properties.items():
             if key != "cellSize":
                 setattr(self, key, val)
+        # The resampling method by name, as Pro 3.7 answers it ("Bilinear Interpolation" for BILINEAR, measured
+        # 2026-11-08; the other names are INFERRED from the same pattern of Esri's resampling labels).
+        self.defaultResamplingMethod = {"NEAREST": "Nearest Neighbor", "BILINEAR": "Bilinear Interpolation",
+                                        "CUBIC": "Cubic Convolution", "MAJORITY": "Majority"}.get(
+            str(rec.properties.get("defaultResamplingMethod") or "").upper(), rec.properties.get("defaultResamplingMethod"))
         self.sortAscending = "Ascending" if rec.properties.get("sortAscending", True) else "Descending"
         self.isMultidimensional = False
         self.OIDFieldName = OID

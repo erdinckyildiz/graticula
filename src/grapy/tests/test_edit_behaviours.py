@@ -318,7 +318,8 @@ class UnregisteredAndRegistration(_Base):
         self.sql("insert into plain (OBJECTID) values (1)")
         with self.assertRaisesRegex(ExecuteError, "must be unique"):
             arcpy.management.RegisterWithGeodatabase(self.gpkg + "/plain", "OBJECTID")
-        with self.assertRaisesRegex(ExecuteError, "already registered"):
+        # Pro 3.7's ERROR 001050 (measured 2026-11-08; this matched grapy's own "already registered" wording).
+        with self.assertRaisesRegex(ExecuteError, "001050"):
             arcpy.management.RegisterWithGeodatabase(self.roads)
         arcpy.management.CreateDatabaseView(self.gpkg, "v", "select name from roads")
         with self.assertRaises(NotBuiltError):

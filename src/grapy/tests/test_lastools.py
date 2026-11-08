@@ -306,12 +306,13 @@ class Interpolation(Base):
     def test_interpolatefrompointcloud_triangulates_a_dsm_and_a_dtm(self):
         out = arcpy.management.InterpolateFromPointCloud(self.lasd, self.out("dsm.tif"), 1)[0]
         raster = arcpy.Raster(out)
-        # Cells start at the lowest point (0.5, 0.5): the centre (10, 10) lies among roof points whose last-written
-        # height is 6, and (2, 2) on the ground.
-        self.assertEqual((raster.width, raster.height), (19, 19))
+        # A cell is centred on the lowest point (0.5, 0.5), as Pro 3.7 lays the grid (measured 2026-11-08; this pinned
+        # 19 cells starting at that point): 20 cells from 0 to 20. The centre (9.5, 9.5) lies among roof points whose
+        # last-written height is 6, and (1.5, 1.5) on the ground.
+        self.assertEqual((raster.width, raster.height), (20, 20))
         array = arcpy.RasterToNumPyArray(raster)
-        self.assertAlmostEqual(float(array[18 - 9, 9]), 6.0)
-        self.assertAlmostEqual(float(array[18 - 1, 1]), 0.0)
+        self.assertAlmostEqual(float(array[19 - 9, 9]), 6.0)
+        self.assertAlmostEqual(float(array[19 - 1, 1]), 0.0)
         with self.assertRaisesRegex(NotBuiltError, "ReuseGround 1"):
             arcpy.management.InterpolateFromPointCloud(self.lasd, self.out("dtm.tif"), 1, surface_type="DTM")
         out = arcpy.management.InterpolateFromPointCloud(self.lasd, self.out("dtm.tif"), 1, surface_type="DTM",

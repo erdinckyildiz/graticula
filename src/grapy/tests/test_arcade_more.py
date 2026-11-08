@@ -381,7 +381,8 @@ class Generators(_Workspace):
         # At (5, 5) both mains meet; MIN takes size 4, running south-east: arithmetic -45°, so 315.
         self.insert(valves, ["SHAPE@"], [("POINT(5 5)",), ("POINT(2 2)",), ("POINT(50 50)",)])
         self.assertEqual(self.rows(valves, ["rot"]), [(315.0,), (45.0,), (None,)])
-        arcpy.management.DeleteAttributeRule(valves, "Symbol rotation rot")
+        # The rule is named "SymbolRotation", as Pro 3.7 names it (measured 2026-11-08; was "Symbol rotation rot").
+        arcpy.management.DeleteAttributeRule(valves, "SymbolRotation")
         geographic = arcpy.management.GenerateSymbolRotationAttributeRule(
             valves, self.directory, "rot", [[mains, "size"]], rotation_options=[[None, "GEOGRAPHIC", "MAX", 10]])
         arcpy.management.ImportAttributeRules(valves, geographic[0])
@@ -404,7 +405,13 @@ class Generators(_Workspace):
         with open(result[0], encoding="utf-8", newline="") as read:
             self.assertEqual(next(csv.DictReader(read))["EXCLUDECLIENTEVALUATION"], "True")
         arcpy.management.ImportAttributeRules(parcels, result[0])
-        self.insert(parcels, ["parcel", "owner", "flags", "SHAPE@"], [(1, "Ann", 6, poly(0, 0, 10, 10))])
+        # The rule runs on update only, as Pro 3.7 writes it (measured 2026-11-08; this test inserted the parcel):
+        # an insert leaves the related rows, the update reaches them.
+        self.insert(parcels, ["parcel", "owner", "flags", "SHAPE@"], [(1, "Zed", 6, poly(0, 0, 10, 10))])
+        self.assertEqual(self.rows(bills, ["parcel", "owner"]), [(1, None), (1, "old"), (2, None)])
+        with arcpy.da.UpdateCursor(parcels, ["owner"]) as rows:
+            for _ in rows:
+                rows.updateRow(["Ann"])
         self.assertEqual(self.rows(bills, ["parcel", "owner"]), [(1, "Ann"), (1, "Ann"), (2, None)])
         self.assertEqual(self.rows(signs, ["note", "flags"]), [("n-Ann", 7), (None, 0)])
         with self.assertRaisesRegex(ExecuteError, "no relationship class"):

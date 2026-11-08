@@ -157,11 +157,13 @@ class Round3(unittest.TestCase):
         line = self.make("line", "POLYLINE", [], [("LINESTRING(0 0,100 0)",)])
         out = arcpy.management.GenerateTransectsAlongLines(line, self.out("tr.gpkg"), "30 Meters", "20 Meters")[0]
         # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        # Each transect runs from the line's right side to its left (south to north here): measured in ArcGIS Pro 3.7,
+        # 2026-11-08 (this pinned north to south).
         self.assertEqual(self.rows(out, ["ORIG_FID", "SHAPE@WKT"]),
-                         [(1, "MULTILINESTRING ((30 10, 30 -10))"), (1, "MULTILINESTRING ((60 10, 60 -10))"), (1, "MULTILINESTRING ((90 10, 90 -10))")])
+                         [(1, "MULTILINESTRING ((30 -10, 30 10))"), (1, "MULTILINESTRING ((60 -10, 60 10))"), (1, "MULTILINESTRING ((90 -10, 90 10))")])
         ends = arcpy.management.GenerateTransectsAlongLines(line, self.out("tr2.gpkg"), 30, 20, "END_POINTS")[0]
         # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
-        self.assertEqual([r[0] for r in self.rows(ends, ["SHAPE@WKT"])][::4], ["MULTILINESTRING ((0 10, 0 -10))", "MULTILINESTRING ((100 10, 100 -10))"])
+        self.assertEqual([r[0] for r in self.rows(ends, ["SHAPE@WKT"])][::4], ["MULTILINESTRING ((0 -10, 0 10))", "MULTILINESTRING ((100 -10, 100 10))"])
 
     # ---- rasters
 

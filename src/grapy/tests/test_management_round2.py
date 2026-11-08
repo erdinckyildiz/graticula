@@ -208,8 +208,9 @@ class Round2(unittest.TestCase):
         self.assertEqual(self.rows(out, ["name", "year", "count"]),
                          [("A", "2020", "1"), ("A", "2021", "2"), ("B", "2020", "3"), ("B", "2021", None)])
         shaped = arcpy.management.TransposeFields(self.parcels, "value;extra", self.out("ts.gpkg"), "f", "v", "Shape;name")[0]
-        self.assertEqual(self.rows(shaped, ["name", "f", "v", "SHAPE@AREA"])[:2], [("p0", "value", "1.0", 2500.0),
-                                                                              ("p0", "extra", "10.0", 2500.0)])
+        # A whole double is written without ".0": measured in ArcGIS Pro 3.7, 2026-11-08 (10.0 -> "10"; was "10.0").
+        self.assertEqual(self.rows(shaped, ["name", "f", "v", "SHAPE@AREA"])[:2], [("p0", "value", "1", 2500.0),
+                                                                              ("p0", "extra", "10", 2500.0)])
 
     # ---- random points
 
@@ -254,11 +255,11 @@ class Round2(unittest.TestCase):
                                            "BOTTOM", "CELLSIZEX", "COLUMNCOUNT", "ROWCOUNT", "BANDCOUNT", "ANYNODATA",
                                            "ALLNODATA")],
                          ["1", "11", "6", "11", "30", "0", "40", "0", "10", "4", "3", "1", "1", "0"])
-        # 1..11: mean 6, squares summing to 110. Pro answers the sample form, 110 / 10 = 11 (measured in ArcGIS Pro 3.7,
-        # 2026-11-08: cells 1, 2, 3, 4 give 1.29099); this test pinned the population form, 10, before.
+        # 1..11: mean 6, squares summing to 110, so the sample variance is 110 / 10 = 11 — Pro's STD is the sample one
+        # (n - 1), measured in ArcGIS Pro 3.7, 2026-11-08 (this pinned the population form, 10).
         self.assertAlmostEqual(float(ask("STD")), 11 ** 0.5)
-        with self.assertRaises(arcpy.NotBuiltError):
-            ask("CLOUDCOVER")
+        # A raster with no sensor metadata: Pro answers UNKNOWN (measured 2026-11-08; this pinned a refusal).
+        self.assertEqual(ask("CLOUDCOVER"), "UNKNOWN")
 
     def test_clip_keeps_the_cells_where_they_lie(self):
         path = self.grid()

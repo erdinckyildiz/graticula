@@ -93,7 +93,8 @@ class Topology(unittest.TestCase):
         with arcpy.da.SearchCursor(polygons, ["OriginObjectID", "DestinationObjectClassName", "DestinationObjectID",
                                               "SHAPE@AREA"]) as rows:
             self.assertEqual([tuple(r) for r in rows], [(1, "parcels", 2, 20.0)])
-        self.assertTrue(points.endswith("topoPointsErrors") and polygons.endswith("topoPolygonErrors"))
+        # Pro 3.7 names them <basename>_point, _line, _poly (measured 2026-11-08; this pinned topoPointsErrors …).
+        self.assertTrue(points.endswith("topo_point") and lines.endswith("topo_line") and polygons.endswith("topo_poly"))
 
     def test_describe_answers_the_topology_properties(self):
         described = arcpy.Describe(self.topology())

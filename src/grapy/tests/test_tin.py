@@ -319,7 +319,8 @@ class Tin(unittest.TestCase):
 
     def test_a_tin_layer_answers_for_its_tin(self):
         arcpy.management.MakeTinLayer(self.tin, "plane_layer")
-        self.assertEqual(arcpy.Describe("plane_layer").dataType, "Tin")
+        # A TIN layer is described as one: "TinLayer", measured in ArcGIS Pro 3.7, 2026-11-08 (this pinned "Tin").
+        self.assertEqual(arcpy.Describe("plane_layer").dataType, "TinLayer")
         arcpy.ddd.TinDomain("plane_layer", self.gpkg + "/from_layer", "POLYGON")
         self.assertEqual(len(rows(self.gpkg + "/from_layer", ["SHAPE@AREA"])), 1)
 
