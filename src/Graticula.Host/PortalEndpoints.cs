@@ -174,6 +174,15 @@ internal static partial class PortalEndpoints
             Self(context, username) is null ? Unknown("User") : Results.Ok(new { tags = Array.Empty<object>() }))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>The caller's licence, since 2026-11-08</b> (ADR-077 condition 5). ArcGIS Field Maps asks it after signing in
+        // and got 404, and never offered Collect. The shape is the one Esri's REST reference documents for
+        // `community/users/{name}/userLicenseType` — `id`, `name`, `apps`, `extensions` — with the id this server already
+        // writes as `userLicenseTypeId`. The one bundle listed is the documented Field Apps bundle, for every type: in
+        // ArcGIS a Viewer also opens Field Maps, and what it may do there is decided by the id, not by the bundle.
+        Discoverable(app, $"{Path}/community/users/{{username}}/userLicenseType", (HttpContext context, string username) =>
+            Self(context, username) is null ? Unknown("User") : Results.Ok(LicenseType(context)))
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
         // <b>POST as well as GET, because Pro posts its searches.</b> Its query is
         // long enough to be a paragraph — thirty negated type clauses — so it uses
         // a body, and a GET-only route answers 405 to the one request that lists

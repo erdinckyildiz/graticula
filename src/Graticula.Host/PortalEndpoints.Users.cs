@@ -183,6 +183,44 @@ internal static partial class PortalEndpoints
         _ => "creatorUT",
     };
 
+    /// <summary><c>community/users/{u}/userLicenseType</c> for the caller, in the shape Esri's REST reference documents.</summary>
+    private static object LicenseType(HttpContext context)
+    {
+        string id = LicenseTypeIdOf(context.Features.Get<RequestPrincipal>()!.Authorization.UserType);
+        string name = id switch { "viewerUT" => "Viewer", "editorUT" => "Editor", _ => "Creator" };
+
+        static object App(string title, string entitlement) =>
+            new { id = entitlement, title, type = "Mobile Application", entitlements = new[] { entitlement } };
+
+        object[] runtime = id == "viewerUT"
+            ? []
+            : [(object)new { id = "arcgisRuntimeAdvanced", title = "ArcGIS Runtime Advanced", type = "Application SDK", isAppBundle = false, entitlements = new[] { "arcgisRuntimeAdvanced" } }];
+
+        return new
+        {
+            id,
+            name,
+            apps = (object[])[
+                .. runtime,
+                new
+                {
+                    id = "fieldAppsBundle",
+                    title = "Field Apps Bundle",
+                    type = "App Bundle",
+                    isAppBundle = true,
+                    apps = new[]
+                    {
+                        App("Collector for ArcGIS", "collector"),
+                        App("Survey123 for ArcGIS", "survey123"),
+                        App("Workforce for ArcGIS", "workforce"),
+                        App("ArcGIS QuickCapture", "QuickCapture"),
+                    },
+                },
+            ],
+            extensions = Array.Empty<object>(),
+        };
+    }
+
     /// <summary>The portal's role and role id for a member's roles: built-in names are said as ArcGIS says them.</summary>
     private static (string Role, string RoleId) PortalRoleOf(IReadOnlyList<string> roles)
     {

@@ -173,6 +173,16 @@ the binding constraint (A-037). Times overlap the baseline's.
    And with the layer drawn, Field Maps shows no Collect button although the layer says
    `Create` and has a template; it still asks `community/users/{name}/userLicenseType` and the server's `/rest/self`,
    both 404 here, and neither has a public description this could be written from.
+   **Later the same day both answer, and Collect is still not offered — so neither was the cause.** `/rest/self` was
+   measured on Esri's sample server (`{"user":{}}` anonymously; `username`, `roles`, `privilege: "User"` for its public
+   sample user); `userLicenseType` follows the example in Esri's REST reference (`id`, `name`, `apps`, `extensions`),
+   which turned out to exist. A missing item resource now answers HTTP 200 with `CONT_009431` in the body, as ArcGIS
+   Online's does, because Field Maps asks every map for `field-maps-settings.json` and `tasks-configuration.json`.
+   With those, every request Field Maps makes here answers 200. **The control removes this server's layers from the
+   question:** a web map on this portal holding Esri's own editable sample layer (`sampleserver6 …/Wildfire/
+   FeatureServer/0`) draws and offers no Collect either, and neither does a plain 2D point layer, a popup, nor the
+   `Collector`/`Data Editing` type keywords (tried on dev, not kept). What gates Collect therefore sits between the
+   portal and the app, not in the feature service, and the app's own log says nothing about it.
 
 ## 7. Consequences
 

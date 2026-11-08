@@ -164,6 +164,12 @@ public sealed class PortalAppItemsTests : ArcGisClient
             Assert.True(removed.GetProperty("success").GetBoolean());
             Assert.Equal(0, (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{app}/resources?f=json")).Json
                 .GetProperty("total").GetInt32());
+
+            // A resource the item does not have is said as ArcGIS Online says it — the error in the body, with its
+            // message code — since 2026-11-08: Field Maps asks every map for two that most maps do not have.
+            (JsonElement gone, string goneRaw) = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{app}/resources/config/config.json?f=json");
+            Assert.Equal(400, gone.GetProperty("error").GetProperty("code").GetInt32());
+            Assert.True(gone.GetProperty("error").GetProperty("messageCode").GetString() == "CONT_009431", goneRaw);
         }
         finally
         {
