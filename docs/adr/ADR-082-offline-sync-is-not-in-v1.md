@@ -81,6 +81,13 @@ is better than advertising a surface that fails on a device in a place with no s
 > are still not served, and every layer still says `supportsDisconnectedEditing: false`. §6's first consequence is
 > now half true — an offline area's basemap can come from this server, and its editable layers still cannot.
 
+> **Not amended, but narrowed in effect, 2026-11-08 by [ADR-287](ADR-287-a-form-is-an-xlsform-filled-online-or-off.md),
+> owner decision.** Graticula's own forms work offline: a device keeps the form and queues new records until the signal
+> returns. That is adds only, with no copy of the layer on the device and nothing that can conflict, so it is not the
+> sync this ADR keeps out, and nothing below changes. It does weaken §7's assumption: an organisation collecting
+> offline *with forms* can now adopt the server. Editing existing records offline would still be sync and would reopen
+> this ADR.
+
 **Offline sync — `createReplica`, `synchronizeReplica`, `unRegisterReplica`,
 `extractChanges` — is not in v1.** It is added to [v1-scope](../v1-scope.md) §3d beside the
 other deferred protocol surface, and the layer document goes on saying
