@@ -337,7 +337,11 @@ def ExportAttributeRules(in_table, out_csv_file):
     """A table's rules written to a .csv file with the page's twenty columns, in its order. INFERRED (ADR-235 §5.8):
     TYPE is the tool's keyword (CALCULATION …); SUBTYPE holds the subtype names, ``;`` between several, empty for all;
     TRIGGERINGFIELDS is a JSON list, ``[]`` for every field, as the page writes it; CATEGORY and CHECKPARAMETERS, which
-    Data Reviewer rules fill, are empty."""
+    Data Reviewer rules fill, are empty.
+
+    Measured in ArcGIS Pro 3.7, 2026-11-08: the file is UTF-8 with a byte order mark and has a twenty-first column,
+    SUBTYPES (``[]`` for a rule on every subtype), and CHECKPARAMETERS holds an empty property set,
+    ``{"type":"PropertySet","propertySetItems":[]}``."""
     from . import _subtypes
     connection, table = _table("ExportAttributeRules", in_table)
     try:
@@ -345,17 +349,18 @@ def ExportAttributeRules(in_table, out_csv_file):
         found = _rules.rules(connection, table)
     finally:
         connection.close()
-    with open(_text(out_csv_file), "w", encoding="utf-8", newline="") as written:
+    with open(_text(out_csv_file), "w", encoding="utf-8-sig", newline="") as written:
         out = csv.writer(written)
-        out.writerow(_EXPORT)
+        out.writerow([*_EXPORT, "SUBTYPES"])
         for rule in found:
             out.writerow([rule.name, rule.description, rule.kind, ";".join(names.get(c, str(c)) for c in rule.subtypeCodes),
                           rule.fieldName, _flag(rule.userEditable), _flag("INSERT" in rule.events),
                           _flag("DELETE" in rule.events), _flag("UPDATE" in rule.events), rule.scriptExpression,
                           "" if rule.errorNumber in (None, "") else rule.errorNumber, rule.errorMessage,
                           _flag(rule.excludeFromClientEvaluation), _flag(rule.isEnabled), _flag(rule.batch),
-                          "" if rule.severity is None else rule.severity, rule.tags, "", "",
-                          json.dumps(rule.triggeringFields)])
+                          "" if rule.severity is None else rule.severity, rule.tags, "",
+                          '{"type":"PropertySet","propertySetItems":[]}', json.dumps(rule.triggeringFields),
+                          json.dumps(list(rule.subtypeCodes or []))])
     return Result(_text(out_csv_file))
 
 
@@ -649,6 +654,15 @@ def _domain_codes(connection, table, field, code):
     return {str(v): d for v, d in rows} if rows else None
 
 
+def _range_domain(connection, table, field):
+    """Whether the field takes a range domain."""
+    from . import _field_domains
+    domain = _field_domains(connection, table).get(field.lower())
+    return bool(domain) and connection.execute(
+        "select 1 from gpkg_data_column_constraints where constraint_name = ? and constraint_type = 'range'",
+        (domain,)).fetchone() is not None
+
+
 def _entry(tool, connection, table, field, kind, value, code, nullable):
     kind = str(kind or "").strip().upper()
     if kind not in _rules.CV_TYPES:
@@ -661,7 +675,8 @@ def _entry(tool, connection, table, field, kind, value, code, nullable):
             raise ExecuteError(f"ERROR 000800: {tool}: '{field}' does not allow nulls, so NULL is no value for it.")
         return [field, "NULL", None]
     if kind == "RANGE":
-        parts = value if isinstance(value, (list, tuple)) else str(value).split(";")
+        # 'min;max' as AddContingentValue takes it, or 'min#max' as Pro's .csv files write it.
+        parts = value if isinstance(value, (list, tuple)) else str(value).replace("#", ";").split(";")
         try:
             low, high = float(parts[0]), float(parts[1])
         except (IndexError, ValueError):
@@ -768,21 +783,28 @@ def RemoveContingentValue(target_table, id):
     return Result(_text(target_table))
 
 
-def _write_groups(path, groups):
+# How each tool writes its flags and ranges — measured in ArcGIS Pro 3.7, 2026-11-08: ExportContingentValues writes
+# "true"/"false" and a range as "50.000000#130.000000"; GenerateContingentValues "True"/"False" and "63.0#66.0".
+_EXPORTED = {"flags": ("true", "false"), "range": lambda v: f"{float(v):.6f}"}
+_GENERATED = {"flags": ("True", "False"), "range": lambda v: repr(float(v))}
+
+
+def _write_groups(path, groups, style=_EXPORTED):
     width = max([len(f) for _, _, f in groups] or [1])
+    yes, no = style["flags"]
     with open(_text(path), "w", encoding="utf-8", newline="") as written:
         out = csv.writer(written)
         out.writerow(["NAME", "IS_RESTRICTIVE", *[f"FIELD{i}" for i in range(1, width + 1)]])
         for name, restrictive, fields in groups:
-            out.writerow([name, "TRUE" if restrictive else "FALSE", *fields, *[""] * (width - len(fields))])
+            out.writerow([name, yes if restrictive else no, *fields, *[""] * (width - len(fields))])
 
 
-def _cv_text(entry):
+def _cv_text(entry, style=_EXPORTED):
     kind, value = entry[1], entry[2]
     if kind in ("ANY", "NULL"):
         return ""
     if kind == "RANGE":
-        return f"{_number(value[0])};{_number(value[1])}"
+        return f"{style['range'](value[0])}#{style['range'](value[1])}"
     return _number(value) if isinstance(value, (int, float)) else str(value)
 
 
@@ -790,8 +812,9 @@ def _number(value):
     return str(int(value)) if float(value) == int(float(value)) else repr(float(value))
 
 
-def _write_values(path, rows, groups, names):
+def _write_values(path, rows, groups, names, style=_EXPORTED):
     width = max([len(f) for _, _, f in groups] or [1])
+    yes, no = style["flags"]
     with open(_text(path), "w", encoding="utf-8", newline="") as written:
         out = csv.writer(written)
         header = ["CAV_ID", "IS_RETIRED", "FIELD_GROUP", "SUBTYPE", "SUBTYPE_NAME"]
@@ -799,10 +822,11 @@ def _write_values(path, rows, groups, names):
             header += [f"CV_TYPE{i}", f"CV_VALUE{i}", f"DESCRIPTION{i}"]
         out.writerow(header)
         for cv_id, group, code, retired, entries, descriptions in rows:
-            line = [cv_id, "True" if retired else "False", group, "" if code is None else code,
+            # A table without subtypes writes SUBTYPE 0, as Pro 3.7 does (measured 2026-11-08).
+            line = [cv_id, yes if retired else no, group, 0 if code is None else code,
                     "" if code is None else names.get(code, "")]
             for entry, description in zip(entries, descriptions):
-                line += [_rules.CV_TYPES[entry[1]], _cv_text(entry), description or ""]
+                line += [_rules.CV_TYPES[entry[1]], _cv_text(entry, style), description or ""]
             line += [""] * (3 * (width - len(entries)))
             out.writerow(line)
 
@@ -820,8 +844,9 @@ def _descriptions(connection, table, entries, code):
 
 def ExportContingentValues(target_table, field_groups_file, contingent_values_file):
     """A table's field groups and contingent values written to the two .csv files the page describes. INFERRED
-    (ADR-235 §5.8): a RANGE value is written 'min;max'; IS_RESTRICTIVE as TRUE or FALSE, IS_RETIRED as True or False,
-    as the page's examples show them."""
+    (ADR-235 §5.8) until measured in ArcGIS Pro 3.7 on 2026-11-08, and now as Pro writes them: a RANGE value is
+    written 'min#max' to six decimals, IS_RESTRICTIVE and IS_RETIRED as true or false, SUBTYPE 0 for a table without
+    subtypes."""
     from . import _subtypes
     connection, table = _table("ExportContingentValues", target_table)
     try:
@@ -848,6 +873,8 @@ def ImportContingentValues(target_table, field_group_file, contingent_value_file
         value_rows = [{k.strip().upper(): (v or "").strip() for k, v in r.items() if k} for r in csv.DictReader(read)]
     connection, table = _table(tool, target_table)
     try:
+        from . import _subtypes
+        _subtypes_held = bool(_subtypes.field(connection, table))   # Pro writes SUBTYPE 0 for a table without them
         _rules.ensure_groups(connection)
         columns, _ = _columns(connection, table)
         if kind == "REPLACE":
@@ -872,7 +899,7 @@ def ImportContingentValues(target_table, field_group_file, contingent_value_file
             group = imported.get(row.get("FIELD_GROUP", "").lower())
             if group is None:
                 continue
-            code = int(float(row["SUBTYPE"])) if row.get("SUBTYPE") else None
+            code = int(float(row["SUBTYPE"])) if row.get("SUBTYPE") and _subtypes_held else None
             entries = []
             try:
                 for i, field in enumerate(group[2], start=1):
@@ -898,8 +925,11 @@ def GenerateContingentValues(in_table, field_groups_file, contingent_values_file
     combination of the coded values of the fields' domains. As documented, a field with no domain is ANY, and also
     NULL when it allows nulls.
 
-    INFERRED (ADR-235 §5.8): in DATA mode a value of a field with a coded domain is a CODED_VALUE, a null is NULL; a
-    field with a range domain counts as having no coded domain; ids number from 1 in the order written."""
+    Measured in ArcGIS Pro 3.7, 2026-11-08: in DATA mode a field with a range domain is a RANGE from the least to the
+    greatest value the rows with that combination of the other fields hold, and the combinations come in the order of
+    their values; the files write IS_RESTRICTIVE and IS_RETIRED as True or False and a range as 'min#max'.
+    INFERRED (ADR-235 §5.8): a value of a field with a coded domain is a CODED_VALUE, a null is NULL; ids number from
+    1 in the order written."""
     import itertools
     from . import _subtypes
     tool = "GenerateContingentValues"
@@ -930,14 +960,26 @@ def GenerateContingentValues(in_table, field_groups_file, contingent_values_file
                                         for c in domain] + ([[field, "NULL", None]] if nullable else []))
                     else:
                         options.append(None)
+                ranged = [mode == "DATA" and _domain_codes(connection, table, f, code) is None and
+                          _range_domain(connection, table, f) for f in fields]
                 if mode == "DATA":
                     where = f' where "{held[0]}" = {int(code)}' if held else ""
                     seen = []
                     quoted = ", ".join(f'"{f}"' for f in fields)
-                    for found in connection.execute(f'select distinct {quoted} from "{table}"{where}'):
+                    found_rows = connection.execute(f'select {quoted} from "{table}"{where}').fetchall()
+                    keyed = {}
+                    for found in found_rows:
+                        key = tuple(None if r else v for v, r in zip(found, ranged))
+                        keyed.setdefault(key, []).append(found)
+                    for key in sorted(keyed, key=lambda k: [(v is None, str(type(v)), v) for v in k]):
+                        found = key
                         combination = []
-                        for field, option, value in zip(fields, options, found):
-                            if option is not None:
+                        for i, (field, option, value) in enumerate(zip(fields, options, found)):
+                            if ranged[i]:
+                                held_values = [r[i] for r in keyed[key] if r[i] is not None]
+                                combination.append([field, "RANGE", [min(held_values), max(held_values)]]
+                                                   if held_values else [field, "NULL", None])
+                            elif option is not None:
                                 combination.append(option[0] if len(option) == 1 or value is not None else option[1])
                             elif value is None:
                                 combination.append([field, "NULL", None])
@@ -955,8 +997,8 @@ def GenerateContingentValues(in_table, field_groups_file, contingent_values_file
                     next_id += 1
     finally:
         connection.close()
-    _write_groups(field_groups_file, groups)
-    _write_values(contingent_values_file, rows, groups, names)
+    _write_groups(field_groups_file, groups, _GENERATED)
+    _write_values(contingent_values_file, rows, groups, names, _GENERATED)
     return Result(_text(contingent_values_file))
 
 

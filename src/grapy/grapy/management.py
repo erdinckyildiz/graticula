@@ -766,7 +766,9 @@ def MultipartToSinglepart(in_features, out_feature_class):
 
 
 def FeatureToPoint(in_features, out_feature_class, point_location="CENTROID"):
-    """A point per feature: its centroid, or with ``INSIDE`` a point guaranteed within it."""
+    """A point per feature: its centroid, or with ``INSIDE`` a point guaranteed within it — the centroid itself when it
+    lies inside, as ArcGIS Pro 3.7 answers (measured 2026-11-08: a triangle's INSIDE point is its centroid), else a
+    representative point."""
     from . import da
     columns, _, srid, _ = _schema(in_features)
     names = [c.name for c in columns]
@@ -777,28 +779,60 @@ def FeatureToPoint(in_features, out_feature_class, point_location="CENTROID"):
             da.InsertCursor(out, [*names, "ORIG_FID", "SHAPE@"]) as written:
         for row in rows:
             shape = row[-1]._shape if row[-1] is not None else None
-            point = None if shape is None else (shape.representative_point() if inside else shape.centroid)
+            point = None if shape is None else shape.centroid
+            if inside and shape is not None and not shape.covers(point):
+                point = shape.representative_point()
             written.insertRow((*row[1:-1], row[0], point))
     return Result(out)
 
 
 def FeatureVerticesToPoints(in_features, out_feature_class, point_location="ALL"):
-    """A point for each vertex — or for each part's ``START``, ``END``, ``BOTH_ENDS`` or ``MID`` point."""
+    """A point for each vertex — or for each part's ``START``, ``END``, ``BOTH_ENDS`` or ``MID`` point, or each
+    ``DANGLE``: a line's end that touches no other line, with ``DANGLE_LEN``, the distance along the line from that end
+    to the nearest place another line meets it (the line's whole length when none does). Measured in ArcGIS Pro 3.7,
+    2026-11-08: ``ALL`` gives every vertex of every ring, a ring's closing vertex included, the rings walked as arcpy
+    walks them (``_esri_rings``); ``DANGLE`` and ``DANGLE_LEN`` as above. INFERRED: a closed line has no dangle; another
+    part of the same feature counts as another line."""
+    import shapely
     from shapely.geometry import Point as ShapelyPoint
     from . import da
     columns, _, srid, _ = _schema(in_features)
     names = [c.name for c in columns]
     out = _path(out_feature_class)
-    _gpkg.create(out, "Point", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer")])
     where = str(point_location).upper()
-    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
-            da.InsertCursor(out, [*names, "ORIG_FID", "SHAPE@"]) as written:
-        for row in rows:
-            if row[-1] is None:
-                continue
-            for part in _parts(row[-1]._shape):
-                line = part.exterior if part.geom_type == "Polygon" else part
-                coordinates = list(line.coords)
+    dangle = where == "DANGLE"
+    _gpkg.create(out, "Point", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer")] +
+                 ([_gpkg.Column("DANGLE_LEN", "Double")] if dangle else []))
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
+        features = [(row[0], row[1:-1], row[-1]._shape) for row in rows if row[-1] is not None]
+    with da.InsertCursor(out, [*names, "ORIG_FID", *(["DANGLE_LEN"] if dangle else []), "SHAPE@"]) as written:
+        if dangle:
+            pieces = [(oid, i, part) for oid, _, shape in features if shape.geom_type in ("LineString", "MultiLineString")
+                      for i, part in enumerate(_parts(shape))]
+            for oid, values, shape in features:
+                if shape.geom_type not in ("LineString", "MultiLineString"):
+                    continue
+                for i, part in enumerate(_parts(shape)):
+                    ends = list(part.coords)
+                    if len(ends) < 2 or ends[0][:2] == ends[-1][:2]:
+                        continue
+                    others = [p for o, j, p in pieces if (o, j) != (oid, i) and p.intersects(part)]
+                    meets = [part.project(ShapelyPoint(c[:2])) for o in others
+                             for c in shapely.get_coordinates(o.intersection(part)).tolist()]
+                    for at, xy in ((0.0, ends[0]), (part.length, ends[-1])):
+                        point = ShapelyPoint(xy[:2])
+                        if any(o.intersects(point) for o in others):
+                            continue
+                        span = (min(meets) if at == 0.0 else part.length - max(meets)) if meets else part.length
+                        written.insertRow((*values, oid, span, point))
+            return Result(out)
+        for oid, values, shape in features:
+            for part in _parts(shape):
+                if part.geom_type == "Polygon":
+                    rings = _esri_rings(part)
+                    coordinates, line = rings[0], shapely.LineString(rings[0])
+                else:
+                    rings, coordinates, line = [list(part.coords)], list(part.coords), part
                 if where == "MID":
                     chosen = [line.interpolate(0.5, normalized=True).coords[0]]
                 elif where == "START":
@@ -808,9 +842,9 @@ def FeatureVerticesToPoints(in_features, out_feature_class, point_location="ALL"
                 elif where == "BOTH_ENDS":
                     chosen = [coordinates[0], coordinates[-1]]
                 else:
-                    chosen = coordinates[:-1] if part.geom_type == "Polygon" else coordinates
+                    chosen = [xy for ring in rings for xy in ring]
                 for xy in chosen:
-                    written.insertRow((*row[1:-1], row[0], ShapelyPoint(xy[:2])))
+                    written.insertRow((*values, oid, ShapelyPoint(xy[:2])))
     return Result(out)
 
 
@@ -1016,7 +1050,8 @@ def TransposeFields(in_table, in_field, out_table, in_transposed_field_name, in_
     written in the transposed field, the field's own when none is given), a row holding that name and the field's value
     as text, with the ``attribute_fields`` kept; ``Shape`` among them makes a feature class, as documented. INFERRED:
     rows go input row by input row, each in the order of ``in_field``; a null value stays null; a number is written as
-    Python writes it."""
+    Python writes it, but a whole floating-point value without its ``.0`` (``10``, as ArcGIS Pro 3.7 writes 10.0 —
+    measured 2026-11-08)."""
     from . import da
     from ._runtime import ExecuteError
     path, where = _source(in_table)
@@ -1039,7 +1074,8 @@ def TransposeFields(in_table, in_field, out_table, in_transposed_field_name, in_
         for row in rows:
             values = row[len(kept):-1]
             for (_, label), value in zip(pairs, values):
-                written.insertRow((*row[:len(kept)], label, None if value is None else str(value), row[-1] if shape else None))
+                text = None if value is None else str(int(value)) if isinstance(value, float) and value.is_integer()                     else str(value)
+                written.insertRow((*row[:len(kept)], label, text, row[-1] if shape else None))
     return Result(out)
 
 
@@ -1240,6 +1276,22 @@ def _shapes(value, srid):
 
 def _linework(shape):
     return shape.boundary if shape.geom_type in ("Polygon", "MultiPolygon") else shape
+
+
+def _esri_rings(polygon):
+    """A polygon's rings as arcpy walks them: the exterior clockwise and each hole counter-clockwise, from the ring's
+    own first vertex, the closing vertex included — measured in ArcGIS Pro 3.7, 2026-11-08 (a counter-clockwise
+    triangle's vertices and segments come back clockwise from the same start)."""
+    from shapely.geometry.polygon import orient
+    oriented = orient(polygon, -1.0)
+    return [list(oriented.exterior.coords)] + [list(r.coords) for r in oriented.interiors]
+
+
+def _esri_lines(shape):
+    """A shape's linework as lists of coordinates, polygon rings in arcpy's order (``_esri_rings``)."""
+    if shape.geom_type in ("Polygon", "MultiPolygon"):
+        return [ring for part in _parts(shape) for ring in _esri_rings(part)]
+    return [list(part.coords) for part in _parts(shape)]
 
 
 def _center(shape):
@@ -1577,8 +1629,9 @@ def CalculateFields(in_table, expression_type, fields, code_block=None, enforce_
 
 def Sort(in_dataset, out_dataset, sort_field, spatial_sort_method="UR"):
     """The rows written to a new dataset in the order of ``[[field, ASCENDING|DESCENDING], …]`` — a layer's selected
-    rows. INFERRED: rows that tie keep their object ID order, nulls come first ascending and last descending, and text
-    sorts by its characters' code points, as the GeoPackage orders them. Sorting on the shape is not built."""
+    rows — each with ``ORIG_FID``, its input object ID (measured in ArcGIS Pro 3.7, 2026-11-08). INFERRED: rows that
+    tie keep their object ID order, nulls come first ascending and last descending, and text sorts by its characters'
+    code points, as the GeoPackage orders them. Sorting on the shape is not built."""
     from . import da
     path, where = _source(in_dataset)
     columns, kind, srid, _ = _schema(path)
@@ -1592,10 +1645,12 @@ def Sort(in_dataset, out_dataset, sort_field, spatial_sort_method="UR"):
         order.append(f'"{by_name[name.lower()]}" {"desc" if direction == "DESCENDING" else "asc"}')
     order.append(f'"{_oid_of(path)}" asc')
     out = _path(out_dataset)
-    _gpkg.create(out, kind, srid, columns)
     names = [c.name for c in columns]
-    with da.SearchCursor(path, [*names, "SHAPE@"], where, sql_clause=(None, "order by " + ", ".join(order))) as rows, \
-            da.InsertCursor(out, [*names, "SHAPE@"]) as written:
+    fid = "ORIG_FID" if "orig_fid" not in by_name else "ORIG_FID_1"
+    _gpkg.create(out, kind, srid, [*columns, _gpkg.Column(fid, "Integer")])
+    with da.SearchCursor(path, [*names, "OID@", "SHAPE@"], where,
+                         sql_clause=(None, "order by " + ", ".join(order))) as rows, \
+            da.InsertCursor(out, [*names, fid, "SHAPE@"]) as written:
         for row in rows:
             written.insertRow(row)
     return Result(out)
@@ -1625,6 +1680,12 @@ def _no_tolerance(tool, cluster_tolerance):
     if _given(cluster_tolerance):
         raise NotBuiltError(f"arcpy.management.{tool}: a cluster_tolerance is not built in grapy; the inputs' own "
                             "coordinates are used.")
+
+
+def _thirds(line):
+    """A line's first, middle and last thirds, for testing that the whole of it lies along another."""
+    from shapely.ops import substring
+    return [substring(line, a, b, normalized=True) for a, b in ((0, 1 / 3), (1 / 3, 2 / 3), (2 / 3, 1))]
 
 
 def _on(edge, line):
@@ -1676,10 +1737,11 @@ def FeatureToLine(in_features, out_feature_class, cluster_tolerance=None, attrib
 def FeatureToPolygon(in_features, out_feature_class, cluster_tolerance=None, attributes="ATTRIBUTES", label_features=None,
                      polygon_construction_source="PER_ENCLOSED_AREA"):
     """A polygon for every area the inputs' lines and outlines enclose. With ``label_features`` each polygon takes the
-    fields of a label point inside it; without, it carries each input's fields — and with ``ATTRIBUTES`` a
-    ``FID_<input>`` of -1 — left empty, as documented. INFERRED: of several label points inside one polygon the lowest
-    object ID is used; empty values are null, not zero; ``FID_<input>`` precedes each input's fields, as the overlay
-    tools write them. ``PER_ENCLOSED_LINE`` is not built."""
+    fields of a label point inside it; without, it carries each polygon input's fields — and with ``ATTRIBUTES`` a
+    ``FID_<input>`` of -1 — left empty, as documented. Measured in ArcGIS Pro 3.7, 2026-11-08: the empty values are 0
+    and "" (not null), and a line input brings no fields at all. INFERRED: of several label points inside one polygon
+    the lowest object ID is used; ``FID_<input>`` precedes each input's fields, as the overlay tools write them.
+    ``PER_ENCLOSED_LINE`` is not built."""
     import shapely
     from . import da
     _no_tolerance("FeatureToPolygon", cluster_tolerance)
@@ -1702,24 +1764,27 @@ def FeatureToPolygon(in_features, out_feature_class, cluster_tolerance=None, att
                 written.insertRow((*(inside[0] if inside else [None] * len(label_columns)), face))
         return Result(out)
     keep = str(attributes if attributes is not None else "ATTRIBUTES").upper() not in ("NO_ATTRIBUTES", "FALSE")
+    polygonal = [(p, s) for p, s in zip(paths, schemas) if str(s[1]).lower() == "polygon"]
     if keep:
         from .analysis import _joined_columns
-        columns = _joined_columns(*[(_stem_of(_source(p)[0]), s[0]) for p, s in zip(paths, schemas)])
+        columns = _joined_columns(*[(_stem_of(_source(p)[0]), s[0]) for p, s in polygonal])
     else:
         columns, seen = [], set()
-        for schema in schemas:
+        for _, schema in polygonal:
             for column in schema[0]:
                 if column.name.lower() not in seen:
                     seen.add(column.name.lower())
                     columns.append(column)
     _gpkg.create(out, "Polygon", srid, columns)
-    fids, at = [], 0
-    for schema in (schemas if keep else []):
-        fids.append(columns[at].name)
+    fids, at = set(), 0
+    for _, schema in (polygonal if keep else []):
+        fids.add(columns[at].name)
         at += 1 + len(schema[0])
-    with da.InsertCursor(out, [*fids, "SHAPE@"]) as written:
+    empty = [-1 if c.name in fids else 0 if c.type in ("Integer", "SmallInteger", "BigInteger", "Double", "Single")
+             else "" if c.type == "String" else None for c in columns]
+    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for face in faces:
-            written.insertRow((*[-1] * len(fids), face))
+            written.insertRow((*empty, face))
     return Result(out)
 
 
@@ -1780,8 +1845,9 @@ def PolygonToLine(in_features, out_feature_class, neighbor_option="IDENTIFY_NEIG
 
 def SplitLine(in_features, out_feature_class):
     """Each line, or polygon outline, cut at every vertex: a feature per segment, with the input's fields, its
-    ``ORIG_FID`` and ``ORIG_SEQ`` counting the segments from the first vertex. INFERRED: ``ORIG_SEQ`` starts at 1 and
-    runs on through a feature's later parts and rings."""
+    ``ORIG_FID`` and ``ORIG_SEQ`` counting the segments from the first vertex — a polygon's rings walked as arcpy walks
+    them (``_esri_rings``, measured in ArcGIS Pro 3.7). INFERRED: ``ORIG_SEQ`` starts at 1 and runs on through a
+    feature's later parts and rings."""
     import shapely
     from . import da
     columns, _, srid, _ = _schema(_source(in_features)[0])
@@ -1792,8 +1858,7 @@ def SplitLine(in_features, out_feature_class):
             if shape is None:
                 continue
             sequence = 0
-            for line in _parts(_linework(shape)):
-                coordinates = list(line.coords)
+            for coordinates in _esri_lines(shape):
                 for a, b in zip(coordinates, coordinates[1:]):
                     sequence += 1
                     written.insertRow((*values, oid, sequence, shapely.LineString([a, b])))
@@ -1937,7 +2002,9 @@ def UnsplitLine(in_features, out_feature_class, dissolve_field=None, statistics_
         for key, members in groups.items():
             merged = linemerge([part for _, shape in members for part in _parts(shape)])
             for line in _parts(merged):
-                inside = [row for row, shape in members if _on(_parts(shape)[0], line)]
+                # A member is in the merged line it lies along — its ends and midpoint, not its midpoint alone, which
+                # a line it merely crosses also passes through (Pro 3.7 counts each crossing road once, 2026-11-08).
+                inside = [row for row, shape in members if all(_on(piece, line) for piece in _thirds(_parts(shape)[0]))]
                 written.insertRow((*key, *[_statistic(s, [r[f] for r in inside]) for f, s in statistics], line))
     return Result(out)
 
@@ -2303,11 +2370,10 @@ def _letters(n):
 def GenerateTessellation(Output_Feature_Class, Extent, Shape_Type="HEXAGON", Size=None, Spatial_Reference=None,
                          H3_Resolution=7):
     """Cells of ``Size`` area — squares, flat-topped ``HEXAGON``s or pointed ``TRANSVERSE_HEXAGON``s — covering the
-    extent, each with a ``GRID_ID`` of a letter and a number. INFERRED, since the page does not say: the grid is
-    anchored with a cell centred on the extent's lower-left corner for hexagons and with a cell's corner there for
-    squares; a cell is kept when it overlaps the extent with some area; letters count rows up from the bottom and
-    numbers columns from the left, both from the first cell kept. ``DIAMOND``, ``TRIANGLE`` and ``H3_HEXAGON`` are not
-    built."""
+    extent, each with a ``GRID_ID`` of a letter and a number. Measured in ArcGIS Pro 3.7, 2026-11-08, for squares and
+    hexagons: a cell is centred on the extent's lower-left corner and ceil(extent / step) + 1 cells run along each
+    axis, all kept; letters count columns from the left and numbers rows from the top. INFERRED: a transverse
+    hexagon's grid is the hexagon's turned a quarter. ``DIAMOND``, ``TRIANGLE`` and ``H3_HEXAGON`` are not built."""
     import math
     from shapely.geometry import Polygon as ShapelyPolygon, box
     from . import da
@@ -2326,31 +2392,38 @@ def GenerateTessellation(Output_Feature_Class, Extent, Shape_Type="HEXAGON", Siz
         if per is None or unit not in _SQUARE_UNITS:
             raise NotBuiltError(f"arcpy.management.GenerateTessellation: a Size in {parts[1]} here is not built in grapy.")
         area = area * _SQUARE_UNITS[unit] / per ** 2
-    extent = box(x0, y0, x1, y1)
+    # The lattice as ArcGIS Pro 3.7 lays it (measured 2026-11-08): a cell centred on the extent's lower-left corner,
+    # and ceil(extent / step) + 1 cells along each axis from there — a rectangular block of the lattice, kept whole
+    # even where a cell lies beyond the extent. GRID_ID is the column's letters (A from the left) and the row's
+    # number counted from the top (1 the top row); cells are written row by row from the bottom.
     cells = []
     if kind == "SQUARE":
         s = math.sqrt(area)
-        for r in range(-1, int((y1 - y0) / s) + 2):
-            for c in range(-1, int((x1 - x0) / s) + 2):
-                cells.append((r, c, box(x0 + c * s, y0 + r * s, x0 + (c + 1) * s, y0 + (r + 1) * s)))
+        columns, rows = math.ceil((x1 - x0) / s - 1e-9) + 1, math.ceil((y1 - y0) / s - 1e-9) + 1
+        for r in range(rows):
+            for c in range(columns):
+                cx, cy = x0 + c * s, y0 + r * s
+                # From the upper-right corner, as Pro writes a square's ring.
+                cells.append((r, c, ShapelyPolygon([(cx + s / 2, cy + s / 2), (cx - s / 2, cy + s / 2),
+                                                    (cx - s / 2, cy - s / 2), (cx + s / 2, cy - s / 2)])))
     else:
         s = math.sqrt(2 * area / (3 * math.sqrt(3)))
         h = math.sqrt(3) * s
         flat = kind == "HEXAGON"
         across, along = (x1 - x0, y1 - y0) if flat else (y1 - y0, x1 - x0)
-        for c in range(-1, int(across / (1.5 * s)) + 2):
-            for r in range(-1, int(along / h) + 2):
+        columns, rows = math.ceil(across / (1.5 * s) - 1e-9) + 1, math.ceil(along / h - 1e-9) + 1
+        for c in range(columns):
+            for r in range(rows):
                 a, b = 1.5 * s * c, h * r + (h / 2 if c % 2 else 0)
                 corners = [(a + s * math.cos(math.pi / 3 * k), b + s * math.sin(math.pi / 3 * k)) for k in range(6)]
                 ring = [(x0 + p, y0 + q) for p, q in corners] if flat else [(x0 + q, y0 + p) for p, q in corners]
                 cells.append((r, c, ShapelyPolygon(ring)) if flat else (c, r, ShapelyPolygon(ring)))
-    kept = [(r, c, cell) for r, c, cell in cells if cell.intersection(extent).area > 0]
-    low_r, low_c = min(r for r, _, _ in kept), min(c for _, c, _ in kept)
+    top = max(r for r, _, _ in cells)
     out = _path(Output_Feature_Class)
     _gpkg.create(out, "Polygon", srid, [_gpkg.Column("GRID_ID", "String")])
     with da.InsertCursor(out, ["GRID_ID", "SHAPE@"]) as written:
-        for r, c, cell in sorted(kept, key=lambda k: (k[0], k[1])):
-            written.insertRow((f"{_letters(r - low_r + 1)}-{c - low_c + 1}", cell))
+        for r, c, cell in sorted(cells, key=lambda k: (k[0], k[1])):
+            written.insertRow((f"{_letters(c + 1)}-{top - r + 1}", cell))
     return Result(out)
 
 
@@ -3461,10 +3534,12 @@ def Clip(in_raster, rectangle, out_raster, in_template_dataset=None, nodata_valu
 
 
 def GetRasterProperties(in_raster, property_type=None, band_index=None):
-    """One property of a raster. INFERRED: ``STD`` is the population form, as arcpy's Raster.standardDeviation;
-    ``ANYNODATA`` and ``ALLNODATA`` answer 1 or 0; values are written as text, whole numbers without a decimal point;
-    ``band_index`` is one-based or a band's name, and the statistics are the first band's when none is named.
-    The sensor and acquisition properties are not built."""
+    """One property of a raster. Measured in ArcGIS Pro 3.7, 2026-11-08: ``STD`` is the sample form (n − 1), as
+    arcpy's Raster.standardDeviation; ``UNIQUEVALUECOUNT`` of a floating-point raster is refused; the sensor and
+    acquisition properties of a raster that carries none answer ``UNKNOWN`` and ``SOURCETYPE`` answers ``Generic``.
+    INFERRED: ``ANYNODATA`` and ``ALLNODATA`` answer 1 or 0; values are written as text, whole numbers without a
+    decimal point; ``band_index`` is one-based or a band's name, and the statistics are the first band's when none is
+    named."""
     import numpy
     from ._raster import _band_number
     whole = _raster_in(in_raster, "GetRasterProperties", bands=True)
@@ -3480,13 +3555,21 @@ def GetRasterProperties(in_raster, property_type=None, band_index=None):
     codes = {"uint8": 3, "int8": 4, "uint16": 5, "int16": 6, "uint32": 7, "int32": 8, "float32": 9, "float64": 10}
     answers = {
         "MINIMUM": lambda: values.min(), "MAXIMUM": lambda: values.max(), "MEAN": lambda: values.mean(),
-        "STD": lambda: values.std(), "UNIQUEVALUECOUNT": lambda: numpy.unique(values).size,
+        "STD": lambda: values.std(ddof=1) if values.size > 1 else 0.0,
+        "UNIQUEVALUECOUNT": lambda: numpy.unique(values).size,
         "TOP": lambda: g.top, "LEFT": lambda: g.left, "RIGHT": lambda: g.right, "BOTTOM": lambda: g.bottom,
         "CELLSIZEX": lambda: g.width, "CELLSIZEY": lambda: g.height, "COLUMNCOUNT": lambda: g.columns,
         "ROWCOUNT": lambda: g.rows, "BANDCOUNT": lambda: whole.bandCount, "ANYNODATA": lambda: int(raster._mask.any()),
         "ALLNODATA": lambda: int(raster._mask.all()),
         "VALUETYPE": lambda: codes.get(raster._array.dtype.name, 10),
+        "SOURCETYPE": lambda: "Generic",
     }
+    for name in ("SENSORNAME", "PRODUCTNAME", "ACQUISITIONDATE", "CLOUDCOVER", "SUNAZIMUTH", "SUNELEVATION",
+                 "SENSORAZIMUTH", "SENSORELEVATION", "OFFNADIR", "WAVELENGTH"):
+        answers[name] = lambda: "UNKNOWN"
+    if kind == "UNIQUEVALUECOUNT" and raster._array.dtype.kind == "f":
+        from ._runtime import ExecuteError
+        raise ExecuteError("ERROR: GetRasterProperties: UNIQUEVALUECOUNT is answered only for an integer raster.")
     if kind not in answers:
         raise NotBuiltError(f"arcpy.management.GetRasterProperties: property_type '{property_type}' is not built in grapy.")
     if kind in ("MINIMUM", "MAXIMUM", "MEAN", "STD") and values.size == 0:
@@ -4120,7 +4203,8 @@ def EliminatePolygonPart(in_features, out_feature_class, condition="AREA", part_
 
 def GenerateTransectsAlongLines(in_features, out_feature_class, interval, transect_length, include_ends="NO_END_POINTS"):
     """Lines across each input line every ``interval`` from its start, ``transect_length`` long in all and centred on
-    it, perpendicular to it, with ``ORIG_FID``, as documented. INFERRED: the transects stop short of the end, which
+    it, perpendicular to it, with ``ORIG_FID``, as documented; each runs from the line's right side to its left, as
+    ArcGIS Pro 3.7 writes them (measured 2026-11-08). INFERRED: the transects stop short of the end, which
     ``END_POINTS`` adds with the start; at a vertex the transect is square to the segment leaving it (at the end, the
     one arriving). Multipart lines are not built."""
     import math
@@ -4156,8 +4240,9 @@ def GenerateTransectsAlongLines(in_features, out_feature_class, interval, transe
                 length = math.hypot(x1 - x0, y1 - y0)
                 nx, ny = -(y1 - y0) / length, (x1 - x0) / length
                 centre = line.interpolate(at)
-                written.insertRow((oid, LineString([(centre.x + nx * half, centre.y + ny * half),
-                                                    (centre.x - nx * half, centre.y - ny * half)])))
+                # From the line's right to its left: measured in ArcGIS Pro 3.7, 2026-11-08.
+                written.insertRow((oid, LineString([(centre.x - nx * half, centre.y - ny * half),
+                                                    (centre.x + nx * half, centre.y + ny * half)])))
     return Result(out)
 
 
@@ -4699,7 +4784,11 @@ def _topology(in_topology):
 
 def _class_in(file, dataset, in_featureclass, tool):
     from ._runtime import ExecuteError
-    path = _plain(tool, in_featureclass)
+    text = _text(in_featureclass)
+    if text and not any(c in text for c in "/\\") and _LAYERS.get(text) is None:
+        # A bare class name is a class of the topology's dataset: ArcGIS Pro 3.7 takes "lines" (measured 2026-11-08).
+        text = f"{file}/{dataset}/{text}"
+    path = _plain(tool, text)
     their_file, table = _gpkg.split(path)
     if os.path.normcase(os.path.abspath(their_file)) != os.path.normcase(os.path.abspath(file)) or not table \
             or not table.startswith(dataset + "/"):
@@ -4954,10 +5043,10 @@ def ValidateTopology(in_topology, visible_extent="Full_Extent"):
 
 
 def ExportTopologyErrors(in_topology, out_path=None, out_basename=None):
-    """The last validation's errors as three feature classes, always made even when empty — ``<basename>PointsErrors``,
-    ``<basename>LineErrors`` and ``<basename>PolygonErrors`` — with ``OriginObjectClassName``, ``OriginObjectID``,
-    ``DestinationObjectClassName``, ``DestinationObjectID``, ``RuleType``, ``RuleDescription`` and ``IsException``, as
-    documented; ``out_path`` defaults to the topology's workspace and ``out_basename`` to its name. INFERRED: RuleType
+    """The last validation's errors as three feature classes, always made even when empty — ``<basename>_point``,
+    ``<basename>_line`` and ``<basename>_poly`` — with ``OriginObjectClassName``, ``OriginObjectID``,
+    ``DestinationObjectClassName``, ``DestinationObjectID``, ``RuleType``, ``RuleDescription`` and ``isException``, as
+    ArcGIS Pro 3.7 names them (measured 2026-11-08; grapy wrote ``<basename>PointsErrors`` … and ``IsException``); ``out_path`` defaults to the topology's workspace and ``out_basename`` to its name. INFERRED: RuleType
     holds the esriTopologyRuleType name, RuleDescription the rule's name without its shape types, and a rule within one
     class has no destination class name and destination id 0."""
     from . import da
@@ -4975,10 +5064,10 @@ def ExportTopologyErrors(in_topology, out_path=None, out_basename=None):
     fields = [_gpkg.Column("OriginObjectClassName", "String"), _gpkg.Column("OriginObjectID", "Integer"),
               _gpkg.Column("DestinationObjectClassName", "String"), _gpkg.Column("DestinationObjectID", "Integer"),
               _gpkg.Column("RuleType", "String"), _gpkg.Column("RuleDescription", "String"),
-              _gpkg.Column("IsException", "Integer")]
+              _gpkg.Column("isException", "Integer")]
     outputs = []
-    for suffix, kind, shape in (("PointsErrors", "point", "Point"), ("LineErrors", "line", "Polyline"),
-                                ("PolygonErrors", "area", "Polygon")):
+    for suffix, kind, shape in (("_point", "point", "Point"), ("_line", "line", "Polyline"),
+                                ("_poly", "area", "Polygon")):
         out = f"{where}/{base}{suffix}"
         _gpkg.create(out, shape, srid, fields)
         with da.InsertCursor(out, [*[f.name for f in fields], "SHAPE@"]) as written:
@@ -5835,6 +5924,10 @@ def PruneBranchHistory(in_dataset, out_log, report_only="REPORT_ONLY", system_ta
     lines = []
     connection = _gpkg.connect(file)
     try:
+        if not connection.execute("select 1 from sqlite_master where name = ?", (_versions.VERSIONS,)).fetchone():
+            # Pro 3.7's refusal of a class that is not branch versioned (measured 2026-11-08; grapy raised SQLite's
+            # "no such table").
+            raise ExecuteError("ERROR 161027: Dataset must be branch versioned.")
         referenced = connection.execute(f"select min(base_moment) from {_versions.VERSIONS} where branch_id <> 0"
                                         ).fetchone()[0]
         cutoff = int(referenced) if referenced is not None else _versions.current_moment(connection)
@@ -6257,9 +6350,9 @@ def SubsetFeatures(in_features, out_training_feature_class, out_test_feature_cla
 def EncodeField(in_table, field, method="ONEHOT", time_step_interval=None, time_step_alignment="END_TIME",
                 reference_time=None):
     """EQUIVALENT: one new field per category of ``field``, 1 where the row has it and 0 elsewhere (``ONECOLD`` the
-    reverse), added to the input, as documented. INFERRED, the page not naming them: the fields are named
-    ``<field>_<category>``, made valid with ValidateFieldName, short integers, in ascending order of category; a
-    null is no category. ``TEMPORAL`` is not built."""
+    reverse), added to the input, as documented. The fields are named ``<method>_<field>_<category>`` (``ONEHOT_cat_a``)
+    and are long integers — measured in ArcGIS Pro 3.7, 2026-11-08. INFERRED: they are made valid with
+    ValidateFieldName and come in ascending order of category; a null is no category. ``TEMPORAL`` is not built."""
     from . import ValidateFieldName, da
     kind = str(method or "ONEHOT").upper()
     if kind not in ("ONEHOT", "ONECOLD"):
@@ -6268,9 +6361,9 @@ def EncodeField(in_table, field, method="ONEHOT", time_step_interval=None, time_
     source = {c.name.lower(): c.name for c in _schema(path)[0]}[str(field).lower()]
     with da.SearchCursor(path, [source]) as rows:
         categories = sorted({r[0] for r in rows if r[0] is not None}, key=lambda v: (str(type(v)), v))
-    names = [ValidateFieldName(f"{source}_{c}") for c in categories]
+    names = [ValidateFieldName(f"{kind}_{source}_{c}") for c in categories]
     for name in names:
-        AddField(path, name, "SHORT")
+        AddField(path, name, "LONG")
     hit, miss = (1, 0) if kind == "ONEHOT" else (0, 1)
     with da.UpdateCursor(path, [source, *names]) as rows:
         for row in rows:
@@ -6285,8 +6378,10 @@ def TransformField(in_table, fields, method="BOX-COX", power=None, shift=None):
     1/x (0 null), ``BOX-COX`` ((x + λ2)^λ1 − 1)/λ1 (ln(x + λ2) when λ1 is 0) with λ1 fitted by maximum likelihood when
     no power is given, ``INV_BOX-COX`` its inverse, ``INV_SQRT`` x² − shift and ``INV_LOG`` eˣ − shift — as documented.
     Default shifts as documented: LOG, SQRT and BOX-COX add the largest absolute negative value (and, for LOG and
-    BOX-COX, about 10⁻⁶ more, so a zero is lifted too). INFERRED: the new field is ``<field>_<METHOD>`` (BOX-COX as
-    BOXCOX), a double; an existing one is overwritten, as documented."""
+    BOX-COX, about 10⁻⁶ more, so a zero is lifted too). The new field is ``<field>_LOGARITHM``, ``_SQUARE_ROOT``,
+    ``_INVERSE`` or ``_BOX_COX`` — measured in ArcGIS Pro 3.7, 2026-11-08 (grapy wrote ``_LOG``, ``_SQRT``, ``_INVX``,
+    ``_BOXCOX``). INFERRED: an inverse method's field is ``<field>_<METHOD>`` with its hyphens as underscores; the
+    field is a double; an existing one is overwritten, as documented."""
     import math
     import numpy
     from . import da
@@ -6335,7 +6430,8 @@ def TransformField(in_table, fields, method="BOX-COX", power=None, shift=None):
                 return x * x - lift
             return math.exp(x) - lift
 
-        name = f"{source}_{kind.replace('-', '')}"
+        name = f"{source}_" + {"LOG": "LOGARITHM", "SQRT": "SQUARE_ROOT", "INVX": "INVERSE"}.get(
+            kind, kind.replace("-", "_"))
         if name.lower() not in own:
             AddField(path, name, "DOUBLE")
             own[name.lower()] = name
@@ -6433,10 +6529,12 @@ def ReclassifyField(in_table, field, method="EQUAL_INTERVAL", classes=None, inte
                     reclass_table=None, reverse_values="ASC", output_field_name=None):
     """EQUIVALENT: a numeric field classed by ``EQUAL_INTERVAL``, ``DEFINED_INTERVAL``, ``QUANTILE``, ``NATURAL_BREAKS``
     or ``UNIQUE_VALUES`` into two new fields, the class (1 the lowest, or the highest with ``DESC``) and its range, as
-    documented; a text field by ``UNIQUE_VALUES`` into one, named ``output_field_name``. INFERRED, the page not naming
-    them: the numeric fields are ``<name>_CLASS`` and ``<name>_RANGE``, ``<name>`` being ``output_field_name`` or
-    ``<field>_<METHOD>``; a range is written "low - high"; a value on a boundary belongs to the lower class; 5
-    classes when none is given; quantile classes split at the nearest ranks. ``MANUAL``, ``STANDARD_DEVIATION`` and
+    documented; a text field by ``UNIQUE_VALUES`` into one, named ``output_field_name``. Measured in ArcGIS Pro 3.7,
+    2026-11-08: the numeric fields are ``<name>`` (the class) and ``<name>_RANGE``, ``<name>`` being
+    ``output_field_name`` or ``<field>_<METHOD>``; a range is written "low - high", a double's to six decimals and
+    each class's low one step (1, or 0.000001 for a double) above the class below's high ("6.000001 - 10.500000");
+    quantile classes hold n // k values each, the first n % k one more (10 values in 4 classes: 3, 3, 2, 2).
+    INFERRED: a value on a boundary belongs to the lower class; 5 classes when none is given. ``MANUAL``, ``STANDARD_DEVIATION`` and
     ``GEOMETRIC_INTERVAL`` are not built."""
     import math
     from . import da
@@ -6470,12 +6568,17 @@ def ReclassifyField(in_table, field, method="EQUAL_INTERVAL", classes=None, inte
         uppers = [low + step * k for k in range(1, int(math.ceil((high - low) / step)) + 1)] or [high]
     elif kind == "QUANTILE":
         ordered = sorted(values)
-        uppers = sorted({ordered[max(0, int(round(len(ordered) * k / count)) - 1)] for k in range(1, count + 1)})
+        sizes = [len(ordered) // count + (1 if i < len(ordered) % count else 0) for i in range(count)]
+        ends = [sum(sizes[:i + 1]) for i in range(count) if sizes[i]]
+        uppers = sorted({ordered[e - 1] for e in ends})
     else:
         uppers = _jenks(values, count)
     uppers[-1] = max(uppers[-1], high)
-    lowers = [low] + uppers[:-1]
-    class_field, range_field = f"{prefix}_CLASS", f"{prefix}_RANGE"
+    whole = column.type in ("Integer", "SmallInteger", "BigInteger")
+    step = 1 if whole else 1e-6
+    lowers = [low] + [u + step for u in uppers[:-1]]
+    text = (lambda v: f"{int(round(v))}") if whole else (lambda v: f"{v:.6f}")
+    class_field, range_field = prefix, f"{prefix}_RANGE"
     AddField(path, class_field, "LONG")
     AddField(path, range_field, "TEXT")
 
@@ -6485,8 +6588,8 @@ def ReclassifyField(in_table, field, method="EQUAL_INTERVAL", classes=None, inte
         k = next(i for i, upper in enumerate(uppers) if value <= upper)
         number = len(uppers) - k if descending else k + 1
         if kind == "UNIQUE_VALUES":
-            return number, f"{uppers[k]:g}"
-        return number, f"{lowers[k]:g} - {uppers[k]:g}"
+            return number, text(uppers[k])
+        return number, f"{text(lowers[k])} - {text(uppers[k])}"
 
     with da.UpdateCursor(path, [column.name, class_field, range_field]) as rows:
         for row in rows:
@@ -6718,9 +6821,11 @@ def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
     degree plus half a post on each edge, so neighbours share a row or column; values are signed 16-bit integers; the
     post spacing is the level's — 30, 3 or 1 arc-second in latitude, and in longitude that times the latitude zone's
     factor (1 below 50°, 2 to 70°, 3 to 75°, 4 to 80°, 6 beyond), as MIL-PRF-89020B defines. The files are written by
-    GDAL's DTED driver. INFERRED, the page not saying: the folder and file names are the specification's convention —
-    a folder per longitude (``e032``, ``w005``) holding a file per latitude (``n39.dt0``) — named by the tile's
-    south-west corner; values are rounded and clipped to the 16-bit range; a cell with no data is written as DTED's
+    GDAL's DTED driver. The tiles go in a folder named for the level, ``dted0``, ``dted1`` or ``dted2``, inside the
+    output folder (measured in ArcGIS Pro 3.7, 2026-11-08: ``dted2/e027/n40.dt2``); the ``.aux.xml``, ``.ovr`` and
+    ``.xml`` files Pro writes beside each tile are its own and are not written. INFERRED, the page not saying: the
+    folder and file names below that are the specification's convention — a folder per longitude (``e032``,
+    ``w005``) holding a file per latitude (``n39.dt0``) — named by the tile's south-west corner; values are rounded and clipped to the 16-bit range; a cell with no data is written as DTED's
     null, -32767; a tile with no data at all is not written; with no resampling type, the environment's
     ``resamplingMethod``, else ``NEAREST``."""
     import math
@@ -6745,7 +6850,7 @@ def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
     source_transform = from_origin(grid.left, grid.top, grid.width, grid.height)
     west, south, east, north = transform_bounds(f"EPSG:{grid.srid}", "EPSG:4326", grid.left, grid.top - grid.rows * grid.height,
                                                 grid.left + grid.columns * grid.width, grid.top)
-    folder = os.fspath(out_folder)
+    folder = os.path.join(os.fspath(out_folder), f"dted{level[-1]}")
     os.makedirs(folder, exist_ok=True)
     seconds = _DTED_SECONDS[level]
     for tile_south in range(math.floor(south), math.ceil(north)):
@@ -6772,7 +6877,7 @@ def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
                                dtype="int16", crs="EPSG:4326", nodata=-32767,
                                transform=from_origin(tile_west - dx / 2, tile_south + 1 + dy / 2, dx, dy)) as written:
                 written.write(posts, 1)
-    return Result(folder)
+    return Result(os.fspath(out_folder))
 
 
 
@@ -7155,8 +7260,8 @@ def _new_table(tool, out, fields):
 def GenerateAttachmentMatchTable(in_dataset, in_folder, out_match_table, in_key_field, in_file_filter=None,
                                  in_use_relative_paths="RELATIVE", match_pattern="EXACT"):
     """A match table for AddAttachments: a row for each file of the folder whose name, extension disregarded, matches a
-    row's key field — exactly, as a prefix, as a suffix or anywhere — holding ``MATCHID``, the row's object id, and
-    ``FILENAME``, the file's name or with ``ABSOLUTE`` its full path, as documented. INFERRED: the folder's own files,
+    row's key field — exactly, as a prefix, as a suffix or anywhere — holding ``MatchID``, the row's object id, and
+    ``Filename`` (so spelt, as ArcGIS Pro 3.7 writes them — measured 2026-11-08), the file's name or with ``ABSOLUTE`` its full path, as documented. INFERRED: the folder's own files,
     not its subfolders'; every file counts (the page names no media types); matching ignores case; rows come in object
     id order and then by file name; a row with a null key matches nothing; a layer's selection is honoured."""
     import fnmatch
@@ -7177,8 +7282,8 @@ def GenerateAttachmentMatchTable(in_dataset, in_folder, out_match_table, in_key_
     path, where = _source(in_dataset)
     with da.SearchCursor(path, ["OID@", str(in_key_field)], where) as rows:
         keyed = sorted((oid, value) for oid, value in rows)
-    out = _new_table("GenerateAttachmentMatchTable", out_match_table, (("MATCHID", "LONG"), ("FILENAME", "TEXT")))
-    with da.InsertCursor(out, ["MATCHID", "FILENAME"]) as written:
+    out = _new_table("GenerateAttachmentMatchTable", out_match_table, (("MatchID", "LONG"), ("Filename", "TEXT")))
+    with da.InsertCursor(out, ["MatchID", "Filename"]) as written:
         for oid, value in keyed:
             if value is None or str(value) == "":
                 continue
@@ -7202,8 +7307,9 @@ def ExportAttachments(in_dataset, out_location, subdirectory_field=None, name_fo
     """Each attachment written to a file in the output folder, as documented: under its original name, or named by the
     name fields' values joined with underscores (``REPLACE``, its extension kept), or with them before (``PREFIX``) or
     after (``SUFFIX``) the original name; with a subdirectory field, in a folder named by each row's value. A
-    layer's selection is honoured. INFERRED: the joined values and the original name are separated by an underscore;
-    a name already taken gets ``_1``, ``_2`` … before its extension."""
+    layer's selection is honoured. A file already in the folder is overwritten (measured in ArcGIS Pro 3.7,
+    2026-11-08). INFERRED: the joined values and the original name are separated by an underscore; a name two of this
+    run's attachments would share gets ``_1``, ``_2`` … before its extension."""
     from . import _attachments, da
     from ._runtime import ExecuteError
     file, table, key = _attached("ExportAttachments", in_dataset)
@@ -7233,7 +7339,9 @@ def ExportAttachments(in_dataset, out_location, subdirectory_field=None, name_fo
                         "SUFFIX": f"{stem}_{values}"}[style]
                 os.makedirs(target, exist_ok=True)
                 out, n = os.path.join(target, stem + extension), 0
-                while os.path.normcase(out) in taken or os.path.exists(out):
+                # A file left by an earlier run is overwritten, as ArcGIS Pro 3.7 overwrites it (measured 2026-11-08);
+                # two attachments of this run that would share a name are told apart.
+                while os.path.normcase(out) in taken:
                     n += 1
                     out = os.path.join(target, f"{stem}_{n}{extension}")
                 taken.add(os.path.normcase(out))

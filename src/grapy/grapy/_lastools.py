@@ -1024,8 +1024,8 @@ def InterpolateFromPointCloud(in_container, out_raster, cell_size, interpolation
     that classifies its ground itself (ReuseGround 0) — that classifier is ClassifyLasGround's undescribed one, so run
     ClassifyLasGround (an equivalent) and pass ``ReuseGround 1``; a solution point table, Esri's block-adjustment output.
 
-    INFERRED, the page giving no defaults: TRIANGULATION, NONE and DSM; the withheld points are left out; the grid starts
-    at the points' lower-left corner and holds whole cells; a cell outside the triangulation is NoData; the DEM is read
+    The grid has a cell centred on the points' lower-left corner (measured in ArcGIS Pro 3.7, 2026-11-08). INFERRED,
+    the page giving no defaults: TRIANGULATION, NONE and DSM; the withheld points are left out; a cell outside the triangulation is NoData; the DEM is read
     at the cell centre, unresampled."""
     from . import _tin
     from ._raster import Raster, as_raster
@@ -1071,8 +1071,10 @@ def InterpolateFromPointCloud(in_container, out_raster, cell_size, interpolation
     x, y, z = a["x"][keep], a["y"][keep], a["z"][keep]
     if len(x) < 3:
         raise ExecuteError("ERROR: InterpolateFromPointCloud needs at least three points.")
+    # A cell centred on the points' lower-left corner, as ArcGIS Pro 3.7 lays the grid (measured 2026-11-08: points
+    # from 10 to 590 at 20 m cells give a raster from 0 to 600).
     grid = _grid_for((float(x.min()), float(y.min()), float(x.max()), float(y.max())), "CELLSIZE", cell_size, srid,
-                     centred=False)
+                     centred=True)
     surface = _tin.triangulate(list(zip(x, y, z)), [], srid=srid)
     xs, ys = grid.centres()
     gx, gy = np.meshgrid(xs, ys)

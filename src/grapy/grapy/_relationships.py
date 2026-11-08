@@ -170,6 +170,27 @@ class Described:
         self.relationshipRules = rules
 
 
+class RelationshipRule:
+    """One of Describe's relationshipRules: an object with the subtype codes and cardinalities as attributes, as ArcGIS
+    Pro 3.7 answers them (measured 2026-11-08; grapy answered dictionaries); a side without a subtype has
+    the code 0 (measured 2026-11-08)."""
+
+    def __init__(self, origin_subtype, origin_minimum, origin_maximum, destination_subtype, destination_minimum,
+                 destination_maximum):
+        code = lambda v: 0 if v is None or str(v) == "" else int(v)  # noqa: E731
+        self.originSubtypeCode = code(origin_subtype)
+        self.originMinimumCardinality = origin_minimum
+        self.originMaximumCardinality = origin_maximum
+        self.destinationSubtypeCode = code(destination_subtype)
+        self.destinationMinimumCardinality = destination_minimum
+        self.destinationMaximumCardinality = destination_maximum
+
+    def __repr__(self):
+        return (f"<RelationshipRule {self.originSubtypeCode}:{self.originMinimumCardinality}..{self.originMaximumCardinality}"
+                f" -> {self.destinationSubtypeCode}:{self.destinationMinimumCardinality}.."
+                f"{self.destinationMaximumCardinality}>")
+
+
 def describe(path):
     """A Described for a relationship class path, or None when the path names none."""
     import os
@@ -184,10 +205,10 @@ def describe(path):
         found = classes(connection, name=name)
         if not found:
             return None
-        rules = [dict(zip(("originMinimumCardinality", "originMaximumCardinality", "destinationMinimumCardinality",
-                           "destinationMaximumCardinality"), r)) for r in connection.execute(
-            "select origin_minimum, origin_maximum, destination_minimum, destination_maximum from grapy_relationship_rule "
-            "where relationship_class = ?", (name,))] if connection.execute(
+        rules = [RelationshipRule(*r) for r in connection.execute(
+            "select origin_subtype, origin_minimum, origin_maximum, destination_subtype, destination_minimum, "
+            "destination_maximum from grapy_relationship_rule where relationship_class = ? order by rule_id",
+            (name,))] if connection.execute(
             "select 1 from sqlite_master where name = 'grapy_relationship_rule'").fetchone() else []
     finally:
         connection.close()

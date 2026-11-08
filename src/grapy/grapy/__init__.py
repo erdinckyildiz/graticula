@@ -90,6 +90,7 @@ class _Described:
             rules = _rules.rules(connection, table)  # Describe's attributeRules (ADR-235)
             from . import _behaviours
             tracked = _behaviours.tracking(connection, table)  # the editor tracking properties (ADR-240)
+            cogo = _behaviours.cogo_enabled(connection, table)
             identifier = connection.execute("select identifier from gpkg_contents where table_name = ?",
                                             (table,)).fetchone()
             spatial_index = _gpkg.has_index(connection, table) if has_shape else False
@@ -124,6 +125,7 @@ class _Described:
         self.relationshipClassNames = relationships
         self.attributeRules = rules
         self.editorTrackingEnabled = tracked is not None
+        self.isCOGOEnabled = bool(cogo)  # as Pro 3.7's Describe answers it (measured 2026-11-08)
         self.creatorFieldName, self.createdAtFieldName, self.editorFieldName, self.editedAtFieldName = (
             [name or "" for name in tracked[:4]] if tracked else ["", "", "", ""])
         self.isTimeInUTC = tracked[4] if tracked else True

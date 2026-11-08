@@ -273,8 +273,8 @@ def created_in_dataset(path):
 
 
 def EnableCOGO(in_line_features):
-    """A line class made COGO enabled: the five COGO fields — Direction, Distance, ArcLength, Radius and Radius2, all
-    double — added where missing (one already there with the double type is kept), and the class marked. Direction is
+    """A line class made COGO enabled: the five COGO fields — Direction, Distance, Radius, ArcLength and Radius2, all
+    double, in that order as ArcGIS Pro 3.7 adds them (measured 2026-11-08) — added where missing (one already there with the double type is kept), and the class marked. Direction is
     a north azimuth in decimal degrees, the others in the reference's linear unit, as documented; grapy has no traverse
     tool, so the fields are filled by whatever writes them.
 
@@ -523,7 +523,9 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
             raise NotBuiltError("arcpy.management.RegisterWithGeodatabase on a view is not built in grapy: grapy's "
                                 "cursors key every row by its table's integer primary key, which a SQLite view has not.")
         if _registered(connection, table):
-            raise ExecuteError(f"ERROR 000800: '{table}' is already registered with the geodatabase.")
+            # Pro 3.7's code and words for a class already registered (measured 2026-11-08).
+            raise ExecuteError(f"ERROR 001050: Either registered with geodatabase already or cannot open the dataset. "
+                               f"('{table}')")
         columns = _columns(connection, table)
         pending = connection.execute(f"select geometry_type, srs_id, z, m from {_behaviours.UNREGISTERED} where "
                                      "table_name = ?", (table,)).fetchone() \

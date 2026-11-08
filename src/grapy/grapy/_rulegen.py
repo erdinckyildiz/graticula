@@ -7,8 +7,14 @@ public Arcade functions grapy's interpreter builds, that does what the page says
 
 INFERRED (ADR-235 §5.8): the file is ``<out_folder>/<table>/<table>.csv``, or ``<table>_1.csv``, ``_2`` … when that
 is taken, as the pages say each run adds another file to a folder named after the input; the rule's name is the
-tool's subject (``Calculate geometry fields``, ``Generate ID <field>`` …); a distance given with a unit is converted
-to the input's spatial reference units when the rule is written, and refused on a geographic reference.
+tool's subject (``Calculate geometry fields`` …); a distance given with a unit is converted to the input's spatial
+reference units when the rule is written, and refused on a geographic reference.
+
+Measured in ArcGIS Pro 3.7, 2026-11-08, and so no longer inferred for the two tools it was measured on: the folder is
+named after the input, but the file after the rule — ``GenerateID.csv`` (with ``ID_Table.csv`` and
+``create_database_sequences.py``) and ``SymbolRotation.csv`` — and the rule's name is that same word (``GenerateID``,
+``SymbolRotation``). The ``.csv.xml`` and ``schema.ini`` files Pro writes beside its CSV files are its table writer's
+and are not written.
 """
 from __future__ import annotations
 
@@ -34,28 +40,33 @@ def _literal(value):
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def _file(out_folder, table):
+def _file(out_folder, table, base=None):
+    """The rule file's path. A file named after the table takes ``_1``, ``_2`` … when taken (INFERRED); one named after
+    the rule, as Pro names them, takes ``0``, ``1`` … — Pro's second GenerateID.csv is GenerateID0.csv (measured in
+    ArcGIS Pro 3.7, 2026-11-08; the third's ``1`` is INFERRED)."""
     folder = os.path.join(_text(out_folder), table.replace("/", "_"))
     os.makedirs(folder, exist_ok=True)
-    base = table.replace("/", "_")
+    named = base is not None
+    base = base or table.replace("/", "_")
     path, n = os.path.join(folder, f"{base}.csv"), 0
     while os.path.exists(path):
         n += 1
-        path = os.path.join(folder, f"{base}_{n}.csv")
+        path = os.path.join(folder, f"{base}{n - 1}.csv" if named else f"{base}_{n}.csv")
     return path
 
 
 def _write(out_folder, table, rule):
     """The rule written as ExportAttributeRules writes one."""
-    path = _file(out_folder, table)
+    path = _file(out_folder, table, rule.get("file"))
     events = rule.get("events", [])
     row = {"NAME": rule["name"], "DESCRIPTION": rule.get("description", ""), "TYPE": "CALCULATION", "SUBTYPE": "",
-           "FIELD": rule.get("field") or "", "ISEDITABLE": _flag(True), "TRIGGERINSERT": _flag("INSERT" in events),
+           "FIELD": rule.get("field") or "", "ISEDITABLE": _flag(rule.get("editable", True)), "TRIGGERINSERT": _flag("INSERT" in events),
            "TRIGGERDELETE": _flag("DELETE" in events), "TRIGGERUPDATE": _flag("UPDATE" in events),
            "SCRIPTEXPRESSION": rule["script"], "ERRORNUMBER": "", "ERRORMESSAGE": "",
            "EXCLUDECLIENTEVALUATION": _flag(rule.get("exclude", False)), "ISENABLED": _flag(True),
            "BATCH": _flag(False), "SEVERITY": "", "TAGS": "", "CATEGORY": "", "CHECKPARAMETERS": "",
-           "TRIGGERINGFIELDS": json.dumps(rule.get("triggering", []))}
+           # Empty when the rule names no triggering fields, as Pro 3.7 writes a generated rule (measured 2026-11-08).
+           "TRIGGERINGFIELDS": json.dumps(rule["triggering"]) if rule.get("triggering") else ""}
     with open(path, "w", encoding="utf-8", newline="") as written:
         out = csv.writer(written)
         out.writerow(_EXPORT)
@@ -304,7 +315,10 @@ def GenerateIDAttributeRule(in_table, out_folder, field, where_clause=None, crea
         else:
             configs = _id_table(tool, id_table)
         if not configs:
-            raise ExecuteError(f"ERROR 000735: {tool}: give at least one ID configuration.")
+            # No configuration: one for every row, as ArcGIS Pro 3.7 writes it (measured 2026-11-08) — no filter,
+            # prefix, suffix, padding or separator, a sequence of its own starting at 1 by 1.
+            import uuid
+            configs = [["", "Generate an ID for any row in the class", f"seq_{uuid.uuid4().hex}", 1, 1, "", "", 0, ""]]
         parsed = []
         for where, description, sequence, start, step, prefix, suffix, padding, separator in configs:
             if not sequence:
@@ -343,19 +357,25 @@ def GenerateIDAttributeRule(in_table, out_folder, field, where_clause=None, crea
               "  }\n"
               "}\n"
               "return current")
-    path = _write(out_folder, table, {"name": f"Generate ID {target}", "field": target, "script": script,
-                                      "events": ["INSERT"], "description": "; ".join(p[1] for p in parsed if p[1])})
-    stem = os.path.splitext(path)[0]
-    with open(stem + "_ids.csv", "w", encoding="utf-8", newline="") as written:
+    # Pro's names and flags for this rule (measured in ArcGIS Pro 3.7, 2026-11-08): GenerateID.csv, the rule
+    # "GenerateID" described as below, not editable, on insert only, excluded from client evaluation.
+    path = _write(out_folder, table, {"name": "GenerateID", "file": "GenerateID", "field": target, "script": script,
+                                      "events": ["INSERT"], "editable": False, "exclude": True,
+                                      "description": "Generate ID using Database Sequences"})
+    folder = os.path.dirname(path)
+    suffix = os.path.splitext(os.path.basename(path))[0][len("GenerateID"):]   # "" or Pro's "0", "1" …
+    ids = os.path.join(folder, f"ID_Table{suffix}.csv")
+    seqs = os.path.join(folder, f"create_database_sequences{suffix}.py")
+    with open(ids, "w", encoding="utf-8", newline="") as written:
         out = csv.writer(written)
-        out.writerow(["WhereClause", "Description", "SequenceName", "StartingValue", "IncrementValue", "Prefix",
-                      "Suffix", "Padding", "Separator"])
-        out.writerows(parsed)
-    with open(stem + "_sequences.py", "w", encoding="utf-8", newline="\n") as written:
+        out.writerow(["whereclause", "description", "sequencename", "startingvalue", "incrementvalue", "prefix",
+                      "suffix", "padding", "separator", "intersectclass", "classidfield", "classfilter"])
+        out.writerows([*p, "", "", ""] for p in parsed)
+    with open(seqs, "w", encoding="utf-8", newline="\n") as written:
         written.write("import arcpy\n\nworkspace = " + json.dumps(file) + "\n")
         for _, _, sequence, start, step, *_ in parsed:
             written.write(f"arcpy.management.CreateDatabaseSequence(workspace, {json.dumps(sequence)}, {start}, {step})\n")
-    return Result(path, stem + "_ids.csv", stem + "_sequences.py")
+    return Result(path, ids, seqs)
 
 
 def _id_table(tool, id_table):
@@ -499,8 +519,10 @@ def GenerateSpatialJoinAttributeRule(in_table, out_folder, join_classes, field_m
         f"{_literal(o)}: grapyMerge(values[{_literal(o)}], {_literal(r)}, {_literal(d)})" for o, r, d, _ in outputs)
         + "}}}")
     script = "\n".join(line for line in lines if line)
-    path = _write(out_folder, table, {"name": "Spatial join", "script": script, "events": ["INSERT", "UPDATE"],
-                                      "description": "Joins " + ", ".join(c for _, c in classes)})
+    # Pro's names for this rule (measured in ArcGIS Pro 3.7, 2026-11-08): Spatial_Join.csv, the rule "Spatial Join"
+    # with no description.
+    path = _write(out_folder, table, {"name": "Spatial Join", "file": "Spatial_Join", "script": script,
+                                      "events": ["INSERT", "UPDATE"], "description": ""})
     return Result(path)
 
 
@@ -533,7 +555,8 @@ def GenerateSymbolRotationAttributeRule(in_table, out_folder, field, line_classe
             row = (row + [None, None])[:2]
             name = _class_name(tool, connection, file, row[0])
             if row[1] in (None, ""):
-                raise ExecuteError(f"ERROR 000735: {tool}: each line class names its orientation field.")
+                # Without one, the class's object ID field, as ArcGIS Pro 3.7 writes it (measured 2026-11-08).
+                row[1] = _gpkg.oid_column(connection, name)
             lines_given.append((name, str(row[1])))
         if not lines_given:
             raise ExecuteError(f"ERROR 000735: {tool}: name at least one line class.")
@@ -573,9 +596,10 @@ def GenerateSymbolRotationAttributeRule(in_table, out_folder, field, line_classe
               "var angle = 0;\n"
               "if (option[1] == 'GEOGRAPHIC') { angle = Bearing(a, b) } else { angle = Angle(a, b) }\n"
               "return (angle + option[3]) % 360")
-    path = _write(out_folder, table, {"name": f"Symbol rotation {target}", "field": target, "script": script,
-                                      "events": ["INSERT", "UPDATE"],
-                                      "description": "Rotation from " + ", ".join(c for c, _ in lines_given)})
+    # Pro's names for this rule (measured in ArcGIS Pro 3.7, 2026-11-08): SymbolRotation.csv, the rule
+    # "SymbolRotation" with no description, editable, on insert and update.
+    path = _write(out_folder, table, {"name": "SymbolRotation", "file": "SymbolRotation", "field": target,
+                                      "script": script, "events": ["INSERT", "UPDATE"], "description": ""})
     return Result(path)
 
 
@@ -595,10 +619,10 @@ def GenerateUpdateRelatedAttributeRule(in_table, out_folder, search_options, whe
     feature within the search distance; not for tables, as documented), or a utility network association (UN_CONNECTED
     … UN_MIDSPAN) — with the input field's value (or the value itself when it names no field): SET_VALUE replaces it,
     CONCATENATE appends it after a hyphen, BITWISE_OR ors it into the target's number. The rule returns the attribute
-    rule dictionary's ``edit`` and is excluded from client evaluation, as that keyword requires.
-    INFERRED (ADR-235 §5.8): the rule runs on insert and update; CONCATENATE onto an empty target is the value alone;
-    targets are updated by object id, and by global ID for associations; target classes are in the input's
-    GeoPackage."""
+    rule dictionary's ``edit`` and is excluded from client evaluation, as that keyword requires. The rule runs on
+    update only, as ArcGIS Pro 3.7 writes it (measured 2026-11-08). INFERRED (ADR-235 §5.8): CONCATENATE onto an empty
+    target is the value alone; targets are updated by object id, and by global ID for associations; target classes
+    are in the input's GeoPackage."""
     tool = "GenerateUpdateRelatedAttributeRule"
     from . import _relationships
     connection, table, columns, shape, srid, geometry, per_unit, geographic = _describe(tool, in_table)
@@ -693,7 +717,9 @@ def GenerateUpdateRelatedAttributeRule(in_table, out_folder, search_options, whe
     lines.append("if (Count(edits) == 0) { return {} }")
     lines.append("return {edit: edits}")
     script = "\n".join(line for line in lines if line)
-    path = _write(out_folder, table, {"name": "Update related", "script": script, "events": ["INSERT", "UPDATE"],
-                                      "exclude": True,
-                                      "description": "Updates " + ", ".join(f"{s[0]}.{s[1]}" for s in searches)})
+    # Pro's names and triggers for this rule (measured in ArcGIS Pro 3.7, 2026-11-08): Update_Related.csv, the rule
+    # "Update Related" described as below, on update only.
+    path = _write(out_folder, table, {"name": "Update Related", "file": "Update_Related", "script": script,
+                                      "events": ["UPDATE"], "exclude": True,
+                                      "description": "Update attributes of related records"})
     return Result(path)

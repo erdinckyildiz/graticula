@@ -795,4 +795,8 @@ def describe(path):
         file, name = locate(path)
     except (ExecuteError, ValueError, TypeError):
         return None
-    return Described(path, file, name, load(path))
+    described = Described(path, file, name, load(path))
+    if str(path) in LAYERS:
+        # A layer MakeTinLayer made: Describe answers it as the layer it is (ArcGIS Pro 3.7, measured 2026-11-08).
+        described.dataType = "TinLayer"
+    return described

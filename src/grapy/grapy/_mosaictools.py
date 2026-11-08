@@ -842,6 +842,13 @@ def SetMosaicDatasetProperties(in_mosaic_dataset, rows_maximum_imagesize=None, c
         given = {k: v for k, v in arguments.items() if k in _SET_NAMES and _given(v)}
         for parameter, value in given.items():
             props[_SET_NAMES[parameter]] = value
+        if _given(allowed_compressions):
+            # The default first, then the others in the order given: ArcGIS Pro 3.7 answers "None;JPEG;LZ77" with
+            # LZ77 the default as "LZ77;None;JPEG" (measured 2026-11-08).
+            listed = [str(c) for c in _list(allowed_compressions)]
+            default = str(props.get("defaultCompressionMethod") or "")
+            first = [c for c in listed if c.lower() == default.lower()]
+            props["allowedCompressionMethods"] = ";".join(first + [c for c in listed if c.lower() != default.lower()])
         if _given(allowed_mosaic_methods):
             methods = [_method_word(m, tool) for m in _list(allowed_mosaic_methods)]
             props["allowedMosaicMethods"] = ";".join(methods)
@@ -1044,8 +1051,8 @@ def ExportMosaicDatasetPaths(in_mosaic_dataset, out_table, where_clause=None, ex
     exports only paths whose file cannot be found. grapy's items have raster paths only — no item caches — so
     ``ITEM_CACHE`` alone exports none.
 
-    INFERRED (ADR-230 §5.9 (j)): the other fields, which the page does not name, are ``Path`` and ``Type`` (``RASTER``);
-    a ``.dbf`` output is refused, grapy writing tables into GeoPackages."""
+    The other field is ``Path`` alone — measured in ArcGIS Pro 3.7, 2026-11-08 (grapy also wrote a ``Type`` field, an
+    inference, ADR-230 §5.9 (j)). INFERRED: a ``.dbf`` output is refused, grapy writing tables into GeoPackages."""
     from .stats import _write_table
     if _mosaic.text(out_table).lower().endswith(".dbf"):
         _refuse("ExportMosaicDatasetPaths", "out_table", out_table, "grapy writes tables into GeoPackages, not dBASE")
@@ -1056,9 +1063,9 @@ def ExportMosaicDatasetPaths(in_mosaic_dataset, out_table, where_clause=None, ex
     finally:
         connection.close()
     broken_only = _word(export_mode, "ALL") == "BROKEN"
-    rows = [(i["OBJECTID"], i.get("Raster") or "", "RASTER") for i in chosen if "RASTER" in kinds
+    rows = [(i["OBJECTID"], i.get("Raster") or "") for i in chosen if "RASTER" in kinds
             and (not broken_only or not os.path.isfile(i.get("Raster") or ""))]
-    columns = [_gpkg.Column("SourceOID", "Integer"), _gpkg.Column("Path", "String"), _gpkg.Column("Type", "String")]
+    columns = [_gpkg.Column("SourceOID", "Integer"), _gpkg.Column("Path", "String")]
     return Result(_write_table(out_table, columns, rows))
 
 
@@ -1070,7 +1077,8 @@ def ExportMosaicDatasetItems(in_mosaic_dataset, out_folder, out_base_name=None, 
     OBJECTID, or by its ``Name`` with none; cells holding ``nodata_value`` become NoData; ``EXTENT`` clips to an extent
     (``template_dataset``: an Extent, ``x-min y-min x-max y-max`` or a dataset's extent), ``FEATURE_CLASS`` to a
     feature class's extent. INFERRED (ADR-230 §5.9 (j)): a clip keeps the item's whole cells that the extent overlaps;
-    the output's NoData value is ``nodata_value`` when given; ``.tif`` is added to the name.
+    the output's NoData value is ``nodata_value`` when given. ``.TIF`` is added to the name, in capitals, as ArcGIS Pro
+    3.7 adds it (measured 2026-11-08).
 
     Refused: formats other than TIFF (CRF and MRF are Esri's; the others are not written by grapy); ``IMAGESPACE``,
     distortion removal and band selection (sensor models and band definitions grapy does not have); a cell size other
@@ -1121,7 +1129,7 @@ def ExportMosaicDatasetItems(in_mosaic_dataset, out_folder, out_base_name=None, 
                 _refuse(tool, "cell_size", cell_size, "a cell size other than the item's resamples, which is not built")
         stem = f"{out_base_name}{item['OBJECTID']}" if _given(out_base_name) else (item.get("Name") or
                                                                                   f"item{item['OBJECTID']}")
-        path = os.path.join(folder, stem + ".tif")
+        path = os.path.join(folder, stem + ".TIF")   # Pro 3.7 writes the extension in capitals (measured 2026-11-08)
         if _export(source, path, nodata_value, box):
             written.append(path)
     return Result(folder)

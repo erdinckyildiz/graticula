@@ -412,7 +412,9 @@ class Mosaic(unittest.TestCase):
     def test_paths_are_exported_and_repaired(self):
         table = os.path.join(self.gpkg, "paths")
         arcpy.management.ExportMosaicDatasetPaths(self.md, table)
-        self.assertEqual(rows_of(table, ["SourceOID", "Type"]), [(1, "RASTER"), (2, "RASTER")])
+        # SourceOID and Path only: Pro 3.7 writes no Type field (measured 2026-11-08; this pinned grapy's Type).
+        self.assertEqual([f.name for f in arcpy.ListFields(table)][1:], ["SourceOID", "Path"])
+        self.assertEqual(rows_of(table, ["SourceOID"]), [(1,), (2,)])
         moved = os.path.join(self.directory, "moved")
         shutil.move(self.images, moved)
         arcpy.management.ExportMosaicDatasetPaths(self.md, table, export_mode="BROKEN")
@@ -443,13 +445,14 @@ class Mosaic(unittest.TestCase):
         out = os.path.join(self.directory, "out")
         os.makedirs(out)
         arcpy.management.ExportMosaicDatasetItems(self.md, out, "img")
-        self.assertEqual(sorted(os.listdir(out)), ["img1.tif", "img2.tif"])
-        self.assertEqual(arcpy.RasterToNumPyArray(os.path.join(out, "img2.tif")).tolist(), [[20] * 4] * 4)
+        # ".TIF" in capitals, as Pro 3.7 writes it (measured 2026-11-08; this pinned ".tif").
+        self.assertEqual(sorted(os.listdir(out)), ["img1.TIF", "img2.TIF"])
+        self.assertEqual(arcpy.RasterToNumPyArray(os.path.join(out, "img2.TIF")).tolist(), [[20] * 4] * 4)
         clipped = os.path.join(self.directory, "clipped")
         os.makedirs(clipped)
         arcpy.management.ExportMosaicDatasetItems(self.md, clipped, where_clause="Name = 'a'", clip_type="EXTENT",
                                                   template_dataset="0 0 2 2")
-        raster = arcpy.Raster(os.path.join(clipped, "a.tif"))
+        raster = arcpy.Raster(os.path.join(clipped, "a.TIF"))
         self.assertEqual((raster.width, raster.height, raster.extent.XMin, raster.extent.YMax), (2, 2, 0.0, 2.0))
 
     def test_geometry_is_exported_as_footprints_and_levels(self):

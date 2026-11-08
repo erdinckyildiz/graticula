@@ -29,7 +29,8 @@ EXTENSION = "grapy_edit_behaviours"
 DEFINITION = "Graticula ADR-240: grapy's editor tracking, last edit time, COGO and incrementing ID fields"
 TRACKING, LAST_EDIT, COGO, INCREMENTING, UNREGISTERED = (
     "grapy_editor_tracking", "grapy_last_edit_time", "grapy_cogo", "grapy_incrementing_id", "grapy_unregistered")
-COGO_FIELDS = ("Direction", "Distance", "ArcLength", "Radius", "Radius2")
+# In the order ArcGIS Pro 3.7 adds them (measured 2026-11-08).
+COGO_FIELDS = ("Direction", "Distance", "Radius", "ArcLength", "Radius2")
 DEFAULT_TRACKING = ("created_user", "created_date", "last_edited_user", "last_edited_date")
 
 

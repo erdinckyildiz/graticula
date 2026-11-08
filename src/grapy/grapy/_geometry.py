@@ -1,6 +1,7 @@
 """arcpy's geometry objects, by their documented names, held as shapely geometries — ADR-223 §5.2."""
 from __future__ import annotations
 
+import numpy
 import shapely
 from shapely.geometry import LineString, MultiLineString, MultiPoint, MultiPolygon, Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
@@ -267,6 +268,13 @@ class Geometry:
     def extent(self):
         from ._reference import Extent
         x0, y0, x1, y1 = self._shape.bounds
+        if self._shape.has_z and not self._shape.is_empty:
+            # A z-aware shape's extent carries its heights, as Pro 3.7 answers a multipatch's (measured 2026-11-08).
+            import shapely
+            zs = shapely.get_coordinates(self._shape, include_z=True)[:, 2]
+            zs = zs[~numpy.isnan(zs)] if len(zs) else zs
+            if len(zs):
+                return Extent(x0, y0, x1, y1, float(zs.min()), float(zs.max()), None, None, self.spatialReference)
         return Extent(x0, y0, x1, y1, self.spatialReference)
 
     @property

@@ -80,7 +80,8 @@ class Tools(unittest.TestCase):
         points = arcpy.management.FeatureToPoint(self.parcels, self.out("pts")).getOutput(0)
         self.assertEqual(self.rows(points, ["name", "SHAPE@XY", "ORIG_FID"])[1], ("p1", (125.0, 25.0), 2))
         corners = arcpy.management.FeatureVerticesToPoints(self.parcels, self.out("v")).getOutput(0)
-        self.assertEqual(arcpy.management.GetCount(corners)[0], "12")
+        # Each square's closing vertex is a point too: measured in ArcGIS Pro 3.7, 2026-11-08 (was 12, four a square).
+        self.assertEqual(arcpy.management.GetCount(corners)[0], "15")
         ends = arcpy.management.FeatureVerticesToPoints(self.parcels, self.out("e"), "START").getOutput(0)
         self.assertEqual(self.rows(ends, ["SHAPE@XY"])[0], ((0.0, 0.0),))
 

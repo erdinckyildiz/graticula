@@ -31,10 +31,17 @@ def _columns(fields, described, oid):
         return ["OID@", *names, "SHAPE@"]
     if isinstance(fields, str):
         fields = [f.strip() for f in fields.split(";")]
+    # A field is named in any case, as arcpy's cursors take it ("MATCHID" for MatchID — found by the Pro sweep,
+    # 2026-11-08); it is read under its own name.
+    own = {n.lower(): n for n in names}
+    out = []
     for f in fields:
-        if not f.upper().startswith(("OID@", "SHAPE@")) and f.upper() not in _MODEL_TOKENS and f not in names and f != oid:
-            raise RuntimeError(f"Cannot find field '{f}'")
-    return list(fields)
+        if not f.upper().startswith(("OID@", "SHAPE@")) and f.upper() not in _MODEL_TOKENS and f != oid:
+            if f not in names and f.lower() not in own:
+                raise RuntimeError(f"Cannot find field '{f}'")
+            f = f if f in names else own[f.lower()]
+        out.append(f)
+    return out
 
 
 _MODEL_TOKENS = ("SUBTYPE@", "GLOBALID@")

@@ -305,14 +305,17 @@ class RuleTools(_Workspace):
         arcpy.management.DisableAttributeRules(self.parcels, "cap")
         out = os.path.join(self.directory, "rules.csv")
         arcpy.management.ExportAttributeRules(self.parcels, out)
-        with open(out, encoding="utf-8", newline="") as read:
+        # Pro 3.7 writes a byte order mark, a twenty-first column SUBTYPES and an empty property set in CHECKPARAMETERS
+        # (measured 2026-11-08; this pinned twenty columns and an empty CHECKPARAMETERS).
+        with open(out, encoding="utf-8-sig", newline="") as read:
             rows = list(csv.reader(read))
         self.assertEqual(rows[0], ["NAME", "DESCRIPTION", "TYPE", "SUBTYPE", "FIELD", "ISEDITABLE", "TRIGGERINSERT",
                                    "TRIGGERDELETE", "TRIGGERUPDATE", "SCRIPTEXPRESSION", "ERRORNUMBER", "ERRORMESSAGE",
                                    "EXCLUDECLIENTEVALUATION", "ISENABLED", "BATCH", "SEVERITY", "TAGS", "CATEGORY",
-                                   "CHECKPARAMETERS", "TRIGGERINGFIELDS"])
-        self.assertEqual(rows[1], ["area", "", "CALCULATION", "Residential", "area", "False", "True", "False", "True",
-                                   "Area($feature)", "", "", "False", "True", "False", "", "geo", "", "", '["geom"]'])
+                                   "CHECKPARAMETERS", "TRIGGERINGFIELDS", "SUBTYPES"])
+        self.assertEqual(rows[1][:20], ["area", "", "CALCULATION", "Residential", "area", "False", "True", "False",
+                                        "True", "Area($feature)", "", "", "False", "True", "False", "", "geo", "",
+                                        '{"type":"PropertySet","propertySetItems":[]}', '["geom"]'])
         self.assertEqual(rows[2][:3] + rows[2][10:15], ["cap", "", "CONSTRAINT", "999", "too high", "False", "False",
                                                         "False"])
         other = arcpy.management.CreateFeatureclass(self.gpkg, "other", "POLYGON", spatial_reference=3857)[0]
@@ -484,13 +487,15 @@ class ContingentValues(_Workspace):
         arcpy.management.ExportContingentValues(self.parcels, groups, values)
         with open(groups, encoding="utf-8", newline="") as read:
             self.assertEqual(list(csv.reader(read)), [["NAME", "IS_RESTRICTIVE", "FIELD1", "FIELD2"],
-                                                      ["use", "TRUE", "kind", "value"]])
+                                                      ["use", "true", "kind", "value"]])
         with open(values, encoding="utf-8", newline="") as read:
             self.assertEqual(list(csv.reader(read)), [
                 ["CAV_ID", "IS_RETIRED", "FIELD_GROUP", "SUBTYPE", "SUBTYPE_NAME", "CV_TYPE1", "CV_VALUE1",
                  "DESCRIPTION1", "CV_TYPE2", "CV_VALUE2", "DESCRIPTION2"],
-                ["1", "False", "use", "", "", "3", "1", "House", "4", "0;150", ""],
-                ["2", "True", "use", "", "", "3", "2", "Shop", "2", "", ""]])
+                # As Pro 3.7 writes them (measured 2026-11-08; this pinned "TRUE", "False", an empty SUBTYPE and "0;150"):
+                # lower-case flags, SUBTYPE 0 without subtypes, a range as min#max to six decimals.
+                ["1", "false", "use", "0", "", "3", "1", "House", "4", "0.000000#150.000000", ""],
+                ["2", "true", "use", "0", "", "3", "2", "Shop", "2", "", ""]])
         other = arcpy.management.CreateFeatureclass(self.gpkg, "other", "POLYGON", spatial_reference=3857)[0]
         arcpy.management.AddField(other, "kind", "SHORT")
         arcpy.management.AddField(other, "value", "DOUBLE")

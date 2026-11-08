@@ -103,19 +103,24 @@ class Sweep(unittest.TestCase):
         data = self.table("d", [("kind", "TEXT"), ("v", "DOUBLE")],
                           [("a", 1.0), ("b", math.e), ("a", math.e ** 2)])
         arcpy.management.EncodeField(data, "kind")
-        self.assertEqual(self.rows(data, ["kind_a", "kind_b"]), [(1, 0), (0, 1), (1, 0)])
+        # Named <method>_<field>_<category>: measured in ArcGIS Pro 3.7, 2026-11-08 (was kind_a, an inference).
+        self.assertEqual(self.rows(data, ["ONEHOT_kind_a", "ONEHOT_kind_b"]), [(1, 0), (0, 1), (1, 0)])
         arcpy.management.TransformField(data, "v", "LOG")
-        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_LOG"])], [0.0, 1.0, 2.0])
+        # Pro 3.7 names the fields <field>_LOGARITHM, _BOX_COX (measured 2026-11-08; were _LOG, _BOXCOX).
+        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_LOGARITHM"])], [0.0, 1.0, 2.0])
         arcpy.management.TransformField(data, "v", "BOX-COX", 1)
-        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_BOXCOX"])],
+        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_BOX_COX"])],
                          [0.0, round(math.e - 1, 12), round(math.e ** 2 - 1, 12)])
         values = self.table("n", [("x", "DOUBLE")], [(v,) for v in (0.0, 5.0, 10.0)])
         arcpy.management.ReclassifyField(values, "x", "EQUAL_INTERVAL", 2, output_field_name="eq")
-        self.assertEqual(self.rows(values, ["eq_CLASS", "eq_RANGE"]), [(1, "0 - 5"), (1, "0 - 5"), (2, "5 - 10")])
+        # Pro 3.7: the class field is the name itself, a double's range has six decimals and the next class starts one
+        # millionth above (measured 2026-11-08; this pinned eq_CLASS and "0 - 5", "5 - 10").
+        self.assertEqual(self.rows(values, ["eq", "eq_RANGE"]),
+                         [(1, "0.000000 - 5.000000"), (1, "0.000000 - 5.000000"), (2, "5.000001 - 10.000000")])
         groups = self.table("g", [("x", "DOUBLE")], [(v,) for v in (1.0, 2.0, 3.0, 10.0, 11.0, 12.0)])
         arcpy.management.ReclassifyField(groups, "x", "NATURAL_BREAKS", 2, output_field_name="nb")
         # The two natural groups 1–3 and 10–12.
-        self.assertEqual([r[0] for r in self.rows(groups, ["nb_CLASS"])], [1, 1, 1, 2, 2, 2])
+        self.assertEqual([r[0] for r in self.rows(groups, ["nb"])], [1, 1, 1, 2, 2, 2])
 
     def test_standardize_field_by_the_pages_four_equations(self):
         data = self.table("s", [("x", "DOUBLE")], [(v,) for v in (1.0, 2.0, 3.0, 4.0, None)])
@@ -184,7 +189,10 @@ class Sweep(unittest.TestCase):
         # 0.1-degree cells of 123.4 over 32.1–32.6 E, 39.5–39.9 N: inside tile e032/n39 only.
         grid = _raster._Grid(32.1, 39.9, 0.1, 0.1, 4, 5, 4326)
         source = _raster.Raster._of(numpy.full((4, 5), 123.4), numpy.zeros((4, 5), bool), grid).save(self.out("dem.tif"))
-        folder = arcpy.management.RasterToDTED(source, self.out("dted"), "DTED_0", "NEAREST")[0]
+        out = arcpy.management.RasterToDTED(source, self.out("dted"), "DTED_0", "NEAREST")[0]
+        # The tiles sit in a "dted0" folder inside the output folder, as Pro 3.7 writes them (measured 2026-11-08).
+        self.assertEqual(os.listdir(out), ["dted0"])
+        folder = os.path.join(out, "dted0")
         self.assertEqual(sorted(os.listdir(folder)), ["e032"])
         self.assertEqual(os.listdir(os.path.join(folder, "e032")), ["n39.dt0"])
         with rasterio.open(os.path.join(folder, "e032", "n39.dt0")) as tile:
