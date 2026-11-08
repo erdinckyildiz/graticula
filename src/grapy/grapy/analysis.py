@@ -51,7 +51,9 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
     """Each feature buffered by a distance or a field's value, in the data's own plane.
 
     ``dissolve_option`` ALL answers one shape without attributes; LIST one shape for each combination of the
-    ``dissolve_field`` values, with those fields only, as documented; NONE one shape per feature.
+    ``dissolve_field`` values, with those fields only, as documented; NONE one shape per feature, with the input's
+    fields, ``BUFF_DIST`` (the distance in the data's units) and ``ORIG_FID`` — measured in ArcGIS Pro 3.7,
+    2026-11-08, for Buffer and PairwiseBuffer alike.
 
     Refused: ``method`` GEODESIC — this buffer is planar, and answering a planar shape for a geodesic request would
     be a wrong answer rather than a missing one (found 2026-11-08: it was accepted and ignored)."""
@@ -72,15 +74,20 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
             listed.append(match[0])
         if not listed:
             raise ValueError("arcpy.analysis.Buffer: dissolve_option LIST needs dissolve_field.")
-    _gpkg.create(out_feature_class if ".gpkg" in str(out_feature_class).lower() else out_feature_class + ".gpkg",
-                 "Polygon", srid, [] if dissolve == "ALL" else listed if dissolve == "LIST" else columns)
-    out = out_feature_class if ".gpkg" in str(out_feature_class).lower() else out_feature_class + ".gpkg"
+    kept = [c for c in columns if c.name.upper() not in ("BUFF_DIST", "ORIG_FID")]
+    out_columns = [] if dissolve == "ALL" else listed if dissolve == "LIST" else         [*kept, _gpkg.Column("BUFF_DIST", "Double"), _gpkg.Column("ORIG_FID", "Integer")]
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polygon", srid, out_columns)
+    keep = [names.index(c.name) for c in kept]
     shapes = []
-    with da.SearchCursor(in_features, [*names, "SHAPE@"]) as rows:
-        for row in rows:
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
+        for oid, *row in rows:
             if row[-1] is None:
                 continue
+            if by_field and row[names.index(buffer_distance_or_field)] is None:
+                continue
             distance = float(row[names.index(buffer_distance_or_field)]) if by_field else _distance(buffer_distance_or_field, srid)
+            written_distance = distance
             kwargs = {"cap_style": "flat" if line_end_type.upper() == "FLAT" else "round"}
             if line_side.upper() in ("LEFT", "RIGHT"):
                 kwargs["single_sided"] = True
@@ -88,24 +95,24 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
             shape = row[-1]._shape.buffer(distance, **kwargs)
             if line_side.upper() == "OUTSIDE_ONLY":
                 shape = shape.difference(row[-1]._shape)
-            shapes.append((row[:-1], shape))
+            shapes.append((row[:-1], shape, written_distance, oid))
     if dissolve == "LIST":
         from shapely import union_all
         positions = [names.index(c.name) for c in listed]
         groups = {}
-        for values, shape in shapes:
+        for values, shape, _, _ in shapes:
             groups.setdefault(tuple(values[i] for i in positions), []).append(shape)
         with da.InsertCursor(out, [*[c.name for c in listed], "SHAPE@"]) as written:
             for key, group in groups.items():
                 written.insertRow((*key, union_all(group)))
         return Result(out)
-    with da.InsertCursor(out, [*([] if dissolve == "ALL" else names), "SHAPE@"]) as written:
+    with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         if dissolve == "ALL":
             from shapely import union_all
-            written.insertRow((union_all([s for _, s in shapes]),))
+            written.insertRow((union_all([s for _, s, _, _ in shapes]),))
         else:
-            for values, shape in shapes:
-                written.insertRow((*values, shape))
+            for values, shape, distance, oid in shapes:
+                written.insertRow((*[values[i] for i in keep], distance, oid, shape))
     return Result(out)
 
 
@@ -156,11 +163,37 @@ def _stem(path):
     return table or os.path.splitext(os.path.basename(file))[0]
 
 
-def _joined_columns(*schemas):
+def _blank(column):
+    """What Pro writes in an overlay for a field of an input that does not cover a piece: 0 in a number, an empty string
+    in text, and nothing in any other type (measured in ArcGIS Pro 3.7, 2026-11-08: Union, Identity, SymDiff and Update
+    write 0 and '' there, not null)."""
+    if column.type in ("Integer", "SmallInteger", "Double", "Single", "BigInteger"):
+        return 0
+    if column.type == "String":
+        return ""
+    return None
+
+
+def _layout(join_attributes, count, identity=False):
+    """For each input, whether its ``FID_`` field and its own fields are written, by ``join_attributes``. Identity's
+    ONLY_FID keeps every field of the input and only the identity features' FID (measured in ArcGIS Pro 3.7,
+    2026-11-08)."""
+    option = str(join_attributes or "ALL").upper()
+    if option not in ("ALL", "NO_FID", "ONLY_FID"):
+        raise ValueError(f"join_attributes '{join_attributes}' is not ALL, NO_FID or ONLY_FID.")
+    one = {"ALL": (True, True), "NO_FID": (False, True), "ONLY_FID": (True, False)}[option]
+    layout = [one] * count
+    if identity and option == "ONLY_FID":
+        layout[0] = (True, True)
+    return layout
+
+
+def _joined_columns(*schemas, layout=None):
     """The output columns of an overlay: ``FID_<input>`` and each input's fields, a repeated name given ``_1``, ``_2``."""
     columns, taken = [], set()
-    for stem, own in schemas:
-        for column in [_gpkg.Column(f"FID_{stem}", "Integer"), *own]:
+    for k, (stem, own) in enumerate(schemas):
+        fid, fields = layout[k] if layout else (True, True)
+        for column in [*([_gpkg.Column(f"FID_{stem}", "Integer")] if fid else []), *(own if fields else [])]:
             name, i = column.name, 0
             while name.lower() in taken:
                 i += 1
@@ -192,7 +225,76 @@ _KIND_OF = {0: "Point", 1: "Polyline", 2: "Polygon"}
 _DIMENSION_OF = {"Point": 0, "Multipoint": 0, "Polyline": 1, "Polygon": 2}
 
 
-def _pairwise_overlay(a_path, b_path, out_feature_class, pieces, output_type="INPUT"):
+def _values(layout, columns, feature):
+    """The values an overlay writes for one input: its FID and fields as ``layout`` says, -1 and blanks where the input
+    does not cover the piece."""
+    fid, fields = layout
+    if feature is None:
+        return [*([-1] if fid else []), *([_blank(c) for c in columns] if fields else [])]
+    return [*([feature[0]] if fid else []), *(list(feature[1]) if fields else [])]
+
+
+def _planar_overlay(paths, out_feature_class, combinations, join_attributes="ALL", identity=False):
+    """The overlay of polygon inputs as Pro computes it, every input's own overlaps included: the plane is cut into the
+    faces all the polygons' boundaries make, each face knows which features of each input cover it, and
+    ``combinations(covers)`` answers the rows that face is written in — a tuple of one feature (or None) per input.
+    Faces with the same covers and the same row are written as one feature.
+
+    Measured in ArcGIS Pro 3.7, 2026-11-08: Intersect, Union and Identity of two polygons of one input that overlap
+    write the overlap once for each of them, apart from the rest of each polygon."""
+    import itertools
+    import shapely
+    from shapely.strtree import STRtree
+    schemas = [_schema(p) for p in paths]
+    srid = schemas[0][2]
+    inputs = [_read(p, srid) for p in paths]
+    layout = _layout(join_attributes, len(paths), identity)
+    columns = _joined_columns(*[(_stem(p), s[0]) for p, s in zip(paths, schemas)], layout=layout)
+    trees = [STRtree([s for _, _, s in features]) if features else None for features in inputs]
+    every = [s for features in inputs for _, _, s in features]
+    faces = list(shapely.get_parts(shapely.polygonize(
+        shapely.get_parts(shapely.union_all([s.boundary for s in every]))))) if every else []
+    groups = {}
+    for face in faces:
+        inside = shapely.point_on_surface(face)
+        covers = tuple(tuple(sorted((features[int(i)] for i in tree.query(inside, predicate="within")),
+                                    key=lambda f: f[0])) if tree is not None else ()
+                       for features, tree in zip(inputs, trees))
+        for row in combinations(covers, itertools):
+            key = (tuple(tuple(f[0] for f in c) for c in covers), tuple(f[0] if f else None for f in row))
+            groups.setdefault(key, (row, []))[1].append(face)
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polygon", srid, columns)
+    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for row, pieces in groups.values():
+            values = [v for k, f in enumerate(row) for v in _values(layout[k], schemas[k][0], f)]
+            written.insertRow((*values, shapely.union_all(pieces)))
+    return Result(out)
+
+
+def _self_cut(features):
+    """Polygon features cut apart where they overlap one another, as Pro's overlay tools cut one input's own overlaps:
+    each feature becomes one piece for each set of features covering a part of it, ``[(feature, piece), …]``."""
+    import shapely
+    from shapely.strtree import STRtree
+    if len(features) < 2:
+        return [(f, f[2]) for f in features]
+    tree = STRtree([s for _, _, s in features])
+    faces = shapely.get_parts(shapely.polygonize(shapely.get_parts(shapely.union_all([s.boundary for _, _, s in features]))))
+    groups = {}
+    for face in faces:
+        covers = sorted(int(i) for i in tree.query(shapely.point_on_surface(face), predicate="within"))
+        for i in covers:
+            groups.setdefault((tuple(covers), i), []).append(face)
+    return [(features[i], shapely.union_all(pieces)) for (_, i), pieces in groups.items()]
+
+
+def _polygon_inputs(paths):
+    return all(_schema(p)[1] == "Polygon" for p in paths)
+
+
+def _pairwise_overlay(a_path, b_path, out_feature_class, pieces, output_type="INPUT", join_attributes="ALL",
+                      identity=False):
     """The overlay of two feature classes: ``pieces(a, b)`` answers each output piece for a pair, or for one side alone."""
     from shapely.strtree import STRtree
     a_columns, a_kind, srid, _ = _schema(a_path)
@@ -203,7 +305,8 @@ def _pairwise_overlay(a_path, b_path, out_feature_class, pieces, output_type="IN
         dimension = 1
     elif str(output_type).upper() == "POINT":
         dimension = 0
-    columns = _joined_columns((_stem(a_path), a_columns), (_stem(b_path), b_columns))
+    layout = _layout(join_attributes, 2, identity)
+    columns = _joined_columns((_stem(a_path), a_columns), (_stem(b_path), b_columns), layout=layout)
     out = _out(out_feature_class)
     _gpkg.create(out, _KIND_OF[dimension], srid, columns)
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
@@ -211,9 +314,7 @@ def _pairwise_overlay(a_path, b_path, out_feature_class, pieces, output_type="IN
             kept = _of_dimension(shape, dimension)
             if kept is None:
                 continue
-            a_values = [left[0], *left[1]] if left else [-1, *[None] * len(a_columns)]
-            b_values = [right[0], *right[1]] if right else [-1, *[None] * len(b_columns)]
-            written.insertRow((*a_values, *b_values, kept))
+            written.insertRow((*_values(layout[0], a_columns, left), *_values(layout[1], b_columns, right), kept))
     return Result(out)
 
 
@@ -252,14 +353,32 @@ def _list(value):
 
 
 def Intersect(in_features, out_feature_class, join_attributes="ALL", cluster_tolerance=None, output_type="INPUT"):
-    """Where the inputs overlap, each piece with every input's attributes."""
+    """Where the inputs overlap, each piece with every input's attributes. Polygon inputs are overlaid as Pro does
+    (measured in ArcGIS Pro 3.7, 2026-11-08): two polygons of one input that overlap are cut apart too, and their
+    overlap is written once for each; one input alone answers its own overlaps."""
+    paths = _list(in_features)
+    if str(output_type or "INPUT").upper() == "INPUT" and _polygon_inputs(paths):
+        def rows(covers, itertools):
+            if len(covers) == 1:
+                return [(f,) for f in covers[0]] if len(covers[0]) > 1 else []
+            return list(itertools.product(*covers)) if all(covers) else []
+        return _planar_overlay(paths, out_feature_class, rows, join_attributes)
     return _fold(in_features, out_feature_class,
-                 lambda a, b, out: _pairwise_overlay(a, b, out, _intersections, output_type))
+                 lambda a, b, out: _pairwise_overlay(a, b, out, _intersections, output_type, join_attributes))
 
 
 def Union(in_features, out_feature_class, join_attributes="ALL", cluster_tolerance=None, gaps="GAPS"):
     """Every piece of either polygon input: the overlaps with both inputs' attributes, the rest with one side's and
-    ``FID_`` -1 for the other, as arcpy writes them."""
+    ``FID_`` -1 and 0 or '' in the fields for the other, as arcpy writes them. Overlaps within one input are cut apart
+    as Intersect's are; one input alone is cut by its own overlaps (measured in ArcGIS Pro 3.7, 2026-11-08)."""
+    paths = _list(in_features)
+    if _polygon_inputs(paths):
+        def rows(covers, itertools):
+            if not any(covers):
+                return []
+            return list(itertools.product(*[c if c else (None,) for c in covers]))
+        return _planar_overlay(paths, out_feature_class, rows, join_attributes)
+
     def pieces(a, b, tree):
         from shapely.strtree import STRtree
         yield from _intersections(a, b, tree)
@@ -268,17 +387,27 @@ def Union(in_features, out_feature_class, join_attributes="ALL", cluster_toleran
         back = STRtree([s for _, _, s in a]) if a else None
         for right, rest in _outside(b, a, back):
             yield None, right, rest
-    return _fold(in_features, out_feature_class, lambda a, b, out: _pairwise_overlay(a, b, out, pieces))
+    return _fold(in_features, out_feature_class, lambda a, b, out: _pairwise_overlay(a, b, out, pieces,
+                                                                                    join_attributes=join_attributes))
 
 
 def Identity(in_features, identity_features, out_feature_class, join_attributes="ALL", cluster_tolerance=None,
              relationship="NO_RELATIONSHIPS"):
-    """The input's features cut by the identity features: the overlaps with both attributes, the rest with the input's."""
+    """The input's features cut by the identity features: the overlaps with both attributes, the rest with the input's.
+    Polygons of the input that overlap each other are cut apart too, as Intersect's are (measured in ArcGIS Pro 3.7,
+    2026-11-08)."""
+    if _polygon_inputs([in_features, identity_features]):
+        def rows(covers, itertools):
+            return list(itertools.product(covers[0], covers[1] or (None,))) if covers[0] else []
+        return _planar_overlay([in_features, identity_features], out_feature_class, rows, join_attributes,
+                               identity=True)
+
     def pieces(a, b, tree):
         yield from _intersections(a, b, tree)
         for left, rest in _outside(a, b, tree):
             yield left, None, rest
-    return _pairwise_overlay(in_features, identity_features, out_feature_class, pieces)
+    return _pairwise_overlay(in_features, identity_features, out_feature_class, pieces, join_attributes=join_attributes,
+                             identity=True)
 
 
 def SymDiff(in_features, update_features, out_feature_class, join_attributes="ALL", cluster_tolerance=None):
@@ -290,7 +419,7 @@ def SymDiff(in_features, update_features, out_feature_class, join_attributes="AL
         back = STRtree([s for _, _, s in a]) if a else None
         for right, rest in _outside(b, a, back):
             yield None, right, rest
-    return _pairwise_overlay(in_features, update_features, out_feature_class, pieces)
+    return _pairwise_overlay(in_features, update_features, out_feature_class, pieces, join_attributes=join_attributes)
 
 
 def Select(in_features, out_feature_class, where_clause=None):
@@ -478,7 +607,8 @@ def Frequency(in_table, out_table, frequency_fields, summary_fields=None):
 def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_unit="", field_name="distance",
                        dissolve_option="ALL", outside_polygons_only="FULL", method="PLANAR"):
     """Rings around the features at each distance, each ring the band between it and the one inside it, and its
-    distance in ``field_name``.
+    distance in ``field_name``; under ``dissolve_option`` NONE each ring also keeps its feature's fields and
+    ``ORIG_FID`` (measured in ArcGIS Pro 3.7, 2026-11-08).
 
     Refused: ``method`` GEODESIC, as Buffer refuses it — the rings are planar."""
     import shapely
@@ -490,16 +620,18 @@ def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_u
     features = _read(input_features)
     dissolve = str(dissolve_option).upper() == "ALL"
     out = _out(output_feature_class)
-    out_columns = ([] if dissolve else columns) + [_gpkg.Column(field_name, "Double")]
+    kept = [] if dissolve else [c for c in columns if c.name.upper() != "ORIG_FID" and c.name.lower() != field_name.lower()]
+    keep = [[c.name for c in columns].index(c.name) for c in kept]
+    out_columns = kept + [_gpkg.Column(field_name, "Double")] + ([] if dissolve else [_gpkg.Column("ORIG_FID", "Integer")])
     _gpkg.create(out, "Polygon", srid, out_columns)
-    groups = [([], shapely.union_all([s for _, _, s in features]))] if dissolve else [(v, s) for _, v, s in features]
+    groups = [([], shapely.union_all([s for _, _, s in features]), None)] if dissolve else         [([v[i] for i in keep], s, oid) for oid, v, s in features]
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
-        for values, shape in groups:
+        for values, shape, oid in groups:
             inner = shape if str(outside_polygons_only).upper() == "OUTSIDE_ONLY" and _dimension(shape) == 2 else None
             for step in steps:
                 ring = shape.buffer(step * scale)
                 band = ring.difference(inner) if inner is not None else ring
-                written.insertRow((*values, step, band))
+                written.insertRow((*values, step, *([] if dissolve else [oid]), band))
                 inner = ring
     return Result(out)
 
@@ -519,13 +651,21 @@ def PairwiseErase(in_features, erase_features, out_feature_class, cluster_tolera
 
 
 def PairwiseIntersect(in_features, out_feature_class, join_attributes="ALL", cluster_tolerance=None, output_type="INPUT"):
-    return Intersect(in_features, out_feature_class, join_attributes, output_type=output_type)
+    """Each feature of one input intersected with each feature of the other, pair by pair: unlike Intersect, polygons of
+    one input that overlap are not cut apart (measured in ArcGIS Pro 3.7, 2026-11-08)."""
+    return _fold(in_features, out_feature_class,
+                 lambda a, b, out: _pairwise_overlay(a, b, out, _intersections, output_type, join_attributes))
 
 
 def PairwiseDissolve(in_features, out_feature_class, dissolve_field=None, statistics_fields=None, multi_part="MULTI_PART",
-                     concatenation_separator=""):
+                     concatenation_separator="", out_lineage_table=None):
+    """Dissolve's answer. The result holds two outputs, the feature class and the lineage table — an empty string when
+    none is asked for — as Pro 3.7's does (measured 2026-11-08). ``out_lineage_table`` is refused: the page does not
+    give its fields."""
     from .management import Dissolve
-    return Dissolve(in_features, out_feature_class, dissolve_field, statistics_fields, multi_part)
+    if _is_given(out_lineage_table):
+        _refuse("PairwiseDissolve", "out_lineage_table", out_lineage_table, "the lineage table's fields are not given")
+    return Result(Dissolve(in_features, out_feature_class, dissolve_field, statistics_fields, multi_part).getOutput(0), "")
 
 
 
@@ -678,7 +818,9 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
     """A line from each origin to each destination — to its ``num_nearest`` nearest only when given, within
     ``search_distance`` when given — with ``ORIG_FID``, ``ORIG_X``, ``ORIG_Y``, ``DEST_FID``, ``DEST_X``, ``DEST_Y``,
     ``LINK_DIST`` in ``distance_unit``, ``GROUP_ID`` when both group fields are given (only origins and destinations of
-    the same group are linked), and ``COLOR_ID``, a random integer from 1 to 8. A line or polygon is linked from its
+    the same group are linked), and ``COLOR_ID``, an integer from 1 to 8 —
+    the documentation calls it random, but Pro 3.7 was measured (2026-11-08) giving every link of the n-th origin
+    ``(n - 1) % 8 + 1``, and an origin's links in destination ObjectID order, and grapy does the same. A line or polygon is linked from its
     centroid; a feature is not linked to itself.
 
     ``sum_fields`` is used only when overlapping links are aggregated, which is not built.
@@ -689,7 +831,6 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
     chosen by distance, then destination ObjectID; a link of length zero between two different features is not written,
     as the documentation says a zero-length line is a null geometry; the output holds the fields above and no others.
     """
-    import random
     if str(line_type).upper() != "PLANAR":
         _refuse("GenerateOriginDestinationLinks", "line_type", line_type, "geodesic links are not built")
     if str(aggregate_links).upper() != "NO_AGGREGATE":
@@ -721,7 +862,7 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
     _gpkg.create(out, "Polyline", srid, fields)
     from shapely.geometry import LineString
     with da.InsertCursor(out, [*[c.name for c in fields], "SHAPE@"]) as written:
-        for oid, group, here in origins:
+        for position, (oid, group, here) in enumerate(origins):
             links = []
             for d_oid, d_group, there in destinations:
                 if (same and d_oid == oid) or (grouped and group != d_group):
@@ -731,9 +872,10 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
                     continue
                 links.append((gap, d_oid, there))
             links.sort(key=lambda link: (link[0], link[1]))
-            for gap, d_oid, there in links[:nearest] if nearest is not None else links:
+            chosen = sorted(links[:nearest] if nearest is not None else links, key=lambda link: link[1])
+            for gap, d_oid, there in chosen:
                 written.insertRow((oid, here.x, here.y, d_oid, there.x, there.y, gap * factor,
-                                   *([group] if grouped else []), random.randint(1, 8), LineString([here, there])))
+                                   *([group] if grouped else []), position % 8 + 1, LineString([here, there])))
     return Result(out)
 
 
@@ -814,7 +956,9 @@ def CreateThiessenPolygons(in_features, out_feature_class, fields_to_copy="ONLY_
     """The Voronoi polygon of each input point — every place in it nearer that point than any other — bounded by the
     points' extent plus 10%, or by ``env.extent`` when it is set.
 
-    INFERRED: *plus 10%* is read as each side moved out by a tenth of the extent's width or height; the input's ObjectID
+    *Plus 10%* is the extent made a tenth wider and taller, each side moved out by 5% of the width or height — measured
+    in ArcGIS Pro 3.7, 2026-11-08 (it was read as 10% on each side; Pro's frame came out 1.0999 times the points' extent,
+    a difference of 3 cm in 540 m that is not explained). INFERRED: the input's ObjectID
     is written as ``Input_FID`` (and ``ALL`` adds every input field after it); of coincident points only the first gets
     a polygon.
     """
@@ -832,7 +976,7 @@ def CreateThiessenPolygons(in_features, out_feature_class, fields_to_copy="ONLY_
         x0, y0, x1, y1 = shapely.MultiPoint([s for _, _, s in points]).bounds
         if x1 - x0 == 0 and y1 - y0 == 0:
             raise ExecuteError("ERROR 000853: CreateThiessenPolygons needs points that are not all at one place.")
-        dx, dy = (x1 - x0) * 0.1, (y1 - y0) * 0.1
+        dx, dy = (x1 - x0) * 0.05, (y1 - y0) * 0.05
         frame = box(x0 - dx, y0 - dy, x1 + dx, y1 + dy)
     cells = [c.intersection(frame) for c in shapely.voronoi_polygons(MultiPoint([s for _, _, s in points]),
                                                                        extend_to=frame).geoms]
@@ -857,13 +1001,14 @@ def CreateThiessenPolygons(in_features, out_feature_class, fields_to_copy="ONLY_
 def CountOverlappingFeatures(in_features, out_feature_class, min_overlap_count=1, out_overlap_table=None):
     """The planarized union of the inputs with ``COUNT_``, how many features cover each piece, and ``COUNT_FC``, how
     many of the inputs they come from; only pieces covered at least ``min_overlap_count`` times are written, and no
-    other field. The overlap table has a row per covering feature: ``OVERLAP_OID``, ``ORIG_OID`` and, with several
-    inputs, ``ORIG_NAME``.
+    other field. The overlap table has a row per covering feature: ``OVERLAP_OID``, ``ORIG_OID`` and ``ORIG_NAME``, the
+    input's path — with one input too (measured in ArcGIS Pro 3.7, 2026-11-08). The pieces are written by how many
+    features cover them, then by those features' ObjectIDs, as Pro wrote them in that measurement.
 
     Polygons and points are built; lines, where only lines overlapping along their length count, are refused.
 
     INFERRED: a piece is a face of the polygons' noded boundaries, so two adjacent faces are separate features even
-    at the same count; coincident points are one output point; ``ORIG_NAME`` is the input's name.
+    at the same count; coincident points are one output point.
     """
     paths = _list(in_features)
     kinds = {_schema(p)[1] for p in paths}
@@ -890,6 +1035,7 @@ def CountOverlappingFeatures(in_features, out_feature_class, min_overlap_count=1
             at.setdefault(feature[2].coords[0], []).append(feature)
         from shapely.geometry import MultiPoint, Point
         pieces = [((MultiPoint([xy]) if len(paths) > 1 else Point(xy)), covering) for xy, covering in at.items()]
+    pieces.sort(key=lambda piece: (len(piece[1]), [(k, oid) for k, oid, _ in piece[1]]))
     out = _out(out_feature_class)
     _gpkg.create(out, "Multipoint" if kind == "Point" and len(paths) > 1 else kind, srid,
                  [_gpkg.Column("COUNT_", "Integer"), _gpkg.Column("COUNT_FC", "Integer")])
@@ -899,21 +1045,22 @@ def CountOverlappingFeatures(in_features, out_feature_class, min_overlap_count=1
             if len(covering) < least:
                 continue
             fid = written.insertRow((len(covering), len({k for k, _, _ in covering}), shape))
-            links += [(fid, oid, _stem(paths[k])) for k, oid, _ in covering]
+            links += [(fid, oid, str(paths[k])) for k, oid, _ in covering]
     if _is_given(out_overlap_table):
-        several = len(paths) > 1
         table = _table(out_overlap_table, [_gpkg.Column("OVERLAP_OID", "Integer"), _gpkg.Column("ORIG_OID", "Integer"),
-                                           *([_gpkg.Column("ORIG_NAME", "String")] if several else [])])
-        with da.InsertCursor(table, ["OVERLAP_OID", "ORIG_OID", *(["ORIG_NAME"] if several else []), "SHAPE@"]) as written:
+                                           _gpkg.Column("ORIG_NAME", "String")])
+        with da.InsertCursor(table, ["OVERLAP_OID", "ORIG_OID", "ORIG_NAME", "SHAPE@"]) as written:
             for fid, oid, name in links:
-                written.insertRow((fid, oid, *([name] if several else []), None))
+                written.insertRow((fid, oid, name, None))
         return Result(out, table)
-    return Result(out)
+    # The unset overlap table is the result's second output, an empty string, as Pro 3.7's (measured 2026-11-08).
+    return Result(out, "")
 
 
 def Update(in_features, update_features, out_feature_class, keep_borders="BORDERS", cluster_tolerance=None):
     """The input polygons with the update polygons laid over them: where an update polygon lies, it replaces the input,
-    carrying its own values for the input's fields (empty where it has no field of that name); elsewhere the input is
+    carrying its own values for the input's fields (0 or '' where it has no field of that name, as measured in ArcGIS
+    Pro 3.7, 2026-11-08); elsewhere the input is
     kept as it was.
 
     ``NO_BORDERS`` — dropping the update polygons' outer border — is refused: the documentation does not say which
@@ -940,7 +1087,7 @@ def Update(in_features, update_features, out_feature_class, keep_borders="BORDER
             if rest is not None:
                 written.insertRow((*values, rest))
         for _, values, shape in updates:
-            written.insertRow((*[values[u_names.index(c.name.lower())] if c.name.lower() in u_names else None
+            written.insertRow((*[values[u_names.index(c.name.lower())] if c.name.lower() in u_names else _blank(c)
                                  for c in columns], shape))
     return Result(out)
 
@@ -964,7 +1111,9 @@ def _output_in(workspace, name):
 
 def Split(in_features, split_features, split_field, out_workspace, cluster_tolerance=None):
     """The input cut by the split polygons into one feature class per value of ``split_field``, each named by its
-    value and holding the input's fields; a value whose polygons meet no input feature makes no output.
+    value and holding the input's fields; a value whose polygons meet no input feature makes no output. Input polygons
+    that overlap one another are cut apart, their overlap written once for each, as Intersect does (measured in ArcGIS
+    Pro 3.7, 2026-11-08).
 
     INFERRED: a GeoPackage workspace is treated as a geodatabase, where a name must begin with a letter (a folder
     takes any value, each output its own ``<value>.gpkg``); characters other than letters, digits and underscores in
@@ -983,10 +1132,11 @@ def Split(in_features, split_features, split_field, out_workspace, cluster_toler
         masks.setdefault(values[index], []).append(shape)
     features = _read(in_features)
     dimension = _DIMENSION_OF.get(kind, 2)
+    cut = _self_cut(features) if kind == "Polygon" else [(f, f[2]) for f in features]
     outputs = []
     for value, shapes in masks.items():
         mask = shapely.union_all(shapes)
-        pieces = [(values, _of_dimension(shape.intersection(mask), dimension)) for _, values, shape in features]
+        pieces = [(feature[1], _of_dimension(shape.intersection(mask), dimension)) for feature, shape in cut]
         pieces = [(v, s) for v, s in pieces if s is not None]
         if not pieces:
             continue
@@ -1199,8 +1349,10 @@ def AssignWeightsByPairwiseComparison(input_variables, out_table, add_comparison
     matrix is divided by its total, and a variable's weight is the mean of its row. The table holds ``Variables`` and
     ``Weights``, and under ``ADD_MATRIX`` a column per variable with the matrix between them. Unset comparisons are 1.
 
-    ``comparison_matrix`` is ``"a b 3;b c 0.5"`` or ``[["a", "b", 3], …]``: *a* compared with *b* is 3, so *b* with *a*
-    is 1/3. A matrix read from a file is refused.
+    ``comparison_matrix`` is ``"Variables a b 3; b c 0.5"`` — the form the page's example writes, the leading word
+    ``Variables`` and all, and the only string form Pro 3.7 accepted when measured (2026-11-08) — or ``"a b 3;b c 0.5"``
+    or ``[["a", "b", 3], …]``: *a* compared with *b* is 3, so *b* with *a* is 1/3. (Pro 3.7 accepted the list form and
+    answered equal weights, ignoring it; grapy does not copy that.) A matrix read from a file is refused.
 
     INFERRED: ``"a b 3"`` sets the cell of row *a*, column *b*; the variable column is named ``Variables`` (the
     documentation also writes ``Variable``).
@@ -1210,12 +1362,15 @@ def AssignWeightsByPairwiseComparison(input_variables, out_table, add_comparison
     if not 2 <= len(names) <= 9:
         raise ExecuteError("ERROR 000800: AssignWeightsByPairwiseComparison takes two to nine variables.")
     if isinstance(comparison_matrix, str) and comparison_matrix.strip() and ";" not in comparison_matrix \
-            and len(comparison_matrix.split()) != 3:
+            and len(comparison_matrix.split()) != 3 \
+            and not (len(comparison_matrix.split()) == 4 and comparison_matrix.split()[0].lower() == "variables"):
         _refuse("AssignWeightsByPairwiseComparison", "comparison_matrix", comparison_matrix,
                 "a matrix read from a table or file is not built; give the comparisons as 'a b value;…'")
     matrix = numpy.ones((len(names), len(names)))
     index = {n.lower(): i for i, n in enumerate(names)}
     for pair in _pairs(comparison_matrix):
+        if len(pair) == 4 and str(pair[0]).lower() == "variables":
+            pair = pair[1:]
         a, b, value = index[str(pair[0]).lower()], index[str(pair[1]).lower()], float(pair[2])
         matrix[a, b], matrix[b, a] = value, 1.0 / value
     weights = (matrix / matrix.sum(axis=0)).mean(axis=1)
@@ -1244,9 +1399,10 @@ def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", 
     - THIESSEN: a point goes to the covering polygon whose centroid is nearest — straight borders, the perpendicular
       bisectors of the centroids.
 
-    GRID is refused: the page shows it only as a picture. The inputs are read together; the output carries ``FID_<input>``
-    for each input (−1 when the polygon came from another) and the inputs' fields, merged by name (ALL), the fields
-    alone (NO_FID), or the FIDs alone (ONLY_FID).
+    GRID is refused: the page shows it only as a picture. The inputs are read together; the output carries ``ORIG_FID``,
+    the polygon's ObjectID in its own input, and the inputs' fields merged by name, empty where a polygon's input has no
+    such field (ALL); the fields alone (NO_FID); or ``ORIG_FID`` alone (ONLY_FID). Measured in ArcGIS Pro 3.7,
+    2026-11-08, with one input and with two — grapy wrote an ``FID_<input>`` for each input until then.
     """
     import math
     import os
@@ -1312,13 +1468,8 @@ def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", 
                 if not part.is_empty:
                     pieces[owners[site]].append(part)
     rule = str(join_attributes or "ALL").upper()
-    stems = []
-    for path in paths:
-        file, table = _gpkg.split(_out(path))
-        stem = table or os.path.splitext(os.path.basename(file))[0]
-        stems.append(f"FID_{stem}")
-    fid_columns = [_gpkg.Column(name, "Integer") for name in stems] if rule != "NO_FID" else []
-    value_columns = all_columns if rule != "ONLY_FID" else []
+    fid_columns = [_gpkg.Column("ORIG_FID", "Integer")] if rule != "NO_FID" else []
+    value_columns = [c for c in all_columns if c.name.upper() != "ORIG_FID" or not fid_columns]         if rule != "ONLY_FID" else []
     out = _out(out_feature_class)
     _gpkg.create(out, "Polygon", srid, [*fid_columns, *value_columns])
     with da.InsertCursor(out, [*[c.name for c in fid_columns], *[c.name for c in value_columns], "SHAPE@"]) as written:
@@ -1329,7 +1480,7 @@ def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", 
             polygonal = [g for g in getattr(merged, "geoms", [merged]) if g.geom_type == "Polygon" and g.area > 0]
             if not polygonal:
                 continue
-            fids = [oid if paths[k] == path else -1 for k in range(len(paths))] if fid_columns else []
+            fids = [oid] if fid_columns else []
             written.insertRow((*fids, *[values.get(c.name) for c in value_columns], MultiPolygon(polygonal)))
     return Result(out)
 
@@ -1588,7 +1739,8 @@ def SummarizeWithin(in_polygons, in_sum_features, out_feature_class, keep_all_po
         for row, geometry in written:
             cursor.insertRow((*row, geometry))
     if not group:
-        return Result(out)
+        # The unset group table is the result's second output, an empty string, as Pro 3.7's (measured 2026-11-08).
+        return Result(out, "")
     group_columns = [_gpkg.Column(join_name, "Integer"), by_name[group.lower()]]
     if count_name:
         group_columns.append(_gpkg.Column(count_name, "Integer"))
