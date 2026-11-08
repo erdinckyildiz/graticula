@@ -2793,6 +2793,27 @@ public static class Program
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
                 $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
 
+        // <b>Who the server takes the caller to be, since 2026-11-08</b> (ADR-077 condition 5). ArcGIS Field Maps asks it
+        // twice right after it reads a feature layer it might collect into, and with a 404 it never offered Collect.
+        // The shape is measured, not guessed: Esri's sample server answers `{"user":{}}` to an anonymous caller and
+        // `{"user":{"username","roles","privilege":"User"}}` to its public sample user. `privilege` is that measured
+        // value for everyone — what Esri's server says for an administrator was not observed, so it is not invented.
+        app.MapMethods("/rest/self", ["GET", "POST"], (HttpContext context) =>
+        {
+            RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+            return current.Principal.IsAnonymous
+                ? Results.Ok(new { user = new { } })
+                : Results.Ok(new
+                {
+                    user = new
+                    {
+                        username = current.Principal.Name,
+                        roles = current.Authorization.Roles.Select(r => AdminEndpoints.RoleLabel(context, r)).ToArray(),
+                        privilege = "User",
+                    },
+                });
+        });
+
         // <b>The origin itself answers, and until 2026-08-17 it did not.</b> Nothing
         // was mapped to "/", so typing the server's address produced an empty 404 —
         // no status line, no hint, nothing to click. The owner hit exactly that:

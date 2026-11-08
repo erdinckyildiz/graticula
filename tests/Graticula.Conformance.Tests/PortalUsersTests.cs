@@ -116,4 +116,40 @@ public sealed class PortalUsersTests : ArcGisClient
             await SendAsync(HttpMethod.Delete, $"/admin/members/{name}");
         }
     }
+
+    /// <summary>
+    /// ADR-284: ArcGIS's Mobile Worker and Contributor ids invite this server's two types, and the profile reports them
+    /// back as ArcGIS does — <c>fieldworker</c> as <c>fieldWorkerUT</c>, the stored <c>editor</c> as <c>editorUT</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_mobile_worker_and_a_contributor_are_invited_and_reported_by_their_ArcGIS_ids()
+    {
+        string worker = $"zz_mw_{Guid.NewGuid():N}"[..16];
+        string contributor = $"zz_ct_{Guid.NewGuid():N}"[..16];
+        string list = JsonSerializer.Serialize(new
+        {
+            invitations = new object[]
+            {
+                new { username = worker, password = "a long enough password", role = "org_user", userLicenseType = "fieldWorkerUT" },
+                new { username = contributor, password = "a long enough password", role = "org_user", userLicenseType = "editorUT" },
+            },
+        });
+
+        try
+        {
+            JsonElement invited = await SendAsync(HttpMethod.Post, "/sharing/rest/portals/self/invite",
+                new Dictionary<string, string> { ["invitationList"] = list, ["f"] = "json" });
+            Assert.True(invited.GetProperty("success").GetBoolean(), invited.GetRawText());
+
+            JsonElement w = await FindAsync(worker) ?? throw new InvalidOperationException($"'{worker}' was not made.");
+            JsonElement c = await FindAsync(contributor) ?? throw new InvalidOperationException($"'{contributor}' was not made.");
+            Assert.Equal("fieldWorkerUT", w.GetProperty("userLicenseTypeId").GetString());
+            Assert.Equal("editorUT", c.GetProperty("userLicenseTypeId").GetString());
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, $"/admin/members/{worker}");
+            await SendAsync(HttpMethod.Delete, $"/admin/members/{contributor}");
+        }
+    }
 }

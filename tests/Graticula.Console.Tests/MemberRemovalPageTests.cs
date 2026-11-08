@@ -76,7 +76,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
             "[...document.querySelectorAll('#memberChangeDialog input[name=memberChangePick]')].map(i => i.value)")
             ?? [];
 
-        Assert.Equal(["viewer", "editor", "creator", "unrestricted"], offered);
+        Assert.Equal(["viewer", "editor", "fieldworker", "creator", "unrestricted"], offered);
 
         Assert.True(
             await Browser.EvaluateAsync<bool>("document.getElementById('memberChangeSave').disabled"),

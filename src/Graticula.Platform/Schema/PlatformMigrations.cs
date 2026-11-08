@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(134);
+    public static SchemaVersion ComponentSchemaVersion => new(135);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -163,7 +163,24 @@ public static class PlatformMigrations
         ADocumentsPictureMayBeDrawnFromItsFirstPageV132,
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
         AScenePackageAboveTheDocumentLimitIsAFileV134,
+        AMobileWorkerIsAUserTypeV135,
     ]);
+
+    /// <summary>
+    /// A fifth user type, <c>fieldworker</c> — ArcGIS's Mobile Worker, beside the <c>editor</c> that is ArcGIS's
+    /// Contributor and with the same ceiling — ADR-284, by owner decision.
+    /// </summary>
+    /// <remarks>
+    /// <b>One row, and nobody moved.</b> <b>Expand</b>: a node older than this reads a member typed <c>fieldworker</c>
+    /// as a type it does not know, and an unknown type permits nothing (ADR-018 §3a), so the failure is a member with too
+    /// little, never too much.
+    /// </remarks>
+    private static Migration AMobileWorkerIsAUserTypeV135 => Migration.Expand(
+        new SchemaVersion(135),
+        "A Mobile Worker user type, with the Contributor's ceiling (ADR-284).",
+
+        $"insert into user_type (name, description) values ('{Literal(UserTypes.FieldWorker)}', "
+        + $"'{Literal(UserTypes.DescriptionOf(UserTypes.FieldWorker))}') on conflict (name) do nothing");
 
     /// <summary>
     /// A scene layer package above the document limit is a file in the server directories, and its row says which —
@@ -5066,7 +5083,9 @@ public static class PlatformMigrations
             )
             """);
 
-        foreach (string userType in UserTypes.All)
+        // The four this migration has always written: a type added later is its own migration's (ADR-284, 135), so a
+        // store built today and one built in 2026-08 hold the same rows after this step.
+        foreach (string userType in (string[])[UserTypes.Viewer, UserTypes.Editor, UserTypes.Creator, UserTypes.Unrestricted])
         {
             statements.Add(
                 $"insert into user_type (name, description) values ('{Literal(userType)}', "

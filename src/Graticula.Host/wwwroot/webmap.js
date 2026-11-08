@@ -1956,6 +1956,28 @@ function wmPopupPanel(layer, run, key, title) {
   </div>`;
 }
 
+/**
+ * A pop-up for every feature layer that has none and has not had pop-ups turned off, written when the map is saved —
+ * ADR-077 condition 5, 2026-11-08. ArcGIS's map viewer saves one for each feature layer it adds, and ArcGIS Field Maps
+ * builds its collection form from it: measured on an emulator, a map whose layer had no `popupInfo` offered Collect and
+ * then refused every form with *The form contains unsupported data*, and the same layer with one collected a point.
+ * Every field the layer reports, shown, editable where the layer says it is; the display field as the title.
+ */
+function wmDefaultPopups() {
+  for (const layer of wmState.doc.operationalLayers || []) {
+    if (layer.layerType !== "ArcGISFeatureLayer" || layer.popupInfo || layer.popupEnabled === false) continue;
+    const run = wmRuntime.get(layer);
+    const info = run && run.info;
+    const fields = wmUserFields(info);
+    if (!fields.length) continue;
+    layer.popupInfo = {
+      title: info.displayField ? `{${info.displayField}}` : (layer.title || ""),
+      showAttachments: true,
+      fieldInfos: fields.map(f => ({ fieldName: f.name, label: f.alias || f.name, visible: true, isEditable: f.editable !== false })),
+    };
+  }
+}
+
 /** Reads a layer's Pop-up panel into the Web Map's `popupInfo` and `popupEnabled`. */
 function wmApplyPopup(layer, reset = false) {
   const k = layer.id;
@@ -4142,6 +4164,7 @@ async function wmSave(asNew, invoker = null) {
   }
 
   wmCaptureView();
+  wmDefaultPopups();
 
   const body = {
     title: asNew && title === wmState.meta.savedTitle ? `${title} (copy)` : title,

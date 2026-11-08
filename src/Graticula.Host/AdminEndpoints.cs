@@ -11104,7 +11104,7 @@ internal static partial class AdminEndpoints
                 context, 409,
                 $"'{name}' is the only administrator, and no ceiling except '"
                 + $"{UserTypes.Unrestricted}' carries the administrative privileges (ADR-018 §3a). "
-                + $"Moving them to '{userType}' would leave a server nobody can administer — the "
+                + "Moving them to a narrower user type would leave a server nobody can administer — the "
                 + "role would still say administrator and every one of its privileges would do "
                 + "nothing. Make somebody else an administrator first.").ConfigureAwait(false);
 

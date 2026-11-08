@@ -1904,9 +1904,10 @@ async function openServiceAccountForm() {
  */
 const SA_TYPE_SAYS = {
   viewer: "Reads what is shared with it. The usual choice for a script that only reads.",
-  editor: "Can also edit data in layers shared with it.",
-  creator: "Reads and edits as an editor does. A service account still cannot create, publish or share.",
-  unrestricted: "No ceiling, but a service account still never administers, creates or publishes.",
+  editor: "Can also edit features in layers shared with it.",
+  fieldworker: "The same as Contributor for a service account.",
+  creator: "Edits as a Contributor does, and may edit any feature, not only its own. It still never creates, shares or publishes.",
+  unrestricted: "No ceiling, but a service account still never administers, creates, shares or publishes.",
 };
 
 function saTypeSays() { $("saTypeSays").textContent = SA_TYPE_SAYS[$("saType").value] || ""; }
@@ -2569,12 +2570,12 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
           : "<b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft app, that is anyone at all."}</label>
     </fieldset>
     <label for="idpRole">Role for a new account, and for anyone none of whose mapped groups gives one</label>
-    <select id="idpRole" aria-describedby="idpRoleHint">${roles.map(r => `<option ${p && p.defaultRole === r ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
+    <select id="idpRole" aria-describedby="idpRoleHint">${roles.map(r => `<option value="${h(r)}" ${p && p.defaultRole === r ? "selected" : ""}>${h(roleDisplay(r))}</option>`).join("")}</select>
     <p class="hint" id="idpRoleHint">Change it on Members afterwards, unless the provider's Groups set it. An
       administrator is never made this way.</p>
     <div id="idpAutoRow" ${auto ? "" : "hidden"}>
       <label for="idpType">Their user type</label>
-      <select id="idpType">${idpMeta.userTypes.map(t => `<option ${p ? (p.defaultUserType === t ? "selected" : "") : (t === "unrestricted" ? "selected" : "")}>${h(t)}</option>`).join("")}</select>
+      <select id="idpType">${idpMeta.userTypes.map(t => `<option value="${h(t)}" ${p ? (p.defaultUserType === t ? "selected" : "") : (t === "unrestricted" ? "selected" : "")}>${h(userTypeDisplay(t))}</option>`).join("")}</select>
     </div>
 
     ${kind === "ldap" ? `<details${p && (p.nestedGroups || p.groupBase) ? " open" : ""}><summary>Advanced: attributes and nested groups</summary>
@@ -3116,8 +3117,8 @@ async function loadRoles() {
                   : least === null
                     ? `<span class="pill tierpill cappednote">no user type carries this</span>`
                     : `<span class="pill tierpill${narrow ? " cappednote" : ""}">${narrow
-                        ? "unrestricted only"
-                        : `${h(least)} or above`}</span>`}
+                        ? "Unrestricted only"
+                        : `${h(userTypeDisplay(least))} or above`}</span>`}
                 ${c.description || c.requires.length || c.includes.length
                   ? `<span class="privilegewhat">${h(usSpelling(c.description))}${c.requires.length
                       ? ` Needs ${c.requires.map(n => h(named(n))).join(", ")}.` : ""}${c.includes.length
@@ -3208,7 +3209,8 @@ function roleDisplay(name) {
  * A user type in words — the UI sweep of 2026-11-02, verification round. The values sent to the API stay the codes;
  * only what is read is capitalised.
  */
-const USER_TYPE_NAMES = { viewer: "Viewer", editor: "Editor", creator: "Creator", unrestricted: "Unrestricted" };
+// ADR-284: ArcGIS's names. The stored `editor` is its Contributor and `fieldworker` its Mobile Worker, one ceiling.
+const USER_TYPE_NAMES = { viewer: "Viewer", editor: "Contributor", fieldworker: "Mobile Worker", creator: "Creator", unrestricted: "Unrestricted" };
 function userTypeDisplay(type) {
   return USER_TYPE_NAMES[type] || type;
 }
@@ -15792,8 +15794,9 @@ let memberChange = null;
 /** One line per user type, in words; the count of what it withholds is worked out from the catalogue. */
 const USER_TYPE_SAYS = {
   viewer: "Reads what is shared with them. No role can give them more.",
-  editor: "Can also edit data in layers shared with them.",
-  creator: "Can also create, publish and share their own content.",
+  editor: "Can also edit features in layers shared with them. Makes, shares and publishes nothing.",
+  fieldworker: "The same as Contributor, under the name ArcGIS gives someone who works in field apps such as Field Maps.",
+  creator: "Can also make and share maps and other content, create groups, publish layers and tools, and edit any feature.",
   unrestricted: "No ceiling: whatever their role grants works, administration included.",
 };
 
@@ -15831,7 +15834,7 @@ async function openMemberChange(name, kind) {
     }
     const n = catalogue.length ? withheld(value) : 0;
     return `${h(USER_TYPE_SAYS[value] || "")}${catalogue.length
-      ? ` <span class="val">${n ? `withholds ${num(n)} of ${num(catalogue.length)} privileges` : "withholds nothing"}</span>`
+      ? ` <span class="val">${n ? `Withholds ${num(n)} of ${num(catalogue.length)} privileges.` : "Withholds nothing."}</span>`
       : ""}`;
   };
 
@@ -15891,10 +15894,10 @@ function describeMemberChange() {
       || memberUserTypes.indexOf(entry.leastUserType) > memberUserTypes.indexOf(chosen));
     says.classList.toggle("lowers", lower || c.self);
     says.innerHTML = (lower
-      ? `<b>This takes privileges away${c.self ? " from you" : ""}.</b> A user type is a ceiling: every privilege above
-         ${h(chosen)} stops working at once, for every role ${they} hold, and the roles themselves do not change.`
-      : `<b>This grants nothing by itself.</b> Raising the ceiling lets ${their} role's privileges work up to
-         ${h(chosen)}; ${their} role still decides what ${they} may do.`)
+      ? `<b>This takes privileges away${c.self ? " from you" : ""}.</b> A user type is a ceiling: anything a ${h(userTypeDisplay(chosen))} may not do
+         stops working at once, for every role ${they} hold. The roles themselves do not change.`
+      : `<b>This grants nothing by itself.</b> Raising the ceiling lets ${their} role's privileges work as far as a
+         ${h(userTypeDisplay(chosen))} may; ${their} role still decides what ${they} may do.`)
       + (losesPage ? closesHere : "");
     return;
   }

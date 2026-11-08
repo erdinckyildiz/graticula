@@ -339,6 +339,25 @@ public sealed class RolesTests
                 SharingScope.Private, null, User(Guid.NewGuid()), Authorization.Nothing));
     }
 
+    /// <summary>
+    /// ADR-284: ArcGIS's Contributor (stored <c>editor</c>) and Mobile Worker (<c>fieldworker</c>) edit features and make
+    /// nothing, with one ceiling between them, and the ladder still holds — each type's ceiling contains the one before
+    /// it, which the console's "… or above" relies on.
+    /// </summary>
+    [Fact]
+    public void A_contributor_and_a_mobile_worker_edit_and_make_nothing_and_keep_the_ladder()
+    {
+        Assert.Equal([Privilege.FeaturesEdit], UserTypes.CeilingOf(UserTypes.Editor));
+        Assert.Equal(UserTypes.CeilingOf(UserTypes.Editor), UserTypes.CeilingOf(UserTypes.FieldWorker));
+        Assert.DoesNotContain(Privilege.ContentCreate, UserTypes.CeilingOf(UserTypes.FieldWorker));
+
+        for (int i = 1; i < UserTypes.All.Length; i++)
+        {
+            Assert.True(UserTypes.CeilingOf(UserTypes.All[i - 1]).IsSubsetOf(UserTypes.CeilingOf(UserTypes.All[i])),
+                $"{UserTypes.All[i - 1]} is not contained in {UserTypes.All[i]}.");
+        }
+    }
+
     // ---------- the code and the schema agree ----------
 
     [Fact]
@@ -350,7 +369,7 @@ public sealed class RolesTests
         // what it carried.
         string sql = string.Join(
             "\n",
-            PlatformMigrations.All.All.Single(m => m.Version.Value == 3).Statements);
+            PlatformMigrations.All.All.SelectMany(m => m.Statements)); // every migration: a type added later seeds itself (ADR-284, 135)
 
         foreach (string name in Roles.All.Concat(UserTypes.All))
         {

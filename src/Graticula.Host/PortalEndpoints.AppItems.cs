@@ -237,12 +237,25 @@ internal static partial class PortalEndpoints
     /// <summary><c>items/{id}/resources/{path}</c>: one resource's bytes.</summary>
     private static async Task<IResult> GetResourceAsync(HttpContext context, string id, string resource, CancellationToken cancellation)
     {
-        if (await ReadableItemAsync(context, id, cancellation).ConfigureAwait(false) is not { } item
-            || await context.RequestServices.GetRequiredService<IItemResourceStore>()
+        if (await ReadableItemAsync(context, id, cancellation).ConfigureAwait(false) is not { } item)
+        {
+            return Unknown("Resource");
+        }
+
+        // <b>A readable item without the resource answers HTTP 200 with a 404 in the body, since 2026-11-08</b>, as
+        // ArcGIS Enterprise 2025.2 does (measured: `{"error":{"code":404,"message":"Resource does not exist or is
+        // inaccessible.","details":[]}}` on a 200; ArcGIS Online says 400 and `CONT_009431`, and this portal is an
+        // Enterprise). ArcGIS Field Maps asks every map for `field-maps-settings.json` and `tasks-configuration.json`,
+        // which most maps do not have: answered with an HTTP 400 it opened the map, and answered with a 400 in the body
+        // it opened the map and then refused every form with *The form contains unsupported data*.
+        if (await context.RequestServices.GetRequiredService<IItemResourceStore>()
                 .FindAsync(item.Item, resource, cancellation).ConfigureAwait(false) is not { } found
             || (found.Resource.Access == "private" && !SeesPrivateResources(context.Features.Get<RequestPrincipal>()!, item.Owner)))
         {
-            return Unknown("Resource");
+            return Results.Json(new
+            {
+                error = new { code = 404, message = "Resource does not exist or is inaccessible.", details = Array.Empty<string>() },
+            });
         }
 
         // Never a page: a resource is whatever its writer said it was, so it is not sniffed or framed.

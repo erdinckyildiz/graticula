@@ -171,17 +171,92 @@ internal static partial class PortalEndpoints
         };
     }
 
-    /// <summary>The ArcGIS user type id for a member's user type: <c>viewerUT</c>, <c>editorUT</c> or <c>creatorUT</c>.</summary>
+    /// <summary>The ArcGIS user type id for a member's user type (ADR-284).</summary>
     /// <remarks>
-    /// <b>Unrestricted is a creator</b>: it may do everything a creator may, and ArcGIS has no <c>unrestrictedUT</c> — the
-    /// id this wrote for it until 2026-11-08, which no client recognises.
+    /// <b><c>editor</c> is ArcGIS's Contributor (<c>editorUT</c>) and <c>fieldworker</c> its Mobile Worker
+    /// (<c>fieldWorkerUT</c>)</b>: both edit data and make nothing, and ArcGIS tells them apart by the apps each licence
+    /// includes. <b>Unrestricted is a creator</b>: ArcGIS has no <c>unrestrictedUT</c>.
     /// </remarks>
     internal static string LicenseTypeIdOf(string? userType) => userType switch
     {
         UserTypes.Viewer => "viewerUT",
         UserTypes.Editor => "editorUT",
+        UserTypes.FieldWorker => "fieldWorkerUT",
         _ => "creatorUT",
     };
+
+    /// <summary>The name ArcGIS gives a user type id.</summary>
+    internal static string LicenseTypeNameOf(string id) => id switch
+    {
+        "viewerUT" => "Viewer",
+        "editorUT" => "Contributor",
+        "fieldWorkerUT" => "Mobile Worker",
+        _ => "Creator",
+    };
+
+    /// <summary>
+    /// This server's user type for what an ArcGIS client sends as <c>userLicenseType</c> — an id such as
+    /// <c>fieldWorkerUT</c>, or the ArcGIS API for Python's word for one (<c>contributor</c>, <c>fieldworker</c>) —
+    /// or null when it names none. A professional type is a creator: a creator's licence with desktop apps beside it.
+    /// </summary>
+    internal static string? UserTypeOfLicense(string? sent) => sent?.Trim().ToLowerInvariant() switch
+    {
+        "viewerut" or "viewer" => UserTypes.Viewer,
+        "editorut" or "editor" or "contributor" => UserTypes.Editor,
+        "fieldworkerut" or "fieldworker" or "mobileworker" => UserTypes.FieldWorker,
+        "creatorut" or "creator" => UserTypes.Creator,
+        { } professional when professional.StartsWith("gisprofessional", StringComparison.Ordinal) => UserTypes.Creator,
+        _ => null,
+    };
+
+    /// <summary>
+    /// The apps a member's licence carries, as <c>userLicenseType</c> lists them and <c>community/self</c>'s
+    /// <c>userLicensedItems</c> repeats them: the field apps, which are what a client of this server asks about.
+    /// </summary>
+    /// <remarks>
+    /// <b>Names and item ids measured on a real ArcGIS Enterprise portal on 2026-11-08</b> (read only, owner's
+    /// permission): its <c>userLicenseType</c> lists ArcGIS Field Maps as a <c>Mobile Application</c> with the entitlement
+    /// <c>fieldmaps</c> in a <c>Field Apps</c> bundle, and <c>community/self?returnUserLicensedItems=true</c> repeats every
+    /// entitlement as <c>{itemId, entitlements}</c>. Esri's REST reference shows an older example (<c>Collector for
+    /// ArcGIS</c>, <c>collector</c>) that the measured portal no longer lists. <b>No SDK licence level is claimed</b>:
+    /// the measured portal lists one (<c>runtimeadvanced</c>), and what that unlocks in an app is Esri's to grant.
+    /// </remarks>
+    internal static readonly (string ItemId, string Title, string Type, string Entitlement)[] FieldApps =
+    [
+        ("ff54441c792546379cfd3c8f87d9a0b6", "ArcGIS Workforce", "Web Mapping Application", "workforce"),
+        ("7ddebbf72c6f4568a7631c4df3804c1c", "ArcGIS Field Maps", "Mobile Application", "fieldmaps"),
+        ("d95d1f5dafcb461d97493a2d37ba9e78", "ArcGIS Survey123", "Web Mapping Application", "survey123"),
+        ("9c570c552ba54228bd8aee4ed4a79f2c", "ArcGIS QuickCapture", "Mobile Application", "QuickCapture"),
+    ];
+
+    /// <summary><c>community/self</c>'s <c>userLicensedItems</c>, asked for with <c>returnUserLicensedItems=true</c>.</summary>
+    internal static object[] LicensedItems() =>
+        [.. FieldApps.Select(a => (object)new { itemId = a.ItemId, entitlements = new[] { a.Entitlement } })];
+
+    /// <summary><c>community/users/{u}/userLicenseType</c> for the caller, in the shape Esri's REST reference documents.</summary>
+    private static object LicenseType(HttpContext context)
+    {
+        string id = LicenseTypeIdOf(context.Features.Get<RequestPrincipal>()!.Authorization.UserType);
+        string name = LicenseTypeNameOf(id);
+
+        return new
+        {
+            id,
+            name,
+            apps = new object[]
+            {
+                new
+                {
+                    id = "fieldApps",
+                    title = "Field Apps",
+                    type = "App Bundle",
+                    isAppBundle = true,
+                    apps = FieldApps.Select(a => new { id = a.ItemId, title = a.Title, type = a.Type, entitlements = new[] { a.Entitlement } }).ToArray(),
+                },
+            },
+            extensions = Array.Empty<object>(),
+        };
+    }
 
     /// <summary>The portal's role and role id for a member's roles: built-in names are said as ArcGIS says them.</summary>
     private static (string Role, string RoleId) PortalRoleOf(IReadOnlyList<string> roles)
@@ -271,12 +346,8 @@ internal static partial class PortalEndpoints
             }
 
             string role = OurRoleOf(Text("role") ?? "org_user");
-            string userType = (Text("userLicenseType") ?? Text("userType") ?? UserTypes.Creator)
-                .Replace("UT", string.Empty, StringComparison.Ordinal).ToLowerInvariant();
-            if (!UserTypes.All.Contains(userType))
-            {
-                userType = UserTypes.Creator;
-            }
+            // ADR-284: ArcGIS's ids and the Python API's words, to this server's types; anything else is a creator, as before.
+            string userType = UserTypeOfLicense(Text("userLicenseType") ?? Text("userType")) ?? UserTypes.Creator;
 
             (int status, string? message, JsonElement _) = await InnerAnswerAsync(context, () => AdminEndpoints.CreateMemberAsync(
                     context, new MemberRequest(username, string.IsNullOrWhiteSpace(fullName) ? null : fullName, role, userType),

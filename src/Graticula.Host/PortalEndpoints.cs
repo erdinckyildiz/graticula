@@ -174,6 +174,15 @@ internal static partial class PortalEndpoints
             Self(context, username) is null ? Unknown("User") : Results.Ok(new { tags = Array.Empty<object>() }))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>The caller's licence, since 2026-11-08</b> (ADR-077 condition 5). ArcGIS Field Maps asks it after signing in
+        // and got 404, and never offered Collect. The shape is the one Esri's REST reference documents for
+        // `community/users/{name}/userLicenseType` — `id`, `name`, `apps`, `extensions` — with the id this server already
+        // writes as `userLicenseTypeId`. The one bundle listed is the documented Field Apps bundle, for every type: in
+        // ArcGIS a Viewer also opens Field Maps, and what it may do there is decided by the id, not by the bundle.
+        Discoverable(app, $"{Path}/community/users/{{username}}/userLicenseType", (HttpContext context, string username) =>
+            Self(context, username) is null ? Unknown("User") : Results.Ok(LicenseType(context)))
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
         // <b>POST as well as GET, because Pro posts its searches.</b> Its query is
         // long enough to be a paragraph — thirty negated type clauses — so it uses
         // a body, and a GET-only route answers 405 to the one request that lists
@@ -909,6 +918,15 @@ internal static partial class PortalEndpoints
 
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+
+        // <b>`userLicensedItems` only when asked for</b>, as a real portal answers (measured 2026-11-08): ArcGIS Field Maps
+        // asks with `returnUserLicensedItems=true` after signing in, and offered no Collect while it was missing.
+        if (string.Equals(context.Request.Query["returnUserLicensedItems"], "true", StringComparison.OrdinalIgnoreCase))
+        {
+            System.Text.Json.Nodes.JsonObject self = System.Text.Json.JsonSerializer.SerializeToNode(Self(context, current, groups))!.AsObject();
+            self["userLicensedItems"] = System.Text.Json.JsonSerializer.SerializeToNode(LicensedItems());
+            return Results.Text(self.ToJsonString(), "application/json; charset=utf-8");
+        }
 
         return Results.Ok(Self(context, current, groups));
     }
@@ -2505,6 +2523,45 @@ internal static partial class PortalEndpoints
     /// <b>Not <c>Offline</c>, <c>Collector</c> or <c>Data Editing</c></b>, which say the map was prepared
     /// for a field app; nothing here prepares one, and a client reading them would offer what it cannot do.
     /// </remarks>
+    /// <summary>The type keywords for a web map whose document is at hand: <c>Collector</c> and <c>Data Editing</c> beside
+    /// <see cref="WebMapKeywords"/> when it holds a feature layer or table.</summary>
+    internal static string[] WebMapKeywordsOf(string? document) =>
+        HoldsFeatureLayer(document) ? EditableWebMapKeywords : WebMapKeywords;
+
+    internal static readonly string[] EditableWebMapKeywords =
+        ["ArcGIS Online", "Collector", "Data Editing", "Explorer Web Map", "Map", "Online Map", "Web Map"];
+
+    /// <summary>Whether a Web Map JSON names an <c>ArcGISFeatureLayer</c> among its operational layers or tables.</summary>
+    internal static bool HoldsFeatureLayer(string? document)
+    {
+        if (string.IsNullOrEmpty(document))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument parsed = JsonDocument.Parse(document);
+            return Any(parsed.RootElement, "operationalLayers") || Any(parsed.RootElement, "tables");
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        static bool Any(JsonElement root, string name) =>
+            root.TryGetProperty(name, out JsonElement list) && list.ValueKind == JsonValueKind.Array
+            && list.EnumerateArray().Any(l => l.ValueKind == JsonValueKind.Object
+                && (Feature(l) || (l.TryGetProperty("layers", out JsonElement inner) && inner.ValueKind == JsonValueKind.Array
+                    && inner.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.Object && Feature(x)))));
+
+        static bool Feature(JsonElement l) =>
+            l.TryGetProperty("layerType", out JsonElement t) && t.ValueKind == JsonValueKind.String
+                ? t.GetString() == "ArcGISFeatureLayer"
+                : l.TryGetProperty("url", out JsonElement u) && u.ValueKind == JsonValueKind.String
+                    && u.GetString()!.Contains("/FeatureServer", StringComparison.OrdinalIgnoreCase);
+    }
+
     internal static readonly string[] WebMapKeywords =
         ["ArcGIS Online", "Explorer Web Map", "Map", "Online Map", "Web Map"];
 
@@ -2568,7 +2625,7 @@ internal static partial class PortalEndpoints
             title = map.Title,
             name = (string?)null,
             type = "Web Map",
-            typeKeywords = WebMapKeywords,
+            typeKeywords = WebMapKeywordsOf(map.Document),
             // ADR-119: the description when there is one, the summary as before when not; and the picture.
             description = map.Description ?? map.Snippet,
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,

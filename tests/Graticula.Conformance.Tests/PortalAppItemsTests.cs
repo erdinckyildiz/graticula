@@ -164,6 +164,12 @@ public sealed class PortalAppItemsTests : ArcGisClient
             Assert.True(removed.GetProperty("success").GetBoolean());
             Assert.Equal(0, (await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{app}/resources?f=json")).Json
                 .GetProperty("total").GetInt32());
+
+            // A resource the item does not have is said as ArcGIS Enterprise says it — a 404 in the body of a 200 —
+            // since 2026-11-08: Field Maps asks every map for two that most maps do not have, and refused every form
+            // while the body said 400.
+            (JsonElement gone, string goneRaw) = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/items/{app}/resources/config/config.json?f=json");
+            Assert.True(gone.GetProperty("error").GetProperty("code").GetInt32() == 404, goneRaw);
         }
         finally
         {

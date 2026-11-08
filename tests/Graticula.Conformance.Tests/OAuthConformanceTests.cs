@@ -456,6 +456,58 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
         return (token, cookie.Split(';')[0], page);
     }
 
+    /// <summary>
+    /// <b>What ArcGIS Field Maps asks after it signs in, in the shapes ArcGIS answers with</b> (ADR-077 condition 5,
+    /// 2026-11-08). Both answered 404 until then: the server's <c>/rest/self</c>, whose shape was measured on Esri's
+    /// sample server, and <c>community/users/{name}/userLicenseType</c>, whose shape is Esri's REST reference.
+    /// </summary>
+    [Fact]
+    public async Task Field_Maps_learns_who_it_signed_in_as_and_the_licence_that_carries()
+    {
+        string root = await RequireServerAsync();
+        string? user = Environment.GetEnvironmentVariable(UserVariable);
+        Assert.False(user is null, "No administrator credential.");
+        string token = await ArcGisClient.TokenAsync(root) ?? throw new InvalidOperationException("No token.");
+
+        using HttpClient client = new(new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        });
+
+        using (HttpResponseMessage anonymous = await client.GetAsync($"{root}/rest/self?f=json"))
+        {
+            Assert.Equal(HttpStatusCode.OK, anonymous.StatusCode);
+            JsonElement nobody = JsonDocument.Parse(await anonymous.Content.ReadAsStringAsync()).RootElement;
+            Assert.Equal(JsonValueKind.Object, nobody.GetProperty("user").ValueKind);
+            Assert.Empty(nobody.GetProperty("user").EnumerateObject());
+        }
+
+        JsonElement self = (await GetWithAsync(client, $"{root}/rest/self?f=json", token)).GetProperty("user");
+        Assert.Equal(user, self.GetProperty("username").GetString(), ignoreCase: true);
+        Assert.Equal("User", self.GetProperty("privilege").GetString());
+        Assert.Equal(JsonValueKind.Array, self.GetProperty("roles").ValueKind);
+
+        JsonElement licence = await GetWithAsync(client, $"{root}/sharing/rest/community/users/{Uri.EscapeDataString(user!)}/userLicenseType?f=json", token);
+        JsonElement profile = await GetWithAsync(client, $"{root}/sharing/rest/community/users/{Uri.EscapeDataString(user!)}?f=json", token);
+        Assert.Equal(profile.GetProperty("userLicenseTypeId").GetString(), licence.GetProperty("id").GetString());
+        Assert.False(string.IsNullOrEmpty(licence.GetProperty("name").GetString()));
+        Assert.NotEmpty(licence.GetProperty("apps").EnumerateArray());
+        Assert.Equal(JsonValueKind.Array, licence.GetProperty("extensions").ValueKind);
+
+        // `userLicensedItems` only when asked for, as a real portal answers, and Field Maps among them.
+        JsonElement plain = await GetWithAsync(client, $"{root}/sharing/rest/community/self?f=json", token);
+        Assert.False(plain.TryGetProperty("userLicensedItems", out _));
+        JsonElement asked = await GetWithAsync(client, $"{root}/sharing/rest/community/self?f=json&returnUserLicensedItems=true", token);
+        Assert.Equal(user, asked.GetProperty("username").GetString(), ignoreCase: true);
+        Assert.Contains(asked.GetProperty("userLicensedItems").EnumerateArray(), i =>
+            i.GetProperty("itemId").GetString()!.Length == 32
+            && i.GetProperty("entitlements").EnumerateArray().Any(e => e.GetString() == "fieldmaps"));
+
+        // Another member's licence is not the caller's to read, as a portal's user resource is not.
+        JsonElement other = await GetWithAsync(client, $"{root}/sharing/rest/community/users/zz-nobody-{Guid.NewGuid():N}/userLicenseType?f=json", token);
+        Assert.True(other.TryGetProperty("error", out _), "Another user's licence was answered.");
+    }
+
     private static async Task<HttpResponseMessage> PostFormAsync(HttpClient browser, string url, string? cookie, (string Key, string Value)[] fields)
     {
         HttpRequestMessage request = new(HttpMethod.Post, url)
