@@ -6,7 +6,7 @@
 | **Confidence** | `HIGH` |
 | **Decided** | 2026-10-22, overnight, under the owner's *"ben uyurken açık konuları kapatır mısın?"* — the ArcGIS veteran's second review (2026-10-21), findings N3 and N8. **The line drawn in §5 is INFERRED** and listed for confirmation. |
 | **Supersedes** | — (narrows ADR-008 §2's rule; does not reverse it) |
-| **Superseded by** | — |
+| **Superseded by** | — (§5's `returnTrueCurves` line reversed by [ADR-286](ADR-286-field-maps-tasks-are-turned-on-in-studio.md), 2026-11-08) |
 
 ---
 
@@ -67,7 +67,15 @@ as before. An unknown parameter is still refused. A layer document says `support
 the layer has a GlobalID column and edits.
 
 **INFERRED, for the owner:** *(Confirmed by the owner 2026-10-26 — Q-189: "189'un hepsini onayladım.")* where the line sits — that `lang`/`locale` are harmless here because every message is
-English, and that `returnTrueCurves=true` stays refused (a client asking for curves gets vertices).
+English, and that ~~`returnTrueCurves=true` stays refused (a client asking for curves gets vertices)~~.
+
+**`returnTrueCurves=true` is accepted — reversed 2026-11-08 by owner decision:** *"Returntruecurves artık desteklensin"*
+("let returnTrueCurves be supported now"), in [ADR-286](ADR-286-field-maps-tasks-are-turned-on-in-studio.md). The
+premise above was wrong and was measured to be: no client asking for curves is given vertices, because no curve is served
+at all — `WkbReader` refuses a curve geometry on read ([ADR-005](ADR-005-api-architecture.md) §3.3c), so every geometry in
+an answer is already what a true-curve answer would hold, and `true` cannot change it. ArcGIS Field Maps sends
+`returnTrueCurves=true` on the query that fills a map's task list, and the refusal left that list at *Assigned to me (0)*.
+It is now on `IgnoredParameters` with that reason, and the conformance probe sends `true`.
 
 **Not done, and the owner's to decide: `maxRecordCountFactor`** *(Confirmed as it stands — accepted and not honoured — with the rest of Q-189, 2026-10-26.)* (N8's second half). It is accepted and the page stays
 at `maxRecordCount` (ADR-197 §3). Honouring it would let a query fetch up to five pages at once, inside the

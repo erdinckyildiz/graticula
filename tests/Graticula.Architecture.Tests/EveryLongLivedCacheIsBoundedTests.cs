@@ -65,6 +65,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     /// </remarks>
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
+        ["AdminEndpoints.WebMapTasks._members"] = "one request: an Access is built per tasks answer, and holds at most the organization's groups (ADR-286)",
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["ModelConverters.Extensions"] = "fixed: the model formats the converters offer (ADR-282, ADR-283)",
         ["ModelConverters.tools"] = "fixed: the converter programs found on the path when the server starts, three at most (ADR-283)",

@@ -480,7 +480,19 @@ document.addEventListener("input", event => {
   }
 });
 
+let groupsNewSharedShown = false;
+
 async function loadGroups() {
+  // ADR-286: "create one" from a map's tasks opens New group with shared update chosen, once.
+  if (hashQuery.get("new") === "shared" && !groupsNewSharedShown && $("groupNew")) {
+    groupsNewSharedShown = true;
+    setTimeout(() => {
+      $("groupNew").click();
+      const shared = document.querySelector('#newGroupUpdate input[value="allItems"]');
+      if (shared) shared.checked = true;
+    }, 0);
+  }
+
   const answer = await api("/admin/groups") || {};
   const groups = answer.groups || [];
   groupNamesKnown = groups.map(g => g.name);
@@ -6480,6 +6492,11 @@ async function showWebMapItem(id) {
 
   // <b>Settings: what the owner sets, and Delete behind its lock</b> — as a layer's Settings › General has them.
   $("mapSettings").innerHTML = map.manages ? `
+    <section id="mapTasks" aria-labelledby="mapTasksHead">
+      <h4 id="mapTasksHead" tabindex="-1">Tasks for ArcGIS Field Maps</h4>
+      <p class="hint" id="mapTasksSays" role="status" aria-live="polite"></p>
+      <div id="mapTasksBody"><p class="hint">Reading this map's tasks…</p></div>
+    </section>
     <h4>Deleting</h4>
     <label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
       Protect from deletion</label>
@@ -6491,6 +6508,7 @@ async function showWebMapItem(id) {
 
   drawMapTabs();
   paintPreviews();
+  if (map.manages) loadMapTasks(map);
 }
 
 /** The web map item's tab strip, and which tab's panel shows. */
@@ -6516,6 +6534,457 @@ function drawMapTabs() {
   const path = `#/item/${encodeURIComponent(map.id)}${mapTab === "settings" ? "?tab=settings" : ""}`;
   if (surfaceOfPath() === "studio" && routeHash() !== path) history.replaceState(null, "", pathOf(path));
 }
+
+/**
+ * ArcGIS Field Maps tasks for this map — ADR-286. Drawn in two parts so nothing a person is typing in is replaced:
+ * `drawMapTasks` draws the section's body when the map's tasks are read or saved, and the assignee list is filled and
+ * filtered in place (`drawTaskPeople`, `filterTaskPeople`). The status line `#mapTasksSays` sits outside the body and
+ * is never redrawn, so a screen reader hears what it is given.
+ */
+let mapTasksState = null;
+
+async function loadMapTasks(map) {
+  try {
+    const tasks = await api(`/content/webmaps/${encodeURIComponent(map.id)}/tasks`);
+    if (mapOpen !== map) return;
+    mapTasksState = {
+      map, tasks, people: null, peopleError: null, editing: false, layer: null, find: "", picked: null, typed: null,
+      filled: false,
+    };
+    drawMapTasks();
+  } catch (e) {
+    if (mapOpen !== map) return;
+    $("mapTasksBody").innerHTML = "";
+    sayMapTasks(`This map's tasks could not be read: ${e.message || e}`);
+    return;
+  }
+  loadMapTaskPeople(map);
+}
+
+/** The members, after the section is drawn: an organization of hundreds should not hold up what the map says. */
+async function loadMapTaskPeople(map) {
+  const state = mapTasksState;
+  const failedBefore = state.peopleError;
+  state.peopleError = null;
+  try {
+    const people = await loadTaskPeople();
+    if (mapOpen !== map || mapTasksState !== state) return;
+    state.people = people;
+    // A retry that works takes the failure off the status line too, which still said it under a full list (design
+    // review 4).
+    if (failedBefore && $("mapTasksSays")?.textContent === failedBefore) sayMapTasks("");
+  } catch (e) {
+    if (mapTasksState !== state) return;
+    state.peopleError = "The members could not be listed. Check the connection and try again.";
+    sayMapTasks(state.peopleError);
+  }
+  drawTaskPeople();
+  sayTaskChoice();
+}
+
+/** The organization's members, as Field Maps matches them: by account name, with the name people know them by. */
+async function loadTaskPeople() {
+  const people = [];
+  for (let start = 1; start > 0 && people.length < 1000;) {
+    const page = await api(`/sharing/rest/community/users?f=json&num=100&start=${start}`);
+    for (const u of page.results || []) if (u.username) people.push({ username: u.username, label: u.fullName || u.username });
+    start = page.nextStart > 0 ? page.nextStart : -1;
+  }
+  return people.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function sayMapTasks(text) {
+  const says = $("mapTasksSays");
+  if (says) says.textContent = text;
+}
+
+/** "A, B, C, D, E and 3 more" — a list said in a sentence without running on. */
+function someOf(names, most = 5) {
+  if (names.length <= most) return names.join(", ");
+  return `${names.slice(0, most).join(", ")} and ${num(names.length - most)} more`;
+}
+
+/** The layer the form is about: the one with tasks, else the one chosen, else the first that can hold them. */
+function mapTasksLayer() {
+  const { tasks, layer } = mapTasksState;
+  const layers = tasks.layers || [];
+  return layers.find(l => l.id === (tasks.enabled ? tasks.layer : layer))
+    || layers.find(l => l.eligible) || null;
+}
+
+/** The assignees the form holds now. */
+function mapTasksPicked() {
+  const state = mapTasksState;
+  if (!state.picked) {
+    const from = state.tasks.enabled ? state.tasks.assignees : (mapTasksLayer()?.assignees || []);
+    state.picked = new Set((from || []).map(a => a.username));
+  }
+  return state.picked;
+}
+
+/**
+ * Who of these assignees could not work their tasks: not able to edit the layer (ADR-075 — owner, administrators and
+ * shared update groups), or not reached by the map's sharing.
+ */
+function taskReach(layer, usernames) {
+  const { tasks } = mapTasksState;
+  const editors = new Set((layer?.editors || []).map(n => n.toLowerCase()));
+  const readers = tasks.readers ? new Set(tasks.readers.map(n => n.toLowerCase())) : null;
+  return {
+    cannotEdit: layer?.editors ? usernames.filter(u => !editors.has(u.toLowerCase())) : [],
+    cannotOpen: readers ? usernames.filter(u => !readers.has(u.toLowerCase())) : [],
+  };
+}
+
+function labelOf(username) {
+  const known = (mapTasksState.people || []).find(p => p.username === username)
+    || (mapTasksState.tasks.assignees || []).find(a => a.username === username);
+  return known ? known.label : username;
+}
+
+/** What the sharing of the layer and the map means for these assignees: one line when all is well, the fix when not. */
+function taskReachNote(layer, usernames) {
+  const { cannotEdit, cannotOpen } = taskReach(layer, usernames);
+  const groups = layer?.sharedUpdateGroups || [];
+  const lines = [];
+
+  if (groups.length) {
+    lines.push(`<p class="hint">Assignees change their tasks through the shared update group${groups.length === 1 ? "" : "s"}
+      ${groups.map(g => `<b>${h(g.title)}</b>`).join(", ")}.</p>`);
+  }
+
+  if (cannotEdit.length) {
+    lines.push(`<p class="warn-inline" id="mapTasksCannotEdit">Cannot change their tasks yet:
+      ${h(someOf(cannotEdit.map(labelOf)))}. Share the layer with a shared update group they belong to, or
+      <a href="#/groups?new=shared" target="_blank" rel="noopener">create one</a> (opens in a new tab).</p>`);
+    if (layer?.service) {
+      lines.push(`<div class="row"><button type="button" id="mapTasksShareLayer" data-share-layer="${h(layer.service)}">Share the layer…</button></div>`);
+    }
+  }
+
+  if (cannotOpen.length) {
+    lines.push(`<p class="warn-inline" id="mapTasksCannotOpen">This map is not shared with
+      ${h(someOf(cannotOpen.map(labelOf)))}, so Field Maps cannot open it for them. The map needs only to be shared
+      with the assignees.</p>`);
+    if ($("mapShareOpen")) lines.push(`<div class="row"><button type="button" id="mapTasksShareMap">Share the map…</button></div>`);
+  }
+
+  if (!lines.length) {
+    lines.push(`<p class="hint">The layer is in no shared update group, so only its owner and administrators can change
+      a task; no assignee needs more.</p>`);
+  }
+  return lines.join("");
+}
+
+function drawMapTasks() {
+  const state = mapTasksState;
+  const body = $("mapTasksBody");
+  if (!state || !body || mapOpen !== state.map) return;
+
+  const { tasks } = state;
+  const layers = tasks.layers || [];
+  const eligible = layers.filter(l => l.eligible);
+  const on = tasks.enabled;
+  const layer = mapTasksLayer();
+  const showForm = !tasks.orphaned && (!on || state.editing) && eligible.length > 0;
+  const viewer = `/studio/webmap.html?id=${encodeURIComponent(state.map.id)}`;
+
+  let status;
+  if (tasks.orphaned) {
+    status = `<p><b>Needs updating:</b> the task settings are for ${tasks.orphanTitle
+      ? `the layer <b>${h(tasks.orphanTitle)}</b>, which is` : "a layer that is"} no longer in this map. Field Maps shows
+      no tasks for it, and no other layer can be enabled for tasks until the settings are removed.</p>`;
+  } else if (on) {
+    const people = (tasks.assignees || []).map(a => a.label || a.username);
+    status = `<p><b>Enabled</b> on the layer <b>${h(layer?.title || tasks.layer || "—")}</b>.</p>
+      <dl class="facts2 tasksfacts">
+        <dt>Task types</dt><dd>${h(someOf(tasks.types || []))}</dd>
+        <dt>Assignees</dt><dd>${h(someOf(people))}</dd>
+      </dl>`;
+  } else if (!eligible.length) {
+    const reasons = layers.map(l => `<li><b>${h(l.title)}</b>: ${h(l.why || "")}</li>`).join("");
+    status = `<p><b>Not available:</b> no layer of this map can hold tasks.</p>
+      <p class="hint">A task layer is a hosted point, line or polygon layer of this server that you own.${reasons
+        ? "" : ` This map has no feature layer yet; <a href="${viewer}">add one in the Map Viewer</a>.`}</p>
+      ${reasons ? `<ul class="hint">${reasons}</ul>` : ""}`;
+  } else {
+    status = `<p><b>Off:</b> Field Maps shows no tasks for this map.</p>`;
+  }
+
+  const intro = `<p class="hint">Field Maps lists each mobile worker's assigned tasks, and lets them pick up, start and
+    finish them. Enabling tasks adds the task fields to one layer of this map that you own; disabling them keeps those
+    fields, and every task in them, on the layer.</p>`;
+
+  // The lists are the layer's: a layer holding the tasks of other maps changes for them too (design review 16).
+  const elsewhere = layer && (layer.alsoTasksFor || []).length && !tasks.orphaned
+    ? `<p class="hint" id="mapTasksElsewhere">This layer also holds tasks for ${h(someOf(layer.alsoTasksFor.map(t => `“${t}”`)))}.
+        Its task types and assignees are the same there, and a change here changes them too.</p>` : "";
+
+  let form = "";
+  if (showForm) {
+    const single = on || eligible.length === 1;
+    const types = state.typed ?? (on ? tasks.types : (layer?.types || [])).join("\n");
+    const filledNote = state.filled
+      ? " This layer's task types were filled in."
+      : !on && state.typed === null && (layer?.types || []).length ? " The task types this layer already holds are filled in." : "";
+    form = `
+      <div class="taskform">
+        ${single
+          ? `<div class="field-static"><span class="fieldname">Layer</span><b>${h(layer.title)}</b>${on
+              ? `<span class="hint">To use another layer, disable tasks first.</span>` : ""}</div>`
+          : `<label class="field">Layer that holds the tasks
+              <select id="mapTasksLayer" aria-describedby="mapTasksLayerHint">
+                ${layers.map(l => `<option value="${h(l.id)}"${l.eligible ? "" : " disabled"}${
+                  l.id === layer?.id ? " selected" : ""}>${h(l.title)}${l.eligible ? "" : ` (${h(l.why || "")})`}</option>`).join("")}
+              </select></label>
+            <p class="hint" id="mapTasksLayerHint">The fields this layer lacks are added to it: task type, assignee, status,
+              priority, due date, description and notes.</p>`}
+        <label class="field">Task types (one per line)
+          <textarea id="mapTasksTypes" rows="4" aria-describedby="mapTasksTypesHint mapTasksTypesError">${h(types)}</textarea></label>
+        <p class="hint" id="mapTasksTypesHint">Every task has one type, such as Inspection or Repair.${filledNote}</p>
+        <p class="fielderror" id="mapTasksTypesError" hidden></p>
+        <fieldset class="taskpeople" aria-describedby="mapTasksPeopleHint mapTasksPeopleError">
+          <legend class="fieldname">Assignees</legend>
+          <p class="hint" id="mapTasksPeopleHint">Mobile workers you can assign tasks to. <span id="mapTasksChosen"></span></p>
+          <input type="search" id="mapTasksFind" placeholder="Find a member" aria-label="Find a member"
+            aria-describedby="mapTasksPeopleError" value="${h(state.find)}">
+          <div class="checklist" id="mapTasksPeople"></div>
+          <p class="fielderror" id="mapTasksPeopleError" hidden></p>
+        </fieldset>
+        <div id="mapTasksReach"></div>
+      </div>`;
+  }
+
+  const buttons = tasks.orphaned
+    ? `<div class="row"><button type="button" id="mapTasksClear">Remove task settings</button></div>`
+    : on
+      ? (state.editing
+          ? `<div class="row"><button type="button" class="primary" id="mapTasksSave">Save changes</button>
+               <button type="button" class="ghost" id="mapTasksCancel">Cancel</button></div>`
+          : `<div class="row"><button type="button" id="mapTasksEdit">Change task types or assignees</button>
+               <button type="button" id="mapTasksOff">Disable tasks</button></div>`)
+      : (eligible.length ? `<div class="row"><button type="button" class="primary" id="mapTasksOn">Enable tasks</button></div>` : "");
+
+  const focused = document.activeElement;
+  const had = focused && body.contains(focused) ? focused.id : null;
+
+  const explain = !tasks.orphaned && !on ? intro : "";
+  body.innerHTML = `${status}${explain}${elsewhere}${form}${on && !state.editing
+    ? `<div id="mapTasksReach">${taskReachNote(layer, (tasks.assignees || []).map(a => a.username))}</div>` : ""}${buttons}`;
+
+  if (showForm) {
+    drawTaskPeople();
+    sayTaskChoice();
+  }
+  if (had) document.getElementById(had)?.focus();
+}
+
+/** Fills the assignee list once the members are read; the find box and everything else is left alone. */
+function drawTaskPeople() {
+  const state = mapTasksState;
+  const list = $("mapTasksPeople");
+  if (!state || !list) return;
+
+  if (state.peopleError) {
+    list.innerHTML = `<p class="hint">${h(state.peopleError)}</p>
+      <div class="row"><button type="button" id="mapTasksPeopleRetry">Try again</button></div>`;
+    return;
+  }
+  if (!state.people) {
+    list.innerHTML = `<p class="hint">Listing the members…</p>`;
+    return;
+  }
+
+  const picked = mapTasksPicked();
+
+  // Someone already on the layer's list but not found among the members is still listed, so saving does not drop them.
+  const people = [...state.people];
+  for (const username of picked) if (!people.some(p => p.username === username)) people.push({ username, label: labelOf(username) });
+
+  list.innerHTML = people.length
+    ? people.map(p => `<label class="check" data-person-row="${h((p.label + " " + p.username).toLowerCase())}">
+        <input type="checkbox" data-map-task-person="${h(p.username)}"${picked.has(p.username) ? " checked" : ""}>
+        <span>${h(p.label)}${p.label !== p.username ? ` <span class="rowmeta">${h(p.username)}</span>` : ""}</span></label>`).join("")
+      + `<p class="hint" id="mapTasksNoMatch" hidden>No member matches.</p>`
+    : `<p class="hint">No members to list.</p>`;
+
+  filterTaskPeople();
+}
+
+/** Hides the rows the find box does not match, without touching the box. */
+function filterTaskPeople() {
+  const state = mapTasksState;
+  const needle = state.find.trim().toLowerCase();
+  let shown = 0;
+  for (const row of document.querySelectorAll("#mapTasksPeople [data-person-row]")) {
+    const match = !needle || row.dataset.personRow.includes(needle);
+    row.hidden = !match;
+    if (match) shown++;
+  }
+  const none = $("mapTasksNoMatch");
+  if (none) none.hidden = shown > 0;
+}
+
+/** The count of assignees chosen, and what the sharing means for them. */
+function sayTaskChoice() {
+  const picked = [...mapTasksPicked()];
+  const chosen = $("mapTasksChosen");
+  if (chosen) chosen.textContent = `${num(picked.length)} ${picked.length === 1 ? "assignee" : "assignees"} chosen.`;
+  const reach = $("mapTasksReach");
+  if (reach && $("mapTasksPeople")) reach.innerHTML = taskReachNote(mapTasksLayer(), picked);
+}
+
+/** Marks or clears one field's error. */
+function markTaskField(error, text, field) {
+  const says = $(error);
+  if (says) { says.textContent = text || ""; says.hidden = !text; }
+  if (field) $(field)?.setAttribute("aria-invalid", text ? "true" : "false");
+}
+
+/** What the form says, or null after marking the field that is missing and moving focus to it. */
+function mapTasksForm() {
+  const state = mapTasksState;
+  const types = ($("mapTasksTypes")?.value || "").split("\n").map(t => t.trim()).filter(Boolean);
+  const picked = [...mapTasksPicked()];
+
+  markTaskField("mapTasksTypesError", types.length ? "" : "Add at least one task type, such as Inspection. Every task in Field Maps has one.", "mapTasksTypes");
+  markTaskField("mapTasksPeopleError", picked.length ? "" : "Add at least one assignee.");
+
+  if (!types.length) { $("mapTasksTypes")?.focus(); return null; }
+  if (!picked.length) { $("mapTasksFind")?.focus(); return null; }
+
+  return {
+    layer: state.tasks.enabled ? state.tasks.layer : mapTasksLayer()?.id,
+    types,
+    assignees: picked.map(username => ({ username, label: labelOf(username) })),
+  };
+}
+
+document.addEventListener("input", event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapTasksState) return;
+  if (t.id === "mapTasksFind") {
+    mapTasksState.find = t.value;
+    filterTaskPeople();
+  } else if (t.id === "mapTasksTypes") {
+    mapTasksState.typed = t.value;
+    // An error once answered goes away as soon as it is.
+    if (!$("mapTasksTypesError")?.hidden && t.value.trim()) markTaskField("mapTasksTypesError", "", "mapTasksTypes");
+  }
+});
+
+document.addEventListener("change", event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapTasksState) return;
+  const state = mapTasksState;
+  if (t.id === "mapTasksLayer") {
+    // The layer chosen is kept. What was typed and ticked is kept too, unless the new layer brings lists of its own,
+    // which are then filled in and said to be (design review M7 and 3).
+    state.layer = t.value;
+    const chosen = mapTasksLayer();
+    const own = (chosen?.types || []).length > 0 || (chosen?.assignees || []).length > 0;
+    if (own) {
+      state.typed = null;
+      state.picked = null;
+      state.pickedChanged = false;
+    }
+    state.filled = own;
+    drawMapTasks();
+    return;
+  }
+  if (!t.dataset?.mapTaskPerson) return;
+  const picked = mapTasksPicked();
+  if (t.checked) picked.add(t.dataset.mapTaskPerson);
+  else picked.delete(t.dataset.mapTaskPerson);
+  state.pickedChanged = true;
+  if (picked.size && !$("mapTasksPeopleError")?.hidden) markTaskField("mapTasksPeopleError", "");
+  sayTaskChoice();
+});
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t || !mapTasksState) return;
+  const state = mapTasksState;
+
+  if (t.id === "mapTasksShareLayer") {
+    await openShare(t.dataset.shareLayer);
+    return;
+  }
+  if (t.id === "mapTasksShareMap") {
+    $("mapShareOpen")?.click();
+    return;
+  }
+  if (t.id === "mapTasksPeopleRetry") {
+    state.peopleError = null;
+    drawTaskPeople();
+    $("mapTasksFind")?.focus();
+    loadMapTaskPeople(state.map);
+    return;
+  }
+
+  if (!["mapTasksOn", "mapTasksSave", "mapTasksOff", "mapTasksEdit", "mapTasksCancel", "mapTasksClear"].includes(t.id)) return;
+  if (t.getAttribute("aria-disabled") === "true") return;
+  const path = `/content/webmaps/${encodeURIComponent(state.map.id)}/tasks`;
+  const reset = () => { state.editing = false; state.picked = null; state.pickedChanged = false; state.typed = null; state.find = ""; state.filled = false; };
+
+  if (t.id === "mapTasksEdit" || t.id === "mapTasksCancel") {
+    reset();
+    state.editing = t.id === "mapTasksEdit";
+    sayMapTasks("");
+    drawMapTasks();
+    $(state.editing ? "mapTasksTypes" : "mapTasksEdit")?.focus();
+    return;
+  }
+
+  let form = null;
+  if (t.id === "mapTasksOn" || t.id === "mapTasksSave") {
+    form = mapTasksForm();
+    if (!form) return;
+  }
+
+  if (t.id === "mapTasksOff" && !await askServerConfirm({
+    title: `Disable tasks for ${state.map.title}?`,
+    body: "Field Maps stops listing tasks for this map. The task fields, and every task in them, stay on the layer, and "
+      + "enabling tasks again starts from the task types and assignees it holds.",
+    action: "Disable tasks",
+    danger: false,
+  })) return;
+
+  // The button keeps focus while the request is out; it says it is busy rather than being taken out of the page.
+  t.setAttribute("aria-disabled", "true");
+  sayMapTasks(t.id === "mapTasksOff" ? "Disabling tasks…" : t.id === "mapTasksClear" ? "Removing the task settings…" : "Saving the tasks…");
+  try {
+    if (form) await api(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    else await api(path, { method: "DELETE" });
+    state.tasks = await api(path);
+    reset();
+    const canEnable = (state.tasks.layers || []).some(l => l.eligible);
+    const done = t.id === "mapTasksOff" ? "Tasks are disabled. The fields and the tasks are still on the layer."
+      : t.id === "mapTasksClear" ? `The task settings are removed.${canEnable ? " Enable tasks below." : ""}`
+      : t.id === "mapTasksOn" ? "Tasks are enabled. Open the map in Field Maps to see them."
+      : "The tasks are saved.";
+    const reach = state.tasks.enabled ? taskReach(mapTasksLayer(), (state.tasks.assignees || []).map(a => a.username)) : null;
+    drawMapTasks();
+    sayMapTasks(done + (reach && (reach.cannotEdit.length || reach.cannotOpen.length)
+      ? " Some assignees cannot work their tasks yet; see below." : ""));
+    // Focus goes to what comes next, or to the section's heading when nothing does (design review 4).
+    ($(state.tasks.enabled ? "mapTasksEdit" : state.tasks.orphaned ? "mapTasksClear" : "mapTasksOn") || $("mapTasksHead"))?.focus();
+  } catch (e) {
+    t.removeAttribute("aria-disabled");
+    const act = t.id === "mapTasksOff" ? "disabled" : t.id === "mapTasksClear" ? "removed"
+      : t.id === "mapTasksOn" ? "enabled" : "saved";
+    sayMapTasks(e.status ? (e.message || String(e)) : `The tasks could not be ${act}. Check the connection and try again.`);
+    t.focus();
+  }
+});
+
+/** The layer's or the map's Share dialog, opened from here, changes who can work the tasks: read them again on close. */
+document.addEventListener("close", event => {
+  if (!["share", "mapShare"].includes(event.target?.id) || !mapTasksState || mapOpen !== mapTasksState.map || !$("mapTasksBody")) return;
+  api(`/content/webmaps/${encodeURIComponent(mapTasksState.map.id)}/tasks`)
+    .then(tasks => { if (mapTasksState) { mapTasksState.tasks = tasks; drawMapTasks(); } })
+    .catch(() => {});
+}, true);
 
 const WM_KIND = {
   ArcGISFeatureLayer: "Features", ArcGISMapServiceLayer: "Map image", VectorTileLayer: "Vector tiles",
@@ -6722,8 +7191,14 @@ document.addEventListener("click", async event => {
     try {
       await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}/protection`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ protected: t.checked }) });
-      await showWebMapItem(mapOpen.id);
-      $("mapProtect")?.focus();
+      // <b>In place, not by drawing the page again</b> — a redraw rebuilt the whole Settings tab and threw away a task
+      // form somebody was filling in above it (design review 2026-11-08).
+      mapOpen.deleteProtected = t.checked;
+      const remove = $("mapDelete");
+      if (remove) {
+        remove.disabled = t.checked;
+        if (t.checked) remove.title = "Protected from deletion"; else remove.removeAttribute("title");
+      }
     } catch (e) {
       t.checked = !t.checked;
       toast(e.message || String(e));
@@ -9154,6 +9629,13 @@ async function openShare(qualified) {
 
     sharing.scope = item.sharing || "private";
 
+    // Which groups are shared update ones, so the first screen marks them too (design review 2026-11-08). Best effort:
+    // without it the chips are plain, as they were.
+    try {
+      const listed = await api("/admin/groups");
+      sharing.updaters = new Set((listed.groups || []).filter(g => g.itemUpdate === "allItems").map(g => g.name));
+    } catch { sharing.updaters = new Set(); }
+
     // <b>The level as the dialog shows it, and the one the reader has chosen.</b> A group-scoped item is,
     // in this dialog's words, *Owner* plus the groups listed under it — the server's fourth scope is how
     // those two choices are stored, not a fifth radio. `chosen` survives the trip to the group screen and
@@ -9229,7 +9711,8 @@ function drawShareGroupList() {
     ? `<p class="hint">Not shared with any group. <b>Edit group sharing</b> offers the groups you are a
          member of.</p>`
     : `<div class="chips">${[...sharing.wanted].map(name =>
-        `<span class="chip">${h(named.get(name) || name)}
+        `<span class="chip">${h(named.get(name) || name)}${(sharing.updaters || new Set()).has(name)
+          ? ` <span class="kindtag">Shared update: members can edit</span>` : ""}
            <button type="button" class="tiny ghost" data-unshare="${h(name)}"
              aria-label="Stop sharing with ${h(named.get(name) || name)}"
              title="Stop sharing with this group">&#10005;</button></span>`).join("")}</div>`;
@@ -9274,8 +9757,8 @@ async function drawShareGroups() {
       <span style="flex:1"></span>
       <span class="val" id="shareShown"></span>
     </div>
-    <p class="hint">Members of the groups you tick can read it. <b>Done</b> returns to the first screen;
-      nothing is sent until you press <b>Save</b> there.</p>
+    <p class="hint">Members of the groups you tick can read it, and members of a <b>shared update</b> group can also
+      edit it. <b>Done</b> returns to the first screen; nothing is sent until you press <b>Save</b> there.</p>
     <div id="shareRows"></div>`;
 
   drawShareRows();
@@ -9316,7 +9799,7 @@ function drawShareRows() {
   $("shareRows").innerHTML = `
     <div class="widetable">
       <table>
-        <thead><tr><th class="tick"></th><th>Group</th><th>You are</th><th>Already shared</th></tr></thead>
+        <thead><tr><th class="tick"><span class="sr-only">Share</span></th><th>Group</th><th>You are</th><th>Already shared</th></tr></thead>
         <tbody>${sharing.available.length === 0
           ? `<tr><td colspan="4" class="empty">You are not in a group you can share into. A group's
                owner or a manager can add you, and a group that only lets managers contribute cannot
@@ -9329,8 +9812,9 @@ function drawShareRows() {
 
               return `<tr>
                 <td class="tick"><input type="checkbox" data-share-group="${h(g.name)}"
-                  ${has ? "checked" : ""}></td>
-                <td class="name">${h(g.title || g.name)}</td>
+                  aria-labelledby="shareG-${h(g.name)}" ${has ? "checked" : ""}></td>
+                <td class="name" id="shareG-${h(g.name)}">${h(g.title || g.name)}${g.itemUpdate === "allItems"
+                  ? ` <span class="kindtag">Shared update: members can edit</span>` : ""}</td>
                 <td class="val">${h(g.standing || "")}</td>
                 <td class="val">${had ? "already shared" : ""}</td>
               </tr>`;
@@ -41934,13 +42418,16 @@ function phonePlace() {
   const phone = PHONE.matches;
 
   // The surface switch and the health pill first, so a phone's drawer never carries them inside the account's sheet.
-  const sheet = $("userMenu").querySelector(".sheet");
-  for (const { node, marker } of deskParked) {
-    if (phone) marker.after(node); else sheet.insertBefore(node, $("myProfile"));
-  }
-
-  for (const { node, marker, home } of phoneParked) {
-    if (phone) home.append(node); else marker.after(node);
+  // <b>Going wide, the parked parts come home before the sheet is looked for</b>: the account's sheet is one of them, so
+  // it was still in the phone drawer when `#userMenu` was asked for it, and every return from phone width threw
+  // *Cannot read properties of null (reading 'insertBefore')* (design review, 2026-11-08, reproduced).
+  if (phone) {
+    for (const { node, marker } of deskParked) marker.after(node);
+    for (const { node, home } of phoneParked) home.append(node);
+  } else {
+    for (const { node, marker } of phoneParked) marker.after(node);
+    const sheet = $("userMenu").querySelector(".sheet");
+    for (const { node } of deskParked) sheet?.insertBefore(node, $("myProfile"));
   }
 
   if (!phone) phoneClose(false);

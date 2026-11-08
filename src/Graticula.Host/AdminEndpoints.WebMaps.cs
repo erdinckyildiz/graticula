@@ -52,6 +52,9 @@ internal static partial class AdminEndpoints
         app.MapPut("/content/webmaps/{id}/description", SetWebMapDescriptionAsync);
         app.MapPut("/content/webmaps/{id}/thumbnail", SetWebMapThumbnailAsync);
         app.MapGet("/content/webmaps/{id}/thumbnail", WebMapThumbnailAsync);
+
+        // ADR-286: ArcGIS Field Maps tasks.
+        MapWebMapTasks(app);
     }
 
     /// <summary>The maps this caller may open: their own first, then what is shared with them.</summary>
