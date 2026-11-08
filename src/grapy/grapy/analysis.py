@@ -48,11 +48,32 @@ def _distance(value, srid):
 
 def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="FULL", line_end_type="ROUND",
            dissolve_option="NONE", dissolve_field=None, method="PLANAR", *_, **__):
+    """Each feature buffered by a distance or a field's value, in the data's own plane.
+
+    ``dissolve_option`` ALL answers one shape without attributes; LIST one shape for each combination of the
+    ``dissolve_field`` values, with those fields only, as documented; NONE one shape per feature.
+
+    Refused: ``method`` GEODESIC — this buffer is planar, and answering a planar shape for a geodesic request would
+    be a wrong answer rather than a missing one (found 2026-11-08: it was accepted and ignored)."""
+    if _is_given(method) and str(method).upper() == "GEODESIC":
+        _refuse("Buffer", "method", method, "geodesic buffers are not built; this buffer is planar")
     columns, _, srid, _ = _schema(in_features)
     names = [c.name for c in columns]
     by_field = isinstance(buffer_distance_or_field, str) and buffer_distance_or_field in names
+    dissolve = str(dissolve_option or "NONE").upper()
+    listed = []
+    if dissolve == "LIST":
+        wanted = [dissolve_field] if isinstance(dissolve_field, str) else list(dissolve_field or [])
+        wanted = [f for part in wanted for f in str(part).replace(",", ";").split(";") if f.strip()]
+        for field in wanted:
+            match = [c for c in columns if c.name.lower() == field.strip().lower()]
+            if not match:
+                raise ValueError(f"arcpy.analysis.Buffer: the dissolve field '{field}' is not a field of the input.")
+            listed.append(match[0])
+        if not listed:
+            raise ValueError("arcpy.analysis.Buffer: dissolve_option LIST needs dissolve_field.")
     _gpkg.create(out_feature_class if ".gpkg" in str(out_feature_class).lower() else out_feature_class + ".gpkg",
-                 "Polygon", srid, [] if dissolve_option.upper() == "ALL" else columns)
+                 "Polygon", srid, [] if dissolve == "ALL" else listed if dissolve == "LIST" else columns)
     out = out_feature_class if ".gpkg" in str(out_feature_class).lower() else out_feature_class + ".gpkg"
     shapes = []
     with da.SearchCursor(in_features, [*names, "SHAPE@"]) as rows:
@@ -68,8 +89,18 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
             if line_side.upper() == "OUTSIDE_ONLY":
                 shape = shape.difference(row[-1]._shape)
             shapes.append((row[:-1], shape))
-    with da.InsertCursor(out, [*([] if dissolve_option.upper() == "ALL" else names), "SHAPE@"]) as written:
-        if dissolve_option.upper() == "ALL":
+    if dissolve == "LIST":
+        from shapely import union_all
+        positions = [names.index(c.name) for c in listed]
+        groups = {}
+        for values, shape in shapes:
+            groups.setdefault(tuple(values[i] for i in positions), []).append(shape)
+        with da.InsertCursor(out, [*[c.name for c in listed], "SHAPE@"]) as written:
+            for key, group in groups.items():
+                written.insertRow((*key, union_all(group)))
+        return Result(out)
+    with da.InsertCursor(out, [*([] if dissolve == "ALL" else names), "SHAPE@"]) as written:
+        if dissolve == "ALL":
             from shapely import union_all
             written.insertRow((union_all([s for _, s in shapes]),))
         else:
@@ -447,8 +478,12 @@ def Frequency(in_table, out_table, frequency_fields, summary_fields=None):
 def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_unit="", field_name="distance",
                        dissolve_option="ALL", outside_polygons_only="FULL", method="PLANAR"):
     """Rings around the features at each distance, each ring the band between it and the one inside it, and its
-    distance in ``field_name``."""
+    distance in ``field_name``.
+
+    Refused: ``method`` GEODESIC, as Buffer refuses it — the rings are planar."""
     import shapely
+    if _is_given(method) and str(method).upper() == "GEODESIC":
+        _refuse("MultipleRingBuffer", "method", method, "geodesic buffers are not built; these rings are planar")
     columns, _, srid, _ = _schema(input_features)
     scale = _distance(f"1 {buffer_unit}", srid) if buffer_unit else 1.0
     steps = sorted(float(d) for d in _list(distances))
@@ -472,7 +507,7 @@ def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_u
 def PairwiseBuffer(in_features, out_feature_class, buffer_distance_or_field, dissolve_option="NONE", dissolve_field=None,
                    method="PLANAR", max_deviation=None):
     return Buffer(in_features, out_feature_class, buffer_distance_or_field, dissolve_option=dissolve_option,
-                  dissolve_field=dissolve_field)
+                  dissolve_field=dissolve_field, method=method)
 
 
 def PairwiseClip(in_features, clip_features, out_feature_class, cluster_tolerance=None):

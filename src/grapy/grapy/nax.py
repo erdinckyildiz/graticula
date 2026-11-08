@@ -579,6 +579,12 @@ class _Solver:
         tolerance = float(self.searchTolerance) * _network._LINEAR[self.searchToleranceUnits.value.upper()] / per
         items = []
         for row in self._inputs[input_type]:
+            for field in ("CurbApproach", "LocationType"):      # as arcpy.na.Solve refuses them (na._items)
+                value = getattr(row.get(field), "value", row.get(field))
+                if value not in (None, 0) and not (field == "CurbApproach" and value == 3 and
+                                                   isinstance(self, (ClosestFacility, OriginDestinationCostMatrix))):
+                    raise NotBuiltError(f"arcpy.nax.{type(self).__name__}: {field} {value} is not built in grapy: its "
+                                        "solvers approach every location from either side and take no waypoints.")
             located = graph.locate(row["point"], tolerance) if row["point"] is not None else None
             items.append({**row, "key": (prefix, row["oid"]), "name": row.get("Name") or f"Location {row['oid']}",
                           "located": located})
