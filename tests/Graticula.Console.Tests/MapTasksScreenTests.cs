@@ -434,6 +434,87 @@ public sealed class MapTasksScreenTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// A request that never reaches the server is said in words, not as the browser's "Failed to fetch" (design review N2).
+    /// </summary>
+    [Fact]
+    public async Task A_failed_request_says_what_failed()
+    {
+        (string token, _) = await SignInAsync();
+        (string map, string folder, string service, _) = await MapWithALayerAsync(withLayer: true);
+
+        try
+        {
+            await OpenSettingsAsync(map, token, "!!document.querySelector('#mapTasksPeople [data-map-task-person]')");
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const before = window.fetch;
+                  window.fetch = (input, init) => {
+                    const url = typeof input === 'string' ? input : input.url;
+                    return url.includes('/tasks') && ((init && init.method) || 'GET') !== 'GET'
+                      ? Promise.reject(new TypeError('Failed to fetch'))
+                      : before(input, init);
+                  };
+                  const types = document.getElementById('mapTasksTypes');
+                  types.value = 'Inspection';
+                  const first = document.querySelector('[data-map-task-person]');
+                  first.checked = true;
+                  first.dispatchEvent(new Event('change', { bubbles: true }));
+                  document.getElementById('mapTasksOn').click();
+                  return true;
+                })()
+                """);
+            await WaitForAsync("(document.getElementById('mapTasksSays').textContent || '').includes('could not be saved')",
+                "A failed request never said what failed.");
+
+            string says = await Browser.EvaluateAsync<string>("document.getElementById('mapTasksSays').textContent") ?? "";
+            Assert.DoesNotContain("Failed to fetch", says, StringComparison.Ordinal);
+            Assert.Equal("mapTasksOn", await Browser.EvaluateAsync<string>("document.activeElement && document.activeElement.id"));
+        }
+        finally
+        {
+            await CleanUpAsync(map, folder, service);
+        }
+    }
+
+    /// <summary>
+    /// Each group in the layer's group sharing has a name a screen reader says, shared update included (design review N1).
+    /// </summary>
+    [Fact]
+    public async Task Every_group_checkbox_in_group_sharing_has_a_name()
+    {
+        (string token, _) = await SignInAsync();
+        (string map, string folder, string service, _) = await MapWithALayerAsync(withLayer: true);
+
+        try
+        {
+            await OpenSettingsAsync(map, token, "!!document.getElementById('mapTasksBody')");
+            await Browser.EvaluateAsync<bool>($"(() => {{ openShare('{folder}/{service}'); return true; }})()");
+            await WaitForAsync("!!document.getElementById('shareEditGroups')", "The layer's Share dialog never opened.");
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('shareEditGroups').click(); return true; })()");
+            await WaitForAsync("!!document.querySelector('#shareRows tbody')", "Group sharing never drew its table.");
+
+            string[] unnamed = await Browser.EvaluateAsync<string[]>("""
+                [...document.querySelectorAll('#shareRows input[data-share-group]')]
+                  .filter(box => {
+                    const by = box.getAttribute('aria-labelledby');
+                    const name = by ? by.split(' ').map(id => document.getElementById(id)?.textContent || '').join(' ') : (box.getAttribute('aria-label') || '');
+                    return !name.trim();
+                  })
+                  .map(box => box.dataset.shareGroup)
+                """) ?? [];
+            Assert.Empty(unnamed);
+
+            string header = await Browser.EvaluateAsync<string>("document.querySelector('#shareRows th.tick').textContent") ?? "";
+            Assert.Equal("Share", header.Trim());
+        }
+        finally
+        {
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('share')?.close(); return true; })()");
+            await CleanUpAsync(map, folder, service);
+        }
+    }
+
     /// <summary>A map with no feature layer says why tasks cannot be enabled, and offers no button that would fail.</summary>
     [Fact]
     public async Task A_map_without_a_feature_layer_says_why_and_offers_nothing()

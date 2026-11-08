@@ -888,7 +888,8 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 /* ADR-286, after the design review: the section reads as the layer's Settings do — a heading with its rule, small
    semibold labels over their controls, links underlined, and the error at the field it is about. */
 #mapSettings h4 { padding-bottom: var(--gap-2); border-bottom: 1px solid var(--rule); margin-bottom: var(--gap-3); }
-#mapTasks { margin-bottom: var(--gap-6); max-width: 40rem; }
+#mapTasks { margin-bottom: var(--gap-6); }
+#mapTasksBody, #mapTasksSays { max-width: 40rem; }
 #mapTasks .taskform { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: var(--gap-3) 0; }
 #mapTasks .taskform .hint { margin: 0; }
 #mapTasks label.field select { width: 100%; max-width: 360px; }
@@ -4634,6 +4635,8 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 /* The shared update mark in the Share dialog: an outlined muted chip, in the words it means. */
 #share .kindtag { font-size: 11px; color: var(--muted); border: 1px solid var(--rule); border-radius: 4px;
   padding: 1px 6px; white-space: nowrap; font-weight: 400; }
+#share .chip { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; border-radius: 12px; max-width: 100%; }
+#share .chip .kindtag { white-space: nowrap; }
 dialog h3[tabindex="-1"]:focus { outline: none; }
 #exportData .formats .check > span { display: flex; flex-direction: column; }
 #exportData .formats .hint { margin: 0; }

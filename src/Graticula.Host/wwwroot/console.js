@@ -480,7 +480,19 @@ document.addEventListener("input", event => {
   }
 });
 
+let groupsNewSharedShown = false;
+
 async function loadGroups() {
+  // ADR-286: "create one" from a map's tasks opens New group with shared update chosen, once.
+  if (hashQuery.get("new") === "shared" && !groupsNewSharedShown && $("groupNew")) {
+    groupsNewSharedShown = true;
+    setTimeout(() => {
+      $("groupNew").click();
+      const shared = document.querySelector('#newGroupUpdate input[value="allItems"]');
+      if (shared) shared.checked = true;
+    }, 0);
+  }
+
   const answer = await api("/admin/groups") || {};
   const groups = answer.groups || [];
   groupNamesKnown = groups.map(g => g.name);
@@ -6482,8 +6494,8 @@ async function showWebMapItem(id) {
   $("mapSettings").innerHTML = map.manages ? `
     <section id="mapTasks" aria-labelledby="mapTasksHead">
       <h4 id="mapTasksHead" tabindex="-1">Tasks for ArcGIS Field Maps</h4>
-      <div id="mapTasksBody"><p class="hint">Reading this map's tasks…</p></div>
       <p class="hint" id="mapTasksSays" role="status" aria-live="polite"></p>
+      <div id="mapTasksBody"><p class="hint">Reading this map's tasks…</p></div>
     </section>
     <h4>Deleting</h4>
     <label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
@@ -6560,6 +6572,7 @@ async function loadMapTaskPeople(map) {
   } catch (e) {
     if (mapTasksState !== state) return;
     state.peopleError = "The members could not be listed. Check the connection and try again.";
+    sayMapTasks(state.peopleError);
   }
   drawTaskPeople();
   sayTaskChoice();
@@ -6638,11 +6651,8 @@ function taskReachNote(layer, usernames) {
 
   if (cannotEdit.length) {
     lines.push(`<p class="warn-inline" id="mapTasksCannotEdit">Cannot change their tasks yet:
-      ${h(someOf(cannotEdit.map(labelOf)))}. ${groups.length
-        ? "Add them to a shared update group the layer is shared with."
-        : "The layer is not in a shared update group yet."}</p>`);
-    lines.push(`<p class="hint">The layer must be in a shared update group the assignees belong to.
-      <a href="#/groups" target="_blank" rel="noopener">Create a shared update group</a> (opens in a new tab).</p>`);
+      ${h(someOf(cannotEdit.map(labelOf)))}. Share the layer with a shared update group they belong to, or
+      <a href="#/groups?new=shared" target="_blank" rel="noopener">create one</a> (opens in a new tab).</p>`);
     if (layer?.service) {
       lines.push(`<div class="row"><button type="button" id="mapTasksShareLayer" data-share-layer="${h(layer.service)}">Share the layer…</button></div>`);
     }
@@ -6731,8 +6741,7 @@ function drawMapTasks() {
         <p class="fielderror" id="mapTasksTypesError" hidden></p>
         <fieldset class="taskpeople" aria-describedby="mapTasksPeopleHint mapTasksPeopleError">
           <legend class="fieldname">Assignees</legend>
-          <p class="hint" id="mapTasksPeopleHint">Mobile workers you can assign tasks to. Field Maps lists each one's
-            assigned tasks. <span id="mapTasksChosen"></span></p>
+          <p class="hint" id="mapTasksPeopleHint">Mobile workers you can assign tasks to. <span id="mapTasksChosen"></span></p>
           <input type="search" id="mapTasksFind" placeholder="Find a member" aria-label="Find a member"
             aria-describedby="mapTasksPeopleError" value="${h(state.find)}">
           <div class="checklist" id="mapTasksPeople"></div>
@@ -6755,7 +6764,8 @@ function drawMapTasks() {
   const focused = document.activeElement;
   const had = focused && body.contains(focused) ? focused.id : null;
 
-  body.innerHTML = `${intro}${status}${elsewhere}${form}${on && !state.editing
+  const explain = !tasks.orphaned && !on ? intro : "";
+  body.innerHTML = `${status}${explain}${elsewhere}${form}${on && !state.editing
     ? `<div id="mapTasksReach">${taskReachNote(layer, (tasks.assignees || []).map(a => a.username))}</div>` : ""}${buttons}`;
 
   if (showForm) {
@@ -6957,7 +6967,8 @@ document.addEventListener("click", async event => {
     ($(state.tasks.enabled ? "mapTasksEdit" : state.tasks.orphaned ? "mapTasksClear" : "mapTasksOn") || $("mapTasksHead"))?.focus();
   } catch (e) {
     t.removeAttribute("aria-disabled");
-    sayMapTasks(e.message || String(e));
+    const act = t.id === "mapTasksOff" ? "disabled" : t.id === "mapTasksClear" ? "removed" : "saved";
+    sayMapTasks(e.status ? (e.message || String(e)) : `The tasks could not be ${act}. Check the connection and try again.`);
     t.focus();
   }
 });
@@ -9783,7 +9794,7 @@ function drawShareRows() {
   $("shareRows").innerHTML = `
     <div class="widetable">
       <table>
-        <thead><tr><th class="tick"></th><th>Group</th><th>You are</th><th>Already shared</th></tr></thead>
+        <thead><tr><th class="tick"><span class="sr-only">Share</span></th><th>Group</th><th>You are</th><th>Already shared</th></tr></thead>
         <tbody>${sharing.available.length === 0
           ? `<tr><td colspan="4" class="empty">You are not in a group you can share into. A group's
                owner or a manager can add you, and a group that only lets managers contribute cannot
@@ -9796,8 +9807,8 @@ function drawShareRows() {
 
               return `<tr>
                 <td class="tick"><input type="checkbox" data-share-group="${h(g.name)}"
-                  ${has ? "checked" : ""}></td>
-                <td class="name">${h(g.title || g.name)}${g.itemUpdate === "allItems"
+                  aria-labelledby="shareG-${h(g.name)}" ${has ? "checked" : ""}></td>
+                <td class="name" id="shareG-${h(g.name)}">${h(g.title || g.name)}${g.itemUpdate === "allItems"
                   ? ` <span class="kindtag">Shared update: members can edit</span>` : ""}</td>
                 <td class="val">${h(g.standing || "")}</td>
                 <td class="val">${had ? "already shared" : ""}</td>
