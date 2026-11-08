@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `LOW` — the direction and every open choice are the owner's (§5.9); nothing of it is built, nothing is measured, and the one claim that decides whether offline works on an iPhone (§4) is a claim about a browser, not about this server |
-| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. **On 2026-11-09 the owner asked again whether a JSON format of our own would have been better**, was given the answer that the hard part is the expression language and not the container, and chose the combination this session proposed (*"evet böyle olsun"*): **the stored form is a JSON model that is a lossless copy of the XLSForm's rows and columns, the workbook is the import and export format, and the expressions stay XLSForm's** (§2 H, §5.1, §5.3, §5.8). What this session read into those answers was marked **INFERRED** in §5.9 and listed as [Q-229](../open-questions.md); **the owner answered all of it on 2026-11-09**, and nothing in this ADR is INFERRED any more. |
+| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. **Also on 2026-11-09: a location inside a repeat makes that repeat a related layer** (*"İlişkili katman olsun"*, §5.2). **On 2026-11-09 the owner asked again whether a JSON format of our own would have been better**, was given the answer that the hard part is the expression language and not the container, and chose the combination this session proposed (*"evet böyle olsun"*): **the stored form is a JSON model that is a lossless copy of the XLSForm's rows and columns, the workbook is the import and export format, and the expressions stay XLSForm's** (§2 H, §5.1, §5.3, §5.8). What this session read into those answers was marked **INFERRED** in §5.9 and listed as [Q-229](../open-questions.md); **the owner answered all of it on 2026-11-09**, and nothing in this ADR is INFERRED any more. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [v1-scope.md](../v1-scope.md) §2 (a row is added). [ADR-082](ADR-082-offline-sync-is-not-in-v1.md), **in part** (§5.6): Graticula's own forms edit existing records offline; ArcGIS's replica protocol stays out. |
@@ -185,8 +185,11 @@ measurable question. The two device claims are, so they are conditions and not a
    layer it writes to, and, when public, to that layer's add-only view ([ADR-113](ADR-113-a-hosted-layer-has-views.md)).
    It is shared like any item, and a public form is a form shared with everyone.
 2. **Publishing a form makes its layer.** Each question becomes a field of the type it declares. A choice list
-   becomes a shared coded-value domain. **A form has at most one location question**, `geopoint`, `geotrace` or
-   `geoshape`, which becomes the layer's geometry, and none makes a table. A `repeat` becomes a related table, joined
+   becomes a shared coded-value domain. ~~**A form has at most one location question**, `geopoint`, `geotrace` or
+   `geoshape`, which becomes the layer's geometry, and none makes a table.~~ **Each table has at most one location
+   question** (owner decision 2026-11-09, *"İlişkili katman olsun"*): the top level's becomes the layer's geometry, and
+   a repeat's makes that repeat a related layer with its own geometry rather than a table, as Survey123 lays it out. A
+   form with no location at the top level makes a table. A `repeat` becomes a related table, joined
    by `parentglobalid` through a declared relationship (ADR-013 §3), and **a repeat inside a repeat becomes a table
    related to that table** (owner decision 2026-11-09), to any depth. `image`, `signature`, `audio` and `file` questions
    become attachments, **with the question's name as the attachment's `keywords`**, which ends the empty `keywords`
@@ -293,8 +296,9 @@ measurable question. The two device claims are, so they are conditions and not a
     `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. ~~A repeat inside a repeat
     is refused in the first version~~ **A repeat inside a repeat is supported, to any depth** (owner decision
     2026-11-09): building → floor → room is a table related to a table related to the layer, and the offline queue sends
-    a parent before its children. **A location question inside a repeat is refused**: the form's one location is at
-    its top level (§5.2), so a repeat is a table, not a layer. `field-list`, `table-list` and the
+    a parent before its children. ~~**A location question inside a repeat is refused**: the form's one location is at
+    its top level (§5.2), so a repeat is a table, not a layer.~~ **A location question inside a repeat makes the repeat a
+    related layer** (owner decision 2026-11-09, §5.2); a second location in the same table is refused. `field-list`, `table-list` and the
     `pages` style are supported, because they decide what one screen holds and a field crew relies on that.
 
     **Survey sheet columns.** Supported: `type`, `name`, `label`, `hint`, `guidance_hint`, `required`,
@@ -353,7 +357,7 @@ measurable question. The two device claims are, so they are conditions and not a
     | `select_multiple` | String, the chosen names **comma-separated, as Survey123 stores them** (XForms itself uses spaces; confirmed 2026-11-09) |
     | `date`, `dateTime`, `start`, `end`, `today` | Date |
     | `note` | no field, unless it has a `calculation` |
-    | `geopoint`, `geotrace`, `geoshape` | the layer's geometry (one per form, §5.2) |
+    | `geopoint`, `geotrace`, `geoshape` | the geometry of its table, which is then a layer (one per table, §5.2) |
     | `image`, `audio`, `video`, `file` | attachment, `keywords` = the question's name |
     | `begin repeat` | a related table, `parentglobalid` |
 

@@ -123,7 +123,7 @@ public sealed partial class FormDefinition
 
             Stack<Frame> open = new();
             open.Push(new Frame(FrameKind.Root, "", 0, [], [], null, null));
-            int locations = 0;
+            Dictionary<Frame, int> locations = new(ReferenceEqualityComparer.Instance);
 
             for (int r = 0; r < sheet.Rows.Count; r++)
             {
@@ -255,13 +255,18 @@ public sealed partial class FormDefinition
 
                 if (FormCatalog.LocationTypes.Contains(type))
                 {
-                    if (open.Any(f => f.Kind == FrameKind.Repeat))
+                    // One location per table (owner decision 2026-11-09): the top level's is the layer's geometry, a
+                    // repeat's makes that repeat a related layer rather than a table. A group belongs to the table
+                    // around it, so the table is the nearest repeat, or the top level.
+                    Frame table = open.First(f => f.Kind != FrameKind.Group);
+                    locations.TryGetValue(table, out int seen);
+                    locations[table] = seen + 1;
+
+                    if (seen > 0)
                     {
-                        Refuse("survey", at, "type", $"'{name}' is a location inside a repeat; a form's one location is at its top level in the first version.");
-                    }
-                    else if (++locations > 1)
-                    {
-                        Refuse("survey", at, "type", $"'{name}' is a second location question; a form has at most one, which becomes the layer's geometry.");
+                        Refuse("survey", at, "type", table.Kind == FrameKind.Root
+                            ? $"'{name}' is a second location question at the top level; it has at most one, which becomes the layer's geometry."
+                            : $"'{name}' is a second location question in the repeat '{table.Name}'; a repeat has at most one, which becomes its geometry.");
                     }
                 }
 
@@ -1003,6 +1008,12 @@ public sealed record FormTable(
 {
     /// <summary>This table and every table under it, parents before children.</summary>
     public IEnumerable<FormTable> AllTables => new[] { this }.Concat(Repeats.SelectMany(r => r.AllTables));
+
+    /// <summary>
+    /// The table's location question, when it has one: the layer's geometry at the top level, and for a repeat the
+    /// geometry that makes it a related layer rather than a table (owner decision 2026-11-09).
+    /// </summary>
+    public FormQuestion? Location => Questions.FirstOrDefault(q => FormCatalog.LocationTypes.Contains(q.Type));
 }
 
 /// <summary>One question, as the form states it.</summary>

@@ -25,7 +25,7 @@ public static class FormCatalog
     /// <summary>Metadata the client fills in by itself.</summary>
     public static readonly FrozenSet<string> MetadataTypes = Set("start", "end", "today", "username", "email", "deviceid");
 
-    /// <summary>Location types; at most one per form, at the top level (§5.2).</summary>
+    /// <summary>Location types; at most one per table (§5.2).</summary>
     public static readonly FrozenSet<string> LocationTypes = Set("geopoint", "geotrace", "geoshape");
 
     /// <summary>Types stored as attachments.</summary>

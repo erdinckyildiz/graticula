@@ -89,10 +89,26 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     }
 
     [Fact]
-    public void A_second_location_and_a_location_inside_a_repeat_are_refused()
+    public void Each_table_has_at_most_one_location_and_a_repeats_makes_it_a_related_layer()
     {
-        RefusedAt(Checked(["geopoint", "a", "A"], ["geoshape", "b", "B"]), 3, "type", "second location");
-        RefusedAt(Checked(["begin repeat", "r", "R"], ["geopoint", "p", "P"], ["end repeat"]), 3, "type", "inside a repeat");
+        RefusedAt(Checked(["geopoint", "a", "A"], ["geoshape", "b", "B"]), 3, "type", "second location question at the top level");
+        RefusedAt(Checked(["begin repeat", "r", "R"], ["geopoint", "p", "P"], ["begin group", "g", "G"], ["geotrace", "q", "Q"], ["end group"], ["end repeat"]),
+            5, "type", "in the repeat 'r'");
+
+        FormCheck trees = Checked(
+            ["geoshape", "parsel", "Parsel"],
+            ["begin repeat", "agaclar", "Ağaçlar"],
+            ["geopoint", "agac_konum", "Ağacın yeri"],
+            ["text", "tur", "Tür"],
+            ["end repeat"],
+            ["begin repeat", "notlar", "Notlar"],
+            ["text", "not", "Not"],
+            ["end repeat"]);
+
+        Assert.True(trees.Accepted, string.Join("; ", trees.Refusals.Select(r => r.Message)));
+        Assert.Equal("parsel", trees.Definition!.Root.Location!.Name);
+        Assert.Equal("agac_konum", trees.Definition.Root.Repeats[0].Location!.Name);
+        Assert.Null(trees.Definition.Root.Repeats[1].Location);
     }
 
     [Fact]
