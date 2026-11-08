@@ -232,6 +232,93 @@ measurable question. The two device claims are, so they are conditions and not a
    - (k) the Inbox downloads only the records the publisher's filter selects, up to a limit per form that the publisher
      sets, with a default chosen when it is measured on a device.
 
+10. **The first version's list (condition 3).** Written 2026-11-08 from three public sources, read that day: the
+    XLSForm specification ([xlsform.org/en](https://xlsform.org/en/)), the ODK XForms specification's function table
+    ([getodk.github.io/xforms-spec](https://getodk.github.io/xforms-spec/)), and Esri's public Survey123 XLSForm pages
+    (`doc.arcgis.com/en/survey123/create/main/`: *xlsformessentials*, *esricustomcolumns*, *xlsformsettings*,
+    *xlsformformulas*, *xlsformsappearance*). Nothing here comes from Survey123's code. **What is on the list and what
+    is not is INFERRED** (§5.9 (b)) and waits for the owner.
+
+    **The rule that sorts everything below.** Anything that changes *what is stored*, or *which answer is valid*, is
+    either **supported** with its full meaning or **refused** at upload with the row, the column and the reason. It is
+    never accepted and quietly ignored. Anything that changes only *how a question looks* may instead be **drawn the
+    default way**. The upload then says which of these it found, by row, so the publisher knows before anyone fills the
+    form in. That third state exists so that a Survey123 form is not refused for a column width (A-089), and it is
+    never used for anything that touches data.
+
+    **Question types.**
+
+    | | Types |
+    |---|---|
+    | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
+    | Supported metadata | `start`, `end`, `today`, `username` and `email` (from the signed-in member, empty for an anonymous form), `deviceid` (a random id kept by the installed client, not a hardware id) |
+    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` |
+
+    **Groups and repeats.** `begin group` / `end group` with `relevant`, nested to any depth. `begin repeat` /
+    `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. **A repeat inside a repeat
+    is refused in the first version**: one level of related table (INFERRED). `field-list`, `table-list` and the
+    `pages` style are supported, because they decide what one screen holds and a field crew relies on that.
+
+    **Survey sheet columns.** Supported: `type`, `name`, `label`, `hint`, `guidance_hint`, `required`,
+    `required_message`, `constraint`, `constraint_message`, `relevant`, `default`, `read_only` (and the spelling
+    `readonly`, which the specification's own example uses), `calculation`, `choice_filter`, `appearance`,
+    `repeat_count`, the `image` media column, and every `::language` variant of the text columns. `parameters` is
+    supported for `range` (`start`, `end`, `step`) and for `image` (`max-pixels`), and refused for anything else.
+    Refused: `trigger`, and the `audio` and `video` media columns.
+
+    **Choices sheet.** `list_name`, `name`, `label`, `label::language`, `image`, and any further column a
+    `choice_filter` reads. Refused: `geometry` (choosing on a map).
+
+    **Settings sheet.** Supported: `form_title`, `form_id` (the layer's name), `version`, `instance_name`,
+    `default_language`, `style` (`pages`; any other value is drawn the default way), `allow_choice_duplicates`,
+    `clean_text_values`, `name`. `submission_url` is supported **when it names a feature layer of this server**, and the
+    form then writes to that layer instead of making one; any other address is refused. `namespaces` is accepted and
+    has no effect, which the upload says. Refused: `public_key` (encrypted submissions).
+
+    **Appearances.** Supported because they change what is captured: `multiline` (on `text`; on `image` and `file`,
+    several attachments), `signature` (on `image`), `month-year` and `year` (on `date`), `minimal`, `likert`, `rating`
+    (on `range`), `hidden`. Drawn the default way: `horizontal`, `horizontal-compact`, `compact`, `quick`,
+    `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
+    appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
+    `hide-input`). Refused because they capture something this client cannot: `draw`, `annotate`, `map` and
+    `quick map`, `search()`, `autocomplete`, `geocode`, `distress`, `spike` and its variants, `rangefinder`,
+    `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
+
+    **Expressions.** `${name}` references and `.` for the question's own value. Every XPath 1.0 operator the ODK
+    specification lists (`|`, `and`, `or`, `mod`, `div`, `=`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-` — and `*`, which XPath 1.0 has and the page's list drops), with
+    dates usable in arithmetic as it describes. The parent, child and self axes, and predicates. Functions:
+
+    | | Functions |
+    |---|---|
+    | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring-before`, `substring-after`, `translate`, `string-length`, `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included. **Node-set:** `count`, `count-non-empty`, `position`, `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's. **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, `instance` for anything other than a choice list, and **every Esri `pulldata("@…")` form**: `@layer`, `@property`, `@json`, `@exif`, `@geopoint`, `@javascript`. `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
+
+    **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
+    `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
+    `esriFieldTypeDateOnly` is accepted and stored as `Date` at midnight, which loses nothing, and the upload says so.
+    `TimeOnly` and `TimestampOffset` are refused, because this server has no such field and storing them as something
+    else would change the value. `bind::esri:fieldLength`, `bind::esri:fieldAlias`, `body::esri:visible` (hidden but
+    still stored), `body::accuracyThreshold` and `body::accept` are supported. `body::esri:style` and
+    `bind::saveIncomplete` are drawn the default way (the client always keeps drafts). Refused: `bind::esri:parameters`
+    (its `calculationMode` changes stored values), `bind::esri:warning` and `bind::esri:warning_message`,
+    `body::esri:inputMask`, `bind::esri:workflow`.
+
+    **What a question becomes in the layer** (follows Survey123's table where one exists, for §5.9 (d)):
+
+    | Question | Field |
+    |---|---|
+    | `integer` | Integer |
+    | `decimal` | Double |
+    | `range` | Integer when `start`, `end` and `step` are whole, otherwise Double |
+    | `text`, `calculate`, `hidden`, `time`, `acknowledge`, `username`, `email`, `deviceid` | String, 255 unless `bind::esri:fieldLength` says otherwise |
+    | `select_one` | String, with the choice list as a shared coded-value domain |
+    | `select_multiple` | String, the chosen names **comma-separated, as Survey123 stores them** (XForms itself uses spaces; INFERRED) |
+    | `date`, `dateTime`, `start`, `end`, `today` | Date |
+    | `note` | no field, unless it has a `calculation` |
+    | `geopoint`, `geotrace`, `geoshape` | the layer's geometry (one per form, §5.2) |
+    | `image`, `audio`, `video`, `file` | attachment, `keywords` = the question's name |
+    | `begin repeat` | a related table, `parentglobalid` |
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
@@ -291,7 +378,8 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    is not yet verified* where it offers offline use.
 3. **The first version's list is written down** in this ADR before the client is built: question types, functions
    and appearances, each one either supported or refused. That list is what the evaluator is tested against and what
-   condition 5 refuses by.
+   condition 5 refuses by. **DISCHARGED 2026-11-08:** §5.10. What is on it is INFERRED and is confirmed through
+   condition 1 (§5.9 (b)), not here.
 4. **The expression evaluator is tested against the specifications' own examples** (xlsform.org's and the XForms
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
    evaluates differently from its specification is a defect, not a limitation.
