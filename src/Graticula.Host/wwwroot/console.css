@@ -883,6 +883,9 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .checklist { display: grid; gap: 2px; max-width: 580px; }
 .checklist label { display: flex; align-items: center; gap: var(--gap-2); padding: 5px 0; font-size: var(--t-body); }
 .checklist .hint { margin: -4px 0 4px 26px; }
+/* ADR-286: a whole organization to choose task assignees from scrolls inside its box. */
+#mapTasksPeople { max-height: 280px; overflow-y: auto; border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; margin-top: 6px; }
+#mapTasks { margin-bottom: 24px; }
 
 .toolbar {
   display: flex; align-items: center; gap: var(--gap-3);

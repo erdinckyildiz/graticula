@@ -96,4 +96,14 @@ public interface IItemResourceStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>How many were removed.</returns>
     Task<int> RemoveAsync(Guid item, string? path, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Which of the given items hold a resource at <paramref name="path"/> — one question for a whole listing, so a
+    /// search can say which maps have tasks (ADR-286) without asking once per map.
+    /// </summary>
+    /// <param name="items">The items.</param>
+    /// <param name="path">The resource's path.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Those that hold it.</returns>
+    Task<IReadOnlySet<Guid>> ItemsHoldingAsync(IReadOnlyCollection<Guid> items, string path, CancellationToken cancellationToken);
 }

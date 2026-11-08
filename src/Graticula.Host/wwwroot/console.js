@@ -6480,6 +6480,10 @@ async function showWebMapItem(id) {
 
   // <b>Settings: what the owner sets, and Delete behind its lock</b> — as a layer's Settings › General has them.
   $("mapSettings").innerHTML = map.manages ? `
+    <section id="mapTasks" aria-labelledby="mapTasksHead">
+      <h4 id="mapTasksHead">Tasks for ArcGIS Field Maps</h4>
+      <p class="hint" id="mapTasksSays" role="status" aria-live="polite">Reading this map's tasks…</p>
+    </section>
     <h4>Deleting</h4>
     <label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
       Protect from deletion</label>
@@ -6491,6 +6495,7 @@ async function showWebMapItem(id) {
 
   drawMapTabs();
   paintPreviews();
+  if (map.manages) loadMapTasks(map);
 }
 
 /** The web map item's tab strip, and which tab's panel shows. */
@@ -6516,6 +6521,199 @@ function drawMapTabs() {
   const path = `#/item/${encodeURIComponent(map.id)}${mapTab === "settings" ? "?tab=settings" : ""}`;
   if (surfaceOfPath() === "studio" && routeHash() !== path) history.replaceState(null, "", pathOf(path));
 }
+
+/**
+ * ArcGIS Field Maps tasks for this map — ADR-286. What the map has, the layers that could hold tasks, and the members a
+ * task could be given to, read together; drawn by `drawMapTasks`, which puts focus back where it was after the redraw.
+ */
+let mapTasksState = null;
+
+async function loadMapTasks(map) {
+  try {
+    const [tasks, people] = await Promise.all([
+      api(`/content/webmaps/${encodeURIComponent(map.id)}/tasks`),
+      loadTaskPeople(),
+    ]);
+    if (mapOpen !== map) return;
+    mapTasksState = { map, tasks, people, editing: false, find: "", picked: null };
+    drawMapTasks();
+  } catch (e) {
+    if (mapOpen !== map) return;
+    const says = $("mapTasksSays");
+    if (says) says.textContent = `This map's tasks could not be read: ${e.message || e}`;
+  }
+}
+
+/** The organization's members, as Field Maps will match them: by account name, with the name people know them by. */
+async function loadTaskPeople() {
+  const people = [];
+  for (let start = 1; start > 0 && people.length < 1000;) {
+    const page = await api(`/sharing/rest/community/users?f=json&num=100&start=${start}`);
+    for (const u of page.results || []) if (u.username) people.push({ username: u.username, label: u.fullName || u.username });
+    start = page.nextStart > 0 ? page.nextStart : -1;
+  }
+  return people.sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function drawMapTasks() {
+  const state = mapTasksState;
+  const box = $("mapTasks");
+  if (!state || !box || mapOpen !== state.map) return;
+
+  const { tasks, people } = state;
+  const focused = document.activeElement;
+  const had = focused?.dataset?.mapTaskPerson ? { person: focused.dataset.mapTaskPerson } : (focused?.id ? { id: focused.id } : null);
+  const typed = $("mapTasksTypes")?.value;
+  const layers = tasks.layers || [];
+  const eligible = layers.filter(l => l.eligible);
+  const on = tasks.enabled;
+  const onLayer = layers.find(l => l.id === tasks.layer);
+  const showForm = !on || state.editing;
+  const picked = state.picked || new Set((tasks.assignees || []).map(a => a.username));
+  const find = state.find.trim().toLowerCase();
+  const listed = people.filter(p => !find || p.label.toLowerCase().includes(find) || p.username.toLowerCase().includes(find));
+  const types = tasks.types || [];
+  const assignees = tasks.assignees || [];
+
+  const intro = `<p class="hint">Field Maps lists the tasks assigned to whoever is signed in, and lets them pick up,
+    start and finish them. Turning tasks on adds the task fields to one layer of this map that you own; turning them
+    off leaves those fields, and every task in them, where they are.</p>`;
+
+  const status = on
+    ? `<p><b>On</b>, on the layer <b>${h(onLayer?.title || tasks.layer || "—")}</b>: ${num(types.length)} task
+        type${types.length === 1 ? "" : "s"}, ${num(assignees.length)} ${assignees.length === 1 ? "person" : "people"}
+        to assign to.</p>`
+    : `<p><b>Off.</b></p>`;
+
+  const editors = `<p class="hint">People change a task in Field Maps only if they may edit its layer: share the layer
+    with a group whose members can update shared items. The map itself only needs to be shared with them.</p>`;
+
+  let form = "";
+  if (showForm) {
+    if (!eligible.length) {
+      const reasons = layers.map(l => `<li><b>${h(l.title)}</b>: ${h(l.why || "")}</li>`).join("");
+      form = `<p class="hint">No layer of this map can hold tasks. A task layer is a hosted point, line or polygon
+        layer of this server that you own.${reasons ? "" : " This map has no feature layer yet; add one in the Map Viewer."}</p>
+        ${reasons ? `<ul class="hint">${reasons}</ul>` : ""}`;
+    } else {
+      const selected = on ? tasks.layer : eligible[0].id;
+      form = `
+        <div class="stacked"><label for="mapTasksLayer">Layer that holds the tasks</label>
+          <select id="mapTasksLayer"${on ? " disabled" : ""} aria-describedby="mapTasksLayerHint">
+            ${layers.map(l => `<option value="${h(l.id)}"${l.eligible ? "" : " disabled"}${
+              l.id === selected ? " selected" : ""}>${h(l.title)}${l.eligible ? "" : ` (${h(l.why || "")})`}</option>`).join("")}
+          </select>
+          <span class="hint" id="mapTasksLayerHint">${on
+            ? "To move the tasks to another layer, turn them off first."
+            : "The fields this layer lacks are added to it: task type, assignee, status, priority, due date, description and notes."}</span></div>
+        <div class="stacked"><label for="mapTasksTypes">Task types, one per line</label>
+          <textarea id="mapTasksTypes" rows="4" aria-describedby="mapTasksTypesHint">${h(types.join("\n"))}</textarea>
+          <span class="hint" id="mapTasksTypesHint">Every task has one type, such as Inspection or Repair.</span></div>
+        <fieldset class="stacked" aria-describedby="mapTasksPeopleHint">
+          <legend>People tasks can be assigned to</legend>
+          <input type="search" id="mapTasksFind" placeholder="Find a member" aria-label="Find a member" value="${h(state.find)}">
+          <div class="checklist" id="mapTasksPeople">${listed.length
+            ? listed.map(p => `<label class="check"><input type="checkbox" data-map-task-person="${h(p.username)}"${
+                picked.has(p.username) ? " checked" : ""}> ${h(p.label)}${
+                p.label !== p.username ? ` <span class="rowmeta">${h(p.username)}</span>` : ""}</label>`).join("")
+            : `<p class="hint">${people.length ? "No member matches." : "No members to list."}</p>`}</div>
+          <span class="hint" id="mapTasksPeopleHint"><span id="mapTasksChosen">${num(picked.size)} chosen.</span> Field Maps
+            shows each person the tasks assigned to their account.</span>
+        </fieldset>`;
+    }
+  }
+
+  const buttons = on
+    ? (state.editing
+        ? `<div class="row"><button type="button" class="primary" id="mapTasksSave">Save changes</button>
+             <button type="button" class="ghost" id="mapTasksCancel">Cancel</button></div>`
+        : `<div class="row"><button type="button" id="mapTasksEdit">Change types or people</button>
+             <button type="button" class="ghost" id="mapTasksOff">Turn off tasks</button></div>`)
+    : (eligible.length ? `<div class="row"><button type="button" class="primary" id="mapTasksOn">Turn on tasks</button></div>` : "");
+
+  const says = $("mapTasksSays")?.textContent || "";
+  box.innerHTML = `
+    <h4 id="mapTasksHead">Tasks for ArcGIS Field Maps</h4>
+    ${intro}${status}${form}${on || eligible.length ? editors : ""}${buttons}
+    <p class="hint" id="mapTasksSays" role="status" aria-live="polite">${says.startsWith("Reading") ? "" : h(says)}</p>`;
+
+  if (typed !== undefined && $("mapTasksTypes")) $("mapTasksTypes").value = typed;
+  if (had?.person) document.querySelector(`[data-map-task-person="${CSS.escape(had.person)}"]`)?.focus();
+  else if (had?.id) document.getElementById(had.id)?.focus();
+}
+
+/** What the form says: the layer, the types, and the people ticked, those the find has hidden included. */
+function mapTasksForm() {
+  const state = mapTasksState;
+  const picked = state.picked || new Set((state.tasks.assignees || []).map(a => a.username));
+  const labels = new Map(state.people.map(p => [p.username, p.label]));
+  for (const a of state.tasks.assignees || []) if (!labels.has(a.username)) labels.set(a.username, a.label);
+  return {
+    layer: $("mapTasksLayer")?.value || state.tasks.layer,
+    types: ($("mapTasksTypes")?.value || "").split("\n").map(t => t.trim()).filter(Boolean),
+    assignees: [...picked].map(username => ({ username, label: labels.get(username) || username })),
+  };
+}
+
+document.addEventListener("input", event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapTasksState || t.id !== "mapTasksFind") return;
+  mapTasksState.find = t.value;
+  drawMapTasks();
+});
+
+document.addEventListener("change", event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapTasksState || !t.dataset?.mapTaskPerson) return;
+  mapTasksState.picked ||= new Set((mapTasksState.tasks.assignees || []).map(a => a.username));
+  if (t.checked) mapTasksState.picked.add(t.dataset.mapTaskPerson);
+  else mapTasksState.picked.delete(t.dataset.mapTaskPerson);
+  const chosen = $("mapTasksChosen");
+  if (chosen) chosen.textContent = `${num(mapTasksState.picked.size)} chosen.`;
+});
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t || !mapTasksState || !["mapTasksOn", "mapTasksSave", "mapTasksOff", "mapTasksEdit", "mapTasksCancel"].includes(t.id)) return;
+  const state = mapTasksState;
+  const path = `/content/webmaps/${encodeURIComponent(state.map.id)}/tasks`;
+  const say = text => { const says = $("mapTasksSays"); if (says) says.textContent = text; };
+
+  if (t.id === "mapTasksEdit" || t.id === "mapTasksCancel") {
+    state.editing = t.id === "mapTasksEdit";
+    state.picked = null;
+    state.find = "";
+    say("");
+    drawMapTasks();
+    $(state.editing ? "mapTasksTypes" : "mapTasksEdit")?.focus();
+    return;
+  }
+
+  if (t.id === "mapTasksOff" && !await askServerConfirm({
+    title: `Turn off tasks for ${state.map.title}?`,
+    body: "Field Maps stops listing tasks for this map. The task fields, and every task in them, stay on the layer.",
+    action: "Turn off tasks",
+  })) return;
+
+  t.disabled = true;
+  say(t.id === "mapTasksOff" ? "Turning tasks off…" : "Saving the tasks…");
+  try {
+    if (t.id === "mapTasksOff") await api(path, { method: "DELETE" });
+    else await api(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mapTasksForm()) });
+    const done = t.id === "mapTasksOff" ? "Tasks are off. The fields and the tasks are still on the layer."
+      : t.id === "mapTasksOn" ? "Tasks are on. Open the map in Field Maps to see them." : "The tasks are saved.";
+    state.tasks = await api(path);
+    state.editing = false;
+    state.picked = null;
+    state.find = "";
+    say(done);
+    drawMapTasks();
+    $(state.tasks.enabled ? "mapTasksEdit" : "mapTasksOn")?.focus();
+  } catch (e) {
+    t.disabled = false;
+    say(e.message || String(e));
+  }
+});
 
 const WM_KIND = {
   ArcGISFeatureLayer: "Features", ArcGISMapServiceLayer: "Map image", VectorTileLayer: "Vector tiles",

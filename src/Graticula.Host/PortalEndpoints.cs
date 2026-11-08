@@ -1404,6 +1404,14 @@ internal static partial class PortalEndpoints
         //
         // <b>Each with the id its comments are kept under</b> (ADR-267 condition 2), so the page says what the item's own
         // page says about its comments and metadata, read in two statements for the whole listing before it is sorted.
+        // ADR-286: which of the caller's maps have Field Maps tasks, asked once for the listing.
+        WebMap[] ownMaps =
+        [
+            .. (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
+                .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId),
+        ];
+        IReadOnlySet<Guid> tasked = await TaskedMapsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
+
         List<(object Item, Guid? Id)> owned =
         [
             .. visible
@@ -1413,9 +1421,7 @@ internal static partial class PortalEndpoints
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
-            .. (await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
-                .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId)
-                .Select(map => (MapItem(context, map), ItemGuidOf(map.Id))),
+            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
 
             // And their documents — ADR-188.
             .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
@@ -1835,9 +1841,15 @@ internal static partial class PortalEndpoints
         // <b>With the groups they are shared into, since 2026-10-13</b> (D-292). A map and an image service
         // carry `SharedWith` as a service does, and passing none here made `group:` match services alone, so a
         // group member looking for a map shared with the group found nothing.
-        foreach (WebMap map in await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
+        IReadOnlyList<WebMap> readableMaps = await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false);
+
+        // ADR-286: Field Maps' Tasks filter reads the search result's keywords, so which maps have tasks is asked here,
+        // once for every map the search could list.
+        IReadOnlySet<Guid> withTasks = await TaskedMapsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
+
+        foreach (WebMap map in readableMaps)
         {
-            candidates.Add((MapItem(context, map), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
+            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
                 item => new PortalListed(map.Id, item, Map: map)));
         }
 
@@ -2077,7 +2089,10 @@ internal static partial class PortalEndpoints
         {
             // ADR-267: with its comments counted and its metadata said, as Portal's item is.
             return Results.Ok(await WithCommentsAndMetadataAsync(
-                context, MapItem(context, map, MapExtent(map.Document)), Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
+                context,
+                MapItem(context, map, MapExtent(map.Document),
+                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0),
+                Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
         }
 
         // A document, as a map: it needs no catalogue either (ADR-188).
@@ -2597,6 +2612,17 @@ internal static partial class PortalEndpoints
                 : null;
     }
 
+    /// <summary>Which of these maps carry Field Maps tasks — ADR-286 — in one question for all of them.</summary>
+    private static async Task<IReadOnlySet<Guid>> TaskedMapsAsync(
+        HttpContext context, IEnumerable<WebMap> maps, CancellationToken cancellation)
+    {
+        Guid[] ids = [.. maps.Select(m => Guid.TryParse(m.Id, out Guid id) ? id : Guid.Empty).Where(id => id != Guid.Empty)];
+
+        return ids.Length == 0 || context.RequestServices.GetService<IItemResourceStore>() is not { } resources
+            ? new HashSet<Guid>()
+            : await resources.ItemsHoldingAsync(ids, FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false);
+    }
+
     /// <summary>A saved web map as a portal item of type <c>Web Map</c> — ADR-079 §5.3.</summary>
     /// <remarks>
     /// <b>The owner is named by the same rule as a service's</b> (<see cref="Item"/>, Q-127): the
@@ -2604,7 +2630,7 @@ internal static partial class PortalEndpoints
     /// publish its author's account name to whoever opens it anonymously. <b>No <c>url</c></b>: a web map
     /// is not a service, and its content is at <c>items/{id}/data</c>.
     /// </remarks>
-    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null)
+    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -2625,7 +2651,8 @@ internal static partial class PortalEndpoints
             title = map.Title,
             name = (string?)null,
             type = "Web Map",
-            typeKeywords = WebMapKeywordsOf(map.Document),
+            // ADR-286: `Tasks` beside the rest when the map carries Field Maps tasks.
+            typeKeywords = FieldMapsTasks.WithTasks(WebMapKeywordsOf(map.Document), tasks),
             // ADR-119: the description when there is one, the summary as before when not; and the picture.
             description = map.Description ?? map.Snippet,
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
