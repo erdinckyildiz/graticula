@@ -6585,8 +6585,10 @@ function drawMapTasks() {
         to assign to.</p>`
     : `<p><b>Off.</b></p>`;
 
+  const shareOf = (on ? onLayer : eligible[0])?.service;
   const editors = `<p class="hint">People change a task in Field Maps only if they may edit its layer: share the layer
-    with a group whose members can update shared items. The map itself only needs to be shared with them.</p>`;
+    with a group whose members can update shared items. The map itself only needs to be shared with them.${shareOf
+      ? ` <a href="#/service/${shareOf.split("/").map(encodeURIComponent).join("/")}">Open the layer to share it</a>` : ""}</p>`;
 
   let form = "";
   if (showForm) {
@@ -6609,7 +6611,7 @@ function drawMapTasks() {
         <div class="stacked"><label for="mapTasksTypes">Task types, one per line</label>
           <textarea id="mapTasksTypes" rows="4" aria-describedby="mapTasksTypesHint">${h(types.join("\n"))}</textarea>
           <span class="hint" id="mapTasksTypesHint">Every task has one type, such as Inspection or Repair.</span></div>
-        <fieldset class="stacked" aria-describedby="mapTasksPeopleHint">
+        <fieldset aria-describedby="mapTasksPeopleHint">
           <legend>People tasks can be assigned to</legend>
           <input type="search" id="mapTasksFind" placeholder="Find a member" aria-label="Find a member" value="${h(state.find)}">
           <div class="checklist" id="mapTasksPeople">${listed.length

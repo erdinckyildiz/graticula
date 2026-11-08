@@ -96,7 +96,9 @@ internal static partial class AdminEndpoints
                 why = "it is not yours, so its fields are not yours to add to.";
             }
 
-            candidates.Add(new { id = layerId, title, eligible = why is null, why });
+            // The layer's own service, so the page can link to where it is shared for editing (ADR-075).
+            string? service = layer is null ? null : layer.Folder is { Length: > 0 } f ? $"{f}/{layer.ServiceName}" : layer.ServiceName;
+            candidates.Add(new { id = layerId, title, eligible = why is null, why, service });
 
             if (layer is not null && layerId == on)
             {
