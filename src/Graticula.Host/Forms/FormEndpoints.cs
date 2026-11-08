@@ -34,7 +34,7 @@ namespace Graticula.Host.Forms;
 /// </para>
 /// <para>
 /// <b>Publishing is Studio's work, run in this request.</b> Each layer is made by <c>/admin/hosted/define</c>'s own
-/// handler, and its GlobalIDs, editor tracking and attachments by theirs, so a form's layers are refused and audited
+/// handler, and its GlobalIDs and editor tracking by theirs (a hosted layer keeps attachments from the start), so a form's layers are refused and audited
 /// exactly as hand-designed ones are. A step that fails removes what the earlier steps made: the service and the choice
 /// lists this publish created. The relationships between a form's own new layers are declared here, by the publisher,
 /// rather than through <c>/admin/relationships</c>, which an administrator alone may call: relating the tables a
@@ -429,17 +429,8 @@ public static class FormEndpoints
                     }
                 }
 
-                if (layer.AttachmentQuestions.Count > 0)
-                {
-                    (int status, string? message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.SwitchAttachmentsAsync(
-                        context, layer.Name, new AttachmentsSwitchRequest(AttachmentPlaces.Datastore), layers, catalog, connections, contexts, audit, cancellation))
-                        .ConfigureAwait(false);
-
-                    if (status is < 200 or >= 300)
-                    {
-                        return (status, $"The layer '{layer.Name}' could not keep attachments: {message ?? "no reason given"}. Nothing of the form was kept.");
-                    }
-                }
+                // Attachments need no step: a hosted layer keeps them beside its table from the start, and the switch
+                // says so (measured 2026-11-09, the first publish answered 409 "nothing to switch").
             }
 
             return (200, null);

@@ -361,6 +361,35 @@ measurable question. The two device claims are, so they are conditions and not a
     | `image`, `audio`, `video`, `file` | attachment, `keywords` = the question's name |
     | `begin repeat` | a related table, `parentglobalid` |
 
+11. **Built overnight 2026-11-09, while the owner slept (*"gece: bitirebileceğin tüm işleri bitir"*). Every choice
+    below is this session's and is INFERRED until the owner confirms it ([Q-230](../open-questions.md)).**
+    - (a) **Names.** The service is named after `form_id`, or the item's title when there is none, made an identifier;
+      each repeat's layer is `{service}_{repeat}`, because a layer name is unique across the server. A question's column
+      is its name with accented letters written as their Latin letters (`şehir_adı` → `sehir_adi`), then the importer's
+      rule; the client is sent the map.
+    - (b) **A form's layers are stored in WGS 84 (EPSG:4326)**, what a device's position is given in, not the Web
+      Mercator a hand-designed layer defaults to.
+    - (c) **`select_multiple` has no domain**: its value is several names joined by commas, which a coded-value domain
+      would refuse. `select_one` has one shared domain per choice list, named `{service}_{list}`; a domain of that name
+      with the same codes is shared, one with other codes refuses the publish.
+    - (d) **A text field is 255 characters** unless `bind::esri:fieldLength` says otherwise (Survey123's default).
+    - (e) **The publisher relates the form's own new layers**, without the administrator privilege
+      `/admin/relationships` asks for: relating the tables one has just made is part of making them.
+    - (f) **What publishing made is the item resource `graticula/publication.json`**: the service, each layer's id,
+      address, geometry, parent, relationship and question-to-column map. The form item carries the type keywords
+      `Form`, `Graticula Form` and `XLSForm`, and not `Survey123` (§5.9 (g)).
+    - (g) **A failed publish removes what it made**: the service, dropped, and the choice lists it created.
+    - (h) **A published form's questions cannot be changed yet**, and it cannot be published twice: both answer 409.
+      §5.2's republishing, which adds fields the way the schema editor does, is the next piece of work, not done.
+    - (i) **The client's expression evaluator** (`wwwroot/forms/xlsform-eval.js`) made ten readings of its own:
+      `area` and `distance` on a sphere (the spec's spherical law of cosines; Chamberlain–Duquette for area, which the
+      spec does not name), up to about 0.5% from WGS 84 geodesics; an empty answer is false as a boolean, so
+      `if(${q}, …)` means *q is answered*; a date string is a number of days wherever text becomes a number; the
+      select functions split on commas and spaces; a dateTime without an offset is the device's local time; `%b` and
+      `%a` are English unless the form's language is one the browser knows; `round(x, d)` rounds halves up;
+      `checklist` counts `true`, `'true'` and numbers above 0; `/data/…/x` and `../x` find a question by its last name;
+      `randomize` follows the spec's generator but is not checked against ODK's test vectors.
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
