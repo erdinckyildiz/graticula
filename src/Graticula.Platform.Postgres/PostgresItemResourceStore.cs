@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Catalog;
@@ -70,6 +71,33 @@ public sealed class PostgresItemResourceStore : IItemResourceStore
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? (Read(reader), reader.GetFieldValue<byte[]>(6))
             : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlySet<Guid>> ItemsHoldingAsync(
+        IReadOnlyCollection<Guid> items, string path, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        HashSet<Guid> holding = [];
+
+        if (items.Count == 0)
+        {
+            return holding;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select item_id from item_resource where item_id = any(@items) and path = @path");
+        command.Parameters.AddWithValue("items", items.ToArray());
+        command.Parameters.AddWithValue("path", path);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            holding.Add(reader.GetGuid(0));
+        }
+
+        return holding;
     }
 
     /// <inheritdoc/>

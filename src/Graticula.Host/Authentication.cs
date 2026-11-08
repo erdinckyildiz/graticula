@@ -482,8 +482,15 @@ internal sealed class Authentication
     /// browser, so it carries none of the cookie's forgery risk.
     /// </para>
     /// <para>
-    /// <b>Form-encoded bodies only, buffered and rewound.</b> A multipart upload may be gigabytes and is not read here;
-    /// an endpoint that reads its body itself still finds all of it.
+    /// <b>Form bodies only, buffered and rewound, and none past <see cref="MaximumBodyTokenSearch"/>.</b> An endpoint that
+    /// reads its body itself still finds all of it.
+    /// </para>
+    /// <para>
+    /// <b>A multipart form too, since 2026-11-08 (ADR-286).</b> It was left out because an upload may be gigabytes, and
+    /// the length ceiling below already says that: past it nothing is read. Under it, the ArcGIS API for Python and a
+    /// browser's form send <c>addResources</c> with its token as one more part beside the file, as ArcGIS reads it, and
+    /// the request arrived anonymous and was refused as a user who does not exist. A larger upload still authenticates
+    /// by header or query string.
     /// </para>
     /// </remarks>
     private static async Task ReadBodyTokenAsync(HttpContext context, CancellationToken cancellationToken)
@@ -491,7 +498,8 @@ internal sealed class Authentication
         HttpRequest request = context.Request;
 
         if (!HttpMethods.IsPost(request.Method)
-            || request.ContentType?.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) != true
+            || !(request.ContentType?.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) == true
+                || request.ContentType?.StartsWith("multipart/form-data", StringComparison.OrdinalIgnoreCase) == true)
             || request.Headers.ContainsKey("X-Esri-Authorization")
             || request.Headers.ContainsKey("Authorization")
             || request.Query.ContainsKey("token")

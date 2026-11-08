@@ -78,7 +78,6 @@ public sealed class IgnoredParameterTests : ArcGisClient
         // 2026-09-15 as parameters the server did not understand.
         ["returnZ"] = "false",
         ["returnM"] = "false",
-        ["returnTrueCurves"] = "false",
         ["returnQueryGeometry"] = "false",
         ["returnGeodetic"] = "false",
 
@@ -96,6 +95,9 @@ public sealed class IgnoredParameterTests : ArcGisClient
 
         // The ArcGIS API for Python's own paging switch, sent on every query (2026-10-14).
         ["returnAllRecords"] = "true",
+
+        // Probed with true since 2026-11-08: ArcGIS Field Maps sends it on a task list's query, and no curve is served.
+        ["returnTrueCurves"] = "true",
 
         // <b>`token` is deliberately absent, and the absence is asserted below.</b> Its
         // recorded reason is that the token authenticates and the header form is
