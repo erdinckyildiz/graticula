@@ -4,10 +4,10 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `LOW` — the direction is the owner's and is not in doubt; nothing of it is built, nothing is measured, and the one claim that decides whether offline works on an iPhone (§4) is a claim about a browser, not about this server |
-| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. Everything else here is this session's reading of those answers and is marked **INFERRED** in §5.9 and [Q-229](../open-questions.md). |
+| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. Everything else here is this session's reading of those answers and is marked **INFERRED** in §5.9 and [Q-229](../open-questions.md). |
 | **Supersedes** | — |
 | **Superseded by** | — |
-| **Amends** | [v1-scope.md](../v1-scope.md) §2 (a row is added). [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) is **not** amended, and §5.6 says why. |
+| **Amends** | [v1-scope.md](../v1-scope.md) §2 (a row is added). [ADR-082](ADR-082-offline-sync-is-not-in-v1.md), **in part** (§5.6): Graticula's own forms edit existing records offline; ArcGIS's replica protocol stays out. |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -128,9 +128,10 @@ needs. The one place it is weaker, Safari's storage, is condition 2.
 Survey123 is a form product built on one. The answer is that most of the server half already exists (§1), and that the
 owner asked for it in so many words. The cost is real and is in §6.
 
-**"Offline from the start will delay everything else."** It will delay forms. The answer is §5.5's narrow definition
-of offline: adds only, no sync. That is a queue, not a replication protocol, and it is the reason this ADR does not
-reopen ADR-082.
+**"Offline from the start will delay everything else."** It will delay forms, and since the owner also chose an
+offline Inbox (§5.6) it will delay them more. The answer is that the sync is Graticula's own and narrow: one client,
+records chosen by a filter, and a conflict rule that refuses instead of merging. It is not ArcGIS's replica protocol,
+which stays out (ADR-082).
 
 **"Writing an XPath evaluator is how subtle bugs get in."** True. The answer is condition 4: the evaluator is tested
 against the XLSForm and XForms specifications' own examples, and against real public forms, before it is called done.
@@ -184,10 +185,20 @@ measurable question. The two device claims are, so they are conditions and not a
    device with its files and sent when the signal returns, oldest first. Because every record carries its own
    `globalId`, a submission that was half sent is sent again and lands once. A queued record is never deleted until
    the server has accepted it.
-6. **This is not ADR-082's sync, and ADR-082 stands.** Sync, in ADR-082, is the replica protocol: a device holding a
-   copy of the layer, and edits flowing both ways with conflict rules. A form queue only adds new rows, which cannot
-   conflict with anything online. Editing an existing record (Survey123's *Inbox*) is **online only** in the first
-   version (§5.9 (e)). An offline inbox would be a downloaded copy, and that would reopen ADR-082.
+6. **Existing records are edited offline too (owner decision), and ADR-082 is amended in part.** A form may have an
+   *Inbox*, as Survey123's does: the records a publisher's filter selects for the signed-in user are downloaded with
+   their attachments, and edited on the device with or without signal. The edits wait in the same queue as new records.
+   - **Conflicts are found on the server, never resolved silently (INFERRED, §5.9 (j)).** Each downloaded record
+     carries the time it was last edited (editor tracking, which §5.2 turns on). An edit sent back says which version it
+     was made against. If the record changed on the server since then, the edit is refused, not applied. The device then
+     shows both versions side by side and the user chooses. A record deleted on the server while edited on a device is
+     kept on the device, marked, and shown to its author. The last writer never wins without being told.
+   - **What ADR-082 still keeps out:** ArcGIS's replica protocol, `createReplica`, `synchronizeReplica`,
+     `unRegisterReplica` and `extractChanges`. Field Maps' offline areas and Pro's *Download Map* still do not work
+     against this server, and every layer still says `supportsDisconnectedEditing: false`. The Inbox is Graticula's own
+     client talking to Graticula's own server. It is not a replica that ArcGIS's clients could open.
+   - **What the Inbox downloads is bounded** by the publisher's filter and a record limit per form (INFERRED,
+     §5.9 (k)), so that a device never tries to hold a whole layer.
 7. **The results screen is in Studio.** On the form's item page: the submissions as a table and on a map, a summary
    per question (counts for choices, ranges for numbers), filtering by question, export through the existing layer
    export ([ADR-107](ADR-107-a-layer-is-exported-as-geopackage-shapefile-or-workbook.md)), and the webhooks
@@ -196,14 +207,16 @@ measurable question. The two device claims are, so they are conditions and not a
    workbook, keeps columns it does not understand untouched, and says so on screen when a form uses something it cannot
    edit. There is one format, never a second one behind the designer.
 9. **INFERRED, for the owner to confirm** (listed as [Q-229](../open-questions.md)):
-   - (a) the client is built here and Enketo or ODK Web Forms is not adopted (§2 F);
+   - (a) the client is built here and Enketo or ODK Web Forms is not adopted (§2 F) — **confirmed by the owner
+     2026-11-08:** *"Kendimiz yazalım"*;
    - (b) the first version's question types and functions are condition 3's list, and anything else is refused at
      upload rather than half supported;
    - (c) Esri's public XLSForm columns are read where they map onto something here (`bind::esri:fieldType`,
      `bind::esri:fieldLength`, `bind::esri:fieldAlias`), and the rest are refused by name;
    - (d) a repeat is a related table through `parentglobalid`, as Survey123 lays it out, so data leaving for or
      arriving from Survey123 keeps its shape;
-   - (e) editing existing records is online only;
+   - (e) ~~editing existing records is online only~~ — **decided otherwise by the owner 2026-11-08:** *"Çevrimdışı da
+     olsun"*, existing records are edited offline too (§5.6);
    - (f) **when a form changes while records wait on a phone**, a queued record is sent as filled; a field it carries
      that no longer exists is refused by the server, and the record is kept on the device, marked, and shown to its
      author rather than lost or silently trimmed;
@@ -213,7 +226,11 @@ measurable question. The two device claims are, so they are conditions and not a
    - (i) the server checks what a database can check (types, lengths, domains, required fields that are not
      conditional) and does **not** re-evaluate the form's XPath logic. A second evaluator in C# would drift from the
      browser's, and a hostile client could skip the logic anyway, so logic is a usability contract and the schema is
-     the integrity contract.
+     the integrity contract;
+   - (j) **an offline edit made against a record that has since changed on the server is refused, and the device shows
+     both versions for the user to choose** (§5.6), rather than the last writer winning;
+   - (k) the Inbox downloads only the records the publisher's filter selects, up to a limit per form that the publisher
+     sets, with a default chosen when it is measured on a device.
 
 ## 6. Consequences
 
@@ -230,12 +247,15 @@ export, webhooks, Pro and Field Maps.
   record is filled.
 - A Survey123 form that uses what is refused has to be edited before it imports. The refusal names the row, but
   someone has to do the work.
-- **Offline inbox is out**, and an organization whose crews edit existing records in the field still cannot do that
-  offline (ADR-082's cost, which this ADR narrows but does not remove).
+- **The offline Inbox makes this a sync, not only a queue.** Downloading records, editing them on a device for days
+  and sending them back brings in conflicts, deletions made while a device was away, and attachments replaced on both
+  sides. §5.6's rule keeps it honest, but it is the hardest part of the client to get right and to test.
+- Field Maps and Pro still cannot edit offline against this server. The Inbox serves Graticula's own client only.
 - The browser client takes a dependency on service workers and IndexedDB, which this repository has not used before.
 
 **State.** No new table is promised here. The form is an item and an item resource; its layer, domains, relationship
-and view are those that already exist. The device holds the queue; the server holds nothing per device.
+and view are those that already exist. The device holds the queue and the downloaded Inbox; the server holds nothing
+per device, and finds a conflict from the record's own last-edited time, not from a register of devices.
 
 **Ports created.** None. Reading the workbook goes through the import reader's existing seam.
 
@@ -262,7 +282,8 @@ and view are those that already exist. The device holds the queue; the server ho
 
 ## 9. Conditions
 
-1. **The owner confirms §5.9's INFERRED points**, (a) to (i), through [Q-229](../open-questions.md).
+1. **The owner confirms §5.9's INFERRED points**, (a) to (k), through [Q-229](../open-questions.md).
+   **PARTLY DISCHARGED 2026-11-08:** (a) confirmed, (e) decided the other way (§5.6). The rest are open.
 2. **Offline is measured on a device before it is called supported.** On Android in Chrome (the emulator is enough):
    fill ten records with photos in flight mode, close the browser, restart the device, restore the signal, and every
    record arrives once. On an iPhone in Safari, installed to the home screen: the same, and the queue survives eight
@@ -276,13 +297,16 @@ and view are those that already exist. The device holds the queue; the server ho
    evaluates differently from its specification is a defect, not a limitation.
 5. **Every refusal at upload names the row, the column and the reason**, and a set of real Survey123 forms is
    imported to count how many come in unedited. A-089 is validated or invalidated by that count.
+6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
+   while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
+   edited offline is kept on the device. Neither case may lose an edit silently.
 
 ## 10. Revisit triggers
 
 - Condition 2 fails on iOS and Safari offers no remedy: then iPhone offline is either dropped or moves to a native
   shell, by a new ADR.
-- An organization needs to edit existing records offline: that reopens [ADR-082](ADR-082-offline-sync-is-not-in-v1.md),
-  not this ADR.
+- An organization needs Field Maps or Pro to edit offline against this server: that reopens
+  [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) for the replica protocol, which this ADR's Inbox does not provide.
 - The evaluator's defect count stays above what condition 4 tolerates for more than a release: then §2 F (adopt) is
   reconsidered.
 - XLSForm's specification makes a change the client cannot follow.
@@ -291,5 +315,8 @@ and view are those that already exist. The device holds the queue; the server ho
 
 **This session recommended web first (§2 D), and the owner chose offline from the start.** The recommendation is
 recorded, not withdrawn. Its argument was time to first use; the owner's was that the field case is the point. The
-owner's choice is the decision, and §5.5's narrow definition of offline is how this ADR tries to keep its cost within
-reach.
+owner's choice is the decision.
+
+**This session also recommended an online-only Inbox (§5.9 (e)), and the owner chose offline.** The argument was that
+an offline Inbox turns a queue into a sync. That argument still stands as the cost of §5.6, not as an objection to it,
+and §5.6's conflict rule and condition 6 are how this ADR answers it.
