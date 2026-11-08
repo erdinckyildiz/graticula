@@ -3,8 +3,8 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `LOW` — the direction is the owner's and is not in doubt; nothing of it is built, nothing is measured, and the one claim that decides whether offline works on an iPhone (§4) is a claim about a browser, not about this server |
-| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. **On 2026-11-09 the owner asked again whether a JSON format of our own would have been better**, was given the answer that the hard part is the expression language and not the container, and chose the combination this session proposed (*"evet böyle olsun"*): **the stored form is a JSON model that is a lossless copy of the XLSForm's rows and columns, the workbook is the import and export format, and the expressions stay XLSForm's** (§2 H, §5.1, §5.3, §5.8). Everything else here is this session's reading of those answers and is marked **INFERRED** in §5.9 and [Q-229](../open-questions.md). |
+| **Confidence** | `LOW` — the direction and every open choice are the owner's (§5.9); nothing of it is built, nothing is measured, and the one claim that decides whether offline works on an iPhone (§4) is a claim about a browser, not about this server |
+| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. **On 2026-11-09 the owner asked again whether a JSON format of our own would have been better**, was given the answer that the hard part is the expression language and not the container, and chose the combination this session proposed (*"evet böyle olsun"*): **the stored form is a JSON model that is a lossless copy of the XLSForm's rows and columns, the workbook is the import and export format, and the expressions stay XLSForm's** (§2 H, §5.1, §5.3, §5.8). What this session read into those answers was marked **INFERRED** in §5.9 and listed as [Q-229](../open-questions.md); **the owner answered all of it on 2026-11-09**, and nothing in this ADR is INFERRED any more. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [v1-scope.md](../v1-scope.md) §2 (a row is added). [ADR-082](ADR-082-offline-sync-is-not-in-v1.md), **in part** (§5.6): Graticula's own forms edit existing records offline; ArcGIS's replica protocol stays out. |
@@ -46,13 +46,13 @@ the results.**
 
 The owner's question started as *do we support Survey123* and became *Graticula does Survey123's job*. The two are not
 the same work. The first is compatibility with Esri's apps, and the server already serves most of what they read.
-The second is a product inside Graticula. This ADR is the second. §5.9 (g) records, as INFERRED, that the first is not
+The second is a product inside Graticula. This ADR is the second. §5.9 (g) records, confirmed by the owner, that the first is not
 a goal of it.
 
 ## 2. Alternatives considered
 
 Two questions were put to the owner. Their options are A–B and C–E. F and G are this session's, about how the client
-is built, and are INFERRED.
+is built; F was confirmed by the owner (§5.9 (a)) and G with the rest of §5.9.
 
 ### Alternative A — XLSForm as the form definition (chosen, by the owner)
 
@@ -119,7 +119,7 @@ other tools.
 **Argument against.** Two representations of one form must stay exactly equivalent. A difference between them is a
 form that changes when it is downloaded and uploaded again. Condition 7 tests exactly that.
 
-### Alternative F — Adopt an existing XLSForm client (Enketo, ODK Web Forms) — INFERRED, not chosen
+### Alternative F — Adopt an existing XLSForm client (Enketo, ODK Web Forms) — not chosen (owner, §5.9 (a))
 
 **Argument for.** This is the strongest alternative and should be stated as such. Both are Apache-2.0, mature, and
 implement XForms evaluation completely, offline included in Enketo's case. Years of edge cases in XPath, repeats and
@@ -133,7 +133,7 @@ Graticula's browser code is classic scripts with no bundler. Both bring their ow
 language inside Studio. And both go through XForms XML as an intermediate step, which a server that reads the
 spreadsheet itself does not need.
 
-### Alternative G — A native mobile app — INFERRED, not chosen
+### Alternative G — A native mobile app — not chosen
 
 **Argument for.** Native apps have unrestricted storage, background sync, and camera and GPS access without browser
 prompts.
@@ -187,7 +187,8 @@ measurable question. The two device claims are, so they are conditions and not a
 2. **Publishing a form makes its layer.** Each question becomes a field of the type it declares. A choice list
    becomes a shared coded-value domain. **A form has at most one location question**, `geopoint`, `geotrace` or
    `geoshape`, which becomes the layer's geometry, and none makes a table. A `repeat` becomes a related table, joined
-   by `parentglobalid` through a declared relationship (ADR-013 §3). `image`, `signature`, `audio` and `file` questions
+   by `parentglobalid` through a declared relationship (ADR-013 §3), and **a repeat inside a repeat becomes a table
+   related to that table** (owner decision 2026-11-09), to any depth. `image`, `signature`, `audio` and `file` questions
    become attachments, **with the question's name as the attachment's `keywords`**, which ends the empty `keywords`
    in §4. Editor tracking is on. Republishing an edited form changes the layer the way the schema editor does
    ([ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)), adding fields and never silently dropping
@@ -211,7 +212,7 @@ measurable question. The two device claims are, so they are conditions and not a
 6. **Existing records are edited offline too (owner decision), and ADR-082 is amended in part.** A form may have an
    *Inbox*, as Survey123's does: the records a publisher's filter selects for the signed-in user are downloaded with
    their attachments, and edited on the device with or without signal. The edits wait in the same queue as new records.
-   - **Conflicts are found on the server, never resolved silently (INFERRED, §5.9 (j)).** Each downloaded record
+   - **Conflicts are found on the server, never resolved silently (owner decision 2026-11-09, §5.9 (j)).** Each downloaded record
      carries the time it was last edited (editor tracking, which §5.2 turns on). An edit sent back says which version it
      was made against. If the record changed on the server since then, the edit is refused, not applied. The device then
      shows both versions side by side and the user chooses. A record deleted on the server while edited on a device is
@@ -220,7 +221,7 @@ measurable question. The two device claims are, so they are conditions and not a
      `unRegisterReplica` and `extractChanges`. Field Maps' offline areas and Pro's *Download Map* still do not work
      against this server, and every layer still says `supportsDisconnectedEditing: false`. The Inbox is Graticula's own
      client talking to Graticula's own server. It is not a replica that ArcGIS's clients could open.
-   - **What the Inbox downloads is bounded** by the publisher's filter and a record limit per form (INFERRED,
+   - **What the Inbox downloads is bounded** by the publisher's filter and a record limit per form (owner decision 2026-11-09,
      §5.9 (k)), so that a device never tries to hold a whole layer.
 7. **The results screen is in Studio.** On the form's item page: the submissions as a table and on a map, a summary
    per question (counts for choices, ranges for numbers), filtering by question, export through the existing layer
@@ -231,7 +232,10 @@ measurable question. The two device claims are, so they are conditions and not a
    one model, never a second one behind the designer**: the JSON and the workbook are two spellings of the same rows,
    and anything the designer can make can be downloaded as XLSForm. Graticula's own additions go in
    `bind::graticula:…` and `body::graticula:…` columns, never in a field the workbook cannot hold.
-9. **INFERRED, for the owner to confirm** (listed as [Q-229](../open-questions.md)):
+9. **INFERRED, for the owner to confirm** (listed as [Q-229](../open-questions.md)). **All answered 2026-11-09:**
+   (j) confirmed as written (*"Reddet, ikisini göster"*); (b) confirmed except that **a repeat inside a repeat is in
+   the first version** (*"İlk sürümde olsun"*, §5.2, §5.10); (c), (d), (f), (g), (h), (i) and (k) confirmed as written
+   (*"Hepsi önerildiği gibi"*). Nothing in this list is INFERRED any more.
    - (a) the client is built here and Enketo or ODK Web Forms is not adopted (§2 F) — **confirmed by the owner
      2026-11-08:** *"Kendimiz yazalım"*;
    - (b) the first version's question types and functions are condition 3's list, and anything else is refused at
@@ -262,7 +266,7 @@ measurable question. The two device claims are, so they are conditions and not a
     ([getodk.github.io/xforms-spec](https://getodk.github.io/xforms-spec/)), and Esri's public Survey123 XLSForm pages
     (`doc.arcgis.com/en/survey123/create/main/`: *xlsformessentials*, *esricustomcolumns*, *xlsformsettings*,
     *xlsformformulas*, *xlsformsappearance*). Nothing here comes from Survey123's code. **What is on the list and what
-    is not is INFERRED** (§5.9 (b)) and waits for the owner.
+    is not was confirmed by the owner 2026-11-09** (§5.9 (b)), with nested repeats moved in.
 
     **The rule that sorts everything below.** Anything that changes *what is stored*, or *which answer is valid*, is
     either **supported** with its full meaning or **refused** at upload with the row, the column and the reason. It is
@@ -280,8 +284,10 @@ measurable question. The two device claims are, so they are conditions and not a
     | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` |
 
     **Groups and repeats.** `begin group` / `end group` with `relevant`, nested to any depth. `begin repeat` /
-    `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. **A repeat inside a repeat
-    is refused in the first version**: one level of related table (INFERRED). `field-list`, `table-list` and the
+    `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. ~~A repeat inside a repeat
+    is refused in the first version~~ **A repeat inside a repeat is supported, to any depth** (owner decision
+    2026-11-09): building → floor → room is a table related to a table related to the layer, and the offline queue sends
+    a parent before its children. `field-list`, `table-list` and the
     `pages` style are supported, because they decide what one screen holds and a field crew relies on that.
 
     **Survey sheet columns.** Supported: `type`, `name`, `label`, `hint`, `guidance_hint`, `required`,
@@ -337,7 +343,7 @@ measurable question. The two device claims are, so they are conditions and not a
     | `range` | Integer when `start`, `end` and `step` are whole, otherwise Double |
     | `text`, `calculate`, `hidden`, `time`, `acknowledge`, `username`, `email`, `deviceid` | String, 255 unless `bind::esri:fieldLength` says otherwise |
     | `select_one` | String, with the choice list as a shared coded-value domain |
-    | `select_multiple` | String, the chosen names **comma-separated, as Survey123 stores them** (XForms itself uses spaces; INFERRED) |
+    | `select_multiple` | String, the chosen names **comma-separated, as Survey123 stores them** (XForms itself uses spaces; confirmed 2026-11-09) |
     | `date`, `dateTime`, `start`, `end`, `today` | Date |
     | `note` | no field, unless it has a `calculation` |
     | `geopoint`, `geotrace`, `geoshape` | the layer's geometry (one per form, §5.2) |
@@ -395,7 +401,8 @@ per device, and finds a conflict from the record's own last-edited time, not fro
 ## 9. Conditions
 
 1. **The owner confirms §5.9's INFERRED points**, (a) to (k), through [Q-229](../open-questions.md).
-   **PARTLY DISCHARGED 2026-11-08:** (a) confirmed, (e) decided the other way (§5.6). The rest are open.
+   ~~**PARTLY DISCHARGED 2026-11-08:** (a) confirmed, (e) decided the other way (§5.6). The rest are open.~~
+   **DISCHARGED 2026-11-09:** every point answered (§5.9's header); (b) changed for nested repeats, (e) the other way.
 2. **Offline is measured on a device before it is called supported.** On Android in Chrome (the emulator is enough):
    fill ten records with photos in flight mode, close the browser, restart the device, restore the signal, and every
    record arrives once. On an iPhone in Safari, installed to the home screen: the same, and the queue survives eight
@@ -403,7 +410,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    is not yet verified* where it offers offline use.
 3. **The first version's list is written down** in this ADR before the client is built: question types, functions
    and appearances, each one either supported or refused. That list is what the evaluator is tested against and what
-   condition 5 refuses by. **DISCHARGED 2026-11-08:** §5.10. What is on it is INFERRED and is confirmed through
+   condition 5 refuses by. **DISCHARGED 2026-11-08:** §5.10. What is on it was confirmed through
    condition 1 (§5.9 (b)), not here.
 4. **The expression evaluator is tested against the specifications' own examples** (xlsform.org's and the XForms
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
