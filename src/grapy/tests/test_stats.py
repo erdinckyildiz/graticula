@@ -252,14 +252,17 @@ class Stats(unittest.TestCase):
     def test_local_morans_i_with_the_documented_variance(self):
         # Band 10, row-standardized, as in Global Moran's I above. S² = Σz²/(n−1) = 5/3.
         # I_0 = (−1.5/(5/3)) · (1 · −.5) = .45;  I_1 = (−.5/(5/3)) · (.5·−1.5 + .5·.5) = .15. E[I_i] = −1/3.
-        # Feature 0: b2 = Σ_{k≠0} z⁴ / (Σ_{k≠0} z²)² = 5.1875 / 2.75² ; Σw² = 1; (Σw)² = 1;
-        #   A = (4 − b2)/3, B = (2 b2 − 4)/6, V = A − B − 1/9.
-        # Feature 1: b2 = 10.1875 / 4.75²; Σw² = .5; A = (4 − b2)·.5/3, B = (2 b2 − 4)/6, V = A − B − 1/9.
-        def z_of(index, b2, squares):
-            variance = (4 - b2) * squares / 3 - (2 * b2 - 4) / 6 - 1 / 9
+        # The variance ArcGIS Pro 3.7 computes (measured 2026-11-08 to 1e-10 on 60 points; this test pinned the page's
+        # equation (9) as printed until then): b2 = (n−1) Σz⁴ / (Σz²)² over every feature = 3 · 10.25 / 25;
+        # A = (n − b2) Σw² / (n−1), B = (2 b2 − n) Σ_{k≠h} w_k w_h / ((n−1)(n−2)), V = A + B − E².
+        # Feature 0 has one neighbour (Σw² = 1, no pair k ≠ h); feature 1 two (Σw² = .5, Σ_{k≠h} = 1 − .5 = .5).
+        b2 = 3 * 10.25 / 25
+
+        def z_of(index, squares, pairs):
+            variance = (4 - b2) * squares / 3 + (2 * b2 - 4) * pairs / 6 - 1 / 9
             return (index + 1 / 3) / math.sqrt(variance)
-        z0 = z_of(0.45, 5.1875 / 2.75 ** 2, 1.0)
-        z1 = z_of(0.15, 10.1875 / 4.75 ** 2, 0.5)
+        z0 = z_of(0.45, 1.0, 0.0)
+        z1 = z_of(0.15, 0.5, 0.5)
         out = stats.ClustersOutliers(self.line4(), "v", self.out("lmi"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
                                      "ROW", 10, None, "NO_FDR", 0)
         self.assertEqual(tuple(out[i] for i in range(1, 6)), ("LMiIndex", "LMiZScore", "LMiPValue", "COType", "SOURCE_ID"))
@@ -414,31 +417,34 @@ class Stats(unittest.TestCase):
 
     def test_neighborhood_summary_statistics_by_the_documented_formulas(self):
         # Points at 0, 10, 20, 30, 40 holding 1, 2, 3, 4, 10; two nearest neighbours, the focal feature included.
-        # Feature 0: {1, 2, 3}: mean 2, s = sqrt(2/3), Σ(x − x̄)³ = 0 → skewness 0. Quantiles with weights 1/3:
-        # p = .5 falls inside (1/3, 2/3) → 2; p = .25 inside (0, 1/3) → 1; p = .75 inside (2/3, 1) → 3. IQR 2, QI 0.
-        # Its distances (focal left out): 10 and 20 → mean 15, s 5; p = .5 is exactly 1/2 → (10 + 20)/2 = 15.
-        # Feature 4: {3, 4, 10}: mean 17/3, deviations −8/3, −5/3, 13/3; Σ(x − x̄)³/3 = 1560/81, s² = 258/27;
-        # skewness cbrt(1560/81)/sqrt(258/27). Median 4, Q1 3, Q3 10, IQR 7, QI = (8 − 13)/7 = −5/7.
+        # Measured in ArcGIS Pro 3.7, 2026-11-08 (this test pinned grapy's normalised forms and field names until then):
+        # unweighted, s = sqrt(Σ(x − x̄)²) and skewness cbrt(Σ(x − x̄)³)/s with weights of 1, the quartiles linear
+        # between order statistics, the fields <FIELD>_Mean, _STD, _SKWNS, _MED, _IQR, _QIMBL, _NNBRS.
+        # Feature 0: {1, 2, 3}: mean 2, s = sqrt(2), Σ(x − x̄)³ = 0 → skewness 0; Q1 1.5, median 2, Q3 2.5: IQR 1, QI 0.
+        # Its distances (focal left out): 10 and 20 → mean 15, median 15, s = sqrt(50).
+        # Feature 4: {3, 4, 10}: mean 17/3, deviations −8/3, −5/3, 13/3; Σ(x − x̄)² = 258/9, Σ(x − x̄)³ = 1560/27;
+        # Q1 3.5, median 4, Q3 7: IQR 3.5, QI = (8 − 10.5)/3.5 = −5/7.
         path = self.points("nss", [(10 * i, 0) for i in range(5)], [[1.0, 2.0, 3.0, 4.0, 10.0]])
         out = stats.NeighborhoodSummaryStatistics(path, self.out("nss_out"), "v", "ALL", "INCLUDE_FOCAL", "IGNORE_NULLS",
                                                   "NUMBER_OF_NEIGHBORS", None, 2).getOutput(0)
-        fields = ["v", "MEAN_v", "MED_v", "STD_v", "IQR_v", "SKEW_v", "QIMB_v", "NUM_NBRS_v",
-                  "MEAN_DIST", "MED_DIST", "STD_DIST", "NUM_NBRS_DIST"]
+        fields = ["v", "V_Mean", "V_MED", "V_STD", "V_IQR", "V_SKWNS", "V_QIMBL", "V_NNBRS",
+                  "DIST_Mean", "DIST_MED", "DIST_STD", "DIST_NNBRS"]
         got = self.rows(out, fields)
-        expected0 = (1.0, 2.0, 2.0, math.sqrt(2 / 3), 2.0, 0.0, 0.0, 3, 15.0, 15.0, 5.0, 2)
+        expected0 = (1.0, 2.0, 2.0, math.sqrt(2), 1.0, 0.0, 0.0, 3, 15.0, 15.0, math.sqrt(50), 2)
         for value, want in zip(got[0], expected0):
             self.assertAlmostEqual(value, want)
-        skew = (1560 / 81) ** (1 / 3) / math.sqrt(258 / 27)
-        expected4 = (10.0, 17 / 3, 4.0, math.sqrt(258 / 27), 7.0, skew, -5 / 7, 3)
+        skew = (1560 / 27) ** (1 / 3) / math.sqrt(258 / 9)
+        expected4 = (10.0, 17 / 3, 4.0, math.sqrt(258 / 9), 3.5, skew, -5 / 7, 3)
         for value, want in zip(got[4], expected4):
             self.assertAlmostEqual(value, want)
+        self.assertEqual([r[0] for r in self.rows(out, ["SOURCE_ID"])], [1, 2, 3, 4, 5])
         # Gaussian, band 10 (the bandwidth defaults to it): feature 4 has itself (weight 1) and the point at 30
         # (weight exp(−½)). Mean = (10 + 4e^−½)/(1 + e^−½). Normalised, 4 weighs e^−½/(1 + e^−½) ≈ 0.378 < 0.5, so the
         # median is 10.
         gauss = stats.NeighborhoodSummaryStatistics(path, self.out("nss_g"), "v", "ALL", "INCLUDE_FOCAL",
                                                     "IGNORE_NULLS", "DISTANCE_BAND", 10, None, None,
                                                     "GAUSSIAN").getOutput(0)
-        mean, median = self.rows(gauss, ["MEAN_v", "MED_v"])[4]
+        mean, median = self.rows(gauss, ["V_Mean", "V_MED"])[4]
         e = math.exp(-0.5)
         self.assertAlmostEqual(mean, (10 + 4 * e) / (1 + e))
         self.assertEqual(median, 10.0)
@@ -452,7 +458,7 @@ class Stats(unittest.TestCase):
         # the diagonal is CD: A's neighbours are C and D, not B. Values 1, 2, 4, 8: A's mean, focal excluded, is 6.
         path = self.points("tri", [(0, 0), (10, 0), (5, 8), (5, -3)], [[1.0, 2.0, 4.0, 8.0]])
         out = stats.NeighborhoodSummaryStatistics(path, self.out("tri_out"), "v", "MEAN", "EXCLUDE_FOCAL").getOutput(0)
-        self.assertEqual(self.rows(out, ["MEAN_v", "NUM_NBRS_v"])[0], (6.0, 2))
+        self.assertEqual(self.rows(out, ["V_Mean", "V_NNBRS"])[0], (6.0, 2))
         # The corners of a square lie on one circle: either diagonal is a Delaunay triangulation.
         square = self.points("sq", [(0, 0), (10, 0), (0, 10), (10, 10)], [[1.0, 2.0, 3.0, 4.0]])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "not unique"):
@@ -468,7 +474,11 @@ class Stats(unittest.TestCase):
         out = stats.SimilaritySearch(target, candidates, self.out("sim"), "NO_COLLAPSE", "MOST_SIMILAR",
                                      "ATTRIBUTE_VALUES", 2, ["v", "b"]).getOutput(0)
         got = self.rows(out, ["MATCH_ID", "CAND_ID", "SIMRANK", "SIMINDEX"])
-        self.assertEqual([r[:3] for r in got], [(1, None, None), (None, 1, 1), (None, 2, 2)])
+        # The feature to match ranks 0 with SIMINDEX 0, and LABELRANK repeats the rank, as in ArcGIS Pro 3.7 (measured
+        # 2026-11-08; this test pinned an empty rank until then).
+        self.assertEqual([r[:3] for r in got], [(1, None, 0), (None, 1, 1), (None, 2, 2)])
+        self.assertEqual(got[0][3], 0.0)
+        self.assertEqual([r[0] for r in self.rows(out, ["LABELRANK"])], [0, 1, 2])
         self.assertAlmostEqual(got[1][3], 1 / 2.1875)
         self.assertAlmostEqual(got[2][3], 4 / 2.1875 + 4 / 0.75)
         both = stats.SimilaritySearch(target, candidates, self.out("both"), "NO_COLLAPSE", "BOTH", "ATTRIBUTE_VALUES",
@@ -517,7 +527,7 @@ class Stats(unittest.TestCase):
         # 20 percent of 5 points is one: the threshold is the highest LOF, 5.
         path = self.points("lof", [(0, 0), (1, 0), (2, 0), (3, 0), (10, 0)])
         out = stats.SpatialOutlierDetection(path, self.out("lof_out"), 2, 20, None, "LOCAL").getOutput(0)
-        got = self.rows(out, ["LOF", "IS_OUTLIER"])
+        got = self.rows(out, ["LOF", "OUTLIER_ID"])   # OUTLIER_ID: Pro 3.7's name (measured 2026-11-08); IS_OUTLIER until then
         for (lof, flag), (want, outlier) in zip(got, [(1, 0), (1, 0), (1, 0), (1, 0), (5, 1)]):
             self.assertAlmostEqual(lof, want)
             self.assertEqual(flag, outlier)
@@ -546,11 +556,15 @@ class Stats(unittest.TestCase):
                            more=[("x", "DOUBLE"), ("uid", "LONG")])
         result = stats.OrdinaryLeastSquares(path, "uid", self.out("ols_out"), "v", "x", self.out("coef"),
                                             self.out("diag"))
-        coef = {r[0]: r[1:] for r in self.rows(result[1], ["Variable", "Coef", "StdError", "Robust_SE"])}
+        coef = {r[0]: r[1:] for r in self.rows(result[1], ["Variable", "Coef", "StdError", "Robust_SE", "StdCoef"])}
+        # The variable in capitals, and StdCoef = β·sd(x)/sd(y) = 2.1·√2/√9.2 (0 for the intercept), as ArcGIS Pro 3.7
+        # writes them (measured 2026-11-08; this test read "x" and no StdCoef until then).
         self.assertAlmostEqual(coef["Intercept"][0], 0.8)
-        self.assertAlmostEqual(coef["x"][0], 2.1)
-        self.assertAlmostEqual(coef["x"][1], math.sqrt(1.9 / 3 / 10))
-        self.assertAlmostEqual(coef["x"][2], math.sqrt(0.0114))
+        self.assertAlmostEqual(coef["Intercept"][3], 0.0)
+        self.assertAlmostEqual(coef["X"][0], 2.1)
+        self.assertAlmostEqual(coef["X"][1], math.sqrt(1.9 / 3 / 10))
+        self.assertAlmostEqual(coef["X"][2], math.sqrt(0.0114))
+        self.assertAlmostEqual(coef["X"][3], 2.1 * math.sqrt(2) / math.sqrt(9.2))
         diag = dict(self.rows(result[2], ["Diag_Name", "Diag_Value"]))
         self.assertAlmostEqual(diag["R2"], 1 - 1.9 / 46)
         self.assertAlmostEqual(diag["K(BP)"], 5 * 0.064 / 0.9374)
@@ -562,6 +576,11 @@ class Stats(unittest.TestCase):
             self.assertAlmostEqual(got, want)
         self.assertIn("equivalent", stats.OrdinaryLeastSquares.__grapy_equivalent__ + " equivalent")
 
+    def glr_coefficients(self):
+        import re
+        found = re.findall(r"^(\w+): coefficient (\S+),", arcpy.GetMessages(), re.M)
+        return {name: float(value) for name, value in found}
+
     def test_generalized_linear_regression_logit_and_poisson(self):
         # Logistic: at x = 0 one of four is 1, at x = 1 three of four. The MLE fits the two proportions exactly:
         # β0 = logit(1/4) = −ln 3, β1 = logit(3/4) − logit(1/4) = 2 ln 3.
@@ -569,14 +588,19 @@ class Stats(unittest.TestCase):
         binary = self.points("bin", [(i * 10, 0) for i in range(8)], [[1.0, 0, 0, 0, 1, 1, 1, 0], xs],
                              more=[("x", "DOUBLE")])
         result = stats.GeneralizedLinearRegression(binary, "v", "BINARY", self.out("glr_b"), "x")
-        self.assertAlmostEqual(result[1], -math.log(3), places=8)
-        self.assertAlmostEqual(result[2], 2 * math.log(3), places=8)
+        # The coefficients are read from the messages: the tool answers the features and two empty outputs, as ArcGIS
+        # Pro 3.7 does (measured 2026-11-08; this test read them from the result until then).
+        self.assertEqual((result[1], result[2]), ("", ""))
+        coefficient = self.glr_coefficients()
+        self.assertAlmostEqual(coefficient["Intercept"], -math.log(3), places=8)
+        self.assertAlmostEqual(coefficient["x"], 2 * math.log(3), places=8)
         # Poisson: counts 1, 3 at x = 0 (mean 2) and 4, 6 at x = 1 (mean 5): β0 = ln 2, β1 = ln(5/2).
         counts = self.points("cnt", [(i * 10, 0) for i in range(4)], [[1.0, 3, 4, 6], [0.0, 0, 1, 1]],
                              more=[("x", "DOUBLE")])
         result = stats.GeneralizedLinearRegression(counts, "v", "COUNT", self.out("glr_c"), "x")
-        self.assertAlmostEqual(result[1], math.log(2), places=8)
-        self.assertAlmostEqual(result[2], math.log(2.5), places=8)
+        coefficient = self.glr_coefficients()
+        self.assertAlmostEqual(coefficient["Intercept"], math.log(2), places=8)
+        self.assertAlmostEqual(coefficient["x"], math.log(2.5), places=8)
         predicted = [r[0] for r in self.rows(result[0], ["PREDICTED"])]
         for got, want in zip(predicted, [2, 2, 5, 5]):
             self.assertAlmostEqual(got, want, places=8)
@@ -592,7 +616,8 @@ class Stats(unittest.TestCase):
                            more=[("x", "DOUBLE")])
         out = stats.GWR(path, "v", "CONTINUOUS", "x", self.out("gwr_out"), "DISTANCE_BAND", "USER_DEFINED",
                         distance_band=2).getOutput(0)
-        got = self.rows(out, ["INTERCEPT", "C_x", "PREDICTED"])
+        # INTRCPT and C_X: ArcGIS Pro 3.7's names (measured 2026-11-08; INTERCEPT and C_x until then).
+        got = self.rows(out, ["INTRCPT", "C_X", "PREDICTED"])
         for (intercept, slope, _), (want_i, want_s) in zip(got, [(0, 1), (3.25 / 2.125 - 2, 2), (9.625 / 2.125 - 8, 4),
                                                                   (None, None), (-12, 7)]):
             if want_i is None:
@@ -608,7 +633,7 @@ class Stats(unittest.TestCase):
         # row-standardized: Σ z_i Σ w_ij z_j = 1.25 + 1 − .75 − .75 + 1 + 1.25 = 3, S0 = 6, so I = 3/17.5.
         path = self.points("isa", [(10 * i, 0) for i in range(6)], [[1.0, 3, 2, 5, 4, 6]])
         result = stats.IncrementalSpatialAutocorrelation(path, "v", 4, 10, 10, Output_Table=self.out("isa_t"))
-        rows = self.rows(result[0], ["Distance", "MoransI", "ZScore"])
+        rows = self.rows(result[0], ["Distance", "MoransI", "z_score"])   # Pro 3.7's name (measured 2026-11-08)
         self.assertEqual([r[0] for r in rows], [10.0, 20.0, 30.0, 40.0])
         self.assertAlmostEqual(rows[0][1], 3 / 17.5)
         # The first peak is the first band whose z-score is above both neighbours'; it is read as a distance.
@@ -687,7 +712,7 @@ class Stats(unittest.TestCase):
                            more=[("x", "DOUBLE")])
         result = stats.GeographicallyWeightedRegression(path, "v", "x", self.out("lg_out"), "FIXED",
                                                         "BANDWIDTH_PARAMETER", 1e9)
-        for intercept, slope in self.rows(result[0], ["INTERCEPT", "C_x"]):
+        for intercept, slope in self.rows(result[0], ["INTRCPT", "C_X"]):   # stats.GWR's fields, Pro 3.7's names
             self.assertAlmostEqual(intercept, 0.8, places=6)
             self.assertAlmostEqual(slope, 2.1, places=6)
         self.assertTrue(result[1].endswith("lg_out_supp.gpkg"))
@@ -714,15 +739,16 @@ class Stats(unittest.TestCase):
         stats.ExportXYv(path, ["v", "n", "s"], "COMMA", text, "ADD_FIELD_NAMES")
         with open(text, encoding="utf-8") as read:
             lines = read.read().split("\n")
-        # Eight significant digits for x and y (123456789.123 → 1.2345679e+08 in the g form), six for a double
-        # (3.14159265 → 3.14159), integers whole, text as it is, a null as NULL.
+        # Eight decimal places for x and y, six for a double (3.14159265 → 3.141593), as ArcGIS Pro 3.7 writes them
+        # (measured 2026-11-08; this test pinned eight and six significant digits until then); integers whole, text
+        # as it is, a null as NULL.
         self.assertEqual(lines[0], "XCoord,YCoord,v,n,s")
-        self.assertEqual(lines[1], "1.5,2.25,3.14159,7,abc")
-        self.assertEqual(lines[2], "1.2345679e+08,1.2345678e-05,NULL,8,NULL")
+        self.assertEqual(lines[1], "1.50000000,2.25000000,3.141593,7,abc")
+        self.assertEqual(lines[2], "123456789.12300000,0.00001235,NULL,8,NULL")
         self.assertEqual(lines[3], "")
         stats.ExportXYv(path, "v", "SPACE", text, "NO_FIELD_NAMES")
         with open(text, encoding="utf-8") as read:
-            self.assertEqual(read.readline(), "1.5 2.25 3.14159\n")
+            self.assertEqual(read.readline(), "1.50000000 2.25000000 3.141593\n")
         self.assertNotIn("__grapy_equivalent__", dir(stats.ExportXYv))
 
     def test_time_series_smoothing_moving_averages_with_a_closed_window(self):
@@ -772,12 +798,17 @@ class Stats(unittest.TestCase):
         path = self.table("rt", [("y", "DOUBLE"), ("n", "DOUBLE")], [(0.0, 10.0), (10.0, 20.0), (2.0, 10.0), (1.0, 0.0)])
         crude = stats.CalculateRates(path, [["y", "n"]], "NO_APPEND", self.out("crude"), "CRUDE_RATE", "POISSON",
                                      rate_multiplier=1000).getOutput(0)
-        self.assertEqual([r[0] for r in self.rows(crude, ["RATE_y"])], [0.0, 500.0, 200.0, None])
+        # R1 and R1_CR beside SOURCE_ID and the pair's fields, as ArcGIS Pro 3.7 writes them (measured 2026-11-08;
+        # this test read RATE_y until then).
+        self.assertEqual([r[0] for r in self.rows(crude, ["R1"])], [0.0, 500.0, 200.0, None])
+        self.assertEqual([f.name for f in arcpy.ListFields(crude) if f.type not in ("OID", "Geometry")],
+                         ["SOURCE_ID", "y", "n", "R1", "R1_CR"])
         smoothed = stats.CalculateRates(path, "y n", False, self.out("geb"), "GLOBAL_EMPIRICAL_BAYES",
                                         rate_multiplier=1000).getOutput(0)
-        got = [r[0] for r in self.rows(smoothed, ["RATE_y"])]
+        got = [r[0] for r in self.rows(smoothed, ["R1"])]
         for value, want in zip(got, [1200 / 7, 420.0, 1800 / 7]):
             self.assertAlmostEqual(value, want)
+        self.assertEqual([r[0] for r in self.rows(smoothed, ["R1_CR"])], [0.0, 500.0, 200.0, None])
         self.assertIsNone(got[3])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "BINOMIAL"):
             stats.CalculateRates(path, "y n", False, self.out("bin"), "GLOBAL_EMPIRICAL_BAYES", "BINOMIAL",
@@ -798,7 +829,7 @@ class Stats(unittest.TestCase):
         def rates(method, name):
             out = stats.CalculateRates(path, "y n", False, self.out(name), method, "POISSON", "DISTANCE_BAND", 10,
                                        rate_multiplier=1).getOutput(0)
-            return self.rows(out, ["RATE_y", "NBRS_y"])
+            return self.rows(out, ["R1", "NBRS_y"])
 
         lwa = rates("LOCALLY_WEIGHTED_AVERAGE", "lwa")
         for (value, count), want, size in zip(lwa, [1 / 3, 0.3, 0.4], [2, 3, 2]):
@@ -817,7 +848,7 @@ class Stats(unittest.TestCase):
         out = stats.CalculateRates(holed, "y n", "APPEND", None, "LOCALLY_WEIGHTED_AVERAGE", "POISSON", "DISTANCE_BAND",
                                    10, rate_multiplier=1).getOutput(0)
         self.assertEqual(out, holed)
-        self.assertEqual(self.rows(holed, ["RATE_y", "NBRS_y", "FILLED_y"])[2], (0.5, 1, 1))
+        self.assertEqual(self.rows(holed, ["R1", "NBRS_y", "FILLED_y"])[2], (0.5, 1, 1))
         with self.assertRaisesRegex(arcpy.NotBuiltError, "local_weighting_scheme"):
             stats.CalculateRates(path, "y n", False, self.out("k"), "LOCALLY_WEIGHTED_AVERAGE", "POISSON",
                                  "DISTANCE_BAND", 10, local_weighting_scheme="GAUSSIAN", rate_multiplier=1)
@@ -829,22 +860,27 @@ class Stats(unittest.TestCase):
         # MEAN_SCALED: a scales to 0, .25, .5, 1 and b to 0, 2/3, 1/3, 1; the index is their mean: 0, 11/24, 5/12, 1.
         # Its percentile (R − 1)/(N − 1), ranks 1, 3, 2, 4: 0, 2/3, 1/3, 1.
         out = stats.CalculateCompositeIndex(path, ["a", "b"], out_table=self.out("ci_mean")).getOutput(0)
-        got = self.rows(out, ["a_SCALED", "b_SCALED", "COMP_INDEX", "COMP_PCTL"])
-        for row, want in zip(got, [(0, 0, 0, 0), (0.25, 2 / 3, 11 / 24, 2 / 3), (0.5, 1 / 3, 5 / 12, 1 / 3),
-                                   (1, 1, 1, 1)]):
+        # The fields as ArcGIS Pro 3.7 writes them (measured 2026-11-08; this test read a_SCALED, COMP_INDEX and a
+        # fractional COMP_PCTL until then): <field>_PREPROCESSED, INDEX, INDEX_RANK and INDEX_PCTL in percent, beside
+        # SOURCE_ID and the variables only.
+        got = self.rows(out, ["a_PREPROCESSED", "b_PREPROCESSED", "INDEX", "INDEX_RANK", "INDEX_PCTL"])
+        for row, want in zip(got, [(0, 0, 0, 1, 0), (0.25, 2 / 3, 11 / 24, 3, 200 / 3), (0.5, 1 / 3, 5 / 12, 2, 100 / 3),
+                                   (1, 1, 1, 4, 100)]):
             for value, expected in zip(row, want):
                 self.assertAlmostEqual(value, expected)
-        self.assertEqual(got[4], (None, None, None, None))
+        self.assertEqual(got[4], (None, None, None, None, None))
+        self.assertEqual([f.name for f in arcpy.ListFields(out) if f.type not in ("OID", "Geometry")][:3],
+                         ["SOURCE_ID", "a", "b"])
         # GEOMEAN_SCALED: √(.25·2/3) = √(1/6) and √(.5·1/3) = √(1/6); 0 where a variable is 0.
         out = stats.CalculateCompositeIndex(path, ["a", "b"], out_table=self.out("ci_geo"),
                                             index_preset="GEOMEAN_SCALED").getOutput(0)
-        for value, want in zip([r[0] for r in self.rows(out, ["COMP_INDEX"])][:4],
+        for value, want in zip([r[0] for r in self.rows(out, ["INDEX"])][:4],
                                [0, math.sqrt(1 / 6), math.sqrt(1 / 6), 1]):
             self.assertAlmostEqual(value, want)
         # SUM_FLAGSPCTL: percentiles of a 0, 1/3, 2/3, 1 and of b 0, 2/3, 1/3, 1; only the last reaches .9 in each.
         out = stats.CalculateCompositeIndex(path, ["a", "b"], out_table=self.out("ci_flag"),
                                             index_preset="SUM_FLAGSPCTL").getOutput(0)
-        self.assertEqual([r[0] for r in self.rows(out, ["COMP_INDEX"])], [0.0, 0.0, 0.0, 2.0, None])
+        self.assertEqual([r[0] for r in self.rows(out, ["INDEX"])], [0.0, 0.0, 0.0, 2.0, None])
 
     def test_calculate_composite_index_custom_weights_reversal_and_classes(self):
         path = self.table("cc", [("a", "DOUBLE"), ("b", "DOUBLE")],
@@ -857,7 +893,7 @@ class Stats(unittest.TestCase):
             index_method="SUM", index_weights=[["a", 2], ["b", 1]], post_min_max="0 100",
             post_reclass=["EQINTERVAL", "CUST"], post_num_classes=2,
             post_custom_classes=[[50, "low"], [100, "high"]]).getOutput(0)
-        got = self.rows(out, ["COMP_INDEX", "COMP_EQINT", "COMP_CUST"])
+        got = self.rows(out, ["INDEX", "COMP_EQINT", "COMP_CUST"])
         for (value, interval, custom), want, cls, label in zip(got, [100 / 7, 0, 500 / 7, 100], [1, 1, 2, 2],
                                                                ["low", "low", "high", "high"]):
             self.assertAlmostEqual(value, want)
@@ -867,10 +903,10 @@ class Stats(unittest.TestCase):
         ties = self.table("tie", [("a", "DOUBLE")], [(1.0,), (1.0,), (3.0,)])
         out = stats.CalculateCompositeIndex(ties, "a", out_table=self.out("tie_r"), index_preset="CUSTOM",
                                             preprocessing="RANK", index_method="MEAN").getOutput(0)
-        self.assertEqual([r[0] for r in self.rows(out, ["COMP_INDEX"])], [1.5, 1.5, 3.0])
+        self.assertEqual([r[0] for r in self.rows(out, ["INDEX"])], [1.5, 1.5, 3.0])
         out = stats.CalculateCompositeIndex(ties, "a", out_table=self.out("tie_z"), index_preset="CUSTOM",
                                             preprocessing="ZSCORE", index_method="MEAN").getOutput(0)
-        self.assertAlmostEqual(self.rows(out, ["COMP_INDEX"])[2][0], math.sqrt(2))
+        self.assertAlmostEqual(self.rows(out, ["INDEX"])[2][0], math.sqrt(2))
         with self.assertRaisesRegex(arcpy.NotBuiltError, "QUANTILE"):
             stats.CalculateCompositeIndex(path, "a;b", out_table=self.out("q"), post_reclass="QUANTILE")
         with self.assertRaisesRegex(ValueError, "z-scores"):
@@ -1020,32 +1056,37 @@ class Stats(unittest.TestCase):
         self.assertIn("Kelejian", stats.SAR.__grapy_equivalent__)
 
     def test_dimension_reduction_by_principal_components(self):
-        # a = 1, 2, 3, 4 and b = 2, 4, 6, 8: scaled (sd √(5/3) and 2√(5/3)), both become z = (−1.5, −.5, .5, 1.5)/√(5/3).
-        # Their correlation matrix [[1, 1], [1, 1]] has eigenvalues 2 and 0; the first eigenvector (1, 1)/√2, so
-        # PC_1 = √2·z, and it keeps 100 percent of the variance.
+        # a = 1, 2, 3, 4 and b = 2, 4, 6, 8: scaled by the population sd (√(5/4) and 2√(5/4)), both become
+        # z = (−1.5, −.5, .5, 1.5)/√(5/4). Their correlation matrix [[1, 1], [1, 1]] has eigenvalues 2 and 0; the first
+        # eigenvector ±(1, 1)/√2, its sign making the largest-magnitude score positive — the first record's on this
+        # tie — so PCA1 = −√2·z, and it keeps 100 percent of the variance. The divisor n, the sign rule and the PCA1
+        # name are ArcGIS Pro 3.7's (measured 2026-11-08); this test pinned n − 1, the largest loading positive and
+        # PC_1 until then.
         path = self.table("dr", [("a", "DOUBLE"), ("b", "DOUBLE")], [(1.0, 2.0), (2.0, 4.0), (3.0, 6.0), (4.0, 8.0)])
         result = stats.DimensionReduction(path, self.out("dr_out"), ["a", "b"], min_components=1,
                                           output_eigenvalues_table=self.out("dr_values"),
                                           output_eigenvectors_table=self.out("dr_vectors"))
-        sd = math.sqrt(5 / 3)
-        for (value,), z in zip(self.rows(result.getOutput(0), ["PC_1"]), [-1.5, -0.5, 0.5, 1.5]):
-            self.assertAlmostEqual(value, math.sqrt(2) * z / sd)
+        sd = math.sqrt(5 / 4)
+        for (value,), z in zip(self.rows(result.getOutput(0), ["PCA1"]), [-1.5, -0.5, 0.5, 1.5]):
+            self.assertAlmostEqual(value, -math.sqrt(2) * z / sd)
+        self.assertEqual([r[0] for r in self.rows(result.getOutput(0), ["SOURCE_ID"])], [1, 2, 3, 4])
         values = self.rows(result.getOutput(1), ["EIGENVALUE", "PCT_VAR"])
         self.assertAlmostEqual(values[0][0], 2.0)
         self.assertAlmostEqual(values[0][1], 100.0)
         self.assertAlmostEqual(values[1][0], 0.0)
-        vectors = self.rows(result.getOutput(2), ["FIELD", "PC_1"])
-        self.assertAlmostEqual(vectors[0][1], 1 / math.sqrt(2))
-        # Unscaled, a = 1, 2, 3, 4 (variance 5/3) and b = 1, −1, −1, 1 (variance 4/3), whose deviations are orthogonal:
-        # the covariance is diag(5/3, 4/3), so the first component keeps 5/9 ≈ 56 percent — 50 percent needs one
+        vectors = self.rows(result.getOutput(2), ["FIELD", "PCA1"])
+        self.assertAlmostEqual(vectors[0][1], -1 / math.sqrt(2))
+        # Unscaled, a = 1, 2, 3, 4 (variance 5/4) and b = 1, −1, −1, 1 (variance 1), whose deviations are orthogonal:
+        # the covariance is diag(5/4, 1), so the first component keeps 5/9 ≈ 56 percent — 50 percent needs one
         # component and 90 percent both.
         other = self.table("dr2", [("a", "DOUBLE"), ("b", "DOUBLE")], [(1.0, 1.0), (2.0, -1.0), (3.0, -1.0), (4.0, 1.0)])
         two = stats.DimensionReduction(other, self.out("dr2_out"), "a;b", "PCA", "NO_SCALE_DATA", min_variance=90,
                                        output_eigenvalues_table=self.out("dr2_v"))
-        self.assertEqual(len(self.rows(two.getOutput(0), ["PC_1", "PC_2"])[0]), 2)
-        self.assertAlmostEqual(self.rows(two.getOutput(1), ["EIGENVALUE"])[0][0], 5 / 3)
+        self.assertEqual(len(self.rows(two.getOutput(0), ["PCA1", "PCA2"])[0]), 2)
+        self.assertAlmostEqual(self.rows(two.getOutput(1), ["EIGENVALUE"])[0][0], 5 / 4)
         one = stats.DimensionReduction(other, self.out("dr3_out"), "a;b", "PCA", "NO_SCALE_DATA", min_variance=50)
-        self.assertNotIn("PC_2", [f.name for f in arcpy.ListFields(one.getOutput(0))])
+        self.assertNotIn("PCA2", [f.name for f in arcpy.ListFields(one.getOutput(0))])
+        self.assertEqual([one.getOutput(i) for i in (1, 2, 3)], ["", "", ""])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "LDA"):
             stats.DimensionReduction(other, self.out("x"), "a;b", "LDA", min_components=1)
         with self.assertRaisesRegex(arcpy.NotBuiltError, "min_components"):
