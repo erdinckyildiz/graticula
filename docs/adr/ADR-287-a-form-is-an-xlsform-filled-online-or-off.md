@@ -287,13 +287,14 @@ measurable question. The two device claims are, so they are conditions and not a
     |---|---|
     | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
     | Supported metadata | `start`, `end`, `today`, `username` and `email` (from the signed-in member, empty for an anonymous form), `deviceid` (a random id kept by the installed client, not a hardware id) |
-    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` |
+    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `or_other`, `phonenumber`, `audit` |
 
     **Groups and repeats.** `begin group` / `end group` with `relevant`, nested to any depth. `begin repeat` /
     `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. ~~A repeat inside a repeat
     is refused in the first version~~ **A repeat inside a repeat is supported, to any depth** (owner decision
     2026-11-09): building → floor → room is a table related to a table related to the layer, and the offline queue sends
-    a parent before its children. `field-list`, `table-list` and the
+    a parent before its children. **A location question inside a repeat is refused**: the form's one location is at
+    its top level (§5.2), so a repeat is a table, not a layer. `field-list`, `table-list` and the
     `pages` style are supported, because they decide what one screen holds and a field crew relies on that.
 
     **Survey sheet columns.** Supported: `type`, `name`, `label`, `hint`, `guidance_hint`, `required`,
@@ -317,7 +318,7 @@ measurable question. The two device claims are, so they are conditions and not a
     (on `range`), `hidden`. Drawn the default way: `horizontal`, `horizontal-compact`, `compact`, `quick`,
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
-    `hide-input`). Refused because they capture something this client cannot: `draw`, `annotate`, `map` and
+    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`. Refused because they capture something this client cannot: `draw`, `annotate`, `map` and
     `quick map`, `search()`, `autocomplete`, `geocode`, `distress`, `spike` and its variants, `rangefinder`,
     `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
 
