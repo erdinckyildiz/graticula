@@ -112,7 +112,8 @@ class Partitions(Base):
 
 
 class StripMap(Base):
-    FIELDS = ["PageNumber", "GroupId", "SeqId", "PrevPage", "NextPage", "LeftPage", "RightPage", "TopPage",
+    # Previous and Next, not PrevPage and NextPage: the names ArcGIS Pro 3.7 writes (measured 2026-11-08).
+    FIELDS = ["PageNumber", "GroupId", "SeqId", "Previous", "Next", "LeftPage", "RightPage", "TopPage",
               "BottomPage", "Angle"]
 
     def line(self, name, *xys):
@@ -138,10 +139,10 @@ class StripMap(Base):
             self.assertAlmostEqual(y0, -50, delta=1e-6)
             self.assertAlmostEqual(y1, 50, delta=1e-6)
             self.assertAlmostEqual(page["Angle"], 0.0, delta=1e-9)
-        self.assertEqual((pages[0]["PrevPage"], pages[0]["NextPage"]), (None, 6))
+        self.assertEqual((pages[0]["Previous"], pages[0]["Next"]), (None, 6))
         self.assertEqual((pages[0]["LeftPage"], pages[0]["RightPage"]), (None, 6))
         self.assertEqual((pages[1]["LeftPage"], pages[1]["RightPage"]), (5, 7))
-        self.assertEqual((pages[3]["NextPage"], pages[3]["RightPage"]), (None, None))
+        self.assertEqual((pages[3]["Next"], pages[3]["RightPage"]), (None, None))
 
     def test_east_to_west_starts_at_the_east_end(self):
         source = self.line("eastward2", (0, 0), (1000, 0))

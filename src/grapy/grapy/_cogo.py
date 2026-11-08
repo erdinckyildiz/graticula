@@ -57,19 +57,29 @@ def _azimuth(shape):
     return math.degrees(math.atan2(dx, dy)) % 360.0
 
 
+def _chord(shape):
+    """The straight distance from a line's first vertex to its last, which UpdateCOGO stores as its Distance."""
+    import shapely
+    parts = list(shapely.get_parts(shape))
+    first = shapely.get_coordinates(parts[0])[0]
+    last = shapely.get_coordinates(parts[-1])[-1]
+    return float(math.hypot(last[0] - first[0], last[1] - first[1]))
+
+
 def UpdateCOGO(in_line_features, distances_type="OVERWRITE", distance_tolerance=None, direction_type="OVERWRITE",
                minimum_direction_difference=0, minimum_direction_lateral_offset=None, combined_scale_factor=None,
                direction_offset=None):
     """The COGO fields of a COGO-enabled line class (EnableCOGO, ADR-240) set from each line's shape, as documented:
-    Distance from its length and Direction from its direction, each by its mode — OVERWRITE (the default),
-    UPDATE_NULL_ONLY, USE_MINIMUM_DIFFERENCE (only where the stored value differs by more than the minimum: a
+    Distance from the span between its ends and Direction from its direction, each by its mode — OVERWRITE (the
+    default), UPDATE_NULL_ONLY, USE_MINIMUM_DIFFERENCE (only where the stored value differs by more than the minimum: a
     distance, or for a direction an angle in seconds or the lateral offset between the shape's end and the end the
     stored direction draws) or DO_NOT_UPDATE; ``combined_scale_factor`` and ``direction_offset`` (seconds) — a number
     or an Arcade expression on the feature — are the ground-to-grid corrections. The input is modified.
 
     INFERRED (Q-209 (i)): the direction is the north azimuth in decimal degrees, as EnableCOGO's page describes the
-    field, from the line's first vertex to its last; the stored (ground) distance is the shape's (grid) length divided by
-    the combined scale factor, and the stored direction the shape's less the offset — the corrections being
+    field, from the line's first vertex to its last; the stored (ground) distance is the straight distance from the
+    line's first vertex to its last (measured in ArcGIS Pro 3.7, 2026-11-08: a four-vertex line 554.0 m long was given
+    522.0 m, its chord — until then grapy wrote the length) divided by the combined scale factor, and the stored direction the shape's less the offset — the corrections being
     ground-to-grid, their inverse takes the grid shape to ground; a GeoPackage line is straight segments with no true
     arc, so its Radius, Radius2 and ArcLength are set null where the distance mode would write them; with
     USE_MINIMUM_DIFFERENCE a direction is updated when either minimum is exceeded."""
@@ -106,7 +116,7 @@ def UpdateCOGO(in_line_features, distances_type="OVERWRITE", distance_tolerance=
             if shape is None:
                 continue
             values = dict(zip(others, row[:-1]))
-            length = float(shape._shape.length)
+            length = _chord(shape._shape)
             scale = _factor(combined_scale_factor, values, tool)
             offset = _factor(direction_offset, values, tool)
             ground = length / scale if scale else length

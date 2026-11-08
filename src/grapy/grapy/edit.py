@@ -254,9 +254,11 @@ def TrimLine(in_features, dangle_length=None, delete_shorts="DELETE_SHORT"):
     line dangling at both ends is trimmed at both; every dangle is judged on the lines as they were before any was
     trimmed; a line crossing itself does not count as touching another; a length equal to the dangle length is
     trimmed (the usage note's *less than or equal to*); and with no dangle length, a free-standing line is kept, since
-    there is no length for it to be short against; and a line that touches others at one place only, with both of
-    its dangles within the length, is left whole, since trimming both would leave nothing and the documentation says
-    the tool deletes only short free-standing lines.
+    there is no length for it to be short against. Measured in ArcGIS Pro 3.7, 2026-11-08 (until then grapy left
+    both whole): a line that touches others only at one of its ends, and is no longer than the dangle length (or any
+    line so, with no length), is a dangle and is deleted under either option; a line that touches others at one
+    interior place only, with both of its dangles within the length, is deleted under ``DELETE_SHORT`` and left whole
+    under ``KEEP_SHORT``.
     """
     shorts = str(delete_shorts or "DELETE_SHORT").upper()
     if shorts not in ("DELETE_SHORT", "KEEP_SHORT"):
@@ -278,6 +280,12 @@ def TrimLine(in_features, dangle_length=None, delete_shorts="DELETE_SHORT"):
         if limit is None or line.length - at[-1] <= limit:
             end = at[-1]
         if start >= end:
+            # Measured in ArcGIS Pro 3.7, 2026-11-08: a line that touches others only at one of its ends is one
+            # dangle, and trimmed away under either option; one whose two dangles meet at an interior point is
+            # deleted under DELETE_SHORT and kept whole under KEEP_SHORT.
+            at_an_end = at[0] <= 1e-9 or at[-1] >= line.length - 1e-9
+            if at_an_end or shorts == "DELETE_SHORT":
+                answers[oid] = None
             continue
         if (start, end) != (0.0, line.length):
             answers[oid] = substring(line, start, end)
@@ -653,10 +661,14 @@ def GenerateRubbersheetLinks(source_features, target_features, out_feature_class
     """EQUIVALENT: each source line is matched to the target line nearest it by Hausdorff distance within the search
     distance — those agreeing on the match fields preferred — ties by object id (the page's matching "by line topology,
     patterns and geometric characteristics" is not specified). Each matched pair gives a link from each source end to
-    the target end nearer it. A link whose ends coincide is an identity link, written to the ``_pnt`` point feature
+    the target end nearer it, then a link from each interior source vertex, in order, to the point at the same
+    fraction of length along the target, run from the end its start is linked to — measured in ArcGIS Pro 3.7,
+    2026-11-08 (a four-vertex source matched to a three-vertex target: its vertices at a third and two thirds of its
+    length went to the points a third and two thirds along the target); until then grapy linked the ends only. A
+    link whose ends coincide is an identity link, written to the ``_pnt`` point feature
     class beside the output (INFERRED name). SRC_FID and TGT_FID are −1 where a location is shared by more than one
-    source or target feature, as documented; one link per source location, the lowest source id's. Refused:
-    out_match_table."""
+    source or target feature, as documented; one link per source location, the lowest source id's. Outputs, in order,
+    as Pro's: the links, the match table (empty) and the identity links. Refused: out_match_table."""
     tool = "GenerateRubbersheetLinks"
     if _is_given(out_match_table):
         _refuse(tool, "out_match_table", out_match_table, "its match groups and confidence levels are not specified")
@@ -673,7 +685,7 @@ def GenerateRubbersheetLinks(source_features, target_features, out_feature_class
     for oid, _, shape in targets:
         for end in _ends(shape):
             target_ends.setdefault(end, set()).add(oid)
-    links = {}
+    links, interior = {}, {}
     for feature in sorted(sources, key=lambda f: f[0]):
         target, _ = _best(feature, targets, distance, pairs)
         if target is None:
@@ -683,6 +695,17 @@ def GenerateRubbersheetLinks(source_features, target_features, out_feature_class
         near1 = t1 if near0 == t0 else t0
         for source_end, target_end in ((s0, near0), (s1, near1)):
             links.setdefault(source_end, target_end)
+        source_line, target_line = _single_line(feature[2], tool), _single_line(target[2], tool)
+        if near0 != t0:
+            target_line = LineString(list(target_line.coords)[::-1])
+        run = 0.0
+        coords = [tuple(c[:2]) for c in source_line.coords]
+        for k in range(1, len(coords) - 1):
+            run += math.dist(coords[k - 1], coords[k])
+            if coords[k] in links or source_line.length == 0:
+                continue
+            links[coords[k]] = tuple(target_line.interpolate(run / source_line.length, normalized=True).coords[0][:2])
+            interior[coords[k]] = (feature[0], target[0])
     out = _link_output(out_feature_class, srid, [("SRC_FID", "Integer"), ("TGT_FID", "Integer")])
     from .analysis import _out
     identity = _out(out[:-5] + "_pnt.gpkg") if out.lower().endswith(".gpkg") else out + "_pnt"
@@ -691,12 +714,12 @@ def GenerateRubbersheetLinks(source_features, target_features, out_feature_class
     with da.InsertCursor(out, ["SRC_FID", "TGT_FID", "SHAPE@"]) as written, \
             da.InsertCursor(identity, ["SRC_FID", "TGT_FID", "SHAPE@"]) as same:
         for source_end, target_end in links.items():
-            values = (fid(source_ends, source_end), fid(target_ends, target_end))
+            values = interior.get(source_end) or (fid(source_ends, source_end), fid(target_ends, target_end))
             if source_end == target_end:
                 same.insertRow((*values, Point(source_end)))
             else:
                 written.insertRow((*values, LineString([source_end, target_end])))
-    return Result(out, identity)
+    return Result(out, "", identity)
 
 
 @_equivalent("each source dangle linked to the nearest adjacent dangle within the search distance",
@@ -745,7 +768,7 @@ def GenerateEdgematchLinks(source_features, adjacent_features, out_feature_class
 def EdgematchFeatures(in_features, in_link_features, method="MOVE_ENDPOINT", adjacent_features=None, border_features=None):
     """EQUIVALENT: the connecting location of each link is, as documented, its end (input features only), its midpoint
     (with adjacent features), or the point on the border features nearest its midpoint (with border features). The line
-    whose id is the link's SRC_FID — and with adjacent features the line ADJ_FID names — has its end nearest the link
+    whose id is the link's SRC_FID — and with adjacent features the line ADJ_FID (or TGT_FID) names — has its end nearest the link
     moved there: MOVE_ENDPOINT moves the end vertex; ADD_SEGMENT adds a straight segment to it; ADJUST_VERTICES moves
     every vertex by the end's shift times (its distance along the line from the far end)/(the line's length) — the
     page says only that the change is "gradually reduced toward the opposite end"."""
@@ -755,7 +778,10 @@ def EdgematchFeatures(in_features, in_link_features, method="MOVE_ENDPOINT", adj
     method = str(method or "MOVE_ENDPOINT").upper()
     if method not in ("MOVE_ENDPOINT", "ADD_SEGMENT", "ADJUST_VERTICES"):
         raise ValueError(f"arcpy.edit.{tool}: method is MOVE_ENDPOINT, ADD_SEGMENT or ADJUST_VERTICES.")
-    with da.SearchCursor(in_link_features, ["SRC_FID", "ADJ_FID", "SHAPE@"]) as rows:
+    # ArcGIS Pro 3.7 writes the adjacent feature's id as TGT_FID (measured 2026-11-08), its page as ADJ_FID: either is read.
+    link_fields = {c.name.lower(): c.name for c in _schema(in_link_features)[0]}
+    adjacent_field = link_fields.get("adj_fid") or link_fields.get("tgt_fid") or "ADJ_FID"
+    with da.SearchCursor(in_link_features, ["SRC_FID", adjacent_field, "SHAPE@"]) as rows:
         links = [(r[0], r[1], _ends(r[2]._shape)) for r in rows if r[2] is not None]
     border = None
     if _is_given(border_features):
@@ -814,7 +840,9 @@ def AlignFeatures(in_features, target_features, search_distance, match_fields=No
     """EQUIVALENT: an input line lying wholly within the search distance of a target line (the directed Hausdorff
     distance from the input to the target, its vertices densified to a tenth of the search distance), the
     nearest such target preferred — those agreeing on the match fields first — ties by object id, is replaced by the
-    target's stretch between the points nearest its two ends; any other input line ending where it ended is moved with
+    target's stretch between the points nearest its two ends — or, where a target end lies within the search distance
+    of an input end, from that target end, as ArcGIS Pro 3.7 does (measured 2026-11-08: a line matched to its copy
+    moved (2, 4) took the whole copy; until then grapy stopped at the projections of the input's ends); any other input line ending where it ended is moved with
     it, so connections stay, as documented. AF_CONF is 100 divided by the number of candidates, −1 for unmodified
     features (INFERRED formula; the page names what lowers it). Polygons are refused in this equivalent."""
     from shapely.ops import substring
@@ -834,6 +862,11 @@ def AlignFeatures(in_features, target_features, search_distance, match_fields=No
         line = _single_line(target[2], tool)
         (s0, s1) = _ends(feature[2])
         a, b = line.project(Point(s0)), line.project(Point(s1))
+        t0, t1 = line.coords[0][:2], line.coords[-1][:2]
+        for name, end in (("a", s0), ("b", s1)):
+            near = min((math.dist(end, t0), 0.0), (math.dist(end, t1), line.length))
+            if near[0] <= distance:
+                a, b = (near[1], b) if name == "a" else (a, near[1])
         piece = substring(line, a, b)
         if piece.geom_type != "LineString" or piece.length == 0:
             continue
@@ -907,7 +940,8 @@ def TransferAttributes(source_features, target_features, transfer_fields, search
             if any(v is None for v in values):
                 continue
             rows.updateRow([row[0], *values])
-    return Result(target_features)
+    # Outputs as ArcGIS Pro 3.7's (measured 2026-11-08): the match table, empty when not asked for, then the target.
+    return Result("", target_features)
 
 
 _REFUSED = {

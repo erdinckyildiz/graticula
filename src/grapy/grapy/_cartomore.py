@@ -256,8 +256,11 @@ def CreateCartographicPartitions(in_features, out_features, feature_count=50000,
     - A feature counts at one point, its ``point_on_surface``, so it falls in one partition.
     - A point on a split line goes to the upper or right cell.
     - A cell is not split more than 24 times, so coincident points cannot split it without end.
-    - The output carries no fields of its own: the page names none.
     - Its coordinate system is the first input's.
+    - Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned (until then grapy's first cell was the counted points'
+      extent, and it wrote no fields): the first cell is the square on the centre of the inputs' shapes' extent whose
+      side is the extent's longer side (points spanning 180 × 126 m gave one 180 m square); RANK is a cell's depth in
+      the quadtree (0 for the whole square, 1 for its quarters) and STATUS an integer left null.
     """
     import shapely
     from shapely.geometry import box
@@ -274,7 +277,7 @@ def CreateCartographicPartitions(in_features, out_features, feature_count=50000,
                          "VERTICES.")
     inputs = c._list(in_features)
     srid = None
-    points = []
+    points, extents = [], []
     for path in inputs:
         _, _, own, _ = c._schema(path)
         srid = own if srid is None else srid
@@ -287,6 +290,7 @@ def CreateCartographicPartitions(in_features, out_features, feature_count=50000,
                 shape = (geometry.projectAs(target) if target else geometry)._shape
                 if shape.is_empty:
                     continue
+                extents.append(shape.bounds)
                 if key == "FEATURES":
                     points.append(shapely.point_on_surface(shape).coords[0][:2])
                 else:
@@ -294,8 +298,12 @@ def CreateCartographicPartitions(in_features, out_features, feature_count=50000,
     if not points:
         raise ValueError(f"arcpy.cartography.{tool}: the inputs hold no features.")
     xy = np.array(points, dtype=np.float64)
-    x0, y0 = xy.min(axis=0)
-    x1, y1 = xy.max(axis=0)
+    bounds = np.array(extents, dtype=np.float64)
+    x0, y0 = bounds[:, 0].min(), bounds[:, 1].min()
+    x1, y1 = bounds[:, 2].max(), bounds[:, 3].max()
+    half = max(x1 - x0, y1 - y0) / 2
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    x0, y0, x1, y1 = cx - half, cy - half, cx + half, cy + half
     if x1 == x0:
         x1 = x0 + 1.0
     if y1 == y0:
@@ -304,7 +312,7 @@ def CreateCartographicPartitions(in_features, out_features, feature_count=50000,
 
     def split(bounds, members, depth):
         if len(members) <= limit or depth >= 24:
-            cells.append(bounds)
+            cells.append((bounds, depth))
             return
         bx0, by0, bx1, by1 = bounds
         mx, my = (bx0 + bx1) / 2, (by0 + by1) / 2
@@ -316,10 +324,10 @@ def CreateCartographicPartitions(in_features, out_features, feature_count=50000,
 
     split((x0, y0, x1, y1), np.arange(len(xy)), 0)
     out = c._out(out_features)
-    _gpkg.create(out, "Polygon", srid or 0, [])
-    with da.InsertCursor(out, ["SHAPE@"]) as written:
-        for bounds in cells:
-            written.insertRow((box(*bounds),))
+    _gpkg.create(out, "Polygon", srid or 0, [_gpkg.Column("RANK", "Integer"), _gpkg.Column("STATUS", "Integer")])
+    with da.InsertCursor(out, ["RANK", "STATUS", "SHAPE@"]) as written:
+        for bounds, depth in cells:
+            written.insertRow((depth, None, box(*bounds)))
     return Result(out)
 
 
@@ -382,7 +390,7 @@ def StripMapIndexFeatures(in_features, out_feature_class, use_page_unit="NO_USEP
                           length_along_line=None, length_perpendicular_to_line=None, page_orientation="HORIZONTAL",
                           overlap_percentage=10, starting_page_number=1, direction_type="WE_NS"):
     """EQUIVALENT: rectangular index polygons along the input lines, with the documented fields: PageNumber, GroupId,
-    SeqId, PrevPage, NextPage, LeftPage, RightPage, TopPage, BottomPage and Angle. Lines that do not connect are
+    SeqId, Previous, Next, LeftPage, RightPage, TopPage, BottomPage and Angle. Lines that do not connect are
     separate groups. Pages are numbered from ``starting_page_number`` through every group in turn. Defaults follow
     the page:
     - the length along the line is 1/100 of the input extent's width;
@@ -401,7 +409,9 @@ def StripMapIndexFeatures(in_features, out_feature_class, use_page_unit="NO_USEP
     - Angle. Angle is the azimuth of the page's top, from north, folded into (−90°, 90°] so that north stays toward
       the top. For ``HORIZONTAL``, the line runs across the page; for ``VERTICAL``, it runs down the page.
     - Neighbours. LeftPage, RightPage, TopPage and BottomPage name the previous and next pages, by the side of the
-      rotated page that each one's centre lies toward. The field name NextPage is grapy's: the page says "Next".
+      rotated page that each one's centre lies toward.
+    - Names. Previous and Next are the names ArcGIS Pro 3.7 writes (measured 2026-11-08); the page calls the first
+      PrevPage in one place and Previous in another, and the second Next. Until then grapy wrote PrevPage and NextPage.
     """
     import shapely
     from shapely.geometry import LineString, Point, Polygon
@@ -486,8 +496,8 @@ def StripMapIndexFeatures(in_features, out_feature_class, use_page_unit="NO_USEP
             start = following
         run = pages[first:]
         for k, page in enumerate(run):
-            page["PrevPage"] = run[k - 1]["PageNumber"] if k > 0 else None
-            page["NextPage"] = run[k + 1]["PageNumber"] if k + 1 < len(run) else None
+            page["Previous"] = run[k - 1]["PageNumber"] if k > 0 else None
+            page["Next"] = run[k + 1]["PageNumber"] if k + 1 < len(run) else None
             for side in ("LeftPage", "RightPage", "TopPage", "BottomPage"):
                 page[side] = None
             here = page["shape"].centroid
@@ -505,7 +515,7 @@ def StripMapIndexFeatures(in_features, out_feature_class, use_page_unit="NO_USEP
                 else:
                     page["TopPage" if top > 0 else "BottomPage"] = other["PageNumber"]
 
-    fields = ["PageNumber", "GroupId", "SeqId", "PrevPage", "NextPage", "LeftPage", "RightPage", "TopPage",
+    fields = ["PageNumber", "GroupId", "SeqId", "Previous", "Next", "LeftPage", "RightPage", "TopPage",
               "BottomPage", "Angle"]
     out = c._out(out_feature_class)
     _gpkg.create(out, "Polygon", srid, [_gpkg.Column(f, "Double" if f == "Angle" else "Integer") for f in fields])
