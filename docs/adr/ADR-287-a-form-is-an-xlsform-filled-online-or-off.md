@@ -193,8 +193,14 @@ measurable question. The two device claims are, so they are conditions and not a
    in §4. Editor tracking is on. Republishing an edited form changes the layer the way the schema editor does
    ([ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)), adding fields and never silently dropping
    one with data in it.
-3. **A workbook is imported on the server**, through the import reader that already reads `.xlsx`, and turned into
-   the model. The sheets are `survey`, `choices` and `settings`. What the server cannot honour is refused at upload
+3. **A workbook is imported on the server** and turned into the model, ~~through the import reader that already reads
+   `.xlsx`~~ **by a small reader of its own, `FormWorkbook` (changed 2026-11-09 while building it).** The import reader
+   turns a workbook's first sheet into CSV through GDAL in a separate process (ADR-112); a form has three sheets that
+   matter, and condition 7's round trip cannot rest on a reader that guesses header rows and cell types. An XLSForm is
+   text in cells, so `FormWorkbook` reads only the parts of SpreadsheetML that carry text, with the base library's zip
+   and XML readers, DTDs refused, and writes every cell back as an inline string. Two workbook readers now exist, for
+   two different jobs: a table of data (GDAL) and a form (this). A boolean cell comes back as the text `TRUE` or
+   `FALSE` and rich-text formatting is not kept; neither changes what a form means. The sheets are `survey`, `choices` and `settings`. What the server cannot honour is refused at upload
    with the row and column named, never ignored (condition 5). The same check runs on every save of the model, from the
    designer or the API, so a form cannot reach a state through the designer that an upload would refuse.
 4. **The client is Graticula's own.** It is a page under `/forms/{itemId}`, written as this repository writes its other
