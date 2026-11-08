@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-228 | **Which portal address owns the services at the root `/rest/services`?** The portal answers at the root and at `/studio` — the address Pro must be given (ADR-191). The root `/rest/info` names `https://host` as `owningSystemUrl`; ArcGIS Field Maps, signed in at `https://host/studio`, compares the two, takes the server for one it is not signed in to, and draws no private layer (*Secured layers*), while the same layer addressed as `https://host/studio/rest/services/…` is served with its token (measured 2026-11-08 on an emulator, ADR-077 condition 5). Naming `/studio` as the owner everywhere would fix Field Maps and may break every client signed in at the root; writing layer addresses under `/studio` changes every map. | Owner | INFERRED options, none chosen: (a) the root's owner is `/studio`; (b) web maps and Studio write `/studio/rest/services` addresses; (c) Field Maps is told to sign in at the root — **measured to work the same night**: signed in at `https://host`, Field Maps is served the root layer with its token, so (c) is today's answer and the question is whether `/studio` must also work. Not decided overnight because (a) and (b) change what an existing client is told. |
 
 ## Answered
 

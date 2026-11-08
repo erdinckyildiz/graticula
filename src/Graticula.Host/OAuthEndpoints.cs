@@ -88,6 +88,11 @@ internal static class OAuthEndpoints
             app.MapGet($"{root}/authorize", AuthorizeAsync).Governed(SharingGovernedExtensions.Public);
             app.MapPost($"{root}/token", TokenAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
             app.MapPost($"{root}/revokeToken", RevokeAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
+
+            // Asked by Esri's own apps right after signing in; Field Maps reads anything but `valid: true` as
+            // "Access to this application has been blocked" and signs the person out (found 2026-11-08 on an emulator).
+            app.MapGet($"{root}/validateAppAccess", ValidateAppAccessAsync).Governed(SharingGovernedExtensions.Public);
+            app.MapPost($"{root}/validateAppAccess", ValidateAppAccessAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
         }
 
         app.MapPost($"{Root}/signin", SignInAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
@@ -104,6 +109,53 @@ internal static class OAuthEndpoints
         app.MapGet("/admin/oauth/apps", ListAppsAsync);
         app.MapPost("/admin/oauth/apps", CreateAppAsync);
         app.MapDelete("/admin/oauth/apps/{clientId}", DeleteAppAsync);
+    }
+
+    // ---------------------------------------------------------------- app access
+
+    private static readonly string[] NoSuchApp = ["client_id names no app registered here."];
+
+    /// <summary>
+    /// Whether the token's holder may use the app <c>client_id</c> names — <c>{"valid": true, "viewOnlyUserTypeApp": false}</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The contract is the public one</b>: arcgis-rest-js's <c>validateAppAccess</c> and its <c>IAppAccess</c> —
+    /// <c>client_id</c> and a token in, <c>valid</c> and <c>viewOnlyUserTypeApp</c> out, 498 <i>Invalid token.</i> for
+    /// a token that is not good and 400 for a client id that is not. No token at all is 499, as everywhere else here.
+    /// </para>
+    /// <para>
+    /// <b>Every registered app is allowed to every member.</b> This server has no per-app access list and no view-only
+    /// user type, so the answer says so rather than inventing either. A rejected token never reaches here: the
+    /// authentication step answers it 498 first, as on the rest of <c>/sharing/rest</c>.
+    /// </para>
+    /// </remarks>
+    private static async Task ValidateAppAccessAsync(HttpContext context, IOAuthStore store, CancellationToken cancellation)
+    {
+        string? clientId = context.Request.Query["client_id"].FirstOrDefault();
+
+        if (string.IsNullOrEmpty(clientId) && context.Request.HasFormContentType)
+        {
+            clientId = (await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false))["client_id"].FirstOrDefault();
+        }
+
+        context.Response.Headers.CacheControl = "no-store";
+        RequestPrincipal? current = context.Features.Get<RequestPrincipal>();
+
+        if (current is null || current.Principal == Principal.Anonymous)
+        {
+            await TokenRequired.WriteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (string.IsNullOrEmpty(clientId) || await store.FindAppAsync(clientId, cancellation).ConfigureAwait(false) is null)
+        {
+            await Results.Json(new { error = new { code = 400, message = "Invalid request", details = NoSuchApp } })
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new { valid = true, viewOnlyUserTypeApp = false }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     // ---------------------------------------------------------------- authorize and sign in
@@ -279,7 +331,7 @@ internal static class OAuthEndpoints
 
         if (string.Equals(request.RedirectUri, OAuthRules.OutOfBand, StringComparison.Ordinal))
         {
-            context.Response.Redirect($"{Root}/approval?code={Uri.EscapeDataString(code)}");
+            context.Response.Redirect($"{context.Request.PathBase}{Root}/approval?code={Uri.EscapeDataString(code)}");
             return;
         }
 
@@ -874,6 +926,12 @@ internal static class OAuthEndpoints
         bool providers = buttons.Count > 0;
         string server = context.Request.Host.Value ?? "this server";
 
+        // <b>Every address this page sends the browser to is under the path base it was opened at.</b> The form's cookie
+        // is kept for `{path base}/sharing`, so a form posted from `/studio` to `/sharing/rest/oauth2/signin` went without
+        // it and was refused *This sign-in form has expired* — every browser sign-in at the /studio portal address, which
+        // is the one Pro must be given (ADR-191), from 2026-10-31 until Field Maps found it on 2026-11-08.
+        string root = context.Request.PathBase.Add(Root).ToString();
+
         // <b>Design review 2026-09-25.</b> With a provider offered it is the way in drawn first and filled, and the
         // password form is the other way, said as such: the review found the filled button beneath pulling the eye
         // to the form. No autofocus then — it jumped past the provider for a keyboard or a screen reader — unless a
@@ -896,11 +954,11 @@ internal static class OAuthEndpoints
         Html body =
             Html.Markup("<h1>Sign in</h1>")
             + Html.OfReferenced($"<p class=\"who\"><b>{app.Title}</b> wants to sign in to <b>{server}</b> as you.</p>")
-            + (providers ? ProvidersOffered(buttons, request, formToken) + Html.Markup("<p class=\"or\"><span>or</span></p>") : Html.Empty)
+            + (providers ? ProvidersOffered(buttons, request, formToken, root) + Html.Markup("<p class=\"or\"><span>or</span></p>") : Html.Empty)
             + (providers || directories.Count > 0
                 ? Html.OfReferenced($"<p class=\"lead\">{(providers ? "Sign in with a name and password" : "Your name and password")}</p><p class=\"where\">{whose}</p>")
                 : Html.Empty)
-            + Html.OfReferenced($"<form method=\"post\" action=\"{Html.Markup(Root)}/signin\">")
+            + Html.OfReferenced($"<form method=\"post\" action=\"{root}/signin\">")
             + (message is null ? Html.Empty
                 : Html.OfReferenced($"<p class=\"bad\" id=\"signinError\">{message}")
                   + (providers
@@ -948,7 +1006,7 @@ internal static class OAuthEndpoints
     /// <see cref="ExternalAsync"/> accepts it only beside this page's <c>SameSite=Strict</c> cookie, which a link
     /// from anywhere else does not bring.
     /// </remarks>
-    private static Html ProvidersOffered(IReadOnlyList<IdentityProvider> buttons, Request request, string formToken)
+    private static Html ProvidersOffered(IReadOnlyList<IdentityProvider> buttons, Request request, string formToken, string root)
     {
         string Query(Guid provider) => string.Join("&",
             new (string Key, string? Value)[]
@@ -962,7 +1020,7 @@ internal static class OAuthEndpoints
 
         return Html.Markup("<ul class=\"providers\">")
             + Html.Concat(buttons.Select(p =>
-                Html.OfReferenced($"<li><a href=\"{Html.Markup(Root)}/external?{Query(p.Id)}\">Sign in with {p.Settings.Name}</a></li>")))
+                Html.OfReferenced($"<li><a href=\"{root}/external?{Query(p.Id)}\">Sign in with {p.Settings.Name}</a></li>")))
             + Html.Markup("</ul>");
     }
 

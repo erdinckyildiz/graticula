@@ -325,6 +325,79 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
             $"Exchanging pythonapi's code answered {token}");
     }
 
+    /// <summary>
+    /// Field Maps signs in at the /studio portal address the way its browser does: the page's form is posted where its
+    /// <c>action</c> says, resolved against the page, with the cookies a browser keeps by path.
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-11-08, on an emulator.</b> From 2026-10-31 the form's cookie was kept for <c>/studio/sharing</c> while the
+    /// form posted to <c>/sharing/rest/oauth2/signin</c>, so no browser sent the cookie back and every sign-in at
+    /// <c>/studio</c> was refused <i>This sign-in form has expired</i>. Every test of the form posted to an address it
+    /// wrote itself and attached the cookie by hand, so none of them could see where the page sent the browser.
+    /// </remarks>
+    [Fact]
+    public async Task Field_Maps_signs_in_at_the_studio_address_through_the_form_its_browser_posts()
+    {
+        string root = await RequireServerAsync();
+        string? user = Environment.GetEnvironmentVariable(UserVariable);
+        string? password = Environment.GetEnvironmentVariable(PasswordVariable);
+        Assert.False(user is null || password is null, "No administrator credential.");
+
+        using HttpClient browser = new(new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            CookieContainer = new CookieContainer(),
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        });
+
+        const string FieldMaps = "arcgis-fieldmaps://auth/";
+        string verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+        string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+        Uri authorize = new($"{root}/studio/sharing/rest/oauth2/authorize?client_id=fieldmaps&response_type=code"
+            + $"&redirect_uri={Uri.EscapeDataString(FieldMaps)}&code_challenge={challenge}&code_challenge_method=S256");
+
+        using HttpResponseMessage page = await browser.GetAsync(authorize);
+        string html = await page.Content.ReadAsStringAsync();
+        Assert.True(page.StatusCode == HttpStatusCode.OK, $"Field Maps' authorize page under /studio answered {(int)page.StatusCode}: {html}");
+
+        Match form = Regex.Match(html, "<form method=\"post\" action=\"([^\"]+)\">(.*?)</form>", RegexOptions.Singleline);
+        Assert.True(form.Success, "The sign-in page has no form.");
+        Uri action = new(authorize, WebUtility.HtmlDecode(form.Groups[1].Value));
+
+        List<KeyValuePair<string, string>> fields = [.. Regex.Matches(form.Groups[2].Value, "<input type=\"hidden\" name=\"([^\"]+)\" value=\"([^\"]*)\">")
+            .Select(m => new KeyValuePair<string, string>(m.Groups[1].Value, WebUtility.HtmlDecode(m.Groups[2].Value)))];
+        fields.Add(new("username", user!));
+        fields.Add(new("password", password!));
+
+        using HttpResponseMessage signedIn = await browser.PostAsync(action, new FormUrlEncodedContent(fields));
+        string said = signedIn.StatusCode == HttpStatusCode.Redirect ? string.Empty : await signedIn.Content.ReadAsStringAsync();
+        Assert.True(signedIn.StatusCode == HttpStatusCode.Redirect,
+            $"The form posted to {action.AbsolutePath} answered {(int)signedIn.StatusCode}, so Field Maps' browser stays on the "
+            + $"page: {Regex.Match(said, "<p>(.*?)</p>").Groups[1].Value}");
+
+        string back = signedIn.Headers.Location!.OriginalString;
+        Assert.StartsWith(FieldMaps, back, StringComparison.Ordinal);
+        string code = Query(new Uri(back))["code"];
+
+        JsonElement issued = await TokenAsync(browser, $"{root}/studio", ("client_id", "fieldmaps"), ("grant_type", "authorization_code"),
+            ("code", code), ("redirect_uri", FieldMaps), ("code_verifier", verifier), ("f", "json"));
+        Assert.True(issued.TryGetProperty("access_token", out JsonElement access), $"Field Maps' code was not exchanged under /studio: {issued}");
+
+        // What Field Maps asks next, and reads anything but `valid: true` from as "Access to this application has been
+        // blocked" — the 404 it got until 2026-11-08 signed the person straight back out.
+        string validate = $"{root}/studio/sharing/rest/oauth2/validateAppAccess?f=json";
+        JsonElement allowed = await GetWithAsync(browser, $"{validate}&client_id=fieldmaps", access.GetString()!);
+        Assert.True(allowed.TryGetProperty("valid", out JsonElement valid) && valid.GetBoolean(), $"validateAppAccess answered {allowed}");
+        Assert.False(allowed.GetProperty("viewOnlyUserTypeApp").GetBoolean());
+
+        JsonElement unknown = await GetWithAsync(browser, $"{validate}&client_id=no-such-app", access.GetString()!);
+        Assert.Equal(400, unknown.GetProperty("error").GetProperty("code").GetInt32());
+
+        using HttpResponseMessage anonymous = await browser.GetAsync($"{validate}&client_id=fieldmaps");
+        JsonElement challenged = JsonDocument.Parse(await anonymous.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal(499, challenged.GetProperty("error").GetProperty("code").GetInt32());
+    }
+
     /// <summary>The <c>oAuthInfo</c> a page carries, as the Python API finds it.</summary>
     /// <remarks>
     /// <b>By the API's own expression, not by the assignment's name</b>: arcgis 2.4.3 takes the first <c>{</c> in the

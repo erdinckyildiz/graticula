@@ -96,28 +96,35 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
             TimeSpan.FromSeconds(40),
             "the sweeps being taken");
 
+        // And in the store: one backend per sweep's lock, never two — every sweep's, read from the one list
+        // (SiteSingletons.Names): a copy of it here missed the two ADR-274 and ADR-277 added, and the count disagreed.
+        // <b>Read until the two agree</b>: a sweep whose first pass is later takes its lock between the machines' answer
+        // and the store's, and the count read apart from the list said 5 against 4 (CI run 42423089288, v1.0.506).
+        string names = string.Join(',', SiteSingletons.Names.Select(n => $"'{n}'"));
         List<string> all = [];
-        int leaders = 0;
+        long locks = -1;
 
-        foreach (JsonElement machine in site.GetProperty("machines").EnumerateArray())
+        for (DateTime until = DateTime.UtcNow.AddSeconds(30); ; site = await MachinesAsync(A))
         {
-            string[] leads = [.. machine.GetProperty("leads").EnumerateArray().Select(l => l.GetString()!)];
-            all.AddRange(leads);
-            leaders += leads.Length > 0 ? 1 : 0;
+            all = [.. site.GetProperty("machines").EnumerateArray()
+                .SelectMany(m => m.GetProperty("leads").EnumerateArray().Select(l => l.GetString()!))];
+            locks = (long)(await Site.ScalarAsync(
+                $"""
+                select count(*) from pg_locks
+                 where locktype = 'advisory' and objsubid = 2 and classid = hashtext(current_schema())::oid
+                   and objid in (select hashtext('graticula.singleton:' || s)::oid
+                                   from unnest(array[{names}]) s)
+                """))!;
+
+            if (all.Count == locks || DateTime.UtcNow > until)
+            {
+                break;
+            }
+
+            await Task.Delay(500);
         }
 
         Assert.Equal(all.Count, all.Distinct().Count());
-
-        // And in the store: one backend per sweep's lock, never two — every sweep's, read from the one list
-        // (SiteSingletons.Names): a copy of it here missed the two ADR-274 and ADR-277 added, and the count disagreed.
-        string names = string.Join(',', SiteSingletons.Names.Select(n => $"'{n}'"));
-        long locks = (long)(await Site.ScalarAsync(
-            $"""
-            select count(*) from pg_locks
-             where locktype = 'advisory' and objsubid = 2 and classid = hashtext(current_schema())::oid
-               and objid in (select hashtext('graticula.singleton:' || s)::oid
-                               from unnest(array[{names}]) s)
-            """))!;
         Assert.Equal(all.Count, (int)locks);
     }
 

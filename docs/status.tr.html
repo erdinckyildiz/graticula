@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>4badfee1</code> · 2026-11-06 23:52</p>
+<p class="stamp">Şu commit’ten üretildi: <code>5bcf5459</code> · 2026-11-08 01:58</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">281</div><div class="kpi-l">ADR</div><div class="kpi-n">93 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">682/732</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 11 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık borç</div><div class="kpi-n">331 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6119</div><div class="kpi-l">test</div><div class="kpi-n">678 kaynak dosya, 300,214 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6124</div><div class="kpi-l">test</div><div class="kpi-n">679 kaynak dosya, 300,338 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">44 madde</span></div><p><b>39 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>1 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -463,6 +463,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-228</span><span class="owner">Owner</span></div><p>Which portal address owns the services at the root /rest/services?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -591,22 +592,22 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1776</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1778</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:55.1%"></div></div><div class="bar-n">979</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">966</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.8%"></div></div><div class="bar-n">582</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.6%"></div></div><div class="bar-n">491</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">967</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.7%"></div></div><div class="bar-n">582</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">492</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.3%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.7%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.4%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.0%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.0%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">55</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">56</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.4%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">29</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.4%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.3%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>grapy ve arcpy</h2>
 <p class="sub">arcpy 3.7 her modülde herkese açık bir ad listesi sunar; grapy’nin bunlardan kaçını kurduğu. tools/grapy_surface.py grapy’nin kaynağından sayar; grapy’nin reddettiği ad sayılmaz.</p><div class="bars">
@@ -653,20 +654,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>4badfee1</code><time>2026-11-06</time><span>The Editor placement test clicks again when the first click is not taken</span></li>
-<li><code>43fa9fc4</code><time>2026-11-06</time><span>The Editor placement test comes close enough for the click to be taken</span></li>
-<li><code>8a1b4380</code><time>2026-11-06</time><span>COLLADA and FBX conversion tested with our own box (ADR-282 condition 1)</span></li>
-<li><code>db4a14a0</code><time>2026-11-06</time><span>A person places a model with the Editor, and the 3D object layer keeps it (ADR-280 condition 5)</span></li>
-<li><code>40266f07</code><time>2026-11-06</time><span>The 3D object layer&#x27;s routes say their sharing decision; its locks and the converter&#x27;s formats say their bounds</span></li>
-<li><code>834218b3</code><time>2026-11-06</time><span>The Editor offers a 3D object layer to create in: it carries a feature template (ADR-280 condition 5)</span></li>
-<li><code>d33f7c33</code><time>2026-11-06</time><span>A 3D object layer converts OBJ, COLLADA and FBX models to glb (ADR-282)</span></li>
-<li><code>cd2181e4</code><time>2026-11-06</time><span>Gaussian splat archives are drawn from this server, tested with splats of our own (ADR-281 condition 2)</span></li>
-<li><code>930caa4a</code><time>2026-11-06</time><span>Our own 3D symbol gallery, Terrain, splat layers and b3dm on SDK 5.2 (ADR-281)</span></li>
-<li><code>f9034091</code><time>2026-11-06</time><span>3D object layers: glb models placed in a scene, kept, and rebuilt into its scene layer (ADR-280 §5.4)</span></li>
-<li><code>e6999c16</code><time>2026-11-06</time><span>The console loads Maps SDK 5.2 (ADR-281 §5.2, owner decision)</span></li>
-<li><code>b9e7b211</code><time>2026-11-06</time><span>3D models are converted by Assimp in a process of its own (ADR-282)</span></li>
-<li><code>9d306b5d</code><time>2026-11-06</time><span>Mesh editing measured against SDK 5.2, and glb models written into a scene layer (ADR-280)</span></li>
-<li><code>89581cf5</code><time>2026-11-06</time><span>Mesh editing designed, not built: ADR-280 REQUIRES PROTOTYPE</span></li>
+<li><code>5bcf5459</code><time>2026-11-08</time><span>3D scenes: web scenes, scene layer packages served as a SceneServer, scene layers written by this server, 3D object layers from models, and the fixes of 2026-11-07 (ADR-269 to ADR-283)</span></li>
+<li><code>44e270fa</code><time>2026-11-04</time><span>The day of 2026-11-04: Add browses layer items, webhooks get a Studio screen and every event, items take comments everywhere, and the Map Viewer keeps what it drew (ADR-259, 265, 266, 267, 268)</span></li>
+<li><code>9fe1611f</code><time>2026-11-04</time><span>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader (ADR-268, D-321 closed, migration 132)</span></li>
+<li><code>c7f88c05</code><time>2026-11-04</time><span>The night of 2026-11-04: the server prints a web map, webhooks tell other systems what changed, items carry metadata and comments, and the Map Viewer passes its review (ADR-265, 266, 267, ADR-259 condition 2, D-384, D-339)</span></li>
+<li><code>218d1d76</code><time>2026-11-04</time><span>The ArcGIS veteran&#x27;s four open items: a service item&#x27;s own title, the Administrator API&#x27;s start, stop and logs, the portal&#x27;s users, item.export, and apps, links and item resources (ADR-260 to ADR-264)</span></li>
+<li><code>4ed23495</code><time>2026-11-03</time><span>The Map Viewer takes ArcGIS Map Viewer&#x27;s shape, offers vector tiles in sight, and stops blinking on pan</span></li>
+<li><code>a088b1e8</code><time>2026-11-03</time><span>What an ArcGIS veteran&#x27;s review of v1.0.499 found, fixed; the portal names its geocoder; Studio offers Join group</span></li>
+<li><code>da0c1356</code><time>2026-11-02</time><span>An empty hosted service and a service&#x27;s addToDefinition, so the Python API&#x27;s create_service and create_view work; owner decisions of 2026-11-02 evening; CI in four parallel parts</span></li>
+<li><code>7960b2f7</code><time>2026-11-02</time><span>Portal group writes, portal content adds and an optional Photon geocoder (ADR-256, ADR-257, ADR-258)</span></li>
+<li><code>211b788f</code><time>2026-11-02</time><span>The interface follows ArcGIS Enterprise&#x27;s structure, on a phone and on a desk (ADR-255)</span></li>
+<li><code>ab1afe50</code><time>2026-11-02</time><span>Four more portal doors onto what Studio already does, and a migration plan that outlives one unreadable layer (ADR-214 §5a)</span></li>
+<li><code>de72e3b4</code><time>2026-11-02</time><span>The portal answers an ArcGIS client as ArcGIS does, a KML reads in Google Earth as written, and Pro is followed at a second organisation (ADR-079, 106, 164, 191, 204, 214)</span></li>
+<li><code>e374a6d5</code><time>2026-11-01</time><span>Postgres test classes migrate one at a time across the cluster, so main&#x27;s suite is green again after v1.0.493&#x27;s test deadlock</span></li>
+<li><code>8caafb80</code><time>2026-11-01</time><span>A refused node says why, the imagery chain passes against the built image, and grapy&#x27;s last debts are repaid inside the Linux fence (ADR-254, D-333, D-357)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

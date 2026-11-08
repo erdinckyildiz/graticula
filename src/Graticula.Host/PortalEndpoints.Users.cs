@@ -164,12 +164,24 @@ internal static partial class PortalEndpoints
             role,
             roleId,
             userType = "arcgisonly",
-            userLicenseTypeId = $"{member.UserType}UT",
+            userLicenseTypeId = LicenseTypeIdOf(member.UserType),
             disabled = member.IsDisabled,
             access = "org",
             level = "2",
         };
     }
+
+    /// <summary>The ArcGIS user type id for a member's user type: <c>viewerUT</c>, <c>editorUT</c> or <c>creatorUT</c>.</summary>
+    /// <remarks>
+    /// <b>Unrestricted is a creator</b>: it may do everything a creator may, and ArcGIS has no <c>unrestrictedUT</c> — the
+    /// id this wrote for it until 2026-11-08, which no client recognises.
+    /// </remarks>
+    internal static string LicenseTypeIdOf(string? userType) => userType switch
+    {
+        UserTypes.Viewer => "viewerUT",
+        UserTypes.Editor => "editorUT",
+        _ => "creatorUT",
+    };
 
     /// <summary>The portal's role and role id for a member's roles: built-in names are said as ArcGIS says them.</summary>
     private static (string Role, string RoleId) PortalRoleOf(IReadOnlyList<string> roles)
