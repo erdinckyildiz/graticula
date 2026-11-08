@@ -173,11 +173,15 @@ class Sweep(unittest.TestCase):
         lines = self.make("ln", "POLYLINE", [("v", "LONG"), ("p", "LONG")],
                           [(1, 0, "LINESTRING(0 6,20 6)"), (2, 0, "LINESTRING(0 8,5 8)"), (2, 0, "LINESTRING(0 7,6 7)")])
         # Cell 0 (x 0..10): value 1 runs 10, value 2 runs 5 and 6 — the longest line is 1's, the longest total is 2's.
+        # The grid has one cell more than fit whole across the 20 m extent, as Pro 3.7 lays a line raster (measured
+        # 2026-11-08; this test pinned 2 cells); line 1 only touches the third cell's left edge, so it stays NoData.
         longest = arcpy.Raster(arcpy.conversion.PolylineToRaster(lines, "v", self.out("a.tif"), cellsize=10)[0])
-        self.assertEqual(longest._array.tolist(), [[1, 1]])
+        self.assertEqual(longest._array.tolist()[0][:2], [1, 1])
+        self.assertEqual(longest._mask.tolist(), [[False, False, True]])
         combined = arcpy.Raster(arcpy.conversion.PolylineToRaster(lines, "v", self.out("b.tif"), "MAXIMUM_COMBINED_LENGTH",
                                                                   cellsize=10)[0])
-        self.assertEqual(combined._array.tolist(), [[2, 1]])
+        self.assertEqual(combined._array.tolist()[0][:2], [2, 1])
+        self.assertEqual(combined._mask.tolist(), [[False, False, True]])
 
 
     def test_raster_to_dted(self):
