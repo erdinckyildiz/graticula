@@ -486,6 +486,15 @@ class NAClassFieldMappings(dict):
             if name in dict(_LOCATION) or name == "Status":
                 continue
             self[name] = NAClassFieldMap(candidates.get(name.lower()))
+        # A field AddFieldToAnalysisLayer added is a property too: its page maps one by name (field_mappings['Address']).
+        from .management import _schema
+        made = {n.lower() for n, _ in _SCHEMAS[layer.solver][key][1]}
+        for column in _schema(layer.classes[key])[0]:
+            name = column.name
+            if name.lower() in made or name.lower() in ("fid", "objectid") or \
+                    name.startswith(("Cumul_", "Total_", "TotalWeighted_", "FromCumul_", "ToCumul_")):
+                continue                                      # the Make tool's and the solve's cost fields
+            self.setdefault(name, NAClassFieldMap(candidates.get(name.lower())))
 
 
 def AddFieldToAnalysisLayer(in_network_analysis_layer, sub_layer, field_name, field_type, field_precision=None,
