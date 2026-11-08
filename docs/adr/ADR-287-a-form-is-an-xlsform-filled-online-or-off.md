@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `LOW` — the direction is the owner's and is not in doubt; nothing of it is built, nothing is measured, and the one claim that decides whether offline works on an iPhone (§4) is a claim about a browser, not about this server |
-| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. Everything else here is this session's reading of those answers and is marked **INFERRED** in §5.9 and [Q-229](../open-questions.md). |
+| **Decided** | 2026-11-08, **by owner decision**, in three answers. Asked whether Survey123 should be supported, the owner said what was meant: *"aslında survey123'nin yaptığı işleri graticula'da yapmak istiyorum"* ("what I actually want is for Graticula to do the work Survey123 does"). Asked how a form is defined, the owner chose **XLSForm** over a format of our own (§2, A and B). Asked where the first version runs, the owner chose **offline from the start** (*"Baştan çevrimdışı da"*) over web-first and over web-only (§2, C–E). Then *"Yaz"* to this ADR. **Two of §5.9's points were answered the same day:** the client is built here (*"Kendimiz yazalım"*, (a)), and **existing records are edited offline too** (*"Çevrimdışı da olsun"*, (e)), against this session's recommendation of online only. The second reverses this ADR's first §5.6 and amends [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) in part. **On 2026-11-09 the owner asked again whether a JSON format of our own would have been better**, was given the answer that the hard part is the expression language and not the container, and chose the combination this session proposed (*"evet böyle olsun"*): **the stored form is a JSON model that is a lossless copy of the XLSForm's rows and columns, the workbook is the import and export format, and the expressions stay XLSForm's** (§2 H, §5.1, §5.3, §5.8). Everything else here is this session's reading of those answers and is marked **INFERRED** in §5.9 and [Q-229](../open-questions.md). |
 | **Supersedes** | — |
 | **Superseded by** | — |
 | **Amends** | [v1-scope.md](../v1-scope.md) §2 (a row is added). [ADR-082](ADR-082-offline-sync-is-not-in-v1.md), **in part** (§5.6): Graticula's own forms edit existing records offline; ArcGIS's replica protocol stays out. |
@@ -99,6 +99,26 @@ as its own ADR, on a client already in use.
 **Argument against.** Field Maps cannot collect offline against this server either (ADR-082), so *Field Maps covers
 it* is not true for the case that matters.
 
+### Alternative H — XLSForm's model, stored as JSON (chosen, by the owner, 2026-11-09)
+
+Asked a day after A was chosen: would a JSON format of our own have been better (B)? **The answer given to the owner
+was that B's hard part is not the container.** A form's difficulty is its logic: `relevant`, `constraint`,
+`calculation`, `choice_filter` and repeats. A JSON format of our own still needs an expression language for those.
+Either a new one is invented, whose specification, test cases and migrations this project then carries forever. Or
+XLSForm's is put inside the JSON, and the result is XLSForm in another container.
+
+**Argument for.** It takes what is true in both. B's real advantages are a designer that edits a structure instead of
+a spreadsheet, readable diffs, and room for things of our own. A's real advantages are existing forms, a specified
+expression language with test cases, and a format a non-programmer can write in Excel. The client was always going to
+be sent JSON, because the browser does not read workbooks. Making that JSON the stored source, rather than a cache of
+the workbook, costs one writer (JSON back to `.xlsx`) and removes the designer's hardest problem: preserving a
+spreadsheet's unknown columns on every save. Things of our own go in XLSForm's extension columns,
+`bind::graticula:…` and `body::graticula:…`, the way Esri adds `bind::esri:…`, so an exported workbook still opens in
+other tools.
+
+**Argument against.** Two representations of one form must stay exactly equivalent. A difference between them is a
+form that changes when it is downloaded and uploaded again. Condition 7 tests exactly that.
+
 ### Alternative F — Adopt an existing XLSForm client (Enketo, ODK Web Forms) — INFERRED, not chosen
 
 **Argument for.** This is the strongest alternative and should be stated as such. Both are Apache-2.0, mature, and
@@ -159,7 +179,9 @@ measurable question. The two device claims are, so they are conditions and not a
 ## 5. Decision
 
 1. **A form is an item.** A `Form` item ([ADR-264](ADR-264-an-app-or-a-link-is-an-item-and-an-item-keeps-resources.md))
-   whose resource is the XLSForm workbook, as uploaded or as the designer wrote it. It is related to the hosted feature
+   whose resource is **the form model: JSON, holding the XLSForm's sheets row by row and column by column, unknown
+   columns included** (owner decision 2026-11-09, §2 H). It is the only stored source. The workbook is not kept beside
+   it. *Download* writes a workbook from the model, and the client is sent the model itself. It is related to the hosted feature
    layer it writes to, and, when public, to that layer's add-only view ([ADR-113](ADR-113-a-hosted-layer-has-views.md)).
    It is shared like any item, and a public form is a form shared with everyone.
 2. **Publishing a form makes its layer.** Each question becomes a field of the type it declares. A choice list
@@ -170,9 +192,10 @@ measurable question. The two device claims are, so they are conditions and not a
    in §4. Editor tracking is on. Republishing an edited form changes the layer the way the schema editor does
    ([ADR-058](ADR-058-the-datastore-schema-is-edited-from-the-screen.md)), adding fields and never silently dropping
    one with data in it.
-3. **The workbook is read on the server**, through the import reader that already reads `.xlsx`. The sheets are
-   `survey`, `choices` and `settings`. What the server cannot honour is refused at upload with the row and column
-   named, never ignored (condition 5).
+3. **A workbook is imported on the server**, through the import reader that already reads `.xlsx`, and turned into
+   the model. The sheets are `survey`, `choices` and `settings`. What the server cannot honour is refused at upload
+   with the row and column named, never ignored (condition 5). The same check runs on every save of the model, from the
+   designer or the API, so a form cannot reach a state through the designer that an upload would refuse.
 4. **The client is Graticula's own.** It is a page under `/forms/{itemId}`, written as this repository writes its other
    browser code, with an XLSForm expression evaluator of its own, and installable to the home screen as a web app
    with a service worker. The first version covers the question types and logic in condition 3's list: `relevant`,
@@ -203,9 +226,11 @@ measurable question. The two device claims are, so they are conditions and not a
    per question (counts for choices, ranges for numbers), filtering by question, export through the existing layer
    export ([ADR-107](ADR-107-a-layer-is-exported-as-geopackage-shapefile-or-workbook.md)), and the webhooks
    ([ADR-266](ADR-266-a-webhook-tells-another-system-what-changed.md)) already offered on the layer.
-8. **A designer in Studio writes XLSForm.** It is a visual editor for the common cases. It reads and writes the same
-   workbook, keeps columns it does not understand untouched, and says so on screen when a form uses something it cannot
-   edit. There is one format, never a second one behind the designer.
+8. **A designer in Studio edits the model.** It is a visual editor for the common cases. Columns it does not edit are
+   in the model and stay untouched, and it says so on screen when a form uses something it cannot edit. **There is
+   one model, never a second one behind the designer**: the JSON and the workbook are two spellings of the same rows,
+   and anything the designer can make can be downloaded as XLSForm. Graticula's own additions go in
+   `bind::graticula:…` and `body::graticula:…` columns, never in a field the workbook cannot hold.
 9. **INFERRED, for the owner to confirm** (listed as [Q-229](../open-questions.md)):
    - (a) the client is built here and Enketo or ODK Web Forms is not adopted (§2 F) — **confirmed by the owner
      2026-11-08:** *"Kendimiz yazalım"*;
@@ -340,7 +365,7 @@ export, webhooks, Pro and Field Maps.
 - Field Maps and Pro still cannot edit offline against this server. The Inbox serves Graticula's own client only.
 - The browser client takes a dependency on service workers and IndexedDB, which this repository has not used before.
 
-**State.** No new table is promised here. The form is an item and an item resource; its layer, domains, relationship
+**State.** No new table is promised here. The form is an item and one item resource, its JSON model; its layer, domains, relationship
 and view are those that already exist. The device holds the queue and the downloaded Inbox; the server holds nothing
 per device, and finds a conflict from the record's own last-edited time, not from a register of devices.
 
@@ -388,6 +413,9 @@ per device, and finds a conflict from the record's own last-edited time, not fro
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
    while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
    edited offline is kept on the device. Neither case may lose an edit silently.
+7. **The model and the workbook round-trip.** Every form in condition 4's and condition 5's sets goes workbook →
+   model → workbook → model, and the two models are identical: same rows, same columns, same values, unknown columns
+   included. A difference is a defect in the reader or the writer, and forms are not released with one.
 
 ## 10. Revisit triggers
 
