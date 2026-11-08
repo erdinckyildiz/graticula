@@ -78,7 +78,10 @@ class Workspace(_Folder):
         connection.commit()
         connection.close()
         (index,) = arcpy.ListIndexes(self.pts)
-        self.assertEqual((index.name, index.fields, index.isUnique, index.isAscending), ("ix_name", ["name"], True, True))
+        # An index's fields are Field objects, as ArcGIS Pro 3.7 answers (measured 2026-11-08, the Pro sweep); this
+        # test compared names before.
+        self.assertEqual((index.name, [f.name for f in index.fields], index.isUnique, index.isAscending),
+                         ("ix_name", ["name"], True, True))
         self.assertEqual(arcpy.ListIndexes(self.pts, "zz*"), [])
         arcpy.management.CreateDomain(self.pts, "kinds", "Kinds", "TEXT", "CODED")
         arcpy.management.AddCodedValueToDomain(self.pts, "kinds", "a", "Apple")
@@ -188,8 +191,11 @@ class Values(unittest.TestCase):
         utm = arcpy.FromCoordString("31N 500000 0", "UTM")
         self.assertAlmostEqual(utm.firstPoint.X, 3.0)
         self.assertAlmostEqual(utm.firstPoint.Y, 0.0)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "MGRS"):
-            arcpy.FromCoordString("11SMT8186968515", "MGRS")
+        # MGRS is built since the Pro sweep (ArcGIS Pro 3.7 measured 2026-11-08); this test pinned its refusal before.
+        # The page's MGRS for the same place, to the metre its digits hold.
+        mgrs = arcpy.FromCoordString("11SMT8186968515", "MGRS")
+        self.assertAlmostEqual(mgrs.firstPoint.Y, 34.0571957, places=4)
+        self.assertAlmostEqual(mgrs.firstPoint.X, -117.1964702, places=4)
 
     def test_environments(self):
         self.assertEqual(arcpy.ListEnvironments("work*"), ["workspace"])
@@ -223,7 +229,10 @@ class Values(unittest.TestCase):
         self.assertEqual(arcpy.GetSeverityLevel(), 2)
         with self.assertRaisesRegex(arcpy.NotBuiltError, "severity_level 0"):
             arcpy.SetSeverityLevel(0)
-        self.assertEqual(arcpy.GetArgumentCount(), len(_runtime.PARAMETERS))
+        # Outside a tool run the arguments are the script's, as ArcGIS Pro 3.7 counts them (measured 2026-11-08, the
+        # Pro sweep); this test compared with the empty parameter list before.
+        import sys
+        self.assertEqual(arcpy.GetArgumentCount(), len(_runtime.PARAMETERS) or len(sys.argv) - 1)
 
     def test_value_table_and_field_info(self):
         table = arcpy.ValueTable(2)
@@ -234,7 +243,9 @@ class Values(unittest.TestCase):
         self.assertEqual(table.exportToString(), "'c:/temp/land use.shp' 2;roads 5")
         again = arcpy.ValueTable()
         again.loadFromString(table.exportToString())
-        self.assertEqual(again.getRow(0), "'c:/temp/land use.shp' 2")
+        # Every value quoted, as ArcGIS Pro 3.7's getRow answers (measured 2026-11-08, the Pro sweep); this test said
+        # "'c:/temp/land use.shp' 2" before Pro was measured.
+        self.assertEqual(again.getRow(0), "'c:/temp/land use.shp' '2'")
         typed = arcpy.ValueTable(["GPString", "GPLong"])
         typed.addRow("a 7")
         self.assertEqual(typed.getTrueRow(0), ["a", 7])

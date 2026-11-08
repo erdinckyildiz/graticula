@@ -93,8 +93,9 @@ class Runtime(_Folder):
     def test_validate_field_name_replaces_invalid_characters_with_an_underscore(self):
         self.assertEqual(arcpy.ValidateFieldName("land use%"), "land_use_")
         self.assertEqual(arcpy.ValidateFieldName("ok_name"), "ok_name")
-        # A name may not begin with a digit.
-        self.assertEqual(arcpy.ValidateFieldName("2020pop"), "_2020pop")
+        # A name may not begin with a digit: in a folder workspace ArcGIS Pro 3.7 puts "a" before it, in a
+        # GeoPackage "F" (measured 2026-11-08, the Pro sweep); this test said "_2020pop" before.
+        self.assertEqual(arcpy.ValidateFieldName("2020pop"), "a2020pop")
 
     def test_parameters_by_index_as_value_and_as_text(self):
         first = arcpy.Parameter(name="distance", datatype="GPDouble", parameterType="Required", direction="Input")
@@ -156,7 +157,9 @@ class ContingentAndSequences(test_attribute_rules._Workspace):
         found = arcpy.da.ListContingentValues(self.parcels)
         self.assertTrue(all(isinstance(c, arcpy.da.ContingentValue) for c in found))
         first, second = found
-        self.assertEqual((first.fieldGroupName, first.subtype, first.isRetired), ("use", None, False))
+        # Subtype 0 for a table without subtypes, as ArcGIS Pro 3.7 answers (measured 2026-11-08, the Pro sweep);
+        # this test said None before.
+        self.assertEqual((first.fieldGroupName, first.subtype, first.isRetired), ("use", 0, False))
         kind, value = first.values
         self.assertIsInstance(kind, arcpy.da.ContingentFieldValue)
         self.assertEqual((kind.name, kind.type, kind.code), ("kind", "CODED_VALUE", 1))
@@ -258,7 +261,8 @@ class ClusterTolerance(unittest.TestCase):
         self.assertEqual(self.tolerance("snap"), 0.5)
         arcpy.management.ValidateTopology(topo)
         with arcpy.da.SearchCursor(near, ["SHAPE@WKT"]) as rows:
-            self.assertEqual(next(rows)[0], "LINESTRING (10 0, 10.3 5)")
+            # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+            self.assertEqual(next(rows)[0], "MULTILINESTRING ((10 0, 10.3 5))")
         # 0 gives the default back, as documented.
         arcpy.management.SetClusterTolerance(topo, 0)
         self.assertGreater(self.tolerance("snap"), 0)

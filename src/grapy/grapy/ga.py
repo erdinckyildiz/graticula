@@ -52,42 +52,83 @@ def _keyword(value):
 # ---- search neighbourhoods: the documented constructors, holding what they are given
 
 
+def _neighbourhood_text(neighbourhood, keys):
+    """A search neighbourhood as its string, ``NBRTYPE=Standard S_MAJOR=300 …``, as ArcGIS Pro 3.7 writes it (measured
+    2026-11-08); a value not given is left out (INFERRED)."""
+    def text(v):
+        return str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
+    parts = [f"NBRTYPE={neighbourhood.nbrType}"]
+    parts += [f"{key}={text(getattr(neighbourhood, name))}" for key, name in keys
+              if getattr(neighbourhood, name) is not None]
+    return " ".join(parts)
+
+
 class SearchNeighborhoodStandard:
     """``SearchNeighborhoodStandard({majorSemiaxis}, {minorSemiaxis}, {angle}, {nbrMax}, {nbrMin}, {sectorType})``: an
     ellipse, the most and fewest neighbours to use within it, and its sectors."""
+
+    nbrType = "Standard"
 
     def __init__(self, majorSemiaxis=None, minorSemiaxis=None, angle=None, nbrMax=None, nbrMin=None, sectorType=None):
         self.majorSemiaxis, self.minorSemiaxis, self.angle = majorSemiaxis, minorSemiaxis, angle
         self.nbrMax, self.nbrMin, self.sectorType = nbrMax, nbrMin, sectorType
 
+    def __str__(self):
+        return _neighbourhood_text(self, (("S_MAJOR", "majorSemiaxis"), ("S_MINOR", "minorSemiaxis"),
+                                          ("ANGLE", "angle"), ("NBR_MAX", "nbrMax"), ("NBR_MIN", "nbrMin"),
+                                          ("SECTOR_TYPE", "sectorType")))
+
 
 class SearchNeighborhoodSmooth:
     """``SearchNeighborhoodSmooth({majorSemiaxis}, {minorSemiaxis}, {angle}, {smoothFactor})``."""
 
+    nbrType = "Smooth"
+
     def __init__(self, majorSemiaxis=None, minorSemiaxis=None, angle=None, smoothFactor=None):
         self.majorSemiaxis, self.minorSemiaxis, self.angle, self.smoothFactor = majorSemiaxis, minorSemiaxis, angle, smoothFactor
+
+    def __str__(self):
+        return _neighbourhood_text(self, (("S_MAJOR", "majorSemiaxis"), ("S_MINOR", "minorSemiaxis"),
+                                          ("ANGLE", "angle"), ("SMOOTH_FACTOR", "smoothFactor")))
 
 
 class SearchNeighborhoodStandardCircular:
     """``SearchNeighborhoodStandardCircular({radius}, {angle}, {nbrMax}, {nbrMin}, {sectorType})``; the angle "will
     only affect the angle of the sectors"."""
 
+    nbrType = "StandardCircular"
+
     def __init__(self, radius=None, angle=None, nbrMax=None, nbrMin=None, sectorType=None):
         self.radius, self.angle, self.nbrMax, self.nbrMin, self.sectorType = radius, angle, nbrMax, nbrMin, sectorType
+
+    def __str__(self):
+        return _neighbourhood_text(self, (("RADIUS", "radius"), ("ANGLE", "angle"), ("NBR_MAX", "nbrMax"),
+                                          ("NBR_MIN", "nbrMin"), ("SECTOR_TYPE", "sectorType")))
 
 
 class SearchNeighborhoodSmoothCircular:
     """``SearchNeighborhoodSmoothCircular({radius}, {smoothFactor})``."""
 
+    nbrType = "SmoothCircular"
+
     def __init__(self, radius=None, smoothFactor=None):
         self.radius, self.smoothFactor = radius, smoothFactor
+
+    def __str__(self):
+        return _neighbourhood_text(self, (("RADIUS", "radius"), ("SMOOTH_FACTOR", "smoothFactor")))
 
 
 class SearchNeighborhoodStandard3D:
     """``SearchNeighborhoodStandard3D({radius}, {nbrMax}, {nbrMin}, {sectorType})``."""
 
+    nbrType = "Standard3D"
+
     def __init__(self, radius=None, nbrMax=None, nbrMin=None, sectorType=None):
         self.radius, self.nbrMax, self.nbrMin, self.sectorType = radius, nbrMax, nbrMin, sectorType
+
+    def __str__(self):
+        return _neighbourhood_text(self, (("RADIUS", "radius"), ("NBR_MAX", "nbrMax"), ("NBR_MIN", "nbrMin"),
+                                          ("SECTOR_TYPE", "sectorType")))
 
 
 def _required_neighbourhood(tool, value):

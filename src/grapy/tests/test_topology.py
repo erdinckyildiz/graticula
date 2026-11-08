@@ -127,7 +127,8 @@ class Topology(unittest.TestCase):
         arcpy.management.ValidateTopology(topo)
         # (10.3, 0.2) lies 0.36 from parcels' corner (10, 0) and moves onto it; (10.3, 5) has nothing within 0.5.
         with arcpy.da.SearchCursor(near, ["SHAPE@WKT"]) as rows:
-            self.assertEqual(next(rows)[0], "LINESTRING (10 0, 10.3 5)")
+            # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+            self.assertEqual(next(rows)[0], "MULTILINESTRING ((10 0, 10.3 5))")
         with arcpy.da.SearchCursor(self.parcels, ["SHAPE@AREA"]) as rows:
             self.assertEqual(next(rows)[0], 100.0)                      # the better-ranked class does not move
         self.assertTrue(hasattr(arcpy.management.ValidateTopology, "__grapy_equivalent__"))

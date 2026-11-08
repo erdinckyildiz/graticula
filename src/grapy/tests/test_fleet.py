@@ -98,9 +98,10 @@ class Fleet(unittest.TestCase):
                                ("e", "R2", 3, at(8, 5), 0)])
         routes = self.rows(result, O2.Routes, ["Name", "OrderCount", "TotalCost", "TotalTime", "TotalTravelTime",
                                                "TotalOrderServiceTime", "TotalDistance", "EndTime", "SHAPE@WKT"])
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
         self.assertEqual([r[:2] + tuple(round(v, 9) for v in r[2:7]) + r[7:] for r in routes],
-                         [("R1", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "LINESTRING (50 0, 20 0, 10 0, 50 0)"),
-                          ("R2", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "LINESTRING (50 0, 80 0, 90 0, 50 0)")])
+                         [("R1", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "MULTILINESTRING ((50 0, 20 0, 10 0, 50 0))"),
+                          ("R2", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "MULTILINESTRING ((50 0, 80 0, 90 0, 50 0))")])
         self.assertEqual(self.rows(result, O2.DepotVisits, ["DepotName", "RouteName", "Sequence", "VisitType"]),
                          [("D", "R1", 1, 1), ("D", "R1", 4, 2), ("D", "R2", 1, 1), ("D", "R2", 4, 2)])
         self.assertTrue(nax.VehicleRoutingProblem.__grapy_equivalent__.startswith("Solomon's insertion"))

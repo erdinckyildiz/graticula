@@ -35,6 +35,21 @@ def ExportFeatures(in_features, out_features, where_clause=None, use_field_alias
     order = ", ".join(f'"{f}" {"DESC" if (d[0] if d else "").upper().startswith("DESC") else "ASC"}'
                       for f, *d in _pairs(sort_field))
     out = _out(out_features)
+    from .management import _mappings
+    mappings = _mappings("ExportFeatures", field_mapping)
+    if mappings is not None:
+        # The field mapping decides the output's fields, as ExportTable's does: ArcGIS Pro 3.7 leaves out a field
+        # whose map was removed (measured 2026-11-08), where grapy copied every field.
+        source = str(in_features)
+        maps = list(mappings.fieldMappings)
+        _gpkg.create(out, shape, srid, [_gpkg.Column(m._output.name, m._output.type) for m in maps])
+        with da.SearchCursor(in_features, [*names, "SHAPE@"], where_clause,
+                             sql_clause=(None, f"order by {order}" if order else None)) as rows, \
+                da.InsertCursor(out, [*[m._output.name for m in maps], "SHAPE@"]) as written:
+            for row in rows:
+                values = dict(zip((n.lower() for n in names), row[:-1]))
+                written.insertRow([*[m._value(source, values) for m in maps], row[-1]])
+        return Result(out)
     _gpkg.create(out, shape, srid, columns)
     with da.SearchCursor(in_features, [*names, "SHAPE@"], where_clause, sql_clause=(None, f"order by {order}" if order else None)) as rows, \
             da.InsertCursor(out, [*names, "SHAPE@"]) as written:

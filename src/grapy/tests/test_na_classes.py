@@ -383,15 +383,18 @@ class NaxClasses(_Networks):
         for kind in nax.RouteShapeType:
             result = self.route(network, routeShapeType=kind)
             (shapes[kind],), = result.searchCursor(nax.RouteOutputDataType.Routes, ["SHAPE@WKT"])
-        self.assertEqual(shapes[nax.RouteShapeType.TrueShape], "LINESTRING (2 0, 10 0, 20 0, 20 4)")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(shapes[nax.RouteShapeType.TrueShape], "MULTILINESTRING ((2 0, 10 0, 20 0, 20 4))")
         self.assertIn("2 0", shapes[nax.RouteShapeType.TrueShapeWithMeasures])
-        self.assertEqual(shapes[nax.RouteShapeType.StraightLine], "LINESTRING (2 0, 20 4)")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(shapes[nax.RouteShapeType.StraightLine], "MULTILINESTRING ((2 0, 20 4))")
         self.assertIsNone(shapes[nax.RouteShapeType.NoLine])
 
     def test_line_shape_type_changes_the_geometry(self):
         network = self.grid()
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
         self.assertEqual([m.name for m in nax.LineShapeType], ["StraightLine", "NoLine"])
-        for kind, wkt in ((nax.LineShapeType.StraightLine, "LINESTRING (14 0, 10 9)"), (nax.LineShapeType.NoLine, None)):
+        for kind, wkt in ((nax.LineShapeType.StraightLine, "MULTILINESTRING ((14 0, 10 9))"), (nax.LineShapeType.NoLine, None)):
             od = nax.OriginDestinationCostMatrix(network)
             od.travelMode = "Driving"
             od.lineShapeType = kind

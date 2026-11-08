@@ -60,14 +60,17 @@ class Sweep(unittest.TestCase):
             for row in rows:
                 rows.updateRow([row[0].densify("DISTANCE", 4)])
         diced = arcpy.management.Dice(square, self.out("diced.gpkg"), 25)[0]
-        # 41 vertices; cut across x = 20, each half holds 24 and is within the limit.
-        self.assertEqual(sorted(r[1] for r in self.rows(diced, ["n", "SHAPE@AREA"])), [800.0, 800.0])
+        # Each 40 m side cut in 11 (densify makes every piece shorter than 4 m, as ArcGIS Pro 3.7 does, measured
+        # 2026-11-08; this test counted 10 pieces, 41 vertices, before): 45 vertices, cut across x = 20.
+        self.assertEqual([round(r[1], 6) for r in sorted(self.rows(diced, ["n", "SHAPE@AREA"]), key=lambda r: r[1])],
+                         [800.0, 800.0])
         a = self.make("a", "POLYLINE", [], [("LINESTRING(0 0,10 0)",)])
         b = self.make("b", "POLYLINE", [], [("LINESTRING(5 -5,5 5)",), ("LINESTRING(10.0004 0,10.0004 5)",)])
         arcpy.management.Integrate([[b, 1], [a, 2]], "0.001 Meters")
         # A's end at (10,0) moves onto B's better-ranked vertex 0.0004 away, and both lines get the crossing (5,0).
-        self.assertEqual(self.rows(a, ["SHAPE@WKT"]), [("LINESTRING (0 0, 5 0, 10.0004 0)",)])
-        self.assertEqual(self.rows(b, ["SHAPE@WKT"])[0], ("LINESTRING (5 -5, 5 0, 5 5)",))
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(self.rows(a, ["SHAPE@WKT"]), [("MULTILINESTRING ((0 0, 5 0, 10.0004 0))",)])
+        self.assertEqual(self.rows(b, ["SHAPE@WKT"])[0], ("MULTILINESTRING ((5 -5, 5 0, 5 5))",))
 
     def test_table_to_ellipse(self):
         centres = self.table("c", [("x", "DOUBLE"), ("y", "DOUBLE"), ("major", "DOUBLE"), ("minor", "DOUBLE"),

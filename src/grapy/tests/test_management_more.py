@@ -228,7 +228,8 @@ class ManagementMore(unittest.TestCase):
         self.assertEqual((sorted(got[2][:2]), got[2][2]), ([1, 2], 50.0))
         # a's outer line runs clockwise, a on its right: from (50, 0) west, up, and east to (50, 50).
         outer = self.rows(out, ["SHAPE@WKT"], '"RIGHT_FID" = 1 and "LEFT_FID" = -1')[0][0]
-        self.assertEqual(outer, "LINESTRING (50 0, 0 0, 0 50, 50 50)")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(outer, "MULTILINESTRING ((50 0, 0 0, 0 50, 50 50))")
         rings = arcpy.management.PolygonToLine(pair, self.out("rings"), "IGNORE_NEIGHBORS")[0]
         self.assertEqual(self.rows(rings, ["n", "ORIG_FID", "SHAPE@LENGTH"]), [("a", 1, 200.0), ("b", 2, 200.0)])
 
@@ -446,8 +447,15 @@ class ManagementMore(unittest.TestCase):
             arcpy.management.CreateSQLiteDatabase(os.path.join(self.directory, "st.sqlite"))
         folder = arcpy.management.CreateFolder(self.directory, "sub")[0]
         self.assertTrue(os.path.isdir(folder))
-        with self.assertRaises(arcpy.ExecuteError):
-            arcpy.management.CreateFolder(self.directory, "sub")
+        # A folder that exists is an error only when outputs may not be overwritten: ArcGIS Pro 3.7 succeeds with
+        # overwriteOutput set (measured 2026-11-08, the Pro sweep); this test expected the error either way before.
+        before = arcpy.env.overwriteOutput
+        arcpy.env.overwriteOutput = False
+        try:
+            with self.assertRaises(arcpy.ExecuteError):
+                arcpy.management.CreateFolder(self.directory, "sub")
+        finally:
+            arcpy.env.overwriteOutput = before
         copied = arcpy.management.Copy(self.parcels, self.out("copy"))[0]
         self.assertEqual(self.rows(copied, ["OID@", "name"]), [(1, "p0"), (2, "p1"), (3, "p2")])
         arcpy.management.DeleteFeatures(self.parcels + "")  # leave OIDs with a gap in a table copy below
