@@ -66,7 +66,7 @@ owner stated.
 
 ## 3. Decision — who writes features
 
-> **Excepted in part 2026-11-09 by [ADR-287](ADR-287-a-form-is-an-xlsform-filled-online-or-off.md) §5.11 (l), INFERRED:** a *view* whose
+> **Excepted in part 2026-11-09 by [ADR-287](ADR-287-a-form-is-an-xlsform-filled-online-or-off.md) §5.11 (l), confirmed by the owner 2026-11-09 (*"Kalsın"*):** a *view* whose
 > capabilities include `Create` takes **adds** from anybody who can read it, so a survey view can be public
 > ([ADR-113](ADR-113-a-hosted-layer-has-views.md) §6). Updates, deletes, and every write to a layer that is not a view keep
 > the rule below.

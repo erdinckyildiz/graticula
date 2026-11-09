@@ -362,7 +362,8 @@ measurable question. The two device claims are, so they are conditions and not a
     | `begin repeat` | a related table, `parentglobalid` |
 
 11. **Built overnight 2026-11-09, while the owner slept (*"gece: bitirebileceğin tüm işleri bitir"*). Every choice
-    below is this session's and is INFERRED until the owner confirms it ([Q-230](../open-questions.md)).**
+    below was this session's, INFERRED, and listed as [Q-230](../open-questions.md).** **All confirmed by the owner
+    2026-11-09:** (l) *"Kalsın"*, the rest *"Hepsi yazıldığı gibi"*. Nothing in this list is INFERRED any more.
     - (a) **Names.** The service is named after `form_id`, or the item's title when there is none, made an identifier;
       each repeat's layer is `{service}_{repeat}`, because a layer name is unique across the server. A question's column
       is its name with accented letters written as their Latin letters (`şehir_adı` → `sehir_adi`), then the importer's
@@ -405,11 +406,10 @@ measurable question. The two device claims are, so they are conditions and not a
       and gives each layer of the publication its `submitUrl`; going back to private takes the view back to private.
       **And a view whose capabilities include `Create` now takes new rows from anybody who can read it** — adds only,
       through `applyEdits` and `addAttachment`; updates and deletes keep [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md)'s
-      rule, and so does every write to a layer that is not a view. This is a change to who may write, made overnight.
+      rule, and so does every write to a layer that is not a view. This is a change to who may write, made overnight and **confirmed by the owner the next morning** (*"Kalsın"*).
       [ADR-113](ADR-113-a-hosted-layer-has-views.md) §6 said *"Survey-style add only public views work"*; measured
       2026-11-09, an anonymous add through such a view was refused with 401, because ADR-075's owner rule was asked
-      first and views were never excepted. Without the exception no public survey can exist. A form is shared to `private`, `organization` or `public` only: sharing it to groups or to all organizations would need the submit view shared the same way, which is not built, so those are refused. **It is the first thing to
-      confirm in the morning.**
+      first and views were never excepted. Without the exception no public survey can exist. A form is shared to `private`, `organization` or `public` only: sharing it to groups or to all organizations would need the submit view shared the same way, which is not built, so those are refused.
     - (m) **The form client** (`/forms/{id}`, `wwwroot/forms/fill.*`, a service worker scoped to `/forms/`) made these
       readings: **no credential is kept at rest** — a queued record is sent with the session's token, or one traded for
       the persistent session cookie as the map viewer does, and otherwise waits marked *sign in*, so a lost phone
