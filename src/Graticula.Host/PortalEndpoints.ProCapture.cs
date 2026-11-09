@@ -120,6 +120,8 @@ internal static partial class PortalEndpoints
         {
             return Results.Ok(new
             {
+                // ADR-299: what a federated 12.0 server's root says first, and what Pro's analyzer 00147 reads.
+                isServerLicensed = "true",
                 resources = AdminResources,
 
                 // The release the REST documents and the portal's enterpriseVersion say (ADR-181 §5). It said 11.2 from
@@ -189,6 +191,12 @@ internal static partial class PortalEndpoints
         if (what == "logs/query")
         {
             return await AdminLogsQueryAsync(context, cancellation).ConfigureAwait(false);
+        }
+
+        // ADR-299: the documents Pro reads before it shares a map image layer, the registered databases among them.
+        if (await ProReferenceAdminAsync(context, what, cancellation).ConfigureAwait(false) is { } answered)
+        {
+            return answered;
         }
 
         return Results.Json(new { status = "error", messages = new[] { $"'{what}' is not answered by this server." }, code = 404 });
