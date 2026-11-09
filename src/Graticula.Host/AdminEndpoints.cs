@@ -645,6 +645,7 @@ internal static partial class AdminEndpoints
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         MapAttachments(app);     // ADR-207 — AdminEndpoints.Attachments.cs
+        MapPublisherAddress(app); // ADR-299 — AdminEndpoints.PublisherAddress.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         MapPinning(app);         // ADR-218 — AdminEndpoints.Pinning.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs

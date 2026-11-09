@@ -482,6 +482,44 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         return sources;
     }
 
+    /// <summary>
+    /// Each registered source's publisher address — the <c>host</c> or <c>host,port</c> its publishers reach the database at
+    /// when that is not the address this server uses (ADR-299, migration 136). Sources without one are absent.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The addresses by source id.</returns>
+    public async Task<IReadOnlyDictionary<Guid, string>> PublisherAddressesAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select id, publisher_address from data_source where publisher_address is not null");
+        await using NpgsqlDataReader reader =
+            await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        Dictionary<Guid, string> addresses = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            addresses[reader.GetGuid(0)] = reader.GetString(1);
+        }
+
+        return addresses;
+    }
+
+    /// <summary>Sets or clears a source's publisher address (ADR-299).</summary>
+    /// <param name="dataSourceId">The source.</param>
+    /// <param name="address"><c>host</c> or <c>host,port</c>, or null to clear it.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the source exists.</returns>
+    public async Task<bool> SetPublisherAddressAsync(Guid dataSourceId, string? address, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update data_source set publisher_address = @address where id = @id");
+        command.Parameters.AddWithValue("id", dataSourceId);
+        command.Parameters.AddWithValue("address", (object?)address ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     /// <inheritdoc/>
     public async Task<string?> ConnectionStringOfAsync(
         Guid dataSourceId, CancellationToken cancellationToken)
