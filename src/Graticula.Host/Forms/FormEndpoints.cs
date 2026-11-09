@@ -280,6 +280,8 @@ public static class FormEndpoints
         await services.GetRequiredService<IDocumentStore>().SetLinkAsync(document.Id, (string?)publication["featureServer"],
             ["Form", "Graticula Form", "XLSForm"], cancellation).ConfigureAwait(false);
 
+        await FileAsync(context, document, plan.ServiceName, document.Title, cancellation).ConfigureAwait(false);
+
         // A form shared before it was published opens its answers now, as sharing it afterwards would have.
         if (document.Sharing is SharingScope.Organization or SharingScope.Public)
         {
@@ -627,10 +629,10 @@ public static class FormEndpoints
         if (!exists && scope != SharingScope.Private)
         {
             // <b>Made private, its tiles turned off, and only then shared — found 2026-11-09 on dev.</b> A view is a
-            // hosted service, and a hosted service draws vector tiles by default; tiles answer to servesTiles and not
-            // to Query (D-180, FaceOffLooksAbsentTests), so the Create-only view handed every submitted answer, with
-            // its point, to anyone who asked for a tile. Turned off before it is shared, so there is no moment when it
-            // is open with them on. Written to the catalogue directly: the publisher made this view as a step of
+            // hosted service, and a hosted service draws vector tiles by default; until the owner's Q-231 decision the
+            // same day tiles answered to servesTiles alone, so the Create-only view handed every submitted answer, with
+            // its point, to anyone who asked for a tile. Query off now turns tiles off anyway (ADR-031 §2a); this is the
+            // second lock, set before the view is shared so there is no moment when it is open with them on. Written to the catalogue directly: the publisher made this view as a step of
             // publishing, and the capabilities endpoint asks for server administration.
             AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], "private");
             (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
@@ -664,6 +666,7 @@ public static class FormEndpoints
 
         if (!exists && scope != SharingScope.Private)
         {
+            await FileAsync(context, document, view, document.Title + "_form", cancellation).ConfigureAwait(false);
             publication["submitService"] = view;
 
             foreach (JsonNode? layer in publication["layers"] as JsonArray ?? [])
@@ -678,6 +681,72 @@ public static class FormEndpoints
         }
 
         return (200, null);
+    }
+
+    /// <summary>The longest folder title a member may have — the folder routes' own limit.</summary>
+    private const int FolderTitleLength = 128;
+
+    /// <summary>
+    /// Titles one of a form's services and files it, with the form, in the form's folder — Survey123's arrangement,
+    /// owner decision 2026-11-09 (ADR-287 §5.12).
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="document">The form item.</param>
+    /// <param name="service">The service's name in the hosted folder; its address does not change.</param>
+    /// <param name="title">The item title it is given: the form's title, or the form's title and <c>_form</c> for the view.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>The folder is <c>Survey-</c> and the form's title, the owner's</b>, found by title when it exists and made when it
+    /// does not, so publishing and sharing later land in the same one. Only the form's owner's items go in: a service
+    /// somebody else made — an administrator publishing a member's form — stays where its own owner's content is, because
+    /// a folder is one member's and Move refuses another's item (ADR-114).
+    /// </para>
+    /// <para>
+    /// <b>The form item moves only from the root.</b> One its owner already filed in a folder of their own stays there —
+    /// INFERRED: Survey123 always moves it, and a choice the owner made by hand is worth more than the convention.
+    /// </para>
+    /// <para>
+    /// <b>Filing never fails a publish.</b> The services are made and work at their addresses whatever folder lists them;
+    /// a title or a folder that could not be written leaves the item at the root under its name, which is where every
+    /// form's items were before this.
+    /// </para>
+    /// </remarks>
+    private static async Task FileAsync(HttpContext context, Document document, string service, string title, CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        IContentFolderStore folders = services.GetRequiredService<IContentFolderStore>();
+        string named = title.Length > WebMaps.MaximumTitleLength ? title[..WebMaps.MaximumTitleLength] : title;
+        string folderTitle = "Survey-" + document.Title.Trim();
+        folderTitle = folderTitle.Length > FolderTitleLength ? folderTitle[..FolderTitleLength] : folderTitle;
+
+        PublishedService? made = await services.GetRequiredService<PostgresLayerCatalog>()
+            .FindServiceAsync(FeatureServerMetadataWriter.HostedFolder, service, cancellation).ConfigureAwait(false);
+
+        if (made is not null)
+        {
+            await services.GetRequiredService<IAdminCatalog>()
+                .SetServiceTitleAsync(service, FeatureServerMetadataWriter.HostedFolder, named, cancellation).ConfigureAwait(false);
+        }
+
+        ContentFolder? folder = await folders.CreateAsync(document.Owner, folderTitle, cancellation).ConfigureAwait(false)
+            ?? (await folders.ListAsync(document.Owner, cancellation).ConfigureAwait(false))
+                .FirstOrDefault(f => string.Equals(f.Title, folderTitle, StringComparison.OrdinalIgnoreCase));
+
+        if (folder is null)
+        {
+            return;
+        }
+
+        if (made is not null && made.Owner == document.Owner)
+        {
+            await folders.MoveServiceAsync(made.Id, folder.Id, cancellation).ConfigureAwait(false);
+        }
+
+        if (document.ContentFolder is null || document.ContentFolder == folder.Id)
+        {
+            await folders.MoveDocumentAsync(document.Id, folder.Id, cancellation).ConfigureAwait(false);
+        }
     }
 
     // ------------------------------------------------------------------------------------------------------ the client

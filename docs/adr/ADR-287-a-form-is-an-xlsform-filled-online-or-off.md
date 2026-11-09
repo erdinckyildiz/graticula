@@ -422,6 +422,19 @@ measurable question. The two device claims are, so they are conditions and not a
       client reads as *already arrived*, looks the row up and sends the rest; the page is served from the cache and
       refreshed behind, `form.json` from the network first. Geotrace and geoshape are captured as vertices, with no map.
 
+12. **A form's items are arranged as Survey123 arranges them — owner decision 2026-11-09** (*"Survey123 gibi"*). Until
+    then the layer and the answers view were listed under their service names (`ux_demo_dev1`, `ux_demo_dev1_submit`) at
+    the root of the owner's content, beside a vector tile item for each. Now publishing titles the layer with the form's
+    title and sharing titles the view with the form's title and `_form`; the form, the layer and the view are filed in
+    the owner's folder `Survey-` and the form's title, made on first use and found by title afterwards; and the view has
+    no vector tile item, because a view without `Query` serves no tiles at all ([Q-231](../open-questions.md), ADR-031
+    §2a). **Service names and addresses do not change**: an item's title was never its address (ADR-260).
+    **INFERRED, for the owner to confirm:** (a) a form item its owner already filed in a folder of their own stays there,
+    where Survey123 moves it regardless; (b) a service made by somebody other than the form's owner — an administrator
+    publishing a member's form — is titled but not filed, since a folder is one member's (ADR-114); (c) filing never
+    fails a publish: a title or folder that cannot be written leaves the item at the root under its name; (d) the folder
+    is left behind when the form is deleted, as any emptied folder is, and Survey123 does the same.
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without

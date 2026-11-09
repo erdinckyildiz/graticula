@@ -198,6 +198,7 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
 
         string formId = "zz_form_" + Guid.NewGuid().ToString("N")[..8];
         string? item = null;
+        string? folderId = null;
 
         try
         {
@@ -209,6 +210,26 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
 
             (HttpStatusCode shared, string sharedBody) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!, """{"sharing":"public"}""");
             Assert.True(shared == HttpStatusCode.OK, $"Sharing answered {(int)shared}: {sharedBody}");
+
+            // <b>Survey123's arrangement — owner decision 2026-11-09, ADR-287 §5.12.</b> The form, its layer named after
+            // it and its answers view named after it with _form, all in the owner's Survey-<title> folder, as the portal
+            // lists them to Studio and to Pro; and no vector tile item for the view, which serves no tiles (Q-231).
+            folderId = await FormFolderAsync(root, token!, "Survey-Açık anket " + formId);
+            Assert.False(folderId is null, $"No folder 'Survey-Açık anket {formId}' among the owner's folders.");
+            (HttpStatusCode listed, string listing) = await RequestAsync(HttpMethod.Get,
+                $"{root}/sharing/rest/content/users/{Uri.EscapeDataString(Environment.GetEnvironmentVariable(UserVariable)!)}/{folderId}?f=json&num=100", token!, null);
+            Assert.Equal(HttpStatusCode.OK, listed);
+            (string Title, string Type, string Url)[] filed = [.. JsonDocument.Parse(listing).RootElement.GetProperty("items").EnumerateArray()
+                .Select(i => (i.GetProperty("title").GetString() ?? "", i.GetProperty("type").GetString() ?? "",
+                    i.TryGetProperty("url", out JsonElement u) ? u.GetString() ?? "" : ""))];
+            string said = string.Join("; ", filed.Select(f => $"{f.Type} '{f.Title}' {f.Url}"));
+            Assert.True(filed.Any(f => f.Type == "Form" && f.Title == "Açık anket " + formId), $"The form is not in its folder: {said}");
+            Assert.True(filed.Any(f => f.Type == "Feature Service" && f.Title == "Açık anket " + formId && f.Url.EndsWith($"/{formId}/FeatureServer", StringComparison.Ordinal)),
+                $"The form's layer is not in its folder under the form's title: {said}");
+            Assert.True(filed.Any(f => f.Type == "Feature Service" && f.Title == $"Açık anket {formId}_form" && f.Url.Contains($"/{formId}_submit/", StringComparison.Ordinal)),
+                $"The answers view is not in the folder as '<title>_form': {said}");
+            Assert.False(filed.Any(f => f.Type == "Vector Tile Service" && f.Url.Contains("_submit", StringComparison.Ordinal)),
+                $"The answers view has a vector tile item: {said}");
 
             using HttpRequestMessage open = new(HttpMethod.Get, $"{root}/forms/{item}/form.json");
             using HttpResponseMessage opened = await Http.SendAsync(open);
@@ -289,7 +310,26 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
             {
                 await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{item}", token!, null);
             }
+
+            folderId ??= await FormFolderAsync(root, token!, "Survey-Açık anket " + formId);
+
+            if (folderId is not null)
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/content/folders/{Guid.Parse(folderId)}", token!, null);
+            }
         }
+    }
+
+    /// <summary>The id of the signed-in member's folder of this title, as the portal writes it, or null.</summary>
+    private async Task<string?> FormFolderAsync(string root, string token, string title)
+    {
+        (HttpStatusCode status, string body) = await RequestAsync(HttpMethod.Get,
+            $"{root}/sharing/rest/content/users/{Uri.EscapeDataString(Environment.GetEnvironmentVariable(UserVariable)!)}?f=json&num=1", token, null);
+
+        return status != HttpStatusCode.OK || !JsonDocument.Parse(body).RootElement.TryGetProperty("folders", out JsonElement folders)
+            ? null
+            : folders.EnumerateArray().Where(f => f.GetProperty("title").GetString() == title)
+                .Select(f => f.GetProperty("id").GetString()).FirstOrDefault();
     }
 
     [Fact]
