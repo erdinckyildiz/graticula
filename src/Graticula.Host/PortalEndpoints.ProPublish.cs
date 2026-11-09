@@ -512,6 +512,12 @@ internal static partial class PortalEndpoints
             return await PublishDataItemAsync(context, form, current, fileType, cancellation).ConfigureAwait(false);
         }
 
+        // ADR-269 condition 2: Pro's Share Package publishes the package it added, `filetype=scenePackage`.
+        if (string.Equals(fileType, "scenePackage", StringComparison.OrdinalIgnoreCase))
+        {
+            return await PublishScenePackageAsync(context, form, current, cancellation).ConfigureAwait(false);
+        }
+
         if (!string.Equals(fileType, "serviceDefinition", StringComparison.OrdinalIgnoreCase))
         {
             return PortalError(400,
@@ -982,6 +988,57 @@ internal static partial class PortalEndpoints
             created,
             modified = created,
         };
+    }
+
+    /// <summary>
+    /// Portal's <c>publish</c> of a scene layer package (<c>filetype=scenePackage</c>, <c>outputType=sceneService</c>):
+    /// the package is already its own scene service, so this names it and makes nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>One item, not two.</b> ArcGIS keeps the package and the hosted scene service it publishes as two items; here a
+    /// package is served as a <c>SceneServer</c> from the moment it is added (ADR-269 §5.2), so the service a publish
+    /// answers with is the package's own item — <c>serviceItemId</c> is the <c>itemid</c> asked for — and its job is one
+    /// that has already finished. ArcGIS Pro's Share Package reported <i>ERROR 002934: Failed to publish web layer</i>
+    /// while this refused <c>scenePackage</c> (2026-11-09).
+    /// </remarks>
+    private static async Task<IResult> PublishScenePackageAsync(
+        HttpContext context, IFormCollection form, RequestPrincipal current, CancellationToken cancellation)
+    {
+        IDocumentStore documents = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions
+            .GetRequiredService<IDocumentStore>(context.RequestServices);
+        string itemId = First(form, context, "itemid") is { Length: > 0 } sent ? sent : First(form, context, "itemId");
+
+        if (!Guid.TryParse(itemId, out _)
+            || await documents.FindAsync(itemId.ToLowerInvariant(), cancellation).ConfigureAwait(false) is not { } document
+            || (document.Owner != current.Principal.Id && !current.Authorization.Allows(Privilege.AdminManageAllContent)))
+        {
+            return Unknown("Item");
+        }
+
+        if (!Documents.IsScenePackage(document.Kind))
+        {
+            return PortalError(400, $"'{document.Title}' is a {document.Kind.ArcGisType} item, not a scene layer package.");
+        }
+
+        string url = SceneServerEndpoints.AddressOf(context.Request, document.Id);
+
+        return Results.Ok(new
+        {
+            services = new[]
+            {
+                new
+                {
+                    type = "Scene Service",
+                    serviceurl = url,
+                    encodedServiceURL = url,
+                    size = document.Size,
+                    jobId = FinishedJob(),
+                    serviceItemId = document.Id,
+                    serviceItemType = "Scene Service",
+                    success = true,
+                },
+            },
+        });
     }
 
     /// <summary>The staged definition with this id, when it is the caller's.</summary>

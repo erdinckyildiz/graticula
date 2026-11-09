@@ -104,7 +104,8 @@ public sealed class PostgresDocumentStore : IDocumentStore
         long size,
         string contentFile,
         string sha256,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? given = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
@@ -112,7 +113,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
         ArgumentException.ThrowIfNullOrWhiteSpace(contentFile);
         ArgumentException.ThrowIfNullOrWhiteSpace(sha256);
 
-        Guid id = Guid.NewGuid();
+        Guid id = given ?? Guid.NewGuid();
 
         // ADR-274: the row names the file and holds no bytes; `content` is empty rather than null, as the column requires.
         await using NpgsqlCommand command = _dataSource.CreateCommand(
@@ -166,14 +167,15 @@ public sealed class PostgresDocumentStore : IDocumentStore
         string fileName,
         DocumentKind kind,
         byte[] content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? given = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentNullException.ThrowIfNull(kind);
         ArgumentNullException.ThrowIfNull(content);
 
-        Guid id = Guid.NewGuid();
+        Guid id = given ?? Guid.NewGuid();
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             // The item and its file in one statement, so neither exists without the other.
