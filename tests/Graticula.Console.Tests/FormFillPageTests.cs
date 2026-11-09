@@ -275,6 +275,37 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         }
     }
 
+    [Fact]
+    public async Task A_public_form_is_filled_anonymously_through_its_create_only_view()
+    {
+        string item = await _form.PublishAnotherAsync();
+        (HttpStatusCode shared, string sharedBody) = await Published.RequestAsync(HttpMethod.Put, $"{Published.Root}/admin/forms/{item}/sharing",
+            new StringContent("{\"sharing\":\"public\"}", Encoding.UTF8, "application/json"));
+        Assert.True(shared == HttpStatusCode.OK, $"Sharing the form answered {(int)shared}: {sharedBody}");
+
+        (HttpStatusCode status, string body) = await Published.RequestAsync(HttpMethod.Get, $"{Published.Root}/forms/{item}/form.json", null);
+        Assert.Equal(HttpStatusCode.OK, status);
+        JsonElement top = JsonDocument.Parse(body).RootElement.GetProperty("publication").GetProperty("layers")[0];
+        Assert.True(top.TryGetProperty("submitUrl", out JsonElement submit) && submit.GetString() is { Length: > 0 },
+            $"A public form's layer has no submitUrl: {top}");
+
+        await using DevTools browser = await DevTools.LaunchAsync();
+        await browser.NavigateAsync($"{Published.Root}/forms/fill.html?id={item}");
+        await WaitAsync(browser, "!!window.GraticulaFormFill && !document.getElementById('form').hidden && !!document.querySelector('[data-name=ad] input')",
+            "the public form to be drawn for an anonymous filler", seconds: 20);
+        Assert.Null(await browser.EvaluateAsync<string>("sessionStorage.getItem('gis-token')"));
+
+        string name = "Anonim " + Guid.NewGuid().ToString("N")[..8];
+        await FillBasicsAsync(browser, name, damage: "yok");
+        await SubmitAsync(browser);
+        await WaitAsync(browser, "!document.getElementById('done').hidden", "the confirmation");
+        Assert.Equal("Submitted", await browser.EvaluateAsync<string>("document.getElementById('done-heading').textContent"));
+
+        string url = top.GetProperty("url").GetString()!;
+        string column = top.GetProperty("columns").GetProperty("ad").GetString()!;
+        Assert.Equal(1, (await QueryAsync(url, $"{column}='{name}'")).GetProperty("features").GetArrayLength());
+    }
+
     // ----------------------------------------------------------------------------------------------------- the helpers
 
     private async Task<DevTools> OpenAsync()
@@ -493,26 +524,55 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
             _floors = layers.EnumerateArray().First(l => l.GetProperty("repeat").GetString() == "katlar");
         }
 
+        private readonly List<(string Item, string FormId)> _others = [];
+
+        /// <summary>A second copy of the form, published under its own name, for a test that changes its sharing.</summary>
+        public async Task<string> PublishAnotherAsync()
+        {
+            string formId = "zz_fill_" + Guid.NewGuid().ToString("N")[..8];
+            JsonObject model = Model();
+            model["sheets"]![2]!["rows"]![0]![1] = formId;
+            (HttpStatusCode added, string addBody) = await RequestAsync(HttpMethod.Post, $"{Root}/admin/forms",
+                new StringContent(new JsonObject { ["title"] = "Bina denetimi " + formId, ["model"] = model }.ToJsonString(), Encoding.UTF8, "application/json"));
+            Assert.True(added == HttpStatusCode.Created, $"Adding the form answered {(int)added}: {addBody}");
+            string item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+            _others.Add((item, formId));
+            (HttpStatusCode published, string publication) = await RequestAsync(HttpMethod.Post, $"{Root}/admin/forms/{item}/publish",
+                new StringContent("{}", Encoding.UTF8, "application/json"));
+            Assert.True(published == HttpStatusCode.OK, $"Publishing answered {(int)published}: {publication}");
+            return item;
+        }
+
         /// <inheritdoc/>
         public async Task DisposeAsync()
         {
-            await RequestAsync(HttpMethod.Delete, $"{Root}/admin/featureservices/{FormId}?folder=hosted&drop=true", null);
+            foreach ((string item, string formId) in _others)
+            {
+                await RemoveAsync(item, formId);
+            }
+
+            await RemoveAsync(ItemId, FormId);
+        }
+
+        private static async Task RemoveAsync(string itemId, string formId)
+        {
+            await RequestAsync(HttpMethod.Delete, $"{Root}/admin/featureservices/{formId}?folder=hosted&drop=true", null);
 
             (HttpStatusCode status, string body) = await RequestAsync(HttpMethod.Get, $"{Root}/admin/domains", null);
 
             if (status == HttpStatusCode.OK)
             {
                 foreach (JsonElement domain in Objects(JsonDocument.Parse(body).RootElement)
-                    .Where(o => o.TryGetProperty("name", out JsonElement n) && n.GetString()?.StartsWith(FormId, StringComparison.Ordinal) == true
+                    .Where(o => o.TryGetProperty("name", out JsonElement n) && n.GetString()?.StartsWith(formId, StringComparison.Ordinal) == true
                         && o.TryGetProperty("id", out _)))
                 {
                     await RequestAsync(HttpMethod.Delete, $"{Root}/admin/domains/{domain.GetProperty("id").GetString()}", null);
                 }
             }
 
-            if (ItemId.Length > 0)
+            if (itemId.Length > 0)
             {
-                await RequestAsync(HttpMethod.Delete, $"{Root}/content/documents/{ItemId}", null);
+                await RequestAsync(HttpMethod.Delete, $"{Root}/content/documents/{itemId}", null);
             }
         }
 
