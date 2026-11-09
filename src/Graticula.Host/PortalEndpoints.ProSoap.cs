@@ -60,6 +60,26 @@ internal static partial class PortalEndpoints
                 + $"<ProMessageVersion>{ProMessageVersion}</ProMessageVersion></tns:GetMessageVersionResponse>");
         }
 
+        if (operation == "GetMessageFormats")
+        {
+            return Soap(MessageFormatsAnswer);
+        }
+
+        // <b>A measuring tool, dev only</b>: while Pro's calls are recorded, an answer written to
+        // <c>{capture}/soap-answers/{Operation}.xml</c> is returned as it stands — so the next call Pro makes can be
+        // learned from a real server's answer without rebuilding this one. Nothing reads that directory elsewhere.
+        if (RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>())
+            && operation is { Length: > 0 }
+            && System.IO.Path.Combine(
+                    context.RequestServices.GetRequiredService<IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
+                    ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture"),
+                    "soap-answers", operation + ".xml") is { } canned
+            && File.Exists(canned))
+        {
+            return Results.Text(
+                await File.ReadAllTextAsync(canned, cancellation).ConfigureAwait(false), "text/xml; charset=utf-8");
+        }
+
         if (RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>()))
         {
             string directory = context.RequestServices.GetRequiredService<IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
@@ -88,6 +108,16 @@ internal static partial class PortalEndpoints
         Match body = Regex.Match(envelope, @"<(?:\w+:)?Body[^>]*>\s*<(?:\w+:)?(?<op>\w+)", RegexOptions.CultureInvariant);
         return body.Success ? body.Groups["op"].Value : null;
     }
+
+    /// <summary>The message formats this server reads and writes: SOAP only.</summary>
+    /// <remarks>
+    /// Two real servers answer <c>esriServiceCatalogMessageFormatSoapOrBin</c> (measured 2026-11-10). This one says
+    /// <c>…Soap</c>, because the binary format is not publicly documented and building it would be reproducing an
+    /// undocumented internal — CLAUDE.md §5. SOAP is the one Esri publishes a WSDL for.
+    /// </remarks>
+    private const string MessageFormatsAnswer =
+        "<tns:GetMessageFormatsResponse><MessageFormats>esriServiceCatalogMessageFormatSoap</MessageFormats>"
+        + "</tns:GetMessageFormatsResponse>";
 
     private static IResult Soap(string inner) =>
         Results.Text(SoapEnvelopeOpen + inner + SoapEnvelopeClose, "text/xml; charset=utf-8");
