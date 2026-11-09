@@ -240,9 +240,12 @@ measurable question. The two device claims are, so they are conditions and not a
    submissions the filter selects drawn over OpenStreetMap (the latest 2,000), a filter of one question — *is*, *is not*,
    *includes*, *contains*, *is at least*, *is at most* by how its answer is stored — and the dates it was sent between,
    which the count, the latest, the summary and the map all follow; and *Download every answer as* CSV, Excel, Shapefile,
-   file geodatabase, GeoPackage, GeoJSON or KML through ADR-107's export of every table the form publishes. **INFERRED, for
+   file geodatabase, GeoPackage, GeoJSON or KML through ADR-107's export of every table the form publishes. ~~**INFERRED, for
    the owner to confirm:** the export takes every answer whatever the filter shows, and says so beside the button —
-   ADR-107's export takes no filter, and a filtered export is a change to it rather than to the form.
+   ADR-107's export takes no filter, and a filtered export is a change to it rather than to the form.~~ **Answered by
+   the owner 2026-11-09: the export follows the filter** (*"Evet, süzgeç alsın"*). ADR-107 §5.6 gave the export a
+   `where`; with a filter on, the button says *Download these 4* — *Nothing to download* when none match — and the file
+   holds those submissions and, under them, their repeats' answers and no others.
 8. **A designer in Studio edits the model.** It is a visual editor for the common cases. Columns it does not edit are
    in the model and stay untouched, and it says so on screen when a form uses something it cannot edit. **There is
    one model, never a second one behind the designer**: the JSON and the workbook are two spellings of the same rows,
@@ -473,8 +476,10 @@ measurable question. The two device claims are, so they are conditions and not a
     with what was answered in it, renames nothing, gives every field its label as alias again, adds new choices to a list
     and keeps the old ones, and makes the answers view again — its columns are fixed when it is made (ADR-113 §3).
     Everything that would be refused is found first and listed together. **INFERRED, for the owner to confirm:** (a) a
-    question whose field exists with another type is refused, not converted; (b) the layer name (`form_id`) cannot change;
-    (c) a new repeat is refused — it needs a new table and a relationship inside a live service, not built; (d) a choice
+    question whose field exists with another type is refused, not converted — **confirmed by the owner 2026-11-09**; (b)
+    the layer name (`form_id`) cannot change; (c) ~~a new repeat is refused — it needs a new table and a relationship
+    inside a live service, not built~~ **reversed by the owner 2026-11-09: a new repeat is added** (*"Repeat
+    eklensin"*) — a new table and its relationship inside the live service, and the answers view made again with it; (d) a choice
     taken out of a list stays in the layer's domain, so an answer already given stays valid; (e) a longer text length in
     the form does not widen an existing column; (f) a renamed question is a new field, and the old one keeps its answers,
     as a question taken out does; (g) the answers view is dropped and made again, so for those seconds a submission is
@@ -498,8 +503,9 @@ measurable question. The two device claims are, so they are conditions and not a
     technology rather than half-offered to it. The library is OpenLayers, the one Studio draws with, served under
     `/forms/` and kept in the service worker's shell (`graticula-forms-shell-v2`), so a form opened offline still has its
     map — without its ground, since tiles are not kept. The forms' policy admits images from `tile.openstreetmap.org`
-    and nothing else from there. **INFERRED, for the owner to confirm:** (a) OpenStreetMap is the ground, as in Studio's
-    previews, and not a basemap the publisher chooses; (b) the map opens over Türkiye until a point is placed, rather
+    and nothing else from there. **INFERRED, for the owner to confirm:** (a) ~~OpenStreetMap is the ground, as in Studio's
+    previews, and not a basemap the publisher chooses~~ **reversed by the owner 2026-11-09: the publisher chooses the
+    ground** (*"Yayımlayan seçsin"*), as Survey123's form settings do — OpenStreetMap stays the default; (b) the map opens over Türkiye until a point is placed, rather
     than asking for the device's location on its own; (c) one finger scrolls the form and two move the map, and the wheel
     zooms only with Ctrl, so a map in a long form never traps the page; (d) §5.5's *its basemap kept on the device* is
     still not built — offline, the map shows the points on an empty ground. **After its UX review the same night:** a tap below street

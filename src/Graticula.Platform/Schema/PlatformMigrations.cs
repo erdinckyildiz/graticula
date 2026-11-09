@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(135);
+    public static SchemaVersion ComponentSchemaVersion => new(136);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -164,6 +164,7 @@ public static class PlatformMigrations
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
         AScenePackageAboveTheDocumentLimitIsAFileV134,
         AMobileWorkerIsAUserTypeV135,
+        AFeatureExportKeepsItsFiltersV136,
     ]);
 
     /// <summary>
@@ -175,6 +176,22 @@ public static class PlatformMigrations
     /// as a type it does not know, and an unknown type permits nothing (ADR-018 §3a), so the failure is a member with too
     /// little, never too much.
     /// </remarks>
+    /// <summary>
+    /// A feature export keeps the filters it was asked for, by layer id — ADR-107 §8, owner decision 2026-11-09.
+    /// </summary>
+    /// <remarks>
+    /// <b>The where clauses as they were written</b>, parsed again when the job runs, so a column dropped in between
+    /// fails the job with its reason rather than exporting rows the filter was meant to leave out. Null for an export of
+    /// every row, which every export before this one was. <b>Expand</b>: a node older than this never reads the column;
+    /// if such a node picks up a filtered job it exports every row, which is why the dev and showcase nodes are
+    /// upgraded together.
+    /// </remarks>
+    private static Migration AFeatureExportKeepsItsFiltersV136 => Migration.Expand(
+        new SchemaVersion(136),
+        "A feature export keeps the filters it was asked for (ADR-107 section 8).",
+
+        "alter table feature_export add column if not exists wheres jsonb");
+
     private static Migration AMobileWorkerIsAUserTypeV135 => Migration.Expand(
         new SchemaVersion(135),
         "A Mobile Worker user type, with the Contributor's ceiling (ADR-284).",

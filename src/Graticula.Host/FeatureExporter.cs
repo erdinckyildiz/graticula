@@ -90,6 +90,8 @@ internal sealed partial class FeatureExporter : BackgroundService
     private DateTimeOffset _swept = DateTimeOffset.MinValue;
     private DateTimeOffset _strays = DateTimeOffset.MinValue;
 
+    private readonly PostgresRelationshipCatalog _relationships;
+
     public FeatureExporter(
         IJobStore jobs,
         IFeatureExportStore exports,
@@ -100,8 +102,10 @@ internal sealed partial class FeatureExporter : BackgroundService
         IAuditLog audit,
         HostSettings settings,
         TimeProvider clock,
-        ILogger<FeatureExporter> log)
+        ILogger<FeatureExporter> log,
+        PostgresRelationshipCatalog relationships)
     {
+        _relationships = relationships;
         _jobs = jobs;
         _exports = exports;
         _signal = signal;
@@ -212,6 +216,7 @@ internal sealed partial class FeatureExporter : BackgroundService
     /// <param name="cap">The most rows one export may hold.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <param name="format">The format, whose width beside GeoJSON the estimate is scaled by.</param>
+    /// <param name="filtered">Each layer's rows when the export is filtered (ADR-107 §8); null for every row.</param>
     /// <returns>The counts and the estimate.</returns>
     /// <remarks>
     /// <b>The estimate is the size of the first <see cref="SampleRows"/> rows as staging, scaled to the count and
@@ -221,7 +226,7 @@ internal sealed partial class FeatureExporter : BackgroundService
     /// </remarks>
     internal static async Task<Weighed> WeighAsync(
         IReadOnlyList<PublishedLayer> layers, ServiceContexts contexts, long cap, CancellationToken cancellation,
-        FeatureExportFormat format = FeatureExportFormat.GeoJson)
+        FeatureExportFormat format = FeatureExportFormat.GeoJson, IReadOnlyList<ExportFilters.Rows>? filtered = null)
     {
         double width = FeatureExportPackaging.OutputWidth(format);
         List<long> counts = [];
@@ -233,7 +238,7 @@ internal sealed partial class FeatureExporter : BackgroundService
 
             // One past what is left, which is all that is needed to know it does not fit.
             long counted = await source
-                .CountUpToAsync(new FeatureQuery(1), Math.Max(1, cap - total + 1), cancellation)
+                .CountUpToAsync(new FeatureQuery(1, where: filtered?[counts.Count].Where), Math.Max(1, cap - total + 1), cancellation)
                 .ConfigureAwait(false);
 
             counts.Add(counted);
@@ -262,7 +267,8 @@ internal sealed partial class FeatureExporter : BackgroundService
             ByteCounter weighed = new();
 
             long sampled = await LayerExportRows.WriteGeoJsonAsync(
-                    weighed, source, described, layers[i], layers[i].Definition.Srid, SampleRows - 1, SampleRows, null, cancellation)
+                    weighed, source, described, layers[i], layers[i].Definition.Srid, SampleRows - 1, SampleRows, null, cancellation,
+                    filtered?[i].Where)
                 .ConfigureAwait(false);
 
             bytes += FeatureExportPackaging.EstimateBytes(weighed.Length, sampled, counts[i], width);
@@ -517,6 +523,18 @@ internal sealed partial class FeatureExporter : BackgroundService
             layers.Add(layer);
         }
 
+        // <b>The filters parsed again against the layers as they are now</b> (ADR-107 §8): a column dropped since the
+        // export was asked for fails it with the reason, rather than exporting what the filter was there to leave out.
+        (IReadOnlyList<ExportFilters.Rows>? filtered, string? filterError) = await ExportFilters.BuildAsync(
+            layers, state.Filters, _contexts, _relationships, working).ConfigureAwait(false);
+
+        if (filtered is null)
+        {
+            await FailAsync(job, $"{filterError} The layers changed after this export was asked for; ask again.", null, working)
+                .ConfigureAwait(false);
+            return;
+        }
+
         string directory = _settings.FeatureExportDirectory;
         Directory.CreateDirectory(directory);
 
@@ -571,7 +589,7 @@ internal sealed partial class FeatureExporter : BackgroundService
 
                     await using (FileStream file = File.Create(target))
                     {
-                        read = await LayerExportRows.WriteEsriJsonAsync(file, layer, source, described, allowed, working)
+                        read = await LayerExportRows.WriteEsriJsonAsync(file, layer, source, described, allowed, working, filtered[i].Where)
                             .ConfigureAwait(false);
                     }
 
@@ -586,7 +604,7 @@ internal sealed partial class FeatureExporter : BackgroundService
                         read = await LayerExportRows.WriteGeoJsonAsync(
                                 file, source, described, layer, layer.Definition.Srid, allowed, FeatureQuery.MaximumLimit,
                                 (count, token) => checkpoint.ReportAsync(before + count, FeatureExportPhase.Reading, token),
-                                working)
+                                working, filtered[i].Where)
                             .ConfigureAwait(false);
                     }
 
@@ -600,7 +618,8 @@ internal sealed partial class FeatureExporter : BackgroundService
                                 [.. described.Fields.Select(f => f.Name)],
                                 format is FeatureExportFormat.GeoPackage or FeatureExportFormat.FileGeodatabase
                                     ? DomainsOf(layer, [.. described.Fields.Select(f => f.Name)])
-                                    : null)
+                                    : null,
+                                layer.IsTable)
                             .ConfigureAwait(false);
                     }
 
@@ -676,7 +695,8 @@ internal sealed partial class FeatureExporter : BackgroundService
         Checkpoint checkpoint,
         CancellationToken working,
         IReadOnlyList<string>? fields = null,
-        object[]? domains = null)
+        object[]? domains = null,
+        bool table = false)
     {
         string output;
         bool append = false;
@@ -727,6 +747,7 @@ internal sealed partial class FeatureExporter : BackgroundService
                     layer = layerName,
                     append,
                     domains,
+                    table,
                 },
                 _settings.FeatureExportTimeout,
                 working).ConfigureAwait(false);

@@ -486,6 +486,124 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
     }
 
     /// <summary>
+    /// A filtered export takes the submissions the filter keeps and, under them, their repeats' rows and no others —
+    /// ADR-107 §8, owner decision 2026-11-09.
+    /// </summary>
+    [Fact]
+    public async Task A_filtered_export_takes_the_submissions_it_keeps_with_their_repeats_and_nothing_else()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential.");
+
+        string formId = "zz_form_" + Guid.NewGuid().ToString("N")[..8];
+        string? item = null;
+
+        try
+        {
+            (_, string addBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms", token!,
+                new JsonObject { ["title"] = "Süzülen " + formId, ["model"] = Model(formId) }.ToJsonString());
+            item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+            (HttpStatusCode published, string publication) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(published == HttpStatusCode.OK, $"Publishing answered {(int)published}: {publication}");
+            JsonElement layers = JsonDocument.Parse(publication).RootElement.GetProperty("layers");
+            string Url(string? repeat) => (repeat is null ? layers[0] : layers.EnumerateArray()
+                .First(l => l.TryGetProperty("repeat", out JsonElement r) && r.ValueKind == JsonValueKind.String && r.GetString() == repeat))
+                .GetProperty("url").GetString()!;
+            int Id(string url) => int.Parse(url[(url.LastIndexOf('/') + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+
+            // Two buildings, one heavily damaged, each with a floor and a room on it.
+            foreach (string damage in (string[])["agir", "yok"])
+            {
+                string building = Guid.NewGuid().ToString("B").ToUpperInvariant();
+                string floor = Guid.NewGuid().ToString("B").ToUpperInvariant();
+                await AddAsync(root, token!, Url(null), $$$"""
+                    [{"geometry":{"x":29.0,"y":41.0,"spatialReference":{"wkid":4326}},
+                      "attributes":{"globalid":"{{{building}}}","bina_adi":"{{{damage}}}","hasar":"{{{damage}}}"}}]
+                    """);
+                await AddAsync(root, token!, Url("katlar"), $$$"""
+                    [{"attributes":{"globalid":"{{{floor}}}","parentglobalid":"{{{building}}}","kat_no":1}}]
+                    """);
+                await AddAsync(root, token!, Url("odalar"), $$$"""
+                    [{"attributes":{"globalid":"{{{Guid.NewGuid().ToString("B").ToUpperInvariant()}}}","parentglobalid":"{{{floor}}}","oda":"{{{damage}}}"}}]
+                    """);
+            }
+
+            int top = Id(Url(null)), floors = Id(Url("katlar")), rooms = Id(Url("odalar")), trees = Id(Url("agaclar"));
+            string ask = JsonSerializer.Serialize(new
+            {
+                format = "geojson",
+                where = new Dictionary<string, string> { [top.ToString(System.Globalization.CultureInfo.InvariantCulture)] = "hasar = 'agir'" },
+            });
+
+            // The dry run counts what the filter keeps on each layer, and says which layer each repeat follows.
+            (HttpStatusCode dry, string dryBody) = await RequestAsync(HttpMethod.Post,
+                $"{root}/admin/services/{formId}/data-exports?folder=hosted&dryRun=true", token!, ask);
+            Assert.True(dry == HttpStatusCode.OK, $"The dry run answered {(int)dry}: {dryBody}");
+            Dictionary<int, JsonElement> counted = JsonDocument.Parse(dryBody).RootElement.GetProperty("layers").EnumerateArray()
+                .ToDictionary(l => l.GetProperty("id").GetInt32());
+            Assert.Equal(1, counted[top].GetProperty("rows").GetInt64());
+            Assert.Equal(1, counted[floors].GetProperty("rows").GetInt64());
+            Assert.Equal(1, counted[rooms].GetProperty("rows").GetInt64());
+            Assert.Equal(0, counted[trees].GetProperty("rows").GetInt64());
+            Assert.Equal(top, counted[floors].GetProperty("follows").GetInt32());
+            Assert.Equal(floors, counted[rooms].GetProperty("follows").GetInt32());
+
+            // The export itself: the file holds the heavy building, its floor and its room, and nothing of the other.
+            (HttpStatusCode started, string startBody) = await RequestAsync(HttpMethod.Post,
+                $"{root}/admin/services/{formId}/data-exports?folder=hosted", token!, ask);
+            Assert.True(started == HttpStatusCode.Accepted, $"Starting the export answered {(int)started}: {startBody}");
+            string watch = JsonDocument.Parse(startBody).RootElement.GetProperty("watch").GetString()!;
+            JsonElement done = default;
+
+            for (int i = 0; i < 120; i++)
+            {
+                (_, string state) = await RequestAsync(HttpMethod.Get, root + watch, token!, null);
+                done = JsonDocument.Parse(state).RootElement.Clone();
+                string status = done.GetProperty("status").GetString()!;
+                if (status is "done" or "failed" or "cancelled") break;
+                await Task.Delay(500);
+            }
+
+            Assert.True(done.GetProperty("status").GetString() == "done", $"The export did not finish: {done}");
+            Assert.Equal("hasar = 'agir'", done.GetProperty("where").GetProperty(top.ToString(System.Globalization.CultureInfo.InvariantCulture)).GetString());
+
+            using HttpRequestMessage fetch = new(HttpMethod.Get, root + done.GetProperty("download").GetString());
+            fetch.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage file = await Http.SendAsync(fetch);
+            Assert.Equal(HttpStatusCode.OK, file.StatusCode);
+            using System.IO.Compression.ZipArchive zip = new(new System.IO.MemoryStream(await file.Content.ReadAsByteArrayAsync()));
+            string all = string.Join("\n", zip.Entries.Select(e =>
+            {
+                using System.IO.StreamReader reader = new(e.Open());
+                return reader.ReadToEnd();
+            }));
+            Assert.Contains("\"agir\"", all, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"yok\"", all, StringComparison.Ordinal);
+
+            // A filter naming a column the layer does not have is refused with its reason, before anything starts.
+            (HttpStatusCode wrong, string wrongBody) = await RequestAsync(HttpMethod.Post,
+                $"{root}/admin/services/{formId}/data-exports?folder=hosted&dryRun=true", token!,
+                JsonSerializer.Serialize(new { format = "csv", where = new Dictionary<string, string> { [top.ToString(System.Globalization.CultureInfo.InvariantCulture)] = "nope = 1" } }));
+            Assert.Equal(HttpStatusCode.BadRequest, wrong);
+            Assert.Contains("could not be read", wrongBody, StringComparison.Ordinal);
+
+            await RequestAsync(HttpMethod.Delete, root + watch, token!, null);
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted&drop=true", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
+            await DeleteDomainsAsync(root, token!, formId);
+
+            if (item is not null)
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{item}", token!, null);
+            }
+        }
+    }
+
+    /// <summary>
     /// A form shared with a group is opened and answered by that group's members and by nobody else — ADR-287 §5.14.
     /// </summary>
     [Fact]

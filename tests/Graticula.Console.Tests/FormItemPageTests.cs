@@ -255,6 +255,9 @@ public sealed class FormItemPageTests : ConsoleTest
             await WaitForAsync("(document.getElementById('formResultCount')?.textContent || '').startsWith('0 of 1')"
                 + " && document.activeElement?.id === 'formResultCount'",
                 "Filtering for a choice nobody chose did not say 0 of 1 and put focus on the count.");
+            // A filtered download takes what the filter shows (ADR-107 §8): nothing here, so there is nothing to download.
+            Assert.Equal("Nothing to download", await Browser.EvaluateAsync<string>("document.getElementById('formExportGo').textContent.trim()"));
+            Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('formExportGo').getAttribute('aria-disabled')"));
             await ClickAsync("#formFilterClear");
             await WaitForAsync("(document.getElementById('formResultCount')?.textContent || '').startsWith('1 submission')",
                 "Clear did not bring every submission back.");

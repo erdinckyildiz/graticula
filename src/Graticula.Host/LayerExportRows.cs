@@ -43,6 +43,7 @@ internal static class LayerExportRows
     /// <param name="pageSize">Rows per query; <see cref="FeatureQuery.MaximumLimit"/> for a whole layer, fewer to sample.</param>
     /// <param name="progress">Told the running count after each page, or null.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="where">The rows a filtered export takes (ADR-107 §8); null for every row.</param>
     /// <returns>The rows written.</returns>
     /// <remarks>
     /// <b>CRS84 for WGS 84, so GDAL reads longitude first; the EPSG code otherwise.</b> The legacy <c>crs</c> member is
@@ -57,7 +58,8 @@ internal static class LayerExportRows
         long most,
         int pageSize,
         Func<long, CancellationToken, Task>? progress,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        ParsedWhere? where = null)
     {
         string identity = layer.Definition.IdentityColumn;
         long count = 0;
@@ -84,7 +86,7 @@ internal static class LayerExportRows
             int page = 0;
 
             await foreach (Feature feature in source.ReadAsync(
-                new FeatureQuery(pageSize, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid),
+                new FeatureQuery(pageSize, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid, where: where),
                 cancellation).ConfigureAwait(false))
             {
                 page++;
@@ -147,14 +149,15 @@ internal static class LayerExportRows
         IFeatureSource source,
         LayerDescription described,
         long most,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        ParsedWhere? where = null)
     {
         string identity = layer.Definition.IdentityColumn;
         int srid = layer.Definition.Srid;
         List<string> fields = [.. described.Fields.Select(f => f.Name)];
 
         FeatureQuery Page(int offset) =>
-            new(FeatureQuery.MaximumLimit, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid);
+            new(FeatureQuery.MaximumLimit, fields: fields, offset: offset, orderBy: [new SortKey(identity, false)], outSrid: srid, where: where);
 
         await using Utf8JsonWriter json = new(output);
 

@@ -36729,6 +36729,8 @@ async function drawFormResults() {
   const total = Number(count?.count) || 0;
   const everything = all ? Number(all.count) || 0 : total;
   const filtered = where !== "1=1";
+  // What the download takes: the submissions the filter keeps, each with its repeats' answers (ADR-107 §8).
+  f.exportWhere = filtered ? { layer: index, where } : null;
   const rows = latest?.features || [];
   const drawn = top.geometryType && formGeometryWord(top.geometryType) !== "table";
   const when = a => Number.isFinite(a?.created_date) ? imcWhen(a.created_date) : "";
@@ -36773,7 +36775,7 @@ async function drawFormResults() {
       : total === 1 ? "submission" : "submissions"}${everything
       ? ` · <a href="${dataPage}">Open all ${num(everything)} in Data</a>` : ""}</p>
     ${everything ? formFilterMarkup(filter, asked, f.form) : ""}
-    ${everything ? formExportMarkup(everything, filtered) : ""}
+    ${everything ? formExportMarkup(everything, filtered ? total : null) : ""}
     ${total && drawn ? `<div id="formMap" class="formmap" role="region" aria-label="${h(`${num(Math.min(total, FORM_MAP_LIMIT))} submissions on a map`)}"
         aria-describedby="formMapHow"></div>
       <p class="hint" id="formMapHow">Choose a point to see its answers. Zoom with Ctrl and the wheel, or with two fingers on a
@@ -36882,19 +36884,24 @@ function formFilterFollows(asked, form) {
 }
 
 /**
- * Download all the answers: the layer export (ADR-107) of every table the form publishes. The button names how many,
- * because the export takes no filter: with *4 of 12* on the screen, a button saying *Download* reads as the four.
+ * Download the answers: the layer export (ADR-107) of every table the form publishes, filtered as the screen is
+ * (§8, owner decision 2026-11-09). The button names how many, so *4 of 12* on the screen and the four in the file agree.
  */
-function formExportMarkup(everything, filtered) {
+function formExportMarkup(everything, matching) {
+  const filtered = matching !== null;
   return `<div class="formexport">
-    <label for="formExportFormat">Download every answer as</label>
+    <label for="formExportFormat">${filtered ? "Download the answers the filter shows as" : "Download every answer as"}</label>
     <select id="formExportFormat">
       <option value="csv">CSV</option><option value="xlsx">Excel workbook</option><option value="shapefile">Shapefile</option>
       <option value="fgdb">File geodatabase</option><option value="gpkg">GeoPackage</option><option value="geojson">GeoJSON</option>
       <option value="kml">KML</option>
     </select>
-    <button type="button" id="formExportGo" aria-describedby="formExportSays formExportWhat">Download all ${num(everything)}</button>
-    <p class="hint" id="formExportWhat">Every submission and every repeat's answers${filtered ? " — not only those the filter shows" : ""}.</p>
+    <button type="button" id="formExportGo" aria-describedby="formExportSays formExportWhat"${filtered && !matching ? ' aria-disabled="true"' : ""}>${
+      !filtered ? `Download all ${num(everything)}` : !matching ? "Nothing to download"
+        : `Download ${matching === 1 ? "this one" : `these ${num(matching)}`}`}</button>
+    <p class="hint" id="formExportWhat">${filtered
+      ? `The ${matching === 1 ? "submission" : "submissions"} the filter shows, with ${matching === 1 ? "its" : "their"} repeats' answers. Clear the filter to download all ${num(everything)}.`
+      : "Every submission and every repeat's answers."}</p>
     <p class="hint" id="formExportSays" role="status" aria-live="polite"></p>
   </div>`;
 }
@@ -36911,7 +36918,8 @@ async function formExport(button) {
   try {
     const started = await api(`/admin/services/${encodeURIComponent(pub.service)}/data-exports?folder=hosted`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ format: $("formExportFormat").value, layers }) });
+      body: JSON.stringify({ format: $("formExportFormat").value, layers,
+        ...(f.exportWhere ? { where: { [f.exportWhere.layer]: f.exportWhere.where } } : {}) }) });
     const watch = started?.watch;
     if (!watch) { says("The export started, and the server named no job to watch.", true); return; }
     for (;;) {
