@@ -63,9 +63,15 @@ internal static class Authorize
     /// <param name="context">The request.</param>
     /// <param name="privilege">What a refusal names when the caller's role is what is missing.</param>
     /// <param name="layer">The layer being written to.</param>
+    /// <param name="addsOnly">
+    /// Whether the request only adds. <b>ADR-287 §5.11 (l), INFERRED 2026-11-09:</b> a view whose capabilities include
+    /// <c>Create</c> takes new rows from anybody who can read it, which is what ADR-113 §6 said its add-only views did
+    /// and, measured, they did not. Updates and deletes keep the rule above; so does every write to a layer that is not
+    /// a view. Reading the view is already settled: <c>ServiceLookup</c> answers 404 for one the caller cannot read.
+    /// </param>
     /// <returns>Whether the caller may proceed; a refusal has been written when false.</returns>
     public static async Task<bool> RequireEditAsync(
-        HttpContext context, Privilege privilege, Graticula.Platform.Catalog.PublishedLayer layer)
+        HttpContext context, Privilege privilege, Graticula.Platform.Catalog.PublishedLayer layer, bool addsOnly = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layer);
@@ -77,6 +83,11 @@ internal static class Authorize
                 + "wiring bug, not an unauthenticated request.");
 
         if (EditRightOf(current, layer) != LayerAccess.EditRight.None)
+        {
+            return true;
+        }
+
+        if (addsOnly && AddsThroughView(layer))
         {
             return true;
         }
@@ -100,6 +111,14 @@ internal static class Authorize
 
         return false;
     }
+
+    /// <summary>
+    /// Whether a layer is a view that offers <c>Create</c> — the survey-style add-only view of ADR-113 and ADR-287.
+    /// </summary>
+    internal static bool AddsThroughView(Graticula.Platform.Catalog.PublishedLayer layer) =>
+        layer.ViewOf is not null
+        && layer.CapabilityCeiling is { } ceiling
+        && System.Linq.Enumerable.Contains(ceiling, "Create", StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The caller's right to write to a layer, from the request.</summary>
     /// <param name="current">The caller.</param>

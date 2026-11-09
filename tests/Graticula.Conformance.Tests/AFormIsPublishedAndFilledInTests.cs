@@ -190,6 +190,108 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
     }
 
     [Fact]
+    public async Task A_public_form_takes_answers_from_anyone_through_a_view_that_shows_none()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential.");
+
+        string formId = "zz_form_" + Guid.NewGuid().ToString("N")[..8];
+        string? item = null;
+
+        try
+        {
+            (_, string addBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms", token!,
+                new JsonObject { ["title"] = "Açık anket " + formId, ["model"] = Model(formId) }.ToJsonString());
+            item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+            (HttpStatusCode published, string publishBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(published == HttpStatusCode.OK, $"Publishing answered {(int)published}: {publishBody}");
+
+            (HttpStatusCode shared, string sharedBody) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!, """{"sharing":"public"}""");
+            Assert.True(shared == HttpStatusCode.OK, $"Sharing answered {(int)shared}: {sharedBody}");
+
+            using HttpRequestMessage open = new(HttpMethod.Get, $"{root}/forms/{item}/form.json");
+            using HttpResponseMessage opened = await Http.SendAsync(open);
+            string client = await opened.Content.ReadAsStringAsync();
+            Assert.True(opened.StatusCode == HttpStatusCode.OK, $"An anonymous read of a public form answered {(int)opened.StatusCode}: {client}");
+            JsonElement layers = JsonDocument.Parse(client).RootElement.GetProperty("publication").GetProperty("layers");
+            string top = layers[0].GetProperty("submitUrl").GetString()!;
+            string floors = layers.EnumerateArray().First(l => l.GetProperty("repeat").GetString() == "katlar").GetProperty("submitUrl").GetString()!;
+            Assert.EndsWith("_submit/FeatureServer/0", top, StringComparison.Ordinal);
+
+            string building = Guid.NewGuid().ToString("B").ToUpperInvariant();
+            int objectId = await AnonymousAddAsync(root, top, $$$"""
+                [{"geometry":{"x":32.85,"y":39.93,"spatialReference":{"wkid":4326}},"attributes":{"globalid":"{{{building}}}","bina_adi":"Anonim","hasar":"yok"}}]
+                """);
+            await AnonymousAddAsync(root, floors, $$$"""
+                [{"attributes":{"globalid":"{{{Guid.NewGuid().ToString("B").ToUpperInvariant()}}}","parentglobalid":"{{{building}}}","kat_no":1}}]
+                """);
+
+            using (MultipartFormDataContent photo = new())
+            {
+                photo.Add(new StringContent("json"), "f");
+                photo.Add(new StringContent("foto"), "keywords");
+                ByteArrayContent png = new([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]);
+                png.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                photo.Add(png, "attachment", "foto.png");
+                using HttpRequestMessage attach = new(HttpMethod.Post, $"{root}{top}/{objectId}/addAttachment") { Content = photo };
+                using HttpResponseMessage attached = await Http.SendAsync(attach);
+                string attachBody = await attached.Content.ReadAsStringAsync();
+                Assert.True(attached.StatusCode == HttpStatusCode.OK && attachBody.Contains("\"success\":true", StringComparison.Ordinal),
+                    $"An anonymous photo through the view answered {(int)attached.StatusCode}: {attachBody}");
+            }
+
+            using HttpRequestMessage peek = new(HttpMethod.Get, $"{root}{top}/query?where=1%3D1&outFields=*&f=json");
+            using HttpResponseMessage peeked = await Http.SendAsync(peek);
+            string peekBody = await peeked.Content.ReadAsStringAsync();
+            Assert.False(peeked.StatusCode == HttpStatusCode.OK && peekBody.Contains("Anonim", StringComparison.Ordinal),
+                $"The public view showed an answer: {peekBody}");
+
+            (HttpStatusCode owned, string ownBody) = await RequestAsync(HttpMethod.Get,
+                $"{root}{layers[0].GetProperty("url").GetString()}/query?where=1%3D1&outFields=bina_adi&f=json", token!, null);
+            Assert.True(owned == HttpStatusCode.OK && ownBody.Contains("Anonim", StringComparison.Ordinal), $"The owner's layer answered {(int)owned}: {ownBody}");
+
+            (HttpStatusCode closed, _) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!, """{"sharing":"private"}""");
+            Assert.Equal(HttpStatusCode.OK, closed);
+            using HttpRequestMessage gone = new(HttpMethod.Get, $"{root}/forms/{item}/form.json");
+            using HttpResponseMessage goneAnswer = await Http.SendAsync(gone);
+            Assert.NotEqual(HttpStatusCode.OK, goneAnswer.StatusCode);
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
+            await DeleteDomainsAsync(root, token!, formId);
+
+            if (item is not null)
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{item}", token!, null);
+            }
+        }
+    }
+
+    private async Task<int> AnonymousAddAsync(string root, string layerUrl, string adds)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{root}{layerUrl}/applyEdits")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["f"] = "json",
+                ["adds"] = adds,
+                ["useGlobalIds"] = "true",
+                ["rollbackOnFailure"] = "true",
+            }),
+        };
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
+
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"An anonymous applyEdits on {layerUrl} answered {(int)response.StatusCode}: {body}");
+        JsonElement result = JsonDocument.Parse(body).RootElement.GetProperty("addResults")[0];
+        Assert.True(result.GetProperty("success").GetBoolean(), $"An anonymous applyEdits on {layerUrl} did not add: {body}");
+        return result.GetProperty("objectId").GetInt32();
+    }
+
+    [Fact]
     public async Task A_form_off_the_list_is_refused_with_its_rows_and_nothing_is_kept()
     {
         string root = await RequireServerAsync();

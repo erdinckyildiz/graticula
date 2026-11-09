@@ -664,7 +664,7 @@ internal static class AttachmentEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation)
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation, adding: true)
                 .ConfigureAwait(false) is not { } store)
         {
             return;
@@ -908,7 +908,8 @@ internal static class AttachmentEndpoints
         CatalogFallback catalog,
         LayerConnections connections,
         bool write,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool adding = false)
     {
         // Folder, then sharing, then status — through the one resolver, so this
         // surface cannot drift from the query endpoint's answers.
@@ -923,7 +924,7 @@ internal static class AttachmentEndpoints
 
         // <b>Whose layer it is — ADR-075.</b> This asked for the privilege alone, so an attachment
         // could be added to any layer the caller could read; it asks what every other write asks.
-        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
+        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: adding)
                 .ConfigureAwait(false))
         {
             return null;
@@ -973,6 +974,18 @@ internal static class AttachmentEndpoints
                 + $"POST /admin/layers/{layer.Definition.Name}/attachments, choosing beside its table or in the datastore "
                 + "(ADR-207).").ConfigureAwait(false);
             return null;
+        }
+
+        // <b>A view's attachments are its source layer's — ADR-113, measured 2026-11-09.</b> A view is a PostgreSQL view,
+        // and the companion table cannot hold a foreign key to one: the first photograph added through a survey view
+        // answered 500, "referenced relation … is not a table". The source's table holds the rows, so it holds their
+        // attachments, and its foreign key still refuses one for a feature that is not there.
+        // ViewOf names the source service; a view's layers keep their source's indexes (ADR-113).
+        if (layer.ViewOf is { } source
+            && (await context.RequestServices.GetRequiredService<PostgresLayerCatalog>().ListAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(l => l.ServiceId == source && l.LayerIndex == layer.LayerIndex) is { } underlying)
+        {
+            return connections.AttachmentsFor(underlying);
         }
 
         return connections.AttachmentsFor(layer);

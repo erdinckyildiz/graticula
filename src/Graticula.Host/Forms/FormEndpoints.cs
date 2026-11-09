@@ -60,6 +60,7 @@ public static class FormEndpoints
         app.MapPost("/admin/forms/{id}/check", CheckUploadAsync).DisableAntiforgery();
         app.MapGet("/admin/forms/{id}/workbook", WorkbookAsync);
         app.MapPost("/admin/forms/{id}/publish", PublishAsync);
+        app.MapPut("/admin/forms/{id}/sharing", ShareAsync);
         app.MapGet("/forms/{id}/form.json", ClientAsync);
     }
 
@@ -507,6 +508,106 @@ public static class FormEndpoints
                 })]),
             };
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- sharing
+
+    /// <summary>A form's sharing: who may open it, and where their answers go.</summary>
+    /// <param name="Sharing"><c>private</c>, <c>organization</c> or <c>public</c>.</param>
+    internal sealed record FormSharingRequest(string? Sharing);
+
+    /// <summary>
+    /// Shares a form, and with it a view of its layers that takes new records and nothing else — ADR-287 §5.1, ADR-113.
+    /// </summary>
+    /// <remarks>
+    /// <b>Survey123's arrangement.</b> The layers stay their publisher's; the people the form is shared with answer
+    /// through a view whose only capability is <c>Create</c>, shared as the form is, so a public survey takes answers
+    /// from anyone and shows nobody the answers. Each layer of the publication gains its <c>submitUrl</c> in that view;
+    /// the client sends there when it has one. A private form has no view to send through, and its owner writes to the
+    /// layers. Taking a form back to private takes its view back to private too.
+    /// </remarks>
+    private static async Task<IResult> ShareAsync(HttpContext context, string id, FormSharingRequest request, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        SharingScope scope = request.Sharing?.ToLowerInvariant() switch
+        {
+            "private" => SharingScope.Private,
+            "organization" => SharingScope.Organization,
+            "public" => SharingScope.Public,
+            _ => (SharingScope)(-1),
+        };
+
+        if (!Enum.IsDefined(scope))
+        {
+            return Error(400, "A form is shared as 'private', 'organization' or 'public'.");
+        }
+
+        if (scope == SharingScope.Public && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic).ConfigureAwait(false))
+        {
+            return Results.Empty;
+        }
+
+        if (await ManagedFormAsync(context, id, "share", cancellation).ConfigureAwait(false) is not ({ } document, _))
+        {
+            return Missing(id);
+        }
+
+        IServiceProvider services = context.RequestServices;
+        JsonObject? publication = (await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false)) as JsonObject;
+        string word = scope.ToString().ToLowerInvariant();
+
+        if (publication is not null)
+        {
+            string service = (string?)publication["service"] ?? string.Empty;
+            string view = (string?)publication["submitService"] ?? $"{service}_submit";
+            bool exists = publication["submitService"] is not null;
+            (int status, string? message) = (200, null);
+
+            if (!exists && scope != SharingScope.Private)
+            {
+                AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], word);
+                (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
+                    context, service, FeatureServerMetadataWriter.HostedFolder, asked,
+                    services.GetRequiredService<IAdminCatalog>(), services.GetRequiredService<PostgresLayerCatalog>(),
+                    services.GetRequiredService<PostGisImporter>(), services.GetRequiredService<ServiceContexts>(),
+                    services.GetRequiredService<IAuditLog>(), cancellation)).ConfigureAwait(false);
+            }
+            else if (exists)
+            {
+                (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.SetServiceSharingAsync(
+                    context, view, FeatureServerMetadataWriter.HostedFolder, new SharingRequest(word),
+                    services.GetRequiredService<PostgresSystemServices>(), services.GetRequiredService<IAdminCatalog>(),
+                    services.GetRequiredService<IAuditLog>(), services.GetRequiredService<PostgresLayerCatalog>(), cancellation))
+                    .ConfigureAwait(false);
+            }
+
+            if (status is < 200 or >= 300)
+            {
+                return Error(status, $"The form's answers could not be opened to '{word}': {message ?? "no reason given"}. Its sharing was not changed.");
+            }
+
+            if (!exists && scope != SharingScope.Private)
+            {
+                publication["submitService"] = view;
+
+                foreach (JsonNode? layer in publication["layers"] as JsonArray ?? [])
+                {
+                    string url = (string?)layer?["url"] ?? string.Empty;
+                    string index = url[(url.LastIndexOf('/') + 1)..];
+                    layer!["submitUrl"] = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{view}/FeatureServer/{index}";
+                }
+
+                await services.GetRequiredService<IItemResourceStore>().WriteAsync(Guid.Parse(document.Id), PublicationResource, "application/json",
+                    Encoding.UTF8.GetBytes(publication.ToJsonString()), "inherit", replace: true, 100L * 1024 * 1024, cancellation).ConfigureAwait(false);
+            }
+        }
+
+        await services.GetRequiredService<IDocumentStore>().UpdateAsync(document.Id, document.Title, document.Snippet, scope, cancellation)
+            .ConfigureAwait(false);
+        await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.share", document.Id,
+            AdminEndpoints.Detail(new { sharing = word, view = (string?)publication?["submitService"] }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        return Results.Json(new { id = document.Id, sharing = word, publication });
     }
 
     // ------------------------------------------------------------------------------------------------------ the client

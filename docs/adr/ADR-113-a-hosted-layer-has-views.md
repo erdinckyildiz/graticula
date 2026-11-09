@@ -115,6 +115,11 @@ source's views and links a view to its source; *Create view* is on the source's 
 
 **Positive.** Every face obeys the filter because the database does. Survey-style *add only* public views work.
 
+> **Not true until 2026-11-09, and made true then by [ADR-287](ADR-287-a-form-is-an-xlsform-filled-online-or-off.md) §5.11 (l), INFERRED.**
+> Measured that night: an anonymous add through a public Create-only view was refused with 401, because
+> [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md)'s owner rule was asked before anything about views. A view offering
+> `Create` now takes adds from anybody who can read it; updates and deletes keep ADR-075's rule.
+
 **Negative.** A view's history and feature-level history reads are not offered (the history table is the source's).
 A new source field needs the view remade to appear.
 

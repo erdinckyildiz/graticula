@@ -5425,7 +5425,7 @@ internal static partial class AdminEndpoints
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async Task SetServiceSharingAsync(
+    internal static async Task SetServiceSharingAsync(
         HttpContext context,
         string name,
         string? folder,

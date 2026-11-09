@@ -400,6 +400,27 @@ measurable question. The two device claims are, so they are conditions and not a
       transaction, where `applyEdits` writes, or two writers a moment apart can still lose one edit silently, which
       is the one thing §5.6 forbids. Checking it in the client before sending leaves exactly that window. The Inbox's
       offline editing therefore waits for it; adding new records offline does not, because an add cannot conflict.
+    - (l) **A form shared to the organization or to everyone takes answers through a view that only adds**
+      (`PUT /admin/forms/{id}/sharing`): the first share makes `{service}_submit`, Create only, shared as the form is,
+      and gives each layer of the publication its `submitUrl`; going back to private takes the view back to private.
+      **And a view whose capabilities include `Create` now takes new rows from anybody who can read it** — adds only,
+      through `applyEdits` and `addAttachment`; updates and deletes keep [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md)'s
+      rule, and so does every write to a layer that is not a view. This is a change to who may write, made overnight.
+      [ADR-113](ADR-113-a-hosted-layer-has-views.md) §6 said *"Survey-style add only public views work"*; measured
+      2026-11-09, an anonymous add through such a view was refused with 401, because ADR-075's owner rule was asked
+      first and views were never excepted. Without the exception no public survey can exist. **It is the first thing to
+      confirm in the morning.**
+    - (m) **The form client** (`/forms/{id}`, `wwwroot/forms/fill.*`, a service worker scoped to `/forms/`) made these
+      readings: **no credential is kept at rest** — a queued record is sent with the session's token, or one traded for
+      the persistent session cookie as the map viewer does, and otherwise waits marked *sign in*, so a lost phone
+      carries nothing that signs in; every submission passes through the device's outbox, and one the server refuses
+      before accepting any part leaves it with the form still filled in, while a partly accepted one stays, marked; a
+      repeat without `repeat_count` starts with one instance; a `date` is midnight on the device's calendar and a `time`
+      is stored as text with its offset; an answer a choice filter stops offering is cleared; past `accuracyThreshold`
+      a captured position blocks submission and a typed one does not; the page's own words are English while the
+      form's labels follow the chosen language; a GlobalID added twice is refused with 400 and rolled back, which the
+      client reads as *already arrived*, looks the row up and sends the rest; the page is served from the cache and
+      refreshed behind, `form.json` from the network first. Geotrace and geoshape are captured as vertices, with no map.
 
 ## 6. Consequences
 

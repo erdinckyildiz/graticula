@@ -5824,7 +5824,7 @@ public static class Program
         // own features (ADR-064); none of it asked whose layer this was. Owner, administrator or a
         // shared-update group now, and one question for all three kinds of edit.
         if ((adds is not null || updates is not null || deletes is not null)
-            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
+            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: updates is null && deletes is null)
                 .ConfigureAwait(false))
         {
             return null;
