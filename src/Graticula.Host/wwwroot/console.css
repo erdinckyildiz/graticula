@@ -8041,3 +8041,16 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .formexport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
 .formexport .hint { flex-basis: 100%; margin: 0; }
 .formmap { height: 320px; border: 1px solid var(--rule); border-radius: 6px; margin: 0 0 12px; }
+.formmapcard:not(:empty) { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; margin: -4px 0 12px; }
+.formmapcard h6 { margin: 0 0 6px; }
+.formbar { background: var(--rule-strong); }
+@media (max-width: 600px) {
+  .formfilterrow { flex-direction: column; align-items: stretch; }
+  .formfilterrow > * { width: 100%; box-sizing: border-box; }
+}
+.fdlive { border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.fdlive p { margin: 0; }
+.fdnew { color: var(--warn); font-weight: 600; }
+.formpct { margin-left: 6px; }
+.formchoices td:has(.formbar) { display: flex; align-items: center; gap: 6px; }
+.formchoices td:has(.formbar) .formbar { flex: 1; }

@@ -158,7 +158,7 @@ public sealed class FormItemPageTests : ConsoleTest
             (int saved, string savedBody) = await AdminAsync(HttpMethod.Put, $"/admin/forms/{item}/model", model.ToJsonString());
             Assert.True(saved == 200, $"Saving the draft answered {saved}: {savedBody}");
             await OpenAsync($"/studio/#/item/{item}", token, cookie);
-            await WaitForAsync(Shown("#formPublishOpen") + " && (document.getElementById('formStatus')?.textContent || '').includes('changed since')",
+            await WaitForAsync(Shown("#formPublishOpen") + " && (document.getElementById('formStatus')?.textContent || '').includes('draft changes not yet published')",
                 "A form changed since it was published does not say so or offer Publish again.");
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/forms/'], true)");
             await ClickAsync("#formPublishOpen");
@@ -257,6 +257,7 @@ public sealed class FormItemPageTests : ConsoleTest
 
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/data-exports'], true)");
             await Browser.EvaluateAsync<bool>("(document.getElementById('formExportFormat').value = 'csv', true)");
+            Assert.Equal("Download all 1", await Browser.EvaluateAsync<string>("document.getElementById('formExportGo').textContent.trim()"));
             await ClickAsync("#formExportGo");
             await WaitForAsync("window.__writes.some(w => w.includes('/admin/services/" + formId + "/data-exports'))"
                 + " && /Downloading|Writing|Waiting/.test(document.getElementById('formExportSays').textContent)",

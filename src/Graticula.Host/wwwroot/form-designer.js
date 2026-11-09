@@ -412,6 +412,8 @@ async function showFormDesigner(id) {
     published: false,
     live: !!read.publication,
     changedSincePublished: !!read.changedSincePublished,
+    // The questions the published version asks, so a question added since can say it is not live yet.
+    publishedNames: new Set((read.publication?.layers || []).flatMap(l => Object.keys(l.columns || {}))),
     model: JSON.parse(kept || JSON.stringify(read.model)),
     dirty: !!kept,
     selected: null,
@@ -448,6 +450,11 @@ function fdDrawBar() {
   const save = $("fdSave");
   save.disabled = fdState.published || !fdState.dirty;
   save.setAttribute("aria-describedby", "fdState");
+  // Publish from the designer, as Survey123's top bar has it: the form's page shows what it does before anything is done.
+  const publish = $("fdPublish");
+  publish.hidden = false;
+  publish.textContent = fdState.live ? "Publish again…" : "Publish…";
+  publish.disabled = fdState.dirty || (fdState.live && !fdState.changedSincePublished);
   // Written only when it changes: a status region rewritten on every keystroke is read out on every keystroke.
   const said = fdState.dirty ? "Unsaved changes" : fdState.live && fdState.changedSincePublished ? "Saved — publish again to go live" : "Saved";
   if ($("fdState").textContent !== said) $("fdState").textContent = said;
@@ -463,9 +470,12 @@ function fdDrawNotices() {
   });
   const sheets = fdState.model.sheets.map(s => s.name).filter(n => !["survey", "choices", "settings"].includes(String(n).toLowerCase()));
   const parts = [];
-  const live = fdState.live ? `<p><b>This form is published.</b> Changes saved here are a draft: the people filling it in
-    get them when it is published again on the form's page. A new question becomes a new field; a question taken out keeps
-    its field and its answers; a question's type and the layer name cannot change.</p>` : "";
+  // Its own box, apart from the columns note: one is how saving works here, the other is what the designer leaves alone.
+  $("fdLive").hidden = !fdState.live;
+  $("fdLive").innerHTML = fdState.live ? `<p><b>This form is published.</b> Changes saved here are a draft: the people
+    filling it in get them when it is published again. A new question becomes a new field; a question taken out keeps its
+    field and its answers; a question's type and the layer name cannot change.</p>` : "";
+  const live = "";
   if (unedited.size) parts.push(`the columns ${[...unedited].map(c => `<code>${h(c)}</code>`).join(", ")}`);
   if (sheets.length) parts.push(`the sheets ${sheets.map(s => `<code>${h(s)}</code>`).join(", ")}`);
   const box = $("fdNotices");
@@ -520,7 +530,8 @@ function fdDrawCanvas() {
           ${hint ? `<span class="fdqhint">${h(hint)}</span>` : ""}
           ${shown.length ? `<span class="fdqchoices">${shown.map(c => `<span class="fdqchoice">${h(c)}</span>`).join("")}${
             options.length > shown.length ? `<span class="fdqmore">and ${options.length - shown.length} more</span>` : ""}</span>` : ""}
-          <span class="fdqname"><code>${h(name || "—")}</code>${shownWhen ? ` · <span class="fdrule">shown when a rule holds</span>` : ""}${
+          <span class="fdqname"><code>${h(name || "—")}</code>${fdState.live && node.kind === "question" && name && !fdState.publishedNames.has(name)
+            && !["note", "begin group", "begin repeat"].includes(base) ? ` · <span class="fdnew">new, not published</span>` : ""}${shownWhen ? ` · <span class="fdrule">shown when a rule holds</span>` : ""}${
             flagged ? ` · <span class="fdflag">needs a change</span>` : ""}</span>
         </button>
         ${fdState.published || !selected ? "" : `<span class="fdqacts">
@@ -1130,6 +1141,7 @@ document.addEventListener("click", event => {
   if (!t) return;
 
   if (t.id === "fdSave") { fdSave(); return; }
+  if (t.id === "fdPublish") { formPublishOnOpen = true; navigateTo(`#/item/${encodeURIComponent(fdState.id)}`); return; }
   if (t.id === "fdUndo" && fdState.undo) {
     fdState.model = JSON.parse(fdState.undo.model);
     const { said, at } = fdState.undo;

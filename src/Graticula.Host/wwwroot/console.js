@@ -36459,6 +36459,9 @@ async function drawDocForm(doc) {
   drawFormResults();
 }
 
+/** Set by the designer's Publish: the form's page opens what publishing does as soon as it is drawn. */
+let formPublishOnOpen = false;
+
 /** The Form panel: questions, sharing, published or not and to what, the check's notes, and Publish. */
 function drawFormState() {
   const f = formHere;
@@ -36481,7 +36484,7 @@ function drawFormState() {
         ? ` <span class="hint">in ${num(tables)} tables</span>` : ""}</dd>
       <dt>Sharing</dt><dd>${pill(f.read.sharing || "private")}</dd>
       <dt>Status</dt><dd id="formStatus">${pub ? `Published${pub.publishedAt ? ` ${h(day(pub.publishedAt))}` : ""}${
-        f.read.changedSincePublished ? " — changed since" : ""}` : "Not published"}</dd>
+        f.read.changedSincePublished ? " · draft changes not yet published" : ""}` : "Not published"}</dd>
       ${pub ? `<dt>Service</dt><dd><a id="formServiceLink" href="${servicePage(pub.service, "hosted")}">${h(pub.service)}</a></dd>
         <dt>Layers</dt><dd><ul class="formlayers">${(pub.layers || []).map(layerRow).join("")}</ul></dd>
         ${pub.submitService ? `<dt>Answers arrive through</dt><dd><a href="${servicePage(pub.submitService, "hosted")}">${
@@ -36504,6 +36507,10 @@ function drawFormState() {
     <div id="formPlan" hidden></div>`;
   box.hidden = false;
   if (had && $(had) && box.contains($(had))) $(had).focus();
+  if (formPublishOnOpen && $("formPublishOpen")) {
+    formPublishOnOpen = false;
+    formShowPlan($("formPublishOpen"));
+  }
 }
 
 /** Publish…: the plan `/check` works out — layers, fields, choice lists — shown for confirming before anything is made. */
@@ -36755,19 +36762,23 @@ async function drawFormResults() {
       <table class="formchoices"><thead><tr><th scope="col">Choice</th><th scope="col" class="num">Answers</th><th scope="col"><span class="sr-only">Proportion</span></th></tr></thead>
       <tbody>${[...counts].map(([name, n]) => `<tr><td>${h(labels.get(name) || name)}</td><td class="num">${num(n)}</td>
         <td><div class="formbar" role="img" aria-label="${h(labels.get(name) || name)}: ${num(n)} of ${num(total)}"><div class="formbarfill"
-          style="width: ${total ? Math.round(1000 * n / total) / 10 : 0}%"></div></div></td></tr>`).join("")}
+          style="width: ${total ? Math.round(1000 * n / total) / 10 : 0}%"></div></div>${
+          total ? `<span class="hint formpct">${Math.round(100 * n / total)}%</span>` : ""}</td></tr>`).join("")}
         ${unanswered ? `<tr><td class="hint">Not answered</td><td class="num">${num(unanswered)}</td><td></td></tr>` : ""}</tbody></table></section>`;
   };
 
   box.innerHTML = `
     <h4 id="formResultsHead">Results</h4>
-    <p id="formResultCount" role="status"><b>${num(total)}</b> ${filtered ? `of ${num(everything)} ${everything === 1 ? "submission matches" : "submissions match"} the filter`
+    <p id="formResultCount"><b>${num(total)}</b> ${filtered ? `of ${num(everything)} ${everything === 1 ? "submission matches" : "submissions match"} the filter`
       : total === 1 ? "submission" : "submissions"}${everything
-      ? ` · <a href="${dataPage}">All of them in the layer's data</a>` : ""}</p>
+      ? ` · <a href="${dataPage}">Open all ${num(everything)} in Data</a>` : ""}</p>
     ${everything ? formFilterMarkup(filter, asked, f.form) : ""}
-    ${everything ? formExportMarkup() : ""}
-    ${total && drawn ? `<div id="formMap" class="formmap" role="region" aria-label="${h(`${num(Math.min(total, FORM_MAP_LIMIT))} submissions on a map`)}"></div>
-      ${total > FORM_MAP_LIMIT ? `<p class="hint">The map shows the latest ${num(FORM_MAP_LIMIT)}.</p>` : ""}` : ""}
+    ${everything ? formExportMarkup(everything, filtered) : ""}
+    ${total && drawn ? `<div id="formMap" class="formmap" role="region" aria-label="${h(`${num(Math.min(total, FORM_MAP_LIMIT))} submissions on a map`)}"
+        aria-describedby="formMapHow"></div>
+      <p class="hint" id="formMapHow">Choose a point to see its answers. Zoom with Ctrl and the wheel, or with two fingers on a
+        phone.${total > FORM_MAP_LIMIT ? ` The map shows the latest ${num(FORM_MAP_LIMIT)}.` : ""}</p>
+      <div id="formMapCard" class="formmapcard" role="status" aria-live="polite"></div>` : ""}
     ${total === 0 ? `<p class="hint">${filtered ? "No submission matches the filter." : "No answers yet. When someone sends the form, the latest appear here with a summary per question."}</p>` : `
       <h5>Latest submissions</h5>
       <div class="widetable" tabindex="0" role="region" aria-label="Latest submissions"><table class="formresults" id="formLatest">
@@ -36858,17 +36869,22 @@ function formFilterFollows(asked, form) {
   const filter = formHere?.filter || {};
   const ops = formFilterOps(q);
   $("formFilterOp").innerHTML = ops.map(([v, w]) => `<option value="${h(v)}"${v === filter.op ? " selected" : ""}>${h(w)}</option>`).join("");
-  $("formFilterOp").disabled = !q;
+  // Nothing to compare until a question is chosen: the two boxes are not shown empty and dead.
+  $("formFilterOp").hidden = !q;
+  $("formFilterValue").hidden = !q;
   const kept = q && q.name === filter.q ? String(filter.v ?? "") : "";
-  $("formFilterValue").innerHTML = !q ? `<label class="sr-only" for="formFilterV">Value</label><input type="text" id="formFilterV" disabled>`
+  $("formFilterValue").innerHTML = !q ? ""
     : FORM_CHOICE_TYPES.has(q.type)
       ? `<label class="sr-only" for="formFilterV">Choice</label><select id="formFilterV">${[...formChoiceLabels(form, q.list)].map(([name, label]) =>
         `<option value="${h(name)}"${name === kept ? " selected" : ""}>${h(label)}</option>`).join("")}</select>`
       : `<label class="sr-only" for="formFilterV">Value</label><input type="${FORM_NUMBER_TYPES.has(q.type) ? "number" : "text"}" id="formFilterV" value="${h(kept)}">`;
 }
 
-/** Download all the answers: the layer export (ADR-107) of every table the form publishes. */
-function formExportMarkup() {
+/**
+ * Download all the answers: the layer export (ADR-107) of every table the form publishes. The button names how many,
+ * because the export takes no filter: with *4 of 12* on the screen, a button saying *Download* reads as the four.
+ */
+function formExportMarkup(everything, filtered) {
   return `<div class="formexport">
     <label for="formExportFormat">Download every answer as</label>
     <select id="formExportFormat">
@@ -36876,8 +36892,8 @@ function formExportMarkup() {
       <option value="fgdb">File geodatabase</option><option value="gpkg">GeoPackage</option><option value="geojson">GeoJSON</option>
       <option value="kml">KML</option>
     </select>
-    <button type="button" id="formExportGo" aria-describedby="formExportSays formExportWhat">Download</button>
-    <p class="hint" id="formExportWhat">Every submission and every repeat's answers, whatever the filter shows.</p>
+    <button type="button" id="formExportGo" aria-describedby="formExportSays formExportWhat">Download all ${num(everything)}</button>
+    <p class="hint" id="formExportWhat">Every submission and every repeat's answers${filtered ? " — not only those the filter shows" : ""}.</p>
     <p class="hint" id="formExportSays" role="status" aria-live="polite"></p>
   </div>`;
 }
@@ -36936,25 +36952,88 @@ async function formDrawMap(url, where) {
   const source = new ol.source.Vector({
     features: new ol.format.GeoJSON().readFeatures(answer, { dataProjection: "EPSG:3857", featureProjection: "EPSG:3857" }),
   });
-  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#1565d8";
-  const style = new ol.style.Style({
-    image: new ol.style.Circle({ radius: 6, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: "#fff", width: 2 }) }),
-    stroke: new ol.style.Stroke({ color: accent, width: 2 }),
-    fill: new ol.style.Fill({ color: "rgba(21,101,216,0.15)" }),
+  const tokens = getComputedStyle(document.documentElement);
+  const accent = tokens.getPropertyValue("--accent").trim() || "#1565d8";
+  const ring = tokens.getPropertyValue("--surface").trim() || "#fff";
+  const tint = accent.startsWith("#") && accent.length === 7 ? `${accent}26` : accent;
+  const styleOf = chosen => new ol.style.Style({
+    image: new ol.style.Circle({ radius: chosen ? 9 : 6, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: ring, width: chosen ? 3 : 2 }) }),
+    stroke: new ol.style.Stroke({ color: accent, width: chosen ? 4 : 2 }),
+    fill: new ol.style.Fill({ color: tint }),
   });
+  const plain = styleOf(false);
+  const picked = styleOf(true);
+  let chosen = null;
+  const layer = new ol.layer.Vector({ source, style: one => (one === chosen ? picked : plain) });
+
+  // The page scrolls under the map: the wheel zooms only with Ctrl (⌘ on a Mac), and a finger drags the map only in pairs.
+  const interactions = ol.interaction.defaults.defaults({ mouseWheelZoom: false, dragPan: false });
+  interactions.push(new ol.interaction.MouseWheelZoom({ condition: ol.events.condition.platformModifierKeyOnly }));
+  interactions.push(new ol.interaction.DragPan({
+    condition(event) { return event.originalEvent.pointerType !== "touch" || this.getPointerCount() === 2; },
+  }));
+
   formMap?.setTarget(null);
   formMap = new ol.Map({
     target: box,
-    layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), new ol.layer.Vector({ source, style })],
+    layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), layer],
     view: new ol.View({ center: [3350000, 4700000], zoom: 5 }),
-    controls: [new ol.control.Zoom()],
+    controls: [new ol.control.Zoom({ zoomInTipLabel: "Zoom in", zoomOutTipLabel: "Zoom out" })],
+    interactions,
   });
+  for (const [selector, name] of [[".ol-zoom-in", "Zoom in"], [".ol-zoom-out", "Zoom out"]]) box.querySelector(selector)?.setAttribute("aria-label", name);
   if (source.getFeatures().length) formMap.getView().fit(source.getExtent(), { padding: [30, 30, 30, 30], maxZoom: 17 });
+
+  // A point chosen shows its answers under the map, as Survey123's Data tab opens a record from its map.
+  formMap.on("singleclick", async event => {
+    const hit = formMap.forEachFeatureAtPixel(event.pixel, one => one, { hitTolerance: 6 });
+    chosen = hit || null;
+    layer.changed();
+    const card = $("formMapCard");
+    if (!card) return;
+    if (!hit) { card.innerHTML = ""; return; }
+    card.innerHTML = `<p class="hint">Reading that submission…</p>`;
+    await formMapCard(url, hit.getId() ?? hit.get("objectid"));
+  });
+}
+
+/** The answers of one submission under the map: when it was sent and what it says, by the form's own labels. */
+async function formMapCard(url, objectId) {
+  const f = formHere;
+  const card = $("formMapCard");
+  const top = (f?.read.publication?.layers || []).find(l => !l.repeat);
+  if (!card || !top || objectId === undefined || objectId === null) return;
+  let answer;
+  try {
+    answer = await api(`${url}/query?${new URLSearchParams({ f: "json", objectIds: String(objectId), outFields: "*", returnGeometry: "false" })}`);
+  } catch (e) {
+    card.innerHTML = `<p class="bad-inline">${h(lowerFirst(e.message || String(e)))}</p>`;
+    return;
+  }
+  const a = answer?.features?.[0]?.attributes;
+  if (!a || formHere !== f) return;
+  const asked = formQuestions(f.form).filter(q => !q.repeat && top.columns?.[q.name] && !FORM_NOT_ANSWERS.has(q.type)
+    && formLabel(q.labels, f.form, ""));
+  const facts = asked.map(q => [formLabel(q.labels, f.form, q.name), formValueShown(q, a[top.columns[q.name]], f.form)])
+    .filter(([, v]) => v !== "");
+  card.innerHTML = `<h6>Sent ${h(Number.isFinite(a.created_date) ? imcWhen(a.created_date) : "")}</h6>
+    <dl class="facts2">${facts.map(([k, v]) => `<dt>${h(k)}</dt><dd>${h(v)}</dd>`).join("")}</dl>`;
 }
 
 document.addEventListener("submit", event => {
   if (event.target?.id !== "formFilter" || !formHere) return;
   event.preventDefault();
+  const from = $("formFilterFrom").value, to = $("formFilterTo").value;
+  for (const old of document.querySelectorAll("#formFilter .fdinvalid")) old.remove();
+  $("formFilterTo").removeAttribute("aria-invalid");
+  if (from && to && to < from) {
+    $("formFilterTo").setAttribute("aria-invalid", "true");
+    $("formFilterTo").setAttribute("aria-describedby", "formFilterToErr");
+    $("formFilterTo").closest(".formfilterrow").insertAdjacentHTML("afterend",
+      `<p class="bad-inline fdinvalid" id="formFilterToErr">The end date is before the start date.</p>`);
+    $("formFilterTo").focus();
+    return;
+  }
   formHere.filter = { q: $("formFilterQ").value, op: $("formFilterOp").value, v: $("formFilterV")?.value ?? "",
     from: $("formFilterFrom").value, to: $("formFilterTo").value };
   formRedrawResults();
