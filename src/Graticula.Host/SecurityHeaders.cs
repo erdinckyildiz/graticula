@@ -207,6 +207,33 @@ internal static class SecurityHeaders
     private const string DocumentPolicy = "default-src 'none'; frame-ancestors 'none'";
 
     /// <summary>
+    /// The form client's policy — ADR-287 §5.4 and §5.5, 2026-11-09.
+    /// </summary>
+    /// <remarks>
+    /// <b>Its own, not the console's.</b> The page under <c>/forms/</c> is script like the console, but it loads no map
+    /// SDK and no third-party origin, and it needs three things the console's policy refuses: a service worker from
+    /// this origin (<c>worker-src 'self'</c>, where the console admits only <c>blob:</c>), its web app manifest
+    /// (<c>manifest-src</c>), and previews of the photos, recordings and videos a person has just captured, which are
+    /// <c>blob:</c> addresses of bytes the page already holds (<c>img-src</c>, <c>media-src</c>). Without this the form
+    /// fell under <see cref="HtmlPolicy"/>, which forbids every script, and the page drew nothing.
+    /// </remarks>
+    internal const string FormsPolicy =
+        "default-src 'none'; "
+        + "script-src 'self'; "
+        + "style-src 'self'; "
+        + "img-src 'self' data: blob:; "
+        + "media-src 'self' blob:; "
+        + "connect-src 'self'; "
+        + "worker-src 'self'; "
+        + "manifest-src 'self'; "
+        + "form-action 'self'; "
+        + "frame-ancestors 'none'; "
+        + "base-uri 'self'";
+
+    private static bool IsFormClient(PathString path) =>
+        path.StartsWithSegments("/forms", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether a path belongs to one of the two application surfaces.
     /// </summary>
     /// <remarks>
@@ -327,7 +354,8 @@ internal static class SecurityHeaders
                 bool console = IsSurface(context.Request.Path);
 
                 Set(headers, "Content-Security-Policy",
-                    embed ? Framable(surfacePolicy, embedders) : console ? surfacePolicy : html ? HtmlPolicy : DocumentPolicy);
+                    embed ? Framable(surfacePolicy, embedders) : console ? surfacePolicy
+                    : IsFormClient(context.Request.Path) ? FormsPolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
                 {

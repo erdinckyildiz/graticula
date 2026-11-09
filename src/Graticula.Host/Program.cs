@@ -2071,6 +2071,25 @@ public static class Program
             });
         }
 
+        // <b>The form client — ADR-287 §5.4, 2026-11-09.</b> Its own directory at its own path, `/forms/`, so that a
+        // service worker registered from it has the scope `/forms/` and no more: it can keep the page and each form's
+        // `form.json` (FormEndpoints, `/forms/{id}/form.json`) and cannot see a Studio request. Served from
+        // `wwwroot/forms` alone, so the file server under `/forms` cannot reach the rest of `wwwroot`. `no-cache` as
+        // above: the service worker is what keeps a copy for offline use, and it asks again when online.
+        contentTypes.Mappings[".webmanifest"] = "application/manifest+json";
+        string formsDirectory = Path.Combine(AppContext.BaseDirectory, "wwwroot", "forms");
+
+        if (Directory.Exists(formsDirectory))
+        {
+            app.UseStaticFiles(new StaticFileOptions
+            {
+                FileProvider = new PhysicalFileProvider(formsDirectory),
+                RequestPath = "/forms",
+                ContentTypeProvider = contentTypes,
+                OnPrepareResponse = file => file.Context.Response.Headers.CacheControl = "no-cache",
+            });
+        }
+
         // <b>One value, read by the pages and by the policy — ADR-034 condition 3.</b> The
         // console fetches the ArcGIS Maps SDK from a third-party origin, and that origin is in
         // this server's Content-Security-Policy. Serving it as a script rather than as JSON is

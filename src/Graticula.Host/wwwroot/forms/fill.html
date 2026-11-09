@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1565d8">
+  <title>Form</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="fill.css">
+  <script src="xlsform-eval.js" defer></script>
+  <script src="fill.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#form-main">Skip to the form</a>
+  <header class="bar">
+    <h1 id="form-title">Form</h1>
+    <div class="bar-tools">
+      <label id="language-wrap" class="language" hidden>
+        <span>Language</span>
+        <select id="language"></select>
+      </label>
+      <button type="button" id="outbox-toggle" class="quiet" aria-controls="outbox" aria-expanded="false">Outbox <span id="outbox-count" class="count">0</span></button>
+    </div>
+  </header>
+
+  <div id="connection" class="connection" role="status" aria-live="polite"></div>
+
+  <section id="outbox" class="outbox" hidden aria-labelledby="outbox-heading">
+    <div class="outbox-head">
+      <h2 id="outbox-heading">Outbox</h2>
+      <button type="button" id="send-now">Send now</button>
+    </div>
+    <p class="hint">Records filled here wait on this device until the server has accepted them.</p>
+    <p id="outbox-status" class="outbox-status" role="status" aria-live="polite"></p>
+    <ul id="outbox-list" class="outbox-list"></ul>
+  </section>
+
+  <section id="offline-panel" class="offline-panel" hidden>
+    <button type="button" id="download-offline" class="quiet">Download for offline use</button>
+    <p id="offline-status" class="hint" role="status" aria-live="polite"></p>
+    <p id="ios-note" class="note-warn" hidden>Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.</p>
+  </section>
+
+  <main id="form-main" tabindex="-1">
+    <p id="loading" class="hint" role="status" aria-live="polite">Loading the form…</p>
+    <div id="device-forms" hidden></div>
+    <div id="summary" class="summary" role="alert" tabindex="-1" hidden></div>
+    <form id="form" novalidate hidden>
+      <div id="pages-progress" class="progress" aria-live="polite" hidden></div>
+      <div id="body"></div>
+      <div class="actions">
+        <button type="button" id="back" class="quiet" hidden>Back</button>
+        <button type="button" id="next" hidden>Next</button>
+        <button type="submit" id="submit">Submit</button>
+      </div>
+    </form>
+    <section id="done" class="done" tabindex="-1" hidden>
+      <h2 id="done-heading">Submitted</h2>
+      <p id="done-text" role="status" aria-live="polite"></p>
+      <button type="button" id="new-form">Fill in a new form</button>
+    </section>
+  </main>
+</body>
+</html>
