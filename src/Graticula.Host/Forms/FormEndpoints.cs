@@ -61,6 +61,26 @@ public static class FormEndpoints
         app.MapGet("/admin/forms/{id}/workbook", WorkbookAsync);
         app.MapPost("/admin/forms/{id}/publish", PublishAsync);
         app.MapGet("/forms/{id}/form.json", ClientAsync);
+        app.MapGet("/forms/{id:regex(^[0-9a-fA-F]{{32}}$)}", PageAsync);
+    }
+
+    /// <summary>
+    /// <c>/forms/{itemId}</c>, the address §5.4 names: the client's page, <c>wwwroot/forms/fill.html</c>, which reads the
+    /// id from its own path. The same file as <c>/forms/fill.html?id=…</c>, served rather than copied, so the two cannot
+    /// drift; whether the caller may read the form is decided when the page asks for <c>form.json</c>.
+    /// </summary>
+    private static async Task<IResult> PageAsync(HttpContext context, string id, CancellationToken cancellation)
+    {
+        _ = id;
+        string page = Path.Combine(AppContext.BaseDirectory, "wwwroot", "forms", "fill.html");
+
+        if (!File.Exists(page))
+        {
+            return Results.NotFound();
+        }
+
+        context.Response.Headers.CacheControl = "no-cache";
+        return Results.Content(await File.ReadAllTextAsync(page, cancellation).ConfigureAwait(false), "text/html; charset=utf-8");
     }
 
     // ------------------------------------------------------------------------------------------------- add, read, save
