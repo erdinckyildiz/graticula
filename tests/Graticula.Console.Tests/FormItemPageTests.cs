@@ -150,6 +150,24 @@ public sealed class FormItemPageTests : ConsoleTest
                 "A published form still offers Publish.");
             await WaitForAsync(Shown("#formResultCount"), "A published form shows no Results.");
 
+            // ADR-287 §5.13: a draft saved since publishing is said on the page, and Publish again lists what it adds.
+            (int read, string readBody) = await AdminAsync(HttpMethod.Get, $"/admin/forms/{item}");
+            Assert.Equal(200, read);
+            JsonNode model = JsonNode.Parse(readBody)!["model"]!;
+            ((JsonArray)model["sheets"]![0]!["rows"]!).Add(new JsonArray("text", "telefon", "Telefon"));
+            (int saved, string savedBody) = await AdminAsync(HttpMethod.Put, $"/admin/forms/{item}/model", model.ToJsonString());
+            Assert.True(saved == 200, $"Saving the draft answered {saved}: {savedBody}");
+            await OpenAsync($"/studio/#/item/{item}", token, cookie);
+            await WaitForAsync(Shown("#formPublishOpen") + " && (document.getElementById('formStatus')?.textContent || '').includes('changed since')",
+                "A form changed since it was published does not say so or offer Publish again.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/forms/'], true)");
+            await ClickAsync("#formPublishOpen");
+            await WaitForAsync(Shown("#formPlanHead") + " && document.getElementById('formPlan').textContent.includes('telefon')",
+                "Publish again did not list the new field.");
+            await ClickAsync("#formPublishGo");
+            await WaitForAsync("(document.getElementById('docSays')?.textContent || '').startsWith('Published again: 1 new field')",
+                "Publishing again did not say what it added.");
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally

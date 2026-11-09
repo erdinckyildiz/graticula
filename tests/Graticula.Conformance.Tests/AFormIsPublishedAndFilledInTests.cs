@@ -97,8 +97,10 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
             Assert.Equal("katlar", rooms.GetProperty("parentRepeat").GetString());
             Assert.Equal("bina_adi", top.GetProperty("columns").GetProperty("bina_adı").GetString());
 
-            (HttpStatusCode again, _) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
-            Assert.Equal(HttpStatusCode.Conflict, again);
+            // Publishing again with nothing changed changes nothing (§5.13): no field is added, nothing is refused.
+            (HttpStatusCode again, string againBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(again == HttpStatusCode.OK, $"Publishing an unchanged form again answered {(int)again}: {againBody}");
+            Assert.Equal(0, JsonDocument.Parse(againBody).RootElement.GetProperty("fieldsAdded").GetInt32());
 
             // A building, a floor of it, and a room of the floor, as a client sends them: by GlobalID.
             string building = Guid.NewGuid().ToString("B").ToUpperInvariant();
@@ -294,6 +296,18 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
                 $"{root}{layers[0].GetProperty("url").GetString()}/query?where=1%3D1&outFields=bina_adi&f=json", token!, null);
             Assert.True(owned == HttpStatusCode.OK && ownBody.Contains("Anonim", StringComparison.Ordinal), $"The owner's layer answered {(int)owned}: {ownBody}");
 
+            // Published again with a new question, the answers view is made again and takes the new field from anyone (§5.13).
+            JsonObject changed = Model(formId);
+            ((JsonArray)changed["sheets"]![0]!["rows"]!).Insert(2, new JsonArray("text", "not", "Not", "Note"));
+            (HttpStatusCode draft, string draftBody) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/model", token!, changed.ToJsonString());
+            Assert.True(draft == HttpStatusCode.OK, $"Saving the draft answered {(int)draft}: {draftBody}");
+            (HttpStatusCode again, string againBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(again == HttpStatusCode.OK, $"Publishing a shared form again answered {(int)again}: {againBody}");
+            string topAgain = JsonDocument.Parse(againBody).RootElement.GetProperty("layers")[0].GetProperty("submitUrl").GetString()!;
+            await AnonymousAddAsync(root, topAgain, $$$"""
+                [{"geometry":{"x":32.8,"y":39.9,"spatialReference":{"wkid":4326}},"attributes":{"globalid":"{{{Guid.NewGuid().ToString("B").ToUpperInvariant()}}}","bina_adi":"Yeni","hasar":"yok","not":"yeni alan"}}]
+                """);
+
             (HttpStatusCode closed, _) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!, """{"sharing":"private"}""");
             Assert.Equal(HttpStatusCode.OK, closed);
             using HttpRequestMessage gone = new(HttpMethod.Get, $"{root}/forms/{item}/form.json");
@@ -370,6 +384,97 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
         finally
         {
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted&drop=true", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
+            await DeleteDomainsAsync(root, token!, formId);
+
+            if (item is not null)
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{item}", token!, null);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A published form changed in the designer is a draft until it is published again; then a new question is a new
+    /// field, a question taken out keeps its answers, and a question whose type changed is refused — ADR-287 §5.13.
+    /// </summary>
+    [Fact]
+    public async Task A_published_form_is_changed_as_a_draft_and_published_again_as_Survey123_does()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential.");
+
+        string formId = "zz_form_" + Guid.NewGuid().ToString("N")[..8];
+        string? item = null;
+        JsonObject First() => new()
+        {
+            ["format"] = "xlsform/1",
+            ["sheets"] = new JsonArray(
+                Sheet("survey", ["type", "name", "label"], ["text", "ad", "Ad"], ["integer", "yas", "Yaş"]),
+                Sheet("settings", ["form_title", "form_id", "version"], ["Değişen", formId, "1"])),
+        };
+
+        try
+        {
+            (_, string addBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms", token!,
+                new JsonObject { ["title"] = "Değişen " + formId, ["model"] = First() }.ToJsonString());
+            item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+            (HttpStatusCode published, string publication) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(published == HttpStatusCode.OK, $"Publishing answered {(int)published}: {publication}");
+            string layer = JsonDocument.Parse(publication).RootElement.GetProperty("layers")[0].GetProperty("url").GetString()!;
+            await AddAsync(root, token!, layer, $$$"""[{"attributes":{"globalid":"{{{Guid.NewGuid().ToString("B").ToUpperInvariant()}}}","ad":"Eski","yas":40}}]""");
+
+            // The draft: yas taken out, a new question, a label changed, the version moved.
+            JsonObject second = new()
+            {
+                ["format"] = "xlsform/1",
+                ["sheets"] = new JsonArray(
+                    Sheet("survey", ["type", "name", "label"], ["text", "ad", "Adı soyadı"], ["text", "telefon", "Telefon"]),
+                    Sheet("settings", ["form_title", "form_id", "version"], ["Değişen", formId, "2"])),
+            };
+            (HttpStatusCode saved, string savedBody) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/model", token!, second.ToJsonString());
+            Assert.True(saved == HttpStatusCode.OK, $"Saving a published form's draft answered {(int)saved}: {savedBody}");
+            Assert.True(JsonDocument.Parse(savedBody).RootElement.GetProperty("changedSincePublished").GetBoolean());
+
+            // Until it is published again the client is served the published version.
+            using (HttpRequestMessage open = new(HttpMethod.Get, $"{root}/forms/{item}/form.json"))
+            {
+                open.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token!);
+                using HttpResponseMessage opened = await Http.SendAsync(open);
+                string client = await opened.Content.ReadAsStringAsync();
+                Assert.Contains("\"yas\"", client, StringComparison.Ordinal);
+                Assert.DoesNotContain("telefon", client, StringComparison.Ordinal);
+            }
+
+            (HttpStatusCode again, string againBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(again == HttpStatusCode.OK, $"Publishing again answered {(int)again}: {againBody}");
+            JsonElement republished = JsonDocument.Parse(againBody).RootElement;
+            Assert.Equal(1, republished.GetProperty("fieldsAdded").GetInt32());
+            JsonElement columns = republished.GetProperty("layers")[0].GetProperty("columns");
+            Assert.Equal("telefon", columns.GetProperty("telefon").GetString());
+            Assert.False(columns.TryGetProperty("yas", out _), "A question taken out is still sent to.");
+
+            // The answer given before stays, in the field the form no longer asks; the new field is there, empty.
+            (HttpStatusCode read, string rows) = await RequestAsync(HttpMethod.Get, $"{root}{layer}/query?where=1%3D1&outFields=ad,yas,telefon&f=json", token!, null);
+            Assert.True(read == HttpStatusCode.OK && rows.Contains("\"yas\":40", StringComparison.Ordinal) && rows.Contains("\"telefon\"", StringComparison.Ordinal),
+                $"After publishing again the layer answered {(int)read}: {rows}");
+
+            // A type cannot change: ad as a number is refused, by name, and nothing changes.
+            JsonObject third = new()
+            {
+                ["format"] = "xlsform/1",
+                ["sheets"] = new JsonArray(
+                    Sheet("survey", ["type", "name", "label"], ["integer", "ad", "Ad"], ["text", "telefon", "Telefon"]),
+                    Sheet("settings", ["form_title", "form_id", "version"], ["Değişen", formId, "3"])),
+            };
+            await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/model", token!, third.ToJsonString());
+            (HttpStatusCode refused, string refusedBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True((int)refused is >= 400 and < 500 && refusedBody.Contains("keeps its type", StringComparison.Ordinal),
+                $"Changing a published field's type answered {(int)refused}: {refusedBody}");
+        }
+        finally
+        {
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
             await DeleteDomainsAsync(root, token!, formId);
 

@@ -258,8 +258,9 @@ measurable question. The two device claims are, so they are conditions and not a
    answer; (d) a field name follows its label until somebody types one, Turkish letters written as their Latin
    neighbours, and a choice list the designer made is named after its question and follows its name while no other
    question uses it; deleting the last question that asks a list deletes the list; (e) New item › Form offers *Design a
-   blank form* beside the workbook; (f) a published form opens read only, its questions shown and previewed — changing a
-   published form is still not built (§5.11 (h)); (g) unsaved changes are kept for the tab's life when the designer is
+   blank form* beside the workbook — and since the UX review the same night the dialog asks first how to start, blank
+   selected, as Survey123's does; (f) ~~a published form opens read only~~ **since §5.13 the same night, a published form
+   is edited as a draft and published again from its page**; (g) unsaved changes are kept for the tab's life when the designer is
    left and put back on return, and closing the tab with changes asks first.
 9. **INFERRED, for the owner to confirm** (listed as [Q-229](../open-questions.md)). **All answered 2026-11-09:**
    (j) confirmed as written (*"Reddet, ikisini göster"*); (b) confirmed except that **a repeat inside a repeat is in
@@ -400,8 +401,9 @@ measurable question. The two device claims are, so they are conditions and not a
       address, geometry, parent, relationship and question-to-column map. The form item carries the type keywords
       `Form`, `Graticula Form` and `XLSForm`, and not `Survey123` (§5.9 (g)).
     - (g) **A failed publish removes what it made**: the service, dropped, and the choice lists it created.
-    - (h) **A published form's questions cannot be changed yet**, and it cannot be published twice: both answer 409.
-      §5.2's republishing, which adds fields the way the schema editor does, is the next piece of work, not done.
+    - (h) ~~**A published form's questions cannot be changed yet**, and it cannot be published twice: both answer 409.
+      §5.2's republishing, which adds fields the way the schema editor does, is the next piece of work, not done.~~
+      **Built the next night as §5.13.**
     - (i) **The client's expression evaluator** (`wwwroot/forms/xlsform-eval.js`) made ten readings of its own:
       `area` and `distance` on a sphere (the spec's spherical law of cosines; Chamberlain–Duquette for area, which the
       spec does not name), up to about 0.5% from WGS 84 geodesics; an empty answer is false as a boolean, so
@@ -454,6 +456,23 @@ measurable question. The two device claims are, so they are conditions and not a
     publishing a member's form — is titled but not filed, since a folder is one member's (ADR-114); (c) filing never
     fails a publish: a title or folder that cannot be written leaves the item at the root under its name; (d) the folder
     is left behind when the form is deleted, as any emptied folder is, and Survey123 does the same.
+
+13. **A published form is changed as a draft and published again — built 2026-11-09 overnight**, in the order the owner
+    set (*"sırası ile devam et"*), as Survey123 republishes. The item's model is the draft the designer saves; the model
+    as last published is kept beside it (`graticula/published-model.json`) and is what `form.json` serves, so a saved change
+    never sends an answer to a column that does not exist yet. The form's page says *changed since* and offers *Publish
+    again…*, which lists the new fields and the questions taken out before anything is done. Publishing again adds a field
+    for each new question (through the schema editor's own add-field act), keeps every field a question was taken out of
+    with what was answered in it, renames nothing, gives every field its label as alias again, adds new choices to a list
+    and keeps the old ones, and makes the answers view again — its columns are fixed when it is made (ADR-113 §3).
+    Everything that would be refused is found first and listed together. **INFERRED, for the owner to confirm:** (a) a
+    question whose field exists with another type is refused, not converted; (b) the layer name (`form_id`) cannot change;
+    (c) a new repeat is refused — it needs a new table and a relationship inside a live service, not built; (d) a choice
+    taken out of a list stays in the layer's domain, so an answer already given stays valid; (e) a longer text length in
+    the form does not widen an existing column; (f) a renamed question is a new field, and the old one keeps its answers,
+    as a question taken out does; (g) the answers view is dropped and made again, so for those seconds a submission is
+    refused and waits in the device's outbox; (h) a failure part way keeps the fields already added, empty, and says to
+    publish again to finish.
 
 ## 6. Consequences
 

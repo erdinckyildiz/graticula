@@ -46,6 +46,12 @@ public static class FormEndpoints
     /// <summary>The item resource that records what publishing made.</summary>
     public const string PublicationResource = "graticula/publication.json";
 
+    /// <summary>
+    /// The item resource that holds the model as it was last published — what the form client is served, while the item's
+    /// own model is the draft the designer saves (ADR-287 §5.13).
+    /// </summary>
+    public const string PublishedModelResource = "graticula/published-model.json";
+
     /// <summary>The most a form's workbook upload may be.</summary>
     public const long MaximumUploadBytes = 16L * 1024 * 1024;
 
@@ -148,6 +154,8 @@ public static class FormEndpoints
             title = document.Title,
             sharing = document.Sharing.ToString().ToLowerInvariant(),
             model = model.ToJson(),
+            changedSincePublished = publication is not null
+                && await PublishedModelAsync(context, document.Id, cancellation).ConfigureAwait(false) is { } live && !live.SameAs(model),
             refusals = Issues(check.Refusals),
             notices = Issues(check.Notices),
             publication,
@@ -180,10 +188,9 @@ public static class FormEndpoints
             return Refusal(check.Refusals, check.Notices, "The form was not saved.");
         }
 
-        if (await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false) is not null)
-        {
-            return Error(409, "The form is published, and changing a published form's questions is not built yet; its layers would no longer match it. Publish a copy instead.");
-        }
+        // A published form is saved as its draft: the form client goes on being served the published model until the
+        // form is published again (§5.13), so a saved change never sends answers to a column that is not there yet.
+        bool published = await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false) is not null;
 
         IServiceProvider services = context.RequestServices;
         await services.GetRequiredService<IDocumentStore>().ReplaceAsync(document.Id, document.FileName, document.Kind,
@@ -191,7 +198,13 @@ public static class FormEndpoints
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.save", document.Id,
             AdminEndpoints.Detail(new { questions = check.Definition!.AllQuestions.Count() }), succeeded: true, cancellation).ConfigureAwait(false);
 
-        return Results.Json(new { id = document.Id, notices = Issues(check.Notices) });
+        return Results.Json(new
+        {
+            id = document.Id,
+            notices = Issues(check.Notices),
+            changedSincePublished = published
+                && await PublishedModelAsync(context, document.Id, cancellation).ConfigureAwait(false) is { } live && !live.SameAs(model),
+        });
     }
 
     /// <summary>Checks a workbook or a model against the list without storing it — the designer's and the upload screen's preview.</summary>
@@ -255,9 +268,9 @@ public static class FormEndpoints
             return Missing(id);
         }
 
-        if (await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false) is not null)
+        if (await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false) is JsonObject published)
         {
-            return Error(409, "The form is already published. Republishing a changed form is not built yet.");
+            return await RepublishAsync(context, document, model, published, cancellation).ConfigureAwait(false);
         }
 
         FormCheck check = FormDefinition.Check(model);
@@ -288,6 +301,7 @@ public static class FormEndpoints
             Encoding.UTF8.GetBytes(publication.ToJsonString()), "inherit", replace: false, 100L * 1024 * 1024, cancellation).ConfigureAwait(false);
         await services.GetRequiredService<IDocumentStore>().SetLinkAsync(document.Id, (string?)publication["featureServer"],
             ["Form", "Graticula Form", "XLSForm"], cancellation).ConfigureAwait(false);
+        await WritePublishedModelAsync(context, document.Id, model, cancellation).ConfigureAwait(false);
 
         await FileAsync(context, document, plan.ServiceName, document.Title, cancellation).ConfigureAwait(false);
 
@@ -554,6 +568,259 @@ public static class FormEndpoints
         }
     }
 
+    private static async Task<FormModel?> PublishedModelAsync(HttpContext context, string id, CancellationToken cancellation)
+    {
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        return await resources.FindAsync(Guid.Parse(id), PublishedModelResource, cancellation).ConfigureAwait(false) is { } found
+            ? FormModel.FromJson(JsonNode.Parse(found.Content))
+            : null;
+    }
+
+    /// <summary>Keeps the model as published: replaced when one is kept, added the first time — a replace finds nothing to replace then.</summary>
+    private static async Task WritePublishedModelAsync(HttpContext context, string id, FormModel model, CancellationToken cancellation)
+    {
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        byte[] content = Encoding.UTF8.GetBytes(model.ToJson().ToJsonString());
+
+        if (await resources.WriteAsync(Guid.Parse(id), PublishedModelResource, "application/json", content, "inherit", replace: true,
+                100L * 1024 * 1024, cancellation).ConfigureAwait(false) == ItemResourceWrite.NotThere)
+        {
+            await resources.WriteAsync(Guid.Parse(id), PublishedModelResource, "application/json", content, "inherit", replace: false,
+                100L * 1024 * 1024, cancellation).ConfigureAwait(false);
+        }
+    }
+
+    // -------------------------------------------------------------------------------------------------------- republish
+
+    /// <summary>
+    /// Publishes a published form again, as Survey123 does: a new question becomes a new field, a question taken out keeps
+    /// its field and what was answered in it, and labels, choices and rules change freely — ADR-287 §5.13.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Everything that would be refused is found before anything is changed</b>: a question whose field already exists
+    /// with another type, a changed <c>form_id</c> (the layer's name, which every address holds), and a new repeat (a new
+    /// table and a relationship inside a live service — not built). The answer lists them all, not the first.
+    /// </para>
+    /// <para>
+    /// <b>The answers view is made again</b> when the form is shared: a view's columns are fixed when it is made
+    /// (ADR-113 §3), so a new field would not reach it. It holds no data of its own, so dropping and making it loses
+    /// nothing; for the seconds between, a submission is refused and waits in the device's outbox.
+    /// </para>
+    /// </remarks>
+    private static async Task<IResult> RepublishAsync(
+        HttpContext context, Document document, FormModel model, JsonObject publication, CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        FormCheck check = FormDefinition.Check(model);
+
+        if (!check.Accepted)
+        {
+            return Refusal(check.Refusals, check.Notices, "The form was not published again.");
+        }
+
+        FormLayerPlan plan = FormLayerPlan.For(check.Definition!, document.Title);
+
+        if (!plan.Accepted)
+        {
+            return Refusal(plan.Refusals, check.Notices, "The form was not published again.");
+        }
+
+        string service = (string?)publication["service"] ?? string.Empty;
+        List<FormIssue> refused = [];
+
+        if (!string.Equals(plan.ServiceName, service, StringComparison.Ordinal))
+        {
+            refused.Add(new FormIssue("settings", 2, "form_id",
+                $"The layer is named '{service}' and cannot be renamed once published; this form would name it '{plan.ServiceName}'. Put the form_id back, or publish a copy."));
+        }
+
+        PostgresLayerCatalog catalogue = services.GetRequiredService<PostgresLayerCatalog>();
+        ServiceContexts contexts = services.GetRequiredService<ServiceContexts>();
+        JsonArray existing = publication["layers"] as JsonArray ?? [];
+        List<(PlannedLayer Layer, JsonObject Published, PublishedLayer Found, List<PlannedField> Added)> layers = [];
+
+        foreach (PlannedLayer layer in plan.Layers)
+        {
+            JsonObject? published = existing.OfType<JsonObject>().FirstOrDefault(l => ((string?)l["repeat"] ?? "") == layer.Repeat);
+
+            if (published is null || !Guid.TryParse((string?)published["id"], out Guid layerId)
+                || await catalogue.FindByIdAsync(layerId, cancellation).ConfigureAwait(false) is not { } found)
+            {
+                refused.Add(new FormIssue("survey", 0, "type", layer.Repeat.Length == 0
+                    ? "The form's main layer is no longer there, so it cannot be published again. Publish a copy."
+                    : $"The repeat '{layer.Repeat}' is new, and a new repeat needs a new table inside the published service, which publishing again does not make yet. Publish a copy, or take the repeat out."));
+                continue;
+            }
+
+            (_, Graticula.Features.LayerDescription shape) = await contexts.GetAsync(found, cancellation).ConfigureAwait(false);
+            List<PlannedField> added = [];
+
+            foreach (PlannedField field in layer.Fields)
+            {
+                string column = PostGisImporter.ColumnNameFor(field.Column);
+
+                if (shape.Find(column) is { } now)
+                {
+                    if (now.Type != field.Type)
+                    {
+                        refused.Add(new FormIssue("survey", 0, "type",
+                            $"The question '{field.Question}' is stored in '{column}', a {now.Type} field, and this form would make it {field.Type}. A published field keeps its type: change the question back, or give it a new name so it gets a field of its own."));
+                    }
+                }
+                else
+                {
+                    added.Add(field);
+                }
+            }
+
+            layers.Add((layer, published, found, added));
+        }
+
+        if (refused.Count > 0)
+        {
+            return Refusal(refused, check.Notices, "The form was not published again.");
+        }
+
+        // Choice lists: a new one is made; a changed one keeps every code it had, so an answer already given stays valid.
+        IFieldDomainStore domains = services.GetRequiredService<IFieldDomainStore>();
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        Dictionary<string, Guid> domainIds = new(StringComparer.Ordinal);
+
+        foreach (PlannedDomain planned in plan.Domains)
+        {
+            if (await domains.FindByNameAsync(planned.Name, cancellation).ConfigureAwait(false) is { } found)
+            {
+                List<CodedValue> codes = [.. planned.Codes];
+                codes.AddRange(found.Domain.Codes.Where(old => !planned.Codes.Any(c => c.Code.ToString() == old.Code.ToString())));
+
+                if (found.Domain.Kind == DomainKind.CodedValue
+                    && !codes.Select(c => (c.Code.ToString(), c.Name)).SequenceEqual(found.Domain.Codes.Select(c => (c.Code.ToString(), c.Name))))
+                {
+                    await domains.UpdateAsync(found.Id, FieldDomain.Coded(planned.Name, codes), cancellation).ConfigureAwait(false);
+                }
+
+                domainIds[planned.List] = found.Id;
+            }
+            else if (await domains.CreateAsync(FieldDomain.Coded(planned.Name, planned.Codes), current.Principal.Id, cancellation).ConfigureAwait(false) is { } created)
+            {
+                domainIds[planned.List] = created.Id;
+            }
+        }
+
+        // The answers view goes first, so the source takes new fields with no view depending on them, and comes back last
+        // — made again whatever happened between, so a shared form never stays without one.
+        string? view = (string?)publication["submitService"];
+
+        if (view is not null)
+        {
+            await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.DeleteServiceAsync(
+                context, view, FeatureServerMetadataWriter.HostedFolder, true,
+                services.GetRequiredService<IAdminCatalog>(), catalogue, services.GetRequiredService<PostGisImporter>(), contexts,
+                services.GetRequiredService<ITileCache>(), services.GetRequiredService<IAuditLog>(),
+                services.GetRequiredService<SourceQuiesce>(), services.GetRequiredService<RecycleBinService>(),
+                services.GetRequiredService<LayerConnections>(), cancellation)).ConfigureAwait(false);
+            publication.Remove("submitService");
+
+            foreach (JsonObject layer in existing.OfType<JsonObject>())
+            {
+                layer.Remove("submitUrl");
+            }
+        }
+
+        (int status, string? message) = (200, null);
+        int fieldsAdded = 0;
+
+        try
+        {
+            IAdminCatalog admin = services.GetRequiredService<IAdminCatalog>();
+
+            foreach ((PlannedLayer layer, JsonObject published, PublishedLayer found, List<PlannedField> added) in layers)
+            {
+                foreach (PlannedField field in added)
+                {
+                    HostedDataEndpoints.FieldDesign design = new(field.Column, field.Type.ToString(), true, field.Length,
+                        field.Domain is { } d && domainIds.TryGetValue(d.List, out Guid domain) ? domain : null);
+                    (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => HostedDataEndpoints.AddFieldToAsync(
+                        context, found, design, services.GetRequiredService<PostGisImporter>(), contexts,
+                        services.GetRequiredService<ITileCache>(), admin, services.GetRequiredService<IAuditLog>(), cancellation)).ConfigureAwait(false);
+
+                    if (status is < 200 or >= 300)
+                    {
+                        message = $"The field for '{field.Question}' was not added to '{layer.Name}': {message ?? "no reason given"}. The fields added before it are kept, empty; publish again to finish.";
+                        break;
+                    }
+
+                    fieldsAdded++;
+                }
+
+                if (status is < 200 or >= 300)
+                {
+                    break;
+                }
+
+                // Every label is the field's alias again, the new fields' and the changed ones'.
+                if (await catalogue.FindByIdAsync(found.Id, cancellation).ConfigureAwait(false) is { } fresh)
+                {
+                    List<FieldOverride> overrides = [.. fresh.FieldOverrides];
+
+                    foreach (PlannedField field in layer.Fields)
+                    {
+                        string column = PostGisImporter.ColumnNameFor(field.Column);
+                        int at = overrides.FindIndex(o => o.Matches(column));
+
+                        if (at >= 0)
+                        {
+                            overrides[at] = overrides[at] with { Alias = field.Alias };
+                        }
+                        else if (!string.Equals(field.Alias, column, StringComparison.Ordinal))
+                        {
+                            overrides.Add(new FieldOverride(column, field.Alias, Hidden: false));
+                        }
+                    }
+
+                    await admin.SetFieldOverridesAsync(found.Id, overrides, cancellation).ConfigureAwait(false);
+                }
+
+                // What the client reads: the columns of the questions the form asks now. A question taken out leaves its
+                // field and its answers in the layer, and is no longer sent to.
+                published["columns"] = new JsonObject([.. layer.Fields.Select(f =>
+                    KeyValuePair.Create(f.Question, (JsonNode?)JsonValue.Create(PostGisImporter.ColumnNameFor(f.Column))))]);
+                published["attachments"] = new JsonArray([.. layer.AttachmentQuestions.Select(q => (JsonNode?)JsonValue.Create(q))]);
+                published["location"] = layer.LocationQuestion;
+            }
+        }
+        finally
+        {
+            publication["version"] = check.Definition!.Settings.Version;
+            publication["republishedAt"] = DateTimeOffset.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+            await services.GetRequiredService<IItemResourceStore>().WriteAsync(Guid.Parse(document.Id), PublicationResource, "application/json",
+                Encoding.UTF8.GetBytes(publication.ToJsonString()), "inherit", replace: true, 100L * 1024 * 1024, CancellationToken.None).ConfigureAwait(false);
+
+            if (view is not null)
+            {
+                (int opened, string? why) = await OpenAnswersAsync(context, document, publication, document.Sharing, CancellationToken.None).ConfigureAwait(false);
+
+                if (opened is < 200 or >= 300 && status is >= 200 and < 300)
+                {
+                    (status, message) = (opened, $"The form was published again, but its answers view could not be made again: {why ?? "no reason given"}. Share it again.");
+                }
+            }
+        }
+
+        if (status is < 200 or >= 300)
+        {
+            return Error(status, message ?? "The form was not published again.");
+        }
+
+        await WritePublishedModelAsync(context, document.Id, model, cancellation).ConfigureAwait(false);
+        await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.republish", document.Id,
+            AdminEndpoints.Detail(new { service, fieldsAdded }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        publication["fieldsAdded"] = fieldsAdded;
+        return Results.Json(publication);
+    }
+
     // ---------------------------------------------------------------------------------------------------------- sharing
 
     /// <summary>A form's sharing: who may open it, and where their answers go.</summary>
@@ -778,7 +1045,11 @@ public static class FormEndpoints
                 : Error(404, $"No form '{id}' that you can open. It may have been deleted, or it is not shared with you.");
         }
 
-        FormModel model = FormModel.FromJson(JsonNode.Parse(await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) ?? []));
+        // The published model when there is one — a draft saved since is not what the layers hold (§5.13). A form published
+        // before the snapshot existed could not be changed after publishing, so its stored model is the published one.
+        JsonNode? publication = await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false);
+        FormModel model = (publication is not null ? await PublishedModelAsync(context, document.Id, cancellation).ConfigureAwait(false) : null)
+            ?? FormModel.FromJson(JsonNode.Parse(await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) ?? []));
         FormCheck check = FormDefinition.Check(model);
 
         if (check.Definition is null)
@@ -786,7 +1057,6 @@ public static class FormEndpoints
             return Error(409, "The form cannot be filled in: it no longer passes its check.");
         }
 
-        JsonNode? publication = await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false);
         return Results.Json(new { id = document.Id, title = document.Title, form = FormCompiled.Json(check.Definition), publication });
     }
 

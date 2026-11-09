@@ -407,7 +407,11 @@ async function showFormDesigner(id) {
   fdState = {
     id: read.id || id,
     title: read.title || "Form",
-    published: !!read.publication,
+    // A published form is edited as a draft since §5.13: nothing is read only; Save keeps the draft, and the form's page
+    // publishes it again. `live` says it has a published version; `published` (read only) stays for nothing now.
+    published: false,
+    live: !!read.publication,
+    changedSincePublished: !!read.changedSincePublished,
     model: JSON.parse(kept || JSON.stringify(read.model)),
     dirty: !!kept,
     selected: null,
@@ -432,9 +436,7 @@ async function showFormDesigner(id) {
   fdDrawNotices();
   fdDrawCanvas();
   fdSelectTab(fdState.published ? "preview" : "add", false);
-  fdSay(kept ? "Your unsaved changes to this form are back. Save keeps them; leaving the tab loses them."
-    : fdState.published ? "This form is published. Its questions cannot be changed yet; the designer shows it and previews it."
-    : "");
+  fdSay(kept ? "Your unsaved changes to this form are back. Save keeps them; leaving the tab loses them." : "");
   fdScheduleCheck(0);
   $("fdTitle").focus();
 }
@@ -447,7 +449,7 @@ function fdDrawBar() {
   save.disabled = fdState.published || !fdState.dirty;
   save.setAttribute("aria-describedby", "fdState");
   // Written only when it changes: a status region rewritten on every keystroke is read out on every keystroke.
-  const said = fdState.published ? "Published — read only" : fdState.dirty ? "Unsaved changes" : "Saved";
+  const said = fdState.dirty ? "Unsaved changes" : fdState.live && fdState.changedSincePublished ? "Saved — publish again to go live" : "Saved";
   if ($("fdState").textContent !== said) $("fdState").textContent = said;
   $("fdState").className = `fdstate${fdState.dirty ? " dirty" : ""}`;
 }
@@ -461,13 +463,16 @@ function fdDrawNotices() {
   });
   const sheets = fdState.model.sheets.map(s => s.name).filter(n => !["survey", "choices", "settings"].includes(String(n).toLowerCase()));
   const parts = [];
+  const live = fdState.live ? `<p><b>This form is published.</b> Changes saved here are a draft: the people filling it in
+    get them when it is published again on the form's page. A new question becomes a new field; a question taken out keeps
+    its field and its answers; a question's type and the layer name cannot change.</p>` : "";
   if (unedited.size) parts.push(`the columns ${[...unedited].map(c => `<code>${h(c)}</code>`).join(", ")}`);
   if (sheets.length) parts.push(`the sheets ${sheets.map(s => `<code>${h(s)}</code>`).join(", ")}`);
   const box = $("fdNotices");
-  box.hidden = !parts.length;
-  box.innerHTML = parts.length ? `<p><b>This form uses what the designer does not edit:</b> ${parts.join(" and ")}. They are
+  box.hidden = !parts.length && !live;
+  box.innerHTML = live + (parts.length ? `<p><b>This form uses what the designer does not edit:</b> ${parts.join(" and ")}. They are
     kept exactly as written, travel with the XLSForm, and are edited in the workbook.${fdState.lang
-      ? ` Labels are edited in <b>${h(fdState.lang)}</b>, the form's default language.` : ""}</p>` : "";
+      ? ` Labels are edited in <b>${h(fdState.lang)}</b>, the form's default language.` : ""}</p>` : "");
 }
 
 /** Marks the form changed: kept for this tab, Save offered, and checked again shortly. */
@@ -1047,10 +1052,12 @@ async function fdSave() {
     });
     if (fdState !== state) return;
     state.dirty = false;
+    state.changedSincePublished = !!saved?.changedSincePublished;
     fdKept.delete(state.id);
     fdDrawBar();
     const notes = (saved?.notices || []).length;
-    fdSay(`Saved.${notes ? ` The check left ${notes} ${notes === 1 ? "note" : "notes"}, listed on the form's page.` : ""}`);
+    fdSay(`Saved.${state.changedSincePublished ? " The form is published: publish it again on its page to make this version live." : ""}${
+      notes ? ` The check left ${notes} ${notes === 1 ? "note" : "notes"}, listed on the form's page.` : ""}`);
   } catch (e) {
     if (fdState !== state) return;
     if (e.body?.refusals?.length) {

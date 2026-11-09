@@ -35504,7 +35504,7 @@ async function showDocumentItem(id) {
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
     ${doc.kind === "form" && doc.manages ? `<a class="btn" id="formDesign" href="${
-      pathOf(`#/item/${encodeURIComponent(doc.id)}/design`)}">${doc.url ? "View in designer" : "Design"}</a>` : ""}
+      pathOf(`#/item/${encodeURIComponent(doc.id)}/design`)}">Design</a>` : ""}
     ${doc.kind === "form" ? (doc.manages ? `<button type="button" id="formDownload">Download XLSForm</button>` : "")
       : doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
@@ -36480,7 +36480,8 @@ function drawFormState() {
       <dt>Questions</dt><dd id="formQuestionCount">${f.form ? num(questions.length) : "—"}${tables > 1
         ? ` <span class="hint">in ${num(tables)} tables</span>` : ""}</dd>
       <dt>Sharing</dt><dd>${pill(f.read.sharing || "private")}</dd>
-      <dt>Status</dt><dd id="formStatus">${pub ? `Published${pub.publishedAt ? ` ${h(day(pub.publishedAt))}` : ""}` : "Not published"}</dd>
+      <dt>Status</dt><dd id="formStatus">${pub ? `Published${pub.publishedAt ? ` ${h(day(pub.publishedAt))}` : ""}${
+        f.read.changedSincePublished ? " — changed since" : ""}` : "Not published"}</dd>
       ${pub ? `<dt>Service</dt><dd><a id="formServiceLink" href="${servicePage(pub.service, "hosted")}">${h(pub.service)}</a></dd>
         <dt>Layers</dt><dd><ul class="formlayers">${(pub.layers || []).map(layerRow).join("")}</ul></dd>
         ${pub.submitService ? `<dt>Answers arrive through</dt><dd><a href="${servicePage(pub.submitService, "hosted")}">${
@@ -36493,7 +36494,13 @@ function drawFormState() {
         aria-describedby="formPublishWhy">Publish…</button></p>
       <p class="hint" id="formPublishWhy">Publishing makes a hosted feature layer from the questions — a field for each,
         a choice list for each list, a related table for each repeat. You see what it will make before anything is made.</p>` : ""}
-    ${pub ? `<p class="hint">A published form's questions cannot be changed yet; publish a copy to change them.</p>` : ""}
+    ${pub && f.read.changedSincePublished && !refusals.length ? `<p class="formact"><button type="button" class="primary" id="formPublishOpen"
+        aria-describedby="formPublishWhy">Publish again…</button></p>
+      <p class="hint" id="formPublishWhy">The form was changed in the designer after it was published. People filling it in
+        see the published version until it is published again: a new question becomes a new field, and a question taken out
+        keeps its field and its answers.</p>`
+      : pub ? `<p class="hint">Change its questions in the designer; the changes reach the people filling it in when it is
+        published again.</p>` : ""}
     <div id="formPlan" hidden></div>`;
   box.hidden = false;
   if (had && $(had) && box.contains($(had))) $(had).focus();
@@ -36528,6 +36535,10 @@ async function formShowPlan(button) {
   }
 
   const p = check.plan;
+  if (f.read.publication) {
+    formShowChanges(p, f.read.publication);
+    return;
+  }
   const lists = new Map((p.domains || []).map(d => [d.name, d]));
   const layerHtml = l => `
     <h6>${h(l.name)} <span class="hint">— ${h(formGeometryWord(l.geometryType))}${l.parentRepeat !== null && l.parentRepeat !== undefined
@@ -36555,6 +36566,37 @@ async function formShowPlan(button) {
   $("formPlanHead").focus();
 }
 
+/**
+ * Publish again: what changes in the layers, worked out from the plan against what was published — the new fields, and
+ * the questions taken out whose fields and answers stay (ADR-287 §5.13). The server refuses what cannot change.
+ */
+function formShowChanges(p, pub) {
+  const plan = $("formPlan");
+  const added = [];
+  const kept = [];
+  for (const layer of p.layers || []) {
+    const was = (pub.layers || []).find(l => (l.repeat || "") === (layer.repeat || ""));
+    const columns = new Set(Object.values(was?.columns || {}));
+    for (const fd of layer.fields || []) if (!columns.has(fd.column)) added.push({ layer: layer.name, fd, newLayer: !was });
+    const now = new Set((layer.fields || []).map(fd => fd.column));
+    for (const [question, column] of Object.entries(was?.columns || {})) if (!now.has(column)) kept.push({ layer: layer.name, question, column });
+  }
+  plan.innerHTML = `
+    <h5 id="formPlanHead" tabindex="-1">What publishing again changes</h5>
+    ${added.length ? `<p>New fields in <b>${h(p.service)}</b>, empty in the records already sent:</p>
+      <ul class="formlists">${added.map(a => `<li>${h(a.fd.alias || a.fd.question)} — <code>${h(a.fd.column)}</code>,
+        ${h(a.fd.type)} <span class="hint">in ${h(a.layer)}</span></li>`).join("")}</ul>`
+      : `<p>No new fields: the questions change, the layers do not.</p>`}
+    ${kept.length ? `<p>Taken out of the form, and kept in the layer with what was answered:</p>
+      <ul class="formlists">${kept.map(k => `<li><code>${h(k.column)}</code> <span class="hint">in ${h(k.layer)}</span></li>`).join("")}</ul>` : ""}
+    ${pub.submitService ? `<p class="hint">Its answers view, ${h(pub.submitService)}, is made again so that it takes the new
+      fields; a submission sent in those seconds waits in the device's outbox and is sent again.</p>` : ""}
+    <p class="row"><button type="button" class="primary" id="formPublishGo">Publish again</button>
+      <button type="button" class="ghost" id="formPublishCancel">Cancel</button></p>`;
+  plan.hidden = false;
+  $("formPlanHead").focus();
+}
+
 /** Publish: makes the layers; a form already shared then gets the view its answers arrive through. */
 async function formPublishNow(button) {
   const f = formHere;
@@ -36570,6 +36612,11 @@ async function formPublishNow(button) {
     button.disabled = false;
     $("formPublishCancel")?.removeAttribute("disabled");
     $("docSays").textContent = `Not published: ${lowerFirst(e.message || String(e))}`;
+    // What publishing again refused, by row, where the plan was — a type that cannot change, a new repeat.
+    const refusals = e.body?.refusals || [];
+    if (refusals.length) {
+      $("formPlan").insertAdjacentHTML("afterbegin", formIssuesTable(refusals, "What stops it being published again", "What to change"));
+    }
     button.focus();
     return;
   }
@@ -36580,8 +36627,10 @@ async function formPublishNow(button) {
   if (docOpen?.id !== f.id) return;
   formHere = null;
   await showDocumentItem(f.id);
-  $("docSays").textContent = `Published as ${pub?.service || "a hosted feature service"}, with ${num((pub?.layers || []).length)}
-    ${(pub?.layers || []).length === 1 ? "layer" : "layers and tables"}.${after}`.replace(/\s+/g, " ");
+  $("docSays").textContent = (f.read.publication
+    ? `Published again: ${num(pub?.fieldsAdded || 0)} new ${pub?.fieldsAdded === 1 ? "field" : "fields"} in ${pub?.service || "its service"}. People filling it in now get this version.`
+    : `Published as ${pub?.service || "a hosted feature service"}, with ${num((pub?.layers || []).length)}
+    ${(pub?.layers || []).length === 1 ? "layer" : "layers and tables"}.${after}`).replace(/\s+/g, " ");
   // The page is redrawn under the reader; the Form panel's heading, which now says Published, is where they continue.
   const head = await formWhenDrawn();
   head?.focus();
