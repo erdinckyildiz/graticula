@@ -117,6 +117,42 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
     }
 
     [Fact]
+    public async Task A_repeat_item_nobody_answered_anything_in_is_not_sent()
+    {
+        // Owner decision 2026-11-09, after the first trial on dev sent an empty room row: the item a repeat starts with,
+        // left untouched, is not a record. Two floors are offered and only the second is answered; one row arrives.
+        await using DevTools browser = await OpenAsync();
+        string name = "Bina " + Guid.NewGuid().ToString("N")[..8];
+
+        await FillBasicsAsync(browser, name, damage: "yok");
+        await browser.EvaluateAsync<bool>("""
+            (function () {
+              var add = Array.prototype.filter.call(document.querySelectorAll('button'), function (b) { return /^Add /.test(b.textContent); })[0];
+              add.click();
+              return true;
+            })()
+            """);
+        await browser.EvaluateAsync<bool>("""
+            (function () {
+              var inputs = document.querySelectorAll('[data-name=kat_no] input');
+              inputs[1].value = '7';
+              inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+              return inputs.length === 2;
+            })()
+            """);
+
+        await SubmitAsync(browser);
+        await WaitAsync(browser, "!document.getElementById('done').hidden", "the confirmation");
+
+        JsonElement row = await OneRowAsync(name);
+        string globalId = row.GetProperty("attributes").GetProperty("globalid").GetString()!;
+        JsonElement children = await QueryAsync(_form.FloorsUrl, $"parentglobalid='{globalId}'");
+        int[] numbers = children.GetProperty("features").EnumerateArray()
+            .Select(f => f.GetProperty("attributes").GetProperty(_form.FloorColumn("kat_no")).GetInt32()).ToArray();
+        Assert.Equal([7], numbers);
+    }
+
+    [Fact]
     public async Task A_question_that_is_not_relevant_is_hidden_and_its_answer_is_not_sent()
     {
         await using DevTools browser = await OpenAsync();

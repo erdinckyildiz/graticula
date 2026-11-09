@@ -1552,6 +1552,27 @@
         return { rings: [xy], spatialReference: sr };
     }
 
+    function answered(inst) {
+        // Something the person entered: a question they changed that still holds a value or a file, here or in any item
+        // below. Defaults, calculations and start/today do not count, because nobody entered them. Being marked by a
+        // failed Next does not count either unless a value followed.
+        var found = false;
+        (function walk(body) {
+            body.forEach(function (n) {
+                if (found || inst.rel[n.name] === false) { return; }
+                if (n.kind === 'group') { walk(n.body || []); return; }
+                if (n.kind === 'repeat') {
+                    if ((inst.repeats[n.name] || []).some(answered)) { found = true; }
+                    return;
+                }
+                if (n.kind !== 'question' || !inst.touched[n.name]) { return; }
+                var v = inst.values[n.name];
+                if (filesOf(inst, n.name).length || (v !== undefined && v !== null && String(v) !== '')) { found = true; }
+            });
+        })(inst.node.body || []);
+        return found;
+    }
+
     function buildRecord() {
         var now = new Date();
         var byLayer = {};
@@ -1594,7 +1615,13 @@
                     if (inst.rel[n.name] === false) { return; }
                     if (n.kind === 'group') { children(n.body || []); return; }
                     if (n.kind === 'repeat') {
-                        (inst.repeats[n.name] || []).forEach(function (child) { emit(child, n.name, inst); });
+                        (inst.repeats[n.name] || []).forEach(function (child) {
+                            // Owner decision 2026-11-09: an item nobody answered anything in is not sent. A repeat starts
+                            // with one item, and the first trial on dev sent an empty room row for it. A repeat_count
+                            // asked for its items, so those are sent as they are.
+                            if (!n.repeatCount && !answered(child)) { return; }
+                            emit(child, n.name, inst);
+                        });
                     }
                 });
             })(inst.node.body || []);
