@@ -236,6 +236,13 @@ measurable question. The two device claims are, so they are conditions and not a
    per question (counts for choices, ranges for numbers), filtering by question, export through the existing layer
    export ([ADR-107](ADR-107-a-layer-is-exported-as-geopackage-shapefile-or-workbook.md)), and the webhooks
    ([ADR-266](ADR-266-a-webhook-tells-another-system-what-changed.md)) already offered on the layer.
+   **The map, the filter and the export were added 2026-11-09 overnight**, as Survey123's Data tab has them: the
+   submissions the filter selects drawn over OpenStreetMap (the latest 2,000), a filter of one question — *is*, *is not*,
+   *includes*, *contains*, *is at least*, *is at most* by how its answer is stored — and the dates it was sent between,
+   which the count, the latest, the summary and the map all follow; and *Download every answer as* CSV, Excel, Shapefile,
+   file geodatabase, GeoPackage, GeoJSON or KML through ADR-107's export of every table the form publishes. **INFERRED, for
+   the owner to confirm:** the export takes every answer whatever the filter shows, and says so beside the button —
+   ADR-107's export takes no filter, and a filtered export is a change to it rather than to the form.
 8. **A designer in Studio edits the model.** It is a visual editor for the common cases. Columns it does not edit are
    in the model and stay untouched, and it says so on screen when a form uses something it cannot edit. **There is
    one model, never a second one behind the designer**: the JSON and the workbook are two spellings of the same rows,

@@ -8032,3 +8032,12 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
   .fdicon { min-width: 44px; min-height: 44px; }
   .fdphone { border: 0; border-radius: 0; height: 70vh; width: 100%; }
 }
+
+/* The form's results: the filter, the export and the map (ADR-287 §5.7). */
+.formfilter fieldset { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; margin: 8px 0 12px; }
+.formfilter legend { font-weight: 600; padding: 0 4px; }
+.formfilterrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.formfilterrow select, .formfilterrow input { min-width: 0; }
+.formexport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.formexport .hint { flex-basis: 100%; margin: 0; }
+.formmap { height: 320px; border: 1px solid var(--rule); border-radius: 6px; margin: 0 0 12px; }

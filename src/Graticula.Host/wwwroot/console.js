@@ -36690,16 +36690,20 @@ async function drawFormResults() {
   const columns = top.columns || {};
   const asked = formQuestions(f.form).filter(q => !q.repeat && columns[q.name] && !FORM_NOT_ANSWERS.has(q.type)
     && formLabel(q.labels, f.form, ""));
-  const query = params => api(`${top.url}/query?${new URLSearchParams({ f: "json", where: "1=1", ...params })}`);
+  const filter = f.filter || {};
+  const where = formFilterWhere(filter, asked, columns);
+  const query = params => api(`${top.url}/query?${new URLSearchParams({ f: "json", where, ...params })}`);
   const summarised = asked.filter(q => FORM_CHOICE_TYPES.has(q.type) || FORM_NUMBER_TYPES.has(q.type));
   const index = String(top.url).slice(String(top.url).lastIndexOf("/") + 1);
   const dataPage = `${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(index)}`;
 
+  let all;
   let count;
   let latest;
   let stats;
   try {
-    [count, latest, ...stats] = await Promise.all([
+    [all, count, latest, ...stats] = await Promise.all([
+      where === "1=1" ? null : api(`${top.url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`),
       query({ returnCountOnly: "true" }),
       query({ outFields: "*", returnGeometry: "false", orderByFields: "objectid DESC", resultRecordCount: "20" }),
       ...summarised.map(q => FORM_CHOICE_TYPES.has(q.type)
@@ -36716,7 +36720,10 @@ async function drawFormResults() {
   if (formHere !== f) return;
 
   const total = Number(count?.count) || 0;
+  const everything = all ? Number(all.count) || 0 : total;
+  const filtered = where !== "1=1";
   const rows = latest?.features || [];
+  const drawn = top.geometryType && formGeometryWord(top.geometryType) !== "table";
   const when = a => Number.isFinite(a?.created_date) ? imcWhen(a.created_date) : "";
   const others = (pub.layers || []).filter(l => l.repeat);
 
@@ -36754,9 +36761,14 @@ async function drawFormResults() {
 
   box.innerHTML = `
     <h4 id="formResultsHead">Results</h4>
-    <p id="formResultCount"><b>${num(total)}</b> ${total === 1 ? "submission" : "submissions"}${total
+    <p id="formResultCount" role="status"><b>${num(total)}</b> ${filtered ? `of ${num(everything)} ${everything === 1 ? "submission matches" : "submissions match"} the filter`
+      : total === 1 ? "submission" : "submissions"}${everything
       ? ` · <a href="${dataPage}">All of them in the layer's data</a>` : ""}</p>
-    ${total === 0 ? `<p class="hint">No answers yet. When someone sends the form, the latest appear here with a summary per question.</p>` : `
+    ${everything ? formFilterMarkup(filter, asked, f.form) : ""}
+    ${everything ? formExportMarkup() : ""}
+    ${total && drawn ? `<div id="formMap" class="formmap" role="region" aria-label="${h(`${num(Math.min(total, FORM_MAP_LIMIT))} submissions on a map`)}"></div>
+      ${total > FORM_MAP_LIMIT ? `<p class="hint">The map shows the latest ${num(FORM_MAP_LIMIT)}.</p>` : ""}` : ""}
+    ${total === 0 ? `<p class="hint">${filtered ? "No submission matches the filter." : "No answers yet. When someone sends the form, the latest appear here with a summary per question."}</p>` : `
       <h5>Latest submissions</h5>
       <div class="widetable" tabindex="0" role="region" aria-label="Latest submissions"><table class="formresults" id="formLatest">
         <thead><tr><th scope="col">Sent</th>${asked.map(q => `<th scope="col"${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}>${
@@ -36771,6 +36783,195 @@ async function drawFormResults() {
       ${summarised.length ? `<h5>By question</h5><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
     ${others.length ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
       `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}`;
+  formFilterFollows(asked, f.form);
+  if (total && drawn) formDrawMap(top.url, where);
+}
+
+/** The most submissions the results map draws, the latest first. */
+const FORM_MAP_LIMIT = 2000;
+
+/** A text as a SQL string literal, its apostrophes doubled — the where is parsed by the server, never passed through. */
+const formSql = v => `'${String(v).replace(/'/g, "''")}'`;
+
+/** The comparisons a filter offers for a question, by how its answer is stored (§5.7). */
+function formFilterOps(q) {
+  if (!q) return [];
+  if (q.type === "select_one") return [["is", "is"], ["isnot", "is not"]];
+  if (q.type === "select_multiple") return [["includes", "includes"]];
+  if (FORM_NUMBER_TYPES.has(q.type)) return [["=", "is"], [">=", "is at least"], ["<=", "is at most"]];
+  return [["contains", "contains"]];
+}
+
+/**
+ * The filter as a where the layer's query reads: one question and the dates it was sent between. A multiple choice is
+ * stored as its names joined by commas (§5.10), so *includes* matches the name alone, first, last or between two.
+ */
+function formFilterWhere(filter, asked, columns) {
+  const parts = [];
+  const q = asked.find(x => x.name === filter.q);
+  const col = q && columns[q.name];
+  const v = String(filter.v ?? "").trim();
+  if (col && v) {
+    if (filter.op === "is") parts.push(`${col} = ${formSql(v)}`);
+    else if (filter.op === "isnot") parts.push(`(${col} <> ${formSql(v)} OR ${col} IS NULL)`);
+    else if (filter.op === "includes") parts.push(`(${col} = ${formSql(v)} OR ${col} LIKE ${formSql(`${v},%`)} OR ${col} LIKE ${formSql(`%,${v}`)} OR ${col} LIKE ${formSql(`%,${v},%`)})`);
+    // UPPER on the column only: the parser takes a value on the right of LIKE, so the value is upper-cased here.
+    else if (filter.op === "contains") parts.push(`UPPER(${col}) LIKE ${formSql(`%${v.toUpperCase()}%`)}`);
+    else if (["=", ">=", "<="].includes(filter.op) && Number.isFinite(Number(v))) parts.push(`${col} ${filter.op} ${Number(v)}`);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(filter.from || "")) parts.push(`created_date >= TIMESTAMP '${filter.from} 00:00:00'`);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(filter.to || "")) {
+    const next = new Date(`${filter.to}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    parts.push(`created_date < TIMESTAMP '${next.toISOString().slice(0, 10)} 00:00:00'`);
+  }
+  return parts.length ? parts.join(" AND ") : "1=1";
+}
+
+/** The filter's controls: a question, how it compares, a value, and the dates it was sent between. */
+function formFilterMarkup(filter, asked, form) {
+  const usable = asked.filter(q => formFilterOps(q).length);
+  return `<form id="formFilter" class="formfilter"><fieldset><legend>Show the submissions where</legend>
+    <div class="formfilterrow">
+      <label class="sr-only" for="formFilterQ">Question</label>
+      <select id="formFilterQ"><option value="">Choose a question</option>${usable.map(q =>
+        `<option value="${h(q.name)}"${q.name === filter.q ? " selected" : ""}>${h(formLabel(q.labels, form, q.name))}</option>`).join("")}</select>
+      <label class="sr-only" for="formFilterOp">Comparison</label>
+      <select id="formFilterOp"></select>
+      <span id="formFilterValue"></span>
+    </div>
+    <div class="formfilterrow">
+      <label for="formFilterFrom">Sent from</label><input type="date" id="formFilterFrom" value="${h(filter.from || "")}">
+      <label for="formFilterTo">to</label><input type="date" id="formFilterTo" value="${h(filter.to || "")}">
+      <button type="submit" class="primary">Apply</button>
+      <button type="button" id="formFilterClear"${Object.values(filter).some(Boolean) ? "" : " disabled"}>Clear</button>
+    </div>
+    <p class="hint">The count, the latest, the summary and the map follow the filter.</p>
+  </fieldset></form>`;
+}
+
+/** The comparison and the value follow the question chosen: a choice is picked from its list, a number typed. */
+function formFilterFollows(asked, form) {
+  const pick = $("formFilterQ");
+  if (!pick) return;
+  const q = asked.find(x => x.name === pick.value);
+  const filter = formHere?.filter || {};
+  const ops = formFilterOps(q);
+  $("formFilterOp").innerHTML = ops.map(([v, w]) => `<option value="${h(v)}"${v === filter.op ? " selected" : ""}>${h(w)}</option>`).join("");
+  $("formFilterOp").disabled = !q;
+  const kept = q && q.name === filter.q ? String(filter.v ?? "") : "";
+  $("formFilterValue").innerHTML = !q ? `<label class="sr-only" for="formFilterV">Value</label><input type="text" id="formFilterV" disabled>`
+    : FORM_CHOICE_TYPES.has(q.type)
+      ? `<label class="sr-only" for="formFilterV">Choice</label><select id="formFilterV">${[...formChoiceLabels(form, q.list)].map(([name, label]) =>
+        `<option value="${h(name)}"${name === kept ? " selected" : ""}>${h(label)}</option>`).join("")}</select>`
+      : `<label class="sr-only" for="formFilterV">Value</label><input type="${FORM_NUMBER_TYPES.has(q.type) ? "number" : "text"}" id="formFilterV" value="${h(kept)}">`;
+}
+
+/** Download all the answers: the layer export (ADR-107) of every table the form publishes. */
+function formExportMarkup() {
+  return `<div class="formexport">
+    <label for="formExportFormat">Download every answer as</label>
+    <select id="formExportFormat">
+      <option value="csv">CSV</option><option value="xlsx">Excel workbook</option><option value="shapefile">Shapefile</option>
+      <option value="fgdb">File geodatabase</option><option value="gpkg">GeoPackage</option><option value="geojson">GeoJSON</option>
+      <option value="kml">KML</option>
+    </select>
+    <button type="button" id="formExportGo" aria-describedby="formExportSays formExportWhat">Download</button>
+    <p class="hint" id="formExportWhat">Every submission and every repeat's answers, whatever the filter shows.</p>
+    <p class="hint" id="formExportSays" role="status" aria-live="polite"></p>
+  </div>`;
+}
+
+/** The export, started, watched and handed to the browser — the layer page's own steps (D-289). */
+async function formExport(button) {
+  const f = formHere;
+  const pub = f?.read.publication;
+  if (!pub || button.getAttribute("aria-disabled") === "true") return;
+  const says = (text, bad = false) => { $("formExportSays").textContent = text; $("formExportSays").classList.toggle("bad-inline", bad); };
+  const layers = (pub.layers || []).map(l => Number(String(l.url).slice(String(l.url).lastIndexOf("/") + 1)));
+  button.setAttribute("aria-disabled", "true");
+  says("Starting the export…");
+  try {
+    const started = await api(`/admin/services/${encodeURIComponent(pub.service)}/data-exports?folder=hosted`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format: $("formExportFormat").value, layers }) });
+    const watch = started?.watch;
+    if (!watch) { says("The export started, and the server named no job to watch.", true); return; }
+    for (;;) {
+      await new Promise(done => setTimeout(done, 1500));
+      if (formHere !== f) return;
+      const job = await api(watch);
+      if (job.status === "done") {
+        const file = await browserDownload(job.download);
+        says(file.refused ? `Not downloaded: ${lowerFirst(file.refused)}` : "Downloading.", !!file.refused);
+        return;
+      }
+      if (job.status === "failed" || job.status === "cancelled") {
+        says(job.status === "failed" ? `Not exported: ${lowerFirst(job.failure || "the job failed.")}` : "Cancelled.", job.status === "failed");
+        return;
+      }
+      says(job.status === "queued" ? "Waiting for the exporter…" : `Writing — ${num(job.rowsWritten || 0)} of ${num(job.rows || 0)} rows…`);
+    }
+  } catch (e) {
+    says(`Not exported: ${lowerFirst(e.message || String(e))}`, true);
+  } finally {
+    button.removeAttribute("aria-disabled");
+  }
+}
+
+/** The map of the submissions the filter selects, over OpenStreetMap, the latest first. */
+let formMap = null;
+async function formDrawMap(url, where) {
+  const box = $("formMap");
+  if (!box || !await loadOpenLayers() || !document.body.contains(box)) return;
+  let answer;
+  try {
+    answer = await api(`${url}/query?${new URLSearchParams({ f: "geojson", where, outFields: "objectid", outSR: "3857",
+      orderByFields: "objectid DESC", resultRecordCount: String(FORM_MAP_LIMIT) })}`);
+  } catch {
+    box.replaceWith(Object.assign(document.createElement("p"), { className: "hint", textContent: "The map could not be drawn." }));
+    return;
+  }
+  if (!document.body.contains(box)) return;
+  const source = new ol.source.Vector({
+    features: new ol.format.GeoJSON().readFeatures(answer, { dataProjection: "EPSG:3857", featureProjection: "EPSG:3857" }),
+  });
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#1565d8";
+  const style = new ol.style.Style({
+    image: new ol.style.Circle({ radius: 6, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: "#fff", width: 2 }) }),
+    stroke: new ol.style.Stroke({ color: accent, width: 2 }),
+    fill: new ol.style.Fill({ color: "rgba(21,101,216,0.15)" }),
+  });
+  formMap?.setTarget(null);
+  formMap = new ol.Map({
+    target: box,
+    layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), new ol.layer.Vector({ source, style })],
+    view: new ol.View({ center: [3350000, 4700000], zoom: 5 }),
+    controls: [new ol.control.Zoom()],
+  });
+  if (source.getFeatures().length) formMap.getView().fit(source.getExtent(), { padding: [30, 30, 30, 30], maxZoom: 17 });
+}
+
+document.addEventListener("submit", event => {
+  if (event.target?.id !== "formFilter" || !formHere) return;
+  event.preventDefault();
+  formHere.filter = { q: $("formFilterQ").value, op: $("formFilterOp").value, v: $("formFilterV")?.value ?? "",
+    from: $("formFilterFrom").value, to: $("formFilterTo").value };
+  formRedrawResults();
+});
+
+document.addEventListener("change", event => {
+  if (event.target?.id !== "formFilterQ" || !formHere?.form) return;
+  const top = (formHere.read.publication?.layers || []).find(l => !l.repeat);
+  const asked = formQuestions(formHere.form).filter(q => !q.repeat && top?.columns?.[q.name] && !FORM_NOT_ANSWERS.has(q.type));
+  formFilterFollows(asked, formHere.form);
+});
+
+/** Draws the results again for a new filter, and puts focus on the count that says what it found. */
+async function formRedrawResults() {
+  await drawFormResults();
+  const count = $("formResultCount");
+  if (count) { count.tabIndex = -1; count.focus(); }
 }
 
 /** Download XLSForm: the workbook written from the stored model, fetched with the session's credential. */
@@ -36852,7 +37053,7 @@ async function formShareSave(button) {
 
 document.addEventListener("click", async event => {
   const t = event.target instanceof Element
-    ? event.target.closest("#kindForm, #formAdd, #formPublishOpen, #formPublishGo, #formPublishCancel, #formDownload, #formShareSave")
+    ? event.target.closest("#kindForm, #formAdd, #formPublishOpen, #formPublishGo, #formPublishCancel, #formDownload, #formShareSave, #formFilterClear, #formExportGo")
     : null;
   if (!t) return;
   if (t.id === "kindForm") { itemStep = "form"; drawAddItem(); return; }
@@ -36867,6 +37068,8 @@ document.addEventListener("click", async event => {
     return;
   }
   if (t.id === "formDownload") { await formDownloadWorkbook(); return; }
+  if (t.id === "formFilterClear") { formHere.filter = {}; await formRedrawResults(); return; }
+  if (t.id === "formExportGo") { await formExport(t); return; }
   if (t.id === "formShareSave") await formShareSave(t);
 });
 

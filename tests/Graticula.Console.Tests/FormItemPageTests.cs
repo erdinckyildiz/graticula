@@ -241,6 +241,27 @@ public sealed class FormItemPageTests : ConsoleTest
             Assert.DoesNotContain("Kat sayısı", heads);
             Assert.EndsWith("tab=data&layer=0", await Browser.EvaluateAsync<string>("document.querySelector('.formlayers a').getAttribute('href')"));
 
+            // §5.7: the submissions on a map, a filter by question that narrows everything, and every answer downloaded.
+            await WaitForAsync("!!document.querySelector('#formMap canvas, #formMap .ol-viewport')", "Results drew no map of the submissions.");
+            await Browser.EvaluateAsync<bool>("(() => { const q = document.getElementById('formFilterQ'); q.value = 'hasar';"
+                + " q.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+            await WaitForAsync("document.getElementById('formFilterV')?.tagName === 'SELECT'", "Choosing a choice question did not offer its choices.");
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('formFilterV').value = 'yok';"
+                + " document.getElementById('formFilter').requestSubmit(); return true; })()");
+            await WaitForAsync("(document.getElementById('formResultCount')?.textContent || '').startsWith('0 of 1')"
+                + " && document.activeElement?.id === 'formResultCount'",
+                "Filtering for a choice nobody chose did not say 0 of 1 and put focus on the count.");
+            await ClickAsync("#formFilterClear");
+            await WaitForAsync("(document.getElementById('formResultCount')?.textContent || '').startsWith('1 submission')",
+                "Clear did not bring every submission back.");
+
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/data-exports'], true)");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('formExportFormat').value = 'csv', true)");
+            await ClickAsync("#formExportGo");
+            await WaitForAsync("window.__writes.some(w => w.includes('/admin/services/" + formId + "/data-exports'))"
+                + " && /Downloading|Writing|Waiting/.test(document.getElementById('formExportSays').textContent)",
+                "Download did not start the layer export for the form's service.");
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally
