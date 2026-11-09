@@ -272,6 +272,10 @@
             var node = document.getElementById(id);
             if (node) { node.textContent = STATIC_TEXT[id][isTurkish() ? 1 : 0]; }
         });
+        var skip = document.querySelector('a.skip');
+        if (skip) { skip.textContent = isTurkish() ? 'Forma geç' : 'Skip to the form'; }
+        var languageLabel = document.querySelector('label[for=language] > span, .language > span');
+        if (languageLabel) { languageLabel.textContent = isTurkish() ? 'Dil' : 'Language'; }
         var toggle = document.getElementById('outbox-toggle');
         if (toggle && toggle.firstChild && toggle.firstChild.nodeType === 3) { toggle.firstChild.nodeValue = isTurkish() ? 'Giden kutusu ' : 'Outbox '; }
     }
@@ -1400,6 +1404,12 @@
             structureChanged = false;
             recompute();
             if (structural || structureChanged) { render(); } else { update(); }
+            // The summary follows the answers: an item answered since it was listed leaves it, and an empty summary
+            // goes (UX review 2026-11-09, second pass). Focus does not move.
+            if (summaryKeys && !$('summary').hidden) {
+                var still = problems().filter(function (p) { return summaryKeys.indexOf(p.key) >= 0; });
+                if (still.length) { showSummary(still); } else { $('summary').hidden = true; summaryKeys = null; }
+            }
         } finally {
             refreshing = false;
         }
@@ -1461,7 +1471,10 @@
         return problems().filter(function (p) { return list.some(function (n) { return n.name === p.key.split('/')[0].split('.')[0] || containsName(n, p.key.split('/')[0].split('.')[0]); }); });
     }
 
+    var summaryKeys = null;
+
     function showSummary(found) {
+        summaryKeys = found.map(function (p) { return p.key; });
         var summary = $('summary');
         summary.textContent = '';
         summary.appendChild(el('h2', { text: found.length === 1 ? t('One answer needs attention')

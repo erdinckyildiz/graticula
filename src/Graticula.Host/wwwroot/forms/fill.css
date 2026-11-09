@@ -198,6 +198,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 .summary { margin-top: 16px; padding: 12px 14px; background: var(--alert-soft); color: var(--alert); border-radius: 8px; outline: none; }
 .summary h2 { margin: 0 0 6px; font-size: 16px; }
 .summary ul { margin: 0; padding-left: 20px; }
+.summary li { padding: 3px 0; }
 .summary a { color: inherit; }
 
 .progress { margin-top: 16px; color: var(--muted); font-size: 14px; }
@@ -217,5 +218,5 @@ button:disabled { opacity: 0.55; cursor: default; }
 input[type=range]:not([data-set])::-webkit-slider-thumb { opacity: 0; }
 input[type=range]:not([data-set])::-moz-range-thumb { opacity: 0; }
 /* The photo and file control as a 44 px target, as the rest of the page's controls are. */
-input[type=file] { min-height: 44px; font: inherit; }
+input[type=file] { min-height: 44px; font: inherit; width: 100%; max-width: 100%; }
 input[type=file]::file-selector-button { min-height: 44px; padding: 0 16px; margin-right: 12px; font: inherit; border: 1px solid var(--rule); border-radius: 6px; background: var(--accent-soft); color: inherit; cursor: pointer; }
