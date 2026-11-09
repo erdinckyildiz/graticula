@@ -148,7 +148,12 @@ viewer needs `js.arcgis.com`.
 
 1. **A web scene saved in Studio opens in the Maps SDK, and one saved by Pro opens in Studio** — *(2026-11-05: the
    first half by the Maps SDK, which is what Studio's viewer is — `SceneViewerTests`. Pro saving one and Studio opening
-   it is owed; the desktop was locked when it was to be run.)*
+   it is owed; the desktop was locked when it was to be run.)* **DISCHARGED 2026-11-09**: ArcGIS Pro 3.7's
+   *Share › Web Scene* — driven through Windows UI Automation, since the pane has no arcpy route — shared a local scene
+   holding the generated 3D object layer to dev, and Pro reported *Web scene shared successfully*. Its item is a `Web
+   Scene` (`ViewingMode-Local`, web scene version 1.39) naming the layer's `SceneServer`. Studio's scene viewer opened it
+   in headless Chrome under the Maps SDK: the title, the local viewing mode, the layer loaded with no error, the camera
+   where Pro left it, and the 8 buildings drawn.
 2. **A package Pro wrote is served and drawn** by the Maps SDK and by Pro. *(2026-11-05: by the Maps SDK — Pro's point and
    3D object packages, 20 and 12 features loaded. By Pro: owed, the desktop locked.)* **DISCHARGED 2026-11-09** by
    ArcGIS Pro 3.7 on dev, through Pro's own engine (arcpy): Pro's *Share Package* uploaded and published its own
