@@ -130,6 +130,16 @@ public sealed class ServiceCapabilityLimitsTests
         Assert.False(off.AllowsTiles(dataSupportsIt: true));
     }
 
+    /// <summary>A tile carries the rows, so a ceiling without Query serves none — Q-231, owner decision 2026-11-09.</summary>
+    [Fact]
+    public void A_ceiling_without_Query_serves_no_tiles()
+    {
+        Assert.False(new ServiceCapabilityLimits(null, servesTiles: true, ["Create"], null).AllowsTiles(dataSupportsIt: true));
+        Assert.False(new ServiceCapabilityLimits(null, null, [], null).AllowsTiles(dataSupportsIt: true));
+        Assert.True(new ServiceCapabilityLimits(null, null, ["Query"], null).AllowsTiles(dataSupportsIt: true));
+        Assert.False(new ServiceCapabilityLimits(null, servesTiles: false, ["Query"], null).AllowsTiles(dataSupportsIt: true));
+    }
+
     [Fact]
     public void Restricting_is_commutative_in_the_only_sense_that_matters()
     {

@@ -196,8 +196,9 @@ public sealed class CeilingReachesEveryReadFaceTests : ArcGisClient
 
             // ------------------------------- renderers and the extent, which did not either — 2026-11-09
             // <b>Found on dev</b> through a form's public, Create-only view: its query refused, and generateRenderer
-            // listed the distinct values and the documents' extent drew a box round the rows. Tiles are not asked
-            // here: they answer to servesTiles, not to Query (FaceOffLooksAbsentTests, D-180).
+            // listed the distinct values and the documents' extent drew a box round the rows. Tiles follow Query too
+            // since the owner's Q-231 decision of the same day, and are asked by FaceOffLooksAbsentTests, which has
+            // a tile service to ask them of.
             (HttpStatusCode renderer, string rendererBody, _) = await GetAsync(
                 $"{prefix}/{bare}/FeatureServer/0/generateRenderer?classificationDef="
                 + Uri.EscapeDataString("""{"type":"uniqueValueDef","uniqueValueFields":["objectid"]}""") + "&f=json");

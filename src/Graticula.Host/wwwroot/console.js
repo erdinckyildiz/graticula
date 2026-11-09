@@ -8501,6 +8501,20 @@ function capTilesFollowTables() {
   hint.textContent = "Not for this service: it holds only tables, which have no geometry and are never drawn.";
 }
 
+/**
+ * Server › Capabilities when Query is unticked: no vector tiles are served whatever the tile box says — Q-231, owner
+ * decision 2026-11-09, because a tile carries the rows Query withholds. The box keeps its own value, which is what is
+ * stored for the day Query is ticked again, and the sentence under it says the box is not the whole answer.
+ */
+function capTilesFollowQuery() {
+  const hint = $("capTilesHint");
+  if (!hint || serviceTablesOnly()) return;
+  const query = document.querySelector('#ops input[data-op="Query"]');
+  hint.textContent = query && !query.checked
+    ? "Not served while Query is off: a tile carries the rows that Query withholds."
+    : "For layers in the datastore or in GeoParquet files.";
+}
+
 /** "1 layer · 3 tables": a count in the two units a service holds, the second only when there is one. */
 function layersAndTablesSaid(layers, tables) {
   const parts = [];
@@ -21623,6 +21637,9 @@ async function loadServiceCapabilities(name, folderGiven) {
   for (const box of document.querySelectorAll("#ops input[data-op]")) {
     box.checked = allowed === null || allowed.includes(box.dataset.op);
   }
+  const queryBox = document.querySelector('#ops input[data-op="Query"]');
+  if (queryBox) queryBox.onchange = capTilesFollowQuery;
+  capTilesFollowQuery();
 
   set("capMaxRows", c.maxRecordCount);
 

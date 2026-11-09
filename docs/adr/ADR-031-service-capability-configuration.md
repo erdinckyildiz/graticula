@@ -64,7 +64,7 @@ this project shipping one instance of that class of fault.
 
 | Knob | Values | Notes |
 |---|---|---|
-| **Faces** | `features`, `tiles` | Which service documents exist at all. Turning a face off makes it 404 — the same refusal as absent, per ADR-018, so nothing leaks about *why* |
+| **Faces** | `features`, `tiles` | Which service documents exist at all. Turning a face off makes it 404 — the same refusal as absent, per ADR-018, so nothing leaks about *why*. **The tile face is also off whenever the ceiling leaves out `Query`** — owner decision 2026-11-09, [Q-231](../open-questions.md): a tile carries the rows and their attributes, so it is a read, and a Create-only form view was found serving every answer as tiles. The switch stays its own for a service that answers queries and not tiles |
 | **Feature capabilities** | `Query`, `Create`, `Update`, `Delete`, `Extract` | A ceiling intersected with the caller's privileges. `Query` may be turned off: a service that exists and answers nothing is a legitimate state during an incident, and is distinct from stopped |
 | **Cache lifetime** | seconds, or unset | Already exists — `PUT /admin/layers/{name}/cache`. Moves onto this screen rather than being re-implemented |
 | **Statement timeout** | seconds, within bounds | **May only lower.** ADR-007 §4.8 makes a per-connection `statement_timeout` mandatory and D-42 records it being silently removable once already; an override that can raise or unset it re-opens that hole. A service may ask for *less* time than the source allows and never more |

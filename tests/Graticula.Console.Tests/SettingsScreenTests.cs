@@ -208,6 +208,43 @@ public sealed class SettingsScreenTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// Unticking Query says, under the tile box, that no tiles are served — Q-231, owner decision 2026-11-09.
+    /// </summary>
+    /// <remarks>
+    /// The server stops the tiles whatever the box says (<c>ServiceCapabilityLimits.AllowsTiles</c>), and a ticked
+    /// box beside an unticked Query would tell the operator the opposite. The box keeps its value, which is what is
+    /// stored for the day Query comes back; only the sentence changes, and changes back.
+    /// </remarks>
+    [Fact]
+    public async Task Unticking_Query_says_the_tiles_go_too()
+    {
+        (string token, _) = await SignInAsync();
+
+        string? named = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE");
+        string service = named is { Length: > 0 }
+            ? named
+            : (await FoldersWithServicesAsync()).SelectMany(f => f.Services).FirstOrDefault() ?? "";
+
+        Assert.False(service.Length == 0, "No service anywhere, so there is no Capabilities page to open.");
+
+        await OpenAsync("/server/#/service/" + string.Join("/", Array.ConvertAll(service.Split('/'), Uri.EscapeDataString)), token);
+
+        const string Query = "document.querySelector('#ops input[data-op=\"Query\"]')";
+        await WaitForAsync($"!!{Query} && {Query}.checked && !!document.getElementById('capTilesHint')",
+            "The Capabilities page never showed a ticked Query box beside the tile box.");
+
+        await Browser.EvaluateAsync<bool>($"(() => {{ const q = {Query}; q.checked = false; q.dispatchEvent(new Event('change')); return true; }})()");
+        Assert.Matches("Query is off", await Browser.EvaluateAsync<string>("document.getElementById('capTilesHint').textContent"));
+
+        await Browser.EvaluateAsync<bool>($"(() => {{ const q = {Query}; q.checked = true; q.dispatchEvent(new Event('change')); return true; }})()");
+        Assert.DoesNotMatch("Query is off", await Browser.EvaluateAsync<string>("document.getElementById('capTilesHint').textContent"));
+
+        Assert.DoesNotContain(await WritesAsync(), w => w.Contains("/capabilities", StringComparison.Ordinal));
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     [Fact]
     public async Task A_service_has_one_page_size_and_its_empty_box_says_the_servers()
     {
