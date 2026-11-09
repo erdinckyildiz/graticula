@@ -7946,11 +7946,16 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
    dark theme follows. */
 .fdbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .fdbar h1 { margin: 0; font-size: 20px; }
+/* A heading focused to say where the reader is, not a control: no ring, as Studio's other route headings. */
+#fdTitle:focus { outline: none; }
 .fdbar .fill { flex: 1; }
 .fdback { font-size: 13px; width: 100%; }
 .fdstate { font-size: 13px; color: var(--muted); }
 .fdstate.dirty { color: var(--warn); font-weight: 600; }
-.fdsays { min-height: 1.4em; margin: 2px 0 8px; }
+.fdsayline { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: 2px 0 8px; }
+.fdsays { margin: 0; }
+.fdskip { position: absolute; left: -9999px; }
+.fdskip:focus { position: static; display: inline-block; margin-bottom: 6px; }
 .fdnotices { border: 1px solid var(--warn-line); background: var(--warn-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
 .fdnotices p { margin: 0; }
 .fdproblems { border: 1px solid var(--alert-line); background: var(--alert-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
@@ -7963,6 +7968,7 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .fdq { border: 1px solid var(--rule); border-radius: 6px; margin: 0 0 8px; background: var(--surface); }
 .fdq.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .fdq.flagged { border-color: var(--alert-line); }
+.fdq.on.flagged { border-color: var(--accent); }
 .fdqhead { display: flex; align-items: stretch; }
 .fdqpick { all: unset; box-sizing: border-box; flex: 1; min-width: 0; padding: 8px 10px; cursor: pointer; display: grid; gap: 2px; border-radius: 6px; }
 .fdqpick:hover { background: var(--surface-2); }
@@ -7973,7 +7979,17 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .fdreq { color: var(--alert); }
 .fdrule { color: var(--accent-ink); }
 .fdflag { color: var(--alert); font-weight: 600; }
-.fdqacts { display: flex; align-items: center; gap: 2px; padding-right: 6px; }
+.fdqacts { display: flex; align-items: center; gap: 8px; padding-right: 8px; }
+.fdqacts [data-fd-act=delete] { margin-left: 8px; border-left: 1px solid var(--rule); border-radius: 0 4px 4px 0; }
+.fdqhint { font-size: 12px; color: var(--muted); }
+.fdqchoices { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.fdqchoice { font-size: 12px; border: 1px solid var(--rule); border-radius: 10px; padding: 1px 8px; color: var(--ink); }
+.fdqmore { font-size: 12px; color: var(--muted); }
+.fdshelf { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.fdshelf:first-of-type { margin-top: 4px; }
+.fdtocard { display: none; margin-bottom: 6px; }
+.fdinvalid { margin: 4px 0 0; font-size: 12px; }
+.fdfield textarea#fdLabel { font: inherit; }
 .fdicon { min-width: 30px; min-height: 30px; padding: 4px 6px; font-size: 14px; }
 .fdchildren { padding: 4px 10px 6px 18px; border-top: 1px dashed var(--rule); }
 .fdgroup > .fdchildren { border-left: 3px solid var(--rule-strong); margin-left: 8px; }
@@ -7988,6 +8004,7 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .fdtype { text-align: left; padding: 8px 10px; }
 .fdedithead { margin: 0 0 8px; font-size: 15px; }
 .fdfield { margin-bottom: 10px; }
+label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .fdfield textarea, .fdfield input[type=text], .fdfield select { width: 100%; box-sizing: border-box; }
 .fdchoices, .fdrules, .fdlimits, .fdrange { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
 .fdchoices legend, .fdrules legend, .fdlimits legend, .fdrange legend { font-weight: 600; padding: 0 4px; }
@@ -8003,11 +8020,15 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .fdkept dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
 .fdkept dd { margin: 0; overflow-wrap: anywhere; }
 .fdpreview { padding: 12px 14px; }
-.fdphone { margin: 0 auto; width: 360px; max-width: 100%; height: 640px; border: 10px solid var(--ink); border-radius: 26px; overflow: hidden; background: #fff; }
+/* A device's bezel is the device's colour, not the theme's: it stays dark in both. */
+.fdphone { --device-bezel: #1b2230; margin: 0 auto; width: 360px; max-width: 100%; height: 640px; border: 10px solid var(--device-bezel); border-radius: 26px; overflow: hidden; background: var(--surface); }
 .fdphone iframe { width: 100%; height: 100%; border: 0; display: block; }
-.formblank { border-top: 1px solid var(--rule); margin-top: 14px; padding-top: 10px; }
 @media (max-width: 960px) {
   .fdgrid { grid-template-columns: minmax(0, 1fr); }
-  .fdside { position: static; }
+  .fdside { position: static; scroll-margin-top: 8px; }
+  #fdTabs { scroll-margin-top: 72px; }
   .fdpanel { max-height: none; }
+  .fdtocard { display: inline-block; }
+  .fdicon { min-width: 44px; min-height: 44px; }
+  .fdphone { border: 0; border-radius: 0; height: 70vh; width: 100%; }
 }

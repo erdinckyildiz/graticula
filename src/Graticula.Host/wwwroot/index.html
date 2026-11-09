@@ -2805,11 +2805,15 @@
       <span id="fdState" class="fdstate" role="status"></span>
       <button type="button" class="primary" id="fdSave" disabled>Save</button>
     </div>
-    <p id="fdSays" class="hint fdsays" role="status" aria-live="polite"></p>
+    <a class="fdskip" href="#fdTabs" id="fdSkip">Skip to the designer tools</a>
+    <div class="fdsayline"><p id="fdSays" class="hint fdsays" role="status" aria-live="polite"></p>
+      <button type="button" class="tiny" id="fdUndo" hidden>Undo</button></div>
     <div id="fdNotices" class="fdnotices" hidden></div>
-    <div id="fdProblems" class="fdproblems" role="region" aria-label="What needs changing" tabindex="-1" hidden></div>
     <div class="fdgrid">
-      <div id="fdCanvas" class="fdcanvas" role="region" aria-label="The form's questions"></div>
+      <div class="fdmain">
+        <div id="fdProblems" class="fdproblems" role="region" aria-label="What needs changing" tabindex="-1" hidden></div>
+        <div id="fdCanvas" class="fdcanvas" role="region" aria-label="The form's questions"></div>
+      </div>
       <aside class="fdside" aria-label="Designer tools">
         <div id="fdTabs" class="fdtabs" role="tablist" aria-label="Designer tools">
           <button type="button" role="tab" id="fdTab-add" aria-controls="fdPanel" aria-selected="true">Add</button>

@@ -35,32 +35,60 @@ const fdAutoNames = new WeakSet();
 
 /** The types offered under Add, in Survey123's order, each as the cells it writes. */
 const FD_TYPES = [
-  { key: "text", word: "Single line text", type: "text" },
-  { key: "multiline", word: "Multiline text", type: "text", appearance: "multiline" },
-  { key: "select_one", word: "Single choice", type: "select_one", choices: true },
-  { key: "select_multiple", word: "Multiple choice", type: "select_multiple", choices: true },
-  { key: "dropdown", word: "Dropdown", type: "select_one", appearance: "minimal", choices: true },
-  { key: "likert", word: "Likert", type: "select_one", appearance: "likert", choices: true },
-  { key: "integer", word: "Number", type: "integer" },
-  { key: "decimal", word: "Decimal number", type: "decimal" },
-  { key: "range", word: "Rating", type: "range", parameters: "start=1 end=5 step=1" },
-  { key: "date", word: "Date", type: "date" },
-  { key: "time", word: "Time", type: "time" },
-  { key: "dateTime", word: "Date and time", type: "dateTime" },
-  { key: "geopoint", word: "Map point", type: "geopoint" },
-  { key: "geotrace", word: "Map line", type: "geotrace" },
-  { key: "geoshape", word: "Map area", type: "geoshape" },
-  { key: "image", word: "Image", type: "image" },
-  { key: "signature", word: "Signature", type: "image", appearance: "signature" },
-  { key: "file", word: "File", type: "file" },
-  { key: "audio", word: "Audio", type: "audio" },
-  { key: "note", word: "Note", type: "note" },
-  { key: "acknowledge", word: "Acknowledge", type: "acknowledge" },
-  { key: "hidden", word: "Hidden", type: "hidden" },
-  { key: "calculate", word: "Calculation", type: "calculate" },
-  { key: "group", word: "Group", type: "begin group", container: true },
-  { key: "repeat", word: "Repeat", type: "begin repeat", container: true },
+  { key: "text", word: "Single line text", type: "text", shelf: "Text", family: "value" },
+  { key: "multiline", word: "Multiline text", type: "text", appearance: "multiline", shelf: "Text", family: "value" },
+  { key: "note", word: "Note", type: "note", shelf: "Text" },
+  { key: "select_one", word: "Single choice", type: "select_one", choices: true, shelf: "Choice", family: "choice" },
+  { key: "select_multiple", word: "Multiple choice", type: "select_multiple", choices: true, shelf: "Choice", family: "choice" },
+  { key: "dropdown", word: "Dropdown", type: "select_one", appearance: "minimal", choices: true, shelf: "Choice", family: "choice" },
+  { key: "likert", word: "Likert", type: "select_one", appearance: "likert", choices: true, shelf: "Choice", family: "choice" },
+  { key: "acknowledge", word: "Acknowledge", type: "acknowledge", shelf: "Choice" },
+  { key: "integer", word: "Number", type: "integer", shelf: "Number and date", family: "value" },
+  { key: "decimal", word: "Decimal number", type: "decimal", shelf: "Number and date", family: "value" },
+  { key: "range", word: "Rating", type: "range", parameters: "start=1 end=5 step=1", shelf: "Number and date" },
+  { key: "date", word: "Date", type: "date", shelf: "Number and date", family: "value" },
+  { key: "time", word: "Time", type: "time", shelf: "Number and date", family: "value" },
+  { key: "dateTime", word: "Date and time", type: "dateTime", shelf: "Number and date", family: "value" },
+  { key: "geopoint", word: "Map point", type: "geopoint", shelf: "Location and media", family: "place" },
+  { key: "geotrace", word: "Map line", type: "geotrace", shelf: "Location and media", family: "place" },
+  { key: "geoshape", word: "Map area", type: "geoshape", shelf: "Location and media", family: "place" },
+  { key: "image", word: "Image", type: "image", shelf: "Location and media", family: "media" },
+  { key: "signature", word: "Signature", type: "image", appearance: "signature", shelf: "Location and media", family: "media" },
+  { key: "file", word: "File", type: "file", shelf: "Location and media", family: "media" },
+  { key: "audio", word: "Audio", type: "audio", shelf: "Location and media", family: "media" },
+  { key: "hidden", word: "Hidden", type: "hidden", shelf: "Behind the scenes" },
+  { key: "calculate", word: "Calculation", type: "calculate", shelf: "Behind the scenes" },
+  { key: "group", word: "Group", type: "begin group", container: true, shelf: "Structure" },
+  { key: "repeat", word: "Repeat", type: "begin repeat", container: true, shelf: "Structure" },
 ];
+
+/** The Add list's headings, in order. */
+const FD_SHELVES = ["Text", "Choice", "Number and date", "Location and media", "Behind the scenes", "Structure"];
+
+/** The type a row is, as Add offered it: its base, and the appearance that names it when there is one. */
+function fdSpecOf(row) {
+  const { base } = fdType(row);
+  const app = fdGet(fdSheet("survey"), row, "appearance").split(/\s+/);
+  return FD_TYPES.find(t => t.type === base && t.appearance && app.includes(t.appearance))
+    || FD_TYPES.find(t => t.type === base && !t.appearance) || null;
+}
+
+/** Changes a question to another type of its family, which stores its answer the same way (Survey123's type switch). */
+function fdChangeType(row, spec) {
+  const survey = fdSheet("survey");
+  const was = fdSpecOf(row);
+  const { list } = fdType(row);
+  fdPut(survey, row, "type", spec.choices ? `${spec.type} ${list}` : spec.type);
+  const kept = fdGet(survey, row, "appearance").split(/\s+/).filter(a => a && a !== was?.appearance);
+  if (spec.appearance) kept.push(spec.appearance);
+  fdPut(survey, row, "appearance", kept.join(" "));
+}
+
+/** What an appearance is called on screen, its XLSForm word after it. */
+const FD_APPEARANCE_WORDS = {
+  multiline: "Several lines", signature: "Signature", "month-year": "Month and year", year: "Year only",
+  minimal: "Dropdown", likert: "Likert scale", rating: "Stars", "field-list": "All on one page", "table-list": "As a table",
+};
 
 /** What a type is called on its card. */
 const fdTypeWord = (base, appearance) => {
@@ -269,7 +297,8 @@ const FD_OPERATORS = {
 const fdKindOf = base => base === "select_one" ? "choice" : base === "select_multiple" ? "multiple"
   : base === "integer" || base === "decimal" || base === "range" ? "number" : "text";
 
-const fdQuote = v => `'${String(v).replace(/'/g, "")}'`;
+/** A string as XPath writes it: in single quotes, or in double quotes when it holds an apostrophe. */
+const fdQuote = v => { const t = String(v); return t.includes("'") ? `"${t.replace(/"/g, "")}"` : `'${t}'`; };
 
 /** A condition as XLSForm writes it. */
 function fdConditionText(c) {
@@ -297,9 +326,9 @@ function fdParseRule(text) {
     let m;
     if ((m = /^\$\{(\w+)\}\s*!=\s*''$/.exec(p))) conditions.push({ q: m[1], op: "answered", v: "" });
     else if ((m = /^\$\{(\w+)\}\s*=\s*''$/.exec(p))) conditions.push({ q: m[1], op: "empty", v: "" });
-    else if ((m = /^not\(selected\(\$\{(\w+)\},\s*'([^']*)'\)\)$/.exec(p))) conditions.push({ q: m[1], op: "excludes", v: m[2] });
-    else if ((m = /^selected\(\$\{(\w+)\},\s*'([^']*)'\)$/.exec(p))) conditions.push({ q: m[1], op: "includes", v: m[2] });
-    else if ((m = /^\$\{(\w+)\}\s*(=|!=)\s*'([^']*)'$/.exec(p))) conditions.push({ q: m[1], op: m[2] === "=" ? "is" : "isnot", v: m[3] });
+    else if ((m = /^not\(selected\(\$\{(\w+)\},\s*(?:'([^']*)'|"([^"]*)")\)\)$/.exec(p))) conditions.push({ q: m[1], op: "excludes", v: m[2] ?? m[3] });
+    else if ((m = /^selected\(\$\{(\w+)\},\s*(?:'([^']*)'|"([^"]*)")\)$/.exec(p))) conditions.push({ q: m[1], op: "includes", v: m[2] ?? m[3] });
+    else if ((m = /^\$\{(\w+)\}\s*(=|!=)\s*(?:'([^']*)'|"([^"]*)")$/.exec(p))) conditions.push({ q: m[1], op: m[2] === "=" ? "is" : "isnot", v: m[3] ?? m[4] });
     else if ((m = /^\$\{(\w+)\}\s*(<=|>=|!=|=|<|>)\s*(-?\d+(?:\.\d+)?)$/.exec(p))) conditions.push({ q: m[1], op: m[2], v: m[3] });
     else return null;
   }
@@ -417,8 +446,9 @@ function fdDrawBar() {
   const save = $("fdSave");
   save.disabled = fdState.published || !fdState.dirty;
   save.setAttribute("aria-describedby", "fdState");
-  $("fdState").textContent = fdState.published ? "Published — read only"
-    : fdState.dirty ? "Unsaved changes" : "Saved";
+  // Written only when it changes: a status region rewritten on every keystroke is read out on every keystroke.
+  const said = fdState.published ? "Published — read only" : fdState.dirty ? "Unsaved changes" : "Saved";
+  if ($("fdState").textContent !== said) $("fdState").textContent = said;
   $("fdState").className = `fdstate${fdState.dirty ? " dirty" : ""}`;
 }
 
@@ -441,7 +471,8 @@ function fdDrawNotices() {
 }
 
 /** Marks the form changed: kept for this tab, Save offered, and checked again shortly. */
-function fdChanged(redrawCanvas = true) {
+function fdChanged(redrawCanvas = true, keepUndo = false) {
+  if (!keepUndo) fdState.undo = null;
   fdState.dirty = true;
   fdKept.set(fdState.id, JSON.stringify(fdState.model));
   fdDrawBar();
@@ -460,8 +491,10 @@ function fdDrawCanvas() {
   const problems = fdState.check?.refusals || [];
   const rowOf = node => fdSheet("survey").rows.indexOf(node.row) + 2;
 
+  const nodes = fdWalk(tree);
+  const stop = fdState.selected && nodes.some(n => n.row === fdState.selected) ? fdState.selected : nodes[0]?.row;
   const card = (node, index, siblings) => {
-    const { base } = fdType(node.row);
+    const { base, list } = fdType(node.row);
     const key = fdKey(node.row);
     const label = fdGet(survey, node.row, "label");
     const name = fdGet(survey, node.row, "name");
@@ -470,15 +503,22 @@ function fdDrawCanvas() {
     const flagged = problems.some(p => String(p.sheet).toLowerCase() === "survey" && p.row === rowOf(node));
     const selected = fdState.selected === node.row;
     const word = node.kind === "question" ? fdTypeWord(base, fdGet(survey, node.row, "appearance")) : node.kind === "group" ? "Group" : "Repeat";
+    const hint = fdGet(survey, node.row, "hint");
+    const options = list && (base === "select_one" || base === "select_multiple") ? fdChoices(list) : [];
+    const shown = options.slice(0, 4).map(r => fdGet(fdSheet("choices"), r, "label") || fdGet(fdSheet("choices"), r, "name"));
     const head = `
       <div class="fdqhead">
-        <button type="button" class="fdqpick" data-fd-act="pick" aria-pressed="${selected}">
+        <button type="button" class="fdqpick" data-fd-act="pick" aria-pressed="${selected}" tabindex="${node.row === stop ? 0 : -1}"
+          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Delete">
           <span class="fdqtype">${h(word)}</span>
           <span class="fdqlabel">${label ? h(label) : `<i>No label</i>`}${required ? ` <span class="fdreq" aria-label="required">*</span>` : ""}</span>
+          ${hint ? `<span class="fdqhint">${h(hint)}</span>` : ""}
+          ${shown.length ? `<span class="fdqchoices">${shown.map(c => `<span class="fdqchoice">${h(c)}</span>`).join("")}${
+            options.length > shown.length ? `<span class="fdqmore">and ${options.length - shown.length} more</span>` : ""}</span>` : ""}
           <span class="fdqname"><code>${h(name || "—")}</code>${shownWhen ? ` · <span class="fdrule">shown when a rule holds</span>` : ""}${
             flagged ? ` · <span class="fdflag">needs a change</span>` : ""}</span>
         </button>
-        ${fdState.published ? "" : `<span class="fdqacts">
+        ${fdState.published || !selected ? "" : `<span class="fdqacts">
           <button type="button" class="ghost tiny fdicon" data-fd-act="up" aria-label="Move ${h(label || name)} up"${index === 0 && node.parent.kind === "root" ? " disabled" : ""}>↑</button>
           <button type="button" class="ghost tiny fdicon" data-fd-act="down" aria-label="Move ${h(label || name)} down"${index === siblings.length - 1 && node.parent.kind === "root" ? " disabled" : ""}>↓</button>
           <button type="button" class="ghost tiny fdicon" data-fd-act="copy" aria-label="Duplicate ${h(label || name)}">⧉</button>
@@ -504,6 +544,7 @@ function fdDrawCanvas() {
     if (back && !back.disabled) back.focus({ preventScroll: false });
     else canvas.querySelector(`[data-fd-key="${had.key}"] [data-fd-act="pick"]`)?.focus();
   }
+  fdUndoOffer(fdState.undo);
 }
 
 /** Moves a block among its siblings, into a group beside it, or out of the one it is in — Survey123's arrows. */
@@ -616,13 +657,15 @@ function fdDrawAdd() {
     : `after <b>${h(fdGet(fdSheet("survey"), chosen.row, "label") || fdGet(fdSheet("survey"), chosen.row, "name"))}</b>`;
   panel.innerHTML = `
     <p class="hint" id="fdAddWhere">A new question goes ${where}.</p>
-    <div class="fdtypes" role="group" aria-label="Question types">
-      ${FD_TYPES.map(t => `<button type="button" class="fdtype" data-fd-add="${t.key}" aria-describedby="fdAddWhere">${h(t.word)}</button>`).join("")}
-    </div>`;
+    ${FD_SHELVES.map((shelf, i) => `<h4 class="fdshelf" id="fdShelf${i}">${h(shelf)}</h4>
+      <div class="fdtypes" role="group" aria-labelledby="fdShelf${i}">
+        ${FD_TYPES.filter(t => t.shelf === shelf).map(t => `<button type="button" class="fdtype" data-fd-add="${t.key}" aria-describedby="fdAddWhere">${h(t.word)}</button>`).join("")}
+      </div>`).join("")}`;
 }
 
 /** A labelled control in the Edit panel, with the hint under it. */
-const fdField = (id, label, control, hint) => `<div class="stacked fdfield"><label for="${id}">${h(label)}</label>${control}${
+const fdField = (id, label, control, hint) => `<div class="stacked fdfield"><label for="${id}">${h(label)}</label>${
+  hint && !/aria-describedby=/.test(control) ? control.replace(` id="${id}"`, ` id="${id}" aria-describedby="${id}Says"`) : control}${
   hint ? `<p class="hint" id="${id}Says">${hint}</p>` : ""}</div>`;
 
 function fdDrawEdit() {
@@ -642,7 +685,15 @@ function fdDrawEdit() {
   const answers = isQuestion && !["note"].includes(base);
   const parts = [];
 
+  const spec = isQuestion ? fdSpecOf(row) : null;
+  const kin = spec?.family ? FD_TYPES.filter(t => t.family === spec.family) : [];
+  parts.push(`<button type="button" class="linkbtn fdtocard" id="fdToCard">Back to the question in the form</button>`);
   parts.push(`<h3 class="fdedithead" id="fdEditHead" tabindex="-1">${h(isQuestion ? fdTypeWord(base, get("appearance")) : node.kind === "group" ? "Group" : "Repeat")}</h3>`);
+  if (kin.length > 1 && !fdState.published) {
+    parts.push(fdField("fdTypePick", "Type", `<select id="fdTypePick">${kin.map(t =>
+      `<option value="${h(t.key)}"${t === spec ? " selected" : ""}>${h(t.word)}</option>`).join("")}</select>`,
+      "Only types that store an answer the same way, so nothing already written is lost."));
+  }
   parts.push(fdField("fdLabel", base === "note" ? "Text" : "Label",
     `<textarea id="fdLabel" rows="2" data-fd-cell="label"${ro}>${h(get("label"))}</textarea>`));
   if (answers || !isQuestion) {
@@ -650,7 +701,7 @@ function fdDrawEdit() {
       "Shown under the label, in smaller type."));
   }
   parts.push(fdField("fdName", "Field name", `<input type="text" id="fdName" data-fd-cell="name" value="${h(get("name"))}" spellcheck="false" autocomplete="off" aria-describedby="fdNameSays"${ro}>`,
-    isQuestion ? "The column its answer is stored in: letters, digits and underscores, starting with a letter. It cannot change once the form is published."
+    isQuestion ? "The column its answer is stored in. It starts with a letter or _ and holds letters, digits, _, - and . — and it cannot change once the form is published."
       : "The name the form knows it by."));
 
   if (list && (base === "select_one" || base === "select_multiple")) parts.push(fdChoicesMarkup(list, ro));
@@ -680,7 +731,7 @@ function fdDrawEdit() {
     const known = !appearance || appearances.includes(appearance);
     parts.push(known
       ? fdField("fdAppearance", "Appearance", `<select id="fdAppearance" data-fd-cell="appearance"${ro}><option value="">Default</option>${appearances.map(a =>
-        `<option${a === appearance ? " selected" : ""}>${h(a)}</option>`).join("")}</select>`)
+        `<option value="${h(a)}"${a === appearance ? " selected" : ""}>${h(FD_APPEARANCE_WORDS[a] || a)} (${h(a)})</option>`).join("")}</select>`)
       : fdField("fdAppearance", "Appearance", `<input type="text" id="fdAppearance" data-fd-cell="appearance" value="${h(appearance)}" spellcheck="false"${ro}>`,
         "Written in the workbook; kept as it is."));
   }
@@ -701,6 +752,58 @@ function fdDrawEdit() {
       `<dt><code>${h(c)}</code></dt><dd>${h(v)}</dd>`).join("")}</dl></div>`);
   }
   panel.innerHTML = parts.join("");
+  fdMarkFields();
+}
+
+/** A refusal's message in the panel's words: a reference the server could not resolve is a question that is gone. */
+const fdPlain = message => String(message || "").replace(/\$\{(\w+)\} names no question in this form/g, "the question $1 is no longer in the form");
+
+/** The control each refused column is edited in. */
+const FD_CONTROL_OF = {
+  name: "fdName", label: "fdLabel", hint: "fdHint", relevant: "fdRelevant", constraint: "fdConstraint",
+  constraint_message: "fdConstraintMessage", calculation: "fdCalc", default: "fdDefault", appearance: "fdAppearance",
+  parameters: "fdRange-start", required: "fdRequiredRaw", repeat_count: "fdRepeatCount", type: "fdTypePick",
+};
+
+/** What a refused column is called in the panel — the problem list speaks the panel's words, not the workbook's. */
+const FD_COLUMN_WORDS = {
+  name: "Field name", label: "Label", hint: "Hint", relevant: "Show this only when", constraint: "Validation",
+  constraint_message: "Validation message", calculation: "Calculation", default: "Default value", appearance: "Appearance",
+  parameters: "Scale", required: "Required", repeat_count: "Number of times", type: "Type", choice_filter: "Choice filter",
+  list_name: "Choice list", form_id: "Layer name", form_title: "Form title", default_language: "Default language",
+};
+
+/**
+ * The check's refusals for the chosen question, said at the control they are about: marked invalid, the message under it
+ * and named by it. The rule builder and the limits have no single box, so their message goes under their fieldset.
+ */
+function fdMarkFields() {
+  for (const old of document.querySelectorAll("#fdPanel .fdinvalid")) old.remove();
+  for (const box of document.querySelectorAll('#fdPanel [aria-invalid="true"]')) {
+    box.removeAttribute("aria-invalid");
+    const described = (box.getAttribute("aria-describedby") || "").split(" ").filter(x => x && !x.endsWith("Err")).join(" ");
+    if (described) box.setAttribute("aria-describedby", described); else box.removeAttribute("aria-describedby");
+  }
+  const row = fdState.selected;
+  if (!row) return;
+  const at = fdSheet("survey").rows.indexOf(row) + 2;
+  const mine = (fdState.check?.refusals || []).filter(r => String(r.sheet || "").toLowerCase() === "survey" && r.row === at);
+  for (const refusal of mine) {
+    const column = fdBase(refusal.column);
+    const control = $(FD_CONTROL_OF[column]) || (column === "relevant" ? document.querySelector("#fdPanel .fdrules")
+      : column === "constraint" ? document.querySelector("#fdPanel .fdlimits") : null) || $("fdEditHead");
+    if (!control) continue;
+    const id = `${control.id || "fdField"}Err${column}`;
+    const say = document.createElement("p");
+    say.className = "bad-inline fdinvalid";
+    say.id = id;
+    say.textContent = fdPlain(refusal.message);
+    (control.tagName === "FIELDSET" || control.id === "fdEditHead" ? control : control.closest(".fdfield") || control).append(say);
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(control.tagName)) {
+      control.setAttribute("aria-invalid", "true");
+      control.setAttribute("aria-describedby", `${control.getAttribute("aria-describedby") || ""} ${id}`.trim());
+    }
+  }
 }
 
 function fdChoicesMarkup(list, ro) {
@@ -738,7 +841,8 @@ function fdLimitsMarkup(row, base, ro) {
   if (!limits) {
     return `<fieldset class="fdlimits"><legend>Validation</legend>
       ${fdField("fdConstraint", "Accepted when", `<textarea id="fdConstraint" rows="2" data-fd-cell="constraint" spellcheck="false"${ro}>${h(constraint)}</textarea>`,
-        "An XLSForm expression; <code>.</code> is this question's answer.")}${message}</fieldset>`;
+        "An XLSForm expression; <code>.</code> is this question's answer.")}${message}
+      ${ro || !fdParseLimits(constraint, base) ? "" : `<button type="button" class="linkbtn" data-fd-builder="limits">Use the builder</button>`}</fieldset>`;
   }
   const inputs = base === "text"
     ? `<div class="stacked"><label for="fdLimitLength">Longest answer, in characters</label><input type="number" min="1" id="fdLimitLength" data-fd-limit="length" value="${h(limits.length)}"${ro}></div>`
@@ -756,7 +860,8 @@ function fdRuleMarkup(row, ro) {
   if (!rule) {
     return `<fieldset class="fdrules"><legend>Show this only when</legend>
       ${fdField("fdRelevant", "Shown when", `<textarea id="fdRelevant" rows="2" data-fd-cell="relevant" spellcheck="false"${ro}>${h(relevant)}</textarea>`,
-        "An XLSForm expression, such as <code>${damage} = 'yes'</code>. Empty shows it always.")}</fieldset>`;
+        "An XLSForm expression, such as <code>${damage} = 'yes'</code>. Empty shows it always.")}
+      ${ro || !fdParseRule(relevant) ? "" : `<button type="button" class="linkbtn" data-fd-builder="rule">Use the builder</button>`}</fieldset>`;
   }
   const sourceLabel = n => fdGet(survey, n.row, "label") || fdGet(survey, n.row, "name");
   const line = (c, i) => {
@@ -775,7 +880,7 @@ function fdRuleMarkup(row, ro) {
       <select data-fd-rule="q" data-fd-at="${i}" aria-label="Question of condition ${i + 1}"${ro}>${sources.map(n => {
         const name = fdGet(survey, n.row, "name");
         return `<option value="${h(name)}"${name === c.q ? " selected" : ""}>${h(sourceLabel(n))}</option>`;
-      }).join("")}${source ? "" : `<option value="${h(c.q)}" selected>${h(c.q)} (not before this question)</option>`}</select>
+      }).join("")}${source ? "" : `<option value="${h(c.q)}" selected>${h(c.q)} (${fdNames(null).has(c.q) ? "comes after this question" : "deleted"})</option>`}</select>
       <select data-fd-rule="op" data-fd-at="${i}" aria-label="Comparison of condition ${i + 1}"${ro}>${FD_OPERATORS[kind].map(([v, w]) =>
         `<option value="${h(v)}"${v === c.op ? " selected" : ""}>${h(w)}</option>`).join("")}</select>
       ${value}
@@ -810,6 +915,20 @@ function fdWriteRule(rule) {
   fdPut(fdSheet("survey"), fdState.selected, "relevant", text);
 }
 
+/** The default language: one of the languages the form's label columns name, or typed when it names none. */
+function fdLanguageField(current, ro) {
+  const named = [...new Set(fdSheet("survey").columns.map(c => String(c).trim()).filter(c => /^label::/i.test(c)).map(c => c.slice(7)))];
+  const hint = "A Turkish form's buttons are in Turkish.";
+  if (!named.length) {
+    return fdField("fdSetLanguage", "Default language", `<input type="text" id="fdSetLanguage" data-fd-setting="default_language" value="${h(current)}" spellcheck="false"${ro}>`,
+      `As the workbook writes it, such as <code>Türkçe (tr)</code>. ${hint}`);
+  }
+  const options = named.includes(current) || !current ? named : [current, ...named];
+  return fdField("fdSetLanguage", "Default language", `<select id="fdSetLanguage" data-fd-setting-select="default_language"${ro}>
+    <option value="">None</option>${options.map(l => `<option value="${h(l)}"${l === current ? " selected" : ""}>${h(l)}</option>`).join("")}</select>`,
+    `The languages this form's labels are written in. ${hint}`);
+}
+
 function fdDrawSettings() {
   const panel = $("fdPanel");
   panel.setAttribute("aria-labelledby", "fdTab-settings");
@@ -824,8 +943,7 @@ function fdDrawSettings() {
       "XLSForm's <code>form_id</code>: the name of the layer its answers go to. Empty names it after the item's title.")}
     ${fdField("fdSetVersion", "Version", `<input type="text" id="fdSetVersion" data-fd-setting="version" value="${h(get("version"))}" spellcheck="false"${ro}>`,
       "Recorded with every answer, so a change of form can be told apart in the results.")}
-    ${fdField("fdSetLanguage", "Default language", `<input type="text" id="fdSetLanguage" data-fd-setting="default_language" value="${h(get("default_language"))}" spellcheck="false"${ro}>`,
-      "As the workbook writes it, such as <code>Türkçe (tr)</code>. A Turkish form's buttons are in Turkish.")}
+    ${fdLanguageField(get("default_language"), ro)}
     <label class="check fdfield"><input type="checkbox" id="fdSetPages"${/(^|\s)pages(\s|$)/.test(get("style")) ? " checked" : ""}${ro}>
       <span>Show each group as its own page</span></label>
     ${fdField("fdSetInstance", "Record name", `<input type="text" id="fdSetInstance" data-fd-setting="instance_name" value="${h(get("instance_name"))}" spellcheck="false"${ro}>`,
@@ -855,10 +973,18 @@ async function fdRunCheck() {
   }
   if (fdState !== state || ticket !== state.checking) return;
   check = { accepted: !!check?.accepted, refusals: check?.refusals || [], notices: check?.notices || [], form: check?.form || null };
+  const before = state.check ? state.check.refusals.length : 0;
   state.check = check;
   if (check.accepted && check.form) state.lastForm = check.form;
   fdDrawProblems();
   fdDrawCanvas();
+  if (state.tab === "edit") fdMarkFields();
+  const now = check.refusals.length;
+  if (now !== before && state.announced !== now) {
+    state.announced = now;
+    fdSay(now ? `${now === 1 ? "One thing needs" : `${now} things need`} changing before the form can be saved; listed above the form.`
+      : before ? "The form passes its check." : $("fdSays").textContent);
+  }
   fdSendPreview();
   $("fdPreviewSays").textContent = check.accepted ? "Up to date with your changes."
     : `Showing the last version that passed the check: ${check.refusals.length} ${check.refusals.length === 1 ? "thing needs" : "things need"} changing.`;
@@ -875,8 +1001,9 @@ function fdDrawProblems() {
     <ul>${refusals.map(r => {
       const row = String(r.sheet || "").toLowerCase() === "survey" && r.row >= 2 ? rows[r.row - 2] : null;
       const name = row ? fdGet(fdSheet("survey"), row, "label") || fdGet(fdSheet("survey"), row, "name") : null;
+      const column = r.column ? FD_COLUMN_WORDS[fdBase(r.column)] : null;
       return `<li>${name ? `<button type="button" class="linkbtn" data-fd-goto="${fdKey(row)}">${h(name)}</button>: ` : r.sheet ? `${h(r.sheet)}${r.row ? ` row ${r.row}` : ""}: ` : ""}${
-        r.column ? `<code>${h(r.column)}</code> — ` : ""}${h(r.message || "")}</li>`;
+        column ? `${h(column)} — ` : r.column ? `<code>${h(r.column)}</code> — ` : ""}${h(fdPlain(r.message))}</li>`;
     }).join("")}</ul>`;
 }
 
@@ -943,18 +1070,78 @@ window.addEventListener("beforeunload", event => {
 
 // ------------------------------------------------------------------------------------------------- the events
 
+/** Deletes a question or a whole group, says what went, and offers it back once (the UX review of 2026-11-09). */
+function fdDeleteWithUndo(node, name) {
+  const inside = node.children ? fdWalk(node).length : 0;
+  const said = inside ? `${name} and the ${inside} ${inside === 1 ? "question" : "questions"} in it deleted.` : `${name} deleted.`;
+  const all = fdWalk(fdTree());
+  const at = all.findIndex(n => n.row === node.row);
+  fdRemember(said, at);
+  fdDelete(node);
+  fdState.selected = null;
+  fdChanged(true, true);
+  fdSelectTab("add", false);
+  fdSay(said);
+  const next = fdWalk(fdTree())[Math.max(0, at - 1)];
+  (next ? fdCardButton(next.row) : $("fdUndo"))?.focus();
+}
+
+const fdNarrow = () => window.matchMedia("(max-width: 960px)").matches;
+
 function fdPick(row, tab = "edit") {
   fdState.selected = row;
   fdDrawCanvas();
   fdSelectTab(tab, false);
+  // One column on a phone puts the panel under the whole form; it is brought up, or the tap looks like nothing.
+  if (fdNarrow()) {
+    $("fdTabs").scrollIntoView({ block: "start" });
+    $("fdEditHead")?.focus({ preventScroll: true });
+  }
+}
+
+/** The card of a row, its pick button, for focus. */
+const fdCardButton = row => row ? $("fdCanvas").querySelector(`[data-fd-key="${fdKey(row)}"] [data-fd-act="pick"]`) : null;
+
+// ------------------------------------------------------------------------------------------------- undo (one step)
+
+/** Remembers the form before a delete, so the delete can be taken back from the line that says it happened. */
+function fdRemember(said, at) {
+  fdState.undo = { model: JSON.stringify(fdState.model), said, at };
+}
+
+function fdUndoOffer(undo) {
+  const button = $("fdUndo");
+  if (!button) return;
+  button.hidden = !undo;
+  if (undo) button.setAttribute("aria-label", `Undo: ${undo.said}`);
 }
 
 document.addEventListener("click", event => {
   if (!fdState || !(event.target instanceof Element) || !event.target.closest("#view-formdesign")) return;
+  if (event.target.closest("#fdSkip")) { event.preventDefault(); $(`fdTab-${fdState.tab}`).focus(); return; }
   const t = event.target.closest("button");
   if (!t) return;
 
   if (t.id === "fdSave") { fdSave(); return; }
+  if (t.id === "fdUndo" && fdState.undo) {
+    fdState.model = JSON.parse(fdState.undo.model);
+    const { said, at } = fdState.undo;
+    fdState.undo = null;
+    // Back where it was, chosen, and focused: the thing that came back is the thing the person is looking for.
+    fdState.selected = fdWalk(fdTree())[at]?.row || null;
+    fdChanged();
+    fdSelectTab(fdState.selected ? "edit" : "add", false);
+    fdSay(`Undone: ${said}`);
+    fdCardButton(fdState.selected)?.focus();
+    return;
+  }
+  if (t.id === "fdToCard") { const b = fdCardButton(fdState.selected); b?.scrollIntoView({ block: "center" }); b?.focus(); return; }
+  if (t.dataset.fdBuilder) {
+    (t.dataset.fdBuilder === "rule" ? fdState.rawRule : fdState.rawLimits).delete(fdState.selected);
+    fdDrawEdit();
+    (document.querySelector('#fdPanel [data-fd-rule="q"]') || $("fdRuleAdd") || $("fdLimitMin") || $("fdLimitLength"))?.focus();
+    return;
+  }
   const tab = FD_TABS.find(([key]) => t.id === `fdTab-${key}`);
   if (tab) { fdSelectTab(tab[0]); return; }
 
@@ -994,18 +1181,7 @@ document.addEventListener("click", event => {
       fdSay(`${name} duplicated; the copy is selected.`);
       return;
     }
-    if (t.dataset.fdAct === "delete") {
-      const all = fdWalk(fdTree());
-      const at = all.indexOf(all.find(n => n.row === row));
-      fdDelete(node);
-      fdState.selected = null;
-      fdChanged();
-      fdSelectTab("add", false);
-      fdSay(`${name} deleted.`);
-      const next = fdWalk(fdTree())[Math.max(0, at - 1)];
-      (next ? $("fdCanvas").querySelector(`[data-fd-key="${fdKey(next.row)}"] [data-fd-act="pick"]`) : $("fdTab-add"))?.focus();
-      return;
-    }
+    if (t.dataset.fdAct === "delete") { fdDeleteWithUndo(node, name); return; }
   }
 
   // Choices.
@@ -1042,11 +1218,13 @@ document.addEventListener("click", event => {
   // Rules and limits.
   if (t.id === "fdRuleAdd") {
     const rule = fdRuleFromControls();
-    const source = fdRuleSources(fdState.selected).at(-1);
+    const sources = fdRuleSources(fdState.selected);
+    const asked = new Set(rule.conditions.map(c => c.q));
+    const source = [...sources].reverse().find(n => !asked.has(fdGet(fdSheet("survey"), n.row, "name"))) || sources.at(-1);
     const name = fdGet(fdSheet("survey"), source.row, "name");
     const kind = fdKindOf(fdType(source.row).base);
     const first = fdType(source.row).list ? fdGet(fdSheet("choices"), fdChoices(fdType(source.row).list)[0] || [], "name") : "";
-    rule.conditions.push({ q: name, op: FD_OPERATORS[kind][0][0], v: first });
+    rule.conditions.push({ q: name, op: kind === "text" ? "answered" : FD_OPERATORS[kind][0][0], v: first });
     fdWriteRule(rule);
     fdChanged();
     fdDrawEdit();
@@ -1152,6 +1330,21 @@ document.addEventListener("change", event => {
     return;
   }
   if (t.id === "fdAppearance" && t.tagName === "SELECT" && row) { fdPut(survey, row, "appearance", t.value); fdChanged(); return; }
+  if (t.id === "fdTypePick" && row) {
+    const spec = FD_TYPES.find(x => x.key === t.value);
+    fdChangeType(row, spec);
+    fdChanged();
+    fdDrawEdit();
+    $("fdTypePick")?.focus();
+    fdSay(`Now a ${spec.word.toLowerCase()} question.`);
+    return;
+  }
+  if (t.dataset.fdSettingSelect) {
+    const settings = fdSheet("settings");
+    fdPut(settings, settings.rows[0], t.dataset.fdSettingSelect, t.value);
+    fdChanged(false);
+    return;
+  }
   if ((t.dataset.fdRule === "q" || t.dataset.fdRule === "op" || t.id === "fdRuleAll") && row) {
     const rule = fdRuleFromControls();
     // A new question or comparison may want a different kind of value; the panel is drawn again to offer it.
@@ -1176,6 +1369,39 @@ document.addEventListener("change", event => {
     if (t.checked) style.push("pages");
     fdPut(settings, settings.rows[0], "style", style.join(" "));
     fdChanged(false);
+  }
+});
+
+/**
+ * The canvas is one stop in the tab order: Up and Down go from card to card, Alt with them moves the card, Delete deletes
+ * it with its undo, and Enter chooses it. Five stops a card put two hundred before the tools on a long form.
+ */
+document.addEventListener("keydown", event => {
+  if (!fdState || !(event.target instanceof Element) || !event.target.matches("#fdCanvas [data-fd-act=pick]")) return;
+  const picks = [...$("fdCanvas").querySelectorAll("[data-fd-act=pick]")];
+  const at = picks.indexOf(event.target);
+  const row = fdSheet("survey").rows.find(r => fdKey(r) === event.target.closest("[data-fd-key]").dataset.fdKey);
+  const node = row ? fdNodeOf(row) : null;
+  if (!node) return;
+  const name = fdGet(fdSheet("survey"), row, "label") || fdGet(fdSheet("survey"), row, "name");
+  if ((event.key === "ArrowDown" || event.key === "ArrowUp") && event.altKey && !fdState.published) {
+    event.preventDefault();
+    const up = event.key === "ArrowUp";
+    if (fdMove(node, up ? -1 : 1)) { fdState.selected = row; fdChanged(); fdCardButton(row)?.focus(); fdSay(`Moved ${name} ${up ? "up" : "down"}.`); }
+    return;
+  }
+  if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    const to = event.key === "Home" ? 0 : event.key === "End" ? picks.length - 1
+      : Math.min(picks.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)));
+    for (const p of picks) p.tabIndex = -1;
+    picks[to].tabIndex = 0;
+    picks[to].focus();
+    return;
+  }
+  if (event.key === "Delete" && !fdState.published) {
+    event.preventDefault();
+    fdDeleteWithUndo(node, name);
   }
 });
 

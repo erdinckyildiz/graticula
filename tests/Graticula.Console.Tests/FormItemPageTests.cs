@@ -273,6 +273,16 @@ public sealed class FormItemPageTests : ConsoleTest
                 "[...document.querySelectorAll('#fdCanvas .fdq .fdqlabel')].map(e => e.textContent.replace('*', '').trim())") ?? [];
             Assert.Equal(["Hasar var mı", "Hasarı anlatın"], cards);
 
+            // The canvas is one tab stop; Delete deletes the focused card and Undo, beside the line that says so, brings it back.
+            Assert.Equal(1, await Browser.EvaluateAsync<int>("document.querySelectorAll('#fdCanvas [data-fd-act=pick][tabindex=\"0\"]').length"));
+            await Browser.EvaluateAsync<bool>("(() => { const b = document.querySelectorAll('#fdCanvas [data-fd-act=pick]')[1]; b.focus();"
+                + " b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })); return true; })()");
+            await WaitForAsync("document.querySelectorAll('#fdCanvas .fdq').length === 1 && !document.getElementById('fdUndo').hidden",
+                "Delete on a focused card did not delete it and offer Undo.");
+            await ClickAsync("#fdUndo");
+            await WaitForAsync("document.querySelectorAll('#fdCanvas .fdq').length === 2 && document.getElementById('fdUndo').hidden",
+                "Undo did not bring the deleted question back.");
+
             await WaitForAsync("!document.getElementById('fdSave').disabled", "Save was not offered after changes.");
             await ClickAsync("#fdSave");
             await WaitForAsync("document.getElementById('fdSays').textContent.startsWith('Saved')",
@@ -340,12 +350,21 @@ public sealed class FormItemPageTests : ConsoleTest
             Assert.Contains("bind::esri:fieldType", notice, StringComparison.Ordinal);
             Assert.Contains("label::English", notice, StringComparison.Ordinal);
 
+            // The default language is offered from the form's own label columns.
+            await ClickAsync("#fdTab-settings");
+            await WaitForAsync("document.getElementById('fdSetLanguage')?.tagName === 'SELECT'"
+                + " && [...document.getElementById('fdSetLanguage').options].some(o => o.value === 'English')",
+                "Settings did not offer the form's label languages as the default language.");
+
             await ClickAsync("#fdCanvas [data-fd-act=pick]");
             await WaitForAsync(Shown("#fdLabel"), "Choosing a question did not open it in Edit.");
             Assert.Contains("esriFieldTypeString", await Browser.EvaluateAsync<string>("document.querySelector('.fdkept')?.textContent || ''"));
             await TypeAsync("#fdLabel", "Adı");
 
             // Moving the second question up moves the row, and only the row.
+            await ClickAsync("#fdCanvas > .fdq ~ .fdq [data-fd-act=pick]");
+            await WaitForAsync(Shown("#fdCanvas > .fdq ~ .fdq [data-fd-act=up]"), "The chosen card offers no Move up.");
+            Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#fdCanvas > .fdq:not(.on) [data-fd-act=up]').length"));
             await ClickAsync("#fdCanvas > .fdq ~ .fdq [data-fd-act=up]");
             await ClickAsync("#fdSave");
             await WaitForAsync("document.getElementById('fdSays').textContent.startsWith('Saved')", "Save did not say it saved.");
@@ -374,6 +393,9 @@ public sealed class FormItemPageTests : ConsoleTest
         try
         {
             await OpenUploadAsync();
+            await ClickAsync("#formPathBlank");
+            await WaitForAsync(Shown("#formBlank") + " && document.getElementById('formFile').offsetParent === null",
+                "Choosing Start blank did not hide the workbook box and offer the designer.");
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/forms'], true)");
             await TypeAsync("#formNewTitle", "Boş " + formId);
             await ClickAsync("#formBlank");
@@ -447,7 +469,11 @@ public sealed class FormItemPageTests : ConsoleTest
         await ClickAsync("#newLayer");
         await WaitForAsync(Shown("#kindForm"), "New item offers no Form (XLSForm).");
         await ClickAsync("#kindForm");
-        await WaitForAsync(Shown("#formFile"), "Form (XLSForm) did not open its upload.");
+        await WaitForAsync(Shown("#formPathUpload"), "Form (XLSForm) did not offer its two ways to start.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('formPathBlank').checked"),
+            "A form does not start blank by default, as Survey123's does.");
+        await ClickAsync("#formPathUpload");
+        await WaitForAsync(Shown("#formFile"), "Choosing Upload did not show the workbook box.");
     }
 
     private async Task ChooseWorkbookAsync(byte[] book, string fileName)

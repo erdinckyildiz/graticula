@@ -1970,7 +1970,9 @@
         $('summary').hidden = true;
         $('form').hidden = false;
         refresh(true);
-        var first = $('body').querySelector('input, select, textarea');
+        // Not in the designer's preview: focus there belongs to the designer, and a field taking it trapped the keyboard
+        // inside the frame (the UX review of 2026-11-09).
+        var first = previewing ? null : $('body').querySelector('input, select, textarea');
         if (first) { first.focus(); }
     }
 

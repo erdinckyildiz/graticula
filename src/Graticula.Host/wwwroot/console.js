@@ -36289,31 +36289,49 @@ function formIssuesTable(issues, caption, said, id = "") {
 
 /** New item › Form: a workbook, checked first and kept only when nothing in it is refused (§5.3). */
 function drawFormUpload() {
+  // <b>Two ways to start, chosen first — Survey123's order, the UX review of 2026-11-09.</b> Starting blank was a button
+  // under the upload, sharing a title box whose hint spoke of a workbook; now each way shows only what it needs.
+  const upload = !!(handedFile && /\.xlsx$/i.test(handedFile.name || ""));
   $("addItemTitle").textContent = "Add a form";
   $("addItemBody").innerHTML = `
-    <p class="picklede">An XLSForm workbook — its survey, choices and settings sheets. It is checked first and kept only
-      when everything in it can be honoured; a workbook with something to change is not stored.</p>
-    <div class="stacked"><label for="formFile">XLSForm workbook (.xlsx)</label>
-      <input type="file" id="formFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        aria-describedby="formFileSays formNewSays"></div>
-    <p class="hint" id="formFileSays">Up to 16 MB. Survey123's XLSForm columns are read where they mean something here.</p>
+    <fieldset class="formpath"><legend>How do you want to start?</legend>
+      <label class="pickrow"><input type="radio" name="formPath" id="formPathBlank" value="blank"${upload ? "" : " checked"}>
+        <span><b>Start blank in the designer</b> — questions added one at a time, as Survey123's web designer makes them.
+          It downloads as an XLSForm whenever you want the workbook.</span></label>
+      <label class="pickrow"><input type="radio" name="formPath" id="formPathUpload" value="upload"${upload ? " checked" : ""}>
+        <span><b>Upload an XLSForm workbook</b> — its survey, choices and settings sheets, checked first and kept only when
+          everything in it can be honoured.</span></label>
+    </fieldset>
+    <div id="formUploadPart">
+      <div class="stacked"><label for="formFile">XLSForm workbook (.xlsx)</label>
+        <input type="file" id="formFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          aria-describedby="formFileSays formNewSays"></div>
+      <p class="hint" id="formFileSays">Up to 16 MB. Survey123's XLSForm columns are read where they mean something here.</p>
+    </div>
     <div class="stacked"><label for="formNewTitle">Title</label>
       <input type="text" id="formNewTitle" maxlength="250" autocomplete="off" aria-describedby="formNewTitleSays"></div>
-    <p class="hint" id="formNewTitleSays">The workbook's name until you type another. Its layer is named after the form's
-      <code>form_id</code>, or after this title when it has none.</p>
+    <p class="hint" id="formNewTitleSays"></p>
     <p class="hint" id="formNewSays" role="status" aria-live="polite"></p>
-    <div id="formNewIssues"></div>
-    <div class="formblank">
-      <p class="picklede"><b>Or start from nothing in the designer</b> — questions added one at a time, as Survey123's web
-        designer makes them. It downloads as an XLSForm whenever you want the workbook.</p>
-      <button type="button" id="formBlank" aria-describedby="formBlankSays">Design a blank form</button>
-      <p class="hint" id="formBlankSays">Uses the title above.</p>
-    </div>`;
+    <div id="formNewIssues"></div>`;
   $("addItemFoot").innerHTML = `
     <button type="button" class="ghost" id="itemBack">Back</button>
     <span class="fill"></span>
     <button type="button" class="ghost" id="itemCancel">Cancel</button>
-    <button type="button" class="primary" id="formAdd">Check and add</button>`;
+    <button type="button" class="primary" id="formAdd">Check and add</button>
+    <button type="button" class="primary" id="formBlank">Open the designer</button>`;
+  const showPath = () => {
+    const blank = $("formPathBlank").checked;
+    $("formUploadPart").hidden = blank;
+    $("formAdd").hidden = blank;
+    $("formBlank").hidden = !blank;
+    $("formNewTitleSays").innerHTML = blank
+      ? "The form's title, and the name its layer is given when it is published."
+      : "The workbook's name until you type another. Its layer is named after the form's <code>form_id</code>, or after this title when it has none.";
+    $("formNewSays").textContent = "";
+    $("formNewSays").classList.remove("bad-inline");
+  };
+  for (const radio of document.querySelectorAll("input[name=formPath]")) radio.addEventListener("change", showPath);
+  showPath();
 
   if (handedFile && /\.xlsx$/i.test(handedFile.name || "")) {
     const carried = new DataTransfer();
