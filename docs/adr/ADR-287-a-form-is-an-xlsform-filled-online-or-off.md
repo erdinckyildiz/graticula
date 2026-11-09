@@ -415,7 +415,7 @@ measurable question. The two device claims are, so they are conditions and not a
       the persistent session cookie as the map viewer does, and otherwise waits marked *sign in*, so a lost phone
       carries nothing that signs in; every submission passes through the device's outbox, and one the server refuses
       before accepting any part leaves it with the form still filled in, while a partly accepted one stays, marked; a
-      repeat without `repeat_count` starts with one instance; a `date` is midnight on the device's calendar and a `time`
+      repeat without `repeat_count` starts with one instance, **and an item in which nothing was entered is not sent** (owner decision 2026-11-09, after the first trial on dev stored an empty room row; an item counts as answered when the person changed a question in it, or in an item below it, and a value or file remains — defaults and calculations do not count; items a `repeat_count` asked for are sent as they are); a `date` is midnight on the device's calendar and a `time`
       is stored as text with its offset; an answer a choice filter stops offering is cleared; past `accuracyThreshold`
       a captured position blocks submission and a typed one does not; the page's own words follow the form's language when it is Turkish and are English otherwise (changed after the
       UX review the same night, which found Turkish forms with English buttons); a GlobalID added twice is refused with 400 and rolled back, which the
