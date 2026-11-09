@@ -233,6 +233,210 @@ public sealed class FormItemPageTests : ConsoleTest
 
     // ----------------------------------------------------------------------------------------------------- the helpers
 
+    // --------------------------------------------------------------------------------------------- the designer (§5.8)
+
+    /// <summary>
+    /// The designer builds a form question by question — a choice, a question shown by a rule on it — and saves it into
+    /// the item's model, where the server reads exactly the rows a workbook would hold.
+    /// </summary>
+    [Fact]
+    public async Task The_designer_builds_a_form_question_by_question_and_saves_it()
+    {
+        string formId = NewFormId();
+        string item = await AddBlankAsync(formId);
+
+        try
+        {
+            await OpenDesignerAsync(item);
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/check', '/model'], true)");
+
+            await ClickAsync("[data-fd-add=select_one]");
+            await WaitForAsync("document.getElementById('fdTab-edit').getAttribute('aria-selected') === 'true' && document.activeElement?.id === 'fdLabel'",
+                "Adding a question did not open Edit with its label ready for typing.");
+            await TypeAsync("#fdLabel", "Hasar var mı");
+            Assert.Equal("hasar_var_mi", await Browser.EvaluateAsync<string>("document.getElementById('fdName').value"));
+            await TypeAsync("#fdChoiceLabel0", "Evet");
+            await TypeAsync("#fdChoiceLabel1", "Hayır");
+            Assert.Equal("hayir", await Browser.EvaluateAsync<string>("document.getElementById('fdChoiceName1').value"));
+
+            await ClickAsync("#fdTab-add");
+            await ClickAsync("[data-fd-add=text]");
+            await TypeAsync("#fdLabel", "Hasarı anlatın");
+            await ClickAsync("#fdRequired");
+            await ClickAsync("#fdRuleAdd");
+            await WaitForAsync("!!document.querySelector('[data-fd-rule=v]')", "Add a condition drew no condition.");
+            Assert.Equal("hasar_var_mi", await Browser.EvaluateAsync<string>("document.querySelector('[data-fd-rule=q]').value"));
+            Assert.Equal("evet", await Browser.EvaluateAsync<string>("document.querySelector('[data-fd-rule=v]').value"));
+
+            // Two cards in the order they were added, the second marked as shown by a rule.
+            string[] cards = await Browser.EvaluateAsync<string[]>(
+                "[...document.querySelectorAll('#fdCanvas .fdq .fdqlabel')].map(e => e.textContent.replace('*', '').trim())") ?? [];
+            Assert.Equal(["Hasar var mı", "Hasarı anlatın"], cards);
+
+            await WaitForAsync("!document.getElementById('fdSave').disabled", "Save was not offered after changes.");
+            await ClickAsync("#fdSave");
+            await WaitForAsync("document.getElementById('fdSays').textContent.startsWith('Saved')",
+                "Save did not say it saved.");
+
+            (int status, string body) = await AdminAsync(HttpMethod.Get, $"/admin/forms/{item}");
+            Assert.True(status == 200, $"Reading the form answered {status}: {body}");
+            JsonElement sheets = JsonDocument.Parse(body).RootElement.GetProperty("model").GetProperty("sheets");
+            (string[] columns, string[][] rows) = SheetOf(sheets, "survey");
+            string Cell(string[] row, string column) => Array.IndexOf(columns, column) is int i and >= 0 && i < row.Length ? row[i] : "";
+            Assert.Equal(2, rows.Length);
+            Assert.Equal("select_one hasar_var_mi_list", Cell(rows[0], "type"));
+            Assert.Equal("Hasar var mı", Cell(rows[0], "label"));
+            Assert.Equal("text", Cell(rows[1], "type"));
+            Assert.Equal("yes", Cell(rows[1], "required"));
+            Assert.Equal("${hasar_var_mi} = 'evet'", Cell(rows[1], "relevant"));
+            (_, string[][] choices) = SheetOf(sheets, "choices");
+            Assert.Equal(["hasar_var_mi_list|evet|Evet", "hasar_var_mi_list|hayir|Hayır"], choices.Select(c => string.Join('|', c)).ToArray());
+
+            // The preview draws the saved form as the phone does, the question behind the rule hidden until it holds.
+            await ClickAsync("#fdTab-preview");
+            await WaitForAsync("!!document.getElementById('fdPreviewFrame').dataset.drawn"
+                + " && document.getElementById('fdPreviewFrame').contentDocument?.body?.textContent.includes('Hasar var mı')",
+                "The preview did not draw the form.");
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "document.getElementById('fdPreviewFrame').contentDocument.getElementById('submit').disabled"),
+                "The preview offers Submit.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await RemoveAsync(item, formId);
+        }
+    }
+
+    /// <summary>
+    /// A column the designer does not edit is listed at the top and comes back from a save untouched, cell for cell —
+    /// §5.8: one model, never a second one behind the designer.
+    /// </summary>
+    [Fact]
+    public async Task A_column_the_designer_does_not_edit_is_listed_and_kept()
+    {
+        string formId = NewFormId();
+        JsonObject model = new()
+        {
+            ["format"] = "xlsform/1",
+            ["sheets"] = new JsonArray(
+                Sheet("survey", ["type", "name", "label", "bind::esri:fieldType", "label::English"],
+                    ["text", "ad", "Ad", "esriFieldTypeString", "Name"],
+                    ["integer", "kat", "Kat sayısı"]),
+                Sheet("settings", ["form_title", "form_id"], ["Korunan", formId])),
+        };
+        (int added, string addBody) = await AdminAsync(HttpMethod.Post, "/admin/forms",
+            new JsonObject { ["title"] = "Korunan " + formId, ["model"] = model }.ToJsonString());
+        Assert.True(added == 201, $"Adding the form answered {added}: {addBody}");
+        string item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenDesignerAsync(item);
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/check', '/model'], true)");
+
+            string notice = await Browser.EvaluateAsync<string>("document.getElementById('fdNotices').textContent") ?? "";
+            Assert.Contains("bind::esri:fieldType", notice, StringComparison.Ordinal);
+            Assert.Contains("label::English", notice, StringComparison.Ordinal);
+
+            await ClickAsync("#fdCanvas [data-fd-act=pick]");
+            await WaitForAsync(Shown("#fdLabel"), "Choosing a question did not open it in Edit.");
+            Assert.Contains("esriFieldTypeString", await Browser.EvaluateAsync<string>("document.querySelector('.fdkept')?.textContent || ''"));
+            await TypeAsync("#fdLabel", "Adı");
+
+            // Moving the second question up moves the row, and only the row.
+            await ClickAsync("#fdCanvas > .fdq ~ .fdq [data-fd-act=up]");
+            await ClickAsync("#fdSave");
+            await WaitForAsync("document.getElementById('fdSays').textContent.startsWith('Saved')", "Save did not say it saved.");
+
+            (_, string body) = await AdminAsync(HttpMethod.Get, $"/admin/forms/{item}");
+            (string[] columns, string[][] rows) = SheetOf(JsonDocument.Parse(body).RootElement.GetProperty("model").GetProperty("sheets"), "survey");
+            Assert.Equal(["type", "name", "label", "bind::esri:fieldType", "label::English"], columns);
+            Assert.Equal(["integer", "kat", "Kat sayısı"], rows[0]);
+            Assert.Equal(["text", "ad", "Adı", "esriFieldTypeString", "Name"], rows[1]);
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await RemoveAsync(item, formId);
+        }
+    }
+
+    /// <summary>New item › Form makes a blank form and opens it in the designer, as Survey123's "Blank survey" does.</summary>
+    [Fact]
+    public async Task A_blank_form_is_made_from_New_item_and_opens_in_the_designer()
+    {
+        string formId = NewFormId();
+        string? item = null;
+
+        try
+        {
+            await OpenUploadAsync();
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/forms'], true)");
+            await TypeAsync("#formNewTitle", "Boş " + formId);
+            await ClickAsync("#formBlank");
+            await WaitForAsync("document.getElementById('view-formdesign')?.classList.contains('on') && /\\/design$/.test(location.pathname)",
+                "Design a blank form did not open the designer.");
+            item = await FindItemAsync(formId);
+            Assert.NotNull(item);
+            Assert.Contains(item!, await Browser.EvaluateAsync<string>("location.pathname"), StringComparison.Ordinal);
+            await WaitForAsync("document.getElementById('fdCanvas').textContent.includes('No questions yet')",
+                "A blank form's designer does not say it has no questions.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await RemoveAsync(item ?? await FindItemAsync(formId), formId);
+        }
+    }
+
+    /// <summary>Adds a form with no questions through the API, as the designer's blank start makes one.</summary>
+    private async Task<string> AddBlankAsync(string formId)
+    {
+        JsonObject model = new()
+        {
+            ["format"] = "xlsform/1",
+            ["sheets"] = new JsonArray(
+                Sheet("survey", ["type", "name", "label", "hint", "required", "relevant"]),
+                Sheet("choices", ["list_name", "name", "label"]),
+                Sheet("settings", ["form_title", "form_id"], ["Tasarım", formId])),
+        };
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/admin/forms",
+            new JsonObject { ["title"] = "Tasarım " + formId, ["model"] = model }.ToJsonString());
+        Assert.True(status == 201, $"Adding the form answered {status}: {body}");
+        return JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+    }
+
+    private async Task OpenDesignerAsync(string item)
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync($"/studio/item/{item}/design", token);
+        await WaitForAsync("document.getElementById('view-formdesign')?.classList.contains('on') && !!document.querySelector('[data-fd-add]')",
+            "The designer did not open with its Add panel.");
+    }
+
+    /// <summary>Types into a box and says so with an <c>input</c> event, as a person typing would.</summary>
+    private async Task TypeAsync(string selector, string text)
+    {
+        string quoted = JsonSerializer.Serialize(selector);
+        string value = JsonSerializer.Serialize(text);
+        bool typed = await Browser.EvaluateAsync<bool>(
+            $"(() => {{ const e = document.querySelector({quoted}); if (!e) return false; e.focus(); "
+            + $"e.value = {value}; e.dispatchEvent(new Event('input', {{ bubbles: true }})); return true; }})()");
+        Assert.True(typed, $"There is no box matching '{selector}' on this screen.");
+    }
+
+    /// <summary>A model sheet's columns and rows, read from a form's JSON.</summary>
+    private static (string[] Columns, string[][] Rows) SheetOf(JsonElement sheets, string name)
+    {
+        JsonElement sheet = sheets.EnumerateArray().First(s => string.Equals(s.GetProperty("name").GetString(), name, StringComparison.OrdinalIgnoreCase));
+        return ([.. sheet.GetProperty("columns").EnumerateArray().Select(c => c.GetString() ?? "")],
+            [.. sheet.GetProperty("rows").EnumerateArray().Select(r => r.EnumerateArray().Select(c => c.GetString() ?? "").ToArray())]);
+    }
+
     private static string NewFormId() => "zz_fstudio_" + Guid.NewGuid().ToString("N")[..8];
 
     private async Task OpenUploadAsync()

@@ -260,6 +260,7 @@
         "The attachment was refused.": "Ek kabul edilmedi.",
         "This form is not published yet, so there is nowhere to send it.": "Bu form henüz yayımlanmadı, cevapların gönderileceği yer yok.",
         "This form is not published yet. You can look at it, but answers cannot be sent.": "Bu form henüz yayımlanmadı. İnceleyebilirsiniz ama cevaplar gönderilemez.",
+        "A preview of the form as it is being designed. Answers are not sent.": "Formun tasarlanmakta olan hâlinin önizlemesi. Cevaplar gönderilmez.",
         "Opened from this device; the server could not be reached.": "Bu cihazdan açıldı; sunucuya ulaşılamadı.",
         "The form could not be loaded: you are offline and it has not been downloaded to this device.": "Form yüklenemedi: çevrimdışısınız ve form bu cihaza indirilmemiş.",
         "Discard this record? It has not been accepted by the server and cannot be recovered.": "Bu kayıt silinsin mi? Sunucu henüz kabul etmedi ve geri getirilemez."
@@ -2052,11 +2053,19 @@
         } catch (e) { /* anonymous or offline */ }
     }
 
+    /** The designer's preview — /forms/preview, framed by Studio (ADR-287 §5.8): sent its form, sends nothing. */
+    var previewing = /\/forms\/preview\/?$/i.test(location.pathname);
+
     async function start() {
         X = window.GraticulaXlsform;
         var params = new URLSearchParams(location.search);
         var fromPath = /\/forms\/([0-9a-f]{32})\/?$/i.exec(location.pathname);
         itemId = (params.get('id') || (fromPath && fromPath[1]) || '').toLowerCase();
+
+        if (previewing) {
+            startPreview();
+            return;
+        }
 
         registerWorker();
         drawConnection();
@@ -2070,6 +2079,34 @@
         });
         $('send-now').addEventListener('click', function () { exchanged = false; sendOutbox(); });
         $('download-offline').addEventListener('click', downloadForOffline);
+        wireForm();
+        if (isIos()) { $('ios-note').hidden = false; }
+
+        await drawOutbox();
+
+        if (!itemId) {
+            $('loading').hidden = true;
+            await drawDeviceForms();
+            return;
+        }
+
+        var loaded;
+        try {
+            await whoAmI();
+            loaded = await loadDoc();
+        } catch (e) {
+            $('loading').textContent = e.network
+                ? t('The form could not be loaded: you are offline and it has not been downloaded to this device.')
+                : 'The form could not be loaded: ' + e.message;
+            return;
+        }
+        await begin(loaded);
+        if (navigator.onLine) { sendOutbox(); }
+        readyResolve();
+    }
+
+    /** The page's own controls — Next, Back, Submit, the language — wired once, whatever form they then serve. */
+    function wireForm() {
         $('form').addEventListener('submit', submit);
         $('new-form').addEventListener('click', startBlank);
         $('next').addEventListener('click', function () {
@@ -2096,28 +2133,12 @@
             document.documentElement.lang = (/\(([a-z]{2,3})\)/i.exec(lang) || [])[1] || document.documentElement.lang;
             applyStaticText();
             render();
-            drawOutbox();
+            if (!previewing) { drawOutbox(); }
         });
-        if (isIos()) { $('ios-note').hidden = false; }
+    }
 
-        await drawOutbox();
-
-        if (!itemId) {
-            $('loading').hidden = true;
-            await drawDeviceForms();
-            return;
-        }
-
-        var loaded;
-        try {
-            await whoAmI();
-            loaded = await loadDoc();
-        } catch (e) {
-            $('loading').textContent = e.network
-                ? t('The form could not be loaded: you are offline and it has not been downloaded to this device.')
-                : 'The form could not be loaded: ' + e.message;
-            return;
-        }
+    /** Draws a loaded form: its lists, languages and title, then a blank record. Called again for each preview. */
+    async function begin(loaded) {
         doc = loaded.doc;
         form = doc.form;
         defs = {};
@@ -2126,18 +2147,20 @@
         var csvNames = csvNamesOf(form);
         for (var i = 0; i < csvNames.length; i++) {
             if (files[csvNames[i]]) { continue; }
-            var body = loaded.from === 'server' ? await fetchCsv(csvNames[i]) : null;
+            var body = loaded.from !== 'device' && itemId ? await fetchCsv(csvNames[i]) : null;
             if (body === null) { missingFiles.push(csvNames[i]); } else { files[csvNames[i]] = { text: body, rows: parseCsv(body) }; }
         }
 
         var languages = Array.isArray(form.languages) ? form.languages.filter(function (l) { return l !== null && l !== undefined; }) : [];
-        lang = form.defaultLanguage && languages.indexOf(form.defaultLanguage) >= 0 ? form.defaultLanguage : (languages[0] || '');
+        var keep = languages.indexOf(lang) >= 0 && loaded.from === 'preview';
+        lang = keep ? lang : form.defaultLanguage && languages.indexOf(form.defaultLanguage) >= 0 ? form.defaultLanguage : (languages[0] || '');
+        var select = $('language');
+        select.textContent = '';
         if (languages.length > 1) {
-            var select = $('language');
             languages.forEach(function (l) { select.appendChild(el('option', { value: l, text: l || 'Default' })); });
             select.value = lang;
-            $('language-wrap').hidden = false;
         }
+        $('language-wrap').hidden = languages.length <= 1;
         var langCode = (/\(([a-z]{2,3})\)/i.exec(lang) || [])[1];
         if (langCode) { document.documentElement.lang = langCode; }
         applyStaticText();
@@ -2146,26 +2169,59 @@
         document.title = title;
         $('form-title').textContent = title;
         $('loading').hidden = true;
-        $('offline-panel').hidden = false;
         if (loaded.from === 'device') {
+            $('offline-panel').hidden = false;
             $('offline-status').textContent = t('Opened from this device; the server could not be reached.');
-        } else {
+        } else if (loaded.from === 'server') {
+            $('offline-panel').hidden = false;
             // A form already downloaded is refreshed with what the server serves now.
-            var kept = await dbGet('forms', itemId).catch(function () { return null; });
-            if (kept) { downloadForOffline(); }
+            var stored = await dbGet('forms', itemId).catch(function () { return null; });
+            if (stored) { downloadForOffline(); }
         }
-        // A preview: said at the top from the start, and Submit is off, rather than a refusal after the form is filled.
+        // A preview, or a form not yet published: said at the top from the start, and Submit is off, rather than a
+        // refusal after the form is filled.
         if (!doc.publication) {
             var notice = $('unpublished');
-            notice.textContent = t('This form is not published yet. You can look at it, but answers cannot be sent.');
+            notice.textContent = loaded.from === 'preview'
+                ? t('A preview of the form as it is being designed. Answers are not sent.')
+                : t('This form is not published yet. You can look at it, but answers cannot be sent.');
             notice.hidden = false;
             $('submit').disabled = true;
             $('submit').setAttribute('aria-describedby', 'unpublished');
         }
 
         startBlank();
-        if (navigator.onLine) { sendOutbox(); }
-        readyResolve();
+    }
+
+    /**
+     * The preview: no worker, no outbox, nothing sent. It says it is ready to its parent and draws each form the parent
+     * posts — from this origin only, and only from the window that framed it — keeping the language it was shown in.
+     */
+    function startPreview() {
+        document.documentElement.classList.add('previewing');
+        ['outbox-toggle', 'connection', 'offline-panel'].forEach(function (id) { var n = $(id); if (n) { n.hidden = true; } });
+        wireForm();
+        var drawing = Promise.resolve();
+        window.addEventListener('message', function (event) {
+            if (event.origin !== location.origin || event.source !== window.parent) { return; }
+            var sent = event.data || {};
+            if (sent.type !== 'graticula-form-preview' || !sent.form) { return; }
+            drawing = drawing.then(function () {
+                files = {};
+                missingFiles = [];
+                itemId = String(sent.itemId || '').toLowerCase();
+                $('summary').hidden = true;
+                $('done').hidden = true;
+                return begin({ doc: { id: itemId, title: sent.title, form: sent.form, publication: null }, from: 'preview' });
+            }).then(function () {
+                readyResolve();
+                window.parent.postMessage({ type: 'graticula-form-preview-drawn' }, location.origin);
+            }).catch(function (e) {
+                $('loading').hidden = false;
+                $('loading').textContent = 'The preview could not be drawn: ' + (e && e.message ? e.message : e);
+            });
+        });
+        window.parent.postMessage({ type: 'graticula-form-preview-ready' }, location.origin);
     }
 
     var readyResolve;

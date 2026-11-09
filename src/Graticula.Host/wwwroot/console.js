@@ -3789,7 +3789,9 @@ function route() {
   // <b>An item by its id — `#/item/{id}`, ADR-196</b>: the address Studio's item page has, as Portal's
   // `item.html?id=` is. The id says which item; what kind it is decides which page draws it.
   if (rest[0] === "item" && rest[1]) {
-    showItemById(rest[1]);
+    // A form's designer — `#/item/{id}/design`, ADR-287 §5.8 (form-designer.js).
+    if (rest[2] === "design" && typeof showFormDesigner === "function") showFormDesigner(rest[1]);
+    else showItemById(rest[1]);
     return;
   }
 
@@ -35501,6 +35503,8 @@ async function showDocumentItem(id) {
     ${doc.url && doc.kind !== "slpk" && doc.kind !== "form" ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
+    ${doc.kind === "form" && doc.manages ? `<a class="btn" id="formDesign" href="${
+      pathOf(`#/item/${encodeURIComponent(doc.id)}/design`)}">${doc.url ? "View in designer" : "Design"}</a>` : ""}
     ${doc.kind === "form" ? (doc.manages ? `<button type="button" id="formDownload">Download XLSForm</button>` : "")
       : doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
@@ -36298,7 +36302,13 @@ function drawFormUpload() {
     <p class="hint" id="formNewTitleSays">The workbook's name until you type another. Its layer is named after the form's
       <code>form_id</code>, or after this title when it has none.</p>
     <p class="hint" id="formNewSays" role="status" aria-live="polite"></p>
-    <div id="formNewIssues"></div>`;
+    <div id="formNewIssues"></div>
+    <div class="formblank">
+      <p class="picklede"><b>Or start from nothing in the designer</b> — questions added one at a time, as Survey123's web
+        designer makes them. It downloads as an XLSForm whenever you want the workbook.</p>
+      <button type="button" id="formBlank" aria-describedby="formBlankSays">Design a blank form</button>
+      <p class="hint" id="formBlankSays">Uses the title above.</p>
+    </div>`;
   $("addItemFoot").innerHTML = `
     <button type="button" class="ghost" id="itemBack">Back</button>
     <span class="fill"></span>

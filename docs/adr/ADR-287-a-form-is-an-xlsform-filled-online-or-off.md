@@ -241,6 +241,26 @@ measurable question. The two device claims are, so they are conditions and not a
    one model, never a second one behind the designer**: the JSON and the workbook are two spellings of the same rows,
    and anything the designer can make can be downloaded as XLSForm. Graticula's own additions go in
    `bind::graticula:…` and `body::graticula:…` columns, never in a field the workbook cannot hold.
+   **Built 2026-11-09, by owner decision** (*"Survey123 web tasarımcısı"*, *"Şimdi, aynı dalda"*), in
+   `wwwroot/form-designer.js` at `/studio/item/{id}/design`. Survey123's web designer in structure: the form in the
+   middle a question at a time, each card with move up, move down, duplicate and delete; beside it **Add** (the question
+   types), **Edit** (label, hint, field name, choices, required, read only, default, appearance, the scale of a rating,
+   validation, and *Show this only when*), **Settings** (form title, layer name, version, default language, groups as
+   pages, record name) and **Preview**. It edits the model's rows in place and nothing else: every change is checked by
+   the server's own `/check` as it is made, Save is `PUT /admin/forms/{id}/model`, and what either refuses is listed with
+   a way to the question it is about. **INFERRED, for the owner to confirm:** (a) the preview is the form client itself,
+   framed — `/forms/preview` serves the same page, takes the form the designer posts and sends nothing; that page alone
+   may be framed, by this origin only, and Studio's policy gained `frame-src 'self'`, which admits nothing else because
+   every other page here refuses framing; (b) the designer writes labels in one language — plain `label`, or the default
+   language's column — and lists the others as kept; (c) a rule is built as conditions joined by *all* or *any* (is, is
+   not, includes, compares, is answered), and a rule written in any other shape is shown and edited as its expression,
+   with *Write it as an expression instead* always offered; validation the same way, as smallest and largest, or longest
+   answer; (d) a field name follows its label until somebody types one, Turkish letters written as their Latin
+   neighbours, and a choice list the designer made is named after its question and follows its name while no other
+   question uses it; deleting the last question that asks a list deletes the list; (e) New item › Form offers *Design a
+   blank form* beside the workbook; (f) a published form opens read only, its questions shown and previewed — changing a
+   published form is still not built (§5.11 (h)); (g) unsaved changes are kept for the tab's life when the designer is
+   left and put back on return, and closing the tab with changes asks first.
 9. **INFERRED, for the owner to confirm** (listed as [Q-229](../open-questions.md)). **All answered 2026-11-09:**
    (j) confirmed as written (*"Reddet, ikisini göster"*); (b) confirmed except that **a repeat inside a repeat is in
    the first version** (*"İlk sürümde olsun"*, §5.2, §5.10); (c), (d), (f), (g), (h), (i) and (k) confirmed as written

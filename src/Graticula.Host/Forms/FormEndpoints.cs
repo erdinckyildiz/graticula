@@ -63,6 +63,7 @@ public static class FormEndpoints
         app.MapPut("/admin/forms/{id}/sharing", ShareAsync);
         app.MapGet("/forms/{id}/form.json", ClientAsync);
         app.MapGet("/forms/{id:regex(^[0-9a-fA-F]{{32}}$)}", PageAsync);
+        app.MapGet("/forms/preview", (HttpContext context, CancellationToken cancellation) => PageAsync(context, "preview", cancellation));
     }
 
     /// <summary>
@@ -70,6 +71,11 @@ public static class FormEndpoints
     /// id from its own path. The same file as <c>/forms/fill.html?id=…</c>, served rather than copied, so the two cannot
     /// drift; whether the caller may read the form is decided when the page asks for <c>form.json</c>.
     /// </summary>
+    /// <remarks>
+    /// <b><c>/forms/preview</c> is the same page</b>, for the designer in Studio to frame (ADR-287 §5.8): the page reads
+    /// its address, takes the form it is sent rather than fetching one, and sends nothing. It is outside the service
+    /// worker's shell on purpose — a page from its cache would carry the headers that refuse framing.
+    /// </remarks>
     private static async Task<IResult> PageAsync(HttpContext context, string id, CancellationToken cancellation)
     {
         _ = id;
@@ -215,6 +221,9 @@ public static class FormEndpoints
             refusals = Issues(refusals),
             notices = Issues(check.Notices),
             plan = plan is null ? null : PlanJson(plan),
+
+            // The form as the client fills it in, for the designer's preview — what form.json serves once it is saved.
+            form = refusals.Count == 0 && check.Definition is { } compiled ? FormCompiled.Json(compiled) : null,
         });
     }
 

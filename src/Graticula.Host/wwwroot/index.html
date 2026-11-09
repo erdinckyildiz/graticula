@@ -2795,6 +2795,37 @@
     who may read it — and, to themselves and to whoever manages members, what they hold. `#/user/{name}`.
   -->
   <!-- ADR-223: a Python toolbox's page — its tools, each with the questions its parameters ask, and what a run made. -->
+  <!-- The form designer — ADR-287 §5.8: the form in the middle, Add / Edit / Settings / Preview beside it, as Survey123's
+       web designer lays it out. Drawn by form-designer.js. -->
+  <section class="view" id="view-formdesign" aria-labelledby="fdTitle">
+    <div class="fdbar">
+      <a id="fdBack" class="fdback" href="#">Back to the form's page</a>
+      <h1 id="fdTitle" tabindex="-1">Form designer</h1>
+      <span class="fill"></span>
+      <span id="fdState" class="fdstate" role="status"></span>
+      <button type="button" class="primary" id="fdSave" disabled>Save</button>
+    </div>
+    <p id="fdSays" class="hint fdsays" role="status" aria-live="polite"></p>
+    <div id="fdNotices" class="fdnotices" hidden></div>
+    <div id="fdProblems" class="fdproblems" role="region" aria-label="What needs changing" tabindex="-1" hidden></div>
+    <div class="fdgrid">
+      <div id="fdCanvas" class="fdcanvas" role="region" aria-label="The form's questions"></div>
+      <aside class="fdside" aria-label="Designer tools">
+        <div id="fdTabs" class="fdtabs" role="tablist" aria-label="Designer tools">
+          <button type="button" role="tab" id="fdTab-add" aria-controls="fdPanel" aria-selected="true">Add</button>
+          <button type="button" role="tab" id="fdTab-edit" aria-controls="fdPanel" aria-selected="false" tabindex="-1">Edit</button>
+          <button type="button" role="tab" id="fdTab-settings" aria-controls="fdPanel" aria-selected="false" tabindex="-1">Settings</button>
+          <button type="button" role="tab" id="fdTab-preview" aria-controls="fdPreviewPane" aria-selected="false" tabindex="-1">Preview</button>
+        </div>
+        <div id="fdPanel" class="fdpanel" role="tabpanel" aria-labelledby="fdTab-add"></div>
+        <div id="fdPreviewPane" class="fdpreview" role="tabpanel" aria-labelledby="fdTab-preview" hidden>
+          <p id="fdPreviewSays" class="hint" role="status" aria-live="polite"></p>
+          <div class="fdphone"><iframe id="fdPreviewFrame" title="The form as a phone draws it"></iframe></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
   <section class="view" id="view-toolbox">
     <div class="profilecard toolboxcard">
       <div class="profilehead">
@@ -3863,6 +3894,7 @@
 <script src="ground.js" defer></script>
 <script src="analysis.js" defer></script>
 <script src="console.js" defer></script>
+<script src="form-designer.js" defer></script>
 </body>
 </html>
 

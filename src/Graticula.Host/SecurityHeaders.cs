@@ -188,6 +188,11 @@ internal static class SecurityHeaders
         + $"connect-src 'self' blob: {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
         + $"font-src {mapSdkOrigin}; "
         + "worker-src blob:; "
+
+        // <b>'self', since 2026-11-09 — ADR-287 §5.8.</b> The form designer shows its preview in a frame of
+        // /forms/preview. 'self' admits only this origin, and every other page here refuses to be framed
+        // (frame-ancestors 'none', X-Frame-Options DENY) — so what can actually load in a frame is that preview.
+        + "frame-src 'self'; "
         + "form-action 'self'; "
         + "frame-ancestors 'none'; "
 
@@ -229,6 +234,9 @@ internal static class SecurityHeaders
         + "form-action 'self'; "
         + "frame-ancestors 'none'; "
         + "base-uri 'self'";
+
+    /// <summary>The form page as the designer's preview — the one address framed, and only by this origin (ADR-287 §5.8).</summary>
+    internal const string FormPreviewPath = "/forms/preview";
 
     private static bool IsFormClient(PathString path) =>
         path.StartsWithSegments("/forms", StringComparison.OrdinalIgnoreCase);
@@ -335,7 +343,14 @@ internal static class SecurityHeaders
                 bool embed = embedders.Count > 0
                     && context.Request.Path.Equals(EmbedPath, StringComparison.OrdinalIgnoreCase);
 
-                if (!embed)
+                // ADR-287 §5.8: the form designer frames the form page's preview, from this origin and no other.
+                bool preview = context.Request.Path.Equals(FormPreviewPath, StringComparison.OrdinalIgnoreCase);
+
+                if (preview)
+                {
+                    Set(headers, "X-Frame-Options", "SAMEORIGIN");
+                }
+                else if (!embed)
                 {
                     Set(headers, "X-Frame-Options", "DENY");
                 }
@@ -355,6 +370,7 @@ internal static class SecurityHeaders
 
                 Set(headers, "Content-Security-Policy",
                     embed ? Framable(surfacePolicy, embedders) : console ? surfacePolicy
+                    : preview ? FormsPolicy.Replace("frame-ancestors 'none'", "frame-ancestors 'self'", StringComparison.Ordinal)
                     : IsFormClient(context.Request.Path) ? FormsPolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
