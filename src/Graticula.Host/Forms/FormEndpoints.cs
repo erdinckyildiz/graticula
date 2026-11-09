@@ -204,7 +204,9 @@ public static class FormEndpoints
         }
 
         FormCheck check = FormDefinition.Check(model!);
-        FormLayerPlan? plan = check.Definition is { } definition ? FormLayerPlan.For(definition, id) : null;
+        // A stored form's plan is named as publishing will name it, after its title; anything else after the id given.
+        string fallback = (await ManagedFormAsync(context, id, "check", cancellation).ConfigureAwait(false)).Document?.Title ?? id;
+        FormLayerPlan? plan = check.Definition is { } definition ? FormLayerPlan.For(definition, fallback) : null;
         IReadOnlyList<FormIssue> refusals = [.. check.Refusals, .. plan?.Refusals ?? []];
 
         return Results.Json(new
@@ -277,6 +279,17 @@ public static class FormEndpoints
             Encoding.UTF8.GetBytes(publication.ToJsonString()), "inherit", replace: false, 100L * 1024 * 1024, cancellation).ConfigureAwait(false);
         await services.GetRequiredService<IDocumentStore>().SetLinkAsync(document.Id, (string?)publication["featureServer"],
             ["Form", "Graticula Form", "XLSForm"], cancellation).ConfigureAwait(false);
+
+        // A form shared before it was published opens its answers now, as sharing it afterwards would have.
+        if (document.Sharing is SharingScope.Organization or SharingScope.Public)
+        {
+            (int opened, string? why) = await OpenAnswersAsync(context, document, publication, document.Sharing, cancellation).ConfigureAwait(false);
+
+            if (opened is < 200 or >= 300)
+            {
+                return Error(opened, $"The form was published, but its answers could not be opened to its sharing: {why ?? "no reason given"}. Share it again.");
+            }
+        }
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.publish", document.Id,
             AdminEndpoints.Detail(new { service = plan.ServiceName, layers = plan.Layers.Count }), succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -580,47 +593,11 @@ public static class FormEndpoints
 
         if (publication is not null)
         {
-            string service = (string?)publication["service"] ?? string.Empty;
-            string view = (string?)publication["submitService"] ?? $"{service}_submit";
-            bool exists = publication["submitService"] is not null;
-            (int status, string? message) = (200, null);
-
-            if (!exists && scope != SharingScope.Private)
-            {
-                AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], word);
-                (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
-                    context, service, FeatureServerMetadataWriter.HostedFolder, asked,
-                    services.GetRequiredService<IAdminCatalog>(), services.GetRequiredService<PostgresLayerCatalog>(),
-                    services.GetRequiredService<PostGisImporter>(), services.GetRequiredService<ServiceContexts>(),
-                    services.GetRequiredService<IAuditLog>(), cancellation)).ConfigureAwait(false);
-            }
-            else if (exists)
-            {
-                (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.SetServiceSharingAsync(
-                    context, view, FeatureServerMetadataWriter.HostedFolder, new SharingRequest(word),
-                    services.GetRequiredService<PostgresSystemServices>(), services.GetRequiredService<IAdminCatalog>(),
-                    services.GetRequiredService<IAuditLog>(), services.GetRequiredService<PostgresLayerCatalog>(), cancellation))
-                    .ConfigureAwait(false);
-            }
+            (int status, string? message) = await OpenAnswersAsync(context, document, publication, scope, cancellation).ConfigureAwait(false);
 
             if (status is < 200 or >= 300)
             {
                 return Error(status, $"The form's answers could not be opened to '{word}': {message ?? "no reason given"}. Its sharing was not changed.");
-            }
-
-            if (!exists && scope != SharingScope.Private)
-            {
-                publication["submitService"] = view;
-
-                foreach (JsonNode? layer in publication["layers"] as JsonArray ?? [])
-                {
-                    string url = (string?)layer?["url"] ?? string.Empty;
-                    string index = url[(url.LastIndexOf('/') + 1)..];
-                    layer!["submitUrl"] = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{view}/FeatureServer/{index}";
-                }
-
-                await services.GetRequiredService<IItemResourceStore>().WriteAsync(Guid.Parse(document.Id), PublicationResource, "application/json",
-                    Encoding.UTF8.GetBytes(publication.ToJsonString()), "inherit", replace: true, 100L * 1024 * 1024, cancellation).ConfigureAwait(false);
             }
         }
 
@@ -630,6 +607,62 @@ public static class FormEndpoints
             AdminEndpoints.Detail(new { sharing = word, view = (string?)publication?["submitService"] }), succeeded: true, cancellation).ConfigureAwait(false);
 
         return Results.Json(new { id = document.Id, sharing = word, publication });
+    }
+
+    /// <summary>
+    /// Opens a published form's answers to a sharing scope: makes its Create-only submit view, or reshares the one it has,
+    /// and records each layer's <c>submitUrl</c>. Called when a form is shared and when an already shared form is
+    /// published, so a form shared before it was published takes answers too (found by the Studio screens 2026-11-09).
+    /// </summary>
+    private static async Task<(int Status, string? Message)> OpenAnswersAsync(
+        HttpContext context, Document document, JsonObject publication, SharingScope scope, CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        string word = scope.ToString().ToLowerInvariant();
+        string service = (string?)publication["service"] ?? string.Empty;
+        string view = (string?)publication["submitService"] ?? $"{service}_submit";
+        bool exists = publication["submitService"] is not null;
+        (int status, string? message) = (200, null);
+
+        if (!exists && scope != SharingScope.Private)
+        {
+            AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], word);
+            (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
+                context, service, FeatureServerMetadataWriter.HostedFolder, asked,
+                services.GetRequiredService<IAdminCatalog>(), services.GetRequiredService<PostgresLayerCatalog>(),
+                services.GetRequiredService<PostGisImporter>(), services.GetRequiredService<ServiceContexts>(),
+                services.GetRequiredService<IAuditLog>(), cancellation)).ConfigureAwait(false);
+        }
+        else if (exists)
+        {
+            (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.SetServiceSharingAsync(
+                context, view, FeatureServerMetadataWriter.HostedFolder, new SharingRequest(word),
+                services.GetRequiredService<PostgresSystemServices>(), services.GetRequiredService<IAdminCatalog>(),
+                services.GetRequiredService<IAuditLog>(), services.GetRequiredService<PostgresLayerCatalog>(), cancellation))
+                .ConfigureAwait(false);
+        }
+
+        if (status is < 200 or >= 300)
+        {
+            return (status, message);
+        }
+
+        if (!exists && scope != SharingScope.Private)
+        {
+            publication["submitService"] = view;
+
+            foreach (JsonNode? layer in publication["layers"] as JsonArray ?? [])
+            {
+                string url = (string?)layer?["url"] ?? string.Empty;
+                string index = url[(url.LastIndexOf('/') + 1)..];
+                layer!["submitUrl"] = $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{view}/FeatureServer/{index}";
+            }
+
+            await services.GetRequiredService<IItemResourceStore>().WriteAsync(Guid.Parse(document.Id), PublicationResource, "application/json",
+                Encoding.UTF8.GetBytes(publication.ToJsonString()), "inherit", replace: true, 100L * 1024 * 1024, cancellation).ConfigureAwait(false);
+        }
+
+        return (200, null);
     }
 
     // ------------------------------------------------------------------------------------------------------ the client

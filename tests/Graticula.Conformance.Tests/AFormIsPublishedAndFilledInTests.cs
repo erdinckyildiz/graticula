@@ -270,6 +270,54 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
         }
     }
 
+    [Fact]
+    public async Task A_form_shared_before_it_is_published_takes_answers_once_it_is()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential.");
+
+        string formId = "zz_form_" + Guid.NewGuid().ToString("N")[..8];
+        string? item = null;
+
+        try
+        {
+            (_, string addBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms", token!,
+                new JsonObject { ["title"] = "Önce paylaşılan " + formId, ["model"] = Model(formId) }.ToJsonString());
+            item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+            (HttpStatusCode shared, string sharedBody) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!, """{"sharing":"public"}""");
+            Assert.True(shared == HttpStatusCode.OK, $"Sharing an unpublished form answered {(int)shared}: {sharedBody}");
+
+            (HttpStatusCode published, string publication) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(published == HttpStatusCode.OK, $"Publishing a shared form answered {(int)published}: {publication}");
+
+            using HttpRequestMessage open = new(HttpMethod.Get, $"{root}/forms/{item}/form.json");
+            using HttpResponseMessage opened = await Http.SendAsync(open);
+            string client = await opened.Content.ReadAsStringAsync();
+            Assert.True(opened.StatusCode == HttpStatusCode.OK, $"An anonymous read answered {(int)opened.StatusCode}: {client}");
+            string top = JsonDocument.Parse(client).RootElement.GetProperty("publication").GetProperty("layers")[0].GetProperty("submitUrl").GetString()!;
+            await AnonymousAddAsync(root, top, $$$"""
+                [{"geometry":{"x":27.14,"y":38.42,"spatialReference":{"wkid":4326}},"attributes":{"globalid":"{{{Guid.NewGuid().ToString("B").ToUpperInvariant()}}}","bina_adi":"Sonra yayımlanan","hasar":"agir"}}]
+                """);
+
+            (HttpStatusCode checkedStatus, string plan) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/check", token!,
+                new JsonObject { ["model"] = Model(formId) }.ToJsonString());
+            Assert.Equal(HttpStatusCode.OK, checkedStatus);
+            Assert.Equal(formId, JsonDocument.Parse(plan).RootElement.GetProperty("plan").GetProperty("service").GetString());
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
+            await DeleteDomainsAsync(root, token!, formId);
+
+            if (item is not null)
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{item}", token!, null);
+            }
+        }
+    }
+
     private async Task<int> AnonymousAddAsync(string root, string layerUrl, string adds)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, $"{root}{layerUrl}/applyEdits")
