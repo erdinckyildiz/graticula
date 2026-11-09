@@ -481,6 +481,16 @@ measurable question. The two device claims are, so they are conditions and not a
     refused and waits in the device's outbox; (h) a failure part way keeps the fields already added, empty, and says to
     publish again to finish.
 
+14. **A form is shared with groups — built 2026-11-09 overnight**, as Survey123 shares one. The form's Share offers
+    *Groups* beside owner only, organization and everyone; the form item is shared with the groups chosen, and its
+    answers view is shared as `group` with the same groups, so a group's members open the form and send answers and
+    nobody outside it can (`A_form_shared_with_a_group_takes_answers_from_its_members_only`). The set is replaced as a
+    whole: a group added is shared, a group left out is unshared, on the form and on its view. Sharing with all
+    organizations is still refused (§5.11 (l)). **INFERRED, for the owner to confirm:** (a) the groups offered are the
+    ones the caller owns or manages, as a document's Share offers them; (b) moving a form from groups to the organization
+    or everyone leaves its group shares in place, as a Portal item keeps them, and they matter again only when it is
+    shared with groups again.
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without

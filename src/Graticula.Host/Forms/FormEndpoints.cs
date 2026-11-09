@@ -306,7 +306,7 @@ public static class FormEndpoints
         await FileAsync(context, document, plan.ServiceName, document.Title, cancellation).ConfigureAwait(false);
 
         // A form shared before it was published opens its answers now, as sharing it afterwards would have.
-        if (document.Sharing is SharingScope.Organization or SharingScope.Public)
+        if (document.Sharing is SharingScope.Organization or SharingScope.Public or SharingScope.Group)
         {
             (int opened, string? why) = await OpenAnswersAsync(context, document, publication, document.Sharing, cancellation).ConfigureAwait(false);
 
@@ -824,8 +824,9 @@ public static class FormEndpoints
     // ---------------------------------------------------------------------------------------------------------- sharing
 
     /// <summary>A form's sharing: who may open it, and where their answers go.</summary>
-    /// <param name="Sharing"><c>private</c>, <c>organization</c> or <c>public</c>.</param>
-    internal sealed record FormSharingRequest(string? Sharing);
+    /// <param name="Sharing"><c>private</c>, <c>group</c>, <c>organization</c> or <c>public</c>.</param>
+    /// <param name="Groups">For <c>group</c>: the groups it is shared with, by name — the whole set, not a change.</param>
+    internal sealed record FormSharingRequest(string? Sharing, IReadOnlyList<string>? Groups = null);
 
     /// <summary>
     /// Shares a form, and with it a view of its layers that takes new records and nothing else — ADR-287 §5.1, ADR-113.
@@ -840,11 +841,12 @@ public static class FormEndpoints
     private static async Task<IResult> ShareAsync(HttpContext context, string id, FormSharingRequest request, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
-        // enum-default-is-deliberate: refused. A form shared to groups or to all organizations would need its submit view
-        // shared the same way, which is not built (ADR-287 §5.11 (l)); those scopes are refused with a sentence, not mapped.
+        // enum-default-is-deliberate: refused. A form shared to all organizations would need its submit view shared the same
+        // way, which is not built (ADR-287 §5.11 (l)); that scope is refused with a sentence, not mapped. Groups since §5.14.
         SharingScope scope = request.Sharing?.ToLowerInvariant() switch
         {
             "private" => SharingScope.Private,
+            "group" => SharingScope.Group,
             "organization" => SharingScope.Organization,
             "public" => SharingScope.Public,
             _ => (SharingScope)(-1),
@@ -852,7 +854,19 @@ public static class FormEndpoints
 
         if (!Enum.IsDefined(scope))
         {
-            return Error(400, "A form is shared as 'private', 'organization' or 'public'.");
+            return Error(400, "A form is shared as 'private', 'group', 'organization' or 'public'.");
+        }
+
+        List<string> wanted = [.. (request.Groups ?? []).Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)];
+
+        if (scope == SharingScope.Group && wanted.Count == 0)
+        {
+            return Error(400, "A form shared with groups names at least one group in 'groups'.");
+        }
+
+        if (scope == SharingScope.Group && !await Authorize.RequireAsync(context, Privilege.GroupsShareTo).ConfigureAwait(false))
+        {
+            return Results.Empty;
         }
 
         if (scope == SharingScope.Public && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic).ConfigureAwait(false))
@@ -868,10 +882,25 @@ public static class FormEndpoints
         IServiceProvider services = context.RequestServices;
         JsonObject? publication = (await PublicationAsync(context, document.Id, cancellation).ConfigureAwait(false)) as JsonObject;
         string word = scope.ToString().ToLowerInvariant();
+        IReadOnlyList<string> had = document.SharedWithNames ?? [];
+
+        // The form's own groups first: a group the caller may not share with refuses here, before any view changes.
+        if (scope == SharingScope.Group)
+        {
+            (int grouped, string? why) = await ShareGroupsAsync(context, had, wanted, (name, on) =>
+                services.GetRequiredService<IGroupDirectory>().ShareDocumentAsync(Caller(context).Principal.Id,
+                    Caller(context).Authorization.Allows(Privilege.AdminManageAllContent), name, document.Id, on, cancellation)).ConfigureAwait(false);
+
+            if (grouped != 200)
+            {
+                return Error(grouped, $"The form was not shared with its groups: {why}. Its sharing was not changed.");
+            }
+        }
 
         if (publication is not null)
         {
-            (int status, string? message) = await OpenAnswersAsync(context, document, publication, scope, cancellation).ConfigureAwait(false);
+            (int status, string? message) = await OpenAnswersAsync(context, document, publication, scope, cancellation,
+                scope == SharingScope.Group ? wanted : null, had).ConfigureAwait(false);
 
             if (status is < 200 or >= 300)
             {
@@ -884,7 +913,35 @@ public static class FormEndpoints
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.share", document.Id,
             AdminEndpoints.Detail(new { sharing = word, view = (string?)publication?["submitService"] }), succeeded: true, cancellation).ConfigureAwait(false);
 
-        return Results.Json(new { id = document.Id, sharing = word, publication });
+        return Results.Json(new { id = document.Id, sharing = word, groups = scope == SharingScope.Group ? wanted : [], publication });
+    }
+
+    private static RequestPrincipal Caller(HttpContext context) => context.Features.Get<RequestPrincipal>()!;
+
+    /// <summary>
+    /// Brings one item's groups to the set wanted: shares with each one added and stops with each one left out — §5.14.
+    /// </summary>
+    /// <returns>200, or the refusal's status and its reason, naming the group.</returns>
+    private static async Task<(int Status, string? Message)> ShareGroupsAsync(
+        HttpContext context, IReadOnlyList<string> had, IReadOnlyList<string> wanted, Func<string, bool, Task<GroupChange>> share)
+    {
+        _ = context;
+        HashSet<string> before = new(had, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> after = new(wanted, StringComparer.OrdinalIgnoreCase);
+
+        foreach ((string name, bool on) in after.Where(g => !before.Contains(g)).Select(g => (g, true))
+                     .Concat(before.Where(g => !after.Contains(g)).Select(g => (g, false))))
+        {
+            GroupChange outcome = await share(name, on).ConfigureAwait(false);
+
+            if (outcome != GroupChange.Done)
+            {
+                return (outcome == GroupChange.Absent ? 404 : 403,
+                    outcome == GroupChange.Absent ? $"there is no group '{name}'" : $"you may not share with the group '{name}'");
+            }
+        }
+
+        return (200, null);
     }
 
     /// <summary>
@@ -893,7 +950,8 @@ public static class FormEndpoints
     /// published, so a form shared before it was published takes answers too (found by the Studio screens 2026-11-09).
     /// </summary>
     private static async Task<(int Status, string? Message)> OpenAnswersAsync(
-        HttpContext context, Document document, JsonObject publication, SharingScope scope, CancellationToken cancellation)
+        HttpContext context, Document document, JsonObject publication, SharingScope scope, CancellationToken cancellation,
+        IReadOnlyList<string>? groups = null, IReadOnlyList<string>? hadGroups = null)
     {
         IServiceProvider services = context.RequestServices;
         string word = scope.ToString().ToLowerInvariant();
@@ -933,6 +991,17 @@ public static class FormEndpoints
                 services.GetRequiredService<PostgresSystemServices>(), services.GetRequiredService<IAdminCatalog>(),
                 services.GetRequiredService<IAuditLog>(), services.GetRequiredService<PostgresLayerCatalog>(), cancellation))
                 .ConfigureAwait(false);
+        }
+
+        // §5.14: a view shared as 'group' is read by the members of the groups it is in — the form's own, and no other.
+        if (status is >= 200 and < 300 && scope == SharingScope.Group)
+        {
+            IReadOnlyList<string> want = groups ?? document.SharedWithNames ?? [];
+            IReadOnlyList<string> before = exists ? hadGroups ?? [] : [];
+            (status, message) = await ShareGroupsAsync(context, before, want, (name, on) =>
+                services.GetRequiredService<IGroupDirectory>().ShareAsync(Caller(context).Principal.Id,
+                    Caller(context).Authorization.Allows(Privilege.AdminManageAllContent), name, view,
+                    FeatureServerMetadataWriter.HostedFolder, on, cancellation)).ConfigureAwait(false);
         }
 
         if (status is < 200 or >= 300)

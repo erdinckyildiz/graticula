@@ -37084,6 +37084,7 @@ function drawFormShare(doc) {
   const now = doc.sharing || "private";
   const scopes = [
     ["private", "Owner only", "Only you can open it and send answers."],
+    ["group", "Groups", "The members of the groups you choose can open it and send answers."],
     ["organization", "Organization", "Everyone signed in to your organization can open it and send answers."],
     ["public", "Everyone (public)", "Anyone with its address can open it and send answers, without signing in."],
   ];
@@ -37091,19 +37092,32 @@ function drawFormShare(doc) {
       ${scopes.map(([value, label, said]) => `<label class="check"><input type="radio" name="formShareScope" value="${value}"${
         value === now ? " checked" : ""} aria-describedby="formShareWhy"> <span><b>${h(label)}</b> <span class="hint">${h(said)}</span></span></label>`).join("")}
     </fieldset>
+    <fieldset class="offered" id="formShareGroups"${now === "group" ? "" : " hidden"}><legend>Groups</legend>
+      <p class="hint">Reading your groups…</p></fieldset>
     <p class="hint" id="formShareWhy">${published
-      ? "Sharing it with your organization or everyone makes a view of its layers that only adds records: people send their answers through it and cannot see, change or delete anyone's. Back to Owner only closes that view; the answers stay yours."
-      : "It is not published yet. When it is, sharing it makes a view of its layers that only adds records, so people can send answers without seeing anyone else's."}
-      A form is not shared with groups yet.</p>
+      ? "Sharing it with groups, your organization or everyone makes a view of its layers that only adds records: people send their answers through it and cannot see, change or delete anyone's. Back to Owner only closes that view; the answers stay yours."
+      : "It is not published yet. When it is, sharing it makes a view of its layers that only adds records, so people can send answers without seeing anyone else's."}</p>
     <p class="hint" id="formShareSays" role="status" aria-live="polite"></p>`;
   $("docShareFoot").innerHTML = `<span class="fill"></span>
     <button type="button" class="ghost" id="docShareCancel">Cancel</button>
     <button type="button" class="primary" id="formShareSave" disabled>Save</button>`;
-  for (const radio of document.querySelectorAll('input[name="formShareScope"]')) {
-    radio.onchange = () => {
-      $("formShareSave").disabled = document.querySelector('input[name="formShareScope"]:checked')?.value === now;
-    };
-  }
+  const had = new Set(doc.groups || []);
+  const changed = () => {
+    const scope = document.querySelector('input[name="formShareScope"]:checked')?.value;
+    const ticked = new Set([...document.querySelectorAll("[data-form-group]:checked")].map(b => b.dataset.formGroup));
+    $("formShareGroups").hidden = scope !== "group";
+    $("formShareSave").disabled = (scope === "group" && ticked.size === 0)
+      || (scope === now && (scope !== "group" || (ticked.size === had.size && [...ticked].every(g => had.has(g)))));
+  };
+  for (const radio of document.querySelectorAll('input[name="formShareScope"]')) radio.onchange = changed;
+  api("/admin/groups").then(listed => {
+    const mine = (listed.groups || []).filter(g => g.mayManage || had.has(g.name));
+    $("formShareGroups").innerHTML = `<legend>Groups</legend>${mine.length
+      ? mine.map(g => `<label class="check"><input type="checkbox" data-form-group="${h(g.name)}"${had.has(g.name) ? " checked" : ""}>
+          <span>${h(g.title || g.name)}</span></label>`).join("")
+      : `<p class="hint">You own or manage no group. A group is made on the Groups page.</p>`}`;
+    for (const box of document.querySelectorAll("[data-form-group]")) box.onchange = changed;
+  }).catch(e => { $("formShareGroups").innerHTML = `<legend>Groups</legend><p class="bad-inline">${h(e.message || e)}</p>`; });
   $("docShare").showModal();
   $("docShareTitle").focus();
 }
@@ -37112,17 +37126,18 @@ function drawFormShare(doc) {
 async function formShareSave(button) {
   const doc = docOpen;
   const sharing = document.querySelector('input[name="formShareScope"]:checked')?.value || "private";
+  const groups = [...document.querySelectorAll("[data-form-group]:checked")].map(b => b.dataset.formGroup);
   button.disabled = true;
   $("formShareSays").textContent = "Saving…";
   try {
     const answer = await api(`/admin/forms/${encodeURIComponent(doc.id)}/sharing`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing }) });
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing, groups }) });
     $("docShare").close();
     formHere = null;
     await showDocumentItem(doc.id);
     const view = answer?.publication?.submitService;
     $("docSays").textContent = sharing === "private" ? "Only you can open it now." + (view ? ` The view ${view} no longer takes answers from anyone else.` : "")
-      : `Shared: ${SCOPE_WORDS[sharing] || sharing}.${view ? ` Answers arrive through ${view}, which only adds records.`
+      : `Shared: ${sharing === "group" ? `with ${groups.length === 1 ? "the group" : "the groups"} ${groups.join(", ")}` : SCOPE_WORDS[sharing] || sharing}.${view ? ` Answers arrive through ${view}, which only adds records.`
         : " Once it is published, answers arrive through a view that only adds records."}`;
     $("docShareOpen")?.focus();
   } catch (e) {

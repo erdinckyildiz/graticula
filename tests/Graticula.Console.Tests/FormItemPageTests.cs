@@ -98,6 +98,10 @@ public sealed class FormItemPageTests : ConsoleTest
             await ClickAsync("#docShareOpen");
             await WaitForAsync(Shown("input[name=formShareScope][value=public]"), "A form's Share offers no public scope.");
             Assert.Contains("only adds records", await Browser.EvaluateAsync<string>("document.getElementById('formShareWhy').textContent"));
+            // Groups (§5.14): choosing them shows the groups, and Save waits for one to be ticked.
+            await ClickAsync("input[name=formShareScope][value=group]");
+            await WaitForAsync(Shown("#formShareGroups") + " && document.getElementById('formShareSave').disabled",
+                "Choosing Groups did not show the groups with Save waiting for one.");
             await ClickAsync("input[name=formShareScope][value=public]");
             await ClickAsync("#formShareSave");
             await WaitForAsync($"window.__writes.some(w => w.startsWith('PUT /admin/forms/{item}/sharing'))",

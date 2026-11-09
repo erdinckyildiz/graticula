@@ -485,6 +485,116 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// A form shared with a group is opened and answered by that group's members and by nobody else — ADR-287 §5.14.
+    /// </summary>
+    [Fact]
+    public async Task A_form_shared_with_a_group_takes_answers_from_its_members_only()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential.");
+
+        string formId = "zz_form_" + Guid.NewGuid().ToString("N")[..8];
+        string group = "zz_fgrp_" + Guid.NewGuid().ToString("N")[..6];
+        const string Member = "zz_form_member";
+        const string Outsider = "zz_form_outsider";
+        const string Password = "Zz-form-group-9!";
+        string? item = null;
+
+        await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Member}?deleteOwned=true", token!, null);
+        await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Outsider}?deleteOwned=true", token!, null);
+
+        try
+        {
+            string memberToken = await NewMemberAsync(root, token!, Member, Password);
+            string outsiderToken = await NewMemberAsync(root, token!, Outsider, Password);
+            (HttpStatusCode made, string madeBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/groups", token!,
+                JsonSerializer.Serialize(new { name = group, title = "Form group" }));
+            Assert.True((int)made is >= 200 and < 300, $"Making the group answered {(int)made}: {madeBody}");
+            await RequestAsync(HttpMethod.Put, $"{root}/admin/groups/{group}/members/{Member}", token!, JsonSerializer.Serialize(new { manager = false }));
+
+            (_, string addBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms", token!,
+                new JsonObject { ["title"] = "Grup anketi " + formId, ["model"] = Model(formId) }.ToJsonString());
+            item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+            (HttpStatusCode published, string publishBody) = await RequestAsync(HttpMethod.Post, $"{root}/admin/forms/{item}/publish", token!, "{}");
+            Assert.True(published == HttpStatusCode.OK, $"Publishing answered {(int)published}: {publishBody}");
+
+            (HttpStatusCode refused, _) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!, """{"sharing":"group"}""");
+            Assert.Equal(HttpStatusCode.BadRequest, refused);
+
+            (HttpStatusCode shared, string sharedBody) = await RequestAsync(HttpMethod.Put, $"{root}/admin/forms/{item}/sharing", token!,
+                JsonSerializer.Serialize(new { sharing = "group", groups = new[] { group } }));
+            Assert.True(shared == HttpStatusCode.OK, $"Sharing with the group answered {(int)shared}: {sharedBody}");
+
+            // The member opens it and answers through the view; the outsider cannot open it, nor add through the view.
+            (HttpStatusCode opened, string client) = await RequestAsync(HttpMethod.Get, $"{root}/forms/{item}/form.json", memberToken, null);
+            Assert.True(opened == HttpStatusCode.OK, $"The group's member could not open the form: {(int)opened} {client}");
+            string top = JsonDocument.Parse(client).RootElement.GetProperty("publication").GetProperty("layers")[0].GetProperty("submitUrl").GetString()!;
+            string adds = $$$"""[{"geometry":{"x":32.8,"y":39.9,"spatialReference":{"wkid":4326}},"attributes":{"globalid":"{{{Guid.NewGuid().ToString("B").ToUpperInvariant()}}}","bina_adi":"Üye"}}]""";
+            (HttpStatusCode memberAdd, string memberAddBody) = await AddAsAsync(root, memberToken, top, adds);
+            Assert.True(memberAdd == HttpStatusCode.OK && memberAddBody.Contains("\"success\":true", StringComparison.Ordinal),
+                $"The group's member could not send an answer: {(int)memberAdd} {memberAddBody}");
+
+            (HttpStatusCode outsiderOpen, _) = await RequestAsync(HttpMethod.Get, $"{root}/forms/{item}/form.json", outsiderToken, null);
+            Assert.NotEqual(HttpStatusCode.OK, outsiderOpen);
+            (HttpStatusCode outsiderAdd, string outsiderAddBody) = await AddAsAsync(root, outsiderToken, top, adds.Replace("Üye", "Yabancı", StringComparison.Ordinal));
+            Assert.False(outsiderAdd == HttpStatusCode.OK && outsiderAddBody.Contains("\"success\":true", StringComparison.Ordinal),
+                $"Somebody outside the group sent an answer: {outsiderAddBody}");
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted&drop=true", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
+            await DeleteDomainsAsync(root, token!, formId);
+
+            if (item is not null)
+            {
+                await RequestAsync(HttpMethod.Delete, $"{root}/content/documents/{item}", token!, null);
+            }
+
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/groups/{group}", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Member}?deleteOwned=true", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/members/{Outsider}?deleteOwned=true", token!, null);
+        }
+    }
+
+    /// <summary>A member made for a test, signed in with a password of the test's choosing; its token.</summary>
+    private async Task<string> NewMemberAsync(string root, string token, string name, string password)
+    {
+        (HttpStatusCode status, string body) = await RequestAsync(HttpMethod.Post, $"{root}/admin/members", token,
+            JsonSerializer.Serialize(new { name, role = "user", userType = "creator" }));
+        Assert.True((int)status is >= 200 and < 300, $"Making the member '{name}' answered {(int)status}: {body}");
+        string generated = JsonDocument.Parse(body).RootElement.GetProperty("password").GetString()!;
+        string first = await LoginAsync(root, name, generated);
+        using HttpRequestMessage change = new(HttpMethod.Post, $"{root}/rest/auth/password");
+        change.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", first);
+        change.Content = new StringContent(JsonSerializer.Serialize(new { currentPassword = generated, newPassword = password }),
+            System.Text.Encoding.UTF8, "application/json");
+        using HttpResponseMessage changed = await Http.SendAsync(change);
+        Assert.True(changed.IsSuccessStatusCode, $"Setting '{name}''s password answered {(int)changed.StatusCode}: {await changed.Content.ReadAsStringAsync()}");
+        return await LoginAsync(root, name, password);
+    }
+
+    private async Task<string> LoginAsync(string root, string name, string password)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{root}/rest/auth/login");
+        request.Content = new StringContent(JsonSerializer.Serialize(new { name, password }), System.Text.Encoding.UTF8, "application/json");
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.IsSuccessStatusCode, $"Signing in as '{name}' answered {(int)response.StatusCode}: {body}");
+        return JsonDocument.Parse(body).RootElement.GetProperty("token").GetString()!;
+    }
+
+    private async Task<(HttpStatusCode, string)> AddAsAsync(string root, string token, string layerUrl, string adds)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, $"{root}{layerUrl}/addFeatures");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["f"] = "json", ["features"] = adds });
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
     private async Task<int> AnonymousAddAsync(string root, string layerUrl, string adds)
     {
         using HttpRequestMessage request = new(HttpMethod.Post, $"{root}{layerUrl}/applyEdits")
