@@ -268,7 +268,8 @@
         "Zoomed in. Tap again to place it.": "Yakınlaştırıldı. Yerleştirmek için yeniden dokunun.",
         "Zoom in": "Yakınlaştır",
         "Zoom out": "Uzaklaştır",
-        "Remove": "Kaldır",
+        "Points": "Noktalar",
+        "Your location could not be found. You can type the coordinates instead.": "Konumunuz bulunamadı. Koordinatları yazabilirsiniz.",
         "The map could not be loaded; use the boxes below.": "Harita yüklenemedi; aşağıdaki kutuları kullanın.",
         "Opened from this device; the server could not be reached.": "Bu cihazdan açıldı; sunucuya ulaşılamadı.",
         "The form could not be loaded: you are offline and it has not been downloaded to this device.": "Form yüklenemedi: çevrimdışısınız ve form bu cihaza indirilmemiş.",
@@ -1356,7 +1357,7 @@
     }
 
     function verticesWidget(inst, q, id) {
-        var list = el('ol', { class: 'vertices', 'aria-label': 'Points' });
+        var list = el('ol', { class: 'vertices', 'aria-label': t('Points') });
         var status = el('p', { class: 'hint', 'aria-live': 'polite' });
         var here = el('button', { type: 'button', 'data-focus': 'here', text: t('Add my position') });
         var undo = el('button', { type: 'button', class: 'quiet', 'data-focus': 'undo', text: t('Remove last point') });
@@ -1375,7 +1376,7 @@
                 store(pts);
                 status.textContent = isTurkish() ? 'Nokta ' + pts.length + ' eklendi, ' + Math.round(p.coords.accuracy) + ' m doğrulukta.'
                     : 'Point ' + pts.length + ' added, accurate to ' + Math.round(p.coords.accuracy) + ' m.';
-            }, function (e) { status.textContent = e.message; });
+            }, function () { status.textContent = t('Your location could not be found. You can type the coordinates instead.'); });
         });
         addTyped.addEventListener('click', function () {
             var a = Number(lat.value.trim().replace(',', '.')), b = Number(lon.value.trim().replace(',', '.'));
@@ -1425,6 +1426,11 @@
                     remove.disabled = !!ro;
                     remove.addEventListener('click', function () {
                         var now = points(); now.splice(i, 1); store(now);
+                        // Focus to the point that took its place, or to Remove last point when none is left.
+                        setTimeout(function () {
+                            var next = list.querySelectorAll('button')[Math.min(i, now.length - 1)];
+                            (next || undo).focus();
+                        }, 0);
                         status.textContent = isTurkish() ? 'Nokta ' + (i + 1) + ' kaldırıldı.' : 'Point ' + (i + 1) + ' removed.';
                     });
                     list.appendChild(el('li', null, [el('span', { text: (isTurkish() ? 'Nokta ' : 'Point ') + (i + 1) + ': '
