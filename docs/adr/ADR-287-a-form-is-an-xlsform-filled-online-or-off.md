@@ -417,8 +417,8 @@ measurable question. The two device claims are, so they are conditions and not a
       before accepting any part leaves it with the form still filled in, while a partly accepted one stays, marked; a
       repeat without `repeat_count` starts with one instance; a `date` is midnight on the device's calendar and a `time`
       is stored as text with its offset; an answer a choice filter stops offering is cleared; past `accuracyThreshold`
-      a captured position blocks submission and a typed one does not; the page's own words are English while the
-      form's labels follow the chosen language; a GlobalID added twice is refused with 400 and rolled back, which the
+      a captured position blocks submission and a typed one does not; the page's own words follow the form's language when it is Turkish and are English otherwise (changed after the
+      UX review the same night, which found Turkish forms with English buttons); a GlobalID added twice is refused with 400 and rolled back, which the
       client reads as *already arrived*, looks the row up and sends the rest; the page is served from the cache and
       refreshed behind, `form.json` from the network first. Geotrace and geoshape are captured as vertices, with no map.
 

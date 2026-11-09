@@ -111,7 +111,7 @@ h2.page-title, .group > h2, .group > h3, .repeat > h2, .repeat > h3 { margin: 24
   border: 1px solid var(--rule);
   border-radius: 8px;
 }
-.question.invalid { border-color: var(--alert); box-shadow: inset 3px 0 0 var(--alert); }
+.question.invalid { border-color: var(--alert); box-shadow: 0 0 0 1px var(--alert); }
 .question > label, .question > .label, .question legend { display: block; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
 .question fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .question > label.choice { display: flex; font-weight: 400; margin-bottom: 0; }
@@ -171,7 +171,7 @@ button.danger { color: var(--alert); background: var(--surface); border-color: v
 button:disabled { opacity: 0.55; cursor: default; }
 
 .inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
-.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
 .pair label { font-size: 14px; color: var(--muted); display: grid; gap: 4px; }
 .vertices { margin: 8px 0 0; padding-left: 20px; font-family: var(--mono); font-size: 14px; }
 
@@ -187,7 +187,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 .repeat-instance {
   margin: 12px 0; padding: 4px 12px 12px;
-  border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0;
+  border: 1px solid var(--rule); background: var(--accent-soft); border-radius: 8px;
 }
 .repeat-instance > .instance-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
 .repeat-instance > .instance-head h3, .repeat-instance > .instance-head h4 { margin: 0; font-size: 16px; }
@@ -212,3 +212,10 @@ button:disabled { opacity: 0.55; cursor: default; }
 .signin { display: grid; gap: 8px; margin-top: 8px; }
 
 .repeat h3, .repeat h4, .repeat h5, .repeat h6 { font-size: 16px; }
+
+/* UX review 2026-11-09. An unanswered range shows no thumb, so it does not look answered at its first value. */
+input[type=range]:not([data-set])::-webkit-slider-thumb { opacity: 0; }
+input[type=range]:not([data-set])::-moz-range-thumb { opacity: 0; }
+/* The photo and file control as a 44 px target, as the rest of the page's controls are. */
+input[type=file] { min-height: 44px; font: inherit; }
+input[type=file]::file-selector-button { min-height: 44px; padding: 0 16px; margin-right: 12px; font: inherit; border: 1px solid var(--rule); border-radius: 6px; background: var(--accent-soft); color: inherit; cursor: pointer; }

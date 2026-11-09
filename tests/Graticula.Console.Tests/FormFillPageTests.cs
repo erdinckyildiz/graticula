@@ -306,6 +306,70 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         Assert.Equal(1, (await QueryAsync(url, $"{column}='{name}'")).GetProperty("features").GetArrayLength());
     }
 
+    [Fact]
+    public async Task A_paged_form_that_begins_with_metadata_opens_on_its_first_real_page_in_its_language()
+    {
+        // UX review 2026-11-09: a `start` question before the first group made an empty first page that could not be left.
+        string formId = "zz_pages_" + Guid.NewGuid().ToString("N")[..8];
+        JsonObject model = new()
+        {
+            ["format"] = "xlsform/1",
+            ["sheets"] = new JsonArray(
+                new JsonObject
+                {
+                    ["name"] = "survey",
+                    ["columns"] = new JsonArray("type", "name", "label::Türkçe (tr)", "label::English (en)", "required"),
+                    ["rows"] = new JsonArray(
+                        new JsonArray("start", "basla"),
+                        new JsonArray("begin group", "genel", "Genel", "General"),
+                        new JsonArray("text", "denetci", "Denetçi", "Inspector", "yes"),
+                        new JsonArray("end group"),
+                        new JsonArray("begin group", "katlar_grubu", "Katlar", "Floors"),
+                        new JsonArray("begin repeat", "katlar", "Kat", "Floor"),
+                        new JsonArray("integer", "kat_no", "Kat numarası", "Floor number", "yes"),
+                        new JsonArray("end repeat"),
+                        new JsonArray("end group")),
+                },
+                new JsonObject
+                {
+                    ["name"] = "settings",
+                    ["columns"] = new JsonArray("form_id", "default_language", "style"),
+                    ["rows"] = new JsonArray(new JsonArray(formId, "Türkçe (tr)", "pages")),
+                }),
+        };
+        (HttpStatusCode added, string addBody) = await Published.RequestAsync(HttpMethod.Post, $"{Published.Root}/admin/forms",
+            new StringContent(new JsonObject { ["title"] = "Sayfalı " + formId, ["model"] = model }.ToJsonString(), Encoding.UTF8, "application/json"));
+        Assert.True(added == HttpStatusCode.Created, $"Adding the paged form answered {(int)added}: {addBody}");
+        string item = JsonDocument.Parse(addBody).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await using DevTools browser = await DevTools.LaunchAsync();
+            await browser.PlantAsync($"try {{ sessionStorage.setItem('gis-token', {JsonSerializer.Serialize(await Published.TokenAsync())}); }} catch (e) {{}}");
+            await browser.NavigateAsync($"{Published.Root}/forms/fill.html?id={item}");
+            await WaitAsync(browser, "!!window.GraticulaFormFill && !document.getElementById('form').hidden && !!document.querySelector('[data-name=denetci] input')",
+                "the first real page, with the inspector's question, to be drawn", seconds: 20);
+
+            Assert.Equal("İleri", await browser.EvaluateAsync<string>("document.getElementById('next').textContent"));
+            Assert.Equal("Sayfa 1 / 2", await browser.EvaluateAsync<string>("document.getElementById('pages-progress').textContent"));
+
+            await browser.EvaluateAsync<bool>("document.querySelector('[data-name=denetci] input').value = 'Ayşe'; document.querySelector('[data-name=denetci] input').dispatchEvent(new Event('input', { bubbles: true })); true");
+            await browser.EvaluateAsync<bool>("document.getElementById('next').click(); true");
+            await WaitAsync(browser, "!!document.querySelector('[data-key=katlar] [data-focus=add]')", "the floors page");
+            Assert.Equal("Kat ekle", await browser.EvaluateAsync<string>("document.querySelector('[data-key=katlar] [data-focus=add]').textContent"));
+            await browser.EvaluateAsync<bool>("document.querySelector('[data-key=katlar] [data-focus=add]').click(); true");
+            await SubmitAsync(browser);
+            await WaitAsync(browser, "!document.getElementById('summary').hidden", "the summary of what needs attention");
+            string summary = await browser.EvaluateAsync<string>("document.getElementById('summary').textContent") ?? string.Empty;
+            Assert.Contains("Kat 1 › Kat numarası", summary, StringComparison.Ordinal);
+            Assert.Contains("Bu soru zorunlu.", summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await Published.RequestAsync(HttpMethod.Delete, $"{Published.Root}/content/documents/{item}", null);
+        }
+    }
+
     // ----------------------------------------------------------------------------------------------------- the helpers
 
     private async Task<DevTools> OpenAsync()

@@ -207,6 +207,74 @@
     var files = {};          // CSV name → { rows, text } for *_from_file and pulldata
     var missingFiles = [];   // CSV names the item does not have
     var lang = '';
+    // <b>The page's own words follow the form's language</b> (UX review 2026-11-09: with Türkçe chosen, every button,
+    // message and the progress line stayed English, and "Add Oda" mixed the two). Turkish is the only translation so
+    // far; any other language keeps English. Keys are the English text, so an untranslated string stays English.
+    var TR = {
+        "This answer is required.": "Bu soru zorunlu.",
+        "This answer is not allowed.": "Bu cevap kabul edilmiyor.",
+        "Enter a whole number.": "Tam sayı girin.",
+        "Enter a number.": "Sayı girin.",
+        "Enter a latitude between -90 and 90 and a longitude between -180 and 180.": "-90 ile 90 arasında bir enlem ve -180 ile 180 arasında bir boylam girin.",
+        "Type a latitude between -90 and 90 and a longitude between -180 and 180.": "-90 ile 90 arasında bir enlem ve -180 ile 180 arasında bir boylam yazın.",
+        "One answer needs attention": "Bir cevaba bakmanız gerekiyor",
+        "Latitude": "Enlem",
+        "Longitude": "Boylam",
+        "Use my location": "Konumumu kullan",
+        "Finding your location…": "Konumunuz bulunuyor…",
+        "Location permission was refused.": "Konum izni verilmedi.",
+        "The location could not be found.": "Konum bulunamadı.",
+        "This browser cannot tell its location.": "Bu tarayıcı konumunu bildiremiyor.",
+        "Clear signature": "İmzayı temizle",
+        "Signature captured.": "İmza alındı.",
+        "Signature cleared.": "İmza temizlendi.",
+        "Clear": "Temizle",
+        "Remove": "Kaldır",
+        "Add my position": "Konumumu ekle",
+        "Add typed point": "Yazılan noktayı ekle",
+        "Remove last point": "Son noktayı kaldır",
+        "OK": "Tamam",
+        "Discard": "Sil",
+        "Try again": "Yeniden dene",
+        "Sign in": "Giriş yap",
+        "Not sent": "Gönderilmedi",
+        "Nothing is waiting to be sent.": "Gönderilmeyi bekleyen kayıt yok.",
+        "Forms on this device": "Bu cihazdaki formlar",
+        "No form has been downloaded for offline use. Open a form from its link first.": "Çevrimdışı kullanım için indirilmiş form yok. Önce bir formu bağlantısından açın.",
+        "Your answers were sent.": "Cevaplarınız gönderildi.",
+        "Sending…": "Gönderiliyor…",
+        "Saved on this device": "Bu cihaza kaydedildi",
+        "Saved on this device. It will be sent when you are back online.": "Bu cihaza kaydedildi. Bağlantı gelince gönderilecek.",
+        "Saved on this device. Sign in, then send it from the Outbox.": "Bu cihaza kaydedildi. Giriş yapın, sonra Giden kutusundan gönderin.",
+        "Saving the form on this device…": "Form bu cihaza kaydediliyor…",
+        "Saved for offline use": "Çevrimdışı kullanım için kaydedildi",
+        "Waiting for a connection.": "Bağlantı bekleniyor.",
+        "Waiting to be sent.": "Gönderilmeyi bekliyor.",
+        "Waiting: sign in to send it.": "Bekliyor: göndermek için giriş yapın.",
+        "Sign in to send this record.": "Bu kaydı göndermek için giriş yapın.",
+        "You are offline. Records you submit are kept on this device and sent when the connection returns.": "Çevrimdışısınız. Gönderdiğiniz kayıtlar bu cihazda tutulur ve bağlantı gelince gönderilir.",
+        "The server could not be reached.": "Sunucuya ulaşılamadı.",
+        "The server could not be reached. Your answers are saved on this device and will be sent when the connection returns.": "Sunucuya ulaşılamadı. Cevaplarınız bu cihaza kaydedildi ve bağlantı gelince gönderilecek.",
+        "The server could not be reached, and this browser cannot keep the record for later. Try again when you are online.": "Sunucuya ulaşılamadı ve bu tarayıcı kaydı sonraya saklayamıyor. Çevrimiçi olunca yeniden deneyin.",
+        "The server refused this record.": "Sunucu bu kaydı kabul etmedi.",
+        "The attachment was refused.": "Ek kabul edilmedi.",
+        "This form is not published yet, so there is nowhere to send it.": "Bu form henüz yayımlanmadı, cevapların gönderileceği yer yok.",
+        "This form is not published yet. You can look at it, but answers cannot be sent.": "Bu form henüz yayımlanmadı. İnceleyebilirsiniz ama cevaplar gönderilemez.",
+        "Opened from this device; the server could not be reached.": "Bu cihazdan açıldı; sunucuya ulaşılamadı.",
+        "The form could not be loaded: you are offline and it has not been downloaded to this device.": "Form yüklenemedi: çevrimdışısınız ve form bu cihaza indirilmemiş.",
+        "Discard this record? It has not been accepted by the server and cannot be recovered.": "Bu kayıt silinsin mi? Sunucu henüz kabul etmedi ve geri getirilemez."
+    };
+    var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
+    function isTurkish() { return /\(tr\)|türkçe|turkish/i.test(lang || ''); }
+    function t(s) { return isTurkish() && Object.prototype.hasOwnProperty.call(TR, s) ? TR[s] : s; }
+    function applyStaticText() {
+        Object.keys(STATIC_TEXT).forEach(function (id) {
+            var node = document.getElementById(id);
+            if (node) { node.textContent = STATIC_TEXT[id][isTurkish() ? 1 : 0]; }
+        });
+        var toggle = document.getElementById('outbox-toggle');
+        if (toggle && toggle.firstChild && toggle.firstChild.nodeType === 3) { toggle.firstChild.nodeValue = isTurkish() ? 'Giden kutusu ' : 'Outbox '; }
+    }
     var me = { name: '', email: '' };
     var root = null;         // the root instance
     var pageIndex = 0;
@@ -530,28 +598,30 @@
         if (q.type === 'note') { return ''; }
         var empty = isEmpty(inst, q);
         if (empty) {
-            if (evalBool(q.required, inst, q, false)) { return text(q.requiredMessages) || 'This answer is required.'; }
+            if (evalBool(q.required, inst, q, false)) { return text(q.requiredMessages) || t('This answer is required.'); }
             return '';
         }
         var v = String(inst.values[q.name] === undefined ? '' : inst.values[q.name]);
-        if (q.type === 'integer' && !/^-?\d+$/.test(v.trim())) { return 'Enter a whole number.'; }
-        if ((q.type === 'decimal' || q.type === 'range') && isNaN(Number(v))) { return 'Enter a number.'; }
+        if (q.type === 'integer' && !/^-?\d+$/.test(v.trim())) { return t('Enter a whole number.'); }
+        if ((q.type === 'decimal' || q.type === 'range') && isNaN(Number(v))) { return t('Enter a number.'); }
         if (q.type === 'geopoint') {
             var parts = v.trim().split(/\s+/).map(Number);
             if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1]) || Math.abs(parts[0]) > 90 || Math.abs(parts[1]) > 180) {
-                return 'Enter a latitude between -90 and 90 and a longitude between -180 and 180.';
+                return t('Enter a latitude between -90 and 90 and a longitude between -180 and 180.');
             }
             var threshold = Number(q.accuracyThreshold);
             if (q.accuracyThreshold && !isNaN(threshold) && parts.length >= 4 && parts[3] > threshold) {
-                return 'The location is accurate to ' + Math.round(parts[3]) + ' m; this form needs ' + threshold + ' m or better. Wait for a better fix or enter it by hand.';
+                return isTurkish()
+                    ? 'Konum ' + Math.round(parts[3]) + ' m doğrulukta; bu form ' + threshold + ' m veya daha iyisini istiyor. Daha iyi bir konumu bekleyin ya da elle girin.'
+                    : 'The location is accurate to ' + Math.round(parts[3]) + ' m; this form needs ' + threshold + ' m or better. Wait for a better fix or enter it by hand.';
             }
         }
         if (q.type === 'geotrace' || q.type === 'geoshape') {
             var need = q.type === 'geotrace' ? 2 : 3;
-            if (vertices(v).length < need) { return 'Add at least ' + need + ' points.'; }
+            if (vertices(v).length < need) { return isTurkish() ? 'En az ' + need + ' nokta ekleyin.' : 'Add at least ' + need + ' points.'; }
         }
         if (q.constraint && !evalBool(q.constraint, inst, q, true, v)) {
-            return text(q.constraintMessages) || 'This answer is not allowed.';
+            return text(q.constraintMessages) || t('This answer is not allowed.');
         }
         return '';
     }
@@ -617,6 +687,11 @@
         if (form.pages) {
             var list = pages();
             if (pageIndex >= list.length) { pageIndex = Math.max(0, list.length - 1); }
+            // <b>Before drawing, not after</b> (UX review 2026-11-09): a page of loose questions with no screen of their
+            // own, such as the `start` metadata a form begins with, was drawn as an empty first page, and only then did the
+            // page controls move on, so the first real page was never shown and the form could not be finished.
+            var drawable = relevantPages();
+            if (drawable.length && drawable.indexOf(pageIndex) < 0) { pageIndex = drawable[0]; }
             renderBody(root, list[pageIndex] || [], body, 2);
         } else {
             renderBody(root, root.node.body || [], body, 2);
@@ -685,9 +760,14 @@
             var item = el('div', { class: 'repeat-instance', 'data-key': keyOf(child, '') });
             var head = el('div', { class: 'instance-head' }, [heading(level + 1, label + ' ' + (i + 1))]);
             if (!r.repeatCount) {
-                var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove', text: 'Remove' });
-                remove.setAttribute('aria-label', 'Remove ' + label + ' ' + (i + 1));
+                var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove', text: t('Remove') });
+                remove.setAttribute('aria-label', isTurkish() ? label + ' ' + (i + 1) + ' kaldır' : 'Remove ' + label + ' ' + (i + 1));
                 remove.addEventListener('click', function () {
+                    // A field crew taps by accident; an item with answers, or with items of its own, is asked about first.
+                    var answered = Object.keys(child.values || {}).some(function (k) { var v = child.values[k]; return v !== undefined && v !== null && v !== ''; })
+                        || Object.keys(child.repeats || {}).some(function (k) { return (child.repeats[k] || []).length > 0; });
+                    var n = list.indexOf(child) + 1;
+                    if (answered && !window.confirm(isTurkish() ? label + ' ' + n + ' ve içindeki cevaplar kaldırılsın mı?' : 'Remove ' + label + ' ' + n + ' and its answers?')) { return; }
                     var at = list.indexOf(child);
                     if (at >= 0) { list.splice(at, 1); }
                     refresh(true);
@@ -701,7 +781,7 @@
             box.appendChild(item);
         });
         if (!r.repeatCount) {
-            var add = el('button', { type: 'button', class: 'quiet', 'data-focus': 'add', text: 'Add ' + label });
+            var add = el('button', { type: 'button', class: 'quiet', 'data-focus': 'add', text: isTurkish() ? label + ' ekle' : 'Add ' + label });
             add.addEventListener('click', function () {
                 list.push(newInstance(r, inst));
                 refresh(true);
@@ -739,7 +819,8 @@
             ? el(useFieldset ? 'legend' : 'div', { class: 'label', id: id + '-label' }, [labelText, star])
             : el('label', { for: id, id: id + '-label' }, [labelText, star]);
         var hint = hintText ? el('p', { class: 'hint', id: id + '-hint', text: hintText }) : null;
-        var error = el('p', { class: 'error', id: id + '-error', 'aria-live': 'polite' });
+        // No live region per question: the summary is the one alert, and two announcements per error was noise (UX review).
+        var error = el('p', { class: 'error', id: id + '-error' });
         var describedBy = (hint ? id + '-hint ' : '') + id + '-error';
 
         var shell = useFieldset ? el('fieldset', { 'aria-describedby': describedBy }) : wrap;
@@ -846,7 +927,7 @@
             'aria-describedby': describedBy, 'data-focus': 'input'
         });
         var out = el('output', { for: id, text: '—' });
-        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: 'Clear' });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear') });
         input.addEventListener('input', function () { setValue(inst, q, input.value); });
         clear.addEventListener('click', function () { setValue(inst, q, ''); });
         return {
@@ -857,6 +938,8 @@
                 if (document.activeElement !== input) { input.value = v !== '' ? v : String(Math.min(r.start, r.end)); }
                 out.textContent = v === '' ? '—' : v;
                 input.setAttribute('aria-valuetext', v === '' ? 'not answered' : v);
+                // Unanswered shows no thumb, so the slider does not look answered at its first value (UX review 2026-11-09).
+                if (v === '') { input.removeAttribute('data-set'); } else { input.setAttribute('data-set', ''); }
                 input.disabled = !!ro; clear.disabled = !!ro || v === '';
             }
         };
@@ -988,11 +1071,11 @@
 
     function acknowledgeWidget(inst, q, id, describedBy) {
         var box = el('input', { type: 'checkbox', id: id + '-ok', 'aria-describedby': describedBy, 'data-focus': 'input' });
-        box.addEventListener('change', function () { setValue(inst, q, box.checked ? 'OK' : ''); });
-        var node = el('label', { class: 'choice', for: id + '-ok' }, [box, el('span', { text: 'OK' })]);
+        box.addEventListener('change', function () { setValue(inst, q, box.checked ? t('OK') : ''); });
+        var node = el('label', { class: 'choice', for: id + '-ok' }, [box, el('span', { text: t('OK') })]);
         return {
             node: node, controls: function () { return [box]; },
-            sync: function (ro) { box.checked = current(inst, q) === 'OK'; box.disabled = !!ro; }
+            sync: function (ro) { box.checked = current(inst, q) === t('OK'); box.disabled = !!ro; }
         };
     }
 
@@ -1051,17 +1134,17 @@
         return new Promise(function (resolve, reject) {
             if (!navigator.geolocation) { reject(new Error('This browser cannot tell its location.')); return; }
             navigator.geolocation.getCurrentPosition(resolve, function (e) {
-                reject(new Error(e.code === 1 ? 'Location permission was refused.' : 'The location could not be found.'));
+                reject(new Error(e.code === 1 ? t('Location permission was refused.') : t('The location could not be found.')));
             }, { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 });
         });
     }
 
     function geopointWidget(inst, q, id) {
         var status = el('p', { class: 'hint', id: id + '-status', 'aria-live': 'polite' });
-        var use = el('button', { type: 'button', 'data-focus': 'locate', text: 'Use my location' });
+        var use = el('button', { type: 'button', 'data-focus': 'locate', text: t('Use my location') });
         var lat = el('input', { type: 'text', inputmode: 'decimal', id: id + '-lat', 'data-focus': 'lat', autocomplete: 'off' });
         var lon = el('input', { type: 'text', inputmode: 'decimal', id: id + '-lon', 'data-focus': 'lon', autocomplete: 'off' });
-        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: 'Clear' });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear') });
         var labelId = id + '-label';
         lat.setAttribute('aria-labelledby', labelId + ' ' + id + '-latl');
         lon.setAttribute('aria-labelledby', labelId + ' ' + id + '-lonl');
@@ -1077,12 +1160,12 @@
         lon.addEventListener('input', typed);
         clear.addEventListener('click', function () { setValue(inst, q, ''); status.textContent = ''; });
         use.addEventListener('click', function () {
-            status.textContent = 'Finding your location…';
+            status.textContent = t('Finding your location…');
             use.disabled = true;
             locate().then(function (p) {
                 var c = p.coords;
                 setValue(inst, q, c.latitude.toFixed(7) + ' ' + c.longitude.toFixed(7) + ' ' + (c.altitude || 0) + ' ' + (c.accuracy || 0).toFixed(1));
-                status.textContent = 'Location found, accurate to ' + Math.round(c.accuracy) + ' m.';
+                status.textContent = isTurkish() ? 'Konum bulundu, ' + Math.round(c.accuracy) + ' m doğrulukta.' : 'Location found, accurate to ' + Math.round(c.accuracy) + ' m.';
             }, function (e) { status.textContent = e.message + ' You can type the coordinates instead.'; })
                 .then(function () { use.disabled = false; });
         });
@@ -1090,8 +1173,8 @@
         var node = el('div', null, [
             el('div', { class: 'inline' }, [use, clear]),
             el('div', { class: 'pair' }, [
-                el('label', { for: id + '-lat' }, [el('span', { id: id + '-latl', text: 'Latitude' }), lat]),
-                el('label', { for: id + '-lon' }, [el('span', { id: id + '-lonl', text: 'Longitude' }), lon])
+                el('label', { for: id + '-lat' }, [el('span', { id: id + '-latl', text: t('Latitude') }), lat]),
+                el('label', { for: id + '-lon' }, [el('span', { id: id + '-lonl', text: t('Longitude') }), lon])
             ]),
             status
         ]);
@@ -1103,7 +1186,7 @@
                 syncInput(lat, p[0] || '', ro);
                 syncInput(lon, p[1] || '', ro);
                 use.disabled = !!ro; clear.disabled = !!ro || !p.length;
-                if (p.length >= 4 && Number(p[3]) > 0 && !status.textContent) { status.textContent = 'Accurate to ' + Math.round(Number(p[3])) + ' m.'; }
+                if (p.length >= 4 && Number(p[3]) > 0 && !status.textContent) { status.textContent = isTurkish() ? Math.round(Number(p[3])) + ' m doğrulukta.' : 'Accurate to ' + Math.round(Number(p[3])) + ' m.'; }
             }
         };
     }
@@ -1117,17 +1200,17 @@
     function verticesWidget(inst, q, id) {
         var list = el('ol', { class: 'vertices', 'aria-label': 'Points' });
         var status = el('p', { class: 'hint', 'aria-live': 'polite' });
-        var here = el('button', { type: 'button', 'data-focus': 'here', text: 'Add my position' });
-        var undo = el('button', { type: 'button', class: 'quiet', 'data-focus': 'undo', text: 'Remove last point' });
+        var here = el('button', { type: 'button', 'data-focus': 'here', text: t('Add my position') });
+        var undo = el('button', { type: 'button', class: 'quiet', 'data-focus': 'undo', text: t('Remove last point') });
         var lat = el('input', { type: 'text', inputmode: 'decimal', id: id + '-lat', 'data-focus': 'lat', autocomplete: 'off' });
         var lon = el('input', { type: 'text', inputmode: 'decimal', id: id + '-lon', 'data-focus': 'lon', autocomplete: 'off' });
-        var addTyped = el('button', { type: 'button', class: 'quiet', 'data-focus': 'add-typed', text: 'Add typed point' });
+        var addTyped = el('button', { type: 'button', class: 'quiet', 'data-focus': 'add-typed', text: t('Add typed point') });
 
         function points() { return vertices(current(inst, q)); }
         function store(pts) { setValue(inst, q, pts.map(function (p) { return p[0] + ' ' + p[1] + ' ' + (p[2] || 0) + ' ' + (p[3] || 0); }).join(';')); }
 
         here.addEventListener('click', function () {
-            status.textContent = 'Finding your location…';
+            status.textContent = t('Finding your location…');
             locate().then(function (p) {
                 var pts = points();
                 pts.push([Number(p.coords.latitude.toFixed(7)), Number(p.coords.longitude.toFixed(7)), p.coords.altitude || 0, Number((p.coords.accuracy || 0).toFixed(1))]);
@@ -1138,7 +1221,7 @@
         addTyped.addEventListener('click', function () {
             var a = Number(lat.value.trim().replace(',', '.')), b = Number(lon.value.trim().replace(',', '.'));
             if (!lat.value.trim() || !lon.value.trim() || isNaN(a) || isNaN(b) || Math.abs(a) > 90 || Math.abs(b) > 180) {
-                status.textContent = 'Type a latitude between -90 and 90 and a longitude between -180 and 180.';
+                status.textContent = t('Type a latitude between -90 and 90 and a longitude between -180 and 180.');
                 return;
             }
             var pts = points(); pts.push([a, b, 0, 0]); store(pts);
@@ -1151,8 +1234,8 @@
         var node = el('div', null, [
             el('div', { class: 'inline' }, [here, undo]),
             el('div', { class: 'pair' }, [
-                el('label', { for: id + '-lat' }, ['Latitude', lat]),
-                el('label', { for: id + '-lon' }, ['Longitude', lon])
+                el('label', { for: id + '-lat' }, [t('Latitude'), lat]),
+                el('label', { for: id + '-lon' }, [t('Longitude'), lon])
             ]),
             el('div', { class: 'inline' }, [addTyped]),
             list, status
@@ -1230,7 +1313,7 @@
                 var preview = /^image\//.test(f.type) ? el('img', { src: url, alt: '' })
                     : /^audio\//.test(f.type) ? el('audio', { src: url, controls: true })
                     : /^video\//.test(f.type) ? el('video', { src: url, controls: true, muted: true }) : null;
-                var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove-' + i, text: 'Remove' });
+                var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove-' + i, text: t('Remove') });
                 remove.setAttribute('aria-label', 'Remove ' + f.name);
                 remove.addEventListener('click', function () {
                     var now = filesOf(inst, q.name).slice(); now.splice(i, 1); setFiles(inst, q, now); input.focus();
@@ -1252,7 +1335,7 @@
 
     function signatureWidget(inst, q, id) {
         var canvas = el('canvas', { tabindex: '0', role: 'img', 'aria-labelledby': id + '-label', 'data-focus': 'pad' });
-        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: 'Clear signature' });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear signature') });
         var status = el('p', { class: 'hint', 'aria-live': 'polite' });
         var drawing = false, dirty = false, last = null, ctx = null;
 
@@ -1290,12 +1373,12 @@
             canvas.toBlob(function (blob) {
                 if (!blob) { return; }
                 setFiles(inst, q, [{ name: q.name + '.png', type: 'image/png', size: blob.size, blob: blob }]);
-                status.textContent = 'Signature captured.';
+                status.textContent = t('Signature captured.');
             }, 'image/png');
         }
         canvas.addEventListener('pointerup', endStroke);
         canvas.addEventListener('pointercancel', endStroke);
-        clear.addEventListener('click', function () { dirty = false; setFiles(inst, q, []); setup(); status.textContent = 'Signature cleared.'; });
+        clear.addEventListener('click', function () { dirty = false; setFiles(inst, q, []); setup(); status.textContent = t('Signature cleared.'); });
         setTimeout(setup, 0);
         return {
             node: el('div', { class: 'signature' }, [canvas, el('div', { class: 'inline' }, [clear]), status]),
@@ -1345,7 +1428,7 @@
         $('submit').hidden = at < shown.length - 1;
         var progress = $('pages-progress');
         progress.hidden = shown.length <= 1;
-        progress.textContent = 'Page ' + (at + 1) + ' of ' + shown.length;
+        progress.textContent = isTurkish() ? 'Sayfa ' + (at + 1) + ' / ' + shown.length : 'Page ' + (at + 1) + ' of ' + shown.length;
     }
 
     function pageOfKey(key) {
@@ -1381,10 +1464,14 @@
     function showSummary(found) {
         var summary = $('summary');
         summary.textContent = '';
-        summary.appendChild(el('h2', { text: found.length === 1 ? 'One answer needs attention' : found.length + ' answers need attention' }));
+        summary.appendChild(el('h2', { text: found.length === 1 ? t('One answer needs attention')
+            : (isTurkish() ? found.length + ' cevaba bakmanız gerekiyor' : found.length + ' answers need attention') }));
         var ul = el('ul');
         found.forEach(function (p) {
-            var a = el('a', { href: '#', text: text(p.q.labels, p.q.name) + ': ' + p.message });
+            // Which item of which repeat, so three "Floor number" messages say which floors (UX review 2026-11-09).
+            var where = chainOf(p.inst).slice(1).map(function (i) { return text(i.node.labels, i.node.name) + ' ' + positionOf(i); });
+            where.push(text(p.q.labels, p.q.name));
+            var a = el('a', { href: '#', text: where.join(' › ') + ': ' + p.message });
             a.addEventListener('click', function (e) { e.preventDefault(); focusProblem(p); });
             ul.appendChild(el('li', null, [a]));
         });
@@ -1398,7 +1485,8 @@
             if (page !== pageIndex) { pageIndex = page; render(); }
         }
         var node = $('body').querySelector('[data-key="' + cssEscape(p.key) + '"]');
-        var control = node && node.querySelector('input:not([type=hidden]), select, textarea, canvas, button');
+        var control = node && (node.querySelector('[aria-invalid=true]') || node.querySelector('input:not([type=hidden]):not([type=file]), select, textarea')
+            || node.querySelector('input[type=file], canvas, button'));
         if (control) { control.focus(); if (control.scrollIntoView) { control.scrollIntoView({ block: 'center' }); } }
     }
 
@@ -1431,8 +1519,8 @@
                 return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() : null;
             }
             case 'dateTime': case 'start': case 'end': {
-                var t = Date.parse(s);
-                return isNaN(t) ? null : t;
+                var ms = Date.parse(s);
+                return isNaN(ms) ? null : ms;
             }
             default: return s;
         }
@@ -1635,7 +1723,7 @@
             data.append('attachment', att.blob, att.name);
             var added = await api((att.submit || att.url) + '/' + oid + '/addAttachment', { method: 'POST', body: data });
             if (added && added.addAttachmentResult && added.addAttachmentResult.success === false) {
-                var e = new Error((added.addAttachmentResult.error && added.addAttachmentResult.error.description) || 'The attachment was refused.');
+                var e = new Error((added.addAttachmentResult.error && added.addAttachmentResult.error.description) || t('The attachment was refused.'));
                 e.refused = true;
                 throw e;
             }
@@ -1687,18 +1775,18 @@
         } catch (e) {
             if (e.network) {
                 record.status = 'queued';
-                record.message = 'Waiting for a connection.';
+                record.message = t('Waiting for a connection.');
                 await save();
                 return 'offline';
             }
             if (authFailure(e.status)) {
                 record.status = 'sign-in';
-                record.message = 'Sign in to send this record.';
+                record.message = t('Sign in to send this record.');
                 await save();
                 return 'sign-in';
             }
             record.status = 'refused';
-            record.message = e.message || 'The server refused this record.';
+            record.message = e.message || t('The server refused this record.');
             await save();
             return 'refused';
         }
@@ -1714,15 +1802,15 @@
         var list = $('outbox-list');
         list.textContent = '';
         if (!records.length) {
-            list.appendChild(el('li', { class: 'state', text: 'Nothing is waiting to be sent.' }));
+            list.appendChild(el('li', { class: 'state', text: t('Nothing is waiting to be sent.') }));
             return;
         }
         records.forEach(function (r) {
             var when = new Date(r.created);
             var title = (r.instanceName || r.title || 'Record') + ' — ' + when.toLocaleString();
             var state = r.status === 'refused' ? 'Refused by the server: ' + r.message
-                : r.status === 'sign-in' ? 'Waiting: sign in to send it.'
-                : r.status === 'queued' && r.message ? r.message : 'Waiting to be sent.';
+                : r.status === 'sign-in' ? t('Waiting: sign in to send it.')
+                : r.status === 'queued' && r.message ? r.message : t('Waiting to be sent.');
             if (r.formId === itemId && form && r.formVersion !== (form.version || '')) { state += ' (filled in an earlier version of the form)'; }
             var item = el('li', { 'data-key': String(r.key) }, [
                 el('strong', { text: title }),
@@ -1730,9 +1818,9 @@
             ]);
             var actions = el('div', { class: 'row-actions' });
             if (r.status === 'refused') {
-                var retry = el('button', { type: 'button', class: 'quiet', text: 'Try again' });
+                var retry = el('button', { type: 'button', class: 'quiet', text: t('Try again') });
                 retry.addEventListener('click', async function () { r.retry = true; await dbPut('outbox', r); sendOutbox(); });
-                var discard = el('button', { type: 'button', class: 'danger', text: 'Discard' });
+                var discard = el('button', { type: 'button', class: 'danger', text: t('Discard') });
                 discard.addEventListener('click', async function () {
                     if (!window.confirm('Discard this record? It has not been accepted by the server and cannot be recovered.')) { return; }
                     await dbDelete('outbox', r.key);
@@ -1742,7 +1830,7 @@
                 actions.appendChild(discard);
             }
             if (r.status === 'sign-in') {
-                actions.appendChild(el('a', { href: '/studio/', target: '_blank', rel: 'noopener', text: 'Sign in' }));
+                actions.appendChild(el('a', { href: '/studio/', target: '_blank', rel: 'noopener', text: t('Sign in') }));
             }
             if (actions.childNodes.length) { item.appendChild(actions); }
             list.appendChild(item);
@@ -1783,7 +1871,7 @@
                     await sendRecord(record, function () { return Promise.resolve(); });
                     finish('Your answers were sent.');
                 } catch (err) {
-                    showMessage(err.network ? 'The server could not be reached, and this browser cannot keep the record for later. Try again when you are online.' : 'The server refused the answers: ' + err.message);
+                    showMessage(err.network ? t('The server could not be reached, and this browser cannot keep the record for later. Try again when you are online.') : 'The server refused the answers: ' + err.message);
                 }
                 return;
             }
@@ -1818,7 +1906,7 @@
     function showMessage(message) {
         var summary = $('summary');
         summary.textContent = '';
-        summary.appendChild(el('h2', { text: 'Not sent' }));
+        summary.appendChild(el('h2', { text: t('Not sent') }));
         summary.appendChild(el('p', { text: message }));
         summary.hidden = false;
         summary.focus();
@@ -1827,7 +1915,7 @@
     function finish(message, queued) {
         $('form').hidden = true;
         $('summary').hidden = true;
-        $('done-heading').textContent = queued ? 'Saved on this device' : 'Submitted';
+        $('done-heading').textContent = queued ? t('Saved on this device') : 'Submitted';
         $('done-text').textContent = message;
         $('done').hidden = false;
         $('done').focus();
@@ -1851,19 +1939,19 @@
 
     function drawConnection() {
         $('connection').textContent = navigator.onLine ? ''
-            : 'You are offline. Records you submit are kept on this device and sent when the connection returns.';
+            : t('You are offline. Records you submit are kept on this device and sent when the connection returns.');
     }
 
     async function downloadForOffline() {
         var status = $('offline-status');
-        status.textContent = 'Saving the form on this device…';
+        status.textContent = t('Saving the form on this device…');
         try {
             var csv = {};
             Object.keys(files).forEach(function (k) { csv[k] = files[k].text; });
             await dbPut('forms', { id: itemId, doc: doc, files: csv, saved: Date.now() });
             var persisted = false;
             if (navigator.storage && navigator.storage.persist) { try { persisted = await navigator.storage.persist(); } catch (e) { persisted = false; } }
-            status.textContent = 'Saved for offline use' + (persisted ? '.' : '. This browser may still clear it if the device runs short of space.');
+            status.textContent = t('Saved for offline use') + (persisted ? '.' : '. This browser may still clear it if the device runs short of space.');
             try { localStorage.setItem('graticula-forms-last', itemId); } catch (e) { /* none */ }
         } catch (e) {
             status.textContent = 'The form could not be saved on this device: ' + e.message;
@@ -1880,9 +1968,9 @@
         var stored = await dbAll('forms');
         holder.textContent = '';
         holder.className = 'device-forms';
-        holder.appendChild(el('h2', { text: 'Forms on this device' }));
+        holder.appendChild(el('h2', { text: t('Forms on this device') }));
         if (!stored.length) {
-            holder.appendChild(el('p', { class: 'hint', text: 'No form has been downloaded for offline use. Open a form from its link first.' }));
+            holder.appendChild(el('p', { class: 'hint', text: t('No form has been downloaded for offline use. Open a form from its link first.') }));
         } else {
             var ul = el('ul');
             stored.forEach(function (f) {
@@ -1966,6 +2054,7 @@
         $('language').addEventListener('change', function () {
             lang = $('language').value;
             document.documentElement.lang = (/\(([a-z]{2,3})\)/i.exec(lang) || [])[1] || document.documentElement.lang;
+            applyStaticText();
             render();
             drawOutbox();
         });
@@ -1985,7 +2074,7 @@
             loaded = await loadDoc();
         } catch (e) {
             $('loading').textContent = e.network
-                ? 'The form could not be loaded: you are offline and it has not been downloaded to this device.'
+                ? t('The form could not be loaded: you are offline and it has not been downloaded to this device.')
                 : 'The form could not be loaded: ' + e.message;
             return;
         }
@@ -2011,6 +2100,7 @@
         }
         var langCode = (/\(([a-z]{2,3})\)/i.exec(lang) || [])[1];
         if (langCode) { document.documentElement.lang = langCode; }
+        applyStaticText();
 
         var title = doc.title || form.title || 'Form';
         document.title = title;
@@ -2018,7 +2108,7 @@
         $('loading').hidden = true;
         $('offline-panel').hidden = false;
         if (loaded.from === 'device') {
-            $('offline-status').textContent = 'Opened from this device; the server could not be reached.';
+            $('offline-status').textContent = t('Opened from this device; the server could not be reached.');
         } else {
             // A form already downloaded is refreshed with what the server serves now.
             var kept = await dbGet('forms', itemId).catch(function () { return null; });
