@@ -195,7 +195,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
                content_type   text        not null,
                declared_type  text,
                data_size      bigint      not null,
-               uploaded_at    timestamptz not null default now()
+               uploaded_at    timestamptz not null default now(),
+               keywords       text        not null default ''
              )
              """);
 
@@ -222,6 +223,26 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         await using (NpgsqlCommand chunks = new(chunkSql, connection))
         {
             await chunks.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // <b>ADR-287 §5.2: an attachment says which question it answers.</b> A table made before 2026-11-09 has no
+        // keywords column, and it is added the first time the table is written to. Asked first, because ADD COLUMN takes
+        // an exclusive lock on the table even when the column is there, and this runs on every upload.
+        string keywordsSql = string.Create(
+            CultureInfo.InvariantCulture,
+            $"""
+             do $$ begin
+               if not exists (select 1 from pg_attribute
+                              where attrelid = '{Qualified.Replace("'", "''", StringComparison.Ordinal)}'::regclass
+                                and attname = 'keywords' and not attisdropped) then
+                 alter table {Qualified} add column keywords text not null default '';
+               end if;
+             end $$
+             """);
+
+        await using (NpgsqlCommand keywordsColumn = new(keywordsSql, connection))
+        {
+            await keywordsColumn.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         // Every read is by feature or by id, and without this the first is a
@@ -262,8 +283,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         string sql =
             $"""
              select attachmentid, rel_objectid, att_name, content_type, declared_type,
-                    data_size, uploaded_at
-             from {Qualified}
+                    data_size, uploaded_at, coalesce(to_jsonb(a) ->> 'keywords', '')
+             from {Qualified} a
              where rel_objectid = @feature
              order by attachmentid
              """;
@@ -287,7 +308,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
                     reader.GetString(3),
                     reader.IsDBNull(4) ? null : reader.GetString(4),
                     reader.GetInt64(5),
-                    reader.GetFieldValue<DateTimeOffset>(6)));
+                    reader.GetFieldValue<DateTimeOffset>(6),
+                    reader.GetString(7)));
             }
         }
         catch (PostgresException e) when (e.SqlState == "42P01")
@@ -336,8 +358,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         await using NpgsqlCommand command = new(
             $"""
              select attachmentid, rel_objectid, att_name, content_type, declared_type,
-                    data_size, uploaded_at
-             from {Qualified}
+                    data_size, uploaded_at, coalesce(to_jsonb(a) ->> 'keywords', '')
+             from {Qualified} a
              where attachmentid = @id
              """,
             connection);
@@ -361,7 +383,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
                 reader.GetString(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.GetInt64(5),
-                reader.GetFieldValue<DateTimeOffset>(6));
+                reader.GetFieldValue<DateTimeOffset>(6),
+                reader.GetString(7));
         }
         catch (PostgresException e) when (e.SqlState == "42P01")
         {
@@ -376,7 +399,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         string contentType,
         string? declaredContentType,
         Stream content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? keywords = null)
     {
         ArgumentNullException.ThrowIfNull(content);
 
@@ -400,8 +424,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         await using (NpgsqlCommand insert = new(
             $"""
              insert into {Qualified}
-               (rel_objectid, att_name, content_type, declared_type, data_size)
-             values (@feature, @name, @type, @declared, 0)
+               (rel_objectid, att_name, content_type, declared_type, data_size, keywords)
+             values (@feature, @name, @type, @declared, 0, @keywords)
              returning attachmentid
              """,
             connection,
@@ -410,6 +434,7 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
             insert.Parameters.AddWithValue("feature", featureId);
             insert.Parameters.AddWithValue("name", name);
             insert.Parameters.AddWithValue("type", contentType);
+            insert.Parameters.AddWithValue("keywords", keywords ?? string.Empty);
             insert.Parameters.Add(new NpgsqlParameter("declared", NpgsqlDbType.Text)
             {
                 Value = (object?)declaredContentType ?? DBNull.Value,
@@ -458,7 +483,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         string contentType,
         string? declaredContentType,
         Stream content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? keywords = null)
     {
         ArgumentNullException.ThrowIfNull(content);
 
@@ -477,7 +503,7 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
             $"""
              update {Qualified}
                 set att_name = @name, content_type = @type, declared_type = @declared,
-                    data_size = 0, uploaded_at = now()
+                    data_size = 0, uploaded_at = now(), keywords = coalesce(@keywords, keywords)
               where attachmentid = @id and rel_objectid = @feature
              """,
             connection,
@@ -487,6 +513,7 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
             claim.Parameters.AddWithValue("feature", featureId);
             claim.Parameters.AddWithValue("name", name);
             claim.Parameters.AddWithValue("type", contentType);
+            claim.Parameters.Add(new NpgsqlParameter("keywords", NpgsqlDbType.Text) { Value = (object?)keywords ?? DBNull.Value });
             claim.Parameters.Add(new NpgsqlParameter("declared", NpgsqlDbType.Text)
             {
                 Value = (object?)declaredContentType ?? DBNull.Value,

@@ -389,6 +389,17 @@ measurable question. The two device claims are, so they are conditions and not a
       `%a` are English unless the form's language is one the browser knows; `round(x, d)` rounds halves up;
       `checklist` counts `true`, `'true'` and numbers above 0; `/data/…/x` and `../x` find a question by its last name;
       `randomize` follows the spec's generator but is not checked against ODK's test vectors.
+    - (j) **Attachment keywords are kept for hosted layers only.** A hosted layer's companion table gains a
+      `keywords` column, added the first time an old table is written to (checked first, since `ADD COLUMN` locks the
+      table even when the column exists); `addAttachment` and `updateAttachment` take `keywords` as a part sent before
+      the file or in the query, the attachment documents return it, and `queryAttachments` filters by it, which it
+      refused until now. A registered database's attachment table (MySQL, Oracle, SQL Server, ADR-207) has no such
+      column, and keywords sent there are refused with a 400, not dropped. A form publishes hosted layers only, so
+      every form attachment keeps its question.
+    - (k) **§5.6's conflict rule is not built on the server yet.** It has to be checked inside the edit's own
+      transaction, where `applyEdits` writes, or two writers a moment apart can still lose one edit silently, which
+      is the one thing §5.6 forbids. Checking it in the client before sending leaves exactly that window. The Inbox's
+      offline editing therefore waits for it; adding new records offline does not, because an add cannot conflict.
 
 ## 6. Consequences
 

@@ -226,8 +226,10 @@ public sealed class OracleAttachmentStore : IAttachmentStore, IAttachmentTables
         string contentType,
         string? declaredContentType,
         Stream content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? keywords = null)
     {
+        KeywordsAreNotKept(keywords);
         ArgumentNullException.ThrowIfNull(content);
 
         await using OracleConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -280,8 +282,10 @@ public sealed class OracleAttachmentStore : IAttachmentStore, IAttachmentTables
         string contentType,
         string? declaredContentType,
         Stream content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? keywords = null)
     {
+        KeywordsAreNotKept(keywords);
         ArgumentNullException.ThrowIfNull(content);
 
         await using OracleConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -474,5 +478,18 @@ public sealed class OracleAttachmentStore : IAttachmentStore, IAttachmentTables
         }
 
         await connection.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// ADR-287 §5.2: keywords are kept for hosted layers, whose attachments are in the datastore. This database's
+    /// companion table has no column for them, so keywords are refused here rather than dropped.
+    /// </summary>
+    private static void KeywordsAreNotKept(string? keywords)
+    {
+        if (!string.IsNullOrEmpty(keywords))
+        {
+            throw new AttachmentKeywordsNotKeptException(
+                "Attachment keywords are kept for hosted layers; this layer's database keeps its attachments in a table with no place for them, so nothing was stored.");
+        }
     }
 }
