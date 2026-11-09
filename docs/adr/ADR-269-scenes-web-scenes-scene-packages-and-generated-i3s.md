@@ -150,10 +150,22 @@ viewer needs `js.arcgis.com`.
    first half by the Maps SDK, which is what Studio's viewer is — `SceneViewerTests`. Pro saving one and Studio opening
    it is owed; the desktop was locked when it was to be run.)*
 2. **A package Pro wrote is served and drawn** by the Maps SDK and by Pro. *(2026-11-05: by the Maps SDK — Pro's point and
-   3D object packages, 20 and 12 features loaded. By Pro: owed, the desktop locked.)*
+   3D object packages, 20 and 12 features loaded. By Pro: owed, the desktop locked.)* **DISCHARGED 2026-11-09** by
+   ArcGIS Pro 3.7 on dev, through Pro's own engine (arcpy): Pro's *Share Package* uploaded and published its own
+   `buildings.slpk`, and Pro added the `SceneServer` that resulted to a scene and drew its 12 buildings — the same picture
+   as the package opened from disk. It took three repairs Pro found on the way, each its own failure:
+   *ERROR 001147 not enough space* (the profile told no `storageQuota`/`storageUsage`); `commit` filing the item under
+   another id than `addItem` gave, so Pro's `update`, item read, `shareItems` and `publish` found nothing; and
+   `publish` refusing `filetype=scenePackage` (*ERROR 002934*). `PortalUsersTests` and `PortalContentAddsTests`.
 3. **A layer the server generated is drawn** by the Maps SDK and by Pro, and its package opens in Pro. *(2026-11-05: by
    the Maps SDK, measured and tested, buildings and points both. One was made on dev from `look_buildings` for Pro to
-   add; Pro is owed, and for a point layer as well.)*
+   add; Pro is owed, and for a point layer as well.)* **DISCHARGED 2026-11-09** by ArcGIS Pro 3.7 on dev: a 3D object
+   layer made from `look_buildings` (8 buildings, `floors` × 3 m) and a point layer from `tr_yer` (1,421 points) were
+   each added by URL and drawn, and each one's package, downloaded, opened from disk and drew the same picture. Pro's
+   *Validate Scene Layer Package* loads both without an error. It warns on the 3D object package that *vertex normals*
+   and *texture coordinates may be required by Esri products*; Pro's own package draws the first warning too and not
+   the second, and neither stopped Pro drawing. The point package draws no warning. The rebuild of a layer made before
+   ADR-270 recorded its source is refused by name (409), as designed.
 4. **Every new screen passes the ux-designer review**, first-run state included. *(**DISCHARGED** 2026-11-06: the scene
    viewer passed a third look after two rounds of fixes ([ADR-270](ADR-270-scene-viewer-to-arcgis-enterprise-parity.md)
    condition 1); the *Create scene layer* dialog and a scene layer's item page with its source and *Rebuild* passed
