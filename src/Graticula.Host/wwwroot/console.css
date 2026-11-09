@@ -7909,6 +7909,8 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 #docForm, #docFormResults { padding: var(--gap-3) var(--gap-4); }
 .formpanel h5 { margin: 18px 0 8px; font-size: 15px; }
 .formpanel h6 { margin: 14px 0 6px; font-size: 14px; }
+/* Links in running text are told apart by more than colour (WCAG 1.4.1; design review 2026-11-09). */
+.formpanel p a, .formpanel li a { text-decoration: underline; }
 .formpanel code, #addItem .formissues code { font-family: var(--mono); font-size: .95em; }
 .formlayers { list-style: none; margin: 0; padding: 0; }
 .formlayers li + li { margin-top: 4px; }
@@ -7926,12 +7928,13 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 /* On a phone a refusal is a short stack: where it is on one line, what to change under it. */
 @media (max-width: 599px) {
   .formissues thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .formissues, .formissues tbody, .formissues tr { display: block; width: 100%; }
+  .formissues, .widetable table.formissues, .formissues tbody, .formissues tr { display: block; width: 100%; min-width: 0; }
+  .formissues caption { display: block; }
   .formissues tr { padding: 8px 0; border-bottom: 1px solid var(--rule); }
   .formissues td { display: inline; padding: 0; border: 0; }
   .formissues td[data-label]::before { content: attr(data-label) " "; color: var(--muted); }
   .formissues td[data-label] + td[data-label]::before { content: " · " attr(data-label) " "; }
-  .formissues td.formissuemsg { display: block; margin-top: 4px; }
+  .formissues td.formissuemsg { display: block; margin-top: 4px; white-space: normal; overflow-wrap: anywhere; }
 }
 
 /* An item page's Open link carries the external glyph, which has no size of its own: unsized it filled the button
