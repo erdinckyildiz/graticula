@@ -449,7 +449,7 @@ measurable question. The two device claims are, so they are conditions and not a
       a captured position blocks submission and a typed one does not; the page's own words follow the form's language when it is Turkish and are English otherwise (changed after the
       UX review the same night, which found Turkish forms with English buttons); a GlobalID added twice is refused with 400 and rolled back, which the
       client reads as *already arrived*, looks the row up and sends the rest; the page is served from the cache and
-      refreshed behind, `form.json` from the network first. Geotrace and geoshape are captured as vertices, with no map.
+      refreshed behind, `form.json` from the network first. Geotrace and geoshape are captured as vertices, ~~with no map~~ **and since §5.15 on a map as well**.
 
 12. **A form's items are arranged as Survey123 arranges them — owner decision 2026-11-09** (*"Survey123 gibi"*). Until
     then the layer and the answers view were listed under their service names (`ux_demo_dev1`, `ux_demo_dev1_submit`) at
@@ -490,6 +490,19 @@ measurable question. The two device claims are, so they are conditions and not a
     ones the caller owns or manages, as a document's Share offers them; (b) moving a form from groups to the organization
     or everyone leaves its group shares in place, as a Portal item keeps them, and they matter again only when it is
     shared with groups again.
+
+15. **A location question is answered on a map — built 2026-11-09 overnight**, as Survey123's field app and web form
+    answer it. A point, a line and an area each have a map over OpenStreetMap: a tap places the point, or adds the next
+    vertex, and the shape is drawn as it grows; *Use my location*, *Add my position*, the coordinate boxes and *Remove
+    last point* stay, and are the keyboard's and the screen reader's way, so the map is hidden from assistive
+    technology rather than half-offered to it. The library is OpenLayers, the one Studio draws with, served under
+    `/forms/` and kept in the service worker's shell (`graticula-forms-shell-v2`), so a form opened offline still has its
+    map — without its ground, since tiles are not kept. The forms' policy admits images from `tile.openstreetmap.org`
+    and nothing else from there. **INFERRED, for the owner to confirm:** (a) OpenStreetMap is the ground, as in Studio's
+    previews, and not a basemap the publisher chooses; (b) the map opens over Türkiye until a point is placed, rather
+    than asking for the device's location on its own; (c) one finger scrolls the form and two move the map, and the wheel
+    zooms only with Ctrl, so a map in a long form never traps the page; (d) §5.5's *its basemap kept on the device* is
+    still not built — offline, the map shows the points on an empty ground.
 
 ## 6. Consequences
 

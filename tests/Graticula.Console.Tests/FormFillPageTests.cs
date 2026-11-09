@@ -152,6 +152,32 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         Assert.Equal([7], numbers);
     }
 
+    /// <summary>A location question has a map, and a tap on it places the point the boxes then show — ADR-287 §5.15.</summary>
+    [Fact]
+    public async Task A_tap_on_a_location_questions_map_places_its_point()
+    {
+        await using DevTools browser = await OpenAsync();
+        await WaitAsync(browser, "!!document.querySelector('[data-name=konum] .qmap .ol-viewport')", "the location question's map");
+        Assert.Equal("true", await browser.EvaluateAsync<string>("document.querySelector('[data-name=konum] .qmap').getAttribute('aria-hidden')"));
+
+        double[] at = await browser.EvaluateAsync<double[]>("""
+            (function () {
+              var box = document.querySelector('[data-name=konum] .qmap');
+              box.scrollIntoView({ block: 'center' });
+              var r = box.getBoundingClientRect();
+              return [r.left + r.width / 2, r.top + r.height / 2];
+            })()
+            """) ?? [];
+        await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x = at[0], y = at[1] });
+        await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x = at[0], y = at[1], button = "left", clickCount = 1 });
+        await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseReleased", x = at[0], y = at[1], button = "left", clickCount = 1 });
+
+        // A single click waits out the double-click window before it is a tap.
+        await WaitAsync(browser, "Number.isFinite(parseFloat(document.querySelector('[data-name=konum] input[data-focus=lat]').value))"
+            + " && Number.isFinite(parseFloat(document.querySelector('[data-name=konum] input[data-focus=lon]').value))",
+            "the point placed by the tap in the boxes");
+    }
+
     [Fact]
     public async Task A_question_that_is_not_relevant_is_hidden_and_its_answer_is_not_sent()
     {
@@ -290,9 +316,11 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         await WaitAsync(browser, "/^Saved for offline use/.test(document.getElementById('offline-status').textContent)", "the form to be kept");
 
         // The service worker has kept the page and its scripts once it controls the page.
-        await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.has('graticula-forms-shell-v1'); })",
+        await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.has('graticula-forms-shell-v2'); })",
             "the service worker", seconds: 20);
-        await WaitAsync(browser, "caches.open('graticula-forms-shell-v1').then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 5; })",
+        // The map library too (§5.15): a location question opened offline still has its map, without its ground.
+        await WaitAsync(browser, "caches.open('graticula-forms-shell-v2').then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 7"
+            + " && k.some(function (r) { return r.url.endsWith('/ol.js'); }); })",
             "the shell to be cached", seconds: 20);
 
         await browser.CallAsync("Network.enable");
@@ -304,6 +332,7 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
             await WaitAsync(browser, "!!window.GraticulaFormFill && !document.getElementById('form').hidden && !!document.querySelector('[data-name=ad] input')",
                 "the form to be drawn offline", seconds: 20);
             Assert.False(await browser.EvaluateAsync<bool>("navigator.onLine"), "The page was not offline.");
+            await WaitAsync(browser, "!!document.querySelector('[data-name=konum] .qmap .ol-viewport')", "the location question's map offline", seconds: 20);
         }
         finally
         {

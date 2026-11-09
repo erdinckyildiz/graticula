@@ -70,6 +70,11 @@ public static class FormEndpoints
         app.MapGet("/forms/{id}/form.json", ClientAsync);
         app.MapGet("/forms/{id:regex(^[0-9a-fA-F]{{32}}$)}", PageAsync);
         app.MapGet("/forms/preview", (HttpContext context, CancellationToken cancellation) => PageAsync(context, "preview", cancellation));
+
+        // The map library the form's location questions draw with (§5.15), under /forms/ so the service worker keeps it
+        // with the page and a form opened offline still has its map: the same files Studio loads.
+        app.MapGet("/forms/ol.js", () => Library("ol.js", "text/javascript; charset=utf-8"));
+        app.MapGet("/forms/ol.css", () => Library("ol.css", "text/css; charset=utf-8"));
     }
 
     /// <summary>
@@ -77,6 +82,12 @@ public static class FormEndpoints
     /// id from its own path. The same file as <c>/forms/fill.html?id=…</c>, served rather than copied, so the two cannot
     /// drift; whether the caller may read the form is decided when the page asks for <c>form.json</c>.
     /// </summary>
+    private static IResult Library(string file, string type)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "wwwroot", file);
+        return File.Exists(path) ? Results.File(path, type) : Results.NotFound();
+    }
+
     /// <remarks>
     /// <b><c>/forms/preview</c> is the same page</b>, for the designer in Studio to frame (ADR-287 §5.8): the page reads
     /// its address, takes the form it is sent rather than fetching one, and sends nothing. It is outside the service

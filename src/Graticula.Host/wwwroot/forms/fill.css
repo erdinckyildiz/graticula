@@ -220,3 +220,8 @@ input[type=range]:not([data-set])::-moz-range-thumb { opacity: 0; }
 /* The photo and file control as a 44 px target, as the rest of the page's controls are. */
 input[type=file] { min-height: 44px; font: inherit; width: 100%; max-width: 100%; }
 input[type=file]::file-selector-button { min-height: 44px; padding: 0 16px; margin-right: 12px; font: inherit; border: 1px solid var(--rule); border-radius: 6px; background: var(--accent-soft); color: inherit; cursor: pointer; }
+
+/* A location question's map (ADR-287 §5.15): the pointer's way to answer; the boxes under it stay. */
+.qmapwrap { margin: 0 0 8px; }
+.qmap { height: 240px; border: 1px solid #c8d0dc; border-radius: 8px; overflow: hidden; }
+.qmapwrap .hint { margin: 4px 0 0; }

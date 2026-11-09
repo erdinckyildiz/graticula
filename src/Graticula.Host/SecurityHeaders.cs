@@ -226,7 +226,10 @@ internal static class SecurityHeaders
         "default-src 'none'; "
         + "script-src 'self'; "
         + "style-src 'self'; "
-        + "img-src 'self' data: blob:; "
+
+        // <b>OpenStreetMap's tiles, since 2026-11-09 — ADR-287 §5.15.</b> A location question draws its map over the
+        // same ground Studio's previews use; a tile is an image and nothing else is admitted from there.
+        + "img-src 'self' data: blob: https://tile.openstreetmap.org; "
         + "media-src 'self' blob:; "
         + "connect-src 'self'; "
         + "worker-src 'self'; "

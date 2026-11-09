@@ -261,6 +261,9 @@
         "This form is not published yet, so there is nowhere to send it.": "Bu form henüz yayımlanmadı, cevapların gönderileceği yer yok.",
         "This form is not published yet. You can look at it, but answers cannot be sent.": "Bu form henüz yayımlanmadı. İnceleyebilirsiniz ama cevaplar gönderilemez.",
         "A preview of the form as it is being designed. Answers are not sent.": "Formun tasarlanmakta olan hâlinin önizlemesi. Cevaplar gönderilmez.",
+        "Tap the map to place the point, or use the boxes below. Two fingers move the map.": "Noktayı yerleştirmek için haritaya dokunun ya da aşağıdaki kutuları kullanın. Haritayı iki parmakla kaydırın.",
+        "Tap the map to add each point in turn, or use the boxes below. Two fingers move the map.": "Noktaları sırayla eklemek için haritaya dokunun ya da aşağıdaki kutuları kullanın. Haritayı iki parmakla kaydırın.",
+        "The map could not be loaded; use the boxes below.": "Harita yüklenemedi; aşağıdaki kutuları kullanın.",
         "Opened from this device; the server could not be reached.": "Bu cihazdan açıldı; sunucuya ulaşılamadı.",
         "The form could not be loaded: you are offline and it has not been downloaded to this device.": "Form yüklenemedi: çevrimdışısınız ve form bu cihaza indirilmemiş.",
         "Discard this record? It has not been accepted by the server and cannot be recovered.": "Bu kayıt silinsin mi? Sunucu henüz kabul etmedi ve geri getirilemez."
@@ -1170,12 +1173,22 @@
             locate().then(function (p) {
                 var c = p.coords;
                 setValue(inst, q, c.latitude.toFixed(7) + ' ' + c.longitude.toFixed(7) + ' ' + (c.altitude || 0) + ' ' + (c.accuracy || 0).toFixed(1));
+                map.centre();
                 status.textContent = isTurkish() ? 'Konum bulundu, ' + Math.round(c.accuracy) + ' m doğrulukta.' : 'Location found, accurate to ' + Math.round(c.accuracy) + ' m.';
             }, function (e) { status.textContent = e.message + ' You can type the coordinates instead.'; })
                 .then(function () { use.disabled = false; });
         });
 
+        var map = placeMap('geopoint', function () {
+            var p = parts();
+            return p.length >= 2 && !isNaN(Number(p[0])) && !isNaN(Number(p[1])) ? [[Number(p[0]), Number(p[1])]] : [];
+        }, function (la, lo) {
+            setValue(inst, q, la + ' ' + lo + ' 0 0');
+            status.textContent = isTurkish() ? 'Nokta haritadan yerleştirildi.' : 'Point placed on the map.';
+        });
+
         var node = el('div', null, [
+            map.node,
             el('div', { class: 'inline' }, [use, clear]),
             el('div', { class: 'pair' }, [
                 el('label', { for: id + '-lat' }, [el('span', { id: id + '-latl', text: t('Latitude') }), lat]),
@@ -1191,8 +1204,106 @@
                 syncInput(lat, p[0] || '', ro);
                 syncInput(lon, p[1] || '', ro);
                 use.disabled = !!ro; clear.disabled = !!ro || !p.length;
+                map.update(ro);
                 if (p.length >= 4 && Number(p[3]) > 0 && !status.textContent) { status.textContent = isTurkish() ? Math.round(Number(p[3])) + ' m doğrulukta.' : 'Accurate to ' + Math.round(Number(p[3])) + ' m.'; }
             }
+        };
+    }
+
+    // ----- The map a location question is answered on (§5.15).
+
+    var mapLibrary = null;
+
+    /** OpenLayers, loaded once and only when a form asks for a place: most forms never pay for it. */
+    function loadMapLibrary() {
+        if (window.ol) { return Promise.resolve(true); }
+        if (!mapLibrary) {
+            mapLibrary = new Promise(function (done) {
+                document.head.appendChild(el('link', { rel: 'stylesheet', href: 'ol.css' }));
+                var tag = document.createElement('script');
+                tag.src = 'ol.js';
+                tag.onload = function () { done(true); };
+                tag.onerror = function () { done(false); };
+                document.head.appendChild(tag);
+            });
+        }
+        return mapLibrary;
+    }
+
+    /**
+     * A map that shows a question's points and takes a tap as a new one. It is the pointer's way to answer; the boxes
+     * beside it stay the keyboard's and the screen reader's, so the map itself is hidden from assistive technology.
+     * Offline the ground is missing and the points are still drawn and still placed.
+     */
+    function placeMap(kind, readPoints, onTap) {
+        var box = el('div', { class: 'qmap', 'aria-hidden': 'true' });
+        var hint = el('p', { class: 'hint', text: kind === 'geopoint'
+            ? t('Tap the map to place the point, or use the boxes below. Two fingers move the map.')
+            : t('Tap the map to add each point in turn, or use the boxes below. Two fingers move the map.') });
+        var map = null, source = null, fitted = false, readOnly = false;
+
+        function draw() {
+            if (!source) { return; }
+            var pts = readPoints().map(function (p) { return ol.proj.fromLonLat([p[1], p[0]]); });
+            source.clear();
+            pts.forEach(function (c) { source.addFeature(new ol.Feature(new ol.geom.Point(c))); });
+            if (kind === 'geotrace' && pts.length > 1) { source.addFeature(new ol.Feature(new ol.geom.LineString(pts))); }
+            if (kind === 'geoshape' && pts.length > 2) { source.addFeature(new ol.Feature(new ol.geom.Polygon([pts.concat([pts[0]])]))); }
+            else if (kind === 'geoshape' && pts.length === 2) { source.addFeature(new ol.Feature(new ol.geom.LineString(pts))); }
+            if (!pts.length) { fitted = false; return; }
+            if (!fitted) {
+                fitted = true;
+                map.getView().fit(source.getExtent(), { padding: [40, 40, 40, 40], maxZoom: 17 });
+            }
+        }
+
+        function start(tries) {
+            if (!document.body.contains(box) || !box.clientWidth) {
+                if (tries < 40) { setTimeout(function () { start(tries + 1); }, 50); }
+                return;
+            }
+            loadMapLibrary().then(function (ok) {
+                if (!ok || map) { if (!ok) { hint.textContent = t('The map could not be loaded; use the boxes below.'); } return; }
+                source = new ol.source.Vector();
+                var accent = '#1565d8';
+                map = new ol.Map({
+                    target: box,
+                    layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), new ol.layer.Vector({
+                        source: source,
+                        style: new ol.style.Style({
+                            image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: '#fff', width: 2 }) }),
+                            stroke: new ol.style.Stroke({ color: accent, width: 3 }),
+                            fill: new ol.style.Fill({ color: 'rgba(21,101,216,0.2)' })
+                        })
+                    })],
+                    view: new ol.View({ center: ol.proj.fromLonLat([35, 39]), zoom: 5 }),
+                    interactions: interactions()
+                });
+                // One finger scrolls the form and a tap places a point; two fingers move the map.
+                map.getViewport().style.touchAction = 'pan-x pan-y';
+                map.on('singleclick', function (event) {
+                    if (readOnly) { return; }
+                    var ll = ol.proj.toLonLat(event.coordinate);
+                    onTap(Number(ll[1].toFixed(7)), Number(ll[0].toFixed(7)));
+                });
+                draw();
+            });
+        }
+
+        function interactions() {
+            var list = ol.interaction.defaults.defaults({ mouseWheelZoom: false, dragPan: false });
+            list.push(new ol.interaction.MouseWheelZoom({ condition: ol.events.condition.platformModifierKeyOnly }));
+            list.push(new ol.interaction.DragPan({
+                condition: function (event) { return event.originalEvent.pointerType !== 'touch' || this.getPointerCount() === 2; }
+            }));
+            return list;
+        }
+
+        setTimeout(function () { start(0); }, 0);
+        return {
+            node: el('div', { class: 'qmapwrap' }, [box, hint]),
+            update: function (ro) { readOnly = !!ro; draw(); },
+            centre: function () { fitted = false; draw(); }
         };
     }
 
@@ -1236,7 +1347,13 @@
         });
         undo.addEventListener('click', function () { var pts = points(); pts.pop(); store(pts); status.textContent = pts.length + ' points.'; });
 
+        var map = placeMap(q.type, points, function (la, lo) {
+            var pts = points(); pts.push([la, lo, 0, 0]); store(pts);
+            status.textContent = (isTurkish() ? 'Nokta ' : 'Point ') + pts.length + (isTurkish() ? ' haritadan eklendi.' : ' added on the map.');
+        });
+
         var node = el('div', null, [
+            map.node,
             el('div', { class: 'inline' }, [here, undo]),
             el('div', { class: 'pair' }, [
                 el('label', { for: id + '-lat' }, [t('Latitude'), lat]),
@@ -1255,6 +1372,7 @@
                 here.disabled = undo.disabled = addTyped.disabled = !!ro;
                 undo.disabled = undo.disabled || !pts.length;
                 lat.readOnly = lon.readOnly = !!ro;
+                map.update(ro);
             }
         };
     }
