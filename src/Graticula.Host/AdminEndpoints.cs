@@ -7148,13 +7148,21 @@ internal static partial class AdminEndpoints
             && string.IsNullOrWhiteSpace(context.Request.Query["username"].ToString())
             && PresentedToken(context) is { Length: > 0 } admitted)
         {
-            // `expires` as a string, which is how the ArcGIS Server admin API writes it; Pro's server connection reads
-            // this answer and went no further with the number (2026-10-17, being measured).
+            // <b>Not a token: what the server's transport is — measured 2026-11-10 (ADR-299).</b> A federated ArcGIS
+            // Server 12.0 (esriqa.aecon.com, the owner's test Enterprise) answers this exact request — the portal
+            // token in X-Esri-Authorization, no username, GET — with <c>{"ssl":{"supportsSSL":true,"sslPort":443}}</c>
+            // and nothing else; the request is Pro's server connection asking how to reach the admin API, not asking
+            // for a token. Answered with a token until then, Share As Web Layer's hosted path went on regardless and
+            // its map image path stopped at analyzer 00290 with no further request on the wire.
+            _ = admitted;
+            bool https = string.Equals(context.Request.Scheme, "https", StringComparison.OrdinalIgnoreCase);
             await Results.Json(new
             {
-                token = admitted,
-                expires = DateTimeOffset.UtcNow.AddMinutes(60).ToUnixTimeMilliseconds()
-                    .ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ssl = new
+                {
+                    supportsSSL = https,
+                    sslPort = context.Request.Host.Port ?? (https ? 443 : 80),
+                },
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
