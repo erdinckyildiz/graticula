@@ -7904,3 +7904,21 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .scenesource h3 { margin: 0 0 8px; font-size: 15px; }
 .scenesource p { margin: 0 0 8px; }
 .scenesource code { font-family: var(--mono); font-size: .95em; }
+
+/* ADR-287 §5.7: a form's item page — its state and publishing, and its answers. */
+.formpanel h3 { margin: 0 0 10px; }
+.formpanel h4 { margin: 18px 0 8px; font-size: 15px; }
+.formpanel h5 { margin: 14px 0 6px; font-size: 14px; }
+.formpanel code, #addItem .formissues code { font-family: var(--mono); font-size: .95em; }
+.formlayers { list-style: none; margin: 0; padding: 0; }
+.formlayers li + li { margin-top: 4px; }
+.formissues caption { text-align: left; font-weight: 650; padding: 10px 0 6px; }
+.formissues td, .formplan td, .formresults td, .formchoices td { padding: 8px 12px; vertical-align: top; }
+.formresults td { white-space: nowrap; max-width: 22em; overflow: hidden; text-overflow: ellipsis; }
+.formsums { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 20px; }
+.formsum { min-width: 0; }
+.formchoices meter { width: 100%; min-width: 60px; }
+.formact { margin: 12px 0 4px; }
+/* An item page's Open link carries the external glyph, which has no size of its own: unsized it filled the button
+   (seen on a form's Open form, and the same rule held for an app's Open app). */
+#docActions > a.btn svg, #docActions .sheet a.btn svg { width: 13px; height: 13px; margin-left: 6px; vertical-align: -1px; }

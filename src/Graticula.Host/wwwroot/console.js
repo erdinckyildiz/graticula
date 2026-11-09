@@ -28736,7 +28736,7 @@ function drawAddItem() {
   // feature-class names forty characters long; every other screen is a short form and 680px is
   // right for reading prose. Set here rather than inside the screen so that leaving it takes the
   // width back.
-  $("addItem").classList.toggle("wide", itemStep === "inspect" || itemStep === "publish");
+  $("addItem").classList.toggle("wide", itemStep === "inspect" || itemStep === "publish" || itemStep === "form");
 
   if (itemStep === "item") drawItemKinds();
   else if (itemStep === "kind") drawLayerRoutes();
@@ -28744,6 +28744,7 @@ function drawAddItem() {
   else if (itemStep === "publish") drawPublish();
   else if (itemStep === "imagery") drawImageryForm();
   else if (itemStep === "document") drawDocumentForm();
+  else if (itemStep === "form") drawFormUpload();
   else if (itemStep === "toolbox") drawToolboxForm();
   else drawRouteForm(itemStep);
 
@@ -28809,6 +28810,11 @@ function drawItemKinds() {
         <span class="glyph">${icon("document")}</span>
         <span><b>Document</b>
           <span>Keep a PDF, an Office file, a CSV or a picture as an item people find in Content and download.</span></span>
+      </button>
+      <button type="button" class="newtile" id="kindForm">
+        <span class="glyph">${icon("document")}</span>
+        <span><b>Form (XLSForm)</b>
+          <span>Upload an XLSForm workbook to make a form people fill in, online or offline, and publish its layer.</span></span>
       </button>
       ${toolboxAnswer.mayPublish ? `<button type="button" class="newtile" id="kindToolbox">
         <span class="glyph">${icon("analysis")}</span>
@@ -35430,6 +35436,7 @@ async function showDocumentItem(id) {
   } catch (e) {
     $("docAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to Content</a></p>`;
     for (const one of ["docSide", "docActions", "docTabs", "docThumb", "docSettings", "docImc"]) $(one).innerHTML = "";
+    for (const one of ["docForm", "docFormResults"]) { $(one).innerHTML = ""; $(one).hidden = true; }
     $("docSettings").hidden = true;
     $("docOverview").hidden = false;
     return;
@@ -35471,10 +35478,13 @@ async function showDocumentItem(id) {
     ${doc.kind === "webscene" ? `<a class="btn primary" id="docOpenScene" href="/studio/scene.html?id=${encodeURIComponent(doc.id)}">Open in Scene Viewer</a>` : ""}
     ${doc.kind === "slpk" ? `<a class="btn primary" id="docOpenScene"
       href="/studio/scene.html?layer=${encodeURIComponent(`${location.origin}/rest/services/hosted/${doc.id}/SceneServer`)}&title=${encodeURIComponent(doc.title || "")}">Open in Scene Viewer</a>` : ""}
-    ${doc.url && doc.kind !== "slpk" ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
+    ${doc.kind === "form" ? `<a class="btn primary" id="formOpen" href="/forms/${encodeURIComponent(doc.id)}" target="_blank"
+      rel="noopener" aria-label="Open form (opens in a new tab)">Open form ${icon("external")}</a>` : ""}
+    ${doc.url && doc.kind !== "slpk" && doc.kind !== "form" ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
-    ${doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
+    ${doc.kind === "form" ? (doc.manages ? `<button type="button" id="formDownload">Download XLSForm</button>` : "")
+      : doc.app && !doc.size ? "" : `<button type="button" class="${doc.url || doc.kind === "slpk" ? "" : "primary"}" id="docDownload">Download</button>`}
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
     <button type="button" id="docFavorite" data-of="doc" hidden></button>
     ${doc.manages && !doc.app && !doc.sceneSource ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
@@ -35492,6 +35502,7 @@ async function showDocumentItem(id) {
   drawDocSettings();
   drawDocTabs();
   loadDocExtras(doc);
+  drawDocForm(doc);   // ADR-287 §5.7: a form's state, its publishing and its answers
   if (!again) drawDocScene(doc);
   imcMount("doc");   // ADR-267: its metadata and comments
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
@@ -35662,7 +35673,9 @@ function drawDocSide() {
       <dt>Created</dt><dd>${h(day(doc.created))}</dd>
       <dt>Updated</dt><dd>${h(day(doc.modified))}</dd>
     </dl>
-    ${doc.app ? `<p class="hint">${doc.kind === "webscene"
+    ${doc.kind === "form" ? `<p class="hint">A form people fill in at its own address, online or offline. Its questions
+      are kept as an XLSForm; publishing makes the layer its answers are stored in.</p>`
+    : doc.app ? `<p class="hint">${doc.kind === "webscene"
       ? "A 3D scene: its layers, its ground and where the camera looks. Open it in Scene Viewer to look around or change it."
       : doc.link
       ? `This item points to ${doc.type === "Document Link" ? "a document" : "a service"} on ${h(docHost(doc) || "another server")}. That server answers requests; this one keeps only the item.`
@@ -35922,6 +35935,8 @@ document.addEventListener("click", async event => {
 
   if (t.id === "docShareOpen") {
     const doc = docOpen;
+    // ADR-287 §5.11 (l): a form is shared through its own route, which opens a submit-only view of its layers.
+    if (doc.kind === "form") { drawFormShare(doc); return; }
     $("docShareBody").innerHTML = `<fieldset class="offered"><legend>Who can download this document</legend>
       ${MAP_SCOPES.filter(([value]) => value !== "allorganizations" || allOrganizationsOffer(doc.sharing))
         .map(([value, label, said]) => {
@@ -36187,6 +36202,567 @@ document.addEventListener("click", async event => {
     t.removeAttribute("aria-disabled");
     $("docFile").focus();
   }
+});
+
+// ---------------------------------------------------------------- forms (ADR-287 §5.3, §5.7, §5.11)
+
+/**
+ * The form whose item page is open: what `/admin/forms/{id}` answered (`read`), the compiled form the client fills in
+ * (`form`, from `form.json`, for its labels and choice lists), and the item. Null on any other page.
+ */
+let formHere = null;
+
+/**
+ * Where a form is checked without being stored. The route's `{id}` is the name the layer falls back to when the
+ * workbook has no `form_id` — publishing uses the item's title there — so the title is sent in its place, and the plan
+ * shown is the plan publishing makes. A slash would end the segment, so it goes.
+ */
+const formCheckAddress = title => `/admin/forms/${encodeURIComponent(String(title || "form").replace(/\//g, " ").trim() || "form")}/check`;
+
+/** A form's questions in the order it asks them, each with the table it is stored in: "" for the top, or its repeat's name. */
+function formQuestions(form) {
+  const out = [];
+  const walk = (body, repeat) => {
+    for (const node of body || []) {
+      if (node.kind === "question") out.push({ ...node, repeat });
+      else if (node.kind === "group") walk(node.body, repeat);
+      else if (node.kind === "repeat") walk(node.body, node.name);
+    }
+  };
+  walk(form?.root?.body, "");
+  return out;
+}
+
+/** A label in the form's default language, then any language it has, then the name. */
+function formLabel(labels, form, fallback) {
+  const all = labels || {};
+  return all[""] || (form?.defaultLanguage && all[form.defaultLanguage]) || Object.values(all).find(Boolean) || fallback || "";
+}
+
+/** A choice list as a map from each choice's name to its label. */
+function formChoiceLabels(form, list) {
+  return new Map((form?.choices?.[list] || []).map(c => [String(c.name), formLabel(c.labels, form, c.name)]));
+}
+
+/** What a layer's geometry is called on screen. */
+const formGeometryWord = type => ({ Point: "point layer", Polyline: "line layer", Polygon: "polygon layer",
+  esriGeometryPoint: "point layer", esriGeometryPolyline: "line layer", esriGeometryPolygon: "polygon layer" })[type] || "table";
+
+/**
+ * Refusals or notices as a table — sheet, row, column and what it says — which is how a publisher finds the cell in
+ * their workbook. The caption says which of the two it is.
+ */
+function formIssuesTable(issues, caption, said, id = "") {
+  return `<div class="widetable"><table class="formissues"${id ? ` id="${h(id)}"` : ""}>
+    <caption>${h(caption)}</caption>
+    <thead><tr><th scope="col">Sheet</th><th scope="col">Row</th><th scope="col">Column</th><th scope="col">${h(said)}</th></tr></thead>
+    <tbody>${issues.map(i => `<tr><td>${h(i.sheet || "")}</td><td>${i.row ? num(i.row) : "—"}</td><td>${
+      i.column ? `<code>${h(i.column)}</code>` : "—"}</td><td>${h(i.message || "")}</td></tr>`).join("")}</tbody>
+  </table></div>`;
+}
+
+// ------------------------------------------------------------ New item › Form (XLSForm)
+
+/** New item › Form: a workbook, checked first and kept only when nothing in it is refused (§5.3). */
+function drawFormUpload() {
+  $("addItemTitle").textContent = "Add a form";
+  $("addItemBody").innerHTML = `
+    <p class="picklede">An XLSForm workbook — its survey, choices and settings sheets. It is checked first and kept only
+      when everything in it can be honoured; a workbook with something to change is not stored.</p>
+    <div class="stacked"><label for="formFile">XLSForm workbook (.xlsx)</label>
+      <input type="file" id="formFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        aria-describedby="formFileSays formNewSays"></div>
+    <p class="hint" id="formFileSays">Up to 16 MB. Survey123's XLSForm columns are read where they mean something here.</p>
+    <div class="stacked"><label for="formNewTitle">Title</label>
+      <input type="text" id="formNewTitle" maxlength="250" autocomplete="off" aria-describedby="formNewTitleSays"></div>
+    <p class="hint" id="formNewTitleSays">The workbook's name until you type another. Its layer is named after the form's
+      <code>form_id</code>, or after this title when it has none.</p>
+    <p class="hint" id="formNewSays" role="status" aria-live="polite"></p>
+    <div id="formNewIssues"></div>`;
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="formAdd">Check and add</button>`;
+
+  if (handedFile && /\.xlsx$/i.test(handedFile.name || "")) {
+    const carried = new DataTransfer();
+    carried.items.add(handedFile);
+    $("formFile").files = carried.files;
+    $("formNewTitle").value = handedFile.name.replace(/\.[^.]+$/, "");
+  }
+  $("formFile").addEventListener("change", () => {
+    const file = $("formFile").files?.[0];
+    const title = $("formNewTitle");
+    if (file && title.dataset.typed !== "true") title.value = file.name.replace(/\.[^.]+$/, "");
+    $("formNewSays").textContent = "";
+    $("formNewSays").classList.remove("bad-inline");
+    $("formNewIssues").innerHTML = "";
+    $("formFile").removeAttribute("aria-invalid");
+  });
+  $("formNewTitle").addEventListener("input", () => { $("formNewTitle").dataset.typed = "true"; });
+  $("itemBack").addEventListener("click", () => { itemStep = "item"; handedFile = null; drawAddItem(); });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+}
+
+/** Checks the chosen workbook and, only when it is accepted, adds it and opens its page. */
+async function formAddFromWorkbook(button) {
+  const file = $("formFile").files?.[0];
+  const says = $("formNewSays");
+  const issues = $("formNewIssues");
+  const refuse = text => {
+    says.textContent = text;
+    says.classList.add("bad-inline");
+    $("formFile").setAttribute("aria-invalid", "true");
+    $("formFile").focus();
+  };
+  issues.innerHTML = "";
+  if (!file) { refuse("Choose an XLSForm workbook first."); return; }
+  if (!/\.xlsx$/i.test(file.name || "")) { refuse(`${file.name} is not an .xlsx workbook. An XLSForm is saved from Excel as .xlsx.`); return; }
+
+  const title = $("formNewTitle").value.trim() || file.name.replace(/\.[^.]+$/, "");
+  const upload = () => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("title", title);
+    return form;
+  };
+  button.disabled = true;
+  says.classList.remove("bad-inline");
+  says.textContent = `Checking ${file.name}…`;
+  try {
+    const check = await api(formCheckAddress(title), { method: "POST", body: upload() });
+    if (!$("addItem").open) return;
+    if (!check?.accepted) {
+      const refusals = check?.refusals || [];
+      const notices = check?.notices || [];
+      says.textContent = `Not added: ${refusals.length} ${refusals.length === 1 ? "thing needs" : "things need"} changing in the
+        workbook. Nothing was kept — change ${refusals.length === 1 ? "it" : "them"} and choose the file again.`.replace(/\s+/g, " ");
+      says.classList.add("bad-inline");
+      issues.innerHTML = formIssuesTable(refusals, "What to change, by row", "What to change", "formNewRefusals")
+        + (notices.length ? formIssuesTable(notices, "Drawn the default way or noted — no change needed", "Note", "formNewNotices") : "");
+      button.disabled = false;
+      $("formFile").setAttribute("aria-invalid", "true");
+      $("formFile").focus();
+      return;
+    }
+    says.textContent = `${file.name} passes its check. Adding it…`;
+    const made = await api("/admin/forms", { method: "POST", body: upload() });
+    if (!made?.id) {
+      says.textContent = `${file.name} was sent, and the server's answer named no item. Find it in Content.`;
+      button.disabled = false;
+      return;
+    }
+    $("addItem").close();
+    handedFile = null;
+    const noted = (made.notices || check.notices || []).length;
+    docSayNext = `${made.title || title} is added. It is yours alone until you share it; publish it to make the layer its
+      answers go to.${noted ? ` The check left ${noted} ${noted === 1 ? "note" : "notes"}, listed under Form.` : ""}`.replace(/\s+/g, " ");
+    navigateTo(`#/item/${encodeURIComponent(made.id)}`);
+  } catch (e) {
+    if (!$("addItem").open) return;
+    button.disabled = false;
+    // A refusal from the add itself carries its rows too, as the check's do.
+    const refusals = e.body?.refusals || [];
+    if (refusals.length) issues.innerHTML = formIssuesTable(refusals, "What to change, by row", "What to change", "formNewRefusals");
+    refuse(`Not added: ${lowerFirst(e.message || String(e))}`);
+  }
+}
+
+// ------------------------------------------------------------ the form's item page
+
+/** Draws the form's own panels on its item page; on any other document's page, takes them away. */
+async function drawDocForm(doc) {
+  const box = $("docForm");
+  const results = $("docFormResults");
+  if (!box || !results) return;
+  if (doc.kind !== "form" || !doc.manages) {
+    // A reader who is not its owner opens the form; its state and its answers are its owner's (§5.11 (l)).
+    box.hidden = true; box.innerHTML = "";
+    results.hidden = true; results.innerHTML = "";
+    if (doc.kind !== "form") formHere = null;
+    return;
+  }
+
+  if (formHere?.id !== doc.id) {
+    box.hidden = false;
+    box.innerHTML = `<h3>Form</h3><p class="hint">Reading the form…</p>`;
+    results.hidden = true;
+    results.innerHTML = "";
+  }
+
+  let read;
+  let client;
+  try {
+    [read, client] = await Promise.all([
+      api(`/admin/forms/${encodeURIComponent(doc.id)}`),
+      api(`/forms/${encodeURIComponent(doc.id)}/form.json`).catch(() => null),
+    ]);
+  } catch (e) {
+    if (docOpen !== doc) return;
+    box.hidden = false;
+    box.innerHTML = `<h3>Form</h3><p class="bad">${h(e.message || e)}</p>`;
+    return;
+  }
+  if (docOpen !== doc) return;
+
+  formHere = { id: doc.id, doc, read, form: client?.form || null };
+  drawFormState();
+  drawFormResults();
+}
+
+/** The Form panel: questions, sharing, published or not and to what, the check's notes, and Publish. */
+function drawFormState() {
+  const f = formHere;
+  const box = $("docForm");
+  const pub = f.read.publication;
+  const refusals = f.read.refusals || [];
+  const notices = f.read.notices || [];
+  const questions = f.form ? formQuestions(f.form).filter(q => q.type !== "note") : [];
+  const tables = new Set(questions.map(q => q.repeat)).size;
+  const had = document.activeElement?.id;
+  const layerIndex = l => String(l.url || "").slice(String(l.url || "").lastIndexOf("/") + 1);
+  const layerRow = l => `<li><a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(layerIndex(l))}">${
+    h(l.name)}</a> <span class="hint">${h(formGeometryWord(l.geometryType))}${l.repeat
+      ? `, answers to the repeat <code>${h(l.repeat)}</code>` : ""}</span></li>`;
+
+  box.innerHTML = `
+    <h3 id="formStateHead" tabindex="-1">Form</h3>
+    <dl class="facts2 formfacts">
+      <dt>Questions</dt><dd id="formQuestionCount">${f.form ? num(questions.length) : "—"}${tables > 1
+        ? ` <span class="hint">in ${num(tables)} tables</span>` : ""}</dd>
+      <dt>Sharing</dt><dd>${pill(f.read.sharing || "private")}</dd>
+      <dt>Status</dt><dd id="formStatus">${pub ? `Published${pub.publishedAt ? ` ${h(day(pub.publishedAt))}` : ""}` : "Not published"}</dd>
+      ${pub ? `<dt>Service</dt><dd><a id="formServiceLink" href="${servicePage(pub.service, "hosted")}">${h(pub.service)}</a></dd>
+        <dt>Layers</dt><dd><ul class="formlayers">${(pub.layers || []).map(layerRow).join("")}</ul></dd>
+        ${pub.submitService ? `<dt>Answers arrive through</dt><dd><a href="${servicePage(pub.submitService, "hosted")}">${
+          h(pub.submitService)}</a> <span class="hint">— a view that only adds records</span></dd>` : ""}` : ""}
+    </dl>
+    ${refusals.length ? `<p class="bad">This form no longer passes its check, so it cannot be published or filled in.</p>
+      ${formIssuesTable(refusals, "What to change, by row", "What to change")}` : ""}
+    ${notices.length ? formIssuesTable(notices, `Notes from the check (${notices.length})`, "Note", "formNotices") : ""}
+    ${!pub && !refusals.length ? `<p class="formact"><button type="button" class="primary" id="formPublishOpen"
+        aria-describedby="formPublishWhy">Publish…</button></p>
+      <p class="hint" id="formPublishWhy">Publishing makes a hosted feature layer from the questions — a field for each,
+        a choice list for each list, a related table for each repeat. You see what it will make before anything is made.</p>` : ""}
+    ${pub ? `<p class="hint">A published form's questions cannot be changed yet; publish a copy to change them.</p>` : ""}
+    <div id="formPlan" hidden></div>`;
+  box.hidden = false;
+  if (had && $(had) && box.contains($(had))) $(had).focus();
+}
+
+/** Publish…: the plan `/check` works out — layers, fields, choice lists — shown for confirming before anything is made. */
+async function formShowPlan(button) {
+  const f = formHere;
+  const plan = $("formPlan");
+  button.disabled = true;
+  $("docSays").textContent = "Working out what publishing makes…";
+  let check;
+  try {
+    check = await api(formCheckAddress(f.doc.title), {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: f.read.model }) });
+  } catch (e) {
+    if (formHere !== f) return;
+    button.disabled = false;
+    $("docSays").textContent = `Not checked: ${lowerFirst(e.message || String(e))}`;
+    return;
+  }
+  if (formHere !== f) return;
+  $("docSays").textContent = "";
+
+  if (!check?.accepted || !check.plan) {
+    plan.innerHTML = `<h4 id="formPlanHead" tabindex="-1">It cannot be published as it is</h4>
+      ${formIssuesTable(check?.refusals || [], "What to change, by row", "What to change")}
+      <p class="row"><button type="button" class="ghost" id="formPublishCancel">Close</button></p>`;
+    plan.hidden = false;
+    $("formPlanHead").focus();
+    return;
+  }
+
+  const p = check.plan;
+  const lists = new Map((p.domains || []).map(d => [d.name, d]));
+  const layerHtml = l => `
+    <h5>${h(l.name)} <span class="hint">— ${h(formGeometryWord(l.geometryType))}${l.parentRepeat !== null && l.parentRepeat !== undefined
+      ? `, related to ${l.parentRepeat ? `the repeat <code>${h(l.parentRepeat)}</code>` : "the top layer"} by <code>parentglobalid</code>` : ""}</span></h5>
+    <div class="widetable"><table class="formplan">
+      <thead><tr><th scope="col">Question</th><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Choice list</th></tr></thead>
+      <tbody>${(l.fields || []).length ? l.fields.map(fd => `<tr><td>${h(fd.alias || fd.question)}${fd.alias && fd.alias !== fd.question ? `<div class="rowmeta"><code>${h(fd.question)}</code></div>` : ""}</td>
+        <td><code>${h(fd.column)}</code></td><td>${h(fd.type)}${fd.length ? ` <span class="hint">${num(fd.length)}</span>` : ""}</td>
+        <td>${fd.domain ? `${h(fd.domain)} <span class="hint">${num(lists.get(fd.domain)?.codes || 0)} choices</span>` : "—"}</td></tr>`).join("")
+        : `<tr><td colspan="4" class="empty">No fields of its own.</td></tr>`}</tbody>
+    </table></div>
+    ${(l.attachments || []).length ? `<p class="hint">Kept as attachments: ${l.attachments.map(a => `<code>${h(a)}</code>`).join(", ")}.</p>` : ""}`;
+
+  plan.innerHTML = `
+    <h4 id="formPlanHead" tabindex="-1">What publishing makes</h4>
+    <p>A hosted feature service, <b>${h(p.service)}</b>, stored in WGS 84, with ${num(p.layers.length)}
+      ${p.layers.length === 1 ? "layer" : "layers and tables"}${(p.domains || []).length
+      ? ` and ${num(p.domains.length)} ${p.domains.length === 1 ? "choice list" : "choice lists"}` : ""}.</p>
+    ${p.layers.map(layerHtml).join("")}
+    ${(p.domains || []).length ? `<h5>Choice lists</h5><ul class="formlists">${p.domains.map(d =>
+      `<li><code>${h(d.name)}</code> <span class="hint">from the list <code>${h(d.list)}</code>, ${num(d.codes)} choices</span></li>`).join("")}</ul>` : ""}
+    <p class="row"><button type="button" class="primary" id="formPublishGo">Publish</button>
+      <button type="button" class="ghost" id="formPublishCancel">Cancel</button></p>`;
+  plan.hidden = false;
+  $("formPlanHead").focus();
+}
+
+/** Publish: makes the layers; a form already shared then gets the view its answers arrive through. */
+async function formPublishNow(button) {
+  const f = formHere;
+  button.disabled = true;
+  $("formPublishCancel")?.setAttribute("disabled", "");
+  $("docSays").textContent = "Publishing — making the layers, their fields and choice lists…";
+  let pub;
+  try {
+    pub = await api(`/admin/forms/${encodeURIComponent(f.id)}/publish`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  } catch (e) {
+    if (formHere !== f) return;
+    button.disabled = false;
+    $("formPublishCancel")?.removeAttribute("disabled");
+    $("docSays").textContent = `Not published: ${lowerFirst(e.message || String(e))}`;
+    button.focus();
+    return;
+  }
+
+  // A form shared before it was published has no view to take answers through yet: the route makes one only for a
+  // published form. Sharing it again as it is makes it (ADR-287 §5.11 (l)).
+  let after = "";
+  const sharing = f.read.sharing || "private";
+  if (sharing !== "private") {
+    try {
+      await api(`/admin/forms/${encodeURIComponent(f.id)}/sharing`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing }) });
+      after = " The people it is shared with send their answers through a view that only adds records.";
+    } catch (e) {
+      after = ` Its answers could not yet be opened to the people it is shared with: ${lowerFirst(e.message || String(e))} Share it again to try once more.`;
+    }
+  }
+  if (docOpen?.id !== f.id) return;
+  formHere = null;
+  await showDocumentItem(f.id);
+  $("docSays").textContent = `Published as ${pub?.service || "a hosted feature service"}, with ${num((pub?.layers || []).length)}
+    ${(pub?.layers || []).length === 1 ? "layer" : "layers and tables"}.${after}`.replace(/\s+/g, " ");
+  // The page is redrawn under the reader; the Form panel's heading, which now says Published, is where they continue.
+  const head = await formWhenDrawn();
+  head?.focus();
+}
+
+/** The Form panel's heading once the redrawn page has read the form again — or null if it never does. */
+async function formWhenDrawn() {
+  for (let i = 0; i < 100; i++) {
+    if (formHere && $("formStateHead")) return $("formStateHead");
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return null;
+}
+
+/** A value as the results table shows it: a choice by its label, a date as a date. */
+function formValueShown(q, value, form) {
+  if (value === null || value === undefined || value === "") return "";
+  if (q.type === "select_one") return formChoiceLabels(form, q.list).get(String(value)) || String(value);
+  if (q.type === "select_multiple") {
+    const labels = formChoiceLabels(form, q.list);
+    return String(value).split(/[,\s]+/).filter(Boolean).map(v => labels.get(v) || v).join(", ");
+  }
+  if (["date", "today"].includes(q.type) && Number.isFinite(value)) return new Date(value).toLocaleDateString();
+  if (["dateTime", "start", "end"].includes(q.type) && Number.isFinite(value)) return new Date(value).toLocaleString();
+  return String(value);
+}
+
+/** Questions summarised per choice, and per number. */
+const FORM_CHOICE_TYPES = new Set(["select_one", "select_multiple"]);
+const FORM_NUMBER_TYPES = new Set(["integer", "decimal", "range"]);
+
+/**
+ * Results (§5.7): how many answers, the latest twenty from the top layer, and a summary per question — counts per choice,
+ * and the lowest, highest and average of a number. Read from the layer with the owner's token, as Data reads it.
+ */
+async function drawFormResults() {
+  const f = formHere;
+  const box = $("docFormResults");
+  const pub = f.read.publication;
+  const top = (pub?.layers || []).find(l => !l.repeat);
+  if (!pub || !top || !f.form) { box.hidden = true; box.innerHTML = ""; return; }
+  if (!box.innerHTML) box.innerHTML = `<h3>Results</h3><p class="hint">Reading the answers…</p>`;
+  box.hidden = false;
+
+  const columns = top.columns || {};
+  const asked = formQuestions(f.form).filter(q => !q.repeat && columns[q.name]);
+  const query = params => api(`${top.url}/query?${new URLSearchParams({ f: "json", where: "1=1", ...params })}`);
+  const summarised = asked.filter(q => FORM_CHOICE_TYPES.has(q.type) || FORM_NUMBER_TYPES.has(q.type));
+  const index = String(top.url).slice(String(top.url).lastIndexOf("/") + 1);
+  const dataPage = `${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(index)}`;
+
+  let count;
+  let latest;
+  let stats;
+  try {
+    [count, latest, ...stats] = await Promise.all([
+      query({ returnCountOnly: "true" }),
+      query({ outFields: "*", returnGeometry: "false", orderByFields: "objectid DESC", resultRecordCount: "20" }),
+      ...summarised.map(q => FORM_CHOICE_TYPES.has(q.type)
+        ? query({ groupByFieldsForStatistics: columns[q.name],
+            outStatistics: JSON.stringify([{ statisticType: "count", onStatisticField: "objectid", outStatisticFieldName: "n" }]) })
+        : query({ outStatistics: JSON.stringify(["min", "max", "avg", "count"].map(t =>
+            ({ statisticType: t, onStatisticField: columns[q.name], outStatisticFieldName: `s_${t}` }))) })),
+    ]);
+  } catch (e) {
+    if (formHere !== f) return;
+    box.innerHTML = `<h3>Results</h3><p class="bad">The answers could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
+    return;
+  }
+  if (formHere !== f) return;
+
+  const total = Number(count?.count) || 0;
+  const rows = latest?.features || [];
+  const when = a => Number.isFinite(a?.created_date) ? new Date(a.created_date).toLocaleString() : "";
+  const others = (pub.layers || []).filter(l => l.repeat);
+
+  const summaryHtml = (q, answer) => {
+    const label = formLabel(q.labels, f.form, q.name);
+    const features = answer?.features || [];
+    if (FORM_NUMBER_TYPES.has(q.type)) {
+      const a = features[0]?.attributes || {};
+      const answered = Number(a.s_count) || 0;
+      const fmt = v => v === null || v === undefined ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+      return `<section class="formsum" data-question="${h(q.name)}"><h5>${h(label)}</h5>${answered
+        ? `<dl class="facts2"><dt>Answered</dt><dd>${num(answered)}</dd><dt>Lowest</dt><dd>${fmt(a.s_min)}</dd>
+            <dt>Highest</dt><dd>${fmt(a.s_max)}</dd><dt>Average</dt><dd>${fmt(a.s_avg)}</dd></dl>`
+        : `<p class="hint">No answers yet.</p>`}</section>`;
+    }
+    // A choice question: each choice in the list's own order, the ones nobody chose included. A multiple-choice answer
+    // is stored as its names joined by commas (§5.10), so each combination's count is added to every name in it.
+    const labels = formChoiceLabels(f.form, q.list);
+    const counts = new Map([...labels.keys()].map(k => [k, 0]));
+    let unanswered = 0;
+    for (const one of features) {
+      const value = one.attributes?.[columns[q.name]];
+      const n = Number(one.attributes?.n) || 0;
+      if (value === null || value === undefined || value === "") { unanswered += n; continue; }
+      const names = q.type === "select_multiple" ? String(value).split(/[,\s]+/).filter(Boolean) : [String(value)];
+      for (const name of names) counts.set(name, (counts.get(name) || 0) + n);
+    }
+    return `<section class="formsum" data-question="${h(q.name)}"><h5>${h(label)}</h5>
+      <table class="formchoices"><thead><tr><th scope="col">Choice</th><th scope="col">Answers</th><th scope="col"><span class="sr-only">Share</span></th></tr></thead>
+      <tbody>${[...counts].map(([name, n]) => `<tr><td>${h(labels.get(name) || name)}</td><td class="num">${num(n)}</td>
+        <td><meter min="0" max="${Math.max(total, 1)}" value="${n}" aria-label="${h(labels.get(name) || name)}: ${num(n)} of ${num(total)}"></meter></td></tr>`).join("")}
+        ${unanswered ? `<tr><td class="hint">Not answered</td><td class="num">${num(unanswered)}</td><td></td></tr>` : ""}</tbody></table></section>`;
+  };
+
+  box.innerHTML = `
+    <h3 id="formResultsHead">Results</h3>
+    <p id="formResultCount"><b>${num(total)}</b> ${total === 1 ? "submission" : "submissions"}${total
+      ? ` · <a href="${dataPage}">All of them in the layer's data</a>` : ""}</p>
+    ${total === 0 ? `<p class="hint">No answers yet. When someone sends the form, the latest appear here with a summary per question.</p>` : `
+      <h4>Latest submissions</h4>
+      <div class="widetable"><table class="formresults" id="formLatest">
+        <thead><tr><th scope="col">Sent</th>${asked.map(q => `<th scope="col">${h(formLabel(q.labels, f.form, q.name))}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${h(when(r.attributes))}</td>${asked.map(q =>
+          `<td>${h(formValueShown(q, r.attributes?.[columns[q.name]], f.form))}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></div>
+      ${total > rows.length ? `<p class="hint">The latest ${num(rows.length)} of ${num(total)}.</p>` : ""}
+      ${summarised.length ? `<h4>By question</h4><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
+    ${others.length ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
+      `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}`;
+}
+
+/** Download XLSForm: the workbook written from the stored model, fetched with the session's credential. */
+async function formDownloadWorkbook() {
+  const doc = docOpen;
+  try {
+    const answer = await fetch(`/admin/forms/${encodeURIComponent(doc.id)}/workbook`,
+      { headers: token ? { Authorization: "Bearer " + token } : {} });
+    if (!answer.ok) {
+      const said = await answer.json().catch(() => null);
+      throw new Error(said?.error?.message || `the server could not send the workbook (error ${answer.status}).`);
+    }
+    const blob = await answer.blob();
+    const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(answer.headers.get("Content-Disposition") || "")?.[1];
+    const address = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement("a"), { href: address, download: name ? decodeURIComponent(name) : "form.xlsx" });
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(address), 10000);
+    $("docSays").textContent = `${link.download} (${fileSize(blob.size)}) is downloading — the form as an XLSForm workbook.`;
+  } catch (e) {
+    $("docSays").textContent = `Not downloaded: ${lowerFirst(e.message || String(e))}`;
+  }
+}
+
+/** Share, for a form: three scopes, through the form's own route, which opens or closes the view answers arrive through. */
+function drawFormShare(doc) {
+  const published = !!formHere?.read?.publication;
+  const now = doc.sharing || "private";
+  const scopes = [
+    ["private", "Owner only", "Only you can open it and send answers."],
+    ["organization", "Organization", "Everyone signed in to your organization can open it and send answers."],
+    ["public", "Everyone (public)", "Anyone with its address can open it and send answers, without signing in."],
+  ];
+  $("docShareBody").innerHTML = `<fieldset class="offered"><legend>Who can open and fill in this form</legend>
+      ${scopes.map(([value, label, said]) => `<label class="check"><input type="radio" name="formShareScope" value="${value}"${
+        value === now ? " checked" : ""} aria-describedby="formShareWhy"> <span><b>${h(label)}</b> <span class="hint">${h(said)}</span></span></label>`).join("")}
+    </fieldset>
+    <p class="hint" id="formShareWhy">${published
+      ? "Sharing it with your organization or everyone makes a view of its layers that only adds records: people send their answers through it and cannot see, change or delete anyone's. Back to Owner only closes that view; the answers stay yours."
+      : "It is not published yet. When it is, sharing it makes a view of its layers that only adds records, so people can send answers without seeing anyone else's."}
+      A form is not shared with groups yet.</p>
+    <p class="hint" id="formShareSays" role="status" aria-live="polite"></p>`;
+  $("docShareFoot").innerHTML = `<span class="fill"></span>
+    <button type="button" class="ghost" id="docShareCancel">Cancel</button>
+    <button type="button" class="primary" id="formShareSave" disabled>Save</button>`;
+  for (const radio of document.querySelectorAll('input[name="formShareScope"]')) {
+    radio.onchange = () => {
+      $("formShareSave").disabled = document.querySelector('input[name="formShareScope"]:checked')?.value === now;
+    };
+  }
+  $("docShare").showModal();
+  $("docShareTitle").focus();
+}
+
+/** Save, in a form's Share. */
+async function formShareSave(button) {
+  const doc = docOpen;
+  const sharing = document.querySelector('input[name="formShareScope"]:checked')?.value || "private";
+  button.disabled = true;
+  $("formShareSays").textContent = "Saving…";
+  try {
+    const answer = await api(`/admin/forms/${encodeURIComponent(doc.id)}/sharing`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing }) });
+    $("docShare").close();
+    formHere = null;
+    await showDocumentItem(doc.id);
+    const view = answer?.publication?.submitService;
+    $("docSays").textContent = sharing === "private" ? "Only you can open it now." + (view ? ` The view ${view} no longer takes answers from anyone else.` : "")
+      : `Shared: ${SCOPE_WORDS[sharing] || sharing}.${view ? ` Answers arrive through ${view}, which only adds records.`
+        : " Once it is published, answers arrive through a view that only adds records."}`;
+    $("docShareOpen")?.focus();
+  } catch (e) {
+    $("formShareSays").textContent = `Not saved: ${lowerFirst(e.message || String(e))}`;
+    button.disabled = false;
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element
+    ? event.target.closest("#kindForm, #formAdd, #formPublishOpen, #formPublishGo, #formPublishCancel, #formDownload, #formShareSave")
+    : null;
+  if (!t) return;
+  if (t.id === "kindForm") { itemStep = "form"; drawAddItem(); return; }
+  if (t.id === "formAdd") { await formAddFromWorkbook(t); return; }
+  if (t.id === "formPublishOpen") { await formShowPlan(t); return; }
+  if (t.id === "formPublishGo") { await formPublishNow(t); return; }
+  if (t.id === "formPublishCancel") {
+    $("formPlan").hidden = true;
+    $("formPlan").innerHTML = "";
+    const open = $("formPublishOpen");
+    if (open) { open.disabled = false; open.focus(); }
+    return;
+  }
+  if (t.id === "formDownload") { await formDownloadWorkbook(); return; }
+  if (t.id === "formShareSave") await formShareSave(t);
 });
 
 // ---------------------------------------------------------------- System › Backups (ADR-193 condition 4)
