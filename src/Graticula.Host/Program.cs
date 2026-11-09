@@ -2788,10 +2788,14 @@ public static class Program
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
                 $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
+        // ADR-299: `soapUrl` where publishing from Pro is on, as a federated ArcGIS Server writes it.
         app.MapMethods("/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
-                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
+                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}",
+                PortalEndpoints.PublishingFromPro(context.RequestServices.GetRequiredService<IConfiguration>())
+                    ? $"{context.Request.Scheme}://{context.Request.Host}/arcgis/services"
+                    : null)));
 
         // <b>Who the server takes the caller to be, since 2026-11-08</b> (ADR-077 condition 5). ArcGIS Field Maps asks it
         // twice right after it reads a feature layer it might collect into, and with a 404 it never offered Collect.
