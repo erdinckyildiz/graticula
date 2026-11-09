@@ -1474,7 +1474,7 @@
                     if (n.name === layer.location) { geometry = geometryOf(n, v); return; }
                     if (has(layer.attachments, n.name)) {
                         filesOf(inst, n.name).forEach(function (f) {
-                            attachments.push({ url: layer.url, globalid: inst.id, question: n.name, name: f.name, type: f.type, size: f.size, blob: f.blob });
+                            attachments.push({ url: layer.url, submit: layer.submitUrl || layer.url, globalid: inst.id, question: n.name, name: f.name, type: f.type, size: f.size, blob: f.blob });
                         });
                         return;
                     }
@@ -1486,7 +1486,7 @@
             })(inst.node.body || []);
             var add = { attributes: attributes };
             if (geometry) { add.geometry = geometry; }
-            (byLayer[layer.url] || (byLayer[layer.url] = { url: layer.url, depth: depthOf(layer), adds: [] })).adds.push(add);
+            (byLayer[layer.url] || (byLayer[layer.url] = { url: layer.url, submit: layer.submitUrl || layer.url, depth: depthOf(layer), adds: [] })).adds.push(add);
 
             (function children(body) {
                 body.forEach(function (n) {
@@ -1537,6 +1537,18 @@
         return found;
     }
 
+    // The same, or null when this caller cannot read the layer. A public form submits through a Create-only view
+    // (ADR-113, the publication's submitUrl) and an anonymous filler can add through it and read nothing back, so a
+    // lookup by GlobalID goes to the layer itself and is allowed to fail.
+    async function lookUp(url, ids) {
+        try {
+            return await findByGlobalIds(url, ids);
+        } catch (e) {
+            if (e.network) { throw e; }
+            return null;
+        }
+    }
+
     // One table's rows. Measured 2026-11-09: adding a GlobalID the layer already holds answers success:false, code 400,
     // "This would duplicate a value that must be unique in this layer.", and rollbackOnFailure undoes the rest of the
     // batch. So a row that fails is looked for by its GlobalID: found, it arrived on an earlier attempt and is done;
@@ -1549,7 +1561,7 @@
             if (!pending.length) { return; }
             // A step that was started before may have reached the server: look for its rows first.
             if (pending.some(function (a) { return p.attempted[gidOf(a)]; })) {
-                var already = await findByGlobalIds(layer.url, pending.map(gidOf));
+                var already = (await lookUp(layer.url, pending.map(gidOf))) || {};
                 pending.forEach(function (a) { var o = already[gidOf(a).toUpperCase()]; if (o !== undefined) { p.done[gidOf(a)] = o; } });
                 await save();
                 pending = pending.filter(notDone);
@@ -1557,7 +1569,7 @@
             }
             pending.forEach(function (a) { p.attempted[gidOf(a)] = true; });
             await save();
-            var result = await api(layer.url + '/applyEdits', {
+            var result = await api((layer.submit || layer.url) + '/applyEdits', {
                 method: 'POST',
                 body: formBody({ f: 'json', useGlobalIds: 'true', rollbackOnFailure: 'true', adds: JSON.stringify(pending) })
             });
@@ -1571,8 +1583,14 @@
             await save();
             var failedIds = Object.keys(failed);
             if (!failedIds.length) { if (result.rolledBack) { continue; } return; }
-            var there = await findByGlobalIds(layer.url, failedIds);
-            failedIds.forEach(function (g) { var o = there[g.toUpperCase()]; if (o !== undefined) { p.done[g] = o; delete failed[g]; } });
+            var there = await lookUp(layer.url, failedIds);
+            failedIds.forEach(function (g) {
+                var o = there ? there[g.toUpperCase()] : undefined;
+                if (o !== undefined) { p.done[g] = o; delete failed[g]; return; }
+                // Not readable (an anonymous filler behind a Create-only view): the server's own word that the GlobalID
+                // is already there is taken as the row having arrived. Its object id is not known (-1).
+                if (!there && p.attempted[g] && /duplicate|unique/i.test(failed[g])) { p.done[g] = -1; delete failed[g]; }
+            });
             await save();
             var refusals = Object.keys(failed).map(function (g) { return failed[g]; });
             if (refusals.length) {
@@ -1597,18 +1615,25 @@
             if (p.attached[key]) { continue; }
             var oid = p.done[att.globalid];
             if (oid === undefined) { throw new Error('The row of ' + att.question + ' was not added.'); }
+            if (oid === -1) {
+                var lost = new Error('The record reached the server on an earlier attempt, but this device could not learn which row it became, so '
+                    + att.name + ' could not be attached. Ask the form’s owner to add it by hand.');
+                lost.refused = true;
+                throw lost;
+            }
             if (p.attempted[key]) {
-                var infos = await api(att.url + '/' + oid + '/attachments?f=json');
-                var match = (infos.attachmentInfos || []).some(function (i) { return i.name === att.name && Number(i.size) === Number(att.size); });
+                var infos = null;
+                try { infos = await api(att.url + '/' + oid + '/attachments?f=json'); } catch (err) { if (err.network) { throw err; } }
+                var match = infos && (infos.attachmentInfos || []).some(function (i) { return i.name === att.name && Number(i.size) === Number(att.size); });
                 if (match) { p.attached[key] = true; await save(); continue; }
             }
             p.attempted[key] = true;
             await save();
             var data = new FormData();
             data.append('f', 'json');
-            data.append('keywords', att.question);
+            data.append('keywords', att.question); // before the file, so a streaming reader has it first
             data.append('attachment', att.blob, att.name);
-            var added = await api(att.url + '/' + oid + '/addAttachment', { method: 'POST', body: data });
+            var added = await api((att.submit || att.url) + '/' + oid + '/addAttachment', { method: 'POST', body: data });
             if (added && added.addAttachmentResult && added.addAttachmentResult.success === false) {
                 var e = new Error((added.addAttachmentResult.error && added.addAttachmentResult.error.description) || 'The attachment was refused.');
                 e.refused = true;

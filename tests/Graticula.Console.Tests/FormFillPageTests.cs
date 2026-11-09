@@ -111,11 +111,9 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         Assert.Equal(1, infos.GetArrayLength());
         Assert.Equal("foto.png", infos[0].GetProperty("name").GetString());
 
-        // The client sends keywords=<question>; whether it is kept is the server's (ADR-287 §5.2), built separately.
-        if (infos[0].TryGetProperty("keywords", out JsonElement keywords) && keywords.GetString() is { Length: > 0 } kept)
-        {
-            Assert.Equal("foto", kept);
-        }
+        // ADR-287 §5.2: the attachment says which question it answers.
+        Assert.True(infos[0].TryGetProperty("keywords", out JsonElement keywords), $"The attachment carries no keywords: {infos[0]}");
+        Assert.Equal("foto", keywords.GetString());
     }
 
     [Fact]
