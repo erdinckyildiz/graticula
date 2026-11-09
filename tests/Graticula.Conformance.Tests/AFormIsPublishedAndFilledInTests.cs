@@ -132,6 +132,34 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
             JsonElement group = JsonDocument.Parse(related).RootElement.GetProperty("relatedRecordGroups")[0];
             Assert.Equal(3, group.GetProperty("relatedRecords")[0].GetProperty("attributes").GetProperty("kat_no").GetInt32());
 
+            // §5.2: a photo says which question it answers, and an attachment query can ask by it.
+            string topUrl = top.GetProperty("url").GetString()!;
+
+            using (MultipartFormDataContent photo = new())
+            {
+                photo.Add(new StringContent("json"), "f");
+                photo.Add(new StringContent("foto"), "keywords");
+                ByteArrayContent png = new([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]);
+                png.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                photo.Add(png, "attachment", "foto.png");
+                using HttpRequestMessage attach = new(HttpMethod.Post, $"{root}{topUrl}/1/addAttachment") { Content = photo };
+                attach.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage attached = await Http.SendAsync(attach);
+                string attachBody = await attached.Content.ReadAsStringAsync();
+                Assert.True(attached.StatusCode == HttpStatusCode.OK, $"addAttachment answered {(int)attached.StatusCode}: {attachBody}");
+            }
+
+            (HttpStatusCode listed, string list) = await RequestAsync(HttpMethod.Get, $"{root}{topUrl}/1/attachments?f=json", token!, null);
+            Assert.True(listed == HttpStatusCode.OK, $"attachments answered {(int)listed}: {list}");
+            Assert.Equal("foto", JsonDocument.Parse(list).RootElement.GetProperty("attachmentInfos")[0].GetProperty("keywords").GetString());
+
+            (HttpStatusCode byWord, string found) = await RequestAsync(HttpMethod.Get, $"{root}{topUrl}/queryAttachments?objectIds=1&keywords=foto&f=json", token!, null);
+            (HttpStatusCode byOther, string none) = await RequestAsync(HttpMethod.Get, $"{root}{topUrl}/queryAttachments?objectIds=1&keywords=imza&f=json", token!, null);
+            Assert.True(byWord == HttpStatusCode.OK, $"queryAttachments by keywords answered {(int)byWord}: {found}");
+            Assert.Equal(1, JsonDocument.Parse(found).RootElement.GetProperty("attachmentGroups").GetArrayLength());
+            Assert.Equal(HttpStatusCode.OK, byOther);
+            Assert.Equal(0, JsonDocument.Parse(none).RootElement.GetProperty("attachmentGroups").GetArrayLength());
+
             // The client's form: the tree with groups and repeats, the choices, and where each answer goes.
             (HttpStatusCode clientStatus, string client) = await RequestAsync(HttpMethod.Get, $"{root}/forms/{item}/form.json", token!, null);
             Assert.True(clientStatus == HttpStatusCode.OK, $"The client's form answered {(int)clientStatus}: {client}");
