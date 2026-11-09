@@ -408,7 +408,7 @@ measurable question. The two device claims are, so they are conditions and not a
       rule, and so does every write to a layer that is not a view. This is a change to who may write, made overnight.
       [ADR-113](ADR-113-a-hosted-layer-has-views.md) §6 said *"Survey-style add only public views work"*; measured
       2026-11-09, an anonymous add through such a view was refused with 401, because ADR-075's owner rule was asked
-      first and views were never excepted. Without the exception no public survey can exist. **It is the first thing to
+      first and views were never excepted. Without the exception no public survey can exist. A form is shared to `private`, `organization` or `public` only: sharing it to groups or to all organizations would need the submit view shared the same way, which is not built, so those are refused. **It is the first thing to
       confirm in the morning.**
     - (m) **The form client** (`/forms/{id}`, `wwwroot/forms/fill.*`, a service worker scoped to `/forms/`) made these
       readings: **no credential is kept at rest** — a queued record is sent with the session's token, or one traded for

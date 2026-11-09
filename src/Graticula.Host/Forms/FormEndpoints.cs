@@ -549,6 +549,8 @@ public static class FormEndpoints
     private static async Task<IResult> ShareAsync(HttpContext context, string id, FormSharingRequest request, CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // enum-default-is-deliberate: refused. A form shared to groups or to all organizations would need its submit view
+        // shared the same way, which is not built (ADR-287 §5.11 (l)); those scopes are refused with a sentence, not mapped.
         SharingScope scope = request.Sharing?.ToLowerInvariant() switch
         {
             "private" => SharingScope.Private,
@@ -646,7 +648,8 @@ public static class FormEndpoints
             || document.Kind.ArcGisType != "Form"
             || !LayerAccess.Evaluate(document.Sharing, document.Owner, current.Principal, current.Authorization, document.SharedWith).IsAllowed())
         {
-            return TokenRequired.Applies(context) ? TokenRequired.Result(context) : Missing(id ?? string.Empty);
+            return TokenRequired.Applies(context) ? TokenRequired.Result(context)
+                : Error(404, $"No form '{id}' that you can open. It may have been deleted, or it is not shared with you.");
         }
 
         FormModel model = FormModel.FromJson(JsonNode.Parse(await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) ?? []));
