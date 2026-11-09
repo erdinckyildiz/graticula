@@ -502,7 +502,11 @@ measurable question. The two device claims are, so they are conditions and not a
     previews, and not a basemap the publisher chooses; (b) the map opens over Türkiye until a point is placed, rather
     than asking for the device's location on its own; (c) one finger scrolls the form and two move the map, and the wheel
     zooms only with Ctrl, so a map in a long form never traps the page; (d) §5.5's *its basemap kept on the device* is
-    still not built — offline, the map shows the points on an empty ground.
+    still not built — offline, the map shows the points on an empty ground. **After its UX review the same night:** a tap below street
+    scale zooms in on the place instead of answering, so one careless touch at country scale cannot answer a required
+    question; with the device's position already allowed the map opens on it; the map is a named region whose zoom
+    buttons are heard, not a hidden box with focusable controls; a line's or area's points are numbered, each with its
+    own Remove, and the area says when it is closed.
 
 ## 6. Consequences
 

@@ -223,5 +223,6 @@ input[type=file]::file-selector-button { min-height: 44px; padding: 0 16px; marg
 
 /* A location question's map (ADR-287 §5.15): the pointer's way to answer; the boxes under it stay. */
 .qmapwrap { margin: 0 0 8px; }
-.qmap { height: 240px; border: 1px solid #c8d0dc; border-radius: 8px; overflow: hidden; }
+.qmap { height: 240px; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
 .qmapwrap .hint { margin: 4px 0 0; }
+.vertices li { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

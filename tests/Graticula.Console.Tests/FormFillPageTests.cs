@@ -158,7 +158,9 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
     {
         await using DevTools browser = await OpenAsync();
         await WaitAsync(browser, "!!document.querySelector('[data-name=konum] .qmap .ol-viewport')", "the location question's map");
-        Assert.Equal("true", await browser.EvaluateAsync<string>("document.querySelector('[data-name=konum] .qmap').getAttribute('aria-hidden')"));
+        // A region with its own name, its zoom buttons named — not hidden with focusable controls inside.
+        Assert.Equal("region", await browser.EvaluateAsync<string>("document.querySelector('[data-name=konum] .qmap').getAttribute('role')"));
+        Assert.Equal("Zoom in", await browser.EvaluateAsync<string>("document.querySelector('[data-name=konum] .ol-zoom-in').getAttribute('aria-label')"));
 
         double[] at = await browser.EvaluateAsync<double[]>("""
             (function () {
@@ -168,9 +170,19 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
               return [r.left + r.width / 2, r.top + r.height / 2];
             })()
             """) ?? [];
-        await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x = at[0], y = at[1] });
-        await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x = at[0], y = at[1], button = "left", clickCount = 1 });
-        await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseReleased", x = at[0], y = at[1], button = "left", clickCount = 1 });
+        async Task TapAsync()
+        {
+            await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseMoved", x = at[0], y = at[1] });
+            await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mousePressed", x = at[0], y = at[1], button = "left", clickCount = 1 });
+            await browser.CallAsync("Input.dispatchMouseEvent", new { type = "mouseReleased", x = at[0], y = at[1], button = "left", clickCount = 1 });
+        }
+
+        // The map opens at country scale, where a tap is tens of kilometres wide: the first one zooms in and answers nothing.
+        await TapAsync();
+        await WaitAsync(browser, "/Zoomed in/.test(document.querySelector('[data-name=konum]').textContent)", "the first tap to zoom in");
+        Assert.Equal(string.Empty, await browser.EvaluateAsync<string>("document.querySelector('[data-name=konum] input[data-focus=lat]').value"));
+        await Task.Delay(800);
+        await TapAsync();
 
         // A single click waits out the double-click window before it is a tap.
         await WaitAsync(browser, "Number.isFinite(parseFloat(document.querySelector('[data-name=konum] input[data-focus=lat]').value))"

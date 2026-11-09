@@ -261,8 +261,14 @@
         "This form is not published yet, so there is nowhere to send it.": "Bu form henüz yayımlanmadı, cevapların gönderileceği yer yok.",
         "This form is not published yet. You can look at it, but answers cannot be sent.": "Bu form henüz yayımlanmadı. İnceleyebilirsiniz ama cevaplar gönderilemez.",
         "A preview of the form as it is being designed. Answers are not sent.": "Formun tasarlanmakta olan hâlinin önizlemesi. Cevaplar gönderilmez.",
-        "Tap the map to place the point, or use the boxes below. Two fingers move the map.": "Noktayı yerleştirmek için haritaya dokunun ya da aşağıdaki kutuları kullanın. Haritayı iki parmakla kaydırın.",
-        "Tap the map to add each point in turn, or use the boxes below. Two fingers move the map.": "Noktaları sırayla eklemek için haritaya dokunun ya da aşağıdaki kutuları kullanın. Haritayı iki parmakla kaydırın.",
+        "Zoom in close and tap the map to place the point; tap again to move it. Two fingers move the map.": "Yakınlaşın ve noktayı yerleştirmek için haritaya dokunun; taşımak için yeniden dokunun. Haritayı iki parmakla kaydırın.",
+        "Zoom in close and tap the map to add each point in turn. Two fingers move the map.": "Yakınlaşın ve noktaları sırayla eklemek için haritaya dokunun. Haritayı iki parmakla kaydırın.",
+        "Map of the point. Use the boxes below to type it.": "Noktanın haritası. Yazmak için aşağıdaki kutuları kullanın.",
+        "Map of the points. Use the boxes below to type them.": "Noktaların haritası. Yazmak için aşağıdaki kutuları kullanın.",
+        "Zoomed in. Tap again to place it.": "Yakınlaştırıldı. Yerleştirmek için yeniden dokunun.",
+        "Zoom in": "Yakınlaştır",
+        "Zoom out": "Uzaklaştır",
+        "Remove": "Kaldır",
         "The map could not be loaded; use the boxes below.": "Harita yüklenemedi; aşağıdaki kutuları kullanın.",
         "Opened from this device; the server could not be reached.": "Bu cihazdan açıldı; sunucuya ulaşılamadı.",
         "The form could not be loaded: you are offline and it has not been downloaded to this device.": "Form yüklenemedi: çevrimdışısınız ve form bu cihaza indirilmemiş.",
@@ -1185,7 +1191,7 @@
         }, function (la, lo) {
             setValue(inst, q, la + ' ' + lo + ' 0 0');
             status.textContent = isTurkish() ? 'Nokta haritadan yerleştirildi.' : 'Point placed on the map.';
-        });
+        }, function (note) { status.textContent = note; });
 
         var node = el('div', null, [
             map.node,
@@ -1214,6 +1220,9 @@
 
     var mapLibrary = null;
 
+    /** The closest a map must be before a tap places a point: about a street's width per finger. */
+    var PLACE_ZOOM = 15;
+
     /** OpenLayers, loaded once and only when a form asks for a place: most forms never pay for it. */
     function loadMapLibrary() {
         if (window.ol) { return Promise.resolve(true); }
@@ -1235,11 +1244,15 @@
      * beside it stay the keyboard's and the screen reader's, so the map itself is hidden from assistive technology.
      * Offline the ground is missing and the points are still drawn and still placed.
      */
-    function placeMap(kind, readPoints, onTap) {
-        var box = el('div', { class: 'qmap', 'aria-hidden': 'true' });
+    function placeMap(kind, readPoints, onTap, onNote) {
+        // A region with its own name, not hidden: its zoom buttons are reachable by keyboard and must be heard (the UX
+        // review of 2026-11-09 found them focusable inside an aria-hidden box). Placing stays the pointer's; the boxes are
+        // the keyboard's way to answer.
+        var box = el('div', { class: 'qmap', role: 'region', 'aria-label': kind === 'geopoint'
+            ? t('Map of the point. Use the boxes below to type it.') : t('Map of the points. Use the boxes below to type them.') });
         var hint = el('p', { class: 'hint', text: kind === 'geopoint'
-            ? t('Tap the map to place the point, or use the boxes below. Two fingers move the map.')
-            : t('Tap the map to add each point in turn, or use the boxes below. Two fingers move the map.') });
+            ? t('Zoom in close and tap the map to place the point; tap again to move it. Two fingers move the map.')
+            : t('Zoom in close and tap the map to add each point in turn. Two fingers move the map.') });
         var map = null, source = null, fitted = false, readOnly = false;
 
         function draw() {
@@ -1265,28 +1278,57 @@
             loadMapLibrary().then(function (ok) {
                 if (!ok || map) { if (!ok) { hint.textContent = t('The map could not be loaded; use the boxes below.'); } return; }
                 source = new ol.source.Vector();
-                var accent = '#1565d8';
+                var tokens = getComputedStyle(document.documentElement);
+                var accent = tokens.getPropertyValue('--accent').trim() || '#1565d8';
+                var ring = tokens.getPropertyValue('--surface').trim() || '#fff';
+                var tint = /^#[0-9a-f]{6}$/i.test(accent) ? accent + '33' : accent;
                 map = new ol.Map({
                     target: box,
                     layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), new ol.layer.Vector({
                         source: source,
                         style: new ol.style.Style({
-                            image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: '#fff', width: 2 }) }),
+                            image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: ring, width: 2 }) }),
                             stroke: new ol.style.Stroke({ color: accent, width: 3 }),
-                            fill: new ol.style.Fill({ color: 'rgba(21,101,216,0.2)' })
+                            fill: new ol.style.Fill({ color: tint })
                         })
                     })],
                     view: new ol.View({ center: ol.proj.fromLonLat([35, 39]), zoom: 5 }),
-                    interactions: interactions()
+                    interactions: interactions(),
+                    controls: [new ol.control.Zoom({ zoomInTipLabel: t('Zoom in'), zoomOutTipLabel: t('Zoom out') }),
+                        new ol.control.Attribution({ collapsible: false })]
+                });
+                [['.ol-zoom-in', t('Zoom in')], ['.ol-zoom-out', t('Zoom out')]].forEach(function (b) {
+                    var button = box.querySelector(b[0]);
+                    if (button) { button.setAttribute('aria-label', b[1]); }
                 });
                 // One finger scrolls the form and a tap places a point; two fingers move the map.
                 map.getViewport().style.touchAction = 'pan-x pan-y';
                 map.on('singleclick', function (event) {
                     if (readOnly) { return; }
+                    // A tap at country scale is tens of kilometres wide: it zooms in on the place instead of answering,
+                    // so one careless touch cannot answer a required question (the UX review of 2026-11-09).
+                    if (map.getView().getZoom() < PLACE_ZOOM) {
+                        map.getView().animate({ center: event.coordinate, zoom: PLACE_ZOOM + 1, duration: 250 });
+                        if (onNote) { onNote(t('Zoomed in. Tap again to place it.')); }
+                        return;
+                    }
                     var ll = ol.proj.toLonLat(event.coordinate);
                     onTap(Number(ll[1].toFixed(7)), Number(ll[0].toFixed(7)));
                 });
                 draw();
+                // With the device's position already allowed, the map opens on it, as Survey123's field app does; it never
+                // asks for it on its own — that question belongs to a button the person pressed.
+                if (!readPoints().length && navigator.permissions && navigator.permissions.query) {
+                    navigator.permissions.query({ name: 'geolocation' }).then(function (p) {
+                        if (p.state !== 'granted') { return; }
+                        return locate().then(function (pos) {
+                            if (!readPoints().length) {
+                                map.getView().setCenter(ol.proj.fromLonLat([pos.coords.longitude, pos.coords.latitude]));
+                                map.getView().setZoom(PLACE_ZOOM + 1);
+                            }
+                        });
+                    }).catch(function () { /* no position: the map stays where it opened */ });
+                }
             });
         }
 
@@ -1331,7 +1373,8 @@
                 var pts = points();
                 pts.push([Number(p.coords.latitude.toFixed(7)), Number(p.coords.longitude.toFixed(7)), p.coords.altitude || 0, Number((p.coords.accuracy || 0).toFixed(1))]);
                 store(pts);
-                status.textContent = 'Point ' + pts.length + ' added, accurate to ' + Math.round(p.coords.accuracy) + ' m.';
+                status.textContent = isTurkish() ? 'Nokta ' + pts.length + ' eklendi, ' + Math.round(p.coords.accuracy) + ' m doğrulukta.'
+                    : 'Point ' + pts.length + ' added, accurate to ' + Math.round(p.coords.accuracy) + ' m.';
             }, function (e) { status.textContent = e.message; });
         });
         addTyped.addEventListener('click', function () {
@@ -1342,25 +1385,32 @@
             }
             var pts = points(); pts.push([a, b, 0, 0]); store(pts);
             lat.value = ''; lon.value = '';
-            status.textContent = 'Point ' + pts.length + ' added.';
+            status.textContent = isTurkish() ? 'Nokta ' + pts.length + ' eklendi.' : 'Point ' + pts.length + ' added.';
             lat.focus();
         });
-        undo.addEventListener('click', function () { var pts = points(); pts.pop(); store(pts); status.textContent = pts.length + ' points.'; });
+        undo.addEventListener('click', function () {
+            var pts = points(); pts.pop(); store(pts);
+            status.textContent = isTurkish() ? pts.length + ' nokta.' : pts.length + (pts.length === 1 ? ' point.' : ' points.');
+        });
+        var labelId = id + '-label';
+        lat.setAttribute('aria-labelledby', labelId + ' ' + id + '-latl');
+        lon.setAttribute('aria-labelledby', labelId + ' ' + id + '-lonl');
+        var closed = el('p', { class: 'hint', id: id + '-closed' });
 
         var map = placeMap(q.type, points, function (la, lo) {
             var pts = points(); pts.push([la, lo, 0, 0]); store(pts);
             status.textContent = (isTurkish() ? 'Nokta ' : 'Point ') + pts.length + (isTurkish() ? ' haritadan eklendi.' : ' added on the map.');
-        });
+        }, function (note) { status.textContent = note; });
 
         var node = el('div', null, [
             map.node,
             el('div', { class: 'inline' }, [here, undo]),
             el('div', { class: 'pair' }, [
-                el('label', { for: id + '-lat' }, [t('Latitude'), lat]),
-                el('label', { for: id + '-lon' }, [t('Longitude'), lon])
+                el('label', { for: id + '-lat' }, [el('span', { id: id + '-latl', text: t('Latitude') }), lat]),
+                el('label', { for: id + '-lon' }, [el('span', { id: id + '-lonl', text: t('Longitude') }), lon])
             ]),
             el('div', { class: 'inline' }, [addTyped]),
-            list, status
+            list, closed, status
         ]);
         return {
             node: node,
@@ -1368,7 +1418,23 @@
             sync: function (ro) {
                 var pts = points();
                 list.textContent = '';
-                pts.forEach(function (p) { list.appendChild(el('li', { text: p[0] + ', ' + p[1] })); });
+                // Each point by its number, with its own Remove: Remove last point was the only way to correct one.
+                pts.forEach(function (p, i) {
+                    var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove-' + i,
+                        text: t('Remove'), 'aria-label': (isTurkish() ? 'Nokta ' : 'Remove point ') + (i + 1) + (isTurkish() ? ' kaldır' : '') });
+                    remove.disabled = !!ro;
+                    remove.addEventListener('click', function () {
+                        var now = points(); now.splice(i, 1); store(now);
+                        status.textContent = isTurkish() ? 'Nokta ' + (i + 1) + ' kaldırıldı.' : 'Point ' + (i + 1) + ' removed.';
+                    });
+                    list.appendChild(el('li', null, [el('span', { text: (isTurkish() ? 'Nokta ' : 'Point ') + (i + 1) + ': '
+                        + Number(p[0]).toFixed(5) + ', ' + Number(p[1]).toFixed(5) }), remove]));
+                });
+                var need = q.type === 'geotrace' ? 2 : 3;
+                closed.textContent = !pts.length ? '' : pts.length < need
+                    ? (isTurkish() ? 'En az ' + need + ' nokta gerekir.' : 'At least ' + need + ' points are needed.')
+                    : q.type === 'geoshape' ? (isTurkish() ? pts.length + ' nokta; alan kapalı.' : pts.length + ' points; the area is closed.')
+                        : (isTurkish() ? pts.length + ' noktalı çizgi.' : 'A line of ' + pts.length + ' points.');
                 here.disabled = undo.disabled = addTyped.disabled = !!ro;
                 undo.disabled = undo.disabled || !pts.length;
                 lat.readOnly = lon.readOnly = !!ro;
@@ -2091,6 +2157,8 @@
         // Not in the designer's preview: focus there belongs to the designer, and a field taking it trapped the keyboard
         // inside the frame (the UX review of 2026-11-09).
         var first = previewing ? null : $('body').querySelector('input, select, textarea');
+        // A place's first box is a coordinate nobody types first; focus stays at the top of the page then.
+        if (first && first.closest('.type-geopoint, .type-geotrace, .type-geoshape')) { first = null; }
         if (first) { first.focus(); }
     }
 
