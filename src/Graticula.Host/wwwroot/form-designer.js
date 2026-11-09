@@ -413,7 +413,9 @@ async function showFormDesigner(id) {
     live: !!read.publication,
     changedSincePublished: !!read.changedSincePublished,
     // The questions the published version asks, so a question added since can say it is not live yet.
-    publishedNames: new Set((read.publication?.layers || []).flatMap(l => Object.keys(l.columns || {}))),
+    // The location is the layer's geometry and a photo an attachment — neither is a column, and both were published.
+    publishedNames: new Set((read.publication?.layers || []).flatMap(l => [...Object.keys(l.columns || {}),
+      ...(l.location ? [l.location] : []), ...(l.attachments || [])])),
     model: JSON.parse(kept || JSON.stringify(read.model)),
     dirty: !!kept,
     selected: null,

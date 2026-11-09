@@ -8054,3 +8054,4 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .formpct { margin-left: 6px; }
 .formchoices td:has(.formbar) { display: flex; align-items: center; gap: 6px; }
 .formchoices td:has(.formbar) .formbar { flex: 1; }
+.formfilterrow { position: relative; }

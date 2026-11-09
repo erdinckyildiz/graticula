@@ -36847,8 +36847,8 @@ function formFilterMarkup(filter, asked, form) {
       <label class="sr-only" for="formFilterQ">Question</label>
       <select id="formFilterQ"><option value="">Choose a question</option>${usable.map(q =>
         `<option value="${h(q.name)}"${q.name === filter.q ? " selected" : ""}>${h(formLabel(q.labels, form, q.name))}</option>`).join("")}</select>
-      <label class="sr-only" for="formFilterOp">Comparison</label>
-      <select id="formFilterOp"></select>
+      <span id="formFilterOpPart"><label class="sr-only" for="formFilterOp">Comparison</label>
+      <select id="formFilterOp"></select></span>
       <span id="formFilterValue"></span>
     </div>
     <div class="formfilterrow">
@@ -36870,7 +36870,8 @@ function formFilterFollows(asked, form) {
   const ops = formFilterOps(q);
   $("formFilterOp").innerHTML = ops.map(([v, w]) => `<option value="${h(v)}"${v === filter.op ? " selected" : ""}>${h(w)}</option>`).join("");
   // Nothing to compare until a question is chosen: the two boxes are not shown empty and dead.
-  $("formFilterOp").hidden = !q;
+  // The label goes with its control: a hidden box beside a visually hidden label still widened the phone's row.
+  $("formFilterOpPart").hidden = !q;
   $("formFilterValue").hidden = !q;
   const kept = q && q.name === filter.q ? String(filter.v ?? "") : "";
   $("formFilterValue").innerHTML = !q ? ""
