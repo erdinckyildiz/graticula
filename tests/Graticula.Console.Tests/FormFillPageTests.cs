@@ -344,6 +344,11 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
 
         try
         {
+            // Published, because an unpublished form is a preview whose Submit is off, and this test reads what Submit says.
+            (HttpStatusCode published, string publication) = await Published.RequestAsync(HttpMethod.Post,
+                $"{Published.Root}/admin/forms/{item}/publish", new StringContent("{}", Encoding.UTF8, "application/json"));
+            Assert.True(published == HttpStatusCode.OK, $"Publishing the paged form answered {(int)published}: {publication}");
+
             await using DevTools browser = await DevTools.LaunchAsync();
             await browser.PlantAsync($"try {{ sessionStorage.setItem('gis-token', {JsonSerializer.Serialize(await Published.TokenAsync())}); }} catch (e) {{}}");
             await browser.NavigateAsync($"{Published.Root}/forms/fill.html?id={item}");
@@ -366,7 +371,7 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         }
         finally
         {
-            await Published.RequestAsync(HttpMethod.Delete, $"{Published.Root}/content/documents/{item}", null);
+            await Published.RemoveAsync(item, formId);
         }
     }
 
@@ -618,7 +623,7 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
             await RemoveAsync(ItemId, FormId);
         }
 
-        private static async Task RemoveAsync(string itemId, string formId)
+        internal static async Task RemoveAsync(string itemId, string formId)
         {
             await RequestAsync(HttpMethod.Delete, $"{Root}/admin/featureservices/{formId}?folder=hosted&drop=true", null);
 

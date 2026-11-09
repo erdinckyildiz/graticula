@@ -35338,7 +35338,7 @@ const DOC_KINDS = {
 };
 
 /** The few letters a document's tile carries, so a PDF and a workbook differ at a glance. */
-const docBadge = d => d.link ? "LINK" : d.kind === "webscene" || d.kind === "slpk" ? "3D" : d.app ? "APP"
+const docBadge = d => d.link ? "LINK" : d.kind === "webscene" || d.kind === "slpk" ? "3D" : d.kind === "form" ? "FORM" : d.app ? "APP"
   : ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
 
 /** Where a link points, as its host — what a reader needs to tell two links apart (ADR-264). */
@@ -35478,8 +35478,9 @@ async function showDocumentItem(id) {
     ${doc.kind === "webscene" ? `<a class="btn primary" id="docOpenScene" href="/studio/scene.html?id=${encodeURIComponent(doc.id)}">Open in Scene Viewer</a>` : ""}
     ${doc.kind === "slpk" ? `<a class="btn primary" id="docOpenScene"
       href="/studio/scene.html?layer=${encodeURIComponent(`${location.origin}/rest/services/hosted/${doc.id}/SceneServer`)}&title=${encodeURIComponent(doc.title || "")}">Open in Scene Viewer</a>` : ""}
-    ${doc.kind === "form" ? `<a class="btn primary" id="formOpen" href="/forms/${encodeURIComponent(doc.id)}" target="_blank"
-      rel="noopener" aria-label="Open form (opens in a new tab)">Open form ${icon("external")}</a>` : ""}
+    ${doc.kind === "form" ? `<a class="btn${doc.url ? " primary" : ""}" id="formOpen" href="/forms/${encodeURIComponent(doc.id)}"
+      target="_blank" rel="noopener" aria-label="${doc.url ? "Open form" : "Preview form"} (opens in a new tab)">${
+      doc.url ? "Open form" : "Preview form"} ${icon("external")}</a>` : ""}
     ${doc.url && doc.kind !== "slpk" && doc.kind !== "form" ? `<a class="btn primary" id="docOpenLink" href="${h(doc.url)}" target="_blank"
       rel="noopener noreferrer" aria-label="${doc.link ? "Open link" : "Open app"} (opens in a new tab)">${
       doc.link ? "Open link" : "Open app"} ${icon("external")}</a>` : ""}
@@ -35712,6 +35713,7 @@ function drawDocAbout(editing = false) {
     <h4>Summary</h4>
     <p>${doc.snippet ? h(doc.snippet) : `<span class="hint">No summary yet. ${doc.link
       ? "A line on what this points to and who runs it" : doc.kind === "webscene" ? "A line on what this scene shows and who uses it"
+      : doc.kind === "form" ? "A line on what this form asks and who fills it in"
       : doc.app ? "A line on what this app shows and who uses it"
       : "A line on what the file is"} makes it easier to find.</span>`}</p>
     ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
@@ -35719,6 +35721,7 @@ function drawDocAbout(editing = false) {
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet.<span class="widewords"> ${doc.link ? "What it is, who runs it and what it is for."
         : doc.kind === "webscene" ? "What the scene is for, which layers it draws and where its data comes from."
+        : doc.kind === "form" ? "What the form is for, who fills it in and where its answers go."
         : doc.app ? "What the app is for, who uses it and what it reads." : "What the file is, where it came from and how current it is."}</span></p>`}
     ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
     ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
@@ -36213,9 +36216,9 @@ document.addEventListener("click", async event => {
 let formHere = null;
 
 /**
- * Where a form is checked without being stored. The route's `{id}` is the name the layer falls back to when the
- * workbook has no `form_id` — publishing uses the item's title there — so the title is sent in its place, and the plan
- * shown is the plan publishing makes. A slash would end the segment, so it goes.
+ * Where a workbook not yet stored is checked. With no item to name it, the route's `{id}` is the name its layer falls
+ * back to when it has no `form_id`, so the title it will be added under is sent there. A slash would end the segment.
+ * A stored form is checked at its own id, and the server names its plan by its title.
  */
 const formCheckAddress = title => `/admin/forms/${encodeURIComponent(String(title || "form").replace(/\//g, " ").trim() || "form")}/check`;
 
@@ -36253,11 +36256,11 @@ const formGeometryWord = type => ({ Point: "point layer", Polyline: "line layer"
  * their workbook. The caption says which of the two it is.
  */
 function formIssuesTable(issues, caption, said, id = "") {
-  return `<div class="widetable"><table class="formissues"${id ? ` id="${h(id)}"` : ""}>
+  return `<div class="widetable" tabindex="0" role="region" aria-label="${h(caption)}"><table class="formissues"${id ? ` id="${h(id)}"` : ""}>
     <caption>${h(caption)}</caption>
     <thead><tr><th scope="col">Sheet</th><th scope="col">Row</th><th scope="col">Column</th><th scope="col">${h(said)}</th></tr></thead>
-    <tbody>${issues.map(i => `<tr><td>${h(i.sheet || "")}</td><td>${i.row ? num(i.row) : "—"}</td><td>${
-      i.column ? `<code>${h(i.column)}</code>` : "—"}</td><td>${h(i.message || "")}</td></tr>`).join("")}</tbody>
+    <tbody>${issues.map(i => `<tr><td data-label="Sheet">${h(i.sheet || "")}</td><td data-label="Row">${i.row ? num(i.row) : "—"}</td><td data-label="Column">${
+      i.column ? `<code>${h(i.column)}</code>` : "—"}</td><td class="formissuemsg">${h(i.message || "")}</td></tr>`).join("")}</tbody>
   </table></div>`;
 }
 
@@ -36386,7 +36389,7 @@ async function drawDocForm(doc) {
 
   if (formHere?.id !== doc.id) {
     box.hidden = false;
-    box.innerHTML = `<h3>Form</h3><p class="hint">Reading the form…</p>`;
+    box.innerHTML = `<h4>Form</h4><p class="hint">Reading the form…</p>`;
     results.hidden = true;
     results.innerHTML = "";
   }
@@ -36401,7 +36404,7 @@ async function drawDocForm(doc) {
   } catch (e) {
     if (docOpen !== doc) return;
     box.hidden = false;
-    box.innerHTML = `<h3>Form</h3><p class="bad">${h(e.message || e)}</p>`;
+    box.innerHTML = `<h4>Form</h4><p class="bad">${h(e.message || e)}</p>`;
     return;
   }
   if (docOpen !== doc) return;
@@ -36427,7 +36430,7 @@ function drawFormState() {
       ? `, answers to the repeat <code>${h(l.repeat)}</code>` : ""}</span></li>`;
 
   box.innerHTML = `
-    <h3 id="formStateHead" tabindex="-1">Form</h3>
+    <h4 id="formStateHead" tabindex="-1">Form</h4>
     <dl class="facts2 formfacts">
       <dt>Questions</dt><dd id="formQuestionCount">${f.form ? num(questions.length) : "—"}${tables > 1
         ? ` <span class="hint">in ${num(tables)} tables</span>` : ""}</dd>
@@ -36459,7 +36462,7 @@ async function formShowPlan(button) {
   $("docSays").textContent = "Working out what publishing makes…";
   let check;
   try {
-    check = await api(formCheckAddress(f.doc.title), {
+    check = await api(`/admin/forms/${encodeURIComponent(f.id)}/check`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: f.read.model }) });
   } catch (e) {
     if (formHere !== f) return;
@@ -36471,7 +36474,7 @@ async function formShowPlan(button) {
   $("docSays").textContent = "";
 
   if (!check?.accepted || !check.plan) {
-    plan.innerHTML = `<h4 id="formPlanHead" tabindex="-1">It cannot be published as it is</h4>
+    plan.innerHTML = `<h5 id="formPlanHead" tabindex="-1">It cannot be published as it is</h5>
       ${formIssuesTable(check?.refusals || [], "What to change, by row", "What to change")}
       <p class="row"><button type="button" class="ghost" id="formPublishCancel">Close</button></p>`;
     plan.hidden = false;
@@ -36482,11 +36485,11 @@ async function formShowPlan(button) {
   const p = check.plan;
   const lists = new Map((p.domains || []).map(d => [d.name, d]));
   const layerHtml = l => `
-    <h5>${h(l.name)} <span class="hint">— ${h(formGeometryWord(l.geometryType))}${l.parentRepeat !== null && l.parentRepeat !== undefined
-      ? `, related to ${l.parentRepeat ? `the repeat <code>${h(l.parentRepeat)}</code>` : "the top layer"} by <code>parentglobalid</code>` : ""}</span></h5>
-    <div class="widetable"><table class="formplan">
+    <h6>${h(l.name)} <span class="hint">— ${h(formGeometryWord(l.geometryType))}${l.parentRepeat !== null && l.parentRepeat !== undefined
+      ? `, related to ${l.parentRepeat ? `the repeat <code>${h(l.parentRepeat)}</code>` : "the top layer"} by <code>parentglobalid</code>` : ""}</span></h6>
+    <div class="widetable" tabindex="0" role="region" aria-label="Fields of ${h(l.name)}"><table class="formplan">
       <thead><tr><th scope="col">Question</th><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Choice list</th></tr></thead>
-      <tbody>${(l.fields || []).length ? l.fields.map(fd => `<tr><td>${h(fd.alias || fd.question)}${fd.alias && fd.alias !== fd.question ? `<div class="rowmeta"><code>${h(fd.question)}</code></div>` : ""}</td>
+      <tbody>${(l.fields || []).length ? l.fields.map(fd => `<tr><td>${h(fd.alias || fd.question)}${fd.alias && fd.alias.toLowerCase() !== String(fd.question).toLowerCase() ? `<div class="rowmeta"><code>${h(fd.question)}</code></div>` : ""}</td>
         <td><code>${h(fd.column)}</code></td><td>${h(fd.type)}${fd.length ? ` <span class="hint">${num(fd.length)}</span>` : ""}</td>
         <td>${fd.domain ? `${h(fd.domain)} <span class="hint">${num(lists.get(fd.domain)?.codes || 0)} choices</span>` : "—"}</td></tr>`).join("")
         : `<tr><td colspan="4" class="empty">No fields of its own.</td></tr>`}</tbody>
@@ -36494,12 +36497,12 @@ async function formShowPlan(button) {
     ${(l.attachments || []).length ? `<p class="hint">Kept as attachments: ${l.attachments.map(a => `<code>${h(a)}</code>`).join(", ")}.</p>` : ""}`;
 
   plan.innerHTML = `
-    <h4 id="formPlanHead" tabindex="-1">What publishing makes</h4>
+    <h5 id="formPlanHead" tabindex="-1">What publishing makes</h5>
     <p>A hosted feature service, <b>${h(p.service)}</b>, stored in WGS 84, with ${num(p.layers.length)}
       ${p.layers.length === 1 ? "layer" : "layers and tables"}${(p.domains || []).length
       ? ` and ${num(p.domains.length)} ${p.domains.length === 1 ? "choice list" : "choice lists"}` : ""}.</p>
     ${p.layers.map(layerHtml).join("")}
-    ${(p.domains || []).length ? `<h5>Choice lists</h5><ul class="formlists">${p.domains.map(d =>
+    ${(p.domains || []).length ? `<h6>Choice lists</h6><ul class="formlists">${p.domains.map(d =>
       `<li><code>${h(d.name)}</code> <span class="hint">from the list <code>${h(d.list)}</code>, ${num(d.codes)} choices</span></li>`).join("")}</ul>` : ""}
     <p class="row"><button type="button" class="primary" id="formPublishGo">Publish</button>
       <button type="button" class="ghost" id="formPublishCancel">Cancel</button></p>`;
@@ -36526,19 +36529,9 @@ async function formPublishNow(button) {
     return;
   }
 
-  // A form shared before it was published has no view to take answers through yet: the route makes one only for a
-  // published form. Sharing it again as it is makes it (ADR-287 §5.11 (l)).
-  let after = "";
-  const sharing = f.read.sharing || "private";
-  if (sharing !== "private") {
-    try {
-      await api(`/admin/forms/${encodeURIComponent(f.id)}/sharing`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing }) });
-      after = " The people it is shared with send their answers through a view that only adds records.";
-    } catch (e) {
-      after = ` Its answers could not yet be opened to the people it is shared with: ${lowerFirst(e.message || String(e))} Share it again to try once more.`;
-    }
-  }
+  // A form shared before it was published opens its submit view as it is published (the server's own step).
+  const after = pub?.submitService
+    ? ` The people it is shared with send their answers through ${pub.submitService}, a view that only adds records.` : "";
   if (docOpen?.id !== f.id) return;
   formHere = null;
   await showDocumentItem(f.id);
@@ -36566,10 +36559,22 @@ function formValueShown(q, value, form) {
     const labels = formChoiceLabels(form, q.list);
     return String(value).split(/[,\s]+/).filter(Boolean).map(v => labels.get(v) || v).join(", ");
   }
-  if (["date", "today"].includes(q.type) && Number.isFinite(value)) return new Date(value).toLocaleDateString();
-  if (["dateTime", "start", "end"].includes(q.type) && Number.isFinite(value)) return new Date(value).toLocaleString();
+  if (q.type === "date" && Number.isFinite(value)) return day(value);
+  if (q.type === "dateTime" && Number.isFinite(value)) return imcWhen(value);
+  if (FORM_NUMBER_TYPES.has(q.type) && Number.isFinite(Number(value))) return formNumber(value);
   return String(value);
 }
+
+/** A number as the results show one: the reader's own grouping, at most two decimals. */
+const formNumber = value => value === null || value === undefined || value === "" ? "—"
+  : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+/**
+ * Questions whose answers are not the respondent's: what the client records about the filling (start, end, today,
+ * deviceid, username, email) and what the form works out (calculate, hidden). Left out of the results' columns, and so
+ * is a question with no label, which has no heading a reader could read.
+ */
+const FORM_NOT_ANSWERS = new Set(["start", "end", "today", "calculate", "hidden", "deviceid", "username", "email"]);
 
 /** Questions summarised per choice, and per number. */
 const FORM_CHOICE_TYPES = new Set(["select_one", "select_multiple"]);
@@ -36585,11 +36590,12 @@ async function drawFormResults() {
   const pub = f.read.publication;
   const top = (pub?.layers || []).find(l => !l.repeat);
   if (!pub || !top || !f.form) { box.hidden = true; box.innerHTML = ""; return; }
-  if (!box.innerHTML) box.innerHTML = `<h3>Results</h3><p class="hint">Reading the answers…</p>`;
+  if (!box.innerHTML) box.innerHTML = `<h4>Results</h4><p class="hint">Reading the answers…</p>`;
   box.hidden = false;
 
   const columns = top.columns || {};
-  const asked = formQuestions(f.form).filter(q => !q.repeat && columns[q.name]);
+  const asked = formQuestions(f.form).filter(q => !q.repeat && columns[q.name] && !FORM_NOT_ANSWERS.has(q.type)
+    && formLabel(q.labels, f.form, ""));
   const query = params => api(`${top.url}/query?${new URLSearchParams({ f: "json", where: "1=1", ...params })}`);
   const summarised = asked.filter(q => FORM_CHOICE_TYPES.has(q.type) || FORM_NUMBER_TYPES.has(q.type));
   const index = String(top.url).slice(String(top.url).lastIndexOf("/") + 1);
@@ -36610,14 +36616,14 @@ async function drawFormResults() {
     ]);
   } catch (e) {
     if (formHere !== f) return;
-    box.innerHTML = `<h3>Results</h3><p class="bad">The answers could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
+    box.innerHTML = `<h4>Results</h4><p class="bad">The answers could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
     return;
   }
   if (formHere !== f) return;
 
   const total = Number(count?.count) || 0;
   const rows = latest?.features || [];
-  const when = a => Number.isFinite(a?.created_date) ? new Date(a.created_date).toLocaleString() : "";
+  const when = a => Number.isFinite(a?.created_date) ? imcWhen(a.created_date) : "";
   const others = (pub.layers || []).filter(l => l.repeat);
 
   const summaryHtml = (q, answer) => {
@@ -36626,9 +36632,9 @@ async function drawFormResults() {
     if (FORM_NUMBER_TYPES.has(q.type)) {
       const a = features[0]?.attributes || {};
       const answered = Number(a.s_count) || 0;
-      const fmt = v => v === null || v === undefined ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
-      return `<section class="formsum" data-question="${h(q.name)}"><h5>${h(label)}</h5>${answered
-        ? `<dl class="facts2"><dt>Answered</dt><dd>${num(answered)}</dd><dt>Lowest</dt><dd>${fmt(a.s_min)}</dd>
+      const fmt = formNumber;
+      return `<section class="formsum" data-question="${h(q.name)}"><h6>${h(label)}</h6>${answered
+        ? `<dl class="facts2 formnumbers"><dt>Answered</dt><dd>${num(answered)}</dd><dt>Lowest</dt><dd>${fmt(a.s_min)}</dd>
             <dt>Highest</dt><dd>${fmt(a.s_max)}</dd><dt>Average</dt><dd>${fmt(a.s_avg)}</dd></dl>`
         : `<p class="hint">No answers yet.</p>`}</section>`;
     }
@@ -36644,26 +36650,31 @@ async function drawFormResults() {
       const names = q.type === "select_multiple" ? String(value).split(/[,\s]+/).filter(Boolean) : [String(value)];
       for (const name of names) counts.set(name, (counts.get(name) || 0) + n);
     }
-    return `<section class="formsum" data-question="${h(q.name)}"><h5>${h(label)}</h5>
-      <table class="formchoices"><thead><tr><th scope="col">Choice</th><th scope="col">Answers</th><th scope="col"><span class="sr-only">Share</span></th></tr></thead>
+    return `<section class="formsum" data-question="${h(q.name)}"><h6>${h(label)}</h6>
+      <table class="formchoices"><thead><tr><th scope="col">Choice</th><th scope="col" class="num">Answers</th><th scope="col"><span class="sr-only">Proportion</span></th></tr></thead>
       <tbody>${[...counts].map(([name, n]) => `<tr><td>${h(labels.get(name) || name)}</td><td class="num">${num(n)}</td>
-        <td><meter min="0" max="${Math.max(total, 1)}" value="${n}" aria-label="${h(labels.get(name) || name)}: ${num(n)} of ${num(total)}"></meter></td></tr>`).join("")}
+        <td><div class="formbar" role="img" aria-label="${h(labels.get(name) || name)}: ${num(n)} of ${num(total)}"><div class="formbarfill"
+          style="width: ${total ? Math.round(1000 * n / total) / 10 : 0}%"></div></div></td></tr>`).join("")}
         ${unanswered ? `<tr><td class="hint">Not answered</td><td class="num">${num(unanswered)}</td><td></td></tr>` : ""}</tbody></table></section>`;
   };
 
   box.innerHTML = `
-    <h3 id="formResultsHead">Results</h3>
+    <h4 id="formResultsHead">Results</h4>
     <p id="formResultCount"><b>${num(total)}</b> ${total === 1 ? "submission" : "submissions"}${total
       ? ` · <a href="${dataPage}">All of them in the layer's data</a>` : ""}</p>
     ${total === 0 ? `<p class="hint">No answers yet. When someone sends the form, the latest appear here with a summary per question.</p>` : `
-      <h4>Latest submissions</h4>
-      <div class="widetable"><table class="formresults" id="formLatest">
-        <thead><tr><th scope="col">Sent</th>${asked.map(q => `<th scope="col">${h(formLabel(q.labels, f.form, q.name))}</th>`).join("")}</tr></thead>
-        <tbody>${rows.map(r => `<tr><td>${h(when(r.attributes))}</td>${asked.map(q =>
-          `<td>${h(formValueShown(q, r.attributes?.[columns[q.name]], f.form))}</td>`).join("")}</tr>`).join("")}</tbody>
+      <h5>Latest submissions</h5>
+      <div class="widetable" tabindex="0" role="region" aria-label="Latest submissions"><table class="formresults" id="formLatest">
+        <thead><tr><th scope="col">Sent</th>${asked.map(q => `<th scope="col"${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}>${
+          h(formLabel(q.labels, f.form, q.name))}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(r => `<tr><td>${h(when(r.attributes))}</td>${asked.map(q => {
+          const shown = formValueShown(q, r.attributes?.[columns[q.name]], f.form);
+          // The cell is cut short at a width; its whole value is in its title.
+          return `<td${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}${shown.length > 24 ? ` title="${h(shown)}"` : ""}>${h(shown)}</td>`;
+        }).join("")}</tr>`).join("")}</tbody>
       </table></div>
       ${total > rows.length ? `<p class="hint">The latest ${num(rows.length)} of ${num(total)}.</p>` : ""}
-      ${summarised.length ? `<h4>By question</h4><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
+      ${summarised.length ? `<h5>By question</h5><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
     ${others.length ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
       `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}`;
 }

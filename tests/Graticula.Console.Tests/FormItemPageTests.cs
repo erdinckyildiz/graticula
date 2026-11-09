@@ -88,6 +88,11 @@ public sealed class FormItemPageTests : ConsoleTest
             await WaitForAsync(Shown("#formPublishOpen"), "A form that is not published offers no Publish.");
             Assert.Equal($"/forms/{item}", await Browser.EvaluateAsync<string>("document.getElementById('formOpen').getAttribute('href')"));
 
+            // Until it is published the form is previewed, and Publish is the page's one primary action.
+            Assert.Equal("Preview form", await Browser.EvaluateAsync<string>("document.getElementById('formOpen').textContent.trim()"));
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('formOpen').classList.contains('primary')"),
+                "Preview form is a primary action beside Publish.");
+
             // Share goes through the form's own route, which explains the submit-only view before it is chosen.
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = [], window.__writes.length = 0, true)");
             await ClickAsync("#docShareOpen");
@@ -115,6 +120,13 @@ public sealed class FormItemPageTests : ConsoleTest
         try
         {
             (string token, string cookie) = await SignInAsync();
+
+            // The fill page of a form not yet published says so at the top as it opens, and its Submit is off.
+            await OpenAsync($"/forms/{item}", token, cookie);
+            await WaitForAsync(Shown("#unpublished") + " && document.getElementById('submit').disabled",
+                "The fill page of an unpublished form did not say so at the top with Submit off.");
+            Assert.Contains("not published", await Browser.EvaluateAsync<string>("document.getElementById('unpublished').textContent"));
+
             await OpenAsync($"/studio/#/item/{item}", token, cookie);
             await WaitForAsync(Shown("#formPublishOpen"), "The form's page offers no Publish.");
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/forms/'], true)");
@@ -200,6 +212,15 @@ public sealed class FormItemPageTests : ConsoleTest
             string number = await Browser.EvaluateAsync<string>("document.querySelector('.formsum[data-question=yas]').textContent") ?? string.Empty;
             Assert.Contains("37", number, StringComparison.Ordinal);
             Assert.Contains("Average", number, StringComparison.Ordinal);
+
+            // The proportion is drawn as a bar with its words, not as the browser's meter.
+            Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#docFormResults meter').length"));
+            Assert.Equal("Ağır: 1 of 1", await Browser.EvaluateAsync<string>(
+                "document.querySelectorAll('.formsum[data-question=hasar] .formbar[role=img]')[1].getAttribute('aria-label')"));
+
+            // What the client records and what the form works out are not answers, and have no column.
+            Assert.DoesNotContain("Başlangıç", heads);
+            Assert.DoesNotContain("Kat sayısı", heads);
             Assert.EndsWith("tab=data&layer=0", await Browser.EvaluateAsync<string>("document.querySelector('.formlayers a').getAttribute('href')"));
 
             NothingWentWrong(await PageErrorsAsync());
@@ -254,11 +275,13 @@ public sealed class FormItemPageTests : ConsoleTest
         {
             ["format"] = "xlsform/1",
             ["sheets"] = new JsonArray(
-                Sheet("survey", ["type", "name", "label"],
+                Sheet("survey", ["type", "name", "label", "calculation"],
+                    ["start", "basla", "Başlangıç"],
                     ["geopoint", "konum", "Konum"],
                     ["text", "ad", "Bina adı"],
                     ["integer", "yas", "Bina yaşı"],
-                    ["select_one hasar", "hasar", "Hasar"]),
+                    ["select_one hasar", "hasar", "Hasar"],
+                    ["calculate", "toplam", "Kat sayısı", "${yas} * 2"]),
                 Sheet("choices", ["list_name", "name", "label"],
                     ["hasar", "yok", "Yok"],
                     ["hasar", "agir", "Ağır"]),

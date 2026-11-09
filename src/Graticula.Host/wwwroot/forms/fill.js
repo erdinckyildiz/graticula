@@ -1920,7 +1920,7 @@
         var summary = $('summary');
         summary.textContent = '';
         summary.appendChild(el('h2', { text: t('Not sent') }));
-        summary.appendChild(el('p', { text: message }));
+        summary.appendChild(el('p', { text: t(message) }));
         summary.hidden = false;
         summary.focus();
     }
@@ -2127,8 +2127,13 @@
             var kept = await dbGet('forms', itemId).catch(function () { return null; });
             if (kept) { downloadForOffline(); }
         }
+        // A preview: said at the top from the start, and Submit is off, rather than a refusal after the form is filled.
         if (!doc.publication) {
-            showMessage('This form is not published yet. You can look at it, but answers cannot be sent.');
+            var notice = $('unpublished');
+            notice.textContent = t('This form is not published yet. You can look at it, but answers cannot be sent.');
+            notice.hidden = false;
+            $('submit').disabled = true;
+            $('submit').setAttribute('aria-describedby', 'unpublished');
         }
 
         startBlank();

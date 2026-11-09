@@ -7905,10 +7905,10 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .scenesource p { margin: 0 0 8px; }
 .scenesource code { font-family: var(--mono); font-size: .95em; }
 
-/* ADR-287 §5.7: a form's item page — its state and publishing, and its answers. */
-.formpanel h3 { margin: 0 0 10px; }
-.formpanel h4 { margin: 18px 0 8px; font-size: 15px; }
-.formpanel h5 { margin: 14px 0 6px; font-size: 14px; }
+/* ADR-287 §5.7: a form's item page — its state and publishing, and its answers. Padded as the about panel is. */
+#docForm, #docFormResults { padding: var(--gap-3) var(--gap-4); }
+.formpanel h5 { margin: 18px 0 8px; font-size: 15px; }
+.formpanel h6 { margin: 14px 0 6px; font-size: 14px; }
 .formpanel code, #addItem .formissues code { font-family: var(--mono); font-size: .95em; }
 .formlayers { list-style: none; margin: 0; padding: 0; }
 .formlayers li + li { margin-top: 4px; }
@@ -7917,8 +7917,23 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .formresults td { white-space: nowrap; max-width: 22em; overflow: hidden; text-overflow: ellipsis; }
 .formsums { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 20px; }
 .formsum { min-width: 0; }
-.formchoices meter { width: 100%; min-width: 60px; }
+.formchoices td:last-child { width: 40%; }
+/* A proportion bar in the accent on a neutral track — not the browser's meter, whose green reads as "good". */
+.formbar { height: 8px; min-width: 60px; border-radius: 4px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--rule); overflow: hidden; }
+.formbarfill { height: 100%; background: var(--accent); border-radius: 4px; }
 .formact { margin: 12px 0 4px; }
+.widetable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* On a phone a refusal is a short stack: where it is on one line, what to change under it. */
+@media (max-width: 599px) {
+  .formissues thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .formissues, .formissues tbody, .formissues tr { display: block; width: 100%; }
+  .formissues tr { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .formissues td { display: inline; padding: 0; border: 0; }
+  .formissues td[data-label]::before { content: attr(data-label) " "; color: var(--muted); }
+  .formissues td[data-label] + td[data-label]::before { content: " · " attr(data-label) " "; }
+  .formissues td.formissuemsg { display: block; margin-top: 4px; }
+}
+
 /* An item page's Open link carries the external glyph, which has no size of its own: unsized it filled the button
    (seen on a form's Open form, and the same rule held for an app's Open app). */
 #docActions > a.btn svg, #docActions .sheet a.btn svg { width: 13px; height: 13px; margin-left: 6px; vertical-align: -1px; }
