@@ -661,6 +661,9 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
 
         internal static async Task RemoveAsync(string itemId, string formId)
         {
+            // The public form's view first: a source with views is refused with 409 (ADR-113 §5.4), and until
+            // 2026-11-09 this deleted only the source, so every run left both behind.
+            await RequestAsync(HttpMethod.Delete, $"{Root}/admin/featureservices/{formId}_submit?folder=hosted&drop=true", null);
             await RequestAsync(HttpMethod.Delete, $"{Root}/admin/featureservices/{formId}?folder=hosted&drop=true", null);
 
             (HttpStatusCode status, string body) = await RequestAsync(HttpMethod.Get, $"{Root}/admin/domains", null);

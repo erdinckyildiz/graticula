@@ -626,14 +626,29 @@ public static class FormEndpoints
 
         if (!exists && scope != SharingScope.Private)
         {
-            AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], word);
+            // <b>Made private, its tiles turned off, and only then shared — found 2026-11-09 on dev.</b> A view is a
+            // hosted service, and a hosted service draws vector tiles by default; tiles answer to servesTiles and not
+            // to Query (D-180, FaceOffLooksAbsentTests), so the Create-only view handed every submitted answer, with
+            // its point, to anyone who asked for a tile. Turned off before it is shared, so there is no moment when it
+            // is open with them on. Written to the catalogue directly: the publisher made this view as a step of
+            // publishing, and the capabilities endpoint asks for server administration.
+            AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], "private");
             (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
                 context, service, FeatureServerMetadataWriter.HostedFolder, asked,
                 services.GetRequiredService<IAdminCatalog>(), services.GetRequiredService<PostgresLayerCatalog>(),
                 services.GetRequiredService<PostGisImporter>(), services.GetRequiredService<ServiceContexts>(),
                 services.GetRequiredService<IAuditLog>(), cancellation)).ConfigureAwait(false);
+
+            if (status is >= 200 and < 300
+                && !await services.GetRequiredService<IAdminCatalog>().SetServiceCapabilitiesAsync(
+                    view, FeatureServerMetadataWriter.HostedFolder, new ServiceCapabilityLimits(null, false, ["Create"], null),
+                    cancellation).ConfigureAwait(false))
+            {
+                (status, message) = (500, $"The answers view '{view}' was made but its tiles could not be turned off, so it was not shared.");
+            }
         }
-        else if (exists)
+
+        if (status is >= 200 and < 300 && (exists || scope != SharingScope.Private))
         {
             (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.SetServiceSharingAsync(
                 context, view, FeatureServerMetadataWriter.HostedFolder, new SharingRequest(word),

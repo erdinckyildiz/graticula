@@ -247,6 +247,28 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
             Assert.False(peeked.StatusCode == HttpStatusCode.OK && peekBody.Contains("Anonim", StringComparison.Ordinal),
                 $"The public view showed an answer: {peekBody}");
 
+            // Found 2026-11-09 on dev: the view's query refused, and its tiles, its renderer and its documents' extent
+            // still gave the answers and the point away. Every face of the view is asked, not only the query.
+            string viewService = top[..top.LastIndexOf("/FeatureServer/", StringComparison.Ordinal)];
+            string[] faces =
+            [
+                $"{viewService}/VectorTileServer/tile/0/0/0.pbf",
+                $"{viewService}/VectorTileServer?f=json",
+                $"{top}/generateRenderer?classificationDef=%7B%22type%22%3A%22uniqueValueDef%22%2C%22uniqueValueFields%22%3A%5B%22bina_adi%22%5D%7D&f=json",
+                $"{viewService}/FeatureServer?f=json",
+                $"{top}?f=json",
+                $"{viewService}/MapServer?f=json",
+            ];
+            foreach (string face in faces)
+            {
+                using HttpRequestMessage look = new(HttpMethod.Get, $"{root}{face}");
+                using HttpResponseMessage looked = await Http.SendAsync(look);
+                string seen = System.Text.Encoding.Latin1.GetString(await looked.Content.ReadAsByteArrayAsync());
+                Assert.False(seen.Contains("Anonim", StringComparison.Ordinal) || seen.Contains("32.85", StringComparison.Ordinal)
+                    || seen.Contains("39.93", StringComparison.Ordinal),
+                    $"The public view's {face} answered {(int)looked.StatusCode} with what was submitted: {seen[..Math.Min(seen.Length, 400)]}");
+            }
+
             (HttpStatusCode owned, string ownBody) = await RequestAsync(HttpMethod.Get,
                 $"{root}{layers[0].GetProperty("url").GetString()}/query?where=1%3D1&outFields=bina_adi&f=json", token!, null);
             Assert.True(owned == HttpStatusCode.OK && ownBody.Contains("Anonim", StringComparison.Ordinal), $"The owner's layer answered {(int)owned}: {ownBody}");
@@ -259,7 +281,7 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
         }
         finally
         {
-            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted&drop=true", token!, null);
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
             await DeleteDomainsAsync(root, token!, formId);
 
@@ -307,7 +329,7 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
         }
         finally
         {
-            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted", token!, null);
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}_submit?folder=hosted&drop=true", token!, null);
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{formId}?folder=hosted&drop=true", token!, null);
             await DeleteDomainsAsync(root, token!, formId);
 

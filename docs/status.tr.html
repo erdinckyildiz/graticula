@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b2253968</code> · 2026-11-09 04:12</p>
+<p class="stamp">Şu commit’ten üretildi: <code>1cf89a7a</code> · 2026-11-09 08:09</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">285</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">686/744</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 11 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">236 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">236 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">8</div><div class="kpi-l">açık borç</div><div class="kpi-n">331 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6245</div><div class="kpi-l">test</div><div class="kpi-n">689 kaynak dosya, 305,147 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6246</div><div class="kpi-l">test</div><div class="kpi-n">689 kaynak dosya, 305,184 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-231</b> — [OWNER] Should turning Query off also turn a service&#x27;s vector tiles off?</p><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">59 madde</span></div><p><b>47 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>8 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -471,6 +471,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-228</span><span class="owner">Owner</span></div><p>Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-231</span><span class="owner">Owner</span></div><p>[OWNER] Should turning Query off also turn a service&#x27;s vector tiles off?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -612,7 +613,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:52.7%"></div></div><div class="bar-n">979</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:52.5%"></div></div><div class="bar-n">975</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:31.3%"></div></div><div class="bar-n">582</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:28.3%"></div></div><div class="bar-n">525</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:28.3%"></div></div><div class="bar-n">526</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">450</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.1%"></div></div><div class="bar-n">244</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.1%"></div></div><div class="bar-n">131</div></div>
@@ -670,6 +671,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>1cf89a7a</code><time>2026-11-09</time><span>ADR-287 records that an unanswered repeat item is not sent</span></li>
+<li><code>b6448d50</code><time>2026-11-09</time><span>A repeat item nobody answered anything in is not sent (ADR-287, owner decision 2026-11-09)</span></li>
+<li><code>a98e00f5</code><time>2026-11-09</time><span>Owner confirmed ADR-287&#x27;s overnight choices: the add-only view rule stays, and Q-230 (a)-(m) as written</span></li>
 <li><code>b2253968</code><time>2026-11-09</time><span>Forms in Studio: refusals fit a phone and panel links are underlined (design review 2026-11-09, second pass)</span></li>
 <li><code>5195250d</code><time>2026-11-09</time><span>Forms in Studio, after the design review: Publish is the one primary action, bars not meters, narrow refusals, answers only (ADR-287 §5.7)</span></li>
 <li><code>73e6e99e</code><time>2026-11-09</time><span>Forms: a form shared before it is published opens its answers on publish, and a stored form&#x27;s check is named by its title (ADR-287 §5.11 (l))</span></li>
@@ -681,9 +685,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f0a843c0</code><time>2026-11-09</time><span>Forms: the fill page sends a public form&#x27;s answers anonymously through its submit view (ADR-287 §5.11 (l))</span></li>
 <li><code>f7778cc1</code><time>2026-11-09</time><span>Merge branch &#x27;survey-forms-client&#x27; into survey-forms</span></li>
 <li><code>fbfb4024</code><time>2026-11-09</time><span>Forms: a shared form answers through a Create-only view, and such a view takes adds from its readers (ADR-287 §5.11 (l), INFERRED)</span></li>
-<li><code>75581818</code><time>2026-11-09</time><span>Forms client: send to the publication&#x27;s submitUrl when it has one, and check the kept keywords</span></li>
-<li><code>65467085</code><time>2026-11-09</time><span>Merge survey-forms (attachment keywords) into survey-forms-client</span></li>
-<li><code>72e7526e</code><time>2026-11-09</time><span>Forms: the page that fills in a published form, online or off (ADR-287 §5.4, §5.5)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

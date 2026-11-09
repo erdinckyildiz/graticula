@@ -108,6 +108,19 @@ public static class GenerateRendererEndpoints
             return;
         }
 
+        // <b>A renderer is a query answer — found 2026-11-09.</b> Its unique values are the distinct answers and its
+        // breaks their range, so a service that does not offer Query does not hand them out here: a form's public,
+        // Create-only `_submit` view gave every submitted damage value to anyone who asked.
+        if (CapabilityCeilings.Refuses(layer, "Query"))
+        {
+            await Results.Json(
+                new { error = new { code = 403, message = CapabilityCeilings.Explain(layer, "Query"), details = Array.Empty<string>() } },
+                statusCode: StatusCodes.Status403Forbidden)
+                .ExecuteAsync(context).ConfigureAwait(false);
+
+            return;
+        }
+
         if (layer.GeometryType is not { } geometryType)
         {
             await RefuseAsync(
