@@ -85,6 +85,25 @@ internal static partial class PortalEndpoints
             return;
         }
 
+        // ADR-299, measuring: the SOAP calls Pro's federated-server connection sends to /arcgis/services (rewritten to
+        // /services) before it shares a map image layer. Recorded — body and SOAPAction, never the query, which may carry
+        // a token — and answered 404 as before, so recording changes nothing Pro is told.
+        app.MapPost("/services", async (HttpContext context, CancellationToken cancellation) =>
+        {
+            string directory = context.RequestServices.GetRequiredService<IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
+                ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture");
+            Directory.CreateDirectory(directory);
+            using StreamReader reader = new(context.Request.Body);
+            string body = await reader.ReadToEndAsync(cancellation).ConfigureAwait(false);
+            body = System.Text.RegularExpressions.Regex.Replace(body, "(?i)(token|password)>[^<]*<", "$1>*<");
+            string stamp = $"{DateTime.UtcNow:yyyyMMdd'T'HHmmss.fff}";
+            await File.WriteAllTextAsync(
+                System.IO.Path.Combine(directory, $"soap-{stamp}.xml"),
+                $"SOAPAction: {context.Request.Headers["SOAPAction"]}\nContent-Type: {context.Request.ContentType}\n\n{body}",
+                cancellation).ConfigureAwait(false);
+            return Results.NotFound();
+        }).DisableAntiforgery();
+
         // Recorded only: Pro's delete is its rollback of a publish it read as failed, and must not reach a service.
         app.MapPost($"{Path}/content/users/{{username}}/items/{{id}}/delete", CaptureAsync)
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
