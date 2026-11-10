@@ -176,7 +176,7 @@ public sealed class PostgresLayerCatalog
         -- Migration 127: when its data and its fields last changed through this server. On the end, read by name.
         l.data_changed_at, l.schema_changed_at,
 
-        -- ADR-288, migration 137: whether its service is sync-enabled. On the end, read by name.
+        -- ADR-288, migration 138: whether its service is sync-enabled. On the end, read by name.
         s.sync_enabled as service_sync_enabled
         """;
 
@@ -621,7 +621,7 @@ public sealed class PostgresLayerCatalog
             // Migration 85: its service's credits, which a layer's own document states as an ArcGIS layer's does.
             ServiceCopyrightText = Nullable(reader, "service_copyright_text"),
 
-            // ADR-288, migration 137.
+            // ADR-288, migration 138.
             ServiceSyncEnabled = reader.GetBoolean(reader.GetOrdinal("service_sync_enabled")),
 
             // Migration 127.

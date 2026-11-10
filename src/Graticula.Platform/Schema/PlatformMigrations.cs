@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(137);
+    public static SchemaVersion ComponentSchemaVersion => new(138);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -164,7 +164,7 @@ public static class PlatformMigrations
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
         AScenePackageAboveTheDocumentLimitIsAFileV134,
         AMobileWorkerIsAUserTypeV135,
-        AServiceMayBeTakenOfflineV137,
+        AServiceMayBeTakenOfflineV138,
     ]);
 
     /// <summary>
@@ -173,9 +173,10 @@ public static class PlatformMigrations
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>137, not 136</b>: two branches (<c>survey-forms</c>, <c>pro-reference-registered</c>) each took 136 for a
-    /// different migration while this was written, so the next number free on every branch was taken rather than a
-    /// third 136. The set only asks that versions ascend.
+    /// <b>138, not 136</b>: two branches (<c>survey-forms</c>, <c>pro-reference-registered</c>) each took 136 for a
+    /// different migration while this was written, and dev.graticula.com runs both with the second renumbered to 137,
+    /// so this took the next number after them rather than a third 136 or a second 137 — a version-level stamp
+    /// would have read a database at 137 as having run it. The set only asks that versions ascend.
     /// </para>
     /// <para>
     /// <b>A replica's layers and their server generations are one <c>jsonb</c> array</b>, read and advanced together.
@@ -184,8 +185,8 @@ public static class PlatformMigrations
     /// organisation table is (ADR-204). <b>Expand</b>: a column with a default and a table nothing older reads.
     /// </para>
     /// </remarks>
-    private static Migration AServiceMayBeTakenOfflineV137 => Migration.Expand(
-        new SchemaVersion(137),
+    private static Migration AServiceMayBeTakenOfflineV138 => Migration.Expand(
+        new SchemaVersion(138),
         "A hosted feature service may be taken offline: its sync switch and its replicas (ADR-288).",
 
         "alter table service add column if not exists sync_enabled boolean not null default false",

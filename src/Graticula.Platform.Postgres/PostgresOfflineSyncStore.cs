@@ -11,7 +11,7 @@ using NpgsqlTypes;
 namespace Graticula.Platform.Postgres;
 
 /// <summary>
-/// A service's offline sync in the platform store — migration 137, ADR-288: <c>service.sync_enabled</c> and the
+/// A service's offline sync in the platform store — migration 138, ADR-288: <c>service.sync_enabled</c> and the
 /// <c>replica</c> registry.
 /// </summary>
 /// <remarks>

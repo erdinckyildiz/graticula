@@ -383,7 +383,7 @@ public sealed class PublishedLayer
     public string? ServiceCopyrightText { get; init; }
 
     /// <summary>
-    /// Whether its service is sync-enabled — ADR-288, migration 137. Carried on the layer for the reason
+    /// Whether its service is sync-enabled — ADR-288, migration 138. Carried on the layer for the reason
     /// <see cref="ServiceCopyrightText"/> is: a layer's document is answered without its service, and says
     /// <c>Sync</c> in its capabilities when the service does.
     /// </summary>

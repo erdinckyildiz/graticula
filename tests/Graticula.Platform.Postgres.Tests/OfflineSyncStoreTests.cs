@@ -8,7 +8,7 @@ using Xunit;
 namespace Graticula.Platform.Postgres.Tests;
 
 /// <summary>
-/// ADR-288, migration 137: a service's sync switch and its replica registry — a replica is kept with its layers'
+/// ADR-288, migration 138: a service's sync switch and its replica registry — a replica is kept with its layers'
 /// generations, advanced by a sync, and unregistered with every other when its service's sync is turned off.
 /// </summary>
 [Trait("Category", "Integration")]

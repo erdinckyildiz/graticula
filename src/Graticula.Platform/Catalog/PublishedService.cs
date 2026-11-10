@@ -248,7 +248,7 @@ public sealed class PublishedService
     public Graticula.Catalog.InspireSettings? Inspire { get; init; }
 
     /// <summary>
-    /// Whether its owner turned offline sync on — ADR-288, migration 137. Only a hosted service's is ever on.
+    /// Whether its owner turned offline sync on — ADR-288, migration 138. Only a hosted service's is ever on.
     /// </summary>
     public bool SyncEnabled { get; init; }
 

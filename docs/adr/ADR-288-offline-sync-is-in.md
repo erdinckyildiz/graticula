@@ -121,7 +121,7 @@ because they reuse every part of it.
 > `replicafiles/{id}` (the result, to its requester only), under every FeatureServer prefix; the writer is resolved from
 > DI and a server without one answers 501 by name. Sync is switched by `POST /admin/services/{name}/sync` and by
 > `updateDefinition`'s `syncEnabled` (or `Sync` in its capabilities); enabling turns on each layer's history, disabling
-> unregisters the replicas, and turning a layer's history off turns its service's sync off (§11.1). Migration 137 adds
+> unregisters the replicas, and turning a layer's history off turns its service's sync off (§11.1). Migration 138 adds
 > `service.sync_enabled` and the `replica` registry (`PostgresOfflineSyncStore`). The documents say `syncEnabled`,
 > `syncCapabilities` and `Sync` through `Graticula.Api.ArcGis/Offline/SyncDocument.cs`. A registered copy is the layer
 > as it was at its generation (`historicMoment`); a download is the layer at the old and the new generation compared;
