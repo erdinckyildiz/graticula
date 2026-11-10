@@ -1319,7 +1319,7 @@ internal static partial class AdminEndpoints
                 // ADR-106 §5.5: whether this caller may export its data — Studio's *Export data*: its owner and
                 // administrators always, another signed-in reader where the owner chose Extract. Said here since
                 // 2026-11-03 rather than as `Extract` in the ArcGIS capabilities, which ArcGIS clients read as
-                // createReplica's, an operation this server does not have (ADR-082; the ArcGIS veteran's review).
+                // createReplica's, which this server answers only to editors of a sync-enabled hosted service (ADR-288; the ArcGIS veteran's review).
                 exportsData = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization)
                     || (!current.Principal.IsAnonymous
                         && service.LayersAndTables.Any(l => l.CapabilityCeiling?.Contains("Extract") == true)),

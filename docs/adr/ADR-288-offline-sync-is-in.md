@@ -115,6 +115,21 @@ because they reuse every part of it.
 9. **True curves and layers with more than one geometry column are refused** at `createReplica`, with a reason, until
    a sample says how they are written.
 
+> **2026-11-10 — the server side of step (b) and (d) is built, on branch `offline-sync-server`; no condition is met by
+> it, all of them need a device.** The routes are in `src/Graticula.Host/OfflineReplicaEndpoints.cs`: `createReplica`,
+> `synchronizeReplica`, `unRegisterReplica`, `replicas`, `replicas/{id}`, `jobs/{id}` (the status URL) and
+> `replicafiles/{id}` (the result, to its requester only), under every FeatureServer prefix; the writer is resolved from
+> DI and a server without one answers 501 by name. Sync is switched by `POST /admin/services/{name}/sync` and by
+> `updateDefinition`'s `syncEnabled` (or `Sync` in its capabilities); enabling turns on each layer's history, disabling
+> unregisters the replicas, and turning a layer's history off turns its service's sync off (§11.1). Migration 137 adds
+> `service.sync_enabled` and the `replica` registry (`PostgresOfflineSyncStore`). The documents say `syncEnabled`,
+> `syncCapabilities` and `Sync` through `Graticula.Api.ArcGis/Offline/SyncDocument.cs`. A registered copy is the layer
+> as it was at its generation (`historicMoment`); a download is the layer at the old and the new generation compared;
+> an upload goes through the service's own `applyEdits` with `useGlobalIds=true`, the last edit winning and a server
+> delete standing (§5.5). §5.9's refusal of true curves and of several geometry columns is **not** built: nothing here
+> can detect a curve yet. What is left owing is D-399 (attachment changes are not downloaded), D-400 (replica jobs
+> live in one process) and D-401 (a generation is a moment; an upload-only sync is echoed).
+
 ## 6. Consequences
 
 **Positive.** The first question a field organisation asks has a yes. Field Maps' offline areas, preplanned areas and

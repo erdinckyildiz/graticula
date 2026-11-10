@@ -288,21 +288,56 @@ internal static class ServiceQuery
     /// on a request of its own that is still the caller's — see <see cref="RunLayerAsync"/>. Also what the
     /// single-feature resource (<see cref="FeatureResource"/>) is answered by.
     /// </summary>
-    internal static async Task<(int Status, byte[] Body)> InnerQueryAsync(
+    internal static Task<(int Status, byte[] Body)> InnerQueryAsync(
         HttpContext context,
         string layerPath,
         Dictionary<string, StringValues> query,
         int layerId,
         Func<HttpContext, int, Task> queryLayer)
     {
-        ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(queryLayer);
+
+        return InnerRequestAsync(
+            context, layerPath, HttpMethods.Get, query, form: null,
+            new Dictionary<string, object?> { ["layerId"] = layerId },
+            inner => queryLayer(inner, layerId));
+    }
+
+    /// <summary>
+    /// Runs a handler at <paramref name="path"/> on a request of its own that is still the caller's — see
+    /// <see cref="RunLayerAsync"/> — with a query string, an optional form, and route values added to the caller's.
+    /// </summary>
+    /// <remarks>
+    /// <b>Generalised from <see cref="InnerQueryAsync"/> for ADR-288</b>, whose <c>createReplica</c> takes each
+    /// layer's and the service's document from the routes that answer them, and whose <c>synchronizeReplica</c> applies
+    /// an upload through the service's own <c>applyEdits</c> — one implementation of each, reached the way
+    /// <see cref="ServiceQuery"/> reaches the layer query.
+    /// </remarks>
+    /// <param name="context">The caller's request.</param>
+    /// <param name="path">The path the handler is asked at.</param>
+    /// <param name="method">The method.</param>
+    /// <param name="query">The query string.</param>
+    /// <param name="form">The form, sent as <c>application/x-www-form-urlencoded</c>, or null for none.</param>
+    /// <param name="routeValues">Route values set over the caller's, or null.</param>
+    /// <param name="handler">The handler.</param>
+    /// <returns>Its status and body.</returns>
+    internal static async Task<(int Status, byte[] Body)> InnerRequestAsync(
+        HttpContext context,
+        string path,
+        string method,
+        Dictionary<string, StringValues> query,
+        Dictionary<string, StringValues>? form,
+        IReadOnlyDictionary<string, object?>? routeValues,
+        Func<HttpContext, Task> handler)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(handler);
 
         HeaderDictionary headers = [];
 
         foreach ((string name, StringValues value) in context.Request.Headers)
         {
-            // Not the body's headers — the layer's request has none — and not a validator the caller
+            // Not the body's headers — the inner request has its own or none — and not a validator the caller
             // sent for this document, which would make a layer answer 304 inside a 200.
             if (!name.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)
                 && !name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)
@@ -312,15 +347,20 @@ internal static class ServiceQuery
             }
         }
 
+        if (form is not null)
+        {
+            headers["Content-Type"] = "application/x-www-form-urlencoded";
+        }
+
         FeatureCollection features = new(context.Features);
 
         features.Set<IHttpRequestFeature>(new HttpRequestFeature
         {
-            Method = HttpMethods.Get,
+            Method = method,
             Scheme = context.Request.Scheme,
             Protocol = context.Request.Protocol,
             PathBase = context.Request.PathBase.Value ?? string.Empty,
-            Path = layerPath,
+            Path = path,
             QueryString = QueryString.Create(query).Value ?? string.Empty,
             Headers = headers,
             Body = Stream.Null,
@@ -334,22 +374,24 @@ internal static class ServiceQuery
         features.Set<IHttpResponseBodyFeature>(written);
         features.Set<IItemsFeature>(new ItemsFeature());
 
-        DefaultHttpContext layer = new(features);
+        DefaultHttpContext inner = new(features);
 
-        features.Set<IQueryFeature>(new QueryFeature(layer.Features));
-        features.Set<IFormFeature>(new FormFeature(layer.Request));
+        features.Set<IQueryFeature>(new QueryFeature(inner.Features));
+        features.Set<IFormFeature>(form is null ? new FormFeature(inner.Request) : new FormFeature(new FormCollection(form)));
 
-        RouteValueDictionary routes = new(context.Request.RouteValues)
+        RouteValueDictionary routes = new(context.Request.RouteValues);
+
+        foreach ((string key, object? value) in routeValues ?? new Dictionary<string, object?>())
         {
-            ["layerId"] = layerId,
-        };
+            routes[key] = value;
+        }
 
         features.Set<IRouteValuesFeature>(new RouteValuesFeature { RouteValues = routes });
 
-        await queryLayer(layer, layerId).ConfigureAwait(false);
+        await handler(inner).ConfigureAwait(false);
         await written.CompleteAsync().ConfigureAwait(false);
 
-        return (layer.Response.StatusCode, body.ToArray());
+        return (inner.Response.StatusCode, body.ToArray());
     }
 
     private static JsonNode? Parse(byte[] body)

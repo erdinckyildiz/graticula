@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(135);
+    public static SchemaVersion ComponentSchemaVersion => new(137);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -164,7 +164,69 @@ public static class PlatformMigrations
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
         AScenePackageAboveTheDocumentLimitIsAFileV134,
         AMobileWorkerIsAUserTypeV135,
+        AServiceMayBeTakenOfflineV137,
     ]);
+
+    /// <summary>
+    /// A hosted feature service may be taken offline and synchronised — ADR-288: whether its sync is on, and the
+    /// replicas <c>createReplica</c> registers against it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>137, not 136</b>: two branches (<c>survey-forms</c>, <c>pro-reference-registered</c>) each took 136 for a
+    /// different migration while this was written, so the next number free on every branch was taken rather than a
+    /// third 136. The set only asks that versions ascend.
+    /// </para>
+    /// <para>
+    /// <b>A replica's layers and their server generations are one <c>jsonb</c> array</b>, read and advanced together.
+    /// <b>Its owner is named, not referenced</b>, as a comment's author is (migration 131): a replica outlives nothing, but
+    /// a key to <c>principal</c> would make removing a member fail on the devices they left behind. <b>Floored</b>, as every
+    /// organisation table is (ADR-204). <b>Expand</b>: a column with a default and a table nothing older reads.
+    /// </para>
+    /// </remarks>
+    private static Migration AServiceMayBeTakenOfflineV137 => Migration.Expand(
+        new SchemaVersion(137),
+        "A hosted feature service may be taken offline: its sync switch and its replicas (ADR-288).",
+
+        "alter table service add column if not exists sync_enabled boolean not null default false",
+
+        """
+        create table if not exists replica (
+            id                         uuid        not null primary key,
+            name                       text        not null,
+            service_id                 uuid        not null references service (id) on delete cascade,
+            owner_principal_id         uuid        not null,
+            owner_name                 text        not null,
+            sync_model                 text        not null,
+            layers                     jsonb       not null,
+            return_attachments         boolean     not null,
+            attachments_sync_direction text        not null,
+            geometry                   jsonb       null,
+            wkid                       integer     null,
+            created_at                 timestamptz not null default now(),
+            last_synced_at             timestamptz not null default now(),
+            tenant_id                  uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint replica_sync_model_known check (sync_model in ('perLayer')),
+            constraint replica_name_is_a_word check (name ~ '^[A-Za-z0-9_]+$'),
+            constraint replica_direction_known check (attachments_sync_direction in ('none', 'upload', 'bidirectional'))
+        )
+        """,
+
+        "create index if not exists replica_by_service on replica (service_id, created_at)",
+
+        "create index if not exists replica_tenant on replica (tenant_id)",
+
+        "alter table replica enable row level security",
+
+        "alter table replica force row level security",
+
+        "drop policy if exists tenant_floor on replica",
+
+        """
+        create policy tenant_floor on replica
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
 
     /// <summary>
     /// A fifth user type, <c>fieldworker</c> — ArcGIS's Mobile Worker, beside the <c>editor</c> that is ArcGIS's

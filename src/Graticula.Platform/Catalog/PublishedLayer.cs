@@ -383,6 +383,13 @@ public sealed class PublishedLayer
     public string? ServiceCopyrightText { get; init; }
 
     /// <summary>
+    /// Whether its service is sync-enabled — ADR-288, migration 137. Carried on the layer for the reason
+    /// <see cref="ServiceCopyrightText"/> is: a layer's document is answered without its service, and says
+    /// <c>Sync</c> in its capabilities when the service does.
+    /// </summary>
+    public bool ServiceSyncEnabled { get; init; }
+
+    /// <summary>
     /// When its rows last changed through this server — an edit, an append, an overwrite, a truncate, a restore — or null
     /// where nothing has recorded it (migration 127). Not an edit made in the database directly.
     /// </summary>

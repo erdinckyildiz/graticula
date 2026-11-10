@@ -174,7 +174,10 @@ public sealed class PostgresLayerCatalog
         i.title as service_title,
 
         -- Migration 127: when its data and its fields last changed through this server. On the end, read by name.
-        l.data_changed_at, l.schema_changed_at
+        l.data_changed_at, l.schema_changed_at,
+
+        -- ADR-288, migration 137: whether its service is sync-enabled. On the end, read by name.
+        s.sync_enabled as service_sync_enabled
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -618,6 +621,9 @@ public sealed class PostgresLayerCatalog
             // Migration 85: its service's credits, which a layer's own document states as an ArcGIS layer's does.
             ServiceCopyrightText = Nullable(reader, "service_copyright_text"),
 
+            // ADR-288, migration 137.
+            ServiceSyncEnabled = reader.GetBoolean(reader.GetOrdinal("service_sync_enabled")),
+
             // Migration 127.
             DataChangedAt = reader.IsDBNull(reader.GetOrdinal("data_changed_at"))
                 ? null
@@ -1003,6 +1009,7 @@ public sealed class PostgresLayerCatalog
         Dictionary<Guid, string[]> ogcOff = [];
         Dictionary<Guid, (string? Fees, string? Access)> ogcTerms = [];
         Dictionary<Guid, string?> credits = [];
+        Dictionary<Guid, bool> syncs = [];
         Dictionary<Guid, string> titles = [];
         Dictionary<Guid, Graticula.Catalog.InspireSettings?> ogcInspire = [];
 
@@ -1090,6 +1097,7 @@ public sealed class PostgresLayerCatalog
                     ogcTerms[owning] = (Nullable(reader, "service_ogc_fees"), Nullable(reader, "service_ogc_access"));
                     ogcInspire[owning] = Graticula.Catalog.InspireSettings.Parse(Nullable(reader, "service_ogc_inspire"));
                     credits[owning] = Nullable(reader, "service_copyright_text");
+                    syncs[owning] = reader.GetBoolean(reader.GetOrdinal("service_sync_enabled"));
                     titles[owning] = reader.GetString(reader.GetOrdinal("service_title"));
                 }
 
@@ -1171,6 +1179,7 @@ public sealed class PostgresLayerCatalog
                 OgcAccessConstraints = terms.Access,
                 Inspire = ogcInspire.GetValueOrDefault(id),
                 CopyrightText = credits.GetValueOrDefault(id),
+                SyncEnabled = syncs.GetValueOrDefault(id),
                 Title = titles.GetValueOrDefault(id) ?? head.Name,
             });
         }
