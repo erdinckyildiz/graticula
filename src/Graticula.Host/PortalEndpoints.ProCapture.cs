@@ -117,6 +117,19 @@ internal static partial class PortalEndpoints
         string origin = $"{context.Request.Scheme}://{context.Request.Host}";
         string what = (rest ?? string.Empty).Trim('/');
 
+        // <b>A measuring tool, dev only</b> (ADR-299): while Pro's calls are recorded, an answer written to
+        // <c>{capture}/admin-answers/{path with / as _}.json</c> is returned as it stands, so a variation can be tried on Pro
+        // without rebuilding the server. Nothing else reads that directory.
+        if (RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>())
+            && System.IO.Path.Combine(
+                    context.RequestServices.GetRequiredService<IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
+                    ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture"),
+                    "admin-answers", (what.Length == 0 ? "root" : what.Replace('/', '_')) + ".json") is { } canned
+            && File.Exists(canned))
+        {
+            return Results.Text(await File.ReadAllTextAsync(canned, cancellation).ConfigureAwait(false), "application/json");
+        }
+
         if (what.Length == 0)
         {
             return Results.Ok(new
