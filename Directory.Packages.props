@@ -89,6 +89,12 @@
     <!-- Microsoft.Data.SqlClient, for registered SQL Server databases (ADR-210). MIT. Encrypts by default; the
          provider trusts the server certificate rather than verifying it (ADR-210 §6). -->
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <!-- SQLite, for the mobile geodatabase ArcGIS Field Maps and Pro take a service offline in (ADR-288 §6).
+         Microsoft.Data.Sqlite is MIT; SQLitePCLRaw.bundle_e_sqlite3 is Apache-2.0 and carries the native
+         e_sqlite3 (SQLite itself, public domain) for every platform. The bundle is pinned at the version this
+         Microsoft.Data.Sqlite asks for. Confined to Graticula.Offline.Sqlite by NativeDependencyTests. -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="9.0.22" />
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
   </ItemGroup>
   <ItemGroup Label="Rendering â€” Tier 2, behind our own port, in the serving process">
     <!-- ADR-041. The only rasteriser in this repository, and the first native

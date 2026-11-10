@@ -153,7 +153,12 @@ public sealed record OfflineReplica(
 /// <param name="ReplicaId">The replica.</param>
 /// <param name="ServerGeneration">The server generation the changes run up to.</param>
 /// <param name="Layers">The changes per layer; a layer without changes may be absent.</param>
-public sealed record OfflineDelta(Guid ReplicaId, long ServerGeneration, IReadOnlyList<OfflineLayerChanges> Layers);
+/// <param name="ServiceName">
+/// The service's name, as <see cref="OfflineCopy.ServiceName"/> gave it. A delta names each changed dataset by its table
+/// in the replica, <c>{ServiceName}_{layer name}</c> (research note §5), and nothing else in a delta carries it. Empty
+/// when a delta is read: an upload names its tables, and the reader matches them by layer id.
+/// </param>
+public sealed record OfflineDelta(Guid ReplicaId, long ServerGeneration, IReadOnlyList<OfflineLayerChanges> Layers, string ServiceName);
 
 /// <summary>One layer's changes.</summary>
 /// <param name="Layer">The layer; its row and attachment readers are not used.</param>

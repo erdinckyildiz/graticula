@@ -114,6 +114,15 @@ change:
   change type (**1 insert, 2 update, 3 delete**), and the dataset.
 - `T_<n>_Inserts`, `T_<n>_Updates` with whole rows in the layer's own columns; `T_<n>_Deletes` with `OID` and
   `globalid` only.
+- **`RecordsetClassID` is the object id of the change table's own item in `GDB_Items`** (`main.T_<n>_<Kind>`), not
+  its registration id: the two downloads number their change-table items 4–7 and register the same tables as 14–17,
+  and the deltas row names 4–7. `<n>` is the `GDB_DataChangesDatasets` row the change belongs to. *(measured, two
+  downloads)*
+- A delta is a whole geodatabase of its own: the system tables without `GDB_ServiceItems` and `GDB_TriggerWork`, the
+  five `GDB_DataChanges…` tables registered as 9–13, and each change table registered and catalogued as a table or
+  feature class — a feature class change table has its own R*Tree, `st_geometry_columns` and `GDB_Layers` rows. Change
+  tables have no `GDB_ColumnRegistry` rows, and their row id generators start at 1 whatever they hold. *(measured, two
+  downloads)*
 
 What the device uploads to `synchronizeReplica` was not captured: a server that answers `createReplica` receives it
 from Field Maps directly, which is the measurement ADR-288's first condition asks for.
@@ -124,3 +133,11 @@ A probe rebuilt two of the captured files using plain SQLite only — schema sta
 virtual tables written into `sqlite_master`, triggers last, **every geometry re-encoded by our encoder** — and ArcGIS
 Pro read every table and geometry and then **inserted, updated and deleted** through its own editor, archiving
 included. That is the evidence that a server can write this format; it is not yet evidence that Field Maps accepts it.
+
+**The production writer, 2026-11-10.** `Graticula.Offline.Sqlite`, written fresh in C# from `writer_proto.py`, wrote a
+four-layer fixture (points with Z and attachments, lines, an area with a hole, a table, a coded and a range domain) as
+a snapshot, a registered replica and a download delta. Pro listed every table of all three and read every geometry,
+and through `arcpy.da.Editor` inserted, updated and deleted in the registered one: the update closed the old row and
+opened a new one, the delete closed its row, the insert took its object id from the generator the writer set. The
+same writer's reader read a download delta ArcGIS Server wrote back into its rows, attachment and table insert.
+*(measured)*

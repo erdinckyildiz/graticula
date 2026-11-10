@@ -151,6 +151,11 @@ jobs:
       - name: geoparquet
         run: dotnet test tests/Graticula.Providers.DuckDb.Tests -c Release --no-build
 
+      # ADR-288: the mobile geodatabase an offline copy is written in, and its deltas. SQLite only; whether
+      # ArcGIS reads the files is checked by hand with ArcGIS Pro (experiments/mobile-geodatabase/read_arcpy.py).
+      - name: offline
+        run: dotnet test tests/Graticula.Offline.Sqlite.Tests -c Release --no-build
+
       # ADR-205: a registered Oracle database. The tests that need no database run here; the ones that read
       # a real Oracle (Needs=Oracle) run in the `oracle` job, against Oracle Free.
       - name: oracle
