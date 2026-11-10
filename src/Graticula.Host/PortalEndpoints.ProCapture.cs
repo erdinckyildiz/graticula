@@ -80,6 +80,7 @@ internal static partial class PortalEndpoints
         // ADR-299: the services root's SOAP door, which ArcGIS Pro's federated-server connection knocks on before it shares
         // a map image layer (/arcgis/services, rewritten to /services). PortalEndpoints.ProSoap.cs.
         app.MapPost("/services", ServicesSoapAsync).DisableAntiforgery();
+        app.MapPost("/services/System/PublishingTools/GPServer", ServicesSoapAsync).DisableAntiforgery();
 
         // Pro's last act after a publish sets the service item's typeKeywords, which this server derives; the item update
         // that answers it, and every other client's, is PortalEndpoints.ItemWrites — mapped whether or not Pro publishes.
