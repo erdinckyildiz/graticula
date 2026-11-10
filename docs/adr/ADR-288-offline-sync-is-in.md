@@ -204,12 +204,13 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
    `synchronizeReplica` → `jobs` → `replicafiles`. The offline point reached the server with its GlobalID and position, and
    a point added on the server meanwhile appeared on the phone with its attributes. **Measured the same afternoon:** a basemap — a Graticula vector tile service, exported to a 7.8 MB VTPK once D-403 was
    repaired — and a photo taken offline, which reached the server as `Photo 1.jpg` (45 KB, `image/jpeg`) on the collected
-   row. **Open:** an attachment added on the server after the area was taken does not reach the phone (D-399); the offline point's Z arrived as 5 against a GPS altitude of 15 given to the emulator, which the
-   2026-11-08 Collect measurement also stored, so it is read as the emulator's and not checked further. Two things had to
+   row. **Open:** an attachment added on the server after the area was taken does not reach the phone (D-399); the offline point's Z arrived as 5 because it was collected before the emulator was given an
+   altitude; points collected after `geo fix … 15` arrived with Z 15. Two things had to
    change for Field Maps to offer the area at all: the listing it reads carried no `Offline` (D-392, closed), and a map
    item said no `itemControl`; with both, the option appeared after a fresh sign-in.
 2. **What Field Maps uploads is recorded** in the research note, from the file it sent, before the upload reader is
-   written against it.
+   written against it. **DISCHARGED 2026-11-10**: research note §5b, from an upload Field Maps 26.2.2 sent after an offline
+   insert, update and delete; the reader written against the download's shape read it, and all three were applied.
 3. **Preplanned map areas** are measured on an Enterprise portal (their items, relationships and packaging), then
    served and downloaded by Field Maps.
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.

@@ -124,8 +124,27 @@ change:
   tables have no `GDB_ColumnRegistry` rows, and their row id generators start at 1 whatever they hold. *(measured, two
   downloads)*
 
-What the device uploads to `synchronizeReplica` was not captured: a server that answers `createReplica` receives it
-from Field Maps directly, which is the measurement ADR-288's first condition asks for.
+## 5b. What Field Maps uploads *(measured 2026-11-10, one upload)*
+
+ArcGIS Field Maps 26.2.2 on Android, after an offline insert, update and delete on a replica this server wrote, uploaded
+through the FeatureServer's `uploads/upload` a 196 KB mobile geodatabase, kept on dev with
+`Graticula:Offline:KeepUploadsIn`. It has the download delta's shape (§5) with these differences:
+
+- `GDB_Version` says `10, 2, 2, '10.2.2 geodatabase'` — the client library's, not the server's.
+- The change tables are named in lower case — `T_1_inserts`, `T_1_updates`, `T_1_deletes` — where the server's download
+  wrote `T_1_Inserts`. A reader matches them without regard to case.
+- `GDB_DataChanges.ServerGen` is `'0'`; the layer's generation is on its `GDB_DataChangesDatasets` row.
+- `GDB_DataChangesEditResults` is present and empty.
+- Inserts and updates carry the layer's own columns only, with the geometry; deletes carry `objectid` and `globalid`.
+  `GDB_DataChangesDeltas` names them 1, 2, 3 as the download does.
+- **The geometry of the change tables is written in SRID 300001**, a client-local reference that
+  `st_aux_spatial_reference_systems` defines as EPSG 4326 with the grid `−400, −400, 10⁹` — the layer's own. A reader that
+  decodes with the layer's grid read it right here; one that meets a client-local SRID whose grid differs from the layer's
+  must take the grid from that row.
+- Its new rows carry the object id the client gave them (7), and the server kept the GlobalID.
+
+Applied through `applyEdits` by GlobalID, all three arrived: the insert at its position with Z 15, the update's new value,
+the delete.
 
 ## 5a. What a map needs before Field Maps offers to take it offline *(one portal, read only)*
 
