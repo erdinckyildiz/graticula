@@ -1454,6 +1454,7 @@ internal static partial class PortalEndpoints
                 .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId),
         ];
         IReadOnlySet<Guid> tasked = await TaskedMapsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
+        IReadOnlySet<Guid> offlineMaps = await OfflineMapsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
 
         List<(object Item, Guid? Id)> owned =
         [
@@ -1464,7 +1465,7 @@ internal static partial class PortalEndpoints
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
-            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
+            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
 
             // And their documents — ADR-188.
             .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
@@ -1889,10 +1890,11 @@ internal static partial class PortalEndpoints
         // ADR-286: Field Maps' Tasks filter reads the search result's keywords, so which maps have tasks is asked here,
         // once for every map the search could list.
         IReadOnlySet<Guid> withTasks = await TaskedMapsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
+        IReadOnlySet<Guid> offlineMaps = await OfflineMapsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
 
         foreach (WebMap map in readableMaps)
         {
-            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
+            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
                 item => new PortalListed(map.Id, item, Map: map)));
         }
 
@@ -2134,7 +2136,8 @@ internal static partial class PortalEndpoints
             return Results.Ok(await WithCommentsAndMetadataAsync(
                 context,
                 MapItem(context, map, MapExtent(map.Document),
-                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0),
+                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0,
+                    offline: (await OfflineMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0),
                 Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
         }
 
@@ -2666,6 +2669,86 @@ internal static partial class PortalEndpoints
             : await resources.ItemsHoldingAsync(ids, FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Which of these maps Field Maps may take offline — ADR-288: every feature layer they hold is a service on this
+    /// server with sync on. <b>INFERRED</b> (Q-233): ArcGIS keeps <c>Offline</c> as a switch its owner turns in Map Viewer;
+    /// here the keyword follows the services, so there is nothing to store and nothing to fall out of step.
+    /// </summary>
+    private static async Task<IReadOnlySet<Guid>> OfflineMapsAsync(
+        HttpContext context, IEnumerable<WebMap> maps, CancellationToken cancellation)
+    {
+        WebMap[] candidates = [.. maps.Where(m => HoldsFeatureLayer(m.Document))];
+        if (candidates.Length == 0
+            || context.RequestServices.GetService<Graticula.Platform.Postgres.CatalogFallback>() is not { } published)
+        {
+            return new HashSet<Guid>();
+        }
+
+        IReadOnlyList<PublishedService> services =
+            (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services ?? [];
+        HashSet<string> synced = new(
+            services.Where(s => s.SyncEnabled).Select(s => s.QualifiedName), StringComparer.OrdinalIgnoreCase);
+
+        HashSet<Guid> offline = [];
+        foreach (WebMap map in candidates)
+        {
+            if (Guid.TryParse(map.Id, out Guid id) && FeatureServicesOf(map.Document).ToList() is { Count: > 0 } named
+                && named.All(synced.Contains))
+            {
+                offline.Add(id);
+            }
+        }
+
+        return offline;
+    }
+
+    /// <summary>The <c>folder/name</c> of every FeatureServer a web map's operational layers and tables point at.</summary>
+    internal static IEnumerable<string> FeatureServicesOf(string? document)
+    {
+        if (string.IsNullOrEmpty(document))
+        {
+            yield break;
+        }
+
+        List<string> found = [];
+        try
+        {
+            using JsonDocument parsed = JsonDocument.Parse(document);
+            foreach (string list in new[] { "operationalLayers", "tables" })
+            {
+                if (parsed.RootElement.TryGetProperty(list, out JsonElement items) && items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement l in items.EnumerateArray())
+                    {
+                        if (l.ValueKind == JsonValueKind.Object && l.TryGetProperty("url", out JsonElement u)
+                            && u.ValueKind == JsonValueKind.String && u.GetString() is { } url)
+                        {
+                            int at = url.IndexOf("/rest/services/", StringComparison.OrdinalIgnoreCase);
+                            int end = url.IndexOf("/FeatureServer", StringComparison.OrdinalIgnoreCase);
+                            if (at >= 0 && end > at)
+                            {
+                                found.Add(url[(at + "/rest/services/".Length)..end]);
+                            }
+                            else if (end > 0)
+                            {
+                                found.Add(" not-here");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            yield break;
+        }
+
+        foreach (string f in found)
+        {
+            yield return f;
+        }
+    }
+
     /// <summary>A saved web map as a portal item of type <c>Web Map</c> — ADR-079 §5.3.</summary>
     /// <remarks>
     /// <b>The owner is named by the same rule as a service's</b> (<see cref="Item"/>, Q-127): the
@@ -2673,7 +2756,7 @@ internal static partial class PortalEndpoints
     /// publish its author's account name to whoever opens it anonymously. <b>No <c>url</c></b>: a web map
     /// is not a service, and its content is at <c>items/{id}/data</c>.
     /// </remarks>
-    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false)
+    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false, bool offline = false)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -2695,7 +2778,8 @@ internal static partial class PortalEndpoints
             name = (string?)null,
             type = "Web Map",
             // ADR-286: `Tasks` beside the rest when the map carries Field Maps tasks.
-            typeKeywords = FieldMapsTasks.WithTasks(WebMapKeywordsOf(map.Document), tasks),
+            // ADR-288: and `Offline` when every feature layer it holds is sync-enabled.
+            typeKeywords = offline ? [.. FieldMapsTasks.WithTasks(WebMapKeywordsOf(map.Document), tasks), "Offline"] : FieldMapsTasks.WithTasks(WebMapKeywordsOf(map.Document), tasks),
             // ADR-119: the description when there is one, the summary as before when not; and the picture.
             description = map.Description ?? map.Snippet,
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
