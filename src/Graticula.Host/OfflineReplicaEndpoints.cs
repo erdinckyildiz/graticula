@@ -659,6 +659,22 @@ internal static class OfflineReplicaEndpoints
     {
         OfflineDelta delta;
 
+        // ADR-288 condition 2: what a client uploads is kept for reading when `Graticula:Offline:KeepUploadsIn` names a
+        // folder. Off unless set, and meant for a measurement, not for a site — the file is the client's data.
+        if (context.RequestServices.GetService<Microsoft.Extensions.Configuration.IConfiguration>()?["Graticula:Offline:KeepUploadsIn"]
+                is { Length: > 0 } keep)
+        {
+            try
+            {
+                Directory.CreateDirectory(keep);
+                File.Copy(path, Path.Combine(keep, $"upload-{DateTime.UtcNow:yyyyMMddHHmmssfff}.geodatabase"), overwrite: false);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // A measurement aid that fails does not fail the sync.
+            }
+        }
+
         try
         {
             delta = await writer.ReadDeltaAsync(path, shapes, cancellation).ConfigureAwait(false);
