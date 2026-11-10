@@ -115,7 +115,7 @@ public sealed record OfflineRangeDomain(string Name, double Minimum, double Maxi
 /// <summary>
 /// A row: one value per <see cref="OfflineLayer.Fields"/> entry, in order, as .NET values — <see cref="long"/>,
 /// <see cref="int"/>, <see cref="short"/>, <see cref="double"/>, <see cref="string"/>, <see cref="DateTimeOffset"/> (UTC),
-/// <see cref="Guid"/>, <see cref="T:byte[]"/> or null — and the geometry with its Z and M.
+/// <see cref="Guid"/>, <c>byte[]</c> or null — and the geometry with its Z and M.
 /// </summary>
 /// <param name="Values">The values, in field order.</param>
 /// <param name="Geometry">The geometry, or null.</param>
