@@ -460,7 +460,10 @@ public static class Program
             new PostgresFeatureExportStore(services.GetRequiredService<NpgsqlDataSource>()));
 
         // ADR-288: whether a service is sync-enabled, its registered replicas, and the replica jobs of this process.
-        // IMobileGeodatabaseWriter is resolved where it is used and may be absent; the replica routes say so then.
+        // The writer is Graticula.Offline.Sqlite's (ADR-288 §6); the replica routes still resolve it where they use it
+        // and answer 501 if a build leaves it out.
+        builder.Services.AddSingleton<Graticula.Api.ArcGis.Offline.IMobileGeodatabaseWriter>(
+            new Graticula.Offline.Sqlite.SqliteMobileGeodatabaseWriter());
         builder.Services.AddSingleton<IOfflineSyncStore>(services =>
             new PostgresOfflineSyncStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(services => new ReplicaJobs(
