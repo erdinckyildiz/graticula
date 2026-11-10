@@ -265,6 +265,17 @@ internal static class VectorTileExportEndpoints
 
         long cap = service.Limits.Export.MaximumOf(settings.TileExportMaximumTiles);
 
+        // <b>An ArcGIS client's export keeps the levels that fit</b> — D-403, ADR-288. Field Maps asks for every level down to
+        // 1:100 over its offline area and treats a refusal as the whole area failing; a vector tile is drawn past the
+        // package's last level by the client, which the package's `maxzoom` tells it. So the deepest levels are dropped
+        // until the export fits, and the administrator's own export (`admin`) is still refused with the numbers.
+        if (plan.Total > cap && ask.Origin == "arcgis" && AdminEndpoints.HighestLevelThatFits(plan, cap) is { } fitting
+            && fitting >= levels[0])
+        {
+            levels = [.. levels.Where(l => l <= fitting)];
+            plan = TileSeedPlan.For(scheme, area, levels[0], levels[^1]).Keeping(levels.ToHashSet());
+        }
+
         if (plan.Total > cap)
         {
             int? fits = AdminEndpoints.HighestLevelThatFits(plan, cap);
