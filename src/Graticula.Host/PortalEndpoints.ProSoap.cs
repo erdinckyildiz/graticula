@@ -90,8 +90,7 @@ internal static partial class PortalEndpoints
             string kept = Regex.Replace(body, "(?i)(token|password)>[^<]*<", "$1>*<");
             await File.WriteAllTextAsync(
                 System.IO.Path.Combine(directory, $"soap-{DateTime.UtcNow:yyyyMMdd'T'HHmmss.fff}-{operation ?? "none"}.xml"),
-                $"Path: {context.Request.Path}
-SOAPAction: {context.Request.Headers["SOAPAction"]}\nContent-Type: {context.Request.ContentType}\n\n{kept}",
+                $"Path: {context.Request.Path}\nSOAPAction: {context.Request.Headers["SOAPAction"]}\nContent-Type: {context.Request.ContentType}\n\n{kept}",
                 cancellation).ConfigureAwait(false);
         }
 
