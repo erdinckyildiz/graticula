@@ -597,10 +597,14 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="gap">
-            <i class="sw none"><span class="vh">Not built.</span></i>
+            <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
-              <h3>No geocoding service</h3>
-              <p>Address parsing, matching and reverse geocoding are designed and unbuilt.</p>
+              <h3>Geocoding only through a Photon you run</h3>
+              <p>Point the server at a <a href="https://github.com/komoot/photon">Photon</a> instance
+              and <code>Utilities/Geocode/GeocodeServer</code> answers with suggestions, search and
+              reverse geocoding. The Maps SDK Search widget and the ArcGIS API for Python have used it.
+              It searches OpenStreetMap, so house numbers are only as good as OpenStreetMap&rsquo;s.
+              A locator over your own address table is not built.</p>
             </div>
           </div>
 
