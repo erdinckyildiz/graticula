@@ -14,6 +14,7 @@ using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Graticula.Host;
@@ -209,6 +210,18 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-288 §11.1 (INFERRED): sync is read from the history, so a sync-enabled service whose layer stops keeping it
+        // stops being sync-enabled, and its replicas — which could never synchronise again — are unregistered with it.
+        int unregistered = 0;
+        bool syncStopped = false;
+
+        if (!request.Enabled && layer.ServiceSyncEnabled)
+        {
+            unregistered = await context.RequestServices.GetRequiredService<IOfflineSyncStore>()
+                .SetEnabledAsync(layer.ServiceId, false, cancellation).ConfigureAwait(false);
+            syncStopped = true;
+        }
+
         // The layer document's isDataArchived and the query's historicMoment both read the description.
         contexts.Forget(layer);
 
@@ -224,7 +237,11 @@ internal static partial class AdminEndpoints
             note = request.Enabled
                 ? $"History is on. It begins now, with the {features:N0} features the layer holds; every change from here is kept, "
                     + "including changes made directly in the database."
-                : "History is off, and the history it had is gone.",
+                : "History is off, and the history it had is gone."
+                    + (syncStopped
+                        ? $" Offline sync, which is read from it, is off for the service too, and its {unregistered} replicas are unregistered (ADR-288)."
+                        : string.Empty),
+            syncStopped,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

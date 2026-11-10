@@ -72,6 +72,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["AdminEndpoints.Meshes.MeshLocks"] = "one lock per 3D object layer this node has edited — a count of layers (ADR-280 §5.4; between nodes, ADR-283 §5.1)",
         ["ArcGisAdminEndpoints.Service.NotKept"] = "fixed: the documented updateDefinition keys this server does not keep (ADR-257 §13)",
         ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: one (ADR-204)",
+        ["ReplicaJobs._jobs"] = "at most ReplicaJobs.MaximumJobs (512) replica jobs, each dropped a day after it finishes; past it a replica request is refused (ADR-288, D-400)",
         ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
         ["ScenePackages._open"] = "one per version of a scene layer package this node has served, each a document in the store (ADR-269)",
         ["WebhookedServices._known"] = "one per published service an edit has reached, at most MaximumEntries (10,000), forgotten whole when a webhook is written (ADR-266 condition 5)",

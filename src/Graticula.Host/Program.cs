@@ -459,6 +459,14 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Jobs.IFeatureExportStore>(services =>
             new PostgresFeatureExportStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-288: whether a service is sync-enabled, its registered replicas, and the replica jobs of this process.
+        // IMobileGeodatabaseWriter is resolved where it is used and may be absent; the replica routes say so then.
+        builder.Services.AddSingleton<IOfflineSyncStore>(services =>
+            new PostgresOfflineSyncStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => new ReplicaJobs(
+            System.IO.Path.Combine(services.GetRequiredService<HostSettings>().TileExportDirectory, "replicas"),
+            services.GetRequiredService<TimeProvider>()));
+
         builder.Services.AddSingleton(services =>
             ActivatorUtilities.CreateInstance<FeatureExporter>(
                 services,
@@ -3031,6 +3039,25 @@ public static class Program
                 ServiceApplyEditsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>Offline sync — ADR-288.</b> createReplica, synchronizeReplica, unRegisterReplica and the replicas
+            // resources, which take the service's and each layer's document from the routes above and apply an upload
+            // through the service's applyEdits above, so there is one implementation of each.
+            OfflineReplicaEndpoints.Map(app, prefix, new ReplicaFaces(
+                (inner, name) => ServiceMetadataAsync(
+                    inner, name, inner.RequestServices.GetRequiredService<CatalogFallback>(),
+                    inner.RequestServices.GetRequiredService<ServiceContexts>(), inner.RequestServices.GetRequiredService<HostSettings>(),
+                    inner.RequestServices.GetRequiredService<IProjector>(), inner.RequestAborted),
+                (inner, name, layerId) => LayerMetadataAsync(
+                    inner, name, layerId, inner.RequestServices.GetRequiredService<CatalogFallback>(),
+                    inner.RequestServices.GetRequiredService<ServiceContexts>(),
+                    inner.RequestServices.GetRequiredService<PostgresRelationshipCatalog>(),
+                    inner.RequestServices.GetRequiredService<HostSettings>(), inner.RequestServices.GetRequiredService<IProjector>(),
+                    inner.RequestAborted),
+                (inner, name) => ServiceApplyEditsAsync(
+                    inner, name, inner.RequestServices.GetRequiredService<CatalogFallback>(),
+                    inner.RequestServices.GetRequiredService<LayerConnections>(), inner.RequestServices.GetRequiredService<ServiceContexts>(),
+                    inner.RequestServices.GetRequiredService<IAuditLog>(), inner.RequestAborted)));
+
             // <b>Three of the ArcGIS layer and service operations a client calls around editing —
             // 2026-09-15.</b> All three were 404: Pro's field calculator and scripts use
             // `calculate`, a where builder checks its clause with `validateSQL`, and a form reads
@@ -3095,6 +3122,7 @@ public static class Program
 
         // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).
         ArcGisAppendEndpoints.Map(app);
+        OfflineReplicaEndpoints.MapAdmin(app);
 
         // ADR-107: a layer taken away as a GeoPackage, a zipped shapefile or an Excel workbook.
         LayerExportEndpoints.Map(app);
@@ -4392,6 +4420,9 @@ public static class Program
         // ADR-113: a view says so, and so does a source with views.
         document = ViewFlags.Apply(context, document, service.ViewOf is not null, service.HasViews, serviceCapabilities);
 
+        // ADR-288: a sync-enabled hosted service says so, and offers Sync to a caller who may edit it.
+        document = SyncFlags.ApplyToService(context, document, service);
+
         // The portal item this face is, as ArcGIS's service documents name it (ServiceItem).
         string serviceItemId = PortalEndpoints.ItemIdOf(service, "FeatureServer");
         document = ServiceItem.Apply(context, document, serviceItemId);
@@ -4745,6 +4776,9 @@ public static class Program
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
+
+        // ADR-288: a layer of a sync-enabled hosted service says Sync, and that it can return its changes.
+        document = SyncFlags.ApplyToLayer(context, document, layer);
 
         // The service's item and when the layer last changed, as ArcGIS's layer document says them (2026-11-03).
         if (owning is not null)
@@ -6080,6 +6114,19 @@ public static class Program
         return CapabilitiesFor(context, service.LayersAndTables[0], service.Limits, writable);
     }
 
+    /// <summary>
+    /// What this caller may do with a whole service, exactly as its document says it — for ADR-288's replica
+    /// operations, which a caller may use where the document offers them an edit.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="service">The service.</param>
+    /// <param name="contexts">Where a layer's shape comes from, cached.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The capabilities string, before <c>Sync</c> is added.</returns>
+    internal static async Task<string> ServiceCapabilitiesAsync(
+        HttpContext context, PublishedService service, ServiceContexts contexts, CancellationToken cancellation) =>
+        CapabilitiesFor(context, service, await WritabilityOfAsync(service, contexts, cancellation).ConfigureAwait(false));
+
     /// <summary>The service-wide answer, for a caller holding a service rather than its shapes.</summary>
     /// <param name="service">The service.</param>
     /// <param name="contexts">Where a layer's shape comes from, cached.</param>
@@ -6239,8 +6286,10 @@ public static class Program
     /// 2026-11-03, ADR-106 §5.5 as amended that day.</b> From 2026-09-30 it was named to a signed-in caller where the owner had chosen it, as ArcGIS Online names it where
     /// others may export. What an ArcGIS client does on reading it is call <c>createReplica</c>: the ArcGIS API for
     /// Python's <c>replicas.create</c> returns nothing without <c>Extract</c> or <c>syncEnabled</c> and posts
-    /// <c>createReplica</c> with it (<c>arcgis/features/layer.py</c>, read 2026-11-03), and that operation is not served
-    /// here (ADR-082) — so the word invited a 404 and answered nothing an ArcGIS client could reach. Online's own
+    /// <c>createReplica</c> with it (<c>arcgis/features/layer.py</c>, read 2026-11-03), and that operation was not served
+    /// here (ADR-082) — so the word invited a 404 and answered nothing an ArcGIS client could reach. Since ADR-288 it is
+    /// served, but only to a caller who may edit a sync-enabled hosted service and only as a mobile geodatabase, so
+    /// <c>Extract</c> offered to a reader would still invite a refusal. Online's own
     /// <i>Export Data</i> is a portal operation (<c>content/users/{u}/export</c>), not served here either (ADR-106).
     /// </para>
     /// <para>

@@ -86,14 +86,16 @@ public sealed class UpdateDefinitionTests : ArcGisClient
         Assert.Contains("hasStaticData", body, StringComparison.Ordinal);
         Assert.Equal(before, (await GetJsonAsync(admin)).GetProperty("serviceDescription").GetString() ?? string.Empty);
 
-        (HttpStatusCode sync, string syncBody) = await PostAsync($"{admin}/updateDefinition", new()
+        // Sync is kept since ADR-288 (UpdateDefinitionTests.Sync_is_turned_on_and_off_through_update_definition);
+        // ChangeTracking is still not served, and is refused by name.
+        (HttpStatusCode tracking, string trackingBody) = await PostAsync($"{admin}/updateDefinition", new()
         {
-            ["updateDefinition"] = JsonSerializer.Serialize(new { capabilities = "Query,Sync" }),
+            ["updateDefinition"] = JsonSerializer.Serialize(new { capabilities = "Query,ChangeTracking" }),
             ["f"] = "json",
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, sync);
-        Assert.Contains("Sync", syncBody, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.BadRequest, tracking);
+        Assert.Contains("ChangeTracking", trackingBody, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -128,7 +130,7 @@ public sealed class UpdateDefinitionTests : ArcGisClient
         foreach ((string key, object value) in ((string, object)[])
         [
             ("allowGeometryUpdates", false),
-            ("syncEnabled", true),
+            ("syncCapabilities", new { supportsPerReplicaSync = true }),
             ("xssPreventionInfo", new { xssPreventionEnabled = true }),
             ("zz_not_a_key", 1),
         ])
@@ -141,6 +143,107 @@ public sealed class UpdateDefinitionTests : ArcGisClient
 
             Assert.True(status == HttpStatusCode.BadRequest, $"{key}: {(int)status} {body}");
             Assert.Contains(key, body, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// ADR-288: <c>syncEnabled</c> turns offline sync on and off for a hosted service, the documents say so, and the
+    /// replica operations answer by name — without a mobile geodatabase writer installed, which this fixture has not,
+    /// a replica is refused with 501 rather than failing, and <c>perReplica</c> with ArcGIS's own sentence.
+    /// </summary>
+    [Fact]
+    public async Task Sync_is_turned_on_and_off_through_update_definition()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string name = "zz_sync_" + Guid.NewGuid().ToString("N")[..8];
+
+        (HttpStatusCode defined, string design) = await RequestAsync(
+            HttpMethod.Post, $"{root}/admin/hosted/define", token,
+            JsonSerializer.Serialize(new
+            {
+                name,
+                geometryType = "Point",
+                fields = new[] { new { name = "label", type = "text", nullable = true } },
+                sharing = "private",
+            }));
+
+        Assert.True(defined == HttpStatusCode.Created, $"Defining a layer answered {(int)defined}: {design}");
+
+        string feature = JsonDocument.Parse(design).RootElement.GetProperty("services").GetProperty("feature").GetString()!;
+        string[] parts = feature.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string admin = $"/rest/admin/services/{parts[2]}/{parts[3]}/FeatureServer";
+        string service = $"/rest/services/{parts[2]}/{parts[3]}/FeatureServer";
+
+        try
+        {
+            JsonElement before = await GetJsonAsync(service);
+            Assert.False(before.GetProperty("syncEnabled").GetBoolean());
+            Assert.DoesNotContain("Sync", before.GetProperty("capabilities").GetString()!, StringComparison.Ordinal);
+
+            (HttpStatusCode on, string onBody) = await PostAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"syncEnabled":true}""",
+                ["f"] = "json",
+            });
+
+            Assert.True(on == HttpStatusCode.OK, onBody);
+
+            JsonElement synced = await GetJsonAsync(service);
+            Assert.True(synced.GetProperty("syncEnabled").GetBoolean());
+            Assert.EndsWith(",Sync", synced.GetProperty("capabilities").GetString()!, StringComparison.Ordinal);
+            Assert.False(synced.GetProperty("syncCapabilities").GetProperty("supportsPerReplicaSync").GetBoolean());
+
+            JsonElement layer = await GetJsonAsync($"{service}/0");
+            Assert.Contains("Sync", layer.GetProperty("capabilities").GetString()!, StringComparison.Ordinal);
+            Assert.True(layer.GetProperty("isDataArchived").GetBoolean(), "Enabling sync did not turn the layer's history on.");
+
+            (HttpStatusCode perReplica, string perReplicaBody) = await PostAsync($"{service}/createReplica", new()
+            {
+                ["f"] = "json",
+                ["layers"] = "0",
+                ["dataFormat"] = "sqlite",
+                ["syncModel"] = "perReplica",
+            });
+
+            Assert.True(perReplica == HttpStatusCode.BadRequest, perReplicaBody);
+            Assert.Contains("Enterprise hosted feature services do not support replicas of type 'perReplica'.", perReplicaBody, StringComparison.Ordinal);
+
+            (HttpStatusCode json, string jsonBody) = await PostAsync($"{service}/createReplica", new()
+            {
+                ["f"] = "json",
+                ["layers"] = "0",
+                ["dataFormat"] = "json",
+                ["syncModel"] = "perLayer",
+            });
+
+            Assert.True(json == HttpStatusCode.BadRequest, jsonBody);
+            Assert.Contains("ADR-288", jsonBody, StringComparison.Ordinal);
+
+            (HttpStatusCode replica, string replicaBody) = await PostAsync($"{service}/createReplica", new()
+            {
+                ["f"] = "json",
+                ["layers"] = "0",
+                ["dataFormat"] = "sqlite",
+                ["syncModel"] = "perLayer",
+                ["replicaName"] = "conformance_1",
+            });
+
+            // The writer is installed by the deployment (ADR-288 §6); without one, a clear refusal and nothing made.
+            Assert.True(replica is HttpStatusCode.NotImplemented or HttpStatusCode.OK, replicaBody);
+
+            (HttpStatusCode off, string offBody) = await PostAsync($"{admin}/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"syncEnabled":false}""",
+                ["f"] = "json",
+            });
+
+            Assert.True(off == HttpStatusCode.OK, offBody);
+            Assert.False((await GetJsonAsync(service)).GetProperty("syncEnabled").GetBoolean());
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token, json: null);
         }
     }
 
