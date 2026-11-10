@@ -260,11 +260,16 @@ geocoding.**
   pipeline — the two engines `protocol-surface.md` said *"do not exist in any
   form"* — are not built.
 - **Q-84 defers** with the geocoder, including the reference-data question. **Amended 2026-11-02 — owner decision on [Q-226](open-questions.md), [ADR-258](adr/ADR-258-an-optional-photon-adapter-behind-geocodeserver.md):** *geocoding* stays on the list above as an engine of ours — Q-84's locator over a customer's address data is still deferred — **and an optional GeocodeServer over a Photon the operator runs is in.** It is off unless `Graticula:Geocoding:PhotonUrl` is set, and then it answers `findAddressCandidates`, `suggest` and `reverseGeocode` at `Utilities/Geocode/GeocodeServer` from OpenStreetMap data. The baseline deployment — `graticula → PostgreSQL/PostGIS` — does not change: a server without the key has no route and no directory entry for it. *Added rather than rewritten, so the deferral and the change stay visible.*
-- **Offline sync is out — [ADR-082](adr/ADR-082-offline-sync-is-not-in-v1.md), owner decision
+- ~~**Offline sync is out — [ADR-082](adr/ADR-082-offline-sync-is-not-in-v1.md), owner decision
   2026-09-23.** `createReplica`, `synchronizeReplica`, `unRegisterReplica` and `extractChanges`
   are not served, and every layer says `supportsDisconnectedEditing: false`. **Offline tiles are in since
   2026-09-29 — [ADR-098](adr/ADR-098-vector-tiles-can-be-exported-as-a-package.md), owner decision:** a vector tile service may offer
-  `exportTiles` (off until its owner turns it on), and packages its tiles as a VTPK or a PMTiles archive.
+  `exportTiles` (off until its owner turns it on), and packages its tiles as a VTPK or a PMTiles archive.~~
+  **Offline sync is in since 2026-11-10 — [ADR-288](adr/ADR-288-offline-sync-is-in.md), owner decision
+  (*"Çevrimdışını açalım"*):** a sync-enabled hosted layer answers `createReplica`, `synchronizeReplica` and
+  `unRegisterReplica` with a mobile geodatabase, for Field Maps' on-demand and preplanned offline areas and Pro's
+  Download Map. Offline tiles stay as ADR-098 made them. **Not served until ADR-288's conditions say so** — the line
+  above is struck because the decision changed, not because the routes exist yet.
 - **Q-86's §82 debt shrinks to the handful of things actually in v1.**
 
 ### 3e. Formats
