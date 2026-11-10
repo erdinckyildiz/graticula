@@ -2754,6 +2754,11 @@ internal static partial class PortalEndpoints
                 : "graticula",
 
             // ADR-114: the owner's folder it is in, said only to its owner.
+            // ADR-288: what the caller may do with the item, as Portal says it. On 2026-11-10 the same map offered *Add
+            // offline area* in Field Maps on an Enterprise portal, which answers `admin` here to its owner, and not on
+            // this server, where the field was absent — the first difference between the two items that was tried.
+            itemControl = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id ? "admin" : null,
+            isOrgItem = true,
             ownerFolder = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id && map.ContentFolder is { } inFolder
                 ? inFolder.ToString("N")
                 : null,
