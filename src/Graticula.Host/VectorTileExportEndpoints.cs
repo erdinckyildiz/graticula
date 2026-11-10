@@ -218,7 +218,15 @@ internal static class VectorTileExportEndpoints
 
         if (ask.Levels is { Count: > 0 } asked)
         {
-            levels = asked;
+            // <b>Levels past the service's last are dropped, not refused</b> — ADR-215, D-403. ArcGIS Field Maps asks for
+            // every level down to the scale its offline area is set to (1:100 by default, level 23) whatever the service
+            // has; a vector tile is drawn past its own level by the client, so the levels the service lacks add nothing
+            // to the package. A request naming none of the service's levels is still refused below.
+            levels = [.. asked.Where(l => l >= 0 && l <= scheme.MaxLevel)];
+            if (levels.Count == 0)
+            {
+                levels = asked;
+            }
         }
         else if (AdminEndpoints.DefaultSeedLevels(service) is { } d)
         {
