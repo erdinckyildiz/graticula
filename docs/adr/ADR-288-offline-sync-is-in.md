@@ -198,7 +198,16 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network
-   off, and syncs it back: rows, Z, attachments, and a server-side edit made meanwhile arriving on the phone.
+   off, and syncs it back: rows, Z, attachments, and a server-side edit made meanwhile arriving on the phone. **PARTLY DISCHARGED 2026-11-10**, on dev.graticula.com with Field Maps 26.2.2 on the Android emulator, as the
+   probe member: *Add offline area* offered, the area downloaded (`createReplica` → `jobs/{id}` → `replicafiles/{id}`,
+   415 kB, three PointZ rows), a point collected with the network off, then *Sync now*: `uploads/upload` →
+   `synchronizeReplica` → `jobs` → `replicafiles`. The offline point reached the server with its GlobalID and position, and
+   a point added on the server meanwhile appeared on the phone with its attributes. **Open:** attachments in either
+   direction; a basemap — the map had none, because Field Maps' `exportTiles` request to a vector tile service answers 400
+   here (D-403); the offline point's Z arrived as 5 against a GPS altitude of 15 given to the emulator, which the
+   2026-11-08 Collect measurement also stored, so it is read as the emulator's and not checked further. Two things had to
+   change for Field Maps to offer the area at all: the listing it reads carried no `Offline` (D-392, closed), and a map
+   item said no `itemControl`; with both, the option appeared after a fresh sign-in.
 2. **What Field Maps uploads is recorded** in the research note, from the file it sent, before the upload reader is
    written against it.
 3. **Preplanned map areas** are measured on an Enterprise portal (their items, relationships and packaging), then
