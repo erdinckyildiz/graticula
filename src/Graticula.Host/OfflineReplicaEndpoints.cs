@@ -698,10 +698,21 @@ internal static class OfflineReplicaEndpoints
             }
 
             HashSet<Guid> referenced = OfflineReplicaShapes.GlobalIdsOf(named);
-            uploaded.UnionWith(referenced);
             IReadOnlyDictionary<Guid, long> existing = referenced.Count == 0
                 ? new Dictionary<Guid, long>()
                 : await connections.ObjectIdsOfAsync(p.Layer, globalIdField, referenced, cancellation).ConfigureAwait(false);
+
+            // <b>A row the client changed and the server had already deleted is not the client's own edit</b> — ADR-288
+            // §5.5, measured 2026-11-10: its update is dropped, so the download must still send the server's delete, or
+            // the phone keeps a row the server no longer has. Only what was applied is left out of the download.
+            HashSet<Guid> changedOrRemoved = OfflineReplicaShapes.GlobalIdsOf(named with
+            {
+                Inserts = [],
+                AttachmentInserts = [],
+                AttachmentUpdates = [],
+                AttachmentDeletes = [],
+            });
+            uploaded.UnionWith(referenced.Where(id => !changedOrRemoved.Contains(id) || existing.ContainsKey(id)));
 
             ReplicaLayerEdits layerEdits = OfflineReplicaShapes.Edits(
                 named, OfflineReplicaShapes.EditableFields(p.Document), existing.Keys.ToHashSet());
