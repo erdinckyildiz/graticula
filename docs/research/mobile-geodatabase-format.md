@@ -118,6 +118,22 @@ change:
 What the device uploads to `synchronizeReplica` was not captured: a server that answers `createReplica` receives it
 from Field Maps directly, which is the measurement ADR-288's first condition asks for.
 
+## 5a. What a map needs before Field Maps offers to take it offline *(one portal, read only)*
+
+Read on Aecon's production portal (Enterprise 12.1) on 2026-11-10, item metadata only:
+
+- **An offline-enabled web map carries the type keyword `Offline`** — Map Viewer's *Enable offline* switch. Its data
+  has no `applicationProperties.offline`; the keyword is the whole mark. Two of two maps read.
+- Its basemap is a tiled service a client can export from (`ArcGISTiledMapServiceLayer`). Graticula's vector tile
+  services can be (ADR-098).
+- **A preplanned map area is an item of type `Map Area`** (type keywords `Map`, `Map Area`), related to its web map by
+  `Map2Area`, whose data holds `mapAreas` (`mapAreaTileScale`, `mapAreaRefreshParams`, `mapAreasScheduledUpdatesEnabled`)
+  and whose `properties` hold the area's `extent` and a `status`. It is related by `Area2Package` to **one package per
+  source**: an item of type `SQLite Geodatabase` per feature service, with type keywords `Bidirectional`, `Data`,
+  `MapAreaPackage`, `Package`, `ReferenceURL#<the FeatureServer address>`, `Replica`, `SQLite Geodatabase`, `Syncable`;
+  and a `Tile Package` (`tpk`) for the basemap, `ReferenceURL#` its source. What Field Maps calls to register such a
+  package on first sync is not yet measured (ADR-288 condition 3).
+
 ## 6. The test that matters: a file written without Esri's library
 
 A probe rebuilt two of the captured files using plain SQLite only — schema statements replayed, the two Esri-module
