@@ -180,7 +180,11 @@ and last synced), and the history tables of ADR-078. Migration number at impleme
 
 None recorded. ADR-082's reviewer called offline *"the first question a field organisation asks"*; this is the answer.
 
-## 11. INFERRED — asked as [Q-233](../open-questions.md)
+## 11. INFERRED — asked as [Q-233](../open-questions.md), answered 2026-11-10
+
+> **Answered by the owner the same night:** items 1–5 *"Beşini de onaylıyorum"* (all five confirmed); a web map's `Offline`
+> following its services *"Otomatik kalsın"* (confirmed); and the device's upload, parsed in-process by native SQLite,
+> *"Ayrı sürece taşı"* — moved behind the reader process before this reaches main (condition 7, D-402).
 
 1. **Sync turns history on, and turning history off unregisters the layer's replicas** (§5.3).
 2. **`perLayer` and `none` first; `dataFormat=json` later** (§5.4).
@@ -202,3 +206,5 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
 6. **The writer's test vectors are this project's geometries**, and no file Esri wrote is committed.
+7. **A client's upload is parsed behind the reader process, not in the host** — owner decision 2026-11-10 (*"Ayrı sürece
+   taşı"*), ADR-009's line for untrusted files. Until then offline sync stays off main (D-402).
