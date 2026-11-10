@@ -48,6 +48,18 @@ internal static partial class PortalEndpoints
             case "services/types/providers/ArcObjects11/MapServer/extensions":
                 return Results.Ok(MapServerType);
 
+            case var machine when machine.StartsWith("machines/", StringComparison.Ordinal):
+                return Results.Ok(new
+                {
+                    machineName = context.Request.Host.Host.ToUpperInvariant(),
+                    platform = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                    ports = new Dictionary<string, int> { [context.Request.IsHttps ? "HTTPS" : "HTTP"] = context.Request.Host.Port ?? (context.Request.IsHttps ? 443 : 80) },
+                    adminURL = $"{context.Request.Scheme}://{context.Request.Host}/arcgis/admin",
+                    configuredState = "STARTED",
+                    synchronize = false,
+                    underMaintenance = false,
+                });
+
             case "machines":
                 return Results.Ok(new
                 {
@@ -67,13 +79,22 @@ internal static partial class PortalEndpoints
 
             case "system/licenses":
                 // What the server can do, in the vocabulary Pro reads for analyzer 00147 ("the GIS Server role is not
-                // licensed"). No expiry and no key: nothing here is licensed by anyone, and nothing pretends to be.
+                // licensed"): a federated 12.0 server lists its roles under `features`, each `isValid`. No expiry and no
+                // key: nothing here is licensed by anyone, and nothing pretends to carry a licence file.
                 return Results.Ok(new
                 {
-                    edition = new { name = "svrstandard", version = Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion, canExpire = false },
-                    level = new { name = "svrenterprise", version = Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion, canExpire = false },
+                    edition = new { name = "svrstandard", version = ServerVersion, canExpire = false, featureName = "esriServerLicenseStandard" },
+                    level = new { name = "svrenterprise", version = ServerVersion, canExpire = false },
                     extensions = Array.Empty<object>(),
+                    features = new object[]
+                    {
+                        new { name = "esriServerLicenseStandard", displayName = "GIS Server Standard", version = ServerVersion, canExpire = false, isValid = true },
+                        new { name = "esriServerEnterprise", displayName = "Server Enterprise", version = ServerVersion, canExpire = false, isValid = true },
+                    },
                 });
+
+            case "services/types/extensions":
+                return Results.Ok(new { });
 
             case "data/config":
                 return Results.Ok(new { });
@@ -169,6 +190,8 @@ internal static partial class PortalEndpoints
 
         return items;
     }
+
+    private static string ServerVersion => Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion;
 
     private static readonly string[] DataRootItems = ["/enterpriseDatabases", "/fileShares", "/cloudStores", "/nosqlDatabases"];
 
