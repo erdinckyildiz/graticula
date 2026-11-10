@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Offline.Sqlite.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Graticula.Offline.Sqlite\Graticula.Offline.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Core\Graticula.Core.csproj" />
+  </ItemGroup>
+
+</Project>

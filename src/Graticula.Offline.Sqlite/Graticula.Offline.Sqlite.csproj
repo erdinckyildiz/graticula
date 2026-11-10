@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2 ADAPTER. The mobile geodatabase ArcGIS Field Maps and Pro take a feature service offline in,
+    written and read with SQLite — ADR-288 §6.
+
+    The port is IMobileGeodatabaseWriter in Graticula.Api.ArcGis; this project implements it and is the
+    only one that names a SQLite library. NativeDependencyTests confines Microsoft.Data.Sqlite and
+    SQLitePCLRaw (which carries the native e_sqlite3) here, as it confines DuckDB to its provider.
+
+    <b>Read twice before wiring it into the host.</b> ReadDeltaAsync parses a file a client uploaded,
+    with a native library, which is the line ADR-009 §2.2 drew for GDAL and ADR-066 §3 for DuckDB.
+    SQLite is built to open hostile files, but the decision of which process parses an upload belongs
+    to whoever wires this in, and it is not taken here.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Offline.Sqlite</RootNamespace>
+    <AssemblyName>Graticula.Offline.Sqlite</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+    <ProjectReference Include="..\Graticula.Api.ArcGis\Graticula.Api.ArcGis.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Graticula.Offline.Sqlite.Tests" />
+  </ItemGroup>
+
+</Project>

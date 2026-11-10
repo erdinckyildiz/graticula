@@ -129,6 +129,18 @@ public sealed class NativeDependencyTests
          + "an endpoint or a writer, so the engine can be moved out of process or replaced by "
          + "changing one project rather than finding every place it leaked into."),
 
+        ("Microsoft.Data.Sqlite",
+         "Graticula.Offline.Sqlite",
+         "The mobile geodatabase an offline copy is written in is Tier 2 behind IMobileGeodatabaseWriter, ADR-288 §6: "
+         + "no SQLite type — connection, command, reader — crosses the port, so the ArcGIS surface names a file and "
+         + "records it owns, and the library can be replaced or moved out of process by changing one project."),
+
+        ("SQLitePCLRaw",
+         "Graticula.Offline.Sqlite",
+         "SQLitePCLRaw carries the native e_sqlite3 the writer runs on, and it is how SQLite reaches a process. ADR-288 "
+         + "§6, and the same row as Microsoft.Data.Sqlite's for the same reason: a native library that will read files "
+         + "a client uploads (ReadDeltaAsync) is held by one project, so where it runs is one decision."),
+
         ("Oracle.ManagedDataAccess",
          "Graticula.Providers.Oracle",
          "A registered Oracle database is Tier 2 behind IDataSourceProbe and, as it grows, IFeatureSource "
