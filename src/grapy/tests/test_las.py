@@ -190,7 +190,9 @@ class LasDataset(unittest.TestCase):
                                                 (shapely.MultiPolygon([shapely.box(0, 10, 2, 12)]),)])
         arcpy.ddd.LasPointStatsByArea(self.lasd, polygons, ["Z_MIN", "Z_MAX", "Z_MEAN", "POINT_COUNT",
                                                             "STANDARD_DEVIATION"])
-        roof, ground = rows(polygons, ["Z_MIN", "Z_MAX", "Z_MEAN", "POINT_COUNT", "STD_DEV"])
+        # The fields are named as ArcGIS Pro 3.7 names them (measured 2026-11-08; this test read Z_MIN ... POINT_COUNT,
+        # grapy's names, until then).
+        roof, ground = rows(polygons, ["Z_Min", "Z_Max", "Z_Mean", "PointCount", "STD_DEV"])
         self.assertEqual(roof[:2], (6.0, 6.5))
         self.assertAlmostEqual(roof[2], 6.25, 9)
         self.assertEqual(roof[3], 2 * ROOF)

@@ -109,6 +109,25 @@ class RasterSurfaces(_Workspace):
         self.assertEqual(got, [[0, 15, 5], [7.5, 15, 7.5], [15, 15, 15], [22.5, 15, 22.5], [30, 15, 25]])
 
 
+class Multipatches(_Workspace):
+    def test_a_copied_multipatch_class_is_a_multipatch_class(self):
+        # Pro's copy of a multipatch class is one: IsClosed3D reads it (grapy's copy had become a polygon class).
+        from grapy import _multipatch as M
+        boxes = M.write(self.out("boxes"), 32635, [], [([], M.from_triangles(M.box((0, 0, 0), (1, 1, 1))))])
+        copy = arcpy.management.CopyFeatures(boxes, self.out("copy"))[0]
+        self.assertTrue(M.is_multipatch(copy))
+        arcpy.ddd.IsClosed3D(copy)
+        self.assertEqual([v for v, in self.rows(copy, ["IsClosed"])], [1])
+
+
+class LasNames(unittest.TestCase):
+    def test_a_tiles_xy_name_is_its_corners_whole_part(self):
+        # Pro names a tile whose lower-left corner is (500102.5, 4500142.5) t_500102_4500142.las.
+        from grapy._lastools import _coordinate
+        self.assertEqual((_coordinate(500102.5), _coordinate(4500142.5), _coordinate(500140.0)),
+                         ("500102", "4500142", "500140"))
+
+
 class Tins(_Workspace):
     def test_edit_tin_reads_shape_as_the_height_of_the_shapes(self):
         # Pro's EditTin lists the height field as <None> | Shape | <fields>: "Shape" is the shapes' own z. A hard line

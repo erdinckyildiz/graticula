@@ -1008,7 +1008,7 @@ def _(ap, I, O):
     # Points are removed only from an embedded class, and Pro embeds only multipoints.
     t, fds, _ = terrain(ap, I, "rmtp", build=False)
     more = ap.management.CopyFeatures(extra_points(ap, I, "rmtp_more", 150), os.path.join(fds, "rmtp_mp"))[0]
-    ap.ddd.AddFeatureClassToTerrain(t, [[more, "Shape", "masspoints", 1, 0, 120, True, True, "rmtp_emb", "", False]])
+    ap.ddd.AddFeatureClassToTerrain(t, [[more, "Shape", "masspoints", 2, 0, 120, False, True, "rmtp_emb", "", False]])
     ap.ddd.BuildTerrain(t)
     x0, y0 = I["x0"], I["y0"]
     ap.ddd.RemoveTerrainPoints(t, "rmtp_emb", f"{x0 + 200} {y0 + 200} {x0 + 300} {y0 + 300}")

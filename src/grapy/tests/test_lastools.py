@@ -137,7 +137,9 @@ class Colour(Base):
 class Thinning(Base):
     def test_thinlas_keeps_the_highest_point_of_each_2_m_square(self):
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin"), "2D", "2 Meters", None, "Z_MAX")[0]
-        out = read(os.path.join(folder, "tile.las"))
+        # With no name suffix the file is <name>_thinned.las, as ArcGIS Pro 3.7 names it (measured 2026-11-08; these
+        # tests read tile.las until then).
+        out = read(os.path.join(folder, "tile_thinned.las"))
         z = np.asarray(out.z)
         # 100 squares; the four over the roof keep a first return at 6.5, the others a ground point.
         self.assertEqual(len(z), 100)
@@ -146,7 +148,7 @@ class Thinning(Base):
 
     def test_thinlas_preserves_and_excludes_by_class_code(self):
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin"), "2D", 2, None, "Z_MIN", preserved_class_codes=[1])[0]
-        out = read(os.path.join(folder, "tile.las"))
+        out = read(os.path.join(folder, "tile_thinned.las"))
         self.assertEqual(len(out.points), 96 + ROOF)
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin2"), "2D", 2, None, "CLOSEST_TO_CENTER",
                                    excluded_class_codes=[1], name_suffix="_x")[0]
@@ -155,7 +157,7 @@ class Thinning(Base):
 
     def test_thinlas_3d_keeps_one_point_per_height_band(self):
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin3"), "3D", 2, 0.25, "Z_AVERAGE")[0]
-        out = read(os.path.join(folder, "tile.las"))
+        out = read(os.path.join(folder, "tile_thinned.las"))
         # z bands of 0.25 m from z 0: 6 is band 24 and 6.5 band 26, so each roof square keeps two.
         self.assertEqual(len(out.points), 96 + 8)
 

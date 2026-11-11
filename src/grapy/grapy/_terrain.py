@@ -1092,10 +1092,15 @@ def TerrainToPoints(in_terrain, out_feature_class, pyramid_level_resolution=0, s
         points, origin = points[keep], origin[keep]
     if kind == "POINT":
         rows = [(shapely.Point(*p),) for p in points]
+        columns = []
     else:
-        rows = [(shapely.MultiPoint(points[origin == s]),) for s in dict.fromkeys(origin.tolist())]
-    return Result(_tintools._write(out_feature_class, "Point" if kind == "POINT" else "Multipoint", terrain.srid, [],
-                                   True, rows))
+        # PointCount, as ArcGIS Pro 3.7 writes it (measured 2026-11-08); how Pro splits a level's points into several
+        # multipoints is not derived (it wrote 4 for 25 points), grapy writes one per source.
+        rows = [(int((origin == s).sum()), shapely.MultiPoint(points[origin == s]))
+                for s in dict.fromkeys(origin.tolist())]
+        columns = [_gpkg.Column("PointCount", "Integer")]
+    return Result(_tintools._write(out_feature_class, "Point" if kind == "POINT" else "Multipoint", terrain.srid,
+                                   columns, True, rows))
 
 
 def TerrainToRaster(in_terrain, out_raster, data_type="FLOAT", method="LINEAR", sample_distance="OBSERVATIONS 250",

@@ -163,8 +163,15 @@ def CopyFeatures(in_features, out_feature_class, *_, **__):
     # The copy keeps the input's z and m, as Pro's does under the default output Z and M environments (measured in
     # ArcGIS Pro 3.7, 2026-11-08, by the ddd sweep: a copied 3D line class stayed 3D); until then grapy dropped them.
     has_z, has_m = _gpkg.dimensions(connection, table)
+    from . import _multipatch
+    patch = _multipatch.is_registered(connection, table)
     connection.close()
-    _gpkg.create(_path(out_feature_class), shape, srid, columns, has_z, has_m)
+    if patch:
+        # A multipatch copy is a multipatch class (measured in ArcGIS Pro 3.7, 2026-11-08, by the ddd sweep:
+        # IsClosed3D on a copied multipatch class).
+        _multipatch.create(_path(out_feature_class), srid, columns)
+    else:
+        _gpkg.create(_path(out_feature_class), shape, srid, columns, has_z, has_m)
     names = [c.name for c in columns]
     with da.SearchCursor(in_features, [*names, "SHAPE@"], where) as rows, da.InsertCursor(_path(out_feature_class), [*names, "SHAPE@"]) as out:
         for row in rows:

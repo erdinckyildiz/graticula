@@ -803,9 +803,11 @@ def LASToMultipoint(input, out_feature_class, average_point_spacing, class_code=
                     (a["return_number"] == int(r))
             keep &= chosen
         if keep.any():
-            rows.append((shapely.MultiPoint(np.column_stack([a["x"][keep], a["y"][keep], a["z"][keep] * zf])),))
+            rows.append((int(keep.sum()),
+                         shapely.MultiPoint(np.column_stack([a["x"][keep], a["y"][keep], a["z"][keep] * zf]))))
     from ._tintools import _write
-    return Result(_write(out_feature_class, "Multipoint", srid, [], True, rows))
+    # PointCount, each multipoint's points, as ArcGIS Pro 3.7 writes it (measured 2026-11-08).
+    return Result(_write(out_feature_class, "Multipoint", srid, [_gpkg.Column("PointCount", "Integer")], True, rows))
 
 
 def PointFileInformation(input, out_feature_class, in_file_type="LAS", file_suffix="las", input_coordinate_system=None,
@@ -884,7 +886,8 @@ def LasPointStatsByArea(in_las_dataset, in_features, out_property):
     gets a count of 0 and nulls."""
     from . import da
     from ._tintools import _ensure_fields
-    names = {"Z_MIN": "Z_MIN", "Z_MAX": "Z_MAX", "Z_MEAN": "Z_MEAN", "POINT_COUNT": "POINT_COUNT",
+    # The field names ArcGIS Pro 3.7 writes (measured 2026-11-08); STD_DEV's was not measured.
+    names = {"Z_MIN": "Z_Min", "Z_MAX": "Z_Max", "Z_MEAN": "Z_Mean", "POINT_COUNT": "PointCount",
              "STANDARD_DEVIATION": "STD_DEV"}
     wanted = []
     for p in _list(out_property):
@@ -892,9 +895,9 @@ def LasPointStatsByArea(in_las_dataset, in_features, out_property):
             _refuse("ddd", "LasPointStatsByArea", "out_property", p)
         wanted.append(names[str(p).upper()])
     found, _ = points(in_las_dataset, "LasPointStatsByArea")
-    _ensure_fields(in_features, [w for w in wanted if w != "POINT_COUNT"])
-    if "POINT_COUNT" in wanted:
-        _ensure_fields(in_features, ["POINT_COUNT"], "Integer")
+    _ensure_fields(in_features, [w for w in wanted if w != "PointCount"])
+    if "PointCount" in wanted:
+        _ensure_fields(in_features, ["PointCount"], "Integer")
     tree_points = shapely.points(found["x"], found["y"])
     with da.UpdateCursor(in_features, [*wanted, "SHAPE@"]) as rows:
         for row in rows:
@@ -903,8 +906,8 @@ def LasPointStatsByArea(in_las_dataset, in_features, out_property):
             area = shapely.force_2d(row[-1]._shape)
             inside = shapely.covers(area, tree_points)
             z = found["z"][inside]
-            stat = {"Z_MIN": float(z.min()) if len(z) else None, "Z_MAX": float(z.max()) if len(z) else None,
-                    "Z_MEAN": float(z.mean()) if len(z) else None, "POINT_COUNT": int(len(z)),
+            stat = {"Z_Min": float(z.min()) if len(z) else None, "Z_Max": float(z.max()) if len(z) else None,
+                    "Z_Mean": float(z.mean()) if len(z) else None, "PointCount": int(len(z)),
                     "STD_DEV": float(z.std()) if len(z) else None}
             rows.updateRow([*(stat[w] for w in wanted), row[-1]])
     return Result(str(in_features))

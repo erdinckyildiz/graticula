@@ -419,7 +419,7 @@ class Import(Base):
         obj = self.write("cube.obj", self.CUBE_OBJ)
         arcpy.ddd.Import3DFiles(obj, self.out("m"))
         (name, shape), = rows(self.out("m"), ["Name", "SHAPE@"])
-        self.assertEqual(name, "cube")
+        self.assertEqual(name, "cube.obj")   # with its extension, as ArcGIS Pro 3.7 names it (measured 2026-11-08)
         self.assertTrue(M.is_closed(shape._shape))
         self.assertAlmostEqual(volume(shape._shape), 1.0)
         tall = self.write("tall.obj", "v 0 0 0\nv 1 0 0\nv 0 5 0\nf 1 2 3\n")
