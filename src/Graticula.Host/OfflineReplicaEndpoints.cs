@@ -273,9 +273,6 @@ internal static class OfflineReplicaEndpoints
             return;
         }
 
-        ServiceContexts contexts = services.GetRequiredService<ServiceContexts>();
-        LayerConnections connections = services.GetRequiredService<LayerConnections>();
-
         // ---- everything the file needs from the request, while the request is here ----
         (int serviceStatus, byte[] serviceBody) = await ServiceQuery.InnerRequestAsync(
             context, $"{FeatureServerPath(context)}", HttpMethods.Get, Json(), null, null, inner => faces.ServiceDocument(inner, serviceName))
@@ -287,66 +284,31 @@ internal static class OfflineReplicaEndpoints
             return;
         }
 
-        List<Planned> planned = [];
+        string serviceDocument = Encoding.UTF8.GetString(serviceBody);
 
-        foreach (int id in request!.Layers)
+        // The planning and the writing are OfflinePackager's, which a map area's packaging calls without a request.
+        (PackagePlan? plan, PackageRefusal? refusal) = await OfflinePackager.PlanAsync(
+            services, service, request!, serviceDocument, async id => await LayerDocumentAsync(context, faces, serviceName, id).ConfigureAwait(false),
+            cancellation).ConfigureAwait(false);
+
+        if (refusal is not null)
         {
-            PublishedLayer layer = service.LayerOrTable(id)!;
-            ReplicaLayerQuery query = request.Queries[id];
-            (IFeatureSource source, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
-
-            if (await LayerDocumentAsync(context, faces, serviceName, id).ConfigureAwait(false) is not { } document)
-            {
-                await RefuseAsync(context, 502, $"Layer {id}'s own document could not be read for the replica.").ConfigureAwait(false);
-                return;
-            }
-
-            if (Filter.Of(query, request, described, out string? why) is not { } filter)
-            {
-                await RefuseAsync(context, 400, $"layerQueries: layer {id}'s where could not be read: {why}").ConfigureAwait(false);
-                return;
-            }
-
-            if (request.Registered)
-            {
-                if (GlobalIds.FieldOf(described.Fields) is null)
-                {
-                    await RefuseAsync(context, 400,
-                        $"Layer {id} ('{layer.Definition.Name}') has no GlobalID, which a synchronised replica names its rows by. "
-                        + "Add GlobalIDs to it first, or take a copy that is not synchronised (syncModel=none).").ConfigureAwait(false);
-                    return;
-                }
-
-                if (!await connections.HistoryFor(layer).IsOnAsync(cancellation).ConfigureAwait(false))
-                {
-                    await RefuseAsync(context, 409,
-                        $"Layer {id} ('{layer.Definition.Name}') no longer keeps its history, which sync is read from. "
-                        + "Turn sync off and on again on the service (ADR-288 §5.3).").ConfigureAwait(false);
-                    return;
-                }
-            }
-
-            planned.Add(new Planned(id, layer, source, described, document, filter));
-        }
-
-        if (await WktsAsync(context, planned.Select(p => p.Wkid), cancellation).ConfigureAwait(false) is not { } wkts)
-        {
+            await RefuseAsync(context, refusal.Status, refusal.Message).ConfigureAwait(false);
             return;
         }
 
         ReplicaJobs jobs = services.GetRequiredService<ReplicaJobs>();
-        IOfflineSyncStore store = services.GetRequiredService<IOfflineSyncStore>();
+
         if (jobs.Start(caller.Principal.Id, service.Id, "esriReplicaResponseTypeData") is not { } job)
         {
             await BusyAsync(context).ConfigureAwait(false);
             return;
         }
 
-        Guid? replicaId = request.Registered ? Guid.NewGuid() : null;
+        Guid? replicaId = request!.Registered ? Guid.NewGuid() : null;
         DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
         string serviceUrl = TileFaces.Origin(context) + FeatureServerPath(context);
-        string serviceDocument = Encoding.UTF8.GetString(serviceBody);
-        string ownerName = caller.Principal.Name;
+        ReplicaOwner owner = new(caller.Principal.Id, caller.Principal.Name);
 
         job.ReplicaName = request.Name;
         job.ReplicaId = replicaId;
@@ -357,41 +319,13 @@ internal static class OfflineReplicaEndpoints
             job.Status = "ExportingData";
             job.Updated = jobs.Now;
 
-            // The copy of a registered replica is the layer as it was at its generation, so the first sync begins exactly
-            // where the copy ends; a snapshot is the layer as it is.
-            DateTimeOffset? moment = request.Registered ? generation : null;
-            List<OfflineLayer> layers = [];
-
-            foreach (Planned p in planned)
-            {
-                OfflineLayer shape = OfflineReplicaShapes.Layer(service.Name, p.Id, p.Document, wkts[p.Wkid], _ => Empty<OfflineRow>(), _ => Empty<OfflineAttachment>());
-                layers.Add(shape with
-                {
-                    Rows = token => RowsAsync(p, shape.Fields, moment, null, token),
-                    Attachments = token => request.ReturnAttachments && shape.HasAttachments && p.Filter.Option != "none"
-                        ? AttachmentsAsync(connections, p, shape, moment, token)
-                        : Empty<OfflineAttachment>(),
-                });
-            }
-
-            Envelope area = request.Extent ?? Union(layers.Select(l => l.Extent)) ?? new Envelope(0, 0, 0, 0);
-            List<ReplicaLayer> generations = [.. planned.Select(p => new ReplicaLayer(
-                p.Id, generation.ToUnixTimeMilliseconds(), p.Filter.Option, p.Filter.Where, p.Filter.UseGeometry))];
-
-            OfflineReplica? replica = replicaId is { } rid
-                ? new OfflineReplica(rid, request.Name, serviceUrl, ownerName, generation.ToUnixTimeMilliseconds(), generation, area, request.Srid)
-                : null;
-
             string file = jobs.FileFor(job);
-            await writer.WriteAsync(new OfflineCopy(service.Name, serviceDocument, layers, replica), file, stopping).ConfigureAwait(false);
+            IReadOnlyList<ReplicaLayer> generations = await OfflinePackager.WriteAsync(
+                services, writer, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false);
             job.File = file;
 
-            if (replicaId is { } registered)
+            if (replicaId is not null)
             {
-                await store.CreateAsync(new ReplicaRecord(
-                    registered, request.Name, service.Id, caller.Principal.Id, ownerName, "perLayer", generations,
-                    request.ReturnAttachments, request.AttachmentsSyncDirection, request.GeometryJson, request.Srid,
-                    generation, generation), stopping).ConfigureAwait(false);
                 job.Generations = generations;
             }
 
@@ -1004,7 +938,7 @@ internal static class OfflineReplicaEndpoints
     // ------------------------------------------------------------------------------------------------ reading rows
 
     /// <summary>A layer of a replica, with what its rows are read through.</summary>
-    private sealed record Planned(
+    internal sealed record Planned(
         int Id, PublishedLayer Layer, IFeatureSource Source, LayerDescription Described, string Document, Filter Filter)
     {
         /// <summary>The reference its document states, which its rows are read in.</summary>
@@ -1012,7 +946,7 @@ internal static class OfflineReplicaEndpoints
     }
 
     /// <summary>What a layer's rows are filtered by in a replica.</summary>
-    private sealed record Filter(string Option, string Where, bool UseGeometry, ParsedWhere? Parsed, Geometry? Area, int AreaSrid)
+    internal sealed record Filter(string Option, string Where, bool UseGeometry, ParsedWhere? Parsed, Geometry? Area, int AreaSrid)
     {
         public static Filter? Of(ReplicaLayerQuery query, CreateReplicaRequest request, LayerDescription described, out string? why)
         {
@@ -1046,7 +980,7 @@ internal static class OfflineReplicaEndpoints
     /// A layer's rows as the port carries them, in object id order: those its filter keeps, at <paramref name="moment"/>
     /// or now, and only those of <paramref name="ids"/> when given.
     /// </summary>
-    private static async IAsyncEnumerable<OfflineRow> RowsAsync(
+    internal static async IAsyncEnumerable<OfflineRow> RowsAsync(
         Planned p, IReadOnlyList<OfflineField> fields, DateTimeOffset? moment, IReadOnlyList<long>? ids,
         [EnumeratorCancellation] CancellationToken cancellation)
     {
@@ -1116,7 +1050,7 @@ internal static class OfflineReplicaEndpoints
     }
 
     /// <summary>The attachments of the rows a replica holds, each read whole, as the port carries them.</summary>
-    private static async IAsyncEnumerable<OfflineAttachment> AttachmentsAsync(
+    internal static async IAsyncEnumerable<OfflineAttachment> AttachmentsAsync(
         LayerConnections connections, Planned p, OfflineLayer shape, DateTimeOffset? moment,
         [EnumeratorCancellation] CancellationToken cancellation)
     {
@@ -1427,22 +1361,13 @@ internal static class OfflineReplicaEndpoints
     /// <summary>The WKT of each reference, from the datastore's own definitions; null after answering when one is unknown.</summary>
     private static async Task<Dictionary<int, string>?> WktsAsync(HttpContext context, IEnumerable<int> wkids, CancellationToken cancellation)
     {
-        NpgsqlDataSource db = context.RequestServices.GetRequiredKeyedService<NpgsqlDataSource>(Program.DatastorePool);
-        Dictionary<int, string> wkts = [];
+        (Dictionary<int, string>? wkts, PackageRefusal? refusal) =
+            await OfflinePackager.WktsAsync(context.RequestServices, wkids, cancellation).ConfigureAwait(false);
 
-        foreach (int wkid in wkids.Distinct())
+        if (refusal is not null)
         {
-            await using NpgsqlCommand command = db.CreateCommand("select srtext from spatial_ref_sys where srid = @srid");
-            command.Parameters.AddWithValue("srid", wkid);
-
-            if (await command.ExecuteScalarAsync(cancellation).ConfigureAwait(false) is not string wkt || wkt.Length == 0)
-            {
-                await RefuseAsync(context, 409,
-                    $"The datastore has no definition of reference {wkid}, which the offline copy must state.").ConfigureAwait(false);
-                return null;
-            }
-
-            wkts[wkid] = wkt;
+            await RefuseAsync(context, refusal.Status, refusal.Message).ConfigureAwait(false);
+            return null;
         }
 
         return wkts;
@@ -1456,7 +1381,7 @@ internal static class OfflineReplicaEndpoints
 
     private static Dictionary<string, StringValues> Json() => new(StringComparer.OrdinalIgnoreCase) { ["f"] = "json" };
 
-    private static Envelope? Union(IEnumerable<Envelope?> boxes)
+    internal static Envelope? Union(IEnumerable<Envelope?> boxes)
     {
         Envelope? sofar = null;
 
@@ -1476,7 +1401,7 @@ internal static class OfflineReplicaEndpoints
     }
 
 #pragma warning disable CS1998 // an empty sequence awaits nothing
-    private static async IAsyncEnumerable<T> Empty<T>()
+    internal static async IAsyncEnumerable<T> Empty<T>()
     {
         yield break;
     }

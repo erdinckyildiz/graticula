@@ -476,6 +476,11 @@ public static class Program
             System.IO.Path.Combine(services.GetRequiredService<HostSettings>().TileExportDirectory, "replicas"),
             services.GetRequiredService<TimeProvider>()));
 
+        // ADR-288 §11a: preplanned map areas, their packages, and the files those packages are.
+        builder.Services.AddSingleton<IMapAreaStore>(services =>
+            new PostgresMapAreaStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => new MapAreaPackageFiles(services.GetRequiredService<HostSettings>().ServerDirectoryRoot));
+
         builder.Services.AddSingleton(services =>
             ActivatorUtilities.CreateInstance<FeatureExporter>(
                 services,
@@ -4318,28 +4323,19 @@ public static class Program
 
 
 
-    private static async Task ServiceMetadataAsync(
+    /// <summary>
+    /// The service's own document, <c>FeatureServer?f=json</c>, as this caller is answered it — built from a request the
+    /// caller holds, written by <see cref="ServiceMetadataAsync"/> to its response and by a map area's packaging into a
+    /// replica's file (ADR-288 §11a), so the two cannot differ.
+    /// </summary>
+    internal static async Task<object> ServiceDocumentAsync(
         HttpContext context,
-        string serviceName,
-        CatalogFallback catalog,
+        PublishedService service,
         ServiceContexts contexts,
         HostSettings settings,
         IProjector projector,
         CancellationToken cancellation)
     {
-        // <b>The feature face's door, which carries the <c>AllowsFeatures</c> check.</b> ADR-031
-        // condition 2: a service whose feature face is configured off answers as absent. This
-        // used to be three lines written out here, and being written out here is how two other
-        // routes came to be missing them — see `ServiceLookup.FeatureServiceAsync`.
-        PublishedService? service = await ServiceLookup
-            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
-            .ConfigureAwait(false);
-
-        if (service is null)
-        {
-            return;
-        }
-
         // <b>Every layer's extent, which means every layer's shape query.</b>
         // ServiceContexts caches those for thirty seconds, so a three-layer
         // service costs three cached reads rather than three round trips — but
@@ -4445,6 +4441,75 @@ public static class Program
         string serviceItemId = PortalEndpoints.ItemIdOf(service, "FeatureServer");
         document = ServiceItem.Apply(context, document, serviceItemId);
 
+        return document;
+    }
+
+    /// <summary>
+    /// The service's own document as the text <c>FeatureServer?f=json</c> answers this caller, built from a request the
+    /// caller holds and serialised as a response is (ADR-288 §11a).
+    /// </summary>
+    internal static async Task<string> ServiceDocumentTextAsync(
+        HttpContext context, PublishedService service, CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        object document = await ServiceDocumentAsync(
+            context, service, services.GetRequiredService<ServiceContexts>(), services.GetRequiredService<HostSettings>(),
+            services.GetRequiredService<IProjector>(), cancellation).ConfigureAwait(false);
+
+        return System.Text.Json.JsonSerializer.Serialize(document, ResponseJson(context));
+    }
+
+    /// <summary>
+    /// A layer's or table's own document as the text <c>FeatureServer/{id}?f=json</c> answers this caller, or null when the
+    /// service has no such layer.
+    /// </summary>
+    internal static async Task<string?> LayerDocumentTextAsync(
+        HttpContext context, PublishedService service, int layerId, CancellationToken cancellation)
+    {
+        if (service.LayerOrTable(layerId) is not { } layer)
+        {
+            return null;
+        }
+
+        IServiceProvider services = context.RequestServices;
+        (object document, _) = await LayerDocumentAsync(
+            context, layer, services.GetRequiredService<ServiceContexts>(), services.GetRequiredService<PostgresRelationshipCatalog>(),
+            services.GetRequiredService<CatalogFallback>(), services.GetRequiredService<HostSettings>(),
+            services.GetRequiredService<IProjector>(), cancellation, service).ConfigureAwait(false);
+
+        return System.Text.Json.JsonSerializer.Serialize(document, ResponseJson(context));
+    }
+
+    /// <summary>The serialiser options a minimal-API response is written with.</summary>
+    private static System.Text.Json.JsonSerializerOptions ResponseJson(HttpContext context) =>
+        context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value.SerializerOptions;
+
+    private static async Task ServiceMetadataAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        HostSettings settings,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        // <b>The feature face's door, which carries the <c>AllowsFeatures</c> check.</b> ADR-031
+        // condition 2: a service whose feature face is configured off answers as absent. This
+        // used to be three lines written out here, and being written out here is how two other
+        // routes came to be missing them — see `ServiceLookup.FeatureServiceAsync`.
+        PublishedService? service = await ServiceLookup
+            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return;
+        }
+
+        object document = await ServiceDocumentAsync(context, service, contexts, settings, projector, cancellation)
+            .ConfigureAwait(false);
+
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
             await Results.Content(
@@ -4489,7 +4554,7 @@ public static class Program
                         WmsEndpoints.DirectoryLink(null, null, 0),
                         OgcFeaturesEndpoints.DirectoryLink(null),
                     ],
-                    serviceItemId: serviceItemId),
+                    serviceItemId: PortalEndpoints.ItemIdOf(service, "FeatureServer")),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -4696,7 +4761,7 @@ public static class Program
     /// invites its caller to recompute the other, which is how a cheap call becomes a habit.
     /// </para>
     /// </returns>
-    private static async Task<(object Document, LayerDescription Description)> LayerDocumentAsync(
+    internal static async Task<(object Document, LayerDescription Description)> LayerDocumentAsync(
         HttpContext context,
         PublishedLayer layer,
         ServiceContexts contexts,
