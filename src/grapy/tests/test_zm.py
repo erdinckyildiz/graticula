@@ -220,9 +220,12 @@ class ZTools(unittest.TestCase):
                                     (arcpy.Polyline(arcpy.Array([arcpy.Point(5, 10), arcpy.Point(100, 10)]), 3857),)],
                           "DISABLED")
         out = arcpy.ddd.InterpolateShape(surface, flat, os.path.join(self.directory, "draped.gpkg"), 5).getOutput(0)
-        # Densified every 5: x = 5, 10, 15 between the centres valued 0 and 10. The second line leaves the raster and
-        # is left out.
-        self.assertEqual(self.zcoords(out), [[(5.0, 10.0, 0.0), (10.0, 10.0, 5.0), (15.0, 10.0, 10.0)]])
+        # Densified at 5: 10 units into floor(10 / 5) + 1 = 3 equal pieces, as ArcGIS Pro 3.7 densifies (measured
+        # 2026-11-08; grapy cut 2), between the centres valued 0 and 10. The second line leaves the raster and is left
+        # out.
+        got = [[tuple(round(v, 9) for v in p) for p in part] for part in self.zcoords(out)]
+        self.assertEqual(got, [[(5.0, 10.0, 0.0), (8.333333333, 10.0, 3.333333333), (11.666666667, 10.0, 6.666666667),
+                                (15.0, 10.0, 10.0)]])
         lifted = self.lines("lifted", [(0, self.zline((5, 10, 99), (10, 10, 99))), (0, self.zline((5, 10, 99), (100, 10, 99)))],
                             fields=[("ok", "LONG")])
         arcpy.ddd.UpdateFeatureZ(lifted, surface, status_field="ok")

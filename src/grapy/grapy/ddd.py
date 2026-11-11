@@ -591,10 +591,31 @@ def Near3D(in_features, near_features, search_radius=None, location="NO_LOCATION
 
 
 def _densified(shape, step):
-    """Each segment divided into the fewest equal pieces no longer than ``step``, as grapy's Densify divides them."""
+    """Each segment divided into floor(length / step) + 1 equal pieces — always shorter than ``step``, so a 600 m
+    segment at 10 m becomes 61 pieces of 9.84 m: ArcGIS Pro 3.7's InterpolateShape writes exactly those vertices on
+    every line of the sweep (measured 2026-11-08; grapy divided into the fewest pieces no longer than the step, 60)."""
     if step is None or shape.geom_type in ("Point", "MultiPoint"):
         return shape
-    return _shapely.segmentize(_shapely.force_2d(shape), step)
+    step = float(step)
+    flat = _shapely.force_2d(shape)
+
+    def ring(coords):
+        points = np.asarray(coords, dtype=float)[:, :2]
+        out = [points[0]]
+        for p0, p1 in zip(points[:-1], points[1:]):
+            n = int(_math.floor(float(np.hypot(*(p1 - p0))) / step + 1e-12)) + 1
+            out.extend(p0 + (p1 - p0) * (k / n) for k in range(1, n + 1))
+        return np.array(out)
+    from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
+    if flat.geom_type == "LineString":
+        return LineString(ring(flat.coords))
+    if flat.geom_type == "MultiLineString":
+        return MultiLineString([ring(g.coords) for g in flat.geoms])
+    if flat.geom_type == "Polygon":
+        return Polygon(ring(flat.exterior.coords), [ring(i.coords) for i in flat.interiors])
+    if flat.geom_type == "MultiPolygon":
+        return MultiPolygon([Polygon(ring(g.exterior.coords), [ring(i.coords) for i in g.interiors]) for g in flat.geoms])
+    return _shapely.segmentize(flat, step)
 
 
 def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_distance=None, z_factor=1, method="BILINEAR",

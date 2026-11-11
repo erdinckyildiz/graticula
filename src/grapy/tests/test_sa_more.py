@@ -139,18 +139,19 @@ class More(_Fixture):
         per_km = cells(sa.PointDensity(points, "NONE", 10, sa.NbrCircle(10, "MAP")))
         self.assertAlmostEqual(per_km[0][0], 1e6 / (100 * math.pi), places=3)
         lines = self.features("l", "POLYLINE", [(arcpy.Polyline(arcpy.Array([arcpy.Point(0, 0), arcpy.Point(20, 0)]), 3857),)])
-        # One row of two cells, centres (5,−5) and (15,−5). The circle of 10 round (5,−5) meets y = 0 for
-        # x = 5 ± √75, of which 0 … 5 + √75 is on the line.
+        # One row of three cells centred on the line's extent's corner, as Pro 3.7 lays it (measured 2026-11-08):
+        # centres (0,0), (10,0) and (20,0). The circle of 10 round (0,0) holds 0 … 10 of the line; round (10,0) all 20.
         line_density = cells(sa.LineDensity(lines, "NONE", 10, 10, "SQUARE_MAP_UNITS"))
-        self.assertAlmostEqual(line_density[0][0], (5 + math.sqrt(75)) / (100 * math.pi))
+        self.assertAlmostEqual(line_density[0][0], 10 / (100 * math.pi))
         # In kilometres per square kilometre: metres per square metre times 1000.
-        self.assertAlmostEqual(cells(sa.LineDensity(lines, "NONE", 10, 10))[0][1], 1000 * (5 + math.sqrt(75)) / (100 * math.pi), places=4)
+        self.assertAlmostEqual(cells(sa.LineDensity(lines, "NONE", 10, 10))[0][1], 1000 * 20 / (100 * math.pi), places=4)
 
     # ---- distance
 
     def test_euclidean_direction_and_allocation(self):
         source = grid([[-9, -9, -9], [-9, 1, -9], [-9, -9, -9]], nodata=-9)
-        self.assertEqual(cells(sa.EucDirection(source)), [[315.0, 360.0, 45.0], [270.0, 0.0, 90.0], [225.0, 180.0, 135.0]])
+        # Toward the source, in whole degrees: Pro 3.7 measured 2026-11-08 (was the bearing from the source).
+        self.assertEqual(cells(sa.EucDirection(source)), [[135, 180, 225], [90, 0, 270], [45, 360, 315]])
         two = grid([[1, -9, -9], [-9, -9, -9], [-9, -9, 2]], nodata=-9)
         allocated = cells(sa.EucAllocation(two))
         self.assertEqual((allocated[0][1], allocated[1][0], allocated[2][1], allocated[1][2]), (1, 1, 2, 2))
@@ -236,9 +237,10 @@ class RoundFour(_Fixture):
         a, b = grid([[0.2, 0.9]]), grid([[0.5, 0.4]])
         self.assertEqual(cells(sa.FuzzyOverlay([a, b], "AND")), [[0.2, 0.4]])
         self.assertEqual(cells(sa.FuzzyOverlay([a, b], "OR")), [[0.5, 0.9]])
-        for kind in (None, "SUM"):
-            with self.assertRaises(arcpy.NotBuiltError):
-                sa.FuzzyOverlay([a, b], kind)
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.FuzzyOverlay([a, b], None)
+        # PRODUCT, SUM and GAMMA by How Fuzzy Overlay works, built after ArcGIS Pro 3.7 was measured (2026-11-08).
+        self.assertEqual([round(v, 6) for v in cells(sa.FuzzyOverlay([a, b], "SUM"))[0]], [0.6, 0.94])
         # Bits 12 and 13 (4096 + 8192) move to bits 0 and 1; a fill of 8 keeps bit 3.
         bits = grid([[12288, 4096]])
         self.assertEqual(cells(sa.TransposeBits(bits)), [[3, 1]])
@@ -257,12 +259,12 @@ class RoundFour(_Fixture):
         lines = self.features("ls", "POLYLINE", [
             (2.0, arcpy.Polyline(arcpy.Array([arcpy.Point(0, 0), arcpy.Point(20, 0)]), 3857)),
             (4.0, arcpy.Polyline(arcpy.Array([arcpy.Point(0, 10), arcpy.Point(20, 10)]), 3857))], [("v", "DOUBLE")])
-        # One row of two cells, centres (5,5) and (15,5); each line is 5 from the centre, so √75 either side of x = 5
-        # lies in the circle of 10, cut at x = 0: 5 + √75 of each.
-        inside = 5 + math.sqrt(75)
-        self.assertAlmostEqual(cells(sa.LineStatistics(lines, "v", 10, 10))[0][0], 3.0)
-        self.assertAlmostEqual(cells(sa.LineStatistics(lines, "v", 10, 10, "LENGTH"))[0][0], 2 * inside)
-        self.assertEqual(cells(sa.LineStatistics(lines, "v", 10, 10, "RANGE"))[0][0], 2.0)
+        # Two rows of three cells centred on the lines' extent's corner (Pro 3.7, measured 2026-11-08): the centre
+        # (10,0) is row 1, column 1. The circle of 15 round it holds both lines whole (the upper is 10 away, so
+        # √125 > 10 either side of x = 10): mean 3, LENGTH Σ length·value = 120, range 2.
+        self.assertAlmostEqual(cells(sa.LineStatistics(lines, "v", 10, 15))[1][1], 3.0)
+        self.assertAlmostEqual(cells(sa.LineStatistics(lines, "v", 10, 15, "LENGTH"))[1][1], 120.0)  # 20·2 + 20·4: Pro 3.7
+        self.assertEqual(cells(sa.LineStatistics(lines, "v", 10, 15, "RANGE"))[1][1], 2.0)
         with self.assertRaises(arcpy.NotBuiltError):
             sa.LineStatistics(lines, "v", 10, 10, "MEDIAN")
 
@@ -296,13 +298,15 @@ class Equivalents(_Fixture):
 
     def test_kernel_density_is_silvermans_quartic_kernel(self):
         points = self.features("kd", "POINT", [(point(0, 0),), (point(20, 0),)])
-        # One row of 10-unit cells, centres (5,−5) and (15,−5). From (5,−5) the point (0,0) is √50 away: the kernel is
-        # 3/(π·10²)·(1 − 50/100)² = 0.75/(100π); (20,0) is √250 away, beyond the radius of 10.
+        # One row of 10-unit cells centred on the points' extent's corner, as Pro 3.7 lays it (measured 2026-11-08):
+        # centres (0,0), (10,0) and (20,0). At (0,0) the point there gives the kernel's peak, 3/(π·10²); (20,0) is 20
+        # away, beyond the radius. At (10,0) both points lie exactly on the radius and give nothing: 0, as Pro writes.
         density = cells(sa.KernelDensity(points, "NONE", 10, 10, "SQUARE_MAP_UNITS"))
-        self.assertAlmostEqual(density[0][0], 0.75 / (100 * math.pi))
-        self.assertAlmostEqual(density[0][1], 0.75 / (100 * math.pi))
+        self.assertAlmostEqual(density[0][0], 3 / (100 * math.pi))
+        self.assertEqual(density[0][1], 0.0)
+        self.assertAlmostEqual(density[0][2], 3 / (100 * math.pi))
         counts = cells(sa.KernelDensity(points, "NONE", 10, 10, out_cell_values="EXPECTED_COUNTS"))
-        self.assertAlmostEqual(counts[0][0], 0.75 / math.pi)
+        self.assertAlmostEqual(counts[0][0], 3 / math.pi)
         # Silverman's rule: the mean centre is (10,0), SD = 10, the median distance 10, so the spread is
         # min(10, 10·√(1/ln 2)) = 10 and the radius 0.9 · 10 · 2^(−0.2).
         self.assertAlmostEqual(sa._silverman_radius(np.array([0.0, 20.0]), np.array([0.0, 0.0]), np.ones(2)),
@@ -400,8 +404,10 @@ class Equivalents(_Fixture):
         # The centre's mean is 5; the corner sees only 1, 2, 4 and 5.
         self.assertEqual((low[1][1], low[0][0]), (5.0, 3.0))
         high = cells(sa.Filter(nine, "HIGH"))
-        # 8·5 less the eight neighbours (40) is 0; at the corner 3·1 − (2 + 4 + 5) = −8.
-        self.assertEqual((high[1][1], high[0][0]), (0.0, -8.0))
+        # Esri's kernel, 6.8 centre, −1 sides, −0.7 corners, over the valid cells (Pro 3.7 measured 2026-11-08): 34 − 20
+        # − 14 = 0 at the centre; at the corner 6.8·1 − (2 + 4) − 0.7·5 = −2.7.
+        self.assertEqual(high[1][1], 0.0)
+        self.assertAlmostEqual(high[0][0], -2.7)
         a, b = grid([[1, -9]], nodata=-9), grid([[3, 4]])
         self.assertEqual(cells(sa.Merge([a, b])), [[1, 4]])
         self.assertEqual(cells(sa.Merge([a, b], "LAST")), [[3, 4]])

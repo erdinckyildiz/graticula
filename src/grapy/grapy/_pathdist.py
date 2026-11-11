@@ -1354,12 +1354,15 @@ def _write_paths(out_polyline_features, grid, rows, fields):
 def CostPathAsPolyline(in_destination_data, in_cost_distance_raster, in_cost_backlink_raster, out_polyline_features,
                        path_type="BEST_SINGLE", destination_field=None, force_flow_direction_convention=None):
     """The least-cost paths as lines through the cell centres from each destination to its source, with ``DestID``
-    the destination's value. A path is written whole even where it runs with another (INFERRED)."""
-    traces, values, _, grid = _cost_paths("CostPathAsPolyline", in_destination_data, in_cost_distance_raster,
-                                          in_cost_backlink_raster, path_type, destination_field,
-                                          force_flow_direction_convention)
-    rows = [(int(values[start]), [_centre(grid, r, k) for r, k in path]) for start, path, _ in traces]
-    return _write_paths(out_polyline_features, grid, rows, [("DestID", "Integer")])
+    the destination's value and ``PathCost`` the accumulated cost at the destination — the field ArcGIS Pro 3.7 writes
+    first (measured 2026-11-08; grapy wrote DestID alone). A path is written whole even where it runs with another
+    (INFERRED)."""
+    traces, values, distance, grid = _cost_paths("CostPathAsPolyline", in_destination_data, in_cost_distance_raster,
+                                                 in_cost_backlink_raster, path_type, destination_field,
+                                                 force_flow_direction_convention)
+    rows = [(float(distance._array[start]), int(values[start]), [_centre(grid, r, k) for r, k in path])
+            for start, path, _ in traces]
+    return _write_paths(out_polyline_features, grid, rows, [("PathCost", "Double"), ("DestID", "Integer")])
 
 
 def _edge_azimuth(direction, mask, r, k, cell):

@@ -782,18 +782,22 @@ def _boolean(a, b, operation):
 
 
 def NumPyArrayToRaster(in_array, lower_left_corner=None, x_cell_size=1, y_cell_size=None, value_to_nodata=None):
-    """A raster from a two-dimensional array; the first row is the northern one, as arcpy's is."""
+    """A raster from a two-dimensional array — or, from a three-dimensional one, a raster of one band per first index
+    (bands, rows, columns), as the page documents; the first row is the northern one, as arcpy's is."""
     array = np.asarray(in_array)
-    if array.ndim != 2:
-        raise NotBuiltError("NumPyArrayToRaster: only two-dimensional arrays are built in grapy yet.")
+    if array.ndim not in (2, 3):
+        raise NotBuiltError("NumPyArrayToRaster: only two- and three-dimensional arrays are built in grapy yet.")
     x0, y0 = (lower_left_corner.X, lower_left_corner.Y) if lower_left_corner is not None else (0.0, 0.0)
     height = float(y_cell_size if y_cell_size is not None else x_cell_size)
-    grid = _Grid(x0, y0 + array.shape[0] * height, float(x_cell_size), height, array.shape[0], array.shape[1],
+    grid = _Grid(x0, y0 + array.shape[-2] * height, float(x_cell_size), height, array.shape[-2], array.shape[-1],
                  getattr(getattr(env, "outputCoordinateSystem", None), "factoryCode", 0) or 0)
     mask = np.zeros(array.shape, bool) if value_to_nodata is None else array == value_to_nodata
     if np.issubdtype(array.dtype, np.floating):
         mask |= np.isnan(array)
-    raster = Raster._of(array.copy(), mask, grid)
+    if array.ndim == 3:
+        raster = Raster._of_bands([a.copy() for a in array], list(mask), grid)
+    else:
+        raster = Raster._of(array.copy(), mask, grid)
     if value_to_nodata is not None:
         # The raster's NoData value is the one given: ArcGIS Pro 3.7 answers -1.0 for value_to_nodata=-1 on a float
         # array (measured 2026-11-08), where the cell type's own was answered before.
@@ -802,12 +806,16 @@ def NumPyArrayToRaster(in_array, lower_left_corner=None, x_cell_size=1, y_cell_s
 
 
 def RasterToNumPyArray(in_raster, lower_left_corner=None, ncols=None, nrows=None, nodata_to_value=None):
-    """The cells as an array, NoData written as ``nodata_to_value`` (arcpy's default: the raster's own NoData value)."""
-    raster = as_raster(in_raster, "RasterToNumPyArray")
+    """The cells as an array, NoData written as ``nodata_to_value`` (arcpy's default: the raster's own NoData value).
+    A raster of several bands answers a three-dimensional array, (bands, rows, columns), as the page documents."""
+    raster = as_raster(in_raster, "RasterToNumPyArray", bands=True)
     fill = raster.noDataValue if nodata_to_value is None else nodata_to_value
     if fill is None:
         fill = raster._fill()   # a file that declares no NoData has no NoData cell to fill
-    array, mask = raster._array, raster._mask
+    if raster.bandCount > 1:
+        array, mask = np.stack(raster._arrays), np.stack(raster._masks)
+    else:
+        array, mask = raster._array, raster._mask
     if lower_left_corner is not None or ncols is not None or nrows is not None:
         # A window: from the cell holding lower_left_corner (the raster's lower-left by default), ncols to the right
         # and nrows up, as documented; ArcGIS Pro 3.7 reads 3 rows of 4 from a corner on a cell boundary starting at

@@ -164,6 +164,10 @@ def main():
             for output, path in made.items():
                 if os.path.isdir(path):
                     continue
+                if not os.path.exists(path) and not ap.Exists(path):
+                    # An output a case named but no tool wrote — an option one side refuses (the case's _try) — is
+                    # left out; compare.py reports it as written on the other side only.
+                    continue
                 dump(ap, path, os.path.join(folder, output))
             summary[name] = {"ok": True, "seconds": round(time.time() - started, 2)}
         except Exception as error:  # noqa: BLE001 — a side's refusal is part of the comparison

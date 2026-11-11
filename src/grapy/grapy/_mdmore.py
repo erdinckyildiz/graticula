@@ -134,7 +134,11 @@ def Subset(in_raster, variables=None, dimension_definitions=None):
 
 # Raster function argument names (Raster function objects, as the Foreach page's sample passes them) that are not the
 # Python parameter of grapy's function of the same name.
-_ALIASES = {"ndvi": {"visiblebandid": "red_band_id", "infraredbandid": "nir_band_id"}}
+_ALIASES = {"ndvi": {"visiblebandid": "red_band_id", "infraredbandid": "nir_band_id"},
+            "arithmetic": {"operation": "operation_type"}}
+# The Arithmetic raster function's operation codes, as its argument takes them: ArcGIS Pro 3.7's Foreach with
+# {"Raster2": 2, "Operation": 3} doubles every slice (measured 2026-11-08).
+_OPERATIONS = {1: "Plus", 2: "Minus", 3: "Multiply", 4: "Divide", 5: "Power", 6: "Mode"}
 
 
 def _norm(name):
@@ -168,8 +172,13 @@ def _call(name, function, slice_raster, arguments):
         if k in ("raster", "inraster", "raster1") and params:
             continue
         if k == "raster2" and len(params) > 1:
+            # A Raster2 given — a constant or a raster — is the second operand: Pro multiplies each slice by the 2 of
+            # {"Raster2": 2} (measured 2026-11-08); grapy put the slice there too.
+            kwargs[params[1].name] = value
             continue
         target = by_norm.get(k) or aliases.get(k)
+        if _norm(name) == "arithmetic" and target == "operation_type" and isinstance(value, (int, float)):
+            value = _OPERATIONS.get(int(value), value)
         if target is None and not takes_any:
             raise ValueError(f"Foreach: '{key}' is not an argument of {name}; its arguments are "
                              f"{', '.join(p.name for p in params[1:])}.")
