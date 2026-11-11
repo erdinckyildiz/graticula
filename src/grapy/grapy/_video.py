@@ -13,8 +13,8 @@ import csv
 import datetime as _dt
 import math
 import os
-import shlex
 
+from ._parameter import _tokens  # a Windows path in a value table keeps its backslashes
 from ._result import Result
 from ._runtime import AddMessage, ExecuteError
 from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
@@ -58,9 +58,9 @@ def _rows_of(value):
     if not _is_given(value):
         return []
     if isinstance(value, (list, tuple)):
-        rows = [list(r) if isinstance(r, (list, tuple)) else shlex.split(str(r)) for r in value]
+        rows = [list(r) if isinstance(r, (list, tuple)) else _tokens(str(r)) for r in value]
     else:
-        rows = [shlex.split(part) for part in str(value).split(";") if part.strip()]
+        rows = [_tokens(part) for part in str(value).split(";") if part.strip()]
     return [r + [""] * (3 - len(r)) for r in rows]
 
 

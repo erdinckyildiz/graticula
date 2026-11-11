@@ -634,9 +634,12 @@ def SurfaceVolume(in_surface, out_text_file=None, reference_plane="ABOVE", base_
     and no more, so how a cell's volume is formed is not specified (ADR-224 §5.4). A terrain is read at its pyramid
     level (ADR-234).
 
-    INFERRED: ``base_z`` defaults to 0; the file's header is ``Dataset,Plane_Height,Reference,Z_Factor,Area_2D,Area_3D,
-    Volume``, written once when the file is new; numbers are written with two decimals, as the page's example shows;
-    the areas are of the part above (or below) the plane."""
+    The file is written as ArcGIS Pro 3.7 writes it (measured 2026-11-08): a header ``Dataset, Plane_Height, Reference,
+    Z_Factor, Area_2D, Area_3D, Volume`` once when the file is new, values separated by a comma and a space, CRLF line
+    ends, the plane to two decimals, the reference in capitals, the z-factor to six decimals, the areas and volume to 14
+    significant digits, and a dataset path longer than 32 characters cut to ``..`` and its last 30 (one measurement).
+
+    INFERRED: ``base_z`` defaults to 0; the areas are of the part above (or below) the plane."""
     from ._runtime import AddMessage
     from . import _terrain
     from ._tin import exists
@@ -650,13 +653,16 @@ def SurfaceVolume(in_surface, out_text_file=None, reference_plane="ABOVE", base_
     zf = float(z_factor if _given(z_factor) else 1)
     plane = float(base_z if _given(base_z) else 0)
     area2d, area3d, total = volume(surface, plane, kind == "ABOVE", None, zf)
-    line = f"{in_surface},{plane:.2f},{kind.title()},{zf:g},{area2d:.2f},{area3d:.2f},{total:.2f}"
+    dataset = str(in_surface).replace("/", "\\")
+    if len(dataset) > 32:
+        dataset = ".." + dataset[-30:]
+    line = f"{dataset}, {plane:.2f}, {kind}, {zf:.6f}, {area2d:.14g}, {area3d:.14g}, {total:.14g}"
     AddMessage(line)
     if _given(out_text_file):
         new = not os.path.exists(out_text_file)
-        with open(out_text_file, "a", encoding="utf-8", newline="\n") as written:
+        with open(out_text_file, "a", encoding="utf-8", newline="\r\n") as written:
             if new:
-                written.write("Dataset,Plane_Height,Reference,Z_Factor,Area_2D,Area_3D,Volume\n")
+                written.write("Dataset, Plane_Height, Reference, Z_Factor, Area_2D, Area_3D, Volume\n")
             written.write(line + "\n")
     return Result(str(out_text_file) if _given(out_text_file) else "")
 

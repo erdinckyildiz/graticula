@@ -372,7 +372,9 @@ class LegacySurface(_Base):
         lines = self.features("l", "POLYLINE", [line])
         ddd.SurfaceLength(self.ramp, lines)
         ddd.SurfaceLength(self.ramp, lines, "Doubled", z_factor=2)
-        with da.SearchCursor(lines, ["SURFACE_LENGTH", "Doubled"]) as rows:
+        # The default field is SLength, as ArcGIS Pro 3.7 writes it (measured 2026-11-08; this test read SURFACE_LENGTH,
+        # grapy's inference, until then).
+        with da.SearchCursor(lines, ["SLength", "Doubled"]) as rows:
             length, doubled = next(iter(rows))
         self.assertAlmostEqual(length, math.hypot(30, 30), places=6)
         self.assertAlmostEqual(doubled, math.hypot(30, 60), places=6)

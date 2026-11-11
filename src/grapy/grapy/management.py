@@ -160,8 +160,11 @@ def CopyFeatures(in_features, out_feature_class, *_, **__):
     in_features, where = _source(in_features)
     connection, table = _gpkg.table_of(in_features)
     columns, shape, srid, _ = _gpkg.describe(connection, table)
+    # The copy keeps the input's z and m, as Pro's does under the default output Z and M environments (measured in
+    # ArcGIS Pro 3.7, 2026-11-08, by the ddd sweep: a copied 3D line class stayed 3D); until then grapy dropped them.
+    has_z, has_m = _gpkg.dimensions(connection, table)
     connection.close()
-    _gpkg.create(_path(out_feature_class), shape, srid, columns)
+    _gpkg.create(_path(out_feature_class), shape, srid, columns, has_z, has_m)
     names = [c.name for c in columns]
     with da.SearchCursor(in_features, [*names, "SHAPE@"], where) as rows, da.InsertCursor(_path(out_feature_class), [*names, "SHAPE@"]) as out:
         for row in rows:
@@ -1659,8 +1662,8 @@ def CalculateFields(in_table, expression_type, fields, code_block=None, enforce_
     scope: dict = {}
     if code_block:
         exec(code_block, scope)  # noqa: S102 — the tool's own code, in the tool's own fenced process (ADR-223 §5.3)
-    import shlex
-    entries = fields if isinstance(fields, (list, tuple)) else [shlex.split(e) for e in str(fields).split(";") if e.strip()]
+    from ._parameter import _tokens
+    entries = fields if isinstance(fields, (list, tuple)) else [_tokens(e) for e in str(fields).split(";") if e.strip()]
     for entry in entries:
         entry = list(entry)
         name, expression = entry[0], entry[1]

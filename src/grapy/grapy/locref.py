@@ -17,10 +17,10 @@ import csv
 import datetime
 import math
 import os
-import shlex
 
 import shapely
 
+from ._parameter import _tokens  # a Windows path in a value table keeps its backslashes
 from . import _gpkg
 from . import _lrs as L
 from . import _lrs_events as E
@@ -96,7 +96,7 @@ def _rows(value):
 
 
 def _cells(row):
-    return [str(c) for c in row] if isinstance(row, (list, tuple)) else shlex.split(str(row))
+    return [str(c) for c in row] if isinstance(row, (list, tuple)) else _tokens(str(row))
 
 
 def _workspace(in_workspace):

@@ -277,10 +277,13 @@ class Tin(unittest.TestCase):
         arcpy.ddd.SurfaceVolume(self.tin, text, "BELOW", 20)
         arcpy.ddd.SurfaceVolume(self.tin, text, "ABOVE", 10)
         header, below, above = open(text).read().splitlines()
-        self.assertEqual(header, "Dataset,Plane_Height,Reference,Z_Factor,Area_2D,Area_3D,Volume")
+        # The layout ArcGIS Pro 3.7 writes (measured 2026-11-08; this test pinned grapy's two-decimal inference before):
+        # ", " between values, the reference in capitals, z-factor to six decimals, numbers to 14 significant digits.
+        self.assertEqual(header, "Dataset, Plane_Height, Reference, Z_Factor, Area_2D, Area_3D, Volume")
         # Below 20: ∫(20 − x − y) over the square = 2000 − 1000. Above 10: the half x + y > 10, ∫(x + y − 10) = 166.67.
-        self.assertTrue(below.endswith(",20.00,Below,1,100.00,173.21,1000.00"), below)
-        self.assertTrue(above.endswith(",10.00,Above,1,50.00,86.60,166.67"), above)
+        self.assertTrue(below.endswith(", 20.00, BELOW, 1.000000, 100, 173.20508075689, 1000"), below)
+        self.assertTrue(above.endswith(", 10.00, ABOVE, 1.000000, 50, 86.602540378444, 166.66666666667"), above)
+        self.assertTrue(open(text, "rb").read().endswith(b"\r\n"))
 
     def test_polygon_volume_measures_within_each_polygon(self):
         whole = self.feature_class("whole", "POLYGON", [(10.0, shapely.MultiPolygon([shapely.box(0, 0, 10, 10)])),
@@ -456,7 +459,9 @@ class LandXmlAndDifference(unittest.TestCase):
         xml = os.path.join(self.directory, "surfaces.xml")
         open(xml, "w", encoding="utf-8").write(LANDXML)
         arcpy.ddd.LandXMLToTin(xml, self.directory, "s_", "1")
-        tin = os.path.join(self.directory, "s_Site1")
+        # One TIN is the base name alone, as ArcGIS Pro 3.7 names it (measured 2026-11-08; this test read s_Site1,
+        # grapy's inference, until then).
+        tin = os.path.join(self.directory, "s_")
         surface = _tin.load(tin)
         self.assertTrue(surface.constrained)
         self.assertEqual(surface.srid, 3857)

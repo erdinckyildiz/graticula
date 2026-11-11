@@ -53,16 +53,36 @@ def _value(v):
     return str(v)
 
 
+def _patch_vertices(shape):
+    """A multipatch as the MULTIPOINT Z of its distinct vertices, rounded to the millimetre: Pro cannot write a
+    multipatch as WKT (SHAPE@WKT raises "Internal error") and stores faces as triangle lists where grapy keeps rings,
+    so the vertices are what both sides can be compared on (added by the ddd sweep, 2026-11-08)."""
+    if shape is None:
+        return None
+    seen = set()
+    for part in shape:
+        for p in part:
+            if p is not None:
+                seen.add((round(p.X, 3), round(p.Y, 3), round(p.Z if p.Z is not None else 0.0, 3)))
+    if not seen:
+        return None
+    return "MULTIPOINT Z (" + ", ".join(f"({x} {y} {z})" for x, y, z in sorted(seen)) + ")"
+
+
 def dump_features(ap, path, out):
     desc = ap.Describe(path)
     fields = [(f.name, f.type) for f in ap.ListFields(path)
               if f.type not in ("Geometry", "OID", "Raster", "Blob", "GlobalID") and f.name.lower() not in ("shape_length",
                                                                                                "shape_area")]
     has_shape = getattr(desc, "shapeType", None) not in (None, "", "Table") and getattr(desc, "dataType", "") != "Table"
-    names = [n for n, _ in fields] + (["SHAPE@WKT"] if has_shape else [])
+    patch = getattr(desc, "shapeType", None) == "MultiPatch"
+    names = [n for n, _ in fields] + ((["SHAPE@"] if patch else ["SHAPE@WKT"]) if has_shape else [])
     rows = []
     with ap.da.SearchCursor(path, names) as cursor:
         for row in cursor:
+            row = list(row)
+            if patch:
+                row[-1] = _patch_vertices(row[-1])
             rows.append([_value(v) for v in row])
     srid = None
     try:

@@ -176,8 +176,10 @@ class ZTools(unittest.TestCase):
         path = self.lines("z", [(self.zline((0, 0, 0), (3, 4, 12), (6, 8, 12)),)])
         arcpy.ddd.AddZInformation(path, ["Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "MIN_SLOPE", "MAX_SLOPE",
                                          "AVG_SLOPE"])
-        with arcpy.da.SearchCursor(path, ["Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "MIN_SLOPE",
-                                          "MAX_SLOPE", "AVG_SLOPE"]) as rows:
+        # The fields are named as ArcGIS Pro 3.7 names them (measured 2026-11-08): Length3D and Vertex_Cnt, not the
+        # keywords this test read until then.
+        with arcpy.da.SearchCursor(path, ["Z_Min", "Z_Max", "Z_Mean", "Length3D", "Vertex_Cnt", "Min_Slope",
+                                          "Max_Slope", "Avg_Slope"]) as rows:
             got = next(rows)
         # Segments: run 5 rise 12 (3D 13, grade 240 %, mid z 6) and run 5 rise 0 (3D 5, grade 0, mid z 12).
         self.assertEqual(got[:2], (0.0, 12.0))
@@ -220,9 +222,13 @@ class ZTools(unittest.TestCase):
                                     (arcpy.Polyline(arcpy.Array([arcpy.Point(5, 10), arcpy.Point(100, 10)]), 3857),)],
                           "DISABLED")
         out = arcpy.ddd.InterpolateShape(surface, flat, os.path.join(self.directory, "draped.gpkg"), 5).getOutput(0)
-        # Densified every 5: x = 5, 10, 15 between the centres valued 0 and 10. The second line leaves the raster and
-        # is left out.
-        self.assertEqual(self.zcoords(out), [[(5.0, 10.0, 0.0), (10.0, 10.0, 5.0), (15.0, 10.0, 10.0)]])
+        # Densified into the fewest equal pieces shorter than 5 (measured in ArcGIS Pro 3.7, 2026-11-08; this test
+        # pinned pieces of exactly 5 before): 10 / 5 is 2, so 3 pieces, x = 5, 8.33, 11.67, 15 between the centres
+        # valued 0 and 10. The second line leaves the raster and is left out.
+        third = 10 / 3
+        self.assertEqual([[tuple(round(v, 9) for v in p) for p in part] for part in self.zcoords(out)],
+                         [[(5.0, 10.0, 0.0), (round(5 + third, 9), 10.0, round(third, 9)),
+                           (round(5 + 2 * third, 9), 10.0, round(2 * third, 9)), (15.0, 10.0, 10.0)]])
         lifted = self.lines("lifted", [(0, self.zline((5, 10, 99), (10, 10, 99))), (0, self.zline((5, 10, 99), (100, 10, 99)))],
                             fields=[("ok", "LONG")])
         arcpy.ddd.UpdateFeatureZ(lifted, surface, status_field="ok")

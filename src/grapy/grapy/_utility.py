@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 from collections import defaultdict, deque
 
 import shapely
@@ -39,6 +38,7 @@ from shapely.geometry import LineString, Point as ShapelyPoint, box
 from shapely.ops import substring, unary_union
 
 from . import _gpkg
+from ._parameter import _tokens  # a Windows path in a value table keeps its backslashes
 from ._runtime import ExecuteError, NotBuiltError
 from ._topology import register
 
@@ -1384,7 +1384,7 @@ def value_table(value, columns):
     rows = value if isinstance(value, (list, tuple)) else [r for r in str(value).split(";") if r.strip()]
     out = []
     for row in rows:
-        cells = list(row) if isinstance(row, (list, tuple)) else shlex.split(str(row))
+        cells = list(row) if isinstance(row, (list, tuple)) else _tokens(str(row))
         cells = [None if c is None or str(c).strip() in ("", "#") else c for c in cells]
         out.append(cells + [None] * (columns - len(cells)))
     return out

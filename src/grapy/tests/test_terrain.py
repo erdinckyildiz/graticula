@@ -482,7 +482,7 @@ class Terrain(unittest.TestCase):
         out = os.path.join(self.directory, "volume.txt")
         arcpy.ddd.SurfaceVolume(t, out, "BELOW", 100, 1, 4)
         line = open(out, encoding="utf-8").read().splitlines()[1].split(",")
-        self.assertEqual((float(line[-3]), float(line[-2]), float(line[-1])), (100.0, 244.95, 8500.0))
+        self.assertEqual((float(line[-3]), round(float(line[-2]), 2), float(line[-1])), (100.0, 244.95, 8500.0))
         lines = arcpy.management.CreateFeatureclass(self.gpkg, "lines", "POLYLINE", spatial_reference=3857)[0]
         polys = arcpy.management.CreateFeatureclass(self.gpkg, "polys", "POLYGON", spatial_reference=3857)[0]
         with da.InsertCursor(lines, ["SHAPE@"]) as cursor:

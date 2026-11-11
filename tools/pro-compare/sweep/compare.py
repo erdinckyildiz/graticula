@@ -23,6 +23,7 @@ import sys
 
 import numpy as np
 import shapely
+from scipy.spatial import cKDTree
 from shapely import wkt as _wkt
 
 IGNORED_FIELDS = {"objectid", "fid", "oid", "shape_length", "shape_area", "shape_leng", "shape_le_1"}
@@ -67,12 +68,48 @@ def _shape_distance(a, b):
     divided by LINE_TOL — so a value at or below 1 is within tolerance either way."""
     if a is None or b is None:
         return 0.0 if a is None and b is None else math.inf
-    if a.geom_type.endswith("Polygon") and b.geom_type.endswith("Polygon"):
-        area = max(a.area, b.area, 1e-12)
-        return shapely.symmetric_difference(shapely.make_valid(a), shapely.make_valid(b)).area / area / POLY_TOL
     if a.geom_type.endswith("Polygon") != b.geom_type.endswith("Polygon"):
         return math.inf
-    return shapely.hausdorff_distance(a, b) / LINE_TOL
+    if a.geom_type.endswith("Polygon"):
+        area = max(a.area, b.area, 1e-12)
+        flat = shapely.symmetric_difference(shapely.make_valid(shapely.force_2d(a)),
+                                            shapely.make_valid(shapely.force_2d(b))).area / area / POLY_TOL
+    else:
+        flat = shapely.hausdorff_distance(a, b) / LINE_TOL
+    return max(flat, _z_distance(a, b))
+
+
+def _z_distance(a, b):
+    """Shapely measures in 2D only; z is compared here (added by the ddd sweep, 2026-11-08). A shape with z against
+    one without is infinitely far. Otherwise, both ways, each vertex's z against the other shape's z at the same x and
+    y: along a line (or a polygon's rings) the z interpolated where the vertex projects onto it, so a line densified
+    differently still matches; among points (a multipatch's distinct vertices) the vertices nearest in x and y, the
+    closest z of those (a wall has two z at one x, y). The largest difference over LINE_TOL."""
+    if a.has_z != b.has_z:
+        return math.inf
+    if not a.has_z:
+        return 0.0
+    worst = 0.0
+    for p, q in ((a, b), (b, a)):
+        cp = shapely.get_coordinates(p, include_z=True)
+        if not len(cp):
+            continue
+        if q.geom_type.endswith(("LineString", "Polygon")):
+            line = q if q.geom_type.endswith("LineString") else q.boundary
+            for x, y, z in cp:
+                at = line.interpolate(line.project(shapely.Point(x, y)))
+                if at.has_z:
+                    worst = max(worst, abs(np.nan_to_num(z) - np.nan_to_num(at.z)))
+            continue
+        cq = shapely.get_coordinates(q, include_z=True)
+        if not len(cq):
+            continue
+        tree = cKDTree(cq[:, :2])
+        for x, y, z in cp:
+            d, _ = tree.query((x, y))
+            near = tree.query_ball_point((x, y), d + 1e-6)
+            worst = max(worst, min(abs(np.nan_to_num(z) - np.nan_to_num(cq[k, 2])) for k in near))
+    return float(worst) / LINE_TOL
 
 
 def compare_features(p, g):

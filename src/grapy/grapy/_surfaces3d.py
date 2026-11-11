@@ -1288,22 +1288,19 @@ def RegularizeAdjacentBuildingFootprint(in_features, group, out_feature_class, m
 
 
 def _profile_samples(line, target):
-    """(distance along the line, z) where the line meets each cell edge or triangle edge of the target, and at its
-    vertices; z is the target's surface there."""
+    """(distance along the line, z) at the line's samples over the target. Over a raster they are InterpolateShape's
+    — each segment cut into the fewest equal pieces shorter than the cell size, the height bilinear and reaching the
+    raster's edge (measured in ArcGIS Pro 3.7, 2026-11-08: a 600 m line over a 10 m raster gives 62 rows, the first
+    at the edge cells' height); over a TIN, its vertices and where it meets a triangle edge, z the surface's there."""
     import shapely
     kind, surface, name = target
     if kind == "raster":
-        sa = _sa()
-        g = surface._grid
-        xs = g.left + np.arange(g.columns + 1) * g.width
-        ys = g.top - np.arange(g.rows + 1) * g.height
-        edges = shapely.MultiLineString([[(x, ys[-1]), (x, ys[0])] for x in xs] +
-                                        [[(xs[0], y), (xs[-1], y)] for y in ys])
-    else:
-        sa = None
-        p, q, r = surface.corners(np.nonzero(surface.inside)[0])
-        edges = shapely.MultiLineString([[tuple(a[:2]), tuple(b[:2])] for tri in zip(p, q, r)
-                                         for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0]))])
+        from .ddd import _densified, _surface_z
+        return [(round(line.project(shapely.Point(c[:2])), 9), _surface_z(surface, c[0], c[1]))
+                for c in _densified(line, surface._grid.width).coords]
+    p, q, r = surface.corners(np.nonzero(surface.inside)[0])
+    edges = shapely.MultiLineString([[tuple(a[:2]), tuple(b[:2])] for tri in zip(p, q, r)
+                                     for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0]))])
     distances = {round(line.project(shapely.Point(c)), 9) for c in line.coords}
     crossing = line.intersection(edges)
     for part in getattr(crossing, "geoms", [crossing]):
@@ -1312,12 +1309,8 @@ def _profile_samples(line, target):
     out = []
     for d in sorted(distances):
         point = line.interpolate(d)
-        if kind == "raster":
-            z = sa._sample(surface, point.x, point.y, True)
-        else:
-            z = float(surface.z_at([point.x], [point.y])[0])
-            z = None if math.isnan(z) else z
-        out.append((d, z))
+        z = float(surface.z_at([point.x], [point.y])[0])
+        out.append((d, None if math.isnan(z) else z))
     return out
 
 
@@ -1336,6 +1329,13 @@ def _profile_target(target, tool):
     return "raster", raster, name
 
 
+def _source_name(source, name):
+    """A profile target as StackProfile's SRC_NAME: its path, each character not a letter or digit made ``_``."""
+    import re
+    text = os.path.abspath(os.fspath(source)) if not hasattr(source, "_array") else name
+    return re.sub(r"[^A-Za-z0-9]", "_", text)
+
+
 def StackProfile(in_line_features, profile_targets, out_table, out_graph=None, multipatch_granularity="FEATURE_CLASS",
                  out_legacy_table=None):
     """Each line's profile over each raster or TIN target, as documented: the line is densified and its height
@@ -1346,12 +1346,14 @@ def StackProfile(in_line_features, profile_targets, out_table, out_graph=None, m
     Refused: multipatch, terrain and LAS targets, whose cutting into segments the page does not describe; ``out_graph``,
     an ArcGIS Pro chart a run on this server cannot make.
 
-    INFERRED: a line is sampled at its vertices and wherever it crosses a cell edge of a raster, or a triangle edge of
-    a TIN — the places where the surface's interpolation changes — so that a raster's height is bilinear between
-    cell centres and a TIN's is exact; samples where the target has no data are left out; DISTANCE is measured in
-    the line's units from its start; LINE_ID is the line's ObjectID; SRC_NAME is the target's name without its folder
-    and extension (the legacy table's, its full path); LINE_TARG is "<LINE_ID> <SRC_NAME>"; SRC_TYPE is "Surface" and
-    SRC_ID null; a multipart line is profiled part after part, the distance running on."""
+    INFERRED: over a TIN a line is sampled at its vertices and wherever it crosses a triangle edge, so its height is
+    exact; samples where the target has no data are left out; DISTANCE is measured in the line's units from its start;
+    LINE_ID is the line's ObjectID; the legacy table's SRC_NAME is the target's full path; SRC_TYPE is "Surface" and
+    SRC_ID null; a multipart line is profiled part after part, the distance running on.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): SRC_NAME is the target's full path with every character other than a
+    letter or digit made ``_`` (``C:\\data\\dem.tif`` is ``C__data_dem_tif``), and LINE_TARG is
+    ``<LINE_ID>_<the target's position from 1>`` (grapy wrote the bare name and ``<LINE_ID> <name>``)."""
     from . import da
     import shapely
     tool = "StackProfile"
@@ -1365,14 +1367,15 @@ def StackProfile(in_line_features, profile_targets, out_table, out_graph=None, m
         features = [(int(o), s._shape) for o, s in lines if s is not None]
     for oid, shape in features:
         parts = list(getattr(shape, "geoms", [shape]))
-        for (kind, surface, name), source in opened:
+        for number, ((kind, surface, name), source) in enumerate(opened, start=1):
+            source_name = _source_name(source, name)
             run = 0.0
             for part in parts:
                 samples = [(d + run, z) for d, z in _profile_samples(shapely.LineString(part.coords), (kind, surface,
                                                                                                         name))]
                 run += part.length
                 kept = [(d, z) for d, z in samples if z is not None]
-                rows += [(d, z, oid, name, f"{oid} {name}") for d, z in kept]
+                rows += [(d, z, oid, source_name, f"{oid}_{number}") for d, z in kept]
                 legacy += [(a[0], a[1], b[0], b[1], oid, "Surface", None, os.fspath(source) if not hasattr(
                     source, "_array") else name) for a, b in zip(kept, kept[1:])]
     _table(out_table, [("DISTANCE", "Double"), ("Z", "Double"), ("LINE_ID", "Integer"), ("SRC_NAME", "String"),
