@@ -12,6 +12,7 @@
   <PropertyGroup>
     <CopyOverlayWorker>true</CopyOverlayWorker>
     <CopyImportReader>true</CopyImportReader>
+    <CopyOfflineReader>true</CopyOfflineReader>
     <RootNamespace>Graticula.Host</RootNamespace>
     <AssemblyName>Graticula.Host</AssemblyName>
     <UserSecretsId>gis-server-host</UserSecretsId>
@@ -60,6 +61,13 @@
       through project references, because ADR-037 §5a spent the image boundary that used to check it.
     -->
     <ProjectReference Include="..\Graticula.Import.Reader\Graticula.Import.Reader.csproj" ReferenceOutputAssembly="false" Private="false" />
+
+    <!--
+      And a third, for ADR-288 condition 7: what ArcGIS Field Maps or Pro uploads to synchronizeReplica is a file a client
+      chose, parsed with the native e_sqlite3, so it is read in this child and not here. The host still references
+      Graticula.Offline.Sqlite above, for writing offline copies from rows it holds; only the read is the child's.
+    -->
+    <ProjectReference Include="..\Graticula.Offline.Reader\Graticula.Offline.Reader.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
 

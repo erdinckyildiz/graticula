@@ -464,6 +464,12 @@ public static class Program
         // and answer 501 if a build leaves it out.
         builder.Services.AddSingleton<Graticula.Api.ArcGis.Offline.IMobileGeodatabaseWriter>(
             new Graticula.Offline.Sqlite.SqliteMobileGeodatabaseWriter());
+
+        // ADR-288 condition 7: a client's upload is read in a child process, Graticula.Offline.Reader, and never here —
+        // ADR-009 §2.2's line for an untrusted file parsed by native code. Writing stays above, in this process.
+        builder.Services.AddSingleton(_ => new OfflineUploadReader(OfflineUploadReader.ExecutableBesideThisOne()));
+        builder.Services.AddSingleton<Graticula.Api.ArcGis.Offline.IOfflineDeltaReader>(
+            services => services.GetRequiredService<OfflineUploadReader>());
         builder.Services.AddSingleton<IOfflineSyncStore>(services =>
             new PostgresOfflineSyncStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(services => new ReplicaJobs(
@@ -2175,6 +2181,15 @@ public static class Program
                     "The import reader",
                     GeodatabaseReader.ExecutableBesideThisOne(),
                     "import a File Geodatabase or a shapefile; GeoJSON is unaffected");
+            }
+
+            if (!app.Services.GetRequiredService<OfflineUploadReader>().Available)
+            {
+                Log.SiblingMissing(
+                    logger,
+                    "The offline reader",
+                    OfflineUploadReader.ExecutableBesideThisOne(),
+                    "read what ArcGIS Field Maps or Pro uploads to synchronizeReplica; taking a copy offline is unaffected");
             }
         }
 

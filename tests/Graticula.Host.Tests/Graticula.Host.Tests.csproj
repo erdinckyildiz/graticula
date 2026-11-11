@@ -5,6 +5,8 @@
          a process being killed, and a fake would test the bookkeeping. -->
     <CopyOverlayWorker>true</CopyOverlayWorker>
     <CopyImportReader>true</CopyImportReader>
+    <!-- OfflineUploadReaderTests runs the real offline reader, for the overlay worker's reason. -->
+    <CopyOfflineReader>true</CopyOfflineReader>
     <RootNamespace>Graticula.Host.Tests</RootNamespace>
   </PropertyGroup>
 

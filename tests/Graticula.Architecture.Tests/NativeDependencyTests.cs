@@ -138,8 +138,9 @@ public sealed class NativeDependencyTests
         ("SQLitePCLRaw",
          "Graticula.Offline.Sqlite",
          "SQLitePCLRaw carries the native e_sqlite3 the writer runs on, and it is how SQLite reaches a process. ADR-288 "
-         + "§6, and the same row as Microsoft.Data.Sqlite's for the same reason: a native library that will read files "
-         + "a client uploads (ReadDeltaAsync) is held by one project, so where it runs is one decision."),
+         + "§6, and the same row as Microsoft.Data.Sqlite's for the same reason: a native library that reads files a "
+         + "client uploads (SqliteOfflineDeltaReader) is held by one project, so where it runs is one decision — and "
+         + "ADR-288 condition 7 decided it: the read runs in Graticula.Offline.Reader, a child process."),
 
         ("Oracle.ManagedDataAccess",
          "Graticula.Providers.Oracle",
@@ -323,6 +324,39 @@ public sealed class NativeDependencyTests
 
              These live in child processes so that the process answering public requests cannot load
              them. A project reference is how that stops being true without anybody deciding it.
+             """);
+    }
+
+    /// <summary>
+    /// The serving process never reads a client's upload with SQLite — ADR-288 condition 7.
+    /// </summary>
+    /// <remarks>
+    /// <b>Weaker than the rows above, and saying so.</b> SQLite cannot be kept out of the host, which writes offline copies
+    /// with it (ADR-288 §6); what the owner's decision of 2026-11-10 moved out is the <em>read</em> of an uploaded file. So
+    /// this checks the one thing that would bring it back: the host's source naming the type that does the read in-process.
+    /// The host's <c>IOfflineDeltaReader</c> is <c>OfflineUploadReader</c>, which starts <c>Graticula.Offline.Reader</c>.
+    /// </remarks>
+    [Fact]
+    public void The_host_never_reads_an_upload_in_its_own_process()
+    {
+        DirectoryInfo root = FindRepositoryRoot();
+        string host = Path.Combine(root.FullName, "src", "Graticula.Host");
+
+        List<string> offenders = [.. Directory.EnumerateFiles(host, "*.cs", SearchOption.AllDirectories)
+            .Where(static f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+            .Where(static f => File.ReadAllText(f).Contains("SqliteOfflineDeltaReader", StringComparison.Ordinal))
+            .Select(f => Path.GetRelativePath(root.FullName, f))];
+
+        Assert.True(
+            offenders.Count == 0,
+            $"""
+             The host names the in-process upload reader:
+
+                 {string.Join("\n    ", offenders)}
+
+             ADR-288 condition 7: a client's upload is parsed by native SQLite in Graticula.Offline.Reader, a child process,
+             because ADR-009 §2.2 keeps an untrusted-file parser out of the process that serves public requests.
              """);
     }
 

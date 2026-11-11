@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2, and its own process — ADR-288 condition 7, owner decision 2026-11-10 ("Ayrı sürece taşı", Q-233, D-402).
+
+    synchronizeReplica receives a mobile geodatabase a client chose — ArcGIS Field Maps or Pro uploads it — and
+    reading it means parsing that file with the native e_sqlite3. ADR-009 §2.2 keeps an untrusted-file parser out of the
+    process that serves public requests, and Graticula.Import.Reader is how GDAL honours that. This is the same shape
+    for SQLite: the host starts this executable once per upload, sends the layers' shapes and two paths on stdin, and
+    reads the changes back from a file in OfflineDeltaWire's form.
+
+    <b>A project of its own rather than a mode of Graticula.Import.Reader</b>, for three reasons measured against that
+    project rather than argued in general:
+      1. The import reader configures GDAL before it reads its first line (128 MB of libraries for win-x64, measured
+         2026-11-10); a sync is a request a field worker is waiting on, and none of that is needed to read SQLite.
+      2. SQLitePCLRaw puts its natives under runtimes/<rid>/native. The server image asserts there is no
+         importer/runtimes (deploy/server.Dockerfile) because the reader's natives are laid out under gdal/ and pdfium/
+         and moved per architecture; mixing a NuGet native payload into that directory would undo a check that exists.
+      3. GDAL's payload carries its own SQLite (bin/sqlite3.dll on win-x64). Two SQLite builds in one process is a
+         thing nobody has measured here and nobody needs to.
+    The overlay worker is the precedent for a small sibling with one library in it.
+
+    Only the READ moves. Writing an offline copy and a download delta stays in the host, behind
+    IMobileGeodatabaseWriter, because it starts from rows this server already holds rather than from a client's file.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Graticula.Offline.Reader</RootNamespace>
+    <AssemblyName>Graticula.Offline.Reader</AssemblyName>
+
+    <!-- The overlay worker's and the import reader's reasoning: this process exists so that one hostile file cannot take
+         the machine, and server GC sizes itself to the machine. The host sets a heap ceiling on the environment. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The adapter, not its library: Microsoft.Data.Sqlite and SQLitePCLRaw stay Graticula.Offline.Sqlite's
+         (NativeDependencyTests). -->
+    <ProjectReference Include="..\Graticula.Offline.Sqlite\Graticula.Offline.Sqlite.csproj" />
+  </ItemGroup>
+
+</Project>

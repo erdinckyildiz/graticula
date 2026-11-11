@@ -475,9 +475,10 @@ internal sealed class GeodatabaseReader
     /// be trusted to report on itself: the allocation being bounded is GDAL's, inside a process
     /// parsing a file somebody else chose. Cancelling the caller's timer is what surfaces it —
     /// the awaiting code already turns cancellation into a refusal, and <see cref="Exceeded"/> is
-    /// how it tells this apart from the deadline.
+    /// how it tells this apart from the deadline. Internal rather than private since ADR-288 condition 7, because
+    /// <see cref="OfflineUploadReader"/> bounds its child the same way.
     /// </remarks>
-    private sealed class MemoryGuard : IDisposable
+    internal sealed class MemoryGuard : IDisposable
     {
         private readonly CancellationTokenSource _stop = new();
         private readonly Task _loop;
@@ -590,7 +591,7 @@ internal sealed class GeodatabaseReader
             + "from the requests this process is serving.";
     }
 
-    private static void Yield(Process process)
+    internal static void Yield(Process process)
     {
         try
         {

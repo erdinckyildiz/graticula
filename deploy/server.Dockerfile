@@ -167,8 +167,12 @@ RUN set -eu; \
 # directory beside it. The host now starts the portable assembly with its own .NET
 # (`SiblingProcess`), and this asserts that the assembly is there to start — the exact two paths
 # that code looks at.
+#
+# <b>And the third, the offline reader — ADR-288 condition 7.</b> What Field Maps or Pro uploads to synchronizeReplica is
+# read there, never in the server, so an image without it refuses every offline sync that carries edits.
 RUN test -f /app/overlay/Graticula.Overlay.Worker.dll \
- && test -f /app/importer/Graticula.Import.Reader.dll
+ && test -f /app/importer/Graticula.Import.Reader.dll \
+ && test -f /app/offline/Graticula.Offline.Reader.dll
 
 # <b>The reader's GDAL, one architecture per image — ADR-254.</b> Moved out of /app so the runtime stage
 # copies only its own architecture's, as it does DuckDB's extensions; the directories are named the way

@@ -14,6 +14,11 @@ namespace Graticula.Api.ArcGis.Offline;
 /// <b>The port of ADR-288 §6.</b> Declared here, beside the ArcGIS surface that needs it, and implemented in
 /// <c>Graticula.Offline.Sqlite</c>, the only project that references a SQLite library; no SQLite type crosses it.
 /// The format is the one <c>docs/research/mobile-geodatabase-format.md</c> describes.
+/// <para>
+/// <b>It writes and does not read.</b> Reading a client's upload is <see cref="IOfflineDeltaReader"/>, a port of its own
+/// since ADR-288 condition 7, because that read parses an untrusted file and runs in a child process; the writer starts
+/// from rows this server already holds and stays in the host.
+/// </para>
 /// </remarks>
 public interface IMobileGeodatabaseWriter
 {
@@ -30,13 +35,6 @@ public interface IMobileGeodatabaseWriter
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>A task.</returns>
     Task WriteDeltaAsync(OfflineDelta delta, string path, CancellationToken cancellationToken);
-
-    /// <summary>Reads a delta a client uploaded for <c>synchronizeReplica</c>.</summary>
-    /// <param name="path">The uploaded file.</param>
-    /// <param name="layers">The replica's layers, so rows are read against the schema they were written with.</param>
-    /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>The changes, per layer.</returns>
-    Task<OfflineDelta> ReadDeltaAsync(string path, IReadOnlyList<OfflineLayer> layers, CancellationToken cancellationToken);
 }
 
 /// <summary>A whole offline copy of a feature service.</summary>

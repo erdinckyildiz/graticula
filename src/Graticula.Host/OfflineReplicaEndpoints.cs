@@ -46,7 +46,8 @@ internal sealed record ReplicaFaces(
 /// <i>Unregister Replica</i>, <i>Replicas</i> and <i>Replica</i> (developers.arcgis.com/rest/services-reference/enterprise/,
 /// read 2026-11-10) — and what ArcGIS Server 12.1 answered on a hosted service the same evening (ADR-288 §4). The
 /// mobile geodatabase itself is written behind <see cref="IMobileGeodatabaseWriter"/>, which this file calls and never
-/// implements.
+/// implements; a client's upload is read behind <see cref="IOfflineDeltaReader"/>, whose implementation here starts a
+/// child process (<see cref="OfflineUploadReader"/>, ADR-288 condition 7), so no client's file is parsed in this one.
 /// </para>
 /// <para>
 /// <b>One implementation of everything a replica carries.</b> The service and layer documents in the file are the ones
@@ -555,7 +556,7 @@ internal static class OfflineReplicaEndpoints
             job.Status = "ImportChanges";
 
             string? refused = await UploadAsync(
-                context, faces, serviceName, writer, connections, uploadPath!, shapes, planned,
+                context, faces, serviceName, connections, uploadPath!, shapes, planned,
                 [.. covered.Where(c => c.Direction is "upload" or "bidirectional").Select(c => c.Stored.Id)],
                 request.ReturnAttachments && replica.ReturnAttachments && replica.AttachmentsSyncDirection != "none",
                 uploaded, cancellation).ConfigureAwait(false);
@@ -647,7 +648,6 @@ internal static class OfflineReplicaEndpoints
         HttpContext context,
         ReplicaFaces faces,
         string serviceName,
-        IMobileGeodatabaseWriter writer,
         LayerConnections connections,
         string path,
         List<OfflineLayer> shapes,
@@ -675,9 +675,17 @@ internal static class OfflineReplicaEndpoints
             }
         }
 
+        // ADR-288 condition 7: the upload is parsed in a child process, never here. A build without a reader registered
+        // refuses rather than falling back to reading in-process.
+        if (context.RequestServices.GetService<IOfflineDeltaReader>() is not { } reader)
+        {
+            return "This server has no offline reader installed, so it cannot read an upload (ADR-288 condition 7). "
+                + "Nothing was applied.";
+        }
+
         try
         {
-            delta = await writer.ReadDeltaAsync(path, shapes, cancellation).ConfigureAwait(false);
+            delta = await reader.ReadDeltaAsync(path, shapes, cancellation).ConfigureAwait(false);
         }
         catch (Exception e) when (e is InvalidDataException or IOException or FormatException or NotSupportedException or InvalidOperationException)
         {

@@ -82,7 +82,7 @@ public sealed class OfflineReplicaTests
         return name => values.TryGetValue(name, out string? value) ? value : null;
     }
 
-    private static OfflineLayer Shape() => OfflineReplicaShapes.Layer(
+    internal static OfflineLayer Shape() => OfflineReplicaShapes.Layer(
         "Hydrants", 0, LayerDocument, "PROJCS[\"WGS 84 / Pseudo-Mercator\"]", token => Nothing<OfflineRow>(token), token => Nothing<OfflineAttachment>(token));
 
     private static async IAsyncEnumerable<T> Nothing<T>([EnumeratorCancellation] CancellationToken cancellation = default)
@@ -92,7 +92,7 @@ public sealed class OfflineReplicaTests
         yield break;
     }
 
-    private static OfflineRow Row(long oid, Guid gid, string label) =>
+    internal static OfflineRow Row(long oid, Guid gid, string label) =>
         new([oid, gid, (short)1, label, "someone"], Point.Create(10, 20, 5, null));
 
     // ------------------------------------------------------------------------------------------------ createReplica
@@ -403,11 +403,11 @@ public sealed class OfflineReplicaTests
     // ------------------------------------------------------------------------------------------------ upload
 
     [Fact]
-    public async Task An_upload_read_by_the_writer_becomes_the_edits_applyEdits_takes_and_the_last_edit_wins()
+    public async Task An_upload_read_by_the_reader_becomes_the_edits_applyEdits_takes_and_the_last_edit_wins()
     {
         OfflineLayer layer = Shape();
         Guid deletedOnServer = Guid.NewGuid();
-        FakeWriter writer = new(new OfflineDelta(Guid.NewGuid(), 0,
+        FakeReader reader = new(new OfflineDelta(Guid.NewGuid(), 0,
         [
             new OfflineLayerChanges(
                 layer,
@@ -417,7 +417,7 @@ public sealed class OfflineReplicaTests
                 [], [], []),
         ], string.Empty));
 
-        OfflineDelta delta = await writer.ReadDeltaAsync("upload.geodatabase", [layer], CancellationToken.None);
+        OfflineDelta delta = await reader.ReadDeltaAsync("upload.geodatabase", [layer], CancellationToken.None);
         OfflineLayerChanges changes = Assert.Single(delta.Layers);
 
         Assert.Equal(new HashSet<Guid> { C, A, B, deletedOnServer }, OfflineReplicaShapes.GlobalIdsOf(changes));
@@ -473,13 +473,9 @@ public sealed class OfflineReplicaTests
 
     // ------------------------------------------------------------------------------------------------ fakes
 
-    /// <summary>A writer that writes nothing and reads back the delta it was given.</summary>
-    private sealed class FakeWriter(OfflineDelta uploaded) : IMobileGeodatabaseWriter
+    /// <summary>A reader that reads back the delta it was given.</summary>
+    private sealed class FakeReader(OfflineDelta uploaded) : IOfflineDeltaReader
     {
-        public Task WriteAsync(OfflineCopy copy, string path, CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public Task WriteDeltaAsync(OfflineDelta delta, string path, CancellationToken cancellationToken) => Task.CompletedTask;
-
         public Task<OfflineDelta> ReadDeltaAsync(string path, IReadOnlyList<OfflineLayer> layers, CancellationToken cancellationToken) =>
             Task.FromResult(uploaded);
     }

@@ -27,16 +27,15 @@ namespace Graticula.Offline.Sqlite;
 /// deletes are <c>OID</c> and <c>globalid</c>.
 /// </para>
 /// <para>
-/// <b>What was not</b>: the file a client uploads. It has not been captured (ADR-288's first condition), and the reader
-/// assumes it has the same shape. So it is tolerant rather than strict: a table it does not know is ignored, a change
+/// <b>What was not, when this was written</b>: the file a client uploads. The reader assumed it has the same shape, so
+/// it is tolerant rather than strict: a table it does not know is ignored, a change
 /// table that is missing means no changes of that kind, a dataset is matched to a layer by its layer id and failing
 /// that by its name, and a change table is found by its item and failing that by its <c>T_n_Kind</c> name.
 /// </para>
 /// <para>
-/// <b>Provisional, and ADR-288's second condition says why.</b> That condition asks for what Field Maps uploads to be
-/// recorded before the upload reader is written against it. This reader is written against the download shape so the
-/// round trip can be tested now; it is not the discharge of that condition, and it is checked again — and changed if it
-/// has to be — when a real upload has been captured.
+/// <b>Since measured</b> (research note §5b, one Field Maps 26.2.2 upload): the same shape, with the change tables named
+/// in lower case — matched here without regard to case — and the geometry in a client-local SRID whose grid
+/// <c>st_aux_spatial_reference_systems</c> defines, which is the grid a blob is decoded on when the file defines it.
 /// </para>
 /// </remarks>
 internal static partial class DeltaFile
@@ -174,6 +173,8 @@ internal static partial class DeltaFile
             }
         }
 
+        Dictionary<int, CoordinateGrid> grids = Grids(db, tables);
+
         var datasets = new Dictionary<long, (string Name, long Type, long? LayerId)>();
         if (tables.Contains("GDB_DataChangesDatasets"))
         {
@@ -249,10 +250,10 @@ internal static partial class DeltaFile
             switch (changeType, attachment)
             {
                 case (1, false):
-                    into.Inserts.AddRange(rows.Select(r => LayerRow(layer, r)));
+                    into.Inserts.AddRange(rows.Select(r => LayerRow(layer, r, grids)));
                     break;
                 case (2, false):
-                    into.Updates.AddRange(rows.Select(r => LayerRow(layer, r)));
+                    into.Updates.AddRange(rows.Select(r => LayerRow(layer, r, grids)));
                     break;
                 case (3, false):
                     into.Deletes.AddRange(rows.Select(r => DeleteKey(r, layer.ObjectIdField)));
@@ -293,7 +294,40 @@ internal static partial class DeltaFile
             || table.EndsWith("_" + FileValues.TableName(l.Name), StringComparison.OrdinalIgnoreCase));
     }
 
-    private static OfflineRow LayerRow(OfflineLayer layer, Dictionary<string, object?> row)
+    /// <summary>
+    /// The grid of every reference the file defines, by SRID — research note §5b. Field Maps writes an upload's geometry
+    /// in a client-local SRID (300001) that <c>st_aux_spatial_reference_systems</c> defines with its own false origins and
+    /// units; a row whose units are not a positive finite number is left out, and its geometry falls back to the layer's.
+    /// </summary>
+    private static Dictionary<int, CoordinateGrid> Grids(SqliteConnection db, HashSet<string> tables)
+    {
+        var grids = new Dictionary<int, CoordinateGrid>();
+        if (!tables.Contains("st_aux_spatial_reference_systems"))
+        {
+            return grids;
+        }
+
+        foreach (object?[] r in Query(db, "select srid, falsex, falsey, xyunits, falsez, zunits, falsem, munits from st_aux_spatial_reference_systems"))
+        {
+            if (r[0] is null || Number(r[1]) is not double x || Number(r[2]) is not double y || Number(r[3]) is not double xy || !(xy > 0))
+            {
+                continue;
+            }
+
+            double z = Number(r[4]) ?? 0, zUnits = Number(r[5]) ?? 1, m = Number(r[6]) ?? 0, mUnits = Number(r[7]) ?? 1;
+            grids[Convert.ToInt32(r[0], CultureInfo.InvariantCulture)] = new CoordinateGrid(
+                x, y, xy, z, zUnits > 0 ? zUnits : 1, m, mUnits > 0 ? mUnits : 1);
+        }
+
+        return grids;
+    }
+
+    private static double? Number(object? value) =>
+        value is null ? null
+        : Convert.ToDouble(value, CultureInfo.InvariantCulture) is var d && double.IsFinite(d) ? d
+        : null;
+
+    private static OfflineRow LayerRow(OfflineLayer layer, Dictionary<string, object?> row, Dictionary<int, CoordinateGrid> grids)
     {
         var values = new object?[layer.Fields.Count];
         for (int i = 0; i < values.Length; i++)
@@ -305,7 +339,11 @@ internal static partial class DeltaFile
         Geometry? geometry = null;
         if (TableGeometry.Of(layer) is { } g && row.TryGetValue(TableGeometry.Column, out object? blob) && blob is byte[] bytes)
         {
-            geometry = MobileGeodatabaseGeometry.Decode(bytes, g.Grid, out _);
+            // The grid of the SRID the blob names when the file defines it, the layer's otherwise (research note §5b).
+            CoordinateGrid grid = MobileGeodatabaseGeometry.SridOf(bytes) is int srid && grids.TryGetValue(srid, out CoordinateGrid own)
+                ? own
+                : g.Grid;
+            geometry = MobileGeodatabaseGeometry.Decode(bytes, grid, out _);
         }
 
         return new OfflineRow(values, geometry);

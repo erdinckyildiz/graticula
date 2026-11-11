@@ -316,6 +316,16 @@ public static class MobileGeodatabaseGeometry
         return output.ToArray();
     }
 
+    /// <summary>The reference a blob names in its header, or null when the value is not a mobile geodatabase geometry.</summary>
+    /// <remarks>
+    /// <b>Asked before decoding, because the reference decides the grid.</b> Field Maps writes an upload's geometry in a
+    /// client-local reference (300001 in the measured upload, research note §5b) that <c>st_aux_spatial_reference_systems</c>
+    /// defines, grid included; a reader takes the grid from that row rather than assuming the layer's.
+    /// </remarks>
+    /// <param name="blob">The blob.</param>
+    public static int? SridOf(ReadOnlySpan<byte> blob) =>
+        blob.Length >= 4 && blob[0] == Magic ? BinaryPrimitives.ReadInt32LittleEndian(blob) >> 8 : null;
+
     /// <summary>Decodes a blob into a geometry carrying its Z and M.</summary>
     /// <param name="blob">The blob.</param>
     /// <param name="grid">The grid the column is declared on.</param>

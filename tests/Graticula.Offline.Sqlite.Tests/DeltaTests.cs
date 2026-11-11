@@ -106,7 +106,7 @@ public sealed class DeltaTests
         string path = await Write();
         OfflineDelta written = Delta();
 
-        OfflineDelta read = await new SqliteMobileGeodatabaseWriter().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
 
         Assert.Equal(written.ReplicaId, read.ReplicaId);
         Assert.Equal(written.ServerGeneration, read.ServerGeneration);
@@ -140,7 +140,7 @@ public sealed class DeltaTests
         string path = await Write();
         Strip(path, "drop table GDB_DataChangesDeltas");
 
-        OfflineDelta read = await new SqliteMobileGeodatabaseWriter().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
 
         Assert.Single(read.Layers[0].Inserts);
         Assert.Single(read.Layers[0].Deletes);
@@ -153,7 +153,7 @@ public sealed class DeltaTests
         string path = await Write();
         Strip(path, "drop table T_1_Updates; create table T_99_Inserts (x); create table something_else (y)");
 
-        OfflineDelta read = await new SqliteMobileGeodatabaseWriter().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
 
         Assert.Empty(read.Layers[0].Updates);
         Assert.Single(read.Layers[0].Inserts);
@@ -165,7 +165,7 @@ public sealed class DeltaTests
         string path = OfflineFixture.NewPath("empty.geodatabase");
         await new SqliteMobileGeodatabaseWriter().WriteAsync(OfflineFixture.Copy(false), path, CancellationToken.None);
 
-        OfflineDelta read = await new SqliteMobileGeodatabaseWriter().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
 
         Assert.Equal(Guid.Empty, read.ReplicaId);
         Assert.Empty(read.Layers);
@@ -177,7 +177,7 @@ public sealed class DeltaTests
         string path = await Write();
         Strip(path, "update GDB_DataChangesDatasets set LayerId = NULL");
 
-        OfflineDelta read = await new SqliteMobileGeodatabaseWriter().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
 
         Assert.Equal([0, 2, 3], read.Layers.Select(static l => l.Layer.Id));
         Assert.Single(read.Layers[0].AttachmentInserts);
@@ -197,7 +197,7 @@ public sealed class DeltaTests
             return;
         }
 
-        OfflineDelta read = await new SqliteMobileGeodatabaseWriter().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
 
         OfflineLayerChanges points = read.Layers.Single(static l => l.Layer.Id == 0);
         Assert.Equal("server_add", Assert.Single(points.Inserts).Values[2]);
@@ -205,6 +205,93 @@ public sealed class DeltaTests
         Assert.Equal("server_upd", Assert.Single(points.Updates).Values[2]);
         Assert.Single(points.AttachmentInserts);
         Assert.Equal("insp_server", Assert.Single(read.Layers.Single(static l => l.Layer.Id == 3).Inserts).Values[2]);
+    }
+
+    /// <summary>
+    /// Research note §5b: Field Maps writes an upload's geometry in a client-local SRID that
+    /// <c>st_aux_spatial_reference_systems</c> defines. Here its grid differs from the layer's, so decoding on the layer's
+    /// grid would put the point somewhere else.
+    /// </summary>
+    [Fact]
+    public async Task A_geometry_in_a_client_local_reference_is_decoded_on_that_references_grid()
+    {
+        string path = await Write();
+        CoordinateGrid local = new(-1000, -2000, 100, -50, 100, -50, 100);
+        byte[] blob = MobileGeodatabaseGeometry.Encode(Point.Create(1234.5, 6789.25, 15, null), 300001, local, GeometryOrdinates.Z)!;
+
+        using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+        {
+            db.Open();
+            GeodatabaseBuilder.RegisterCollation(db);
+            // The file's spatial index triggers call a function only ArcGIS registers; this test changes no index.
+            foreach (string trigger in OfflineFixture.Query(db, "select name from sqlite_master where type = 'trigger' and tbl_name = 'T_1_Inserts'").Select(static r => (string)r[0]!))
+            {
+                using SqliteCommand drop = db.CreateCommand();
+                drop.CommandText = $"drop trigger [{trigger}]";
+                drop.ExecuteNonQuery();
+            }
+
+            using SqliteCommand command = db.CreateCommand();
+            command.CommandText =
+                "delete from st_aux_spatial_reference_systems where srid = 300001; "
+                + "insert into st_aux_spatial_reference_systems (srid, auth_name, auth_srid, srtext, falsex, falsey, xyunits, falsez, zunits, falsem, munits) "
+                + "values (300001, 'EPSG', 3857, '', -1000, -2000, 100, -50, 100, -50, 100); "
+                + "update T_1_Inserts set shape = $blob";
+            command.Parameters.AddWithValue("$blob", blob);
+            command.ExecuteNonQuery();
+        }
+
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+
+        Point at = Assert.IsAssignableFrom<Point>(Assert.Single(read.Layers[0].Inserts).Geometry);
+        Assert.Equal((1234.5, 6789.25, 15d), (at.X, at.Y, at.Z!.Value));
+    }
+
+    /// <summary>
+    /// Reads what Field Maps 26.2.2 uploaded (research note §5b), when <c>GRATICULA_OFFLINE_UPLOAD</c> names the file. It
+    /// stays outside the repository, as the captures do.
+    /// </summary>
+    [Fact]
+    public async Task An_upload_Field_Maps_wrote_is_read_and_crosses_the_wire()
+    {
+        string? path = Environment.GetEnvironmentVariable("GRATICULA_OFFLINE_UPLOAD");
+        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        {
+            return;
+        }
+
+        OfflineLayer probe = FieldMapsProbe;
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, [probe], CancellationToken.None);
+
+        OfflineLayerChanges changes = Assert.Single(read.Layers);
+        OfflineRow insert = Assert.Single(changes.Inserts);
+        Assert.Equal("offline3", insert.Values[1]);
+        Point at = Assert.IsAssignableFrom<Point>(insert.Geometry);
+        Assert.Equal(15, at.Z);
+        Assert.InRange(at.X, -180, 180);
+        Assert.InRange(at.Y, -90, 90);
+        Assert.Equal("offline1", Assert.Single(changes.Updates).Values[1]);
+        Assert.Equal(4L, Assert.Single(changes.Deletes).ObjectId);
+
+        WireTests.AssertSame(read, WireTests.Cross(read, [probe]));
+    }
+
+    /// <summary>The layer the measured Field Maps upload was taken from, as the server described it.</summary>
+    internal static OfflineLayer FieldMapsProbe => new(
+        0, "zz_offline_probe", string.Empty, "esriGeometryPoint", GeometryOrdinates.Z, 4326, true, string.Empty,
+        [
+            new("objectid", "esriFieldTypeOID", null, null, false, null),
+            new("note", "esriFieldTypeString", null, 100, true, null),
+            new("size", "esriFieldTypeDouble", null, null, true, null),
+            new("globalid", "esriFieldTypeGlobalID", null, 38, false, null),
+        ],
+        "objectid", "globalid", true, null,
+        _ => None<OfflineRow>(), _ => None<OfflineAttachment>());
+
+    private static async IAsyncEnumerable<T> None<T>()
+    {
+        await Task.CompletedTask;
+        yield break;
     }
 
     private static void Strip(string path, string sql)

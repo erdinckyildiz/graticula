@@ -390,12 +390,4 @@ public sealed class SqliteMobileGeodatabaseWriter : IMobileGeodatabaseWriter
         DeltaFile.Write(delta, path, cancellationToken);
         return Task.CompletedTask;
     }
-
-    /// <inheritdoc />
-    public Task<OfflineDelta> ReadDeltaAsync(string path, IReadOnlyList<OfflineLayer> layers, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(layers);
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(DeltaFile.Read(path, layers, cancellationToken));
-    }
 }
