@@ -1467,6 +1467,9 @@ internal static partial class PortalEndpoints
             // service behind them.
             .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id)), editable: editableMaps.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
 
+            // And the map areas of those maps, beside them — ADR-288 §11a.
+            .. (await MapAreaItemsAsync(context, ownMaps, cancellation).ConfigureAwait(false)).Select(a => (a.Item, (Guid?)a.Id)),
+
             // And their documents — ADR-188.
             .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
                 .Where(document => document.Owner == current.Principal.Id && document.ContentFolder == folderId)
@@ -1898,6 +1901,12 @@ internal static partial class PortalEndpoints
                 item => new PortalListed(map.Id, item, Map: map)));
         }
 
+        // ADR-288 §11a: the map areas of the maps this caller may open, and their packages, under the same query.
+        foreach ((object areaItem, Guid areaId) in await MapAreaItemsAsync(context, [.. readableMaps], cancellation).ConfigureAwait(false))
+        {
+            candidates.Add((areaItem, areaId, null, item => new PortalListed(areaId.ToString("N"), item)));
+        }
+
         // Documents, under the same query and the same rule as maps (ADR-188).
         foreach (Document document in await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
         {
@@ -2141,6 +2150,12 @@ internal static partial class PortalEndpoints
                 Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
         }
 
+        // ADR-288 §11a: a preplanned map area, or a package taken from one, seen exactly when its map is.
+        if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaItem)
+        {
+            return Results.Ok(await WithCommentsAndMetadataAsync(context, areaItem.Item, areaItem.Id, cancellation).ConfigureAwait(false));
+        }
+
         // A document, as a map: it needs no catalogue either (ADR-188).
         if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is { } document)
         {
@@ -2354,6 +2369,16 @@ internal static partial class PortalEndpoints
         if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
         {
             return Results.Content(map.Document ?? "{}", "application/json; charset=utf-8");
+        }
+
+        // ADR-288 §11a: a package's data is its file, streamed with ranges. A Map Area's data is {} - what ArcGIS keeps there
+        // (`mapAreas`, with a tile scale and refresh parameters) is named in the research note without its values, and a
+        // guess would be taken for the truth by the client that reads it.
+        if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaData)
+        {
+            return areaData.Package is { } package
+                ? MapAreaPackageFile(context, package)
+                : Results.Content("{}", "application/json; charset=utf-8");
         }
 
         // <b>A document's data is its file</b> (ADR-188), and it leaves as every document does: a download, never a
