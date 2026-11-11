@@ -10,13 +10,14 @@ access through its own ST_Geometry extension, and documents the REST operations 
 `synchronizeReplica`, *Using sync*). The tables, the item definitions and the geometry blob are not in it.
 
 Everything below was therefore **observed**, by owner decision of 2026-11-10 (*"Gözleyerek türet"*, chosen from three
-options; ADR-288 §5). The sources, all four of them:
+options; ADR-288 §5). The sources, all five of them:
 
 | Source | What it gave | Whose data |
 |---|---|---|
 | ArcGIS Pro 3.x's `arcpy`, writing geometries **we chose** into a mobile geodatabase it created (`CreateMobileGDB`, `InsertCursor`) | The geometry blob, by comparing known input with the bytes written — 50 geometries, every type, Z and M, parts, holes | Ours |
 | ArcGIS Server 12.1 on Aecon's production portal, a hosted service **we created** and filled (owner's permission, 2026-11-10: *"test verisi açacaksak esri.aecon.com'u da kullanabilirsin"*): `createReplica` with `syncModel=none` and `perLayer`, then `synchronizeReplica` downloads after a server-side insert, update, delete and attachment | The snapshot file, the registered replica file and two delta files | Ours |
 | Esri's public sample server (`sampleserver6`, `Sync/SaveTheBaySync`), `createReplica` with `syncModel=none` | A first look at the table set, before the Aecon service existed; nothing below rests on it alone | Esri's public sample data — **structure read, no content kept** |
+| A preplanned map area's package on the same portal, which another Aecon user set up in 2024, read 2026-11-12 under the same permission (§5a) | The package item's `properties`, and the file's system tables and replica definitions | Aecon's — **system tables read, no rows read, nothing kept in the repository** |
 | [FGDB Spec](https://github.com/rouault/dump_gdbtable/wiki/FGDB-Spec), Even Rouault's public reverse-engineered description of the File Geodatabase | That coordinates are integers on a grid, stored as signed variable-length integers delta-coded from the previous point. The exact bit layout below was **measured here**, not taken from it — the spec's revisions describe the sign bit differently | Public |
 
 **Nothing was copied into the repository from any of these files.** The statements that create tables are written
@@ -161,6 +162,27 @@ Read on Aecon's production portal (Enterprise 12.1) on 2026-11-10, item metadata
   `MapAreaPackage`, `Package`, `ReferenceURL#<the FeatureServer address>`, `Replica`, `SQLite Geodatabase`, `Syncable`;
   and a `Tile Package` (`tpk`) for the basemap, `ReferenceURL#` its source. What Field Maps calls to register such a
   package on first sync is not yet measured (ADR-288 condition 3).
+
+**A package, read 2026-11-12** (one map area on the same portal, packaged by ArcGIS Server 11.2 in 2024; system tables
+only, no row read):
+
+- **The package is a replica registered on the feature service when the area is packaged.** It is `perLayer` and
+  bidirectional, its name is `SDS_FS_<milliseconds>`, and its owner is the account that set up the area. The server's
+  `replicas/{id}` still answers for it, with a `lastSyncDate` two years after its creation. So one registered replica
+  stands behind every copy of the package, and refreshes or devices sync it.
+- **The package item's `properties` describe the replica:** `url`, `layers`, `extent`, `layerQueries`, `replicaID`,
+  `layerServerGens` (`[{serverGen, id}]`), `returnAttachments`, `attachmentsSyncDirection`, `syncModel`,
+  `useSyncForRefresh`, `hasUtilityNetworkLayer`, and `packageRefreshJobId`. The map area item's `properties` add
+  `packageRefreshSchedule`, a Quartz cron expression (`17 56 17 ? * FRI`), beside `extent` and `status`.
+- **The file is an ordinary registered replica** (§4). `GPSyncReplica` has role `esriReplicaRoleChild`, a
+  `LastSyncDate` of 1970-01-01T00:00:01, and the area's envelope as its query geometry. Each `GPSyncDataset` carries
+  the server generation and client generations of 1000 (download, upload, acknowledge). The file also has a
+  `GDB_ReplicaLog` table, which an on-demand replica captured on 2026-11-10 did not.
+- **The packaging service on Enterprise 12.1** (`Utilities/OfflinePackaging/GPServer`) has three tasks: `CreateMapArea`,
+  `SetupMapArea` and `RefreshMapAreaPackage`. Creating an area by REST was not achieved: every combination of
+  `areaType`, `area`, `bookmark` and `extent` tried failed. Each failure was either a JSON parse of an empty value or
+  `OffPkg_ 24` *"Parameter Area is invalid or exceeded limit"*, even for a 5 km box. The documentation pages answered
+  404 the same night.
 
 ## 6. The test that matters: a file written without Esri's library
 
