@@ -152,14 +152,21 @@ def HeatIndex(temperature_raster, relative_humidity_raster, temperature_unit="Fa
 
     The temperature is converted to Fahrenheit first and the answer to ``heat_index_unit``.
 
-    INFERRED: the formula is applied at every cell as the page gives it, without the NWS's adjustments for low humidity
-    or for an index below 80 °F, which the page does not give; the answer is 32-bit floating point; an empty unit
-    takes the documented default, Fahrenheit."""
+    Below 80 °F the NWS's simple formula is used instead, HI = ½ (T + 61 + 1.2 (T − 68) + 0.094 R), wherever the mean
+    of it and T is below 80, as the NWS does: ArcGIS Pro 3.7 answers it there (measured 2026-11-08; grapy applied the
+    regression everywhere, up to 8 °F off). Pro also departs from the regression by up to 0.65 °F where R > 85 % and
+    80 ≤ T ≤ 87 °F — the NWS's high-humidity adjustment region — by an amount that is not the NWS's adjustment; that is
+    not reproduced.
+
+    INFERRED: no low-humidity adjustment; the answer is 32-bit floating point; an empty unit takes the documented
+    default, Fahrenheit."""
     tool = "HeatIndex"
     t, r, grid = _pair(temperature_raster, relative_humidity_raster, tool)
     t = _from_kelvin(_to_kelvin(t, _word(temperature_unit, "Fahrenheit"), tool), "fahrenheit", tool)
     hi = (-42.379 + 2.04901523 * t + 10.14333127 * r - 0.22475541 * t * r - 6.83783e-3 * t * t - 5.481717e-2 * r * r
           + 1.22874e-3 * t * t * r + 8.5282e-4 * t * r * r - 1.99e-6 * t * t * r * r)
+    simple = 0.5 * (t + 61.0 + (t - 68.0) * 1.2 + r * 0.094)
+    hi = np.where((simple + t) / 2 >= 80, hi, simple)
     return _float_raster(_from_kelvin(_to_kelvin(hi, "fahrenheit", tool), _word(heat_index_unit, "Fahrenheit"), tool),
                          grid)
 
@@ -279,9 +286,20 @@ def ColorspaceConversion(raster, conversion_type="rgb_to_hsv"):
                                   np.where(high == g, (b - r) / span + 2.0, (r - g) / span + 4.0))) * 60.0
         # Pro 3.7, measured 2026-10-31 on every whole-degree hue: H = round(degrees · 240/360), and a chromatic red
         # is 240 rather than 0; a grey's hue is 0.
-        hue = np.floor(h * 240.0 / 360.0 + 0.5)
-        hue = np.where((hue == 0) & (span > 0), 240.0, hue)
-        out = [hue, np.floor(s * 255.0 + 0.5), np.floor(high * 255.0 + 0.5)]
+        # The halves are rounded in whole numbers, not in floating point: 11.25° is 7.5 and becomes 8, a saturation of
+        # 212.5 becomes 213, as Pro writes them (measured 2026-11-08; 7.4999… and 212.4999… had rounded down).
+        xi = x.astype(np.int64)
+        ri, gi, bi = xi
+        hi, lo = xi.max(axis=0), xi.min(axis=0)
+        sp = hi - lo
+        n = np.where(hi == ri, np.where(gi >= bi, gi - bi, gi - bi + 6 * sp),
+                     np.where(hi == gi, bi - ri + 2 * sp, ri - gi + 4 * sp))
+        safe = np.where(sp > 0, sp, 1)
+        hue = np.where(sp > 0, (80 * n + safe) // (2 * safe), 0).astype(np.float64)
+        hue = np.where((hue == 0) & (sp > 0), 240.0, hue)
+        sat = np.where(hi > 0, (2 * 255 * sp + np.where(hi > 0, hi, 1)) // (2 * np.where(hi > 0, hi, 1)), 0)
+        _ = (h, s)
+        out = [hue, sat.astype(np.float64), hi.astype(np.float64)]
     elif kind == "hsvtorgb":
         h = np.mod(x[0] * 360.0 / 240.0, 360.0) / 60.0
         s, v = x[1] / 255.0, x[2] / 255.0
@@ -845,6 +863,31 @@ def ApplyEnvironment(in_raster):
                 _refuse(tool, "snapRaster environment", env.snapRaster, "its cells do not line up with the input's, and "
                         "moving them needs resampling")
     arrays, masks = list(raster._arrays), list(raster._masks)
+    if extent is not None and cell is not None and not isinstance(in_raster, (int, float)):
+        size = _environment_cell(cell, tool)
+        if not (math.isclose(size, g.width) and math.isclose(size, g.height)):
+            # Both set and the cell size changed: the output grid starts at the extent's lower-left corner and has
+            # enough whole cells to cover it, and each output cell takes the input cell holding its centre (a centre on
+            # an input cell's edge taking the cell to its right or below). Measured in ArcGIS Pro 3.7, 2026-11-08: an
+            # extent of 100…400 × 100…450 m at 20 m over a 10 m DEM answers 15 × 18 cells, 100…460 m, every value
+            # equal to that rule; grapy cut the extent on the input's grid first (90…450 m) and differed by up to 3 m.
+            xmin, ymin, xmax, ymax = _environment_extent(extent, tool)
+            columns = max(int(math.ceil((xmax - xmin) / size - 1e-9)), 1)
+            rows_ = max(int(math.ceil((ymax - ymin) / size - 1e-9)), 1)
+            out = _Grid(xmin, ymin + rows_ * size, size, size, rows_, columns, g.srid)
+            cx = xmin + (np.arange(columns) + 0.5) * size
+            cy = out.top - (np.arange(rows_) + 0.5) * size
+            ci = np.floor((cx - g.left) / g.width + 1e-9).astype(int)
+            ri = np.floor((g.top - cy) / g.height + 1e-9).astype(int)
+            okc, okr = (ci >= 0) & (ci < g.columns), (ri >= 0) & (ri < g.rows)
+            cc, rr = np.clip(ci, 0, g.columns - 1), np.clip(ri, 0, g.rows - 1)
+            outside = ~(okr[:, None] & okc[None, :])
+            arrays = [a[np.ix_(rr, cc)] for a in arrays]
+            masks = [m[np.ix_(rr, cc)] | outside for m in masks]
+            raster = Raster._of_bands(arrays, masks, out)
+            cell = None
+            extent = None
+            g = out
     if extent is not None:
         xmin, ymin, xmax, ymax = _environment_extent(extent, tool)
         xs, ys = g.centres()
@@ -864,7 +907,15 @@ def ApplyEnvironment(in_raster):
                 raster = Raster._of_bands([raster._array], [raster._mask], raster._grid)
     if _given(env.mask):
         from . import sa
-        masked = [sa.ExtractByMask(raster._band(b), env.mask) for b in range(1, raster.bandCount + 1)]
+        mask_data = env.mask
+        env.mask = None      # ExtractByMask refuses the environment it is applying here
+        try:
+            # The raster's own extent is kept: Pro 3.7's ApplyEnvironment with a polygon mask answers the whole input
+            # (measured 2026-11-08), where Extract by Mask alone cuts to the mask's extent.
+            masked = [sa.ExtractByMask(raster._band(b), mask_data, "INSIDE", raster.extent)
+                      for b in range(1, raster.bandCount + 1)]
+        finally:
+            env.mask = mask_data
         raster = Raster._of_bands([m._array for m in masked], [m._mask for m in masked], masked[0]._grid)
     if raster.bandCount == 1:
         return Raster._of(raster._arrays[0].copy(), raster._masks[0].copy(), raster._grid)

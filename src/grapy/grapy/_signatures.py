@@ -91,7 +91,9 @@ def CreateSignatures(in_raster_bands, in_sample_data, out_signature_file, comput
     classes = []
     for v in values:
         x = data[keep & (labels == v)]
-        entry = {"value": v, "count": int(x.shape[0]), "name": names.get(v), "means": x.mean(axis=0).tolist()}
+        # A class with no name is named by its id: ArcGIS Pro 3.7 writes "1" in Class Name for class 1 sampled by an
+        # integer field (measured 2026-11-08; grapy left it empty).
+        entry = {"value": v, "count": int(x.shape[0]), "name": names.get(v) or str(v), "means": x.mean(axis=0).tolist()}
         if covariance:
             entry["covariance"] = (np.cov(x, rowvar=False).reshape(x.shape[1], x.shape[1]) if x.shape[0] > 1
                                    else np.zeros((x.shape[1], x.shape[1]))).tolist()

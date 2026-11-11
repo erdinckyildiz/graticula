@@ -61,7 +61,7 @@ class ImageAnalyst(unittest.TestCase):
             (ia.NDVI(r), 0.25),
             (ia.SAVI(r, 4, 3, 0.5), 0.2 / 1.3 * 1.5),
             (ia.EVI(r, 4, 3, 1), 2.5 * 0.2 / (0.5 + 1.8 - 0.75 + 1)),
-            (ia.MSAVI(r, 4, 3), 0.5 * (3 - math.sqrt(4 - 1.6))),
+            (ia.MSAVI(r, 4, 3), 0.5 * (2 - math.sqrt(4 - 1.6))),  # 2 NIR + 1, not 2(NIR + 1): Pro 3.7 measured 2026-11-08
             (ia.NDWI(r, 4, 2), (0.2 - 0.5) / 0.7),
             (ia.NBR(r, 3, 4), 0.25),
             (ia.BAI(r, 3, 4), 1 / (0.2 ** 2 + 0.44 ** 2)),
@@ -98,9 +98,12 @@ class ImageAnalyst(unittest.TestCase):
         # 14, MTVI2, in the raster function page's order NIR Red Green, and 18, NDWI, in its order NIR Green.
         self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "4 3 2", 14)), self.MTVI2_CELL_1, places=5)
         self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "4 2", 18)), (0.2 - 0.5) / 0.7, places=6)
-        for method in (0, 8):
-            with self.assertRaises(arcpy.NotBuiltError):
-                ia.BandArithmetic(self.bands, "4 3", method)
+        with self.assertRaises(arcpy.NotBuiltError):
+            ia.BandArithmetic(self.bands, "4 3", 8)
+        # Method 0, an expression of the bands, as ArcGIS Pro 3.7 answers it (measured 2026-11-08).
+        self.assertAlmostEqual(self.first(ia.BandArithmetic(self.bands, "(B4 - B3) / (B4 + B3)", 0)), 0.25, places=6)
+        with self.assertRaises(ValueError):
+            ia.BandArithmetic(self.bands, "__import__('os')", 0)
 
     # Haboudane et al. 2004's MTVI2 for NIR 0.5, red 0.3, green 0.2, worked by hand:
     # 1.5 (1.2 × 0.3 − 2.5 × 0.1) / √((2 × 0.5 + 1)² − (6 × 0.5 − 5√0.3) − 0.5) = 0.165 / √(3.5 − 3 + 5√0.3).
@@ -147,7 +150,7 @@ class ImageAnalyst(unittest.TestCase):
 
     def test_gvitm_and_subset_bands(self):
         seven = ia.CompositeBand([grid([[float(k)]]) for k in range(1, 8)])
-        expected = -0.2848 * 1 - 0.2435 * 2 - 0.5436 * 3 + 0.7243 * 4 + 0.084 * 5 - 1.18 * 7
+        expected = -0.2848 * 1 - 0.2435 * 2 - 0.5436 * 3 + 0.7243 * 4 + 0.084 * 5 - 0.18 * 7  # 0.18: Pro 3.7 measured 2026-11-08
         self.assertAlmostEqual(self.first(ia.GVITM(seven)), expected, places=5)
         subset = ia.SubsetBands(self.bands, bands="4 1-2")
         # Kept in the input's order: bands 1, 2 and 4.

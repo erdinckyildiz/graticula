@@ -8,7 +8,8 @@ Shared choices (ADR-236 §5.3–5.5, INFERRED, listed in Q-204):
 
 - **A time held in a cell** — ArgStatistics' and FindArgumentStatistics' dimension value, a change date — is a
   decimal year (2015-07-02T12:00 is 2015.5); a non-time dimension's value is itself.
-- **A band index held in a cell** is one-based, as HighestPosition's is.
+- **A band index held in a cell** is zero-based, and an integer: ArgStatistics and FindArgumentStatistics answer 1
+  for the second of three bands in ArcGIS Pro 3.7 (measured 2026-11-08; grapy answered 2, as HighestPosition counts).
 - **An aggregated slice's dimension value** is the start of its interval: the first instant of the hour, day, week
   (ISO, Monday), dekad, pentad, month, quarter or year, an INTERVAL_VALUE bin's start, an interval range's minimum; a
   recurring interval's (every January …) is its first occurrence in the series.
@@ -513,7 +514,7 @@ def _numbers(dim, values):
 
 
 def _arg_over(source, dim, stat, low, high, multiple, ignore, value=None, comparison="EQUAL_TO",
-              occurrence="FIRST_OCCURRENCE", variables=None, tool="ArgStatistics"):
+              occurrence="FIRST_OCCURRENCE", variables=None, tool="ArgStatistics", slice_index=False):
     """Argument statistics on a multidimensional raster (dimension values) or a multiband one (band indexes)."""
     from ._raster import Raster, _open_bands
     if isinstance(source, (list, tuple)):
@@ -542,7 +543,7 @@ def _arg_over(source, dim, stat, low, high, multiple, ignore, value=None, compar
             _refuse(tool, "in_raster", v.name, "its slices have several bands, and the page does not say which is read")
         coords, data, mask = [], [], []
         for other, indexes in v.along(d):
-            numbers = _numbers(d, [v.coords[i][d] for i in indexes])
+            numbers = list(range(len(indexes))) if slice_index else _numbers(d, [v.coords[i][d] for i in indexes])
             value_, empty = _arg(v.data[indexes, 0], v.mask[indexes, 0], numbers, stat, low, high, multiple, ignore,
                                  value, comparison, occurrence)
             coords.append(other)
@@ -564,19 +565,21 @@ def _arg_bands(arrays, masks, grid, stat, low, high, multiple, ignore, value, co
         if not r._grid.same(grid):
             _refuse(tool, "rasters", r, "rasters on different grids need resampling")
     value_, empty = _arg(np.stack([a.astype(np.float64) for a in arrays]), np.stack(masks),
-                         list(range(1, len(arrays) + 1)), stat, low, high, multiple, ignore, value, comparison,
-                         occurrence)
+                         list(range(len(arrays))), stat, low, high, multiple, ignore, value, comparison, occurrence)
+    if np.all(np.mod(value_, 1) == 0):
+        value_ = value_.astype(np.int32)   # an index, a count of slices, an integer multiple-occurrence value
     return Raster._of(value_, empty, grid)
 
 
 def ArgStatistics(rasters, stat_type=None, min_value=None, max_value=None, multiple_occurrence_value=100,
                   ignore_nodata=True):
-    """Where each pixel reaches its maximum, minimum or median: the one-based band index of a multiband raster or a
-    list of rasters, or the dimension value of a multidimensional raster (along each variable's first dimension); or
+    """Where each pixel reaches its maximum, minimum or median: the zero-based band index of a multiband raster or a
+    list of rasters, or the zero-based slice index of a multidimensional raster along each variable's first dimension
+    (measured in ArcGIS Pro 3.7, 2026-11-08: the fifth of six monthly slices answers 4, not its date); or
     DURATION, the longest run of consecutive slices whose values lie between ``min_value`` and ``max_value``. Where the
     maximum or minimum is reached more than once, the cell is ``multiple_occurrence_value``, as documented.
 
-    INFERRED (ADR-236 §5.3): band indexes count from one, as HighestPosition's do; a time is a decimal year; DURATION
+    INFERRED (ADR-236 §5.3): DURATION
     counts slices, and with ``ignore_nodata`` a NoData slice neither extends nor ends a run; MEDIAN of an even count is
     the lower of the two middle values, reached at its first slice; one variable of one dimension answers a plain
     raster, and anything more a multidimensional one."""
@@ -589,7 +592,8 @@ def ArgStatistics(rasters, stat_type=None, min_value=None, max_value=None, multi
             raise ValueError("ArgStatistics: DURATION needs min_value and max_value.")
         low, high = float(min_value), float(max_value)
     multiple = None if stat == "MEDIAN" or not _given(multiple_occurrence_value) else float(multiple_occurrence_value)
-    return _arg_over(rasters, None, stat, low, high, multiple, _ignore(ignore_nodata), tool="ArgStatistics")
+    return _arg_over(rasters, None, stat, low, high, multiple, _ignore(ignore_nodata), tool="ArgStatistics",
+                     slice_index=True)
 
 
 def FindArgumentStatistics(in_raster, dimension=None, dimension_def="ALL", interval_keyword=None, variables=None,

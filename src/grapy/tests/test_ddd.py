@@ -62,7 +62,7 @@ class Ddd(unittest.TestCase):
         self.assertAlmostEqual(cells(slope)[1][1], 45.0, places=4)
         self.assertAlmostEqual(cells(ddd.Slope(self.plane, self.out("pr.tif"), "PERCENT_RISE").getOutput(0))[1][1], 100.0, places=3)
         self.assertAlmostEqual(cells(ddd.Aspect(self.plane, self.out("aspect.tif")).getOutput(0))[1][1], 270.0, places=4)
-        self.assertEqual(cells(ddd.HillShade(self.plane, self.out("hs.tif")).getOutput(0))[1][1], 218)
+        self.assertEqual(cells(ddd.HillShade(self.plane, self.out("hs.tif")).getOutput(0))[1][1], 217)  # truncated: Pro 3.7, 2026-11-08
 
     def test_mathematics_and_integer_division(self):
         a = grid([[3, -3], [4, 1]])

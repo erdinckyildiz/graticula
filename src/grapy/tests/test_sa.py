@@ -129,9 +129,9 @@ class Surface(unittest.TestCase):
         slope = cells(sa.Slope(self.plane))
         self.assertAlmostEqual(slope[1][1], 45.0, places=4)
         self.assertAlmostEqual(slope[2][2], 45.0, places=4)
-        # The western column: a, d, g are off the grid and take the centre's z, so
-        # dz/dx = (4 · (z+10) − 4 · z) / 80 = 0.5 and the slope is atan(0.5) = 26.565°.
-        self.assertAlmostEqual(slope[1][0], math.degrees(math.atan(0.5)), places=4)
+        # The western column has no western neighbour: NoData, as ArcGIS Pro 3.7 answers the outer ring (measured
+        # 2026-11-08; grapy answered atan(0.5) here, taking the centre's z for the missing cells).
+        self.assertEqual(slope[1][0], -1)  # cells() writes NoData as -1
         self.assertAlmostEqual(cells(sa.Slope(self.plane, "PERCENT_RISE"))[1][1], 100.0, places=3)
         self.assertAlmostEqual(cells(sa.Slope(self.plane, "DEGREE", 0.5))[1][1], math.degrees(math.atan(0.5)), places=4)
 
@@ -143,7 +143,7 @@ class Surface(unittest.TestCase):
         self.assertEqual(cells(sa.Aspect(grid([[5] * 3] * 3)))[1][1], -1.0)
 
     def test_hillshade_by_the_published_formula(self):
-        self.assertEqual(cells(sa.Hillshade(self.plane))[1][1], 218)
+        self.assertEqual(cells(sa.Hillshade(self.plane))[1][1], 217)  # 217.65 truncated, as Pro 3.7 does (2026-11-08)
         # Flat ground: 255 · cos(45°) = 180.31.
         self.assertEqual(cells(sa.Hillshade(grid([[5] * 3] * 3)))[1][1], 180)
         with self.assertRaises(NotImplementedError):
@@ -240,7 +240,8 @@ class DistanceAndExtraction(unittest.TestCase):
                 rows.insertRow((xy,))
         out = sa.ExtractValuesToPoints(path, a, os.path.join(self.directory, "v.gpkg")).getOutput(0)
         with arcpy.da.SearchCursor(out, ["RASTERVALU"]) as rows:
-            self.assertEqual([r[0] for r in rows], [1.0, 4.0, -9999.0])
+            # Off the raster: null in a geopackage, -9999 only in a shapefile (the page; Pro 3.7 measured 2026-11-08)
+            self.assertEqual([r[0] for r in rows], [1.0, 4.0, None])
         # Bilinear at the very centre of the grid: the mean of the four cell centres around it.
         sa.ExtractMultiValuesToPoints(path, [[a, "elev"]], "BILINEAR")
         with arcpy.da.SearchCursor(path, ["elev", "SHAPE@XY"]) as rows:

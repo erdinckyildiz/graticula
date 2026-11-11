@@ -195,10 +195,11 @@ class Arguments(unittest.TestCase):
     def test_arg_statistics_on_bands_and_on_time(self):
         bands = ia.CompositeBand([arcpy.NumPyArrayToRaster(np.array([[v]])) for v in (3, 7, 7)])
         self.assertEqual(cells(ia.ArgStatistics(bands, "MAX")), [[100.0]])  # reached twice
-        self.assertEqual(cells(ia.ArgStatistics(bands, "MIN")), [[1.0]])
+        self.assertEqual(cells(ia.ArgStatistics(bands, "MIN")), [[0.0]])  # zero-based: Pro 3.7 measured 2026-11-08
         times = [_mdim.to_time(t) for t in ("2019-01-01", "2020-07-02T00:00:00", "2021-01-01")]
         r = cube_raster([4, 9, 1], times)
-        self.assertAlmostEqual(cells(ia.ArgStatistics(r, "MAX"))[0][0], 2020 + 183 / 366)
+        # The slice's index, from 0, not its date: ArcGIS Pro 3.7 measured 2026-11-08 (was 2020 + 183 / 366).
+        self.assertEqual(cells(ia.ArgStatistics(r, "MAX"))[0][0], 1)
         r = cube_raster([1, 5, 5, 1, 5, 5, 5])
         self.assertEqual(cells(sa.ArgStatistics(r, "DURATION", 4, 6)), [[3.0]])
 
