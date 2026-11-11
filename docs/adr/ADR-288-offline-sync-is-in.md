@@ -195,6 +195,28 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
    rather than GDAL's SQLite in the reader process, which would put a writer behind a process built to read untrusted
    input. `Graticula.Api.ArcGis` keeps its rule of no package references.
 
+### 11a. INFERRED — preplanned map areas, decided the night of 2026-11-12 while the owner slept; asked as [Q-234](../open-questions.md)
+
+What an Enterprise portal does was read in the research note (§5a): a `Map Area` item is related to its web map by
+`Map2Area`, and to one `SQLite Geodatabase` package per feature service by `Area2Package`. Each package is a replica
+registered when the area is packaged, and the item's `properties` describe it. The decisions below are how Graticula
+serves the same shape. None was stated by the owner.
+
+1. **An area is made by one Graticula route, not by the packaging service.** The map's owner, or an administrator,
+   sends `POST /admin/maps/{id}/areas` with a title and an extent. That one call creates the area and packages it,
+   which ArcGIS splits into `CreateMapArea` and `SetupMapArea`. An `OfflinePackaging` GP service that ArcGIS Pro and
+   Map Viewer can call is later work, recorded as a debt. Studio gets a control for the route in the same piece of work.
+2. **Feature services only, no basemap package, in the first version.** Field Maps takes an area without a basemap.
+   A vector tile package from the existing exporter (ADR-098) is later work, recorded as a debt.
+3. **One registered `perLayer` replica per package, owned by the area's creator, written once.** Every device that
+   downloads the package shares it, as on Enterprise. *Refresh* is a route that writes a new package and unregisters
+   the old replica. A scheduled refresh (`packageRefreshSchedule`) is not built.
+4. **An area and its packages are items of their own** in the `item` table, with kinds `map area` and
+   `map area package`. A package's file is kept on disk beside the scene packages (ADR-274), not in the database. The
+   items take the map's sharing, and deleting the map deletes its areas, their packages and their replicas.
+5. **Item `properties` are emitted for these two kinds only**, in the shape §5a read. No general `properties` store is
+   added.
+
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network
@@ -212,7 +234,17 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
    written against it. **DISCHARGED 2026-11-10**: research note §5b, from an upload Field Maps 26.2.2 sent after an offline
    insert, update and delete; the reader written against the download's shape read it, and all three were applied.
 3. **Preplanned map areas** are measured on an Enterprise portal (their items, relationships and packaging), then
-   served and downloaded by Field Maps.
+   served and downloaded by Field Maps. **PARTLY DISCHARGED 2026-11-12.** *Measured:* research note §5a — the items, the
+   relationships, the replica behind a package and the properties that describe it, read on one Enterprise portal.
+   *Built* (§11a, branch `offline-preplanned`, migration 139): `POST /admin/maps/{id}/areas` writes an area and one registered
+   `perLayer` replica per sync-enabled feature service of the map, inside the area, as items of type `Map Area` and
+   `SQLite Geodatabase` with the type keywords and `properties` §5a read; `relatedItems` answers `Map2Area` and `Area2Package`
+   both ways; a package's `/data` streams its file with ranges; refresh and delete put the old replica and file away; the
+   items are seen exactly when the map is. **Not yet measured: that Field Maps lists such an area, downloads its package and
+   syncs it on a device** — nothing in this repository has watched it do so, and what the packaging service's own items hold
+   beyond §5a (the Map Area's `/data`, the `status` words, the extent's shape in `properties`) is `INFERRED` where it is not
+   in the note ([D-408](../architecture-debt.md)). The packaging GP service, a basemap package, a scheduled refresh, and a
+   member other than the packager syncing a shared package are [D-404 to D-407](../architecture-debt.md).
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
    **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On
