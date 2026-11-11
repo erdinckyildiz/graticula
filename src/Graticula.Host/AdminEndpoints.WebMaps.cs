@@ -11,6 +11,7 @@ using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -55,6 +56,9 @@ internal static partial class AdminEndpoints
 
         // ADR-286: ArcGIS Field Maps tasks.
         MapWebMapTasks(app);
+
+        // ADR-288 §11a: preplanned map areas.
+        MapMapAreas(app);
     }
 
     /// <summary>The maps this caller may open: their own first, then what is shared with them.</summary>
@@ -205,11 +209,24 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-288 §11a: the areas of the map and their packages go with it by cascade; read before, so that what they stood
+        // for - a registered replica and a file each - can be put away after.
+        IReadOnlyList<MapAreaPackage> packages = context.RequestServices.GetService<IMapAreaStore>() is { } areaStore
+            ? await areaStore.PackagesOfMapAsync(id, cancellation).ConfigureAwait(false)
+            : [];
+
         // ADR-203: into the recycle bin, with its id, until it expires.
         (Guid? entry, string? refused) = await recycle.RecycleRowsAsync(
             "web_map", id, Guid.Parse(id), "web map", before.Title, before.Owner, current.Principal.Id, cancellation)
             .ConfigureAwait(false);
         bool gone = entry is not null;
+
+        // The replicas are unregistered and the files removed. A map brought back from the recycle bin comes back with its
+        // areas as rows and without their files: refreshing an area writes them again (D-407).
+        if (gone && packages.Count > 0)
+        {
+            await MapAreaPackaging.DiscardAsync(context.RequestServices, packages, cancellation).ConfigureAwait(false);
+        }
 
         await AuditAsync(
             context, audit, "webmap.delete", id,
