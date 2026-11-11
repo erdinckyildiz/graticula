@@ -215,13 +215,19 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
    served and downloaded by Field Maps.
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
+   **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On
+   2026-11-10, a row edited on the server and on the phone kept the edit that reached the server last. On 2026-11-12, p2
+   was edited on the phone with the network off and deleted on the server meanwhile. After *Sync now*, p2 stayed
+   deleted on the server and was gone from the phone. Before commit 3cf9ab74, the phone kept such a row, because the
+   download left out the client's own edit even though that edit was dropped.
 6. **The writer's test vectors are this project's geometries**, and no file Esri wrote is committed.
 7. **A client's upload is parsed behind the reader process, not in the host** — owner decision 2026-11-10 (*"Ayrı sürece
-   taşı"*), ADR-009's line for untrusted files. Until then offline sync stays off main (D-402). **PARTLY DISCHARGED
-   2026-11-11**: `Graticula.Offline.Reader` is a child process the host starts once per upload, with the import
+   taşı"*), ADR-009's line for untrusted files. Until then offline sync stays off main (D-402). **DISCHARGED
+   2026-11-12**: `Graticula.Offline.Reader` is a child process the host starts once per upload, with the import
    reader's bounds — a deadline, a heap ceiling, a working-set ceiling polled from outside, a lower priority. Reading is
    its own port, `IOfflineDeltaReader`; the host's implementation only starts the child, and `NativeDependencyTests`
    fails the build if the host's source names the in-process reader. Writing stays in the host, because it starts from
    rows the server already holds. The child also decodes an upload's geometry on the grid of the client-local SRID the
-   file defines (research note §5b). Tested in-process and through the child; **open:** a real Field Maps upload read by
-   the child on dev, which was not deployed because the machine stalled under the build.
+   file defines (research note §5b). Tested in-process and through the child. **Measured 2026-11-12 on dev:** a Field
+   Maps upload carrying an offline update was read by the child and applied. The build that served it has no
+   in-process reader, so the child is the only path the read could take. The update was the conflict of condition 5.
