@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(138);
+    public static SchemaVersion ComponentSchemaVersion => new(139);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -165,7 +165,121 @@ public static class PlatformMigrations
         AScenePackageAboveTheDocumentLimitIsAFileV134,
         AMobileWorkerIsAUserTypeV135,
         AServiceMayBeTakenOfflineV138,
+        AMapAreaIsAnItemV139,
     ]);
+
+    /// <summary>
+    /// A preplanned map area is an item, and so is each package taken from it — ADR-288 §11a: the area, its packages, and
+    /// the two relationship types ArcGIS names them by.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The item refers to the area, as a web map's item refers to its map</b> (<c>item.web_map_id</c>, migration 87):
+    /// <c>item.map_area_id</c> and <c>item.map_area_package_id</c> cascade, so deleting a map takes its areas, their
+    /// packages and their items with it, and the recycle bin, which follows foreign keys outward from the map, finds every
+    /// one. The item's id is the area's or the package's own.
+    /// </para>
+    /// <para>
+    /// <b>A package's replica is named, not referenced</b>, as a comment's author is (migration 131): unregistering a
+    /// replica, or turning a service's sync off, must not delete the package item a device holds; the code that unregisters
+    /// the replica of a package removes the file. <b>The file is on disk</b>, its path relative to the server directories,
+    /// with its SHA-256 and size. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: two item kinds
+    /// nothing older writes, two relationship types nothing older asks for, and tables nothing older reads.
+    /// </para>
+    /// </remarks>
+    private static Migration AMapAreaIsAnItemV139 => Migration.Expand(
+        new SchemaVersion(139),
+        "A preplanned map area and its packages are items, related to their map by Map2Area and Area2Package (ADR-288 §11a).",
+
+        "alter table item drop constraint item_kind_known",
+
+        "alter table item add constraint item_kind_known check (kind in ('service', 'web map', 'document', 'toolbox', 'map area', 'map area package'))",
+
+        "alter table item_relationship drop constraint if exists item_relationship_type_known",
+
+        "alter table item_relationship add constraint item_relationship_type_known check (relationship_type in ('Service2Data', 'Service2Service', 'Map2Area', 'Area2Package'))",
+
+        """
+        create table if not exists map_area (
+            id                   uuid             not null primary key,
+            map_id               text             not null references web_map (id) on delete cascade,
+            title                text             not null,
+            x_min                double precision not null,
+            y_min                double precision not null,
+            x_max                double precision not null,
+            y_max                double precision not null,
+            wkid                 integer          not null,
+            status               text             not null,
+            created_at           timestamptz      not null default now(),
+            refreshed_at         timestamptz      not null default now(),
+            creator_principal_id uuid             not null,
+            creator_name         text             not null,
+            tenant_id            uuid             not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint map_area_title_present check (length(btrim(title)) > 0),
+            constraint map_area_extent_ordered check (x_min <= x_max and y_min <= y_max)
+        )
+        """,
+
+        "create index if not exists map_area_by_map on map_area (map_id, created_at)",
+
+        "create index if not exists map_area_tenant on map_area (tenant_id)",
+
+        """
+        create table if not exists map_area_package (
+            id           uuid        not null primary key,
+            area_id      uuid        not null references map_area (id) on delete cascade,
+            service_id   uuid        not null references service (id) on delete cascade,
+            replica_id   uuid        not null,
+            file_name    text        not null,
+            file_path    text        not null,
+            sha256       text        not null,
+            size         bigint      not null,
+            properties   jsonb       not null,
+            created_at   timestamptz not null default now(),
+            refreshed_at timestamptz not null default now(),
+            tenant_id    uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint map_area_package_one_per_service unique (area_id, service_id)
+        )
+        """,
+
+        "create index if not exists map_area_package_tenant on map_area_package (tenant_id)",
+
+        "alter table item add column if not exists map_area_id uuid null unique references map_area (id) on delete cascade",
+
+        "alter table item add column if not exists map_area_package_id uuid null unique references map_area_package (id) on delete cascade",
+
+        "alter table item add constraint item_is_its_map_area check (map_area_id is null or map_area_id = id)",
+
+        "alter table item add constraint item_is_its_map_area_package check (map_area_package_id is null or map_area_package_id = id)",
+
+        """
+        alter table item add constraint item_kind_matches_map_area check (
+            (kind = 'map area') = (map_area_id is not null) and (kind = 'map area package') = (map_area_package_id is not null))
+        """,
+
+        "alter table map_area enable row level security",
+
+        "alter table map_area force row level security",
+
+        "drop policy if exists tenant_floor on map_area",
+
+        """
+        create policy tenant_floor on map_area
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        "alter table map_area_package enable row level security",
+
+        "alter table map_area_package force row level security",
+
+        "drop policy if exists tenant_floor on map_area_package",
+
+        """
+        create policy tenant_floor on map_area_package
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
 
     /// <summary>
     /// A hosted feature service may be taken offline and synchronised — ADR-288: whether its sync is on, and the
