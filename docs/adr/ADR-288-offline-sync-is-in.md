@@ -217,4 +217,11 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
 6. **The writer's test vectors are this project's geometries**, and no file Esri wrote is committed.
 7. **A client's upload is parsed behind the reader process, not in the host** — owner decision 2026-11-10 (*"Ayrı sürece
-   taşı"*), ADR-009's line for untrusted files. Until then offline sync stays off main (D-402).
+   taşı"*), ADR-009's line for untrusted files. Until then offline sync stays off main (D-402). **PARTLY DISCHARGED
+   2026-11-11**: `Graticula.Offline.Reader` is a child process the host starts once per upload, with the import
+   reader's bounds — a deadline, a heap ceiling, a working-set ceiling polled from outside, a lower priority. Reading is
+   its own port, `IOfflineDeltaReader`; the host's implementation only starts the child, and `NativeDependencyTests`
+   fails the build if the host's source names the in-process reader. Writing stays in the host, because it starts from
+   rows the server already holds. The child also decodes an upload's geometry on the grid of the client-local SRID the
+   file defines (research note §5b). Tested in-process and through the child; **open:** a real Field Maps upload read by
+   the child on dev, which was not deployed because the machine stalled under the build.
