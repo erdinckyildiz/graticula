@@ -343,6 +343,21 @@ internal sealed record ArcGisConnection(string Client, string Host, int? Port, s
         return this with { Host = hostPort[0], Port = port };
     }
 
+    /// <summary>
+    /// Whether a connection Pro published with reaches this registered one: the same database <i>and the same database
+    /// user</i>. Owner decision 2026-11-12 (ADR-299): a layer Pro reads as one user is not served as another, so a
+    /// different user is no match even when host, port and database agree. A side with no user matches nothing.
+    /// </summary>
+    /// <remarks>
+    /// The user is compared without case: PostgreSQL folds an unquoted role name to lower case, and Pro writes the name
+    /// as it was typed into the connection dialog.
+    /// </remarks>
+    public bool Matches(ArcGisConnection registered) =>
+        string.Equals(DatabaseKey, registered.DatabaseKey, StringComparison.Ordinal)
+        && User is { Length: > 0 } mine
+        && registered.User is { Length: > 0 } theirs
+        && string.Equals(mine, theirs, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Written in ArcGIS's form, without a password.</summary>
     public string ToArcGis()
     {
