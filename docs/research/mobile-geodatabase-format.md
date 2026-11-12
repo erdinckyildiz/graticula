@@ -184,6 +184,23 @@ only, no row read):
   `OffPkg_ 24` *"Parameter Area is invalid or exceeded limit"*, even for a 5 km box. The documentation pages answered
   404 the same night.
 
+**What Field Maps does with a preplanned area, measured 2026-11-12** (Field Maps 26.2.2 on the emulator, against
+dev.graticula.com serving an area the way §11a of ADR-288 describes). The server's request log and Field Maps' own
+log (*Profile › Troubleshooting › View logs*, verbose) were read:
+
+- **It lists the area without being asked.** The map's area list showed "Probe area, 442 kB" under *Not downloaded*.
+  To build that list it read the map's `relatedItems?relationshipType=Map2Area`, then each area's
+  `relatedItems?relationshipType=Area2Package`.
+- **Download fetches the package, then registers it with `createReplica`.** After `GET …/items/{package}/data`, Field
+  Maps posted `createReplica` to the feature service with **`dataFormat=json`**. So a device registers its own replica
+  for the package it downloaded, and this is the call that makes the copy syncable. The package's own replica is not
+  synced by the device. The full parameters were not read; Graticula refused `json` (ADR-288 §5.4), and Field Maps
+  logged that refusal verbatim.
+- **A basemap without a package fails the whole download.** The map's basemap was a Graticula vector tile layer. Field
+  Maps logged *"Layer: probe tiles - Error: Not found. Missing preplanned vector tile package"* and then *"The map
+  download contains one or more errors"*. The area was marked *Download failed*. A map with a basemap therefore needs
+  a tile package related by `Area2Package` for it.
+
 ## 6. The test that matters: a file written without Esri's library
 
 A probe rebuilt two of the captured files using plain SQLite only — schema statements replayed, the two Esri-module
