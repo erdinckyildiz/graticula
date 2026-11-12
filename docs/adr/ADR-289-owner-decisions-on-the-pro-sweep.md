@@ -75,7 +75,7 @@ name follow from the column, not from a constant.
 Where Pro's measured behaviour contradicts its own Esri page, grapy follows the page and the sweep's results record
 the difference. This is the rule from now on, not only for the tools named in §1.
 
-### 5.3 Messages — decided, not yet built
+### 5.3 Messages — built
 
 GetMessages, GetMessage, GetMessageCount, GetMaxSeverity, GetSeverity and the Result's messages answer the last tool's
 messages, with the start and end lines Pro writes. AddMessage outside a tool does not join them. What the server's job
@@ -107,7 +107,7 @@ global IDs keeps `REL_GLOBALID`, as Pro does. Attachments that grapy wrote earli
 
 1. **Column names built (§5.1)**: the sweep's arcpy_top, da and management cases match Pro on the names, and a
    GeoPackage written before the change still opens.
-2. **Messages built (§5.3)**: the sweep's message cases match Pro.
+2. **Messages built (§5.3)**: the sweep's message cases match Pro. **DISCHARGED 2026-11-12**: 24 of 24 message cases match Pro (18 were DIFF), three of them new (nested tools, levels, a Result's messages). One wrapper in `_runtime.run_tool` gives every tool its own messages with Pro's start and end lines; SetSeverityLevel 0 and 1 are built; the run's list the server's job answers (ADR-223) is unchanged.
 3. **Attachments built (§5.4)**: the sweep's attachment cases match Pro, and attachments written earlier still read. **DISCHARGED 2026-11-12**: all eight attachment cases match Pro (four were DIFF); `_attachments.keys` reads the key from the table's columns, and `test_subtypes_attachments.ObjectIdKeyedAttachments` opens a GeoPackage written in the old layout. Pro refuses EnableAttachments on a GeoPackage (ERROR 000187), so Pro was measured on a file geodatabase.
 
 ## 10. Revisit triggers

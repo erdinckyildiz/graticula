@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM` — every mechanism named is a documented, unprivileged Linux facility, and none is yet measured holding against a hostile tool here; the conditions are the measurements |
 | **Decided** | 2026-10-29, by owner decision, four answers put as questions with their consequences: isolation *"Ayrı süreç, sınırlı"*; network *"Hayır"*; who publishes *"Yeni bir yetki"*; the form *"arcpy yapısına benzer bir yapı olsun. ama arkada grapy çalışsın. metodlar birebir oluşturulsun. ekstra toollar da olabilir."* Before them, [Q-192](../open-questions.md): *"Kullanıcı araçları da gelsin"*. What this ADR adds to those answers is **INFERRED** and listed in §5.9 for confirmation in [Q-194](../open-questions.md). |
 | **Supersedes** | [v1-scope](../v1-scope.md) §3c's *"the Python SDK, the sandbox and the user wheel set remain out"* — reversed by Q-192, designed here |
-| **Superseded by** | — **Amended 2026-11-12 by owner decision, [ADR-289](ADR-289-owner-decisions-on-the-pro-sweep.md) §5.3**: a tool's messages are Pro's per-tool messages, with its start and end lines; what a run (a job) answers is kept. Not yet built. |
+| **Superseded by** | — **Amended 2026-11-12 by owner decision, [ADR-289](ADR-289-owner-decisions-on-the-pro-sweep.md) §5.3**: a tool's messages are Pro's per-tool messages, with its start and end lines; what a run (a job) answers is kept. Built 2026-11-12. |
 
 ---
 
