@@ -237,7 +237,10 @@ def build(fab, box, guid):
         for xy in pf.ends(ln.shape):
             if point_snap.find(xy) is None:
                 point_snap.add(xy)
-                new_points.append({"CreatedByRecord": ln.get_ci("CreatedByRecord"), "shape": Point(xy)})
+                # Is Fixed No on a point Build makes: ArcGIS Pro 3.7 writes 0 there (measured 2026-11-08 by the Pro
+                # sweep), where a point a cursor inserts keeps null; grapy left it null.
+                new_points.append({"CreatedByRecord": ln.get_ci("CreatedByRecord"), "IsFixed": pf.NO,
+                                   "shape": Point(xy)})
     pf.insert(fab.file, fab.points, new_points)
     if new_points:
         AddMessage(f"{len(new_points)} points built.")
@@ -551,7 +554,11 @@ def _merge(l1, l2, node, snap, tolerance):
     direction = (d1 if longest is l1 else d2) if _angle_close(d1, d2) else None
     row["Direction"] = direction
     row["Radius"] = r1
-    row["COGOType"] = pf.COMPUTED
+    # Computed only when the merged line has a COGO dimension: two lines with none merge with COGO Type left null in
+    # ArcGIS Pro 3.7 (measured 2026-11-08 by the Pro sweep; grapy wrote Computed whatever the dimensions). INFERRED:
+    # the dimensions that count are Distance, Direction, Radius and Arc Length; otherwise the longer line's COGO Type.
+    if any(row.get(k) is not None for k in ("Distance", "Direction", "Radius", "ArcLength")):
+        row["COGOType"] = pf.COMPUTED
     row["shape"] = LineString(c1 + c2[1:])
     return row
 

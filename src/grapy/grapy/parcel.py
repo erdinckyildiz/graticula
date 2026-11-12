@@ -100,8 +100,10 @@ def AddParcelType(in_parcel_fabric, name, administrative_polygon="TOPOLOGY_POLYG
     samples, §5.8 (a)) with the documented system fields, registered with the fabric; a STRATA_PARCELS type adds
     ``FloorOrder`` to both, and an ADMINISTRATIVE_POLYGON type's polygons stay out of the topology. The page asks for
     the topology disabled, but Pro 3.7 adds a type to an enabled one too (measured 2026-10-31), and so does grapy:
-    the type's classes and system rules then join the topology. Outputs the fabric, the polygon class and the line
-    class."""
+    the type's classes and system rules then join the topology. Where classes of those names are already there (a
+    removed type's), the new ones are ``<name>_1`` and ``<name>_Lines_1``, as Pro 3.7 names them (measured
+    2026-11-08). Outputs the fabric, the polygon class and the line class (Pro answers "" for the two classes when it
+    renames them; grapy their paths)."""
     fab = _fabric(in_parcel_fabric, "AddParcelType")[0]
     administrative = pf.word(administrative_polygon, "TOPOLOGY_POLYGON", ("ADMINISTRATIVE_POLYGON", "TOPOLOGY_POLYGON"),
                              "AddParcelType", "administrative_polygon") == "ADMINISTRATIVE_POLYGON"
@@ -312,8 +314,9 @@ def MergeCollinearParcelBoundaries(in_parcel_boundaries, offset_tolerance):
     """Connected collinear parcel lines (or connection lines) merged into one, as documented: two lines meeting at a
     point no other line meets, the point within the offset tolerance of the straight line — or of the curve of their
     radius — between their outer ends. The merged shape keeps the vertex; Distance and Arc Length are summed;
-    Direction is the longest line's when the two agree within rounding, else null; COGO Type becomes Computed; the
-    shared point is deleted unless Preserve is Yes, and the originals are deleted. INFERRED (§5.8 (l)): rounding is
+    Direction is the longest line's when the two agree within rounding, else null; COGO Type becomes Computed when
+    the merged line has a COGO dimension (Pro 3.7 leaves it otherwise, measured 2026-11-08); the shared point is
+    deleted unless Preserve is Yes, and the originals are deleted. INFERRED (§5.8 (l)): rounding is
     one second of arc; lines of different records are not merged; the merged line keeps the longer line's other
     fields; a positive radius curves clockwise."""
     from . import _parcel_build
@@ -626,9 +629,11 @@ def GenerateParcelFabricLinks(target_parcel_fabric, out_links_feature_class, out
     the points that did not move, or moved less than ``min_link_length``, as documented. The page reads the original
     locations from a parcel fabric published as a feature service, on its DEFAULT version; grapy reads them from the
     history ADR-227 keeps for the fabric's points, DEFAULT's — so the points must be branch versioned
-    (RegisterAsVersioned) or archived (EnableArchiving) before the edits. Only points whose original location falls
-    in the extent are processed. INFERRED (§5.8 (u)): dates are UTC; each output carries ``PointID``, the point's
-    global ID; a point made after ``from_date`` has no original location and gives neither."""
+    (RegisterAsVersioned) or archived (EnableArchiving) before the edits; points with no history give neither, and
+    the outputs are written empty with a warning, as Pro 3.7 writes them for a file geodatabase's fabric. Each output
+    carries ``SOURCE_GUID``, the point's global ID — Pro 3.7's field (both measured 2026-11-08). Only points whose
+    original location falls in the extent are processed. INFERRED (§5.8 (u)): dates are UTC; a point made after
+    ``from_date`` has no original location and gives neither."""
     from . import _parcel_io
     tool = "GenerateParcelFabricLinks"
     fab = _fabric(target_parcel_fabric, tool)[0]

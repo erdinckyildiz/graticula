@@ -682,8 +682,10 @@ def make_class(file, table, shape, srid, spec, cogo=False, track=True):
 
 # The default attribute rules of *Parcel fabric attribute rules*; their scripts and error numbers are grapy's own
 # Arcade for the behaviour the page states (INFERRED, §5.8 (t)).
+# A point with no Preserve is No (0): ArcGIS Pro 3.7 writes 0 on every new point, by a cursor or by Build, though the
+# field has no default (measured 2026-11-08 by the Pro sweep; grapy's rule left it null until then).
 PRESERVE = ("if ($feature.IsFixed == 1 || !IsEmpty($feature.X) || !IsEmpty($feature.Y) || !IsEmpty($feature.Z)) "
-            "{ return 1 }\nreturn $feature.Preserve")
+            "{ return 1 }\nif (IsEmpty($feature.Preserve)) { return 0 }\nreturn $feature.Preserve")
 SHAPE_IS_FIXED = ("if ($originalFeature.IsFixed == 1 && !Equals(Geometry($feature), Geometry($originalFeature))) "
                   "{ return false }\nreturn true")
 MUST_HAVE_A_RECORD = "return !IsEmpty($feature.CreatedByRecord)"
@@ -786,9 +788,13 @@ def add_type(fab, name, administrative, strata):
         taken = {r[0].lower() for r in connection.execute("select table_name from gpkg_contents")}
     finally:
         connection.close()
-    for table in (polygons, lines):
-        if table.lower() in taken:
-            raise ExecuteError(f"ERROR 000258: AddParcelType: '{table}' already exists.")
+    # Classes of those names already there — a type removed with RemoveParcelType leaves them — are left alone, and
+    # the new type's classes take the first free suffix, <name>_1 and <name>_Lines_1: ArcGIS Pro 3.7 does so (measured
+    # 2026-11-08 by the Pro sweep; grapy refused with ERROR 000258 until then). INFERRED: one suffix for both classes.
+    k = 0
+    while polygons.lower() in taken or lines.lower() in taken:
+        k += 1
+        polygons, lines = f"{fab.dataset}/{name}_{k}", f"{fab.dataset}/{name}_Lines_{k}"
     floor = [("FloorOrder", "Integer")] if strata else []
     make_class(fab.file, polygons, "Polygon", fab.srid, POLYGON_FIELDS + floor)
     make_class(fab.file, lines, "Polyline", fab.srid, LINE_FIELDS + floor, cogo=True)
