@@ -54,7 +54,8 @@ corrected; three stay, below.
   answered `DETAILED_POLYS`, and refused `SIMPLE_POLYS`; it now refuses `DETAILED_POLYS`, HIGH detail).
 - **TravelMode** answers `useHierarchy` as `NO_HIERARCHY`/`USE_HIERARCHY`, and its JSON (str, ExportNetworkTravelModes)
   writes `uturnAtJunctions` with the REST words and `simplificationToleranceUnits` (grapy wrote `uTurns`); it reads
-  either.
+  either. A network's travel modes keep their type and description (grapy stored neither, so a mode replaced as
+  AUTOMOBILE came back OTHER — found by the nax sweep, measured here too).
 - **Refusals Pro makes:** ReplaceNetworkTravelModes refuses a travel mode with no time attribute on a network with a
   time cost (ERROR 030403, before anything is replaced); UpgradeNetwork refuses a network made at the current release
   (ERROR 030087 — every grapy network); AddVehicleRoutingProblemRoutes refuses routes with neither depot (ERROR
@@ -92,7 +93,7 @@ corrected; three stay, below.
 | GetNAClassNames | DIFF | MATCH | fixed | Barriers; OUTPUT lists the inputs a solve writes |
 | GetNASublayer | DIFF | MATCH | fixed | Pro's fields |
 | GetSolverProperties | DIFF | MATCH | case | Pro's class name prints oddly; not compared |
-| GetTravelModes | PRO-ERROR | MATCH | case / fixed | case: Walk needs a time attribute there; useHierarchy keyword |
+| GetTravelModes | PRO-ERROR | MATCH | case / fixed | case: Walk needs a time attribute there; useHierarchy keyword; type and description kept |
 | IncreaseMaximumEdges | PRO-ERROR | MATCH | case | as CreateTurnFeatureClass |
 | LocationAllocationSolverProperties | MATCH | MATCH | — |  |
 | MakeClosestFacilityAnalysisLayer | DIFF | MATCH | fixed | fields; Incident/FacilityCurbApproach |

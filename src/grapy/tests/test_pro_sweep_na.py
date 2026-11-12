@@ -103,6 +103,16 @@ class ProSweepNa(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.ExecuteError, "030087"):
             na.UpgradeNetwork(self.network)
 
+    def test_a_travel_mode_keeps_its_type_and_description(self):
+        # Pro reads a mode replaced as AUTOMOBILE back as AUTOMOBILE; grapy answered OTHER and no description.
+        modes = os.path.join(self.directory, "modes.json")
+        with open(modes, "w", encoding="utf-8") as written:
+            json.dump({"Walk": {"name": "Walk", "type": "WALK", "description": "on foot",
+                                "impedanceAttributeName": "Length"}}, written)
+        na.ReplaceNetworkTravelModes(modes, self.network)
+        walk = na.GetTravelModes(self.network)["Walk"]
+        self.assertEqual((walk.type, walk.description), ("WALK", "on foot"))
+
     def test_a_travel_mode_writes_the_rest_words(self):
         mode = na.TravelMode({"name": "Walk", "impedanceAttributeName": "Length", "uturnAtJunctions": "esriNFSBNoBacktrack"})
         self.assertEqual(mode.uTurns, "NO_UTURNS")

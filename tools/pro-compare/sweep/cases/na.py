@@ -240,7 +240,8 @@ def _fields(ap, path):
 def _mode(mode):
     return {"name": mode.name, "impedance": mode.impedance, "timeAttributeName": mode.timeAttributeName,
             "distanceAttributeName": mode.distanceAttributeName, "restrictions": sorted(mode.restrictions or []),
-            "useHierarchy": str(mode.useHierarchy), "uTurns": str(mode.uTurns)}
+            "useHierarchy": str(mode.useHierarchy), "uTurns": str(mode.uTurns), "type": str(mode.type),
+            "description": mode.description}
 
 
 def route(ap, I, name, nd=None, mode=None):

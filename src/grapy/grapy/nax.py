@@ -542,7 +542,7 @@ class NetworkDataset:
         for name, mode in (travel_modes or {}).items():
             travel = TravelMode(mode)
             _network.add_travel_mode(self._path, name, travel.impedance, travel.restrictions, travel.timeAttributeName,
-                                     travel.distanceAttributeName)
+                                     travel.distanceAttributeName, None, travel.type, travel.description)
 
 
 # ---- solver objects -----------------------------------------------------------------------------------------------

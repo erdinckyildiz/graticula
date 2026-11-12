@@ -1047,7 +1047,8 @@ def ReplaceNetworkTravelModes(in_travel_mode_file, in_network_dataset):
     for mode_name, properties in modes.items():
         mode = TravelMode(properties)
         _network.add_travel_mode(str(in_network_dataset), mode_name, mode.impedance, mode.restrictions,
-                                 mode.timeAttributeName, mode.distanceAttributeName, mode.uTurns)
+                                 mode.timeAttributeName, mode.distanceAttributeName, mode.uTurns, mode.type,
+                                 mode.description)
     return Result(str(in_network_dataset))
 
 

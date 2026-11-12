@@ -69,6 +69,10 @@ def ensure(connection):
         connection.execute("alter table grapy_network add column built_at text")
     if "u_turns" not in [r[1] for r in connection.execute("pragma table_info(grapy_network_travel_mode)")]:
         connection.execute("alter table grapy_network_travel_mode add column u_turns text")   # ADR-239
+    columns = [r[1] for r in connection.execute("pragma table_info(grapy_network_travel_mode)")]
+    for column in ("mode_type", "description"):             # a travel mode keeps them, as Pro's does (Pro sweep)
+        if column not in columns:
+            connection.execute(f"alter table grapy_network_travel_mode add column {column} text")
     register(connection, TABLES, EXTENSION, DEFINITION)
 
 
@@ -218,8 +222,10 @@ def _turn_evaluator(connection, name, dataset, source, kind, usage, units, value
 
 
 def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=None, distance_attribute=None,
-                    u_turns=None):
-    """A travel mode: the cost attribute minimised, the restrictions honoured and its U-turn policy (ADR-239)."""
+                    u_turns=None, mode_type=None, description=None):
+    """A travel mode: the cost attribute minimised, the restrictions honoured and its U-turn policy (ADR-239), and its
+    type and description, which Pro keeps (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep: a mode replaced as
+    AUTOMOBILE is read back AUTOMOBILE; grapy answered OTHER and no description)."""
     connection, _, _, name = open_network(network)
     try:
         attributes = {r[0]: r[1] for r in connection.execute("select name, usage from grapy_network_attribute where "
@@ -229,9 +235,11 @@ def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=No
                                "restriction attributes of the network.")
         from ._turns import policy
         policy(u_turns)
-        connection.execute("insert or replace into grapy_network_travel_mode values (?, ?, ?, ?, ?, ?, ?)",
+        connection.execute("insert or replace into grapy_network_travel_mode (network, name, impedance, "
+                           "time_attribute, distance_attribute, restrictions, u_turns, mode_type, description) "
+                           "values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                            (name, mode, impedance, time_attribute, distance_attribute, json.dumps(list(restrictions)),
-                            u_turns))
+                            u_turns, mode_type, description))
         connection.commit()
     finally:
         connection.close()
@@ -253,11 +261,13 @@ def default_mode(attributes):
 def travel_modes(network):
     connection, _, _, name = open_network(network)
     try:
+        ensure(connection)
         return {r[0]: {"name": r[0], "impedance": r[1], "timeAttributeName": r[2], "distanceAttributeName": r[3],
-                       "restrictions": json.loads(r[4]), "uTurns": r[5] or "ALLOW_UTURNS"}
+                       "restrictions": json.loads(r[4]), "uTurns": r[5] or "ALLOW_UTURNS",
+                       **({"type": r[6]} if r[6] else {}), **({"description": r[7]} if r[7] is not None else {})}
                 for r in connection.execute("select name, impedance, time_attribute, distance_attribute, restrictions, "
-                                            "u_turns from grapy_network_travel_mode where network = ? order by rowid",
-                                            (name,))}
+                                            "u_turns, mode_type, description from grapy_network_travel_mode where "
+                                            "network = ? order by rowid", (name,))}
     finally:
         connection.close()
 
