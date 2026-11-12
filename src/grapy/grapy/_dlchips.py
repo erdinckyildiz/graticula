@@ -763,8 +763,12 @@ def ComputeAccuracyForObjectDetection(detected_features, ground_truth_features, 
     detection is a true positive when its IoU with an unmatched ground truth of its class reaches ``min_iou``.
     INFERRED (ADR-248 §5.3): ``min_iou`` defaults to 0.5, PASCAL VOC's threshold; a detection's confidence is its
     ``Confidence`` field when it has one, else every detection ranks equal in object ID order; IoU is that of the
-    features' own shapes (boxes, as the tool's detections are); the table has a ``Class`` field naming each class value
-    and a last row ``All`` whose counts are the sums and whose AP is the mean of the classes' (mAP)."""
+    features' own shapes (boxes, as the tool's detections are); the All_Classes row's AP is the mean of the classes'
+    (mAP) — Pro 3.7 answered 0.6875 where the classes' were 0.5 and 1 (measured 2026-11-08), by a rule not found.
+
+    The table's layout is Pro 3.7's (measured 2026-11-08, until then grapy's INFERRED ``Class`` field and last ``All``
+    row): its first field, named ``Min_IoU_is_<min_iou as a percentage>_percent``, holds ``All_Classes`` in the first
+    row, whose counts are the sums, then each class; with no class field given there is the All_Classes row alone."""
     from . import _gpkg, da
     from ._result import Result
     from .analysis import _out, _read, _schema
@@ -810,9 +814,11 @@ def ComputeAccuracyForObjectDetection(detected_features, ground_truth_features, 
         table.append(_metrics(str(value), tp, fp, fn, ap))
         totals = [totals[0] + tp, totals[1] + fp, totals[2] + fn]
         aps.append(ap)
-    table.append(_metrics("All", *totals, float(np.mean(aps)) if aps else 0.0))
+    if not (det_class or truth_class):
+        table = []
+    table.insert(0, _metrics("All_Classes", *totals, float(np.mean(aps)) if aps else 0.0))
     out = _out(out_accuracy_table)
-    fields = [("Class", "String"), ("Precision", "Double"), ("Recall", "Double"), ("F1_Score", "Double"),
+    fields = [(f"Min_IoU_is_{int(round(threshold * 100))}_percent", "String"), ("Precision", "Double"), ("Recall", "Double"), ("F1_Score", "Double"),
               ("AP", "Double"), ("True_Positive", "Integer"), ("False_Positive", "Integer"),
               ("False_Negative", "Integer")]
     _gpkg.create(out, "Geometry", 0, [_gpkg.Column(n, k) for n, k in fields])
@@ -865,10 +871,11 @@ def ComputeAccuracyForPixelClassification(in_raster, in_ground_truth_data, out_c
     ``min_point_distance`` are not drawn.
 
     The table follows the page's example: a ``ClassValue`` field naming each row, ``C_<value>`` per class, ``Total``,
-    ``U_Accuracy`` and ``Kappa`` columns, and rows ``C_<value>``, ``Total``, ``P_Accuracy`` and ``Kappa``. INFERRED
-    (ADR-248 §5.3): the draw is seeded by ``env.randomGenerator`` (0 when unset); a last row ``IoU`` holds each class's
-    intersection over union, which the page says the tool computes without naming where; the classes are those of
-    the classified raster and the reference together."""
+    ``U_Accuracy`` and ``Kappa`` columns, and rows ``C_<value>``, ``Total``, ``P_Accuracy`` and ``Kappa``; the cells
+    that hold no measure are 0, and there is no IoU row — Pro 3.7, measured 2026-11-08 (grapy left those cells null and
+    added an IoU row, INFERRED from the page's mention of intersection over union). INFERRED (ADR-248 §5.3): the draw
+    is seeded by ``env.randomGenerator`` (0 when unset); the classes are those of the classified raster and the
+    reference together."""
     from . import _gpkg, da
     from ._raster import _open_bands
     from ._result import Result
@@ -942,15 +949,12 @@ def ComputeAccuracyForPixelClassification(in_raster, in_ground_truth_data, out_c
     table = []
     for k in range(n):
         user = matrix[k, k] / rows_total[k] if rows_total[k] else 0.0
-        table.append([names[k]] + [float(v) for v in matrix[k]] + [float(rows_total[k]), float(user), None])
-    table.append(["Total"] + [float(v) for v in cols_total] + [float(matrix.sum()), None, None])
+        table.append([names[k]] + [float(v) for v in matrix[k]] + [float(rows_total[k]), float(user), 0.0])
+    table.append(["Total"] + [float(v) for v in cols_total] + [float(matrix.sum()), 0.0, 0.0])
     producer = [matrix[k, k] / cols_total[k] if cols_total[k] else 0.0 for k in range(n)]
     overall = float(np.trace(matrix) / matrix.sum()) if matrix.sum() else 0.0
-    table.append(["P_Accuracy"] + [float(p) for p in producer] + [None, overall, None])
-    table.append(["Kappa"] + [None] * n + [None, None, kappa(matrix)])
-    ious = [matrix[k, k] / (rows_total[k] + cols_total[k] - matrix[k, k]) if (rows_total[k] + cols_total[k]) else 0.0
-            for k in range(n)]
-    table.append(["IoU"] + [float(v) for v in ious] + [None, float(np.mean(ious)) if ious else None, None])
+    table.append(["P_Accuracy"] + [float(p) for p in producer] + [0.0, overall, 0.0])
+    table.append(["Kappa"] + [0.0] * n + [0.0, 0.0, kappa(matrix)])
     out = _out(out_confusion_matrix)
     _gpkg.create(out, "Geometry", 0, [_gpkg.Column(name, kind) for name, kind in fields])
     with da.InsertCursor(out, [name for name, _ in fields] + ["SHAPE@"]) as cursor:

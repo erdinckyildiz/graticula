@@ -267,9 +267,14 @@ def SummarizeCategoricalRaster(in_raster, out_table, dimension=None, aoi=None, a
 
     INFERRED (Q-209 (c)), the page giving no layout: one row per area and slice (or dimension value), with the area's
     ID (``aoi_id_field``, else its object ID, in ``AOI_ID``), a field per dimension (time as ISO 8601 text) and a field
-    per class holding its pixel count, named by its class name (CF ``flag_meanings``) or ``Class_<value>``; with
-    ``dimension``, a row's counts are summed over the other dimensions' slices; a pixel is in an area when its centre
-    is; the first variable is summarised. A .csv or .txt path writes text, any other a table."""
+    per class holding its pixel count, named by its class name (CF ``flag_meanings``) or ``C_<value>``, then
+    ``NoData``, the count of NoData pixels; with ``dimension``, a row's counts are summed over the other dimensions'
+    slices; a pixel is in an area when its centre is; the first variable is summarised. A .csv or .txt path writes
+    text, any other a table.
+
+    The field names C_<value> and NoData are Pro 3.7's (measured 2026-11-08 on three yearly slices of classes 1-4, a
+    CSV of StdTime, C_1 ... C_4, NoData); grapy named them Class_<value> without a NoData field until then. Pro wrote
+    that header with no rows, which is not copied."""
     import shapely
     from ._mdimtools import _write_table
     tool = "SummarizeCategoricalRaster"
@@ -313,8 +318,8 @@ def SummarizeCategoricalRaster(in_raster, out_table, dimension=None, aoi=None, a
         columns.append((_field("AOI_ID" if not _given(aoi_id_field) else aoi_id_field, taken), id_kind))
     for d in dims:
         columns.append((_field(d, taken), "String" if d == _mdim.TIME else "Double"))
-    class_fields = [_field(names.get(c, f"Class_{c}" if c >= 0 else f"Class_m{-c}"), taken) for c in classes]
-    columns += [(f, "Integer") for f in class_fields]
+    class_fields = [_field(names.get(c, f"C_{c}" if c >= 0 else f"C_m{-c}"), taken) for c in classes]
+    columns += [(f, "Integer") for f in class_fields] + [(_field("NoData", taken), "Integer")]
     rows = []
     for key, inside in areas:
         for coord, indexes in groups:
@@ -324,6 +329,7 @@ def SummarizeCategoricalRaster(in_raster, out_table, dimension=None, aoi=None, a
             picked = np.round(stack_values[stack_valid]).astype(np.int64)
             for c in classes:
                 counts.append(int(np.sum(picked == c)))
+            counts.append(int((~stack_valid).sum()))
             row = [key] if id_kind else []
             row += [_mdim.shown(d, coord[d]) if d == _mdim.TIME else float(coord[d]) for d in dims]
             rows.append(row + counts)

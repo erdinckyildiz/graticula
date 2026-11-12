@@ -510,7 +510,10 @@ def _arg(values, mask, coords, stat, low, high, multiple, ignore, value=None, co
 
 
 def _numbers(dim, values):
-    return [_mdim.decimal_year(v) if dim == TIME else float(v) for v in values]
+    """The dimension values a cell holds. A time is its OLE Automation date, days since 1899-12-30 (2001-02-15 is
+    36937), as Pro 3.7's Find Argument Statistics writes it (measured 2026-11-08); grapy wrote a decimal year
+    (ADR-236 §5.3, INFERRED)."""
+    return [_mdim.days(v) + 25569.0 if dim == TIME else float(v) for v in values]
 
 
 def _arg_over(source, dim, stat, low, high, multiple, ignore, value=None, comparison="EQUAL_TO",
@@ -1045,10 +1048,13 @@ def PredictUsingTrendRaster(in_multidimensional_raster, variables=None, dimensio
 @equivalent("slope and intercept, or harmonic amplitude and phase through HSV, stretched linearly to 0–255",
             "Smith 1978, Color gamut transform pairs, SIGGRAPH '78; the Trend to RGB function's description")
 def TrendToRGB(raster, model_type="LINEAR"):
-    """EQUIVALENT: a three-band 8-bit raster of a trend raster, as the Trend to RGB function page describes it and
-    with the scaling it leaves out filled in: LINEAR puts positive slopes in red and negative slopes in blue, each
-    stretched linearly from 0 to the largest magnitude onto 0–255, and the intercept in green, stretched linearly
-    from its minimum to its maximum. HARMONIC takes the first harmonic's amplitude √(sin1² + cos1²) as saturation (over
+    """EQUIVALENT: a raster of a trend raster's coefficients in red, green and blue, as the Trend to RGB function page
+    describes it. LINEAR is Pro 3.7's raster as it saves it (measured 2026-11-08): the bands Increase_Trend (the slope
+    where positive, else 0), Intercept (the line's value at the series' first time) and Decrease_Trend (minus the slope
+    where negative, else 0), in floating point
+    and unstretched, followed by the trend raster's other bands (RMSE, R2, P_Value) as they are — until then grapy
+    stretched the three onto 0–255 as 8-bit (INFERRED). HARMONIC (not matched: Pro's three 8-bit bands come from a
+    rule its page does not give) takes the first harmonic's amplitude √(sin1² + cos1²) as saturation (over
     the largest amplitude) and its phase atan2(sin1, cos1) as hue, at a constant value of 1, converted to RGB by Smith's
     (1978) hexcone transform.
 
@@ -1077,14 +1083,21 @@ def TrendToRGB(raster, model_type="LINEAR"):
     if kind == "LINEAR":
         (slope, m1), (intercept, m2) = band("Slope"), band("Intercept")
         empty = m1 | m2
-        pos = np.where(slope > 0, slope, 0)
-        neg = np.where(slope < 0, -slope, 0)
-        stretch = lambda a, top: np.where(top > 0, a / (top if top > 0 else 1) * 255, 0)  # noqa: E731
-        red = stretch(pos, pos[~empty].max() if (~empty).any() else 0)
-        blue = stretch(neg, neg[~empty].max() if (~empty).any() else 0)
-        lo = intercept[~empty].min() if (~empty).any() else 0
-        hi = intercept[~empty].max() if (~empty).any() else 0
-        green = (intercept - lo) / (hi - lo) * 255 if hi > lo else np.zeros_like(intercept)
+        # Pro's Intercept band is the line's value at the series' first time, the trend raster's slice (measured
+        # 2026-11-08: 0.5441 on average where the coefficient is 3.2951, slope per day times 41640, 2014-01-01).
+        start = v.coords[0].get(TIME) if v.coords and TIME in v.coords[0] else None
+        at = _mdim.days(start) + 25569.0 if start is not None and v.attrs.get("grapy_trend_x", "").startswith(
+            "days since 1899-12-30") else 0.0
+        planes = [np.where(slope > 0, slope, 0.0), np.asarray(intercept, float) + np.asarray(slope, float) * at,
+                  np.where(slope < 0, -slope, 0.0)]
+        masks = [empty.copy() for _ in planes]
+        labels = ["Increase_Trend", "Intercept", "Decrease_Trend"]
+        for k, name in enumerate(v.names_of_bands()):
+            if name.lower() not in ("slope", "intercept"):
+                planes.append(np.asarray(v.data[0, k], float))
+                masks.append(np.asarray(v.mask[0, k], bool).copy())
+                labels.append(name)
+        return Raster._of_bands([np.where(m, 0, b) for b, m in zip(planes, masks)], masks, cube.grid, labels)
     else:
         (s, m1), (c, m2) = band("Harmonic_sin_1"), band("Harmonic_cos_1")
         empty = m1 | m2
@@ -1142,10 +1155,16 @@ def MultidimensionalPrincipalComponents(in_multidimensional_raster, mode, dimens
     Refused: ``SPATIAL_REDUCTION``, which the page says reduces the computation by a random reprojection to a larger
     cell it does not specify.
 
+    As Pro 3.7 writes them (measured 2026-11-08 on six slices, its eigenvalues equal to grapy's to 1e-12): a pixel's
+    component is its slice values times the eigenvector, not centred on the slices' means; a loading is the
+    eigenvector's element times the square root of its eigenvalue; the loadings table's fields are DimValue (a date
+    for StdTime) and PC_1 … PC_k, and the eigenvalue table holds the k components kept, with PC, Eigenvalue and
+    CumVarPctg. Until then grapy centred the components, wrote unit eigenvectors under Slice, and listed every
+    eigenvalue with Percent and Cumulative.
+
     INFERRED: the covariance divides by n − 1 and centres each slice on its mean; a pixel NoData in any slice is left
-    out and NoData in the output; the loadings table's fields are Slice (the dimension value) and PC_1 … PC_k, the
-    eigenvalue table's PC, Eigenvalue, Percent and Cumulative; a variable of several dimensions uses the first value
-    of the others, as documented."""
+    out and NoData in the output; a variable of several dimensions uses the first value of the others, as
+    documented."""
     tool = "MultidimensionalPrincipalComponents"
     from ._raster import Raster
     from ._result import Result
@@ -1174,8 +1193,7 @@ def MultidimensionalPrincipalComponents(in_multidimensional_raster, mode, dimens
     else:
         n = int(number_of_pc) if _given(number_of_pc) else len(indexes)
     n = max(1, min(n, len(indexes)))
-    means = data.mean(axis=0)
-    full = np.moveaxis(stack, 0, -1) - means
+    full = np.moveaxis(stack, 0, -1)
     scores = full @ vectors[:, :n]
     bands = [np.where(mask, 0, scores[..., k]) for k in range(n)]
     pc = Raster._of_bands(bands, [mask.copy() for _ in bands], cube.grid, [f"PC_{k}" for k in range(1, n + 1)]) \
@@ -1183,16 +1201,23 @@ def MultidimensionalPrincipalComponents(in_multidimensional_raster, mode, dimens
     pc_path = pc.save(out_pc) if not _mdim.is_multidimensional_path(out_pc) else _mdim.write(
         Cube(cube.grid, [Variable("PC", ["Band"], [{"Band": 1.0}], np.stack(bands)[None], np.stack(
             [mask] * n)[None], {}, [f"PC_{k}" for k in range(1, n + 1)])]), out_pc)
-    labels = [str(_mdim.shown(dim, v.coords[i][dim])) for i in indexes]
-    loadings = _write_table(out_loadings, [("Slice", "String")] + [(f"PC_{k}", "Double") for k in range(1, n + 1)],
-                            [[labels[i]] + [float(vectors[i, k]) for k in range(n)] for i in range(len(indexes))], tool)
+    if dim == TIME:
+        import datetime as _datetime
+        labels = [np.datetime64(v.coords[i][dim], "s").astype(_datetime.datetime) for i in indexes]
+        label_kind = "Date"
+    else:
+        labels = [float(v.coords[i][dim]) for i in indexes]
+        label_kind = "Double"
+    scale = np.sqrt(np.clip(values[:n], 0, None))
+    loadings = _write_table(out_loadings, [("DimValue", label_kind)] + [(f"PC_{k}", "Double") for k in range(1, n + 1)],
+                            [[labels[i]] + [float(vectors[i, k] * scale[k]) for k in range(n)]
+                             for i in range(len(indexes))], tool)
     outputs = [pc_path, loadings]
     if _given(out_eigenvalues):
         cumulative = np.cumsum(values) / total * 100
-        outputs.append(_write_table(out_eigenvalues, [("PC", "Integer"), ("Eigenvalue", "Double"), ("Percent", "Double"),
-                                                      ("Cumulative", "Double")],
-                                    [[k + 1, float(values[k]), float(values[k] / total * 100), float(cumulative[k])]
-                                     for k in range(len(values))], tool))
+        outputs.append(_write_table(out_eigenvalues, [("PC", "Integer"), ("Eigenvalue", "Double"),
+                                                      ("CumVarPctg", "Double")],
+                                    [[k + 1, float(values[k]), float(cumulative[k])] for k in range(n)], tool))
     return Result(*outputs)
 
 
@@ -1230,8 +1255,11 @@ def MultidimensionalRasterCorrelation(in_mdim_raster1, in_mdim_raster2, dimensio
     adds a p-value band after each. ``out_max_corr_raster`` holds the largest correlation and the lag it is at. The
     page does not name the test behind its p-value; grapy uses each coefficient's standard one.
 
-    INFERRED: a pair with NoData on either side is left out of that pixel's correlation; bands run from −lag to +lag
-    with the p-values after the correlations; fewer than three pairs give NoData."""
+    A pixel NoData in any slice either array compares is NoData: Pro 3.7 measured 2026-11-08 (three NoData cells in
+    one slice of six, NoData in its output) — until then grapy left that pair out (INFERRED).
+
+    INFERRED: bands run from −lag to +lag with the p-values after the correlations; fewer than three pairs give
+    NoData."""
     tool = "MultidimensionalRasterCorrelation"
     from ._raster import Raster
     method = _upper(corr_method, "PEARSON")
@@ -1269,8 +1297,9 @@ def MultidimensionalRasterCorrelation(in_mdim_raster1, in_mdim_raster2, dimensio
         x, vx, y, vy = x[:n], vx[:n], y[:n], vy[:n]
         for r in range(rows):
             for c in range(cols):
-                both = vx[:, r, c] & vy[:, r, c]
-                corr[li, r, c], pval[li, r, c] = _correlation(x[both, r, c], y[both, r, c], method)
+                if not (vx[:, r, c].all() and vy[:, r, c].all()):
+                    continue
+                corr[li, r, c], pval[li, r, c] = _correlation(x[:, r, c], y[:, r, c], method)
     bands = list(corr) + (list(pval) if want_p else [])
     masks = [~np.isfinite(bd) for bd in bands]
     names = [f"Lag_{s}" for s in lags] + ([f"P_Value_Lag_{s}" for s in lags] if want_p else [])
@@ -1293,18 +1322,22 @@ def MultidimensionalRasterCorrelation(in_mdim_raster1, in_mdim_raster2, dimensio
 
 
 def RasterToXarray(in_raster):
-    """A multidimensional raster as an ``xarray.Dataset``: a data variable per variable over its dimensions, then
-    ``y`` and ``x`` (and ``band`` before them when its slices have several bands), with coordinates at the cell centres
-    and StdTime as ``datetime64``. The page documents only that the result is a Dataset of labelled arrays.
+    """A multidimensional raster as an ``xarray.Dataset``, laid out as Pro 3.7's (measured 2026-11-08 on a six-slice
+    netCDF): a data variable per variable over ``lat`` and ``lon`` and then its dimensions (``lat, lon, StdTime``),
+    ``lat`` ascending, south to north, and ``lat`` and ``lon`` each cell's lower-left corner (500000 … 500590 for
+    60 cells of 10 m from 500000), StdTime as ``datetime64``. Until then grapy answered (StdTime, y, x) at the cell
+    centres, north to south.
 
-    INFERRED: the dimension names are arcpy's (StdTime …), as the page's sample resamples ``StdTime``; NoData is NaN;
-    the Dataset's attributes hold ``crs`` (``EPSG:<code>``) and ``transform`` (the GDAL geotransform), and each data
-    variable's its own attributes and band names. A variable whose slices do not fill every combination of its
-    dimension values cannot be an array and is refused."""
+    INFERRED: NoData is NaN — Pro leaves the source's NoData value (−9999) in the array with nothing to mark it, which
+    is not copied; several bands add a last ``band`` dimension; the Dataset's attributes hold ``crs``
+    (``EPSG:<code>``) and ``transform`` (the GDAL geotransform), which Pro's do not, and each data variable its own
+    attributes and band names. A variable whose slices do not fill every combination of its dimension values cannot be
+    an array and is refused."""
     import xarray as xr
     cube = _mdim.cube_of(in_raster, "RasterToXarray")
     g = cube.grid
-    xs, ys = g.centres()
+    lon = g.left + g.width * np.arange(g.columns)
+    lat = (g.top - g.height * g.rows) + g.height * np.arange(g.rows)
     data_vars = {}
     for v in cube.variables.values():
         axes = [v.values(d) for d in v.dims]
@@ -1324,7 +1357,8 @@ def RasterToXarray(in_raster):
             coords["band"] = v.names_of_bands()
         else:
             full = full[..., 0, :, :]
-        data_vars[v.name] = xr.DataArray(full, dims=dims + ["y", "x"], coords={**coords, "y": ys, "x": xs},
+        full = np.moveaxis(full[..., ::-1, :], (-2, -1), (0, 1))   # rows south to north, then lat and lon first
+        data_vars[v.name] = xr.DataArray(full, dims=["lat", "lon"] + dims, coords={**coords, "lat": lat, "lon": lon},
                                          attrs=attrs, name=v.name)
     attrs = {"transform": [g.left, g.width, 0.0, g.top, 0.0, -g.height]}
     if g.srid:
@@ -1337,9 +1371,13 @@ def XarrayToRaster(in_xarray):
     (or ``lat`` and ``lon``) is a variable, its other dimensions its dimensions, a ``datetime64`` one (or one named
     ``time``) called StdTime and a ``band`` one its slices' bands.
 
+    Without a ``transform`` attribute, ``lat`` and ``lon`` are each cell's lower-left corner, as RasterToXarray writes
+    them and as Pro 3.7 reads them back (measured 2026-11-08: its own Dataset of corners 500000 … 500590 came back with
+    an extent from 500000); ``x`` and ``y`` are cell centres.
+
     INFERRED: the reference is read from the Dataset's ``crs`` attribute (``EPSG:<code>`` or WKT), from a ``spatial_ref``
-    or ``crs`` variable's ``spatial_ref`` or ``crs_wkt`` attribute, or is WGS 84 for ``lat``/``lon``; NaN is NoData;
-    the coordinates must be evenly spaced cell centres."""
+    or ``crs`` variable's ``spatial_ref`` or ``crs_wkt`` attribute, or is WGS 84 for ``lat``/``lon`` without one; NaN is
+    NoData; the coordinates must be evenly spaced."""
     import xarray as xr
     tool = "XarrayToRaster"
     ds = in_xarray.to_dataset() if isinstance(in_xarray, xr.DataArray) else in_xarray
@@ -1356,13 +1394,16 @@ def XarrayToRaster(in_xarray):
             text = ds[name].attrs.get("spatial_ref") or ds[name].attrs.get("crs_wkt")
     if text:
         srid = _mdim._srid_of(text)
-    elif xname != "x":
+    elif xname != "x" and "transform" not in ds.attrs:
         srid = 4326
     xs, ys = np.asarray(ds[xname].values, float), np.asarray(ds[yname].values, float)
     transform = ds.attrs.get("transform")
     if transform is not None and len(transform) == 6 and transform[2] == 0 and transform[4] == 0 and transform[5] < 0:
         from ._raster import _Grid
         grid = _Grid(transform[0], transform[3], transform[1], -transform[5], ys.size, xs.size, srid)
+    elif xname == "lon" and yname == "lat" and xs.size > 1 and ys.size > 1:
+        width, height = (xs[-1] - xs[0]) / (xs.size - 1), abs(ys[-1] - ys[0]) / (ys.size - 1)
+        grid = _mdim._grid_from(xs + width / 2, ys + height / 2, srid)
     else:
         grid = _mdim._grid_from(xs, ys, srid)
     flip = ys.size > 1 and ys[0] < ys[-1]
@@ -1487,10 +1528,12 @@ def _interpolate(method, xs, ys, zs, grid):
             "triangulation and Sibson's natural neighbours, for each period's points",
             "Shepard 1968, Proc. 23rd ACM National Conference; Delaunay 1934; Sibson 1981, in Interpreting "
             "Multivariate Data, pp. 21-36")
-def InterpolateFromSpatiotemporalPoints(in_dataset, out_raster, variable_field, time_field,
-                                        temporal_aggregation="DAILY", cell_size=None, interpolation_method=None):
+def InterpolateFromSpatiotemporalPoints(in_dataset, variable_field, time_field, temporal_aggregation="DAILY",
+                                        cell_size=None, interpolation_method=None):
     """EQUIVALENT: points grouped by period (DAILY, WEEKLY, MONTHLY, QUARTERLY or YEARLY) and each period's points
-    interpolated into a slice of a multidimensional raster written to ``out_raster``, as documented. IDW is the
+    interpolated into a slice of the multidimensional raster it answers, as documented. Its six arguments are the
+    page's syntax line, and Pro 3.7's arcpy takes those six and answers a Raster (measured 2026-11-08: a seventh,
+    an output path, is a TypeError) — until then grapy took an ``out_raster`` second and answered a Result. IDW is the
     average weighted by inverse distance squared within 20 cells, as documented (Shepard 1968); NEAREST_NEIGHBOR the
     point nearest the cell centre; MEAN and MEDIAN of the points; TRIANGULATION linear on the Delaunay triangulation
     and NATURAL_NEIGHBOR Sibson's (1981) method, both over a TIN of the points, as documented.
@@ -1499,13 +1542,13 @@ def InterpolateFromSpatiotemporalPoints(in_dataset, out_raster, variable_field, 
     it does not specify; a trajectory layer or dataset, a data model grapy does not hold (ADR-224 group 2).
 
     INFERRED (ADR-236 §5.9): MEAN and MEDIAN take the points that fall in each cell; a cell with no point within IDW's
-    radius, or outside the triangulation, is NoData; a slice's StdTime is its period's start; the grid covers every
-    point, its top-left corner at their extent's, its cell the shorter side over 250 by default, as documented; the
+    radius, or outside the triangulation, is NoData; a slice's StdTime is its period's start (Pro writes a time range
+    clipped to the points, not copied: grapy's slices hold one time); the cell is the shorter side over 250 by default,
+    as documented; the
     variable is named after the variable field."""
     tool = "InterpolateFromSpatiotemporalPoints"
     from . import da
     from ._raster import _Grid
-    from ._result import Result
     from ._mosaic import exists as _is_mosaic
     from .analysis import _schema
     method = _upper(interpolation_method, None)
@@ -1541,10 +1584,13 @@ def InterpolateFromSpatiotemporalPoints(in_dataset, out_raster, variable_field, 
         if shorter <= 0:
             raise ValueError(f"{tool}: the points' extent has no width or height to divide by 250; give a cell_size.")
         cell = shorter / 250.0
-    columns = max(1, int(math.floor((xs.max() - xs.min()) / cell)) + 1)
-    rows_ = max(1, int(math.floor((ys.max() - ys.min()) / cell)) + 1)
+    # Pro 3.7's grid (measured 2026-11-08, 36 points over 576 × 596 m at 50 m: 13 × 13 cells from x − 25, y + 25): the
+    # top-left cell centred on the points' top-left corner and round(extent / cell) + 1 cells each way; grapy put the
+    # corner on the points' and floored (12 × 12) until then.
+    columns = max(1, int(math.floor((xs.max() - xs.min()) / cell + 0.5)) + 1)
+    rows_ = max(1, int(math.floor((ys.max() - ys.min()) / cell + 0.5)) + 1)
     srid = _schema(in_dataset)[2] or 0
-    grid = _Grid(xs.min(), ys.max(), cell, cell, rows_, columns, srid)
+    grid = _Grid(xs.min() - cell / 2, ys.max() + cell / 2, cell, cell, rows_, columns, srid)
     groups = {}
     for k, t in enumerate(ts):
         key, start = period(t, keyword)
@@ -1565,4 +1611,4 @@ def InterpolateFromSpatiotemporalPoints(in_dataset, out_raster, variable_field, 
         data.append(np.where(empty, 0, value)[None])
         mask.append(empty[None])
     cube = Cube(grid, [Variable(str(variable_field), [TIME], coords, np.stack(data), np.stack(mask))])
-    return Result(_mdim.write(cube, out_raster))
+    return _mdim.raster_of(cube)

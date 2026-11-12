@@ -552,11 +552,23 @@ def CellStatistics(in_rasters_or_constants, statistics_type="MEAN", ignore_nodat
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        value = _CELL[kind](stack, axis=0)
+        if kind == "MEDIAN" and all(r.isInteger for r in rasters) and len(rasters) == len(inputs):
+            # Integer inputs: the lower of the two middle values, an integer — Pro 3.7 answers 2 for 1, 2, 5, 7 (U8),
+            # through arcpy.sa.CellStatistics and arcpy.ia.Median alike (measured 2026-11-08); grapy answered 3.5.
+            ordered = np.sort(stack, axis=0)
+            n = (~np.isnan(stack)).sum(axis=0)
+            at = np.clip((n - 1) // 2, 0, None)[None]
+            value = np.where(n == 0, np.nan, np.take_along_axis(ordered, at, axis=0)[0])
+        else:
+            value = _CELL[kind](stack, axis=0)
     mask = np.all(np.isnan(stack), axis=0) | np.isnan(value)
     if str(ignore_nodata).upper() == "NODATA":
         mask |= np.any(np.isnan(stack), axis=0)
     integer = all(r.isInteger for r in rasters) and kind in ("SUM", "MINIMUM", "MAXIMUM", "RANGE", "MAJORITY", "MINORITY", "VARIETY")
+    # VARIETY counts values, so it is an integer whatever the inputs: Pro 3.7 answers arcpy.ia.Variety of three
+    # floating-point rasters as U8 (measured 2026-11-08); grapy answered floating point.
+    integer = integer or kind == "VARIETY" or (kind == "MEDIAN" and all(r.isInteger for r in rasters)
+                                               and len(rasters) == len(inputs))
     out = np.where(mask, 0, value)
     return Raster._of(out.astype(np.int64) if integer else out, mask, grid)
 
@@ -4737,8 +4749,10 @@ _REFUSED.pop("Spline", None)
 def Percentile(rasters, percentile_value=90, percentile_interpolation_type="AUTO_DETECT", extent_type="FirstOf",
                cellsize_type="FirstOf", ignore_nodata=False, process_as_multiband=False):
     """EQUIVALENT: the percentile of the rasters' values in each cell, as one of Hyndman and Fan's (1996) sample
-    quantiles: ``NEAREST`` is their type 1, the value at rank ⌈p·n/100⌉ (an actual input value, keeping the input's
-    pixel type, as documented); ``LINEAR`` is their type 7, interpolating between the two values around position
+    quantiles: ``NEAREST`` is the value at 0-based position (n − 1)·p/100 rounded to the nearest, a half rounded down
+    (an actual input value, keeping the input's pixel type, as documented) — measured in Pro 3.7 on 2026-11-08 over
+    3 to 6 values at p = 0, 10 … 100 (until then grapy took Hyndman and Fan's type 1, ⌈p·n/100⌉, one value higher at
+    p = 75 of three); ``LINEAR`` is their type 7, interpolating between the two values around position
     1 + (n − 1)·p/100 (floating point, as documented). ``AUTO_DETECT`` takes NEAREST for integer inputs and LINEAR for
     floating point, as documented. NoData in any input makes the cell NoData unless ``ignore_nodata`` is True.
 
@@ -4757,11 +4771,18 @@ def Percentile(rasters, percentile_value=90, percentile_interpolation_type="AUTO
     raw, masks, _ = _align([r for r in opened if isinstance(r, Raster)], "Percentile")
     stack = np.stack([np.where(m, np.nan, a.astype(np.float64)) for a, m in zip(raw, masks)])
     p = float(percentile_value)
-    method = "inverted_cdf" if kind == "NEAREST" else "linear"
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        value = np.nanpercentile(stack, p, axis=0, method=method)
+        if kind == "NEAREST":
+            ordered = np.sort(stack, axis=0)                      # NaN last
+            n = (~np.isnan(stack)).sum(axis=0)
+            at = np.ceil((n - 1) * p / 100.0 - 0.5).astype(np.int64)
+            at = np.clip(at, 0, np.maximum(n - 1, 0))
+            value = np.take_along_axis(ordered, at[None], axis=0)[0]
+            value = np.where(n == 0, np.nan, value)
+        else:
+            value = np.nanpercentile(stack, p, axis=0, method="linear")
     empty = np.isnan(value)
     if not ignore_nodata:
         empty |= np.isnan(stack).any(axis=0)

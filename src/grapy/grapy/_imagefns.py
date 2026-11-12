@@ -961,8 +961,12 @@ class PixelBlockCollection:
 
     Refused: multidimensional rasters (their slices are not held in a pixel block here).
 
-    INFERRED: blocks start at the top-left pixel and every ``stride`` pixels after it, and one starting inside the
-    raster near its edge is cut short rather than padded; ``nodata_to_values`` fills NoData (one value, or one per
+    Blocks start at the top-left pixel and every ``stride`` pixels after it, and one starting inside the raster near
+    its edge keeps the full block size, the part past the edge filled with the pixel type's lowest value (−3.4e38 for
+    32-bit floating point, −2147483648 for 32-bit integers) or ``nodata_to_values`` — Pro 3.7, measured 2026-11-08
+    (a 60-pixel raster in 25-pixel blocks answers 3 × 3 blocks of 25 × 25); grapy cut such a block short until then.
+
+    INFERRED: ``nodata_to_values`` fills NoData (one value, or one per
     raster), and without it NoData is NaN in a floating-point raster and the raster's noDataValue otherwise; UNION fills
     pixels outside a raster as NoData; ``shuffle`` draws from Python's ``random``, seeded by ``env.randomGenerator``'s
     seed when one is set."""
@@ -996,7 +1000,7 @@ class PixelBlockCollection:
         rows = int(round((top - bottom) / first.height))
         self._grid = _Grid(left, top, first.width, first.height, rows, columns, first.srid)
         fills = nodata_to_values if isinstance(nodata_to_values, (list, tuple)) else [nodata_to_values] * len(rasters)
-        self._cubes = []
+        self._cubes, self._pads = [], []
         for r, fill in zip(rasters, fills):
             planes = []
             for a, m in zip(r._arrays, r._masks):
@@ -1018,7 +1022,15 @@ class PixelBlockCollection:
                     piece = np.where(m, blank, a)[src_r0:src_r0 + n_r, src_c0:src_c0 + n_c]
                     plane[dst_r0:dst_r0 + n_r, dst_c0:dst_c0 + n_c] = piece
                 planes.append(plane)
-            self._cubes.append(np.stack(planes, axis=-1))
+            cube = np.stack(planes, axis=-1)
+            if fill is not None:
+                pad = fill
+            elif np.issubdtype(cube.dtype, np.floating):
+                pad = np.finfo(np.float32 if cube.dtype.itemsize <= 4 else cube.dtype).min
+            else:
+                pad = np.iinfo(cube.dtype).min
+            self._cubes.append(cube)
+            self._pads.append(pad)
         size = tuple(int(v) for v in (pixel_block_size or (512, 512)))
         step = tuple(int(v) for v in stride) if stride else size
         if min(size) <= 0 or min(step) <= 0:
@@ -1038,6 +1050,10 @@ class PixelBlockCollection:
         g = self._grid
         r0, c0 = i * self._step[0], j * self._step[1]
         data = self._cubes[k][r0:r0 + self._size[0], c0:c0 + self._size[1], :]
+        if data.shape[:2] != tuple(self._size):
+            full = np.full(tuple(self._size) + data.shape[2:], self._pads[k], dtype=data.dtype)
+            full[:data.shape[0], :data.shape[1]] = data
+            data = full
         left, top = g.left + c0 * g.width, g.top - r0 * g.height
         extent = self._extent_class(left, top - data.shape[0] * g.height, left + data.shape[1] * g.width, top,
                                     self._reference)
@@ -1148,10 +1164,12 @@ class Mensuration:
         self._h = float(model.rpc.height_off)
 
     def _image(self, point):
-        """(column, row) of a tuple, Point or PointGeometry."""
+        """(column, row) from the image's corner, as grapy's sensor model takes them, of a tuple, Point or
+        PointGeometry. A tuple is the RPC's own sample and line, a pixel's centre at whole numbers: Pro 3.7 answers
+        point((50, 50)) as the model's offsets exactly (measured 2026-11-08), where grapy read it half a pixel off."""
         from ._geometry import PointGeometry
         if isinstance(point, (tuple, list)):
-            return float(point[0]), float(point[1])
+            return float(point[0]) + 0.5, float(point[1]) + 0.5
         reference = None
         if isinstance(point, PointGeometry):
             reference = point.spatialReference

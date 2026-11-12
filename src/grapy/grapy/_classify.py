@@ -615,6 +615,9 @@ def _read_gsg(path, tool, covariance=True):
         if not text:
             continue
         if text.startswith("#"):
+            # Pro writes "#  Class ID" and "# Means    " with runs of spaces (measured 2026-11-08), so a comment is
+            # compared with its spaces collapsed; grapy read none of Pro's classes before.
+            text = " ".join(text.split())
             lowered = text.lower()
             if lowered.startswith("# class id"):
                 expect_class, section = True, None
@@ -777,6 +780,14 @@ def _resample_bilinear(array, mask, source, target):
     return out, nodata
 
 
+def _resample_nearest(array, mask, source, target):
+    """``array`` on ``source`` taken at the cell holding each centre of ``target``, edges clamped."""
+    xs, ys = target.centres()
+    c = np.clip(np.floor((xs - source.left) / source.width).astype(int), 0, source.columns - 1)
+    r = np.clip(np.floor((source.top - ys) / source.height).astype(int), 0, source.rows - 1)
+    return np.asarray(array, np.float64)[np.ix_(r, c)], np.asarray(mask)[np.ix_(r, c)]
+
+
 def _weights(weights, count):
     if not _given(weights):
         values = [0.166, 0.167, 0.167, 0.5]
@@ -810,7 +821,14 @@ def Pansharpen(pan_raster, ms_raster, ir_raster=None, fourth_band_of_ms_is_ir=Tr
 
     Refused: another ``sensor``, whose weights the documentation does not give (pass ``weights`` instead).
 
-    INFERRED: bilinear resampling; the first three multispectral bands are red, green and blue in that order; the
+    Measured in Pro 3.7 on 2026-11-08 (16-bit inputs; Pro refuses 32-bit floating point for every method but
+    Gram-Schmidt, "Not implemented"): an integer image gives its own pixel type; Esri and Simple Mean resample by
+    nearest cell and cut to the integer below, Gram-Schmidt resamples bilinearly and rounds; so they match Pro's cells
+    (Gram-Schmidt in all but 840 of 57,600, by one). Until then grapy resampled bilinearly and wrote 32-bit floating
+    point. Not matched: Brovey and IHS, whose cells are not the page's formulas (Brovey's are about a quarter of the
+    band).
+
+    INFERRED: the first three multispectral bands are red, green and blue in that order; the
     output holds a band for each band used (three, or four with the infrared), as 32-bit floating point; the infrared
     band of IHS and SimpleMean is sharpened with the same formula as the colour bands; a cell where the Brovey
     denominator is 0 is NoData."""
@@ -823,22 +841,25 @@ def Pansharpen(pan_raster, ms_raster, ir_raster=None, fourth_band_of_ms_is_ir=Tr
     if len(ms._arrays) < 3:
         raise ValueError(f"{tool}: the multispectral raster needs red, green and blue bands.")
     grid = pan._grid
+    method = str(type or "ESRI").upper().replace("_", "-").replace(" ", "")
+    # Pro 3.7 (measured 2026-11-08, a 16-bit image at 10 m onto a 16-bit pan at 5 m): Esri and Simple Mean take the
+    # multispectral cell under each pan cell (nearest), Gram-Schmidt interpolates bilinearly.
+    resample = _resample_bilinear if method in ("GRAM-SCHMIDT", "GRAMSCHMIDT") else _resample_nearest
     bands, masks = [], []
     for k in range(3):
-        b, m = _resample_bilinear(ms._arrays[k], ms._masks[k], ms._grid, grid)
+        b, m = resample(ms._arrays[k], ms._masks[k], ms._grid, grid)
         bands.append(b)
         masks.append(m)
     if _given(ir_raster):
         ir = as_raster(ir_raster, tool)
-        b, m = _resample_bilinear(ir._array, ir._mask, ir._grid, grid)
+        b, m = resample(ir._array, ir._mask, ir._grid, grid)
         bands.append(b)
         masks.append(m)
     elif str(fourth_band_of_ms_is_ir).upper() not in ("FALSE", "0", "NONE") and fourth_band_of_ms_is_ir is not False \
             and len(ms._arrays) >= 4:
-        b, m = _resample_bilinear(ms._arrays[3], ms._masks[3], ms._grid, grid)
+        b, m = resample(ms._arrays[3], ms._masks[3], ms._grid, grid)
         bands.append(b)
         masks.append(m)
-    method = str(type or "ESRI").upper().replace("_", "-").replace(" ", "")
     if method in ("GRAM-SCHMIDT", "GRAMSCHMIDT") and _given(sensor) and str(sensor).upper() not in ("UNKNOWN",):
         key = str(sensor).upper().replace(" ", "")
         if key not in _SENSOR_WEIGHTS:
@@ -868,7 +889,15 @@ def Pansharpen(pan_raster, ms_raster, ir_raster=None, fourth_band_of_ms_is_ir=Tr
             out = _gram_schmidt(bands, w, p, mask)
         else:
             _refuse(tool, "type", type)
-    out = [np.where(mask, 0, b).astype(np.float32) for b in out]
+    kind = np.asarray(ms._arrays[0]).dtype
+    if np.issubdtype(kind, np.integer):
+        # The image's own pixel type, as Pro 3.7 writes it (U16 in, U16 out): Gram-Schmidt rounded, the others cut to
+        # the integer below (Esri and Simple Mean measured; Brovey and IHS INFERRED alike).
+        info = np.iinfo(kind)
+        cut = np.round if method in ("GRAM-SCHMIDT", "GRAMSCHMIDT") else np.floor
+        out = [np.where(mask, 0, np.clip(cut(np.nan_to_num(b)), info.min, info.max)).astype(kind) for b in out]
+    else:
+        out = [np.where(mask, 0, b).astype(np.float32) for b in out]
     return Raster._of_bands(out, [mask.copy() for _ in out], grid)
 
 
@@ -911,14 +940,21 @@ REGION_GROW_METHOD = ("seeded region growing from each seed point, within its ra
 
 def RegionGrow(raster, seed_points, max_growth_radius_field, similarity_threshold_field, fill_value_field=None):
     """EQUIVALENT: seeded region growing (Adams and Bischof 1994): from each seed point's cell, the region takes in
-    neighbouring cells whose centres lie within the seed's maximum growth radius of the seed point and whose band
-    values are within its similarity threshold — Euclidean distance in spectral space, as documented — of the
-    region's mean, the region's mean updated as it grows. The region's cells take the seed's fill value in every band,
-    as documented; every other cell keeps its value.
+    neighbouring cells whose centres lie closer than the seed's maximum growth radius to the seed point and whose band
+    values are closer than its similarity threshold — Euclidean distance in spectral space, as documented — to the
+    seed cell's. The region's cells take the seed's fill value in every band, as documented; every other cell keeps
+    its value.
 
-    INFERRED: eight-connected growth, nearest-first in spectral distance (Adams and Bischof's ordering); seeds are
-    grown in the order the cursor reads them and a cell already taken stays with the first region; without
-    ``fill_value_field`` a region takes its mean, per band; a seed on NoData or off the raster grows nothing."""
+    Measured in Pro 3.7 on 2026-11-08: eight-connected (a checkerboard grows along its diagonals); both bounds strict
+    (a gradient of 1 per cell with a threshold of 2 takes the seed's value ± 1, and a radius of 40 m stops a row short
+    of 40 m); the threshold measured from the seed's value, not the region's mean (the sweep's three seeds on its DEM
+    match only so) — until then grapy compared with a running mean and took both bounds inclusively. Not matched: on
+    the checkerboard Pro also takes two cells 28.3 m from the seed with a radius of 25 m, on its west side only, by a
+    rule not found.
+
+    INFERRED: seeds are grown in the order the cursor reads them and a cell already taken stays with the first region;
+    without ``fill_value_field`` a region takes its mean, per band (Pro's measured case had mean and seed equal); a seed
+    on NoData or off the raster grows nothing."""
     import heapq
     from . import da
     from .analysis import _schema
@@ -967,17 +1003,15 @@ def RegionGrow(raster, seed_points, max_growth_radius_field, similarity_threshol
                     rr, cc = r + dr, c + dc
                     if (dr or dc) and 0 <= rr < grid.rows and 0 <= cc < grid.columns and not inside[rr, cc] \
                             and not mask[rr, cc] and not taken[rr, cc] \
-                            and math.hypot(xs[cc] - point.x, ys[rr] - point.y) <= radius:
+                            and math.hypot(xs[cc] - point.x, ys[rr] - point.y) < radius:
                         inside[rr, cc] = True
-                        mean = total / len(members)
-                        heapq.heappush(queue, (float(np.linalg.norm(data[rr, cc] - mean)), rr, cc))
+                        heapq.heappush(queue, (float(np.linalg.norm(data[rr, cc] - seed)), rr, cc))
 
+        seed = data[cell].copy()
         push(*cell)
         while queue:
-            _, r, c = heapq.heappop(queue)
-            mean = total / len(members)
-            if np.linalg.norm(data[r, c] - mean) > threshold:
-                inside[r, c] = False
+            gap, r, c = heapq.heappop(queue)
+            if gap >= threshold:
                 continue
             members.append((r, c))
             total += data[r, c]
