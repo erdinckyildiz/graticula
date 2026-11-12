@@ -19,7 +19,7 @@ answer check (below); *now* is after the fixes. `-` in the action column: nothin
 | AddGlobalIDs | MATCH | MATCH | - |  |
 | AddIncrementingIDField | PRO-ERROR | PRO-ERROR | not comparable | Pro answers ERROR 000186 (only ArcSDE) on file, mobile, GeoPackage and SQLite: enterprise only. |
 | AddIndex | GRAPY-ERROR | MATCH | - | case uses ListIndexes (grapy's Describe has no indexes); Index.fields are Field objects in Pro, strings in grapy (arcpy.Index, not this range). |
-| AddJoin | SCHEMA | SCHEMA | recorded | joined table's object ID is written as <table>_OBJECTID by Pro, <table>_fid by grapy: grapy's GeoPackage OID column is named fid. Values match. |
+| AddJoin | SCHEMA | MATCH | fixed | the joined table's object ID is written <table>_OBJECTID, as Pro writes it, since grapy's key is OBJECTID (ADR-289 §5.1); either side may be joined on its object ID |
 | AddRastersToMosaicDataset | MATCH | MATCH | - |  |
 | AddRuleToRelationshipClass | BOTH-ERROR | MATCH | fixed | Pro takes subtypes by name (codes answer ERROR 160320; grapy takes both); relationshipRules are objects with -1 for bounds not given (were dicts). |
 | AddRuleToTopology | MATCH | MATCH | - |  |
@@ -97,7 +97,7 @@ answer check (below); *now* is after the fixes. `-` in the action column: nothin
 | CreateSQLiteDatabase | GRAPY-ERROR | MATCH | - | case describes the workspace before adding a class (grapy describes a one-table GeoPackage as that table). |
 | CreateTable | SCHEMA | MATCH | fixed | a field name a template before took is written _1, _2 (was dropped). |
 | CreateTopology | MATCH | MATCH | - |  |
-| CreateUnRegisteredFeatureclass | DIFF | DIFF | recorded | in a GeoPackage Pro makes OBJECTID INTEGER PRIMARY KEY AUTOINCREMENT, a Shape column, lists it in gpkg_contents and leaves the template's OID out; grapy's ADR-240 design keeps it out of gpkg_contents with an unmaintained OBJECTID and a geom column. |
+| CreateUnRegisteredFeatureclass | DIFF | DIFF | recorded | in a GeoPackage Pro makes OBJECTID INTEGER PRIMARY KEY AUTOINCREMENT, a Shape column, lists it in gpkg_contents and leaves the template's OID out; grapy's ADR-240 design keeps it out of gpkg_contents with an unmaintained OBJECTID. The names match since ADR-289 §5.1 (OBJECTID, Shape); the OID's type and the Shape column's place (last) do not. |
 | CreateUnRegisteredTable | DIFF | DIFF | recorded | as CreateUnRegisteredFeatureclass (OID and template-OID handling). |
 | CreateVersion | PRO-ERROR | PRO-ERROR | not comparable | enterprise only (ERROR 000837 on file and mobile). |
 | DefineMosaicDatasetNoData | MATCH | MATCH | - |  |
@@ -133,7 +133,8 @@ answer check (below); *now* is after the fixes. `-` in the action column: nothin
 | EnableAttributeRules | MATCH | MATCH | - |  |
 
 Counts, first run: MATCH 54, DIFF 29, BOTH-ERROR 15, PRO-ERROR 9, GRAPY-ERROR 9, REFUSED 6, SCHEMA 4.
-Now (attachments run again 2026-11-12): MATCH 99, DIFF 8, BOTH-ERROR 10, PRO-ERROR 5, SCHEMA 3, GRAPY-ERROR 1. Every name that is not MATCH has a
+Now (column names run again 2026-11-12, ADR-289 §5.1): MATCH 100, DIFF 8, BOTH-ERROR 10, PRO-ERROR 5, SCHEMA 2, GRAPY-ERROR 1
+(AddJoin SCHEMA → MATCH). Before it (attachments run again 2026-11-12): MATCH 99, DIFF 8, BOTH-ERROR 10, PRO-ERROR 5, SCHEMA 3, GRAPY-ERROR 1. Every name that is not MATCH has a
 reason above: 15 are not comparable on this machine (enterprise geodatabase, or a Frame Camera / stereo / RPC imagery
 block this sweep has no fixture for), the rest are recorded differences.
 
@@ -154,15 +155,15 @@ block this sweep has no fixture for), the rest are recorded differences.
    attachment table's columns, and still reads a GeoPackage written with `REL_GLOBALID` before; the cases match.
 2. **Unregistered tables in a GeoPackage** (CreateUnRegisteredTable, CreateUnRegisteredFeatureclass): Pro writes
    `OBJECTID INTEGER PRIMARY KEY AUTOINCREMENT`, a `Shape` column, a `gpkg_contents` row, and leaves a template's OID
-   out. grapy's ADR-240 design (unlisted, unmaintained OBJECTID, `geom`) differs on each point. Needs a decision, since
+   out. grapy's ADR-240 design (unlisted, unmaintained OBJECTID; the shape column `Shape` since ADR-289 §5.1, `geom` before) differs on each point but the names. Needs a decision, since
    a GeoPackage has no unregistered state in Pro at all; AddIncrementingIDField depends on it.
 3. **Archive history kept by DisableArchiving PRESERVE**: Pro keeps a listed feature class `<class>_H` with the class's
    fields; grapy renames its own history table `<class>_h` (gdb_* columns, moments not dates), unlisted. About half a
    day.
 4. **Database views** (CreateDatabaseView): grapy takes a view's first integer column as its object ID (ADR-240), so
    CopyRows drops it; Pro's view has no OID and keeps the column as a field.
-5. **GeoPackage OID name**: grapy names the OID `fid`, Pro `OBJECTID`; it shows wherever a name is derived from it
-   (AddJoin's `<table>_OBJECTID`).
+5. ~~**GeoPackage OID name**~~ **Built 2026-11-12 (ADR-289 §5.1)**: grapy names the OID `OBJECTID`, as Pro does, and
+   the names derived from it follow (AddJoin's `<table>_OBJECTID`); AddJoin matches.
 6. **Undocumented algorithms**: Dice's cut positions, BuildFootprints' RADIOMETRY outline (1.7 % of area). EQUIVALENT
    choices; no fix without a specification.
 7. **ApplyBlockAdjustment RESET** on a mosaic without Frame Camera items is a no-op in Pro and an error in grapy (small).

@@ -92,9 +92,9 @@ class Tools(unittest.TestCase):
         arcpy.management.AddFields(self.parcels, [["a", "LONG"], ["b", "TEXT"]])
         arcpy.management.AlterField(self.parcels, "a", "count")
         arcpy.management.DeleteField(self.parcels, ["b", "kind"])
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1], ["name", "value", "count"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:], ["name", "value", "count"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         arcpy.management.DeleteField(self.parcels, "name", "KEEP_FIELDS")
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1], ["name"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:], ["name"])
 
     def test_geometry_attributes_and_xy_are_written_in_the_unit_asked(self):
         arcpy.management.CalculateGeometryAttributes(self.parcels, [["area", "AREA"], ["len", "PERIMETER_LENGTH"],

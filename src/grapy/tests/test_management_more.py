@@ -172,7 +172,7 @@ class ManagementMore(unittest.TestCase):
         arcpy.management.JoinField(self.parcels, "kind", lookup, "kind", ["label"])
         self.assertEqual(self.rows(self.parcels, ["name", "label"]), [("p0", "alpha"), ("p1", "alpha"), ("p2", "beta")])
         arcpy.management.JoinField(self.parcels, "kind", lookup, "kind")
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1],
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:],  # the table's own order, as Pro answers it (ADR-289 §5.1)
                          ["name", "kind", "value", "label", "kind_1", "label_1"])
         partial = self.table("partial", [("code", "TEXT"), ("note", "TEXT")], [("b", "only b")])
         arcpy.management.JoinField(self.parcels, "kind", partial, "code", "note")
@@ -333,7 +333,7 @@ class ManagementMore(unittest.TestCase):
         end = self.rows(east, ["SHAPE@"])[0][0]._shape.coords[-1]
         self.assertAlmostEqual(end[0], 10.0)
         self.assertAlmostEqual(end[1], 0.0)
-        self.assertEqual([f.name for f in arcpy.ListFields(east)][1:-1], ["x", "y", "d", "b"])
+        self.assertEqual([f.name for f in arcpy.ListFields(east)][2:], ["x", "y", "d", "b"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
 
     # ---- grids
 

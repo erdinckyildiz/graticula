@@ -215,7 +215,7 @@ class LastEditTime(_Base):
         arcpy.management.CreateFeatureclass(self.gpkg + "/net", "valves", "POINT")
         for table in ("net/pipes", "net/valves"):
             self.sql("update gpkg_contents set last_change = ? where table_name = ?", self.OLD, table)
-            self.sql(f'insert into "{table}" (geom) values (null)')
+            self.sql(f'insert into "{table}" (Shape) values (null)')  # Pro's names, measured (ADR-289 §5.1)
             self.assertGreater(self.changed(table), "2026-")
 
     def test_a_rename_keeps_it(self):
@@ -259,7 +259,7 @@ class UnregisteredAndRegistration(_Base):
 
     def test_a_template_gives_its_fields(self):
         arcpy.management.CreateUnRegisteredTable(self.gpkg, "copy", self.roads)
-        self.assertEqual([r[1] for r in self.sql("pragma table_info(copy)")], ["fid", "name"])
+        self.assertEqual([r[1] for r in self.sql("pragma table_info(copy)")], ["OBJECTID", "name"])  # Pro's names, measured (ADR-289 §5.1)
 
     def test_an_incrementing_id_is_kept_by_the_database(self):
         arcpy.management.CreateUnRegisteredTable(self.gpkg, "plain")
@@ -294,9 +294,9 @@ class UnregisteredAndRegistration(_Base):
         self.assertEqual(self.sql("select data_type, srs_id, min_x, min_y, max_x, max_y from gpkg_contents where "
                                   "table_name = 'parcels'"), [("features", 3857, 0.0, 0.0, 2.0, 2.0)])
         self.assertEqual(self.sql("select column_name, geometry_type_name, srs_id from gpkg_geometry_columns where "
-                                  "table_name = 'parcels'"), [("geom", "MULTIPOLYGON", 3857)])
+                                  "table_name = 'parcels'"), [("Shape", "MULTIPOLYGON", 3857)])  # Pro's names, measured (ADR-289 §5.1)
         self.assertEqual(arcpy.Describe(self.gpkg + "/parcels").spatialReference.factoryCode, 3857)
-        self.assertEqual(self.sql("select distinct substr(geom, 5, 4) from parcels"), [((3857).to_bytes(4, "little"),)])
+        self.assertEqual(self.sql("select distinct substr(Shape, 5, 4) from parcels"), [((3857).to_bytes(4, "little"),)])
         described = arcpy.Describe(self.gpkg + "/parcels")
         self.assertEqual((described.OIDFieldName, described.shapeType), ("OBJECTID", "Polygon"))
         self.assertEqual(self.rows(self.gpkg + "/parcels", ["OID@"]), [(1,), (2,)])
@@ -358,9 +358,9 @@ class ViewsAndStatistics(_Base):
         out = arcpy.management.CreateDatabaseView(self.gpkg, "named", "select name from roads where name <> 'a'")[0]
         self.assertEqual(self.rows(out, ["name"]), [("b",)])
         self.assertEqual(self.sql("select count(*) from gpkg_contents where table_name = 'named'"), [(0,)])
-        keyed = arcpy.management.CreateDatabaseView(self.gpkg, "keyed", "select fid, name from roads")[0]
+        keyed = arcpy.management.CreateDatabaseView(self.gpkg, "keyed", "select OBJECTID, name from roads")[0]
         self.assertEqual(self.rows(keyed, "*"), [(1, "a"), (2, "b")])  # OID@ is its first integer field
-        self.assertEqual(arcpy.Describe(keyed).OIDFieldName, "fid")
+        self.assertEqual(arcpy.Describe(keyed).OIDFieldName, "OBJECTID")  # Pro's names, measured (ADR-289 §5.1)
         # 'named' had none. Read from the run's list: the warning is said when 'named' is read, not by the last tool,
         # and GetMessages answers the last tool's since ADR-289 §5.3, as ArcGIS Pro 3.7 (measured 2026-11-12).
         self.assertIn("no integer field", "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))

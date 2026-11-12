@@ -213,7 +213,7 @@ class Splitting(Fixture):
         arcpy.topographic.SplitFeatures(cutter, target)   # nothing selected: a warning, nothing split
         self.assertEqual(len(self.rows(target)), 1)
         arcpy.management.MakeFeatureLayer(cutter, "cut_lyr")
-        arcpy.management.SelectLayerByAttribute("cut_lyr", "NEW_SELECTION", "fid = 1")
+        arcpy.management.SelectLayerByAttribute("cut_lyr", "NEW_SELECTION", "OBJECTID = 1")
         arcpy.topographic.SplitFeatures("cut_lyr", target)
         self.assertEqual(sorted((round(r[2].length, 6), r[1]) for r in self.rows(target, ["NAME"])),
                          [(10.0, "a"), (10.0, "a")])

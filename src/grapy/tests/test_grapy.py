@@ -57,7 +57,7 @@ class FeatureClassesAndCursors(unittest.TestCase):
         described = arcpy.Describe(self.fc)
         self.assertEqual(described.shapeType, "Polygon")
         self.assertEqual(described.spatialReference.factoryCode, 3857)
-        self.assertEqual([f.name for f in arcpy.ListFields(self.fc)][1:3], ["name", "value"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.fc)][2:4], ["name", "value"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         self.assertEqual(described.extent.XMax, 250)
         self.assertTrue(arcpy.Exists(self.fc))
         self.assertIn("parcels.gpkg", arcpy.ListFeatureClasses())

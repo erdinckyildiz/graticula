@@ -18,11 +18,13 @@ import shapely
 sqlite3.register_adapter(datetime.datetime, lambda value: value.isoformat(" "))
 sqlite3.register_adapter(datetime.date, lambda value: value.isoformat())
 
-# The names grapy *writes* a new feature class's object ID and geometry columns under, and nothing else: every reader
-# finds a table's own columns with ``oid_column`` (its integer primary key) and ``geometry_column`` (its
-# gpkg_geometry_columns row), so a GeoPackage written before 2026-11-12 with ``fid``/``geom``, or by GDAL, still reads.
-GEOMETRY = "geom"
-OID = "fid"
+# The names grapy *writes* a new feature class's object ID and geometry columns under, and nothing else: ``OBJECTID``
+# and ``Shape``, as ArcGIS Pro 3.7 writes them in a GeoPackage (measured 2026-11-08 and 2026-11-12; ADR-289 §5.1, by
+# owner decision — grapy wrote ``fid`` and ``geom``, the GeoPackage specification's and GDAL's, until then). Every
+# reader finds a table's own columns with ``oid_column`` (its integer primary key) and ``geometry_column`` (its
+# gpkg_geometry_columns row), so a GeoPackage written with ``fid``/``geom``, or any other names, still reads.
+GEOMETRY = "Shape"
+OID = "OBJECTID"
 
 # Both vocabularies: AddField's words (SHORT, LONG, TEXT …) and a Field's own type words (SmallInteger, Integer, String …),
 # which is what Describe hands back and a template carries.
@@ -299,10 +301,23 @@ def describe(connection: sqlite3.Connection, table: str) -> tuple[list[Column], 
     """The columns (the id and shape excluded), the shape type, the reference and the geometry column."""
     row = connection.execute(
         "select column_name, geometry_type_name, srs_id from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
-    geometry, shape, srid = (row if row else (GEOMETRY, "GEOMETRY", 0))
+    listed = list(connection.execute(f'pragma table_info("{table}")'))
+    if row:
+        geometry, shape, srid = row
+    else:
+        # Not registered: a class CreateUnRegisteredFeatureclass made keeps its shapes in the column declared with a
+        # geometry type (``Shape``, or ``geom`` before ADR-289 §5.1); a table has none, and the name answered is then
+        # one none of its fields has, so that a field called Shape stays a field.
+        geometry = next((r[1] for r in listed if (r[2] or "").upper() in _SHAPES), None)
+        if geometry is None:
+            taken, geometry, i = {r[1].lower() for r in listed}, GEOMETRY, 0
+            while geometry.lower() in taken:
+                i += 1
+                geometry = f"{GEOMETRY}_{i}"
+        shape, srid = "GEOMETRY", 0
     columns = []
     oid = oid_column(connection, table)
-    for _, name, declared, notnull, _, pk in connection.execute(f'pragma table_info("{table}")'):
+    for _, name, declared, notnull, _, pk in listed:
         if pk or name == geometry or name == oid:
             continue
         word = (declared or "TEXT").upper()
@@ -355,6 +370,23 @@ def oid_column(connection: sqlite3.Connection, table: str) -> str:
     return "rowid"
 
 
+def system_names(columns: list[Column]) -> tuple[str, str]:
+    """The object ID and geometry column names a new class is written with: ``OID`` and ``GEOMETRY``, or, where one of
+    ``columns`` already has that name (case aside, as SQLite compares names), the first of ``<name>_1``, ``<name>_2`` …
+    that is free — as ArcGIS names the object ID ``OBJECTID_1`` when the data copied hold a field ``OBJECTID``.
+    INFERRED for the shape (ADR-289 §5.1): ``Shape_1`` by the same rule. The field keeps its name and its values."""
+    taken = {c.name.lower() for c in columns}
+    chosen = []
+    for base in (OID, GEOMETRY):
+        name, i = base, 0
+        while name.lower() in taken:
+            i += 1
+            name = f"{base}_{i}"
+        taken.add(name.lower())
+        chosen.append(name)
+    return chosen[0], chosen[1]
+
+
 def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool = False, has_m: bool = False) -> None:
     """A new, empty feature class — the file made if it is not there, the table replaced if it is. ``has_z`` and
     ``has_m`` set the geometry column's z and m flags to 1, *mandatory*, as the GeoPackage specification (§2.1.5)
@@ -370,11 +402,13 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
         forget(connection, table)
         stored = _STORED.get(shape, "GEOMETRY")
         defined = "".join(f', "{c.name}" {declared(c)}' for c in columns)
+        oid, geometry = system_names(columns)
         if stored == "GEOMETRY" and not srid and not has_z and not has_m:
             # A table — grapy's "Geometry with no reference", as _contents reads it — is an attributes table
             # (GeoPackage 1.4 §2.4.2): no geometry column and no gpkg_geometry_columns row. Written as a GEOMETRY
             # feature table, ArcGIS Pro opens it as a feature class of unknown type and cannot read its rows.
-            connection.execute(f'create table "{table}" ({OID} integer primary key autoincrement not null{defined})')
+            connection.execute(f'create table "{table}" ({_quote(oid)} integer primary key autoincrement not null'
+                               f'{defined})')
             connection.execute(
                 "insert into gpkg_contents (table_name, data_type, identifier) values (?, 'attributes', ?)", (table, table))
             connection.commit()
@@ -382,14 +416,14 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
         # The geometry column is declared with its geometry type name, not BLOB (GeoPackage 1.4 §2.1.6.1.1 and the
         # sample feature table of Annex C.5): ArcGIS Pro reads a column declared BLOB as a blob field, and the class as
         # a table with no geometry.
-        connection.execute(f'create table "{table}" ({OID} integer primary key autoincrement not null, '
-                           f'{GEOMETRY} {stored}{defined})')
+        connection.execute(f'create table "{table}" ({_quote(oid)} integer primary key autoincrement not null, '
+                           f'{_quote(geometry)} {stored}{defined})')
         connection.execute(
             "insert into gpkg_contents (table_name, data_type, identifier, srs_id) values (?, 'features', ?, ?)",
             (table, table, srid))
         connection.execute(
             "insert into gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m) values (?, ?, ?, ?, ?, ?)",
-            (table, GEOMETRY, stored, srid, 1 if has_z else 0, 1 if has_m else 0))
+            (table, geometry, stored, srid, 1 if has_z else 0, 1 if has_m else 0))
         # The RTree index of Annex F.3, as GDAL makes by default: ArcGIS Pro and QGIS use it to draw and select by
         # extent, and without it a large class is scanned whole (D-340).
         add_index(connection, table)

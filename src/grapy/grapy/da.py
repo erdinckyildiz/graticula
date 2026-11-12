@@ -343,6 +343,11 @@ class _Cursor:
 
     def _close(self):
         if self._connection is not None:
+            # A search left before its last row holds a statement open, and SQLite keeps a connection with an open
+            # statement alive past close(), with the file's lock: the statement is finalized first.
+            rows = getattr(self, "_rows", None)
+            if hasattr(rows, "close"):
+                rows.close()
             if getattr(self, "_written_bounds", None) is not None:
                 _gpkg.grow_extent(self._connection, self._table, self._written_bounds)
                 self._written_bounds = None

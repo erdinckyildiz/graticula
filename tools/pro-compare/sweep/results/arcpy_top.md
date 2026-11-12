@@ -8,7 +8,9 @@ First run: MATCH 24, DIFF 56, GRAPY-ERROR 22, REFUSED 4, BOTH-ERROR 5, PRO-ERROR
 PRO-ERROR cases were faults in the case: arguments Pro's signature does not take).
 Now: MATCH 84, DIFF 30, PRO-ERROR 1.
 Run again 2026-11-12 after the message model (ADR-289 §5.3), 118 names with the three message cases added: MATCH 104,
-DIFF 13, PRO-ERROR 1 — every message case matches. The message cases now run their tool on a GeoPackage (Pro writes
+DIFF 13, PRO-ERROR 1 — every message case matches.
+Run again 2026-11-12 after the column names (ADR-289 §5.1, grapy writes OBJECTID and Shape): MATCH 105, DIFF 12,
+PRO-ERROR 1 — ListIndexes now matches, and Describe's names, fields and their order do. The message cases now run their tool on a GeoPackage (Pro writes
 "Row Count = 30" on a file geodatabase and nothing between its start and end lines on a GeoPackage, measured
 2026-11-12) and compare each message's time and elapsed time by their form, not their value.
 
@@ -42,7 +44,7 @@ label by hand; the one difference left there is FeatureSet's (below).
 | CreateUniqueName | DIFF | MATCH | fixed | in a GeoPackage the names are its tables (`points0`) |
 | CrossValidationResult | REFUSED | MATCH | case | ga.IDW refuses the default search neighbourhood (ga's range); with one given, count, meanError and RMS equal Pro's |
 | Cursor | BOTH-ERROR | MATCH | fixed | the legacy cursors' generator held the cursor (cycle), so `del cursor` left the GeoPackage locked |
-| Describe | DIFF | DIFF | fixed in part | added aliasName, extension, hasSpatialIndex, canVersion, isVersioned, workspaceFactoryProgID, raster extension/compressionType; left: OBJECTID/Shape vs fid/geom (open 4) and a one-table GeoPackage described as its table (open 5) |
+| Describe | DIFF | DIFF | fixed in part | added aliasName, extension, hasSpatialIndex, canVersion, isVersioned, workspaceFactoryProgID, raster extension/compressionType; OIDFieldName, shapeFieldName and fields are Pro's (OBJECTID, Shape, then the fields, in the table's order) since ADR-289 §5.1 (test_gpkg_names.py). Left: a one-table GeoPackage described as its table (open 5), and the extent, which Pro stores rounded outward (500037.062 for 500037.069) |
 | EnvManager | MATCH | MATCH | — | |
 | Exists | DIFF | MATCH | fixed | a bare name is looked for in env.workspace |
 | Extent | GRAPY-ERROR | MATCH | fixed | documented 9-argument signature (reference ninth), Z/M, corners, relations, projectAs, str "0 0 100 50 NaN NaN NaN NaN" |
@@ -87,7 +89,7 @@ label by hand; the one difference left there is FeatureSet's (below).
 | ListFeatureClasses | MATCH | MATCH | — | |
 | ListFields | DIFF | MATCH | case | compared on a GeoPackage |
 | ListFiles | MATCH | MATCH | — | |
-| ListIndexes | MATCH | DIFF | recorded | first run's match was the file geodatabase case failing alike; on a GeoPackage Pro lists FDO_OBJECTID and rtree_points_Shape besides the user index (open 4) |
+| ListIndexes | MATCH | MATCH | fixed | the user's indexes, then rtree_<table>_<shape> and FDO_<oid>, named after the table's own columns: a GeoPackage written with fid/geom lists rtree_<t>_geom and FDO_fid in Pro too (probe 2026-11-12; ADR-289 §5.1, test_gpkg_names.py) |
 | ListRasters | DIFF | MATCH | fixed | wildcards: `[..]` and `?` are not wildcards in Pro |
 | ListTables | MATCH | MATCH | — | |
 | ListToolboxes | DIFF | DIFF | fixed in part | 3D Analyst is "(3d)"; Pro lists 46 toolboxes, grapy its 13 (open 6) |
@@ -151,9 +153,10 @@ label by hand; the one difference left there is FeatureSet's (below).
    grapy's default is the run's directory by its documented INFERRED choice for the fenced server (ADR-223 §5.5) — left,
    needs an owner decision. grapy holds 12 of Pro's 75 environments (XYTolerance, parallelProcessingFactor, cellAlignment…
    are not held, so ResetEnvironments does not reset them).
-4. **GeoPackage column names**: grapy writes `fid`/`geom`, Pro writes `OBJECTID`/`Shape` even in a GeoPackage
-   (Describe's OIDFieldName/shapeFieldName/fields, da.SearchCursor "*", ListIndexes' FDO_OBJECTID and
-   rtree_<t>_Shape). Changing grapy's columns touches every reader. Estimate: days.
+4. ~~**GeoPackage column names**~~ **Built 2026-11-12 (ADR-289 §5.1)**: grapy writes `OBJECTID` and `Shape`; every
+   reader finds a table's key (its integer primary key) and shape (its gpkg_geometry_columns row) from the table, so a
+   GeoPackage written with `fid`/`geom` still reads, edits and copies (test_gpkg_names.py). A copy of data holding a
+   plain field named OBJECTID or Shape names its own key OBJECTID_1 and its shape Shape_1 (INFERRED for the shape).
 5. **A GeoPackage holding one table** is described as that table by grapy's convention; Pro describes it as a Workspace.
 6. **ListToolboxes/ListTools**: grapy lists its 13 modules and every capitalised function, including raster functions
    that are not tools (sa.Buffered, ia.Buffered…); Pro lists 46 toolboxes.

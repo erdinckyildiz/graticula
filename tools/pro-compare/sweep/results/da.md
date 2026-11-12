@@ -6,6 +6,7 @@ on both sides; the rest on the shared fixtures or a workspace each case builds w
 First run: MATCH 14, DIFF 6, BOTH-ERROR 3, PRO-ERROR 2 (the BOTH-ERRORs were the case's AddContingentValue syntax:
 a RANGE value is "min;max").
 Now: MATCH 22, DIFF 1, PRO-ERROR 2.
+Run again 2026-11-12 after the column names (ADR-289 §5.1): MATCH 23, PRO-ERROR 2.
 
 | Name | First run | Now | Action | Note |
 |---|---|---|---|---|
@@ -27,7 +28,7 @@ Now: MATCH 22, DIFF 1, PRO-ERROR 2.
 | ListVersions | PRO-ERROR | PRO-ERROR | not comparable | Pro refuses a file geodatabase (TypeError naming it); versions need an enterprise geodatabase. grapy answers its own branch versions (ADR-227) |
 | NumPyArrayToFeatureClass | MATCH | MATCH | — | |
 | NumPyArrayToTable | MATCH | MATCH | — | |
-| SearchCursor | DIFF | DIFF | fixed in part | spatial_reference was applied to SHAPE@ only — SHAPE@XY and the other tokens stayed in the data's reference; SHAPE@WKT now in Pro's form (MULTIPOLYGON); "*" now names the table's own fields in its order and reads the shape as SHAPE@XY (documented). Left: the names are fid/geom where Pro writes OBJECTID/Shape (arcpy_top open 4) |
+| SearchCursor | DIFF | MATCH | fixed | spatial_reference was applied to SHAPE@ only — SHAPE@XY and the other tokens stayed in the data's reference; SHAPE@WKT now in Pro's form (MULTIPOLYGON); "*" names the table's own fields in its order and reads the shape as SHAPE@XY (documented); the names are OBJECTID and Shape, as Pro writes them (ADR-289 §5.1) |
 | SearchRelatedRecords | MATCH | MATCH | — | |
 | TableToArrowTable | MATCH | MATCH | — | |
 | TableToNumPyArray | MATCH | MATCH | — | |
@@ -37,7 +38,7 @@ Now: MATCH 22, DIFF 1, PRO-ERROR 2.
 
 ## Open differences worth a debt row
 
-1. GeoPackage column names fid/geom against Pro's OBJECTID/Shape — the same row as arcpy_top's open 4.
+1. ~~GeoPackage column names fid/geom against Pro's OBJECTID/Shape~~ — built 2026-11-12 (ADR-289 §5.1).
 2. UpdateCursor with "*": left reading the shape as a geometry (SHAPE@); whether Pro's UpdateCursor also reads it as
    SHAPE@XY was not measured.
 3. Versions and replicas need an enterprise geodatabase in Pro, so grapy's ADR-227 versions have no Pro comparison here.

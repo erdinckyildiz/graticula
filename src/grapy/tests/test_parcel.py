@@ -66,7 +66,7 @@ class Fabric(unittest.TestCase):
     def record(self, name, date=None):
         with arcpy.da.InsertCursor(self.records, ["Name", "RecordedDate", "SHAPE@"]) as cursor:
             oid = cursor.insertRow([name, date, None])
-        return rows(self.records, ["GlobalID"], f"fid = {oid}")[0][0]
+        return rows(self.records, ["GlobalID"], f"OBJECTID = {oid}")[0][0]
 
     def three_parcels(self):
         r1, r2, r3 = self.record("R1", "2020-01-01"), self.record("R2", "2021-01-01"), self.record("R3")

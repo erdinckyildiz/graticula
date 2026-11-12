@@ -9,6 +9,8 @@ names files differently in Pro: `GenerateID0.csv`, `a(2).las`).
 First run: MATCH 45, BOTH-ERROR 27, DIFF 23, REFUSED 11, PRO-ERROR 9, GRAPY-ERROR 8, SCHEMA 3. (The first run is the
 first of three batches of cases each; most BOTH-ERRORs and PRO-ERRORs were the case: attribute rules need global IDs
 in Pro, an `O(..., "file")` path the harness then tried to dump, `drop` as a table name, EXIF rationals.)
+Run again 2026-11-12 after the column names (ADR-289 §5.1): unchanged, MATCH 104, DIFF 9, BOTH-ERROR 7, PRO-ERROR 5,
+SCHEMA 1 — no case here compared the names (open 9 is a file geodatabase's OID length).
 Now (attachments run again 2026-11-12): MATCH 104, DIFF 9, BOTH-ERROR 7, PRO-ERROR 5, SCHEMA 1 — every one recorded below as not comparable or an open
 difference.
 

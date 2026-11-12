@@ -321,7 +321,7 @@ class CursorsAsPro(_Workspace):
         self.assertAlmostEqual(x, 27.0011828, places=6)  # Pro's answer for (500100, 4500100) in zone 35N
         self.assertAlmostEqual(y, 40.6517574, places=6)
         with arcpy.da.SearchCursor(fc, "*") as rows:
-            self.assertEqual(rows.fields, ("fid", "geom", "val"))  # the table's own names, in its order
+            self.assertEqual(rows.fields, ("OBJECTID", "Shape", "val"))  # Pro's names and order (ADR-289 §5.1)
             first = next(rows)
         self.assertEqual(first[1], (500100.0, 4500100.0))  # the shape as SHAPE@XY
         with arcpy.da.SearchCursor(fc, ["SHAPE@WKT"]) as rows:

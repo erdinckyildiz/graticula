@@ -50,27 +50,27 @@ class Round5(unittest.TestCase):
         script = self.write("script.py", "def is_big(v):\n    return 1 if v > 3 else 0\n")
         out = arcpy.management.BatchUpdateFields(self.parcels, self.out("updated.gpkg"), definitions, script)[0]
         fields = arcpy.ListFields(out)
-        self.assertEqual([(f.name, f.type) for f in fields][1:-1], [("label", "String"), ("double", "Double"),
+        self.assertEqual([(f.name, f.type) for f in fields][2:], [("label", "String"), ("double", "Double"),
                                                                    ("big", "SmallInteger")])
-        self.assertEqual(fields[1].aliasName, "Label of the point")
+        self.assertEqual(fields[2].aliasName, "Label of the point")  # the table's own order, as Pro answers it (ADR-289 §5.1)
         # double is value × 2 (2, 5); big uses that new field: 2 is not over 3, 5 is.
         self.assertEqual(self.rows(out, ["label", "double", "big", "SHAPE@XY"]), [("a", 2.0, 0, (1.0, 2.0)),
                                                                                  ("b", 5.0, 1, (3.0, 4.0))])
 
     def test_list_fields_reads_aliases_and_joined_layers(self):
         arcpy.management.AlterField(self.parcels, "value", new_field_alias="Assessed value")
-        self.assertEqual([f.aliasName for f in arcpy.ListFields(self.parcels)][1:-1], ["name", "Assessed value"])
+        self.assertEqual([f.aliasName for f in arcpy.ListFields(self.parcels)][2:], ["name", "Assessed value"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         lookup = arcpy.management.CreateTable(self.directory, "lookup.gpkg")[0]
         arcpy.management.AddField(lookup, "name", "TEXT")
         arcpy.management.AddField(lookup, "label", "TEXT")
         layer = arcpy.management.AddJoin(self.parcels, "name", lookup, "name")[0]
         self.assertEqual([f.name for f in arcpy.ListFields(layer)],
-                         ["parcels.fid", "parcels.name", "parcels.value", "lookup.fid", "lookup.name", "lookup.label",
-                          "parcels.geom"])
+                         ["parcels.OBJECTID", "parcels.name", "parcels.value", "lookup.OBJECTID", "lookup.name", "lookup.label",
+                          "parcels.Shape"])
         described = arcpy.Describe(layer)
-        self.assertEqual((described.OIDFieldName, described.shapeFieldName), ("parcels.fid", "parcels.geom"))
+        self.assertEqual((described.OIDFieldName, described.shapeFieldName), ("parcels.OBJECTID", "parcels.Shape"))  # Pro's names, measured (ADR-289 §5.1)
         self.assertEqual([f.aliasName for f in described.fields][2], "Assessed value")
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)], ["fid", "name", "value", "geom"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)], ["OBJECTID", "Shape", "name", "value"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
 
     def test_gtfs_stops_and_shapes(self):
         folder = self.out("gtfs")

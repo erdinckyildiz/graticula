@@ -58,7 +58,7 @@ class RatWiring(unittest.TestCase):
         self.assertEqual(sorted(self.rows(polygons, ["gridcode", "label", "SHAPE@AREA"])),
                          [(1, "v1", 200.0), (2, "v2", 100.0), (3, "v3", 100.0)])
         points = arcpy.conversion.RasterToPoint(self.raster, os.path.join(self.directory, "pt.gpkg"), "label")[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(points)][1:-1], ["pointid", "label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(points)][2:], ["pointid", "label"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         self.assertEqual(self.rows(points, ["label", "SHAPE@XY"]),
                          [("v1", (5.0, 15.0)), ("v1", (15.0, 15.0)), ("v2", (5.0, 5.0)), ("v3", (15.0, 5.0))])
 

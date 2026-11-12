@@ -160,7 +160,7 @@ class Subtypes(_Workspace):
         arcpy.management.AssignDefaultToField(self.pipes, "diameter", "", 1)          # cleared: the field's own again
         arcpy.management.AssignDefaultToField(self.pipes, "material", None, clear_value="CLEAR_VALUE")
         oid = self.insert(self.pipes, ["kind", "SHAPE@XY"], [(1, (4, 4))])[0]
-        self.assertEqual(self.rows(self.pipes, ["diameter", "material"], f"fid = {oid}"), [(100.0, "Steel")])
+        self.assertEqual(self.rows(self.pipes, ["diameter", "material"], f"OBJECTID = {oid}"), [(100.0, "Steel")])
 
     def test_an_update_cursor_writes_the_subtype_through_its_token(self):
         self.subtyped()
@@ -413,7 +413,7 @@ class Attachments(_Workspace):
                           (self.oids[1], os.path.abspath(os.path.join(self.files, "B2.pdf")))])
         arcpy.management.EnableAttachments(self.pipes)
         arcpy.management.GenerateAttachmentMatchTable(self.pipes, self.files, out, "code", match_pattern="SUFFIX")
-        arcpy.management.AddAttachments(self.pipes, "OID@" if False else "fid", out, "MATCHID", "FILENAME", self.files)
+        arcpy.management.AddAttachments(self.pipes, "OBJECTID", out, "MATCHID", "FILENAME", self.files)
         self.assertEqual([r[1] for r in self.attached()], ["A1.jpg", "B2.pdf"])
         with self.assertRaises(NotBuiltError):
             arcpy.management.GenerateAttachmentMatchTable(self.pipes, self.files, os.path.join(self.directory, "m.dbf"),

@@ -131,13 +131,13 @@ class ProSweepNa(unittest.TestCase):
         self.assertEqual(na.GetNAClassNames(layer), {"Stops": "Stops", "Routes": "Routes", "Barriers": "Point Barriers",
                                                      "PolylineBarriers": "Line Barriers",
                                                      "PolygonBarriers": "Polygon Barriers"})
-        stops = [f.name for f in arcpy.ListFields(na.GetNASublayer(layer, "Stops"))][1:-1]
+        stops = [f.name for f in arcpy.ListFields(na.GetNASublayer(layer, "Stops"))][2:]  # the table's own order, as Pro answers it (ADR-289 §5.1)
         self.assertEqual(stops, ["Name", "RouteName", "Sequence", "TimeWindowStart", "TimeWindowEnd",
                                  "ArriveCurbApproach", "DepartCurbApproach", "ArriveTime", "DepartTime", "ArriveTimeUTC",
                                  "DepartTimeUTC", "LocationType", "SourceID", "SourceOID", "PosAlong", "SideOfEdge",
                                  "CurbApproach", "Status", "SnapX", "SnapY", "SnapZ", "DistanceToNetworkInMeters",
                                  "Attr_Length", "Cumul_Length"])
-        routes = [f.name for f in arcpy.ListFields(na.GetNASublayer(layer, "Routes"))][1:-1]
+        routes = [f.name for f in arcpy.ListFields(na.GetNASublayer(layer, "Routes"))][2:]
         self.assertEqual(routes, ["Name", "FirstStopID", "LastStopID", "StopCount", "StartTime", "EndTime",
                                   "StartTimeUTC", "EndTimeUTC", "Total_Length"])
         mappings = na.NAClassFieldMappings(layer, "Stops")
@@ -148,7 +148,7 @@ class ProSweepNa(unittest.TestCase):
         self.timed()
         layer = na.MakeRouteAnalysisLayer(self.network, "r", "Driving", generate_directions_on_solve="NO_DIRECTIONS")[0]
         fields = [f.name for f in arcpy.ListFields(na.GetNASublayer(layer, "Routes"))]
-        self.assertEqual(fields[-5:-1], ["TotalWait_Minutes", "TotalViolation_Minutes", "Total_Length", "Total_Minutes"])
+        self.assertEqual(fields[-4:], ["TotalWait_Minutes", "TotalViolation_Minutes", "Total_Length", "Total_Minutes"])
         na.AddLocations(layer, "Stops", self.points("s", [("a", "POINT(0 0)"), ("c", "POINT(100 100)")]))
         na.Solve(layer)
         (length, minutes), = self.rows(na.GetNASublayer(layer, "Routes"), ["Total_Length", "Total_Minutes"])

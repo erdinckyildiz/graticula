@@ -99,7 +99,9 @@ class Workspace(_Folder):
         connection.execute('create unique index ix_name on pts ("name")')
         connection.commit()
         connection.close()
-        (index,) = arcpy.ListIndexes(self.pts)
+        # The user's index first, then the spatial index and the object ID's, as Pro lists them (ADR-289 §5.1).
+        index, *system = arcpy.ListIndexes(self.pts)
+        self.assertEqual([i.name for i in system], ["rtree_pts_Shape", "FDO_OBJECTID"])
         # An index's fields are Field objects, as ArcGIS Pro 3.7 answers (measured 2026-11-08, the Pro sweep); this
         # test compared names before.
         self.assertEqual((index.name, [f.name for f in index.fields], index.isUnique, index.isAscending),

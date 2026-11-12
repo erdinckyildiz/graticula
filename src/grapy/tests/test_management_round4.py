@@ -68,7 +68,7 @@ class Round4(unittest.TestCase):
 
     def test_alter_fields_keeps_aliases_in_the_schema_extension(self):
         arcpy.management.AlterFields(self.parcels, [["name", "label", "Label of the parcel"]])
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1], ["label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:], ["label"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         connection = sqlite3.connect(self.parcels)
         self.assertEqual(connection.execute("select column_name, title from gpkg_data_columns").fetchall(),
                          [("label", "Label of the parcel")])

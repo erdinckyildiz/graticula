@@ -62,7 +62,7 @@ class Conformance(unittest.TestCase):
             "select data_type, srs_id from gpkg_contents where table_name = 'attrs'").fetchone(), ("attributes", None))
         self.assertIsNone(self.connection.execute(
             "select 1 from gpkg_geometry_columns where table_name = 'attrs'").fetchone())
-        self.assertEqual([r[1] for r in self.connection.execute('pragma table_info("attrs")')], ["fid"])
+        self.assertEqual([r[1] for r in self.connection.execute('pragma table_info("attrs")')], ["OBJECTID"])  # Pro's names, measured (ADR-289 §5.1)
         arcpy.management.AddField(f"{self.file}/attrs", "NAME", "TEXT")
         with arcpy.da.InsertCursor(f"{self.file}/attrs", ["NAME"]) as rows:
             rows.insertRow(("a",))
@@ -121,7 +121,7 @@ class Conformance(unittest.TestCase):
     def test_the_primary_key_is_an_integer_rowid_alias(self):
         # §2.1.6.1.1, Requirement 29.
         key = [r for r in self.connection.execute('pragma table_info("pts")') if r[5]]
-        self.assertEqual([(r[1], r[2]) for r in key], [("fid", "INTEGER")])
+        self.assertEqual([(r[1], r[2]) for r in key], [("OBJECTID", "INTEGER")])  # Pro's names, measured (ADR-289 §5.1)
 
     def test_a_copy_keeps_a_table_a_table_and_a_class_its_extent(self):
         arcpy.management.AddField(f"{self.file}/attrs", "NAME", "TEXT")
@@ -216,12 +216,12 @@ class OtherWriters(unittest.TestCase):
         arcpy.management.RemoveSpatialIndex(f"{file}/pts")   # grapy makes its own since D-340; this is another writer's
         c = sqlite3.connect(file)
         c.executescript("""
-            create virtual table rtree_pts_geom using rtree(id, minx, maxx, miny, maxy);
-            create trigger rtree_pts_geom_insert after insert on pts
-              when (new.geom not null and not ST_IsEmpty(NEW.geom))
+            create virtual table rtree_pts_Shape using rtree(id, minx, maxx, miny, maxy);
+            create trigger rtree_pts_Shape_insert after insert on pts
+              when (new.Shape not null and not ST_IsEmpty(NEW.Shape))
             begin
-              insert or replace into rtree_pts_geom values
-                (NEW.fid, ST_MinX(NEW.geom), ST_MaxX(NEW.geom), ST_MinY(NEW.geom), ST_MaxY(NEW.geom));
+              insert or replace into rtree_pts_Shape values
+                (NEW.OBJECTID, ST_MinX(NEW.Shape), ST_MaxX(NEW.Shape), ST_MinY(NEW.Shape), ST_MaxY(NEW.Shape));
             end;
         """)
         c.commit()
@@ -230,7 +230,7 @@ class OtherWriters(unittest.TestCase):
             rows.insertRow(((7.0, 8.0),))
         c = sqlite3.connect(file)
         try:
-            self.assertEqual(c.execute("select * from rtree_pts_geom").fetchall(), [(1, 7.0, 7.0, 8.0, 8.0)])
+            self.assertEqual(c.execute("select * from rtree_pts_Shape").fetchall(), [(1, 7.0, 7.0, 8.0, 8.0)])
         finally:
             c.close()
 
@@ -274,15 +274,15 @@ class SpatialIndexAndExtent(unittest.TestCase):
     def test_a_new_class_has_the_annex_f3_index_and_it_follows_every_edit(self):
         self.assertEqual(self.query("select table_name, column_name, extension_name, scope from gpkg_extensions "
                                     "where extension_name = 'gpkg_rtree_index'"),
-                         [("pts", "geom", "gpkg_rtree_index", "write-only")])
+                         [("pts", "Shape", "gpkg_rtree_index", "write-only")])  # Pro's names, measured (ADR-289 §5.1)
         triggers = {r[0] for r in self.query("select name from sqlite_master where type = 'trigger'")}
-        self.assertEqual(triggers, {f"rtree_pts_geom_{s}" for s in
+        self.assertEqual(triggers, {f"rtree_pts_Shape_{s}" for s in
                                     ("insert", "update2", "update4", "update5", "update6", "update7", "delete")})
         with arcpy.da.InsertCursor(f"{self.file}/pts", ["SHAPE@XY"]) as rows:
             rows.insertRow(((1.0, 2.0),))
             rows.insertRow(((5.0, 6.0),))
             rows.insertRow((None,))
-        self.assertEqual(self.query("select * from rtree_pts_geom order by id"),
+        self.assertEqual(self.query("select * from rtree_pts_Shape order by id"),
                          [(1, 1.0, 1.0, 2.0, 2.0), (2, 5.0, 5.0, 6.0, 6.0)])
         with arcpy.da.UpdateCursor(f"{self.file}/pts", ["OID@", "SHAPE@XY"]) as rows:
             for oid, _ in rows:
@@ -292,16 +292,16 @@ class SpatialIndexAndExtent(unittest.TestCase):
                     rows.deleteRow()
                 else:
                     rows.updateRow((oid, (-3.0, 4.0)))
-        self.assertEqual(self.query("select * from rtree_pts_geom order by id"),
+        self.assertEqual(self.query("select * from rtree_pts_Shape order by id"),
                          [(1, 9.0, 9.0, 9.0, 9.0), (3, -3.0, -3.0, 4.0, 4.0)])
 
     def test_a_tools_own_sql_widens_the_extent(self):
         connection = _gpkg.connect(self.file)
         try:
             for x, y in ((10.0, 20.0), (-4.0, 7.0)):
-                connection.execute("insert into pts (geom) values (?)",
+                connection.execute("insert into pts (Shape) values (?)",
                                    (_gpkg.encode(__import__("shapely").Point(x, y), 3857),))
-            connection.execute("insert into pts (geom) values (null)")
+            connection.execute("insert into pts (Shape) values (null)")
             connection.commit()
         finally:
             connection.close()
@@ -315,9 +315,9 @@ class SpatialIndexAndExtent(unittest.TestCase):
             rows.insertRow(((1.0, 2.0),))
         arcpy.management.Rename(f"{self.file}/pts", f"{self.file}/wells")
         names = {r[0] for r in self.query("select name from sqlite_master")}
-        self.assertIn("rtree_wells_geom", names)
+        self.assertIn("rtree_wells_Shape", names)  # Pro's names, measured (ADR-289 §5.1)
         self.assertFalse([n for n in names if n.startswith("rtree_pts")])
-        self.assertEqual(self.query("select * from rtree_wells_geom"), [(1, 1.0, 1.0, 2.0, 2.0)])
+        self.assertEqual(self.query("select * from rtree_wells_Shape"), [(1, 1.0, 1.0, 2.0, 2.0)])
         self.assertEqual(self.query("select table_name from gpkg_extensions where extension_name = 'gpkg_rtree_index'"),
                          [("wells",)])
         arcpy.management.Delete(f"{self.file}/wells")
@@ -332,10 +332,10 @@ class SpatialIndexAndExtent(unittest.TestCase):
         with arcpy.da.InsertCursor(f"{self.file}/pts", ["SHAPE@XY"]) as rows:   # writes with no index
             rows.insertRow(((3.0, 4.0),))
         arcpy.management.AddSpatialIndex(f"{self.file}/pts")
-        self.assertEqual(self.query("select * from rtree_pts_geom order by id"),
+        self.assertEqual(self.query("select * from rtree_pts_Shape order by id"),
                          [(1, 1.0, 1.0, 2.0, 2.0), (2, 3.0, 3.0, 4.0, 4.0)])
         arcpy.management.AddSpatialIndex(f"{self.file}/pts")    # a second time changes nothing
-        self.assertEqual(len(self.query("select * from rtree_pts_geom")), 2)
+        self.assertEqual(len(self.query("select * from rtree_pts_Shape")), 2)
 
 
 if __name__ == "__main__":

@@ -59,7 +59,7 @@ class CalculationRules(_Workspace):
         self.rule("area", "CALCULATION", "Area($feature)", field="area", triggering_events="INSERT;UPDATE")
         self.insert(self.parcels, ["kind", "SHAPE@"], [(1, square(0, 0, 10)), (2, square(0, 0, 3))])
         self.assertEqual(self.rows(self.parcels, ["OID@", "area"]), [(1, 100.0), (2, 9.0)])
-        self.update(self.parcels, ["SHAPE@"], lambda row: [square(0, 0, 4)], "fid = 2")
+        self.update(self.parcels, ["SHAPE@"], lambda row: [square(0, 0, 4)], "OBJECTID = 2")
         self.assertEqual(self.rows(self.parcels, ["OID@", "area"]), [(1, 100.0), (2, 16.0)])
 
     def test_rules_run_in_evaluation_order_and_each_sees_what_the_one_before_set(self):
@@ -73,7 +73,7 @@ class CalculationRules(_Workspace):
         self.assertEqual([(r.name, r.evaluationOrder) for r in arcpy.Describe(self.parcels).attributeRules],
                          [("label", 1), ("area", 2)])
         self.insert(self.parcels, ["kind", "SHAPE@"], [(4, square(0, 0, 10))])
-        self.assertEqual(self.rows(self.parcels, ["label"], "fid = 2"), [("4:  m²",)])
+        self.assertEqual(self.rows(self.parcels, ["label"], "OBJECTID = 2"), [("4:  m²",)])
 
     def test_an_update_rule_with_triggering_fields_runs_only_when_one_of_them_changes(self):
         self.rule("count", "CALCULATION", "DefaultValue($feature.edits, 0) + 1", field="edits",
@@ -169,7 +169,7 @@ class CalculationRules(_Workspace):
                   "GdbVersion($feature)], '|')", field="label", triggering_events="INSERT")
         self.insert(self.parcels, ["kind", "class"], [(2, 1)])
         self.assertEqual(self.rows(self.parcels, ["label"]),
-                         [("Shop|2|House|esriGeometryPolygon|fid|Urban|1|class|",)])
+                         [("Shop|2|House|esriGeometryPolygon|OBJECTID|Urban|1|class|",)])  # Pro's names, measured (ADR-289 §5.1)
 
     def test_a_rule_edits_another_class_and_that_class_runs_its_own_rules(self):
         log = arcpy.management.CreateTable(self.gpkg, "log")[0]
@@ -318,7 +318,7 @@ class RuleTools(_Workspace):
                                    "CHECKPARAMETERS", "TRIGGERINGFIELDS", "SUBTYPES"])
         self.assertEqual(rows[1][:20], ["area", "", "CALCULATION", "Residential", "area", "False", "True", "False",
                                         "True", "Area($feature)", "", "", "False", "True", "False", "", "geo", "",
-                                        '{"type":"PropertySet","propertySetItems":[]}', '["geom"]'])
+                                        '{"type":"PropertySet","propertySetItems":[]}', '["Shape"]'])  # Pro's names, measured (ADR-289 §5.1)
         self.assertEqual(rows[2][:3] + rows[2][10:15], ["cap", "", "CONSTRAINT", "999", "too high", "False", "False",
                                                         "False"])
         other = arcpy.management.CreateFeatureclass(self.gpkg, "other", "POLYGON", spatial_reference=3857)[0]
@@ -329,7 +329,7 @@ class RuleTools(_Workspace):
         arcpy.management.ImportAttributeRules(other, out)
         imported = {r.name: r for r in arcpy.Describe(other).attributeRules}
         self.assertEqual((imported["area"].subtypeCodes, imported["area"].userEditable, imported["area"].triggeringFields,
-                          imported["cap"].isEnabled, imported["cap"].errorNumber), ([1], False, ["geom"], False, 999))
+                          imported["cap"].isEnabled, imported["cap"].errorNumber), ([1], False, ["Shape"], False, 999))
         self.insert(other, ["kind", "SHAPE@"], [(1, square(0, 0, 2))])
         self.assertEqual(self.rows(other, ["area"]), [(4.0,)])
 
@@ -365,7 +365,7 @@ class EvaluatingRules(_Workspace):
                             ["RULENAME", "ORIGINOBJECTCLASSNAME", "ORIGINOBJECTID", "ERRORMESSAGE"])
         self.assertEqual(sorted(objects), [("cap", "parcels", 3, "value too high"), ("filled", "notes", 2, "empty note")])
         # Evaluated again, a rule's errors are replaced, not added to.
-        self.update(self.parcels, ["value"], lambda row: [50], "fid = 2")
+        self.update(self.parcels, ["value"], lambda row: [50], "OBJECTID = 2")
         arcpy.management.EvaluateRules(self.gpkg, ["VALIDATION_RULES"])
         self.assertEqual(self.rows(f"{self.gpkg}/GDB_ValidationPolygonErrors", ["OID@"]), [])
 
@@ -453,7 +453,7 @@ class ContingentValues(_Workspace):
         with self.assertRaisesRegex(ExecuteError, "already holds this contingent value"):
             arcpy.management.AddContingentValue(self.parcels, "use", [["kind", "CODED_VALUE", 2], ["value", "ANY", ""]])
         with self.assertRaisesRegex(ExecuteError, "system-maintained field or the subtype field"):
-            arcpy.management.CreateFieldGroup(self.parcels, "bad", ["fid"])
+            arcpy.management.CreateFieldGroup(self.parcels, "bad", ["OBJECTID"])  # Pro's names, measured (ADR-289 §5.1)
         with self.assertRaisesRegex(ExecuteError, "already has a field group 'USE'"):
             arcpy.management.CreateFieldGroup(self.parcels, "USE", ["zone"])
 

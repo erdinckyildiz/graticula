@@ -39,7 +39,7 @@ class ZM(unittest.TestCase):
     def blob(self, path):
         connection = sqlite3.connect(path)
         try:
-            row = connection.execute(f'select geom from "{os.path.splitext(os.path.basename(path))[0]}"').fetchone()
+            row = connection.execute(f'select Shape from "{os.path.splitext(os.path.basename(path))[0]}"').fetchone()
             flags = connection.execute("select z, m from gpkg_geometry_columns").fetchone()
         finally:
             connection.close()

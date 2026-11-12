@@ -50,7 +50,7 @@ class Joins(unittest.TestCase):
     def test_a_joined_layer_reads_qualified_fields_one_to_first(self):
         layer = arcpy.management.AddJoin(self.parcels, "kind", self.lookup, "kind")[0]
         self.assertEqual(layer, "parcels")
-        self.assertEqual(self.rows(layer, ["parcels.name", "lookup.label", "lookup.fid"]),
+        self.assertEqual(self.rows(layer, ["parcels.name", "lookup.label", "lookup.OBJECTID"]),
                          [("p0", "alpha", 1), ("p1", "alpha", 1), ("p2", None, None)])
         self.assertEqual(int(arcpy.management.GetCount(layer)[0]), 3)
         with self.assertRaises(RuntimeError):
@@ -89,13 +89,13 @@ class Joins(unittest.TestCase):
     def test_copying_a_joined_layer_names_fields_as_the_environment_says(self):
         layer = arcpy.management.AddJoin(self.parcels, "kind", self.lookup, "kind", "KEEP_COMMON")[0]
         out = arcpy.management.CopyFeatures(layer, os.path.join(self.directory, "copy.gpkg"))[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(out)][1:-1],
-                         ["parcels_name", "parcels_kind", "lookup_fid", "lookup_kind", "lookup_label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(out)][2:],  # the table's own order, as Pro answers it (ADR-289 §5.1)
+                         ["parcels_name", "parcels_kind", "lookup_OBJECTID", "lookup_kind", "lookup_label"])
         self.assertEqual(self.rows(out, ["parcels_name", "lookup_label", "SHAPE@AREA"]), [("p0", "alpha", 2500.0),
                                                                                         ("p1", "alpha", 2500.0)])
         arcpy.env.qualifiedFieldNames = False
         table = arcpy.management.CopyRows(layer, os.path.join(self.directory, "rows.gpkg"))[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(table)][1:], ["name", "kind", "fid_1", "kind_1", "label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(table)][1:], ["name", "kind", "OBJECTID_1", "kind_1", "label"])  # the key's name taken: Pro's names (ADR-289 §5.1)
         with self.assertRaises((arcpy.NotBuiltError, RuntimeError)):
             arcpy.analysis.Buffer(layer, os.path.join(self.directory, "b.gpkg"), 5)
 

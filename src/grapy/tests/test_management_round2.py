@@ -96,7 +96,7 @@ class Round2(unittest.TestCase):
         total.mergeRule = "Sum"
         mappings.replaceFieldMap(mappings.findFieldMapIndex("extra"), total)
         merged = arcpy.management.Merge([self.parcels, others], self.out("m.gpkg"), mappings)[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(merged)][1:-1], ["label", "value", "extra"])
+        self.assertEqual([f.name for f in arcpy.ListFields(merged)][2:], ["label", "value", "extra"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         # extra is extra + value of each parcel, nulls left out; the other input has no extra and no value input there.
         self.assertEqual(self.rows(merged, ["label", "value", "extra"]),
                          [("p0", 1.0, 11.0), ("p1", 2.0, 2.0), ("p2", 4.0, 34.0), ("x", 9.0, None)])

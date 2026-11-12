@@ -243,7 +243,7 @@ class Extract(Fixture):
         self.lines = self.fc(self.source, "Roads", "POLYLINE", [], [(LineString([(0, 5), (20, 5)]),)])
         self.areas = self.fc(self.source, "Sheets", "POLYGON", [], [(square(0, 0, 10, 10),), (square(40, 40, 60, 60),)])
         arcpy.management.MakeFeatureLayer(self.areas, "sheet")
-        arcpy.management.SelectLayerByAttribute("sheet", "NEW_SELECTION", "fid = 1")
+        arcpy.management.SelectLayerByAttribute("sheet", "NEW_SELECTION", "OBJECTID = 1")
 
     def test_filters_and_schema_only(self):
         # The sheet (0,0)-(10,10) holds spots 1 and 2; the road is clipped to 10 m; Sheets goes schema only.

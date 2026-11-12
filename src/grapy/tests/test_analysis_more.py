@@ -136,7 +136,7 @@ class Analysis(unittest.TestCase):
         self.assertEqual(sorted(self.rows(out, ["Input_FID", "name", "SHAPE@AREA"])),
                          [(1, "a", 3025.0), (2, "b", 3025.0), (3, "c", 3025.0), (4, "d", 3025.0)])
         only = arcpy.analysis.CreateThiessenPolygons(points, self.out("o")).getOutput(0)
-        self.assertEqual([f.name for f in arcpy.ListFields(only)][1:-1], ["Input_FID"])
+        self.assertEqual([f.name for f in arcpy.ListFields(only)][2:], ["Input_FID"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
 
     # ---- overlay
 

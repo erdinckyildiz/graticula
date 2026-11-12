@@ -51,7 +51,7 @@ class _Workspace(unittest.TestCase):
 @unittest.skipUnless(_fts5(), "this SQLite has no FTS5")
 class FullTextIndex(_Workspace):
     def matching(self, fc, term):
-        where = f'fid in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'{term}\')'
+        where = f'OBJECTID in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'{term}\')'
         with arcpy.da.SearchCursor(fc, ["OID@"], where) as rows:
             return sorted(r[0] for r in rows)
 
@@ -60,12 +60,12 @@ class FullTextIndex(_Workspace):
                                ("Mill", "", (5, 6))])
         self.assertEqual(str(arcpy.management.AddFullTextIndex(fc, "name;note")), fc)
         self.assertEqual(self.matching(fc, "river"), [1, 2])   # in either field
-        with arcpy.da.UpdateCursor(fc, ["name"], "fid = 3") as rows:
+        with arcpy.da.UpdateCursor(fc, ["name"], "OBJECTID = 3") as rows:
             for _ in rows:
                 rows.updateRow(["Hill farm"])
         with arcpy.da.InsertCursor(fc, ["name", "SHAPE@XY"]) as written:
             written.insertRow(["Hill", (0, 0)])
-        with arcpy.da.UpdateCursor(fc, ["name"], "fid = 2") as rows:
+        with arcpy.da.UpdateCursor(fc, ["name"], "OBJECTID = 2") as rows:
             for _ in rows:
                 rows.deleteRow()
         self.assertEqual(self.matching(fc, "hill"), [3, 4])
@@ -84,7 +84,7 @@ class FullTextIndex(_Workspace):
         arcpy.management.Delete(fc)
         fc = self.points(rows=[("Old mill", "", (0, 0))])
         arcpy.management.AddFullTextIndex(fc, ["name"])
-        where = 'fid in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'mill\')'
+        where = 'OBJECTID in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'mill\')'
         with arcpy.da.SearchCursor(fc, ["OID@"], where) as rows:
             self.assertEqual([r[0] for r in rows], [1])
 
@@ -113,7 +113,7 @@ class Migrations(_Workspace):
         connection = sqlite3.connect(self.gpkg)
         from grapy import _gpkg
         _gpkg.functions(connection)  # a writer of a file with Annex F.3's index has its functions (D-340)
-        connection.execute("insert into pts (fid, name) values (?, 'big')", (2 ** 40 + 7,))
+        connection.execute("insert into pts (OBJECTID, name) values (?, 'big')", (2 ** 40 + 7,))
         connection.commit()
         connection.close()
         with arcpy.da.SearchCursor(fc, ["OID@"], "name = 'big'") as rows:

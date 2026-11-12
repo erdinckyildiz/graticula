@@ -85,7 +85,7 @@ class Turns(unittest.TestCase):
 
     def test_turn_feature_class_schema_and_maximum_edges(self):
         names = [f.name for f in arcpy.ListFields(self.turns)]
-        self.assertEqual(names[1:11], ["Edge1End", "Edge1FCID", "Edge1FID", "Edge1Pos", "Edge2FCID", "Edge2FID",
+        self.assertEqual(names[2:12], ["Edge1End", "Edge1FCID", "Edge1FID", "Edge1Pos", "Edge2FCID", "Edge2FID",
                                        "Edge2Pos", "Edge3FCID", "Edge3FID", "Edge3Pos"])
         na.IncreaseMaximumEdges(self.turns, 5)
         names = [f.name for f in arcpy.ListFields(self.turns)]

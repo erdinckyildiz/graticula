@@ -114,6 +114,11 @@ class _Described:
         self.spatialReference = SpatialReference(srid) if srid > 0 else None
         self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, c.length, aliasName=titles.get(c.name.lower()))
                                                     for c in columns]] + ([Field(geometry, "Geometry")] if has_shape else [])
+        # In the table's own order, the shape where the table holds it: ArcGIS Pro 3.7 answers OBJECTID, Shape, then
+        # the fields for a GeoPackage feature class it wrote, and fid, geom, then the fields for one written with
+        # those names (measured 2026-11-08 and 2026-11-12; ADR-289 §5.1).
+        order = [name.lower() for name in own]
+        self.fields.sort(key=lambda f: order.index(f.name.lower()) if f.name.lower() in order else len(order))
         global_id, subtype, defaults, relationships = model
         for field in self.fields:
             field.domain = domains.get(field.name.lower(), "")
@@ -665,6 +670,17 @@ def ListIndexes(dataset, wild_card=None):
         if connection.execute("select 1 from sqlite_master where type = 'trigger' and name = ?",
                               (f"{fts}_ai",)).fetchone() and _matches(fts, wild_card):
             found.append(Index(fts, [r[1] for r in connection.execute(f'pragma table_info("{fts}")')], False, True))
+        # After them the spatial index and the object ID's, as Pro lists them on a GeoPackage: rtree_<table>_<shape>,
+        # then FDO_<oid> (measured in ArcGIS Pro 3.7, 2026-11-08 and 2026-11-12; ADR-289 §5.1). Both names follow the
+        # table's own columns: on a GeoPackage written with fid/geom Pro lists rtree_<table>_geom and FDO_fid.
+        shape = _gpkg.geometry_column(connection, table)
+        if shape is not None and _gpkg.has_index(connection, table) and _matches(f"rtree_{table}_{shape}", wild_card):
+            found.append(Index(f"rtree_{table}_{shape}", [shape], False, True))
+        oid = _gpkg.oid_column(connection, table)
+        is_table = connection.execute("select 1 from sqlite_master where name = ? and type = 'table'",
+                                      (table,)).fetchone() is not None
+        if is_table and oid != "rowid" and _matches(f"FDO_{oid}", wild_card):
+            found.append(Index(f"FDO_{oid}", [oid], True, True))
         return found
     finally:
         connection.close()
