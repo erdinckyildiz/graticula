@@ -119,7 +119,8 @@ class Model(Base):
         cube = M.box((0, 0, 0), (2, 2, 2))
         path = self.multipatch("two", [box((0, 0, 0), (2, 2, 2)), M.from_triangles(cube[2:])])
         arcpy.ddd.IsClosed3D(path)
-        self.assertEqual(sorted(r[0] for r in rows(path, ["IsClosed"])), [0, 1])
+        # Text Yes/No, as ArcGIS Pro 3.7 writes it (measured 2026-11-08; this test pinned SHORT 1 and 0 before).
+        self.assertEqual(sorted(r[0] for r in rows(path, ["IsClosed"])), ["No", "Yes"])
 
     def test_add_z_information_reads_a_multipatchs_surface_area_and_volume(self):
         path = self.multipatch("b", [box((0, 0, 0), (2, 3, 4)), M.from_triangles(M.box((0, 0, 0), (1, 1, 1))[2:])])
@@ -253,6 +254,8 @@ class Booleans(Base):
         arcpy.ddd.Intersect3D(one, self.out("common"), two)
         got = rows(self.out("common"), ["Name", "Name_1", "SHAPE@"])
         self.assertEqual([(a, b) for a, b, _ in got], [("a", "b"), ("a", "c")])
+        # SourceID_1 and SourceID_2 are the two features' ObjectIDs, as ArcGIS Pro 3.7 writes them (measured 2026-11-08).
+        self.assertEqual(rows(self.out("common"), ["SourceID_1", "SourceID_2"]), [(1, 1), (1, 2)])
         self.assertAlmostEqual(volume(got[0][2]._shape), 1.0)
         self.assertAlmostEqual(volume(got[1][2]._shape), 0.008)
         both = self.multipatch("both", [box((0, 0, 0), (2, 2, 2)), box((1, 1, 1), (3, 3, 3)),

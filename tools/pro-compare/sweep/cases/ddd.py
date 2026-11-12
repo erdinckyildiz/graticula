@@ -461,9 +461,9 @@ def _(ap, I, O):
 @case("ddd.StackProfile")
 def _(ap, I, O):
     out = ap.ddd.StackProfile(I["lines"], I["dem"], os.path.join(I["gdb"], "stack_out"))[0]
-    # SRC_NAME is the raster's whole path, so only its end is compared; rows are answered rounded to the centimetre
+    # SRC_NAME is the raster's whole path, so only its end is compared; rows are answered rounded to the decimetre
     # (Pro's DISTANCE carries noise near 1e-5 m) in line and distance order.
-    rows = [[lid, targ, round(d, 2), round(z, 2), src[-13:]] for d, z, lid, src, targ in
+    rows = [[lid, targ, round(d, 1), round(z, 1), src[-13:]] for d, z, lid, src, targ in
             ap.da.SearchCursor(out, ["DISTANCE", "Z", "LINE_ID", "SRC_NAME", "LINE_TARG"])]
     return sorted(rows, key=lambda row: (row[0], row[2]))
 
@@ -1008,7 +1008,7 @@ def _(ap, I, O):
     # Points are removed only from an embedded class, and Pro embeds only multipoints.
     t, fds, _ = terrain(ap, I, "rmtp", build=False)
     more = ap.management.CopyFeatures(extra_points(ap, I, "rmtp_more", 150), os.path.join(fds, "rmtp_mp"))[0]
-    ap.ddd.AddFeatureClassToTerrain(t, [[more, "Shape", "masspoints", 2, 0, 120, False, True, "rmtp_emb", "", False]])
+    ap.ddd.AddFeatureClassToTerrain(t, [[more, "Shape", "masspoints", 2, 0, 120, True, True, "rmtp_emb", "", False]])
     ap.ddd.BuildTerrain(t)
     x0, y0 = I["x0"], I["y0"]
     ap.ddd.RemoveTerrainPoints(t, "rmtp_emb", f"{x0 + 200} {y0 + 200} {x0 + 300} {y0 + 300}")

@@ -117,7 +117,7 @@ class Multipatches(_Workspace):
         copy = arcpy.management.CopyFeatures(boxes, self.out("copy"))[0]
         self.assertTrue(M.is_multipatch(copy))
         arcpy.ddd.IsClosed3D(copy)
-        self.assertEqual([v for v, in self.rows(copy, ["IsClosed"])], [1])
+        self.assertEqual([v for v, in self.rows(copy, ["IsClosed"])], ["Yes"])
 
 
 class LasNames(unittest.TestCase):
