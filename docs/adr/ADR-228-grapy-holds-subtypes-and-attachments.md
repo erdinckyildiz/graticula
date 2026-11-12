@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-10-30, by owner decision on scope — grapy gets *subtypes and attachments*, as their own ADR and batch, after the three group-2 models of [ADR-224](ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) §5.7 ([ADR-225](ADR-225-grapy-holds-topology-and-relationship-classes.md), [ADR-226](ADR-226-grapy-holds-network-datasets.md), [ADR-227](ADR-227-grapy-holds-versions-and-archives.md)). The storage design below is INFERRED and listed for confirmation in §5.6. |
 | **Supersedes** | — |
-| **Superseded by** | — **Amended 2026-11-12 by owner decision, [ADR-289](ADR-289-owner-decisions-on-the-pro-sweep.md) §5.4**: on a class without global IDs, attachments relate by `REL_OBJECTID` as Pro 3.7 was measured to do, and no global IDs are added. Not yet built; §5 below still describes the code. |
+| **Superseded by** | — **Amended 2026-11-12 by owner decision, [ADR-289](ADR-289-owner-decisions-on-the-pro-sweep.md) §5.4**: on a class without global IDs, attachments relate by `REL_OBJECTID` as Pro 3.7 was measured to do, and no global IDs are added. Built 2026-11-12; where §5 below says `REL_GLOBALID` or that global IDs are added, it describes the code before ADR-289. |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.

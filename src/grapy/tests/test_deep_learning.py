@@ -259,7 +259,9 @@ class ObjectAccuracy(_Fixture):
                               (("classvalue", "LONG"), ("Confidence", "DOUBLE")))
         out = os.path.join(self.directory, "acc.gpkg")
         arcpy.ia.ComputeAccuracyForObjectDetection(found, truth, out)
-        table = {r[0]: r[1:] for r in self.rows(out, ["Class", "Precision", "Recall", "F1_Score", "AP", "True_Positive",
+        # Pro 3.7's layout (measured 2026-11-08): the first field is named by min_iou and the sums row is
+        # All_Classes, first.
+        table = {r[0]: r[1:] for r in self.rows(out, ["Min_IoU_is_50_percent", "Precision", "Recall", "F1_Score", "AP", "True_Positive",
                                                       "False_Positive", "False_Negative"])}
         precision, recall, f1, ap, tp, fp, fn = table["1"]
         self.assertEqual((tp, fp, fn), (2, 1, 0))
@@ -267,8 +269,8 @@ class ObjectAccuracy(_Fixture):
         self.assertAlmostEqual(recall, 1.0)
         self.assertAlmostEqual(f1, 0.8)
         self.assertAlmostEqual(ap, 0.5 + 0.5 * 2 / 3)
-        self.assertEqual(table["All"][4:], (3, 1, 0))
-        self.assertAlmostEqual(table["All"][3], (0.5 + 0.5 * 2 / 3 + 1.0) / 2)
+        self.assertEqual(table["All_Classes"][4:], (3, 1, 0))
+        self.assertAlmostEqual(table["All_Classes"][3], (0.5 + 0.5 * 2 / 3 + 1.0) / 2)
         with self.assertRaises(NotBuiltError):
             arcpy.ia.ComputeAccuracyForObjectDetection(found, truth, out, os.path.join(self.directory, "r.pdf"))
 
@@ -283,7 +285,10 @@ class PixelAccuracy(_Fixture):
         out = os.path.join(self.directory, "cm.gpkg")
         arcpy.ia.ComputeAccuracyForPixelClassification(raster(classes), raster(classes), out, 8)
         rows = {r[0]: r[1:] for r in self.rows(out, ["ClassValue", "C_1", "C_2", "Total", "U_Accuracy", "Kappa"])}
-        self.assertEqual(set(rows), {"C_1", "C_2", "Total", "P_Accuracy", "Kappa", "IoU"})
+        # No IoU row, and 0 where a row has no measure: Pro 3.7, measured 2026-11-08 (this test pinned grapy's IoU
+        # row before).
+        self.assertEqual(set(rows), {"C_1", "C_2", "Total", "P_Accuracy", "Kappa"})
+        self.assertEqual(rows["Total"][3:], (0.0, 0.0))
         self.assertEqual(rows["C_1"][:3], (4.0, 0.0, 4.0))
         self.assertEqual(rows["C_1"][3], 1.0)
         self.assertEqual(rows["Kappa"][4], 1.0)

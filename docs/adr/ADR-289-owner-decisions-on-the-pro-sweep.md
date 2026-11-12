@@ -81,7 +81,7 @@ GetMessages, GetMessage, GetMessageCount, GetMaxSeverity, GetSeverity and the Re
 messages, with the start and end lines Pro writes. AddMessage outside a tool does not join them. What the server's job
 answers (ADR-223) is kept.
 
-### 5.4 Attachments — decided, not yet built
+### 5.4 Attachments — built
 
 On a class without global IDs, EnableAttachments adds none and relates by `REL_OBJECTID` (Integer). A class that has
 global IDs keeps `REL_GLOBALID`, as Pro does. Attachments that grapy wrote earlier, with `REL_GLOBALID`, are still read.
@@ -108,7 +108,7 @@ global IDs keeps `REL_GLOBALID`, as Pro does. Attachments that grapy wrote earli
 1. **Column names built (§5.1)**: the sweep's arcpy_top, da and management cases match Pro on the names, and a
    GeoPackage written before the change still opens.
 2. **Messages built (§5.3)**: the sweep's message cases match Pro.
-3. **Attachments built (§5.4)**: the sweep's attachment cases match Pro, and attachments written earlier still read.
+3. **Attachments built (§5.4)**: the sweep's attachment cases match Pro, and attachments written earlier still read. **DISCHARGED 2026-11-12**: all eight attachment cases match Pro (four were DIFF); `_attachments.keys` reads the key from the table's columns, and `test_subtypes_attachments.ObjectIdKeyedAttachments` opens a GeoPackage written in the old layout. Pro refuses EnableAttachments on a GeoPackage (ERROR 000187), so Pro was measured on a file geodatabase.
 
 ## 10. Revisit triggers
 
