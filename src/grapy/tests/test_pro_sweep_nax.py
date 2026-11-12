@@ -29,6 +29,7 @@ class ProSweepNax(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "transport", 3857)[0]

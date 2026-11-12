@@ -356,6 +356,7 @@ class MemorySaving(unittest.TestCase):
             return torch.nn.functional.cross_entropy(net(batch[0], batch[1]).reshape(-1, 3), batch[2].reshape(-1))
 
         scratch = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, scratch, True)
         torch.manual_seed(3)
         in_place = dl.find_learning_rate(model, [(xyz, features, labels)], step, count=4, scratch=scratch)
         torch.manual_seed(3)

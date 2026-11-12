@@ -26,6 +26,7 @@ class ProSweepNa(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "t", 3857)[0]

@@ -31,7 +31,9 @@ class ProSweepCartographyEdit(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
+        self.addCleanup(setattr, arcpy.env, "overwriteOutput", arcpy.env.overwriteOutput)
         arcpy.env.overwriteOutput = True
 
     def make(self, name, shape, rows, fields=(("name", "TEXT"),)):
