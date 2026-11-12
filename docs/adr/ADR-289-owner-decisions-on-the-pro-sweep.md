@@ -64,7 +64,7 @@ against its page). All measured in ArcGIS Pro 3.7 between 2026-11-08 and 2026-11
 
 ## 5. Decision
 
-### 5.1 Column names — decided, not yet built
+### 5.1 Column names — built
 
 grapy writes a GeoPackage's object ID as `OBJECTID` and its geometry as `Shape`, as Pro does. It reads both the new
 names and `fid`/`geom`, so a GeoPackage written earlier still opens. Describe, cursors, ListIndexes and every derived
@@ -88,7 +88,7 @@ global IDs keeps `REL_GLOBALID`, as Pro does. Attachments that grapy wrote earli
 
 ## 6. Consequences
 
-- D-409, D-410 and D-411 stay open until each part is built; their status cells cite this ADR.
+- D-409, D-410 and D-411 cite this ADR. All four parts are built; what the rows still hold open is outside the four answers.
 - The column change is the widest grapy change since the package began. Its tests are the sweep's cases, run again
   after the change.
 - **State.** None in the catalogue or at runtime. The decisions change what grapy writes into a user's GeoPackage
@@ -106,7 +106,7 @@ global IDs keeps `REL_GLOBALID`, as Pro does. Attachments that grapy wrote earli
 ## 9. Conditions
 
 1. **Column names built (§5.1)**: the sweep's arcpy_top, da and management cases match Pro on the names, and a
-   GeoPackage written before the change still opens.
+   GeoPackage written before the change still opens. **DISCHARGED 2026-11-12**: ListIndexes (arcpy_top), SearchCursor `"*"` (da) and AddJoin's `<table>_OBJECTID` (management_1) moved to MATCH; Describe's names, fields and field order now match Pro, and what stays DIFF there is outside §5.1 (a one-table GeoPackage as a Workspace, the extent's rounding). `test_gpkg_names` opens, edits and copies a `fid`/`geom` GeoPackage built by hand. `Shape_1`, used when copied data already has a field named Shape, is INFERRED.
 2. **Messages built (§5.3)**: the sweep's message cases match Pro. **DISCHARGED 2026-11-12**: 24 of 24 message cases match Pro (18 were DIFF), three of them new (nested tools, levels, a Result's messages). One wrapper in `_runtime.run_tool` gives every tool its own messages with Pro's start and end lines; SetSeverityLevel 0 and 1 are built; the run's list the server's job answers (ADR-223) is unchanged.
 3. **Attachments built (§5.4)**: the sweep's attachment cases match Pro, and attachments written earlier still read. **DISCHARGED 2026-11-12**: all eight attachment cases match Pro (four were DIFF); `_attachments.keys` reads the key from the table's columns, and `test_subtypes_attachments.ObjectIdKeyedAttachments` opens a GeoPackage written in the old layout. Pro refuses EnableAttachments on a GeoPackage (ERROR 000187), so Pro was measured on a file geodatabase.
 
