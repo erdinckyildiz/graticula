@@ -85,6 +85,11 @@ read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answe
 | Offered `…SoapOrBin`, Pro speaks the binary format (`application/octet-stream`) to `PublishingTools` and nothing else changes; 00147 stays | wire log, recorded call | 2026-11-12 |
 | Pro's binaries do not contain `isServerLicensed`; the licence is read only through `system/licenses` (string search, not disassembly) | Pro 3.7 install | 2026-11-12 |
 | Aecon's real 12.0 server answers `canCreateService` for MapServer with "not supported with your current ArcGIS Server license" (403), so the licence answers copied from it may be an unlicensed server's | real answer | esriqa.aecon.com, 2026-11-10 |
+| **Knock-out sweep** (each answer replaced in turn by an ArcGIS error body, dev's recorded-answer tools): of the admin documents only the root matters, and it turns 00147 into 00290; `system/directories`, `services/properties`, the MapServer type and its extensions, `services/types/extensions`, `machines` and the machine, `system/licenses`, `data/config`, `data/findItems`, `canCreateService`, `subscriptionInfo`, `sharing/rest/info` and `PublishingTools` leave 00147 standing | stage results | 2026-11-12 |
+| **00147 is not raised at all** — the draft stages — when any one of three portal documents is unreadable: `portals/self/servers`, `/sharing/rest` (only when it has no `currentVersion`: any value from 7.1 to 2026.1 keeps 00147), or `community/users/{me}`. So the check runs only for a known portal, a listed server and a known user; these three gate it, they do not decide it | stage results | 2026-11-12 |
+| Variants that keep 00147: the server entry's `serverRole` (HOSTING, FEDERATED, restricted), `serverFunction` (absent, `""`, `GISServer`, `GeneralPurposeServer`), `isHosted`, `name` case; `rest/info` naming the portal as `owningSystemUrl` and its `generateToken`; the user with `portal:publisher:publishServerServices`, with every privilege a real 12.0 administrator has, and as `GISProfessionalAdvUT`; licence `version` 12.0/11.5/11.0 and `canExpire` true | stage results | 2026-11-12 |
+| Pro reads four fields of a server entry: `url`, `name`, `serverFunction`, `serverRole` (strings in `AGSClient.dll`) | Pro 3.7 install | 2026-11-12 |
+| **The rest of the publish, measured past 00147** by staging with `/sharing/rest` unreadable and uploading: `admin/services/` → `admin/services/{name}.MapServer` (404 = free) → `POST admin/uploads/upload` twice, the second carrying the `.sd` → SOAP `SubmitJob` on `PublishingTools`, `ToolName=PublishServiceDefinition`, values: the uploaded item id, an empty configuration override, `{"buildInitialCache":false}` → job status, messages, result → `admin/services/{name}.MapServer` again → `/arcgis/rest` | wire log, recorded envelope, the kept `.sd` | 2026-11-12 |
 | Esri: 00147 is also raised when Pro cannot reach the server's administration URL | [KB 000018287](https://support.esri.com/en-us/knowledge-base/problem-error-00147-when-the-server-role-is-authorized-000018287) | public |
 
 ## 5. Decision
@@ -116,7 +121,11 @@ database is offered to Pro with no password in the listing.
   publisher address in the Studio UI.
 - 00147 is not solved, and since 2026-11-12 it is known to block **every** map image layer from Pro to this
   server, not only a reference one — so it is the gate for Pro-published map image layers in general, and the next
-  step is a comparison with a real federated server that does accept one (Aecon's was down that night).
+  step is a comparison with a real federated server that does accept one (Aecon's was down that night). What decides
+  it is still unknown: every document Pro reads was varied or removed, and the only ways past it are to make Pro
+  skip the check, which no real deployment can do.
+- Everything after 00147 is now measured (§4) and nothing of it is built: the upload is only kept on dev, and the
+  `PublishServiceDefinition` job is not run.
 
 **State.** In the catalogue: `data_source.publisher_address` (nullable text, migration 136), shared by every node.
 At runtime: nothing kept between requests; the registration check reads the catalogue each time.
