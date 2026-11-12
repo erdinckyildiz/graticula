@@ -7,6 +7,7 @@ divides by their sum is NoData there.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -32,6 +33,7 @@ def cells(raster, nodata=ND):
 class ImageAnalyst(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.bands = ia.CompositeBand([grid([[0.1, 0.2]]), grid([[0.2, 0.2]]), grid([[0.3, 0.0]]), grid([[0.5, 0.0]])])

@@ -6,6 +6,7 @@ and none is read back from the code under test.
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -22,6 +23,7 @@ def square(x, y, side=50):
 class Tools(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE")],
                                  [("p0", "a", 1.0, square(0, 0)), ("p1", "a", 2.0, square(100, 0)),

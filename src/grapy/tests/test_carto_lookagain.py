@@ -4,6 +4,7 @@ for their own reasons."""
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -23,6 +24,7 @@ def square(x, y, size=1.0):
 class Base(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def path(self, name):

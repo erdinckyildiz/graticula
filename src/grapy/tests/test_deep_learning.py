@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -48,6 +49,7 @@ def box(x0, y0, x1, y1):
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.scratchWorkspace = self.directory
         arcpy.env.randomGenerator = None
@@ -390,6 +392,7 @@ class Training(_Fixture):
 
     _trained = {}
     _models = tempfile.mkdtemp()
+    self.addCleanup(shutil.rmtree, _models, True)
 
     def trained(self, fmt, model_type):
         """One model of a type, trained once for the tests that only run it (its data is the same in every test)."""
@@ -689,6 +692,7 @@ class TrainingInsideTheFence(unittest.TestCase):
     def test_a_fenced_tool_trains_a_network(self):
         from test_grapy import _run
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         toolbox = textwrap.dedent('''
             import grapy as arcpy
 
@@ -726,6 +730,7 @@ class TrainingInsideTheFence(unittest.TestCase):
         the kernel with nothing written; training stops early instead, and the tool finishes."""
         from test_grapy import _run
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         toolbox = textwrap.dedent('''
             import time
             import grapy as arcpy

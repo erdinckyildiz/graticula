@@ -18,6 +18,7 @@ import json
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,7 @@ class WaterNetwork(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "water")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "utility", 3857)[0]
@@ -876,6 +878,7 @@ class MeshNetwork(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         gpkg = arcpy.management.CreateFileGDB(self.directory, "mesh")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "utility", 3857)[0]

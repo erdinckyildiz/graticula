@@ -7,6 +7,7 @@ import getpass
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,6 +31,7 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "topo")[0]
 

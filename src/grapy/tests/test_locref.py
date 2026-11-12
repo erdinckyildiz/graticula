@@ -11,6 +11,7 @@ the tool.
 import datetime
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -41,6 +42,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.scratchWorkspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "lrs")[0]
@@ -772,6 +774,7 @@ class UtilityNetwork(unittest.TestCase):
 
     def test_configure_utility_network_classes(self):
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         arcpy.env.workspace = arcpy.env.scratchWorkspace = directory
         gpkg = arcpy.management.CreateFileGDB(directory, "un")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "net", 3857)[0]

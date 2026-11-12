@@ -7,6 +7,7 @@ kilometres across so that a US survey foot and an international one (two parts i
 import os
 import re
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -49,6 +50,7 @@ def line(x0, y0, x1, y1):
 class Units(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 

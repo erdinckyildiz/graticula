@@ -5,6 +5,7 @@ import math
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,6 +31,7 @@ class _Folder(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
         arcpy.env.workspace = self.directory
         arcpy.env.scratchWorkspace = self.directory

@@ -5,6 +5,7 @@ Two points, (0,0) holding 0 and (100,100) holding 100, on a 50-unit grid over th
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -21,6 +22,7 @@ def cells(path, nodata=-1):
 class Ga(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.two = self.points("two", [(0, 0, 0.0), (100, 100, 100.0)])

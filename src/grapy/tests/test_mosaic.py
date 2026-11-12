@@ -52,6 +52,7 @@ def rows_of(path, fields, where=None):
 class Mosaic(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.images = os.path.join(self.directory, "images")
         self.a = write_tif(os.path.join(self.images, "a.tif"), 0, 4, np.full((4, 4), 10))

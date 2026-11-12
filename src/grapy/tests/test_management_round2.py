@@ -6,6 +6,7 @@ test.
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -24,6 +25,7 @@ def box(x0, y0, x1, y1):
 class Round2(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE"),

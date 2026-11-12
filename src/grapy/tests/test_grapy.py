@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -20,6 +21,7 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class FeatureClassesAndCursors(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.fc = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POLYGON", spatial_reference=3857)
@@ -178,6 +180,7 @@ def _run(directory, run, unfenced):
 class Toolboxes(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         with open(os.path.join(self.directory, "probe.pyt"), "w") as out:
             out.write(TOOLBOX)
         arcpy.management.CreateFeatureclass(self.directory, "in.gpkg", "POINT", spatial_reference=4326)
@@ -297,6 +300,7 @@ class Toolboxes(unittest.TestCase):
 class TheFenceHolds(unittest.TestCase):
     def _hostile(self, what):
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         with open(os.path.join(directory, "probe.pyt"), "w") as out:
             out.write(TOOLBOX)
         return _run(directory, {"mode": "run", "toolbox": "probe.pyt", "tool": "Hostile", "parameters": {"what": what},

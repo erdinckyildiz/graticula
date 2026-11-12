@@ -6,6 +6,7 @@ returns, with a first return above it at z 6.5. One point at (0.5, 0.5) is withh
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -76,6 +77,7 @@ def rows(path, fields):
 class LasDataset(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.folder = os.path.join(self.directory, "lidar")
         os.makedirs(self.folder)
@@ -290,6 +292,7 @@ class Laz(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.las = scene(os.path.join(self.directory, "tile.las"))
 

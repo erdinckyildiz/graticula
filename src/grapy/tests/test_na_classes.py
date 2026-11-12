@@ -24,6 +24,7 @@ import datetime
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -39,6 +40,7 @@ DAY = datetime.date(2026, 1, 5)
 class _Networks(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def feature_dataset(self, name):

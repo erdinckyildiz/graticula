@@ -19,6 +19,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,7 @@ class Diagrams(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "water")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "utility", 3857)[0]

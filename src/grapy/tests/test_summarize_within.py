@@ -9,6 +9,7 @@ polygon there measures (1 − e²) times its planar area, to well within the pla
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -20,6 +21,7 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class SummarizeWithin(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.scratchWorkspace = self.directory
 

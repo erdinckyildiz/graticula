@@ -3,6 +3,7 @@ random number generators, and toolboxes in a session."""
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -28,6 +29,7 @@ def _fts5():
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "store")[0]
 
@@ -262,6 +264,7 @@ TOOLBOX = textwrap.dedent('''
 class Toolboxes(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         self.pyt = os.path.join(self.directory, "Sums.pyt")
         with open(self.pyt, "w", encoding="utf-8") as written:
             written.write(TOOLBOX)

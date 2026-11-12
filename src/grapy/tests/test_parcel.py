@@ -20,6 +20,7 @@ same three parcels on 2026-10-31 (ADR-250 condition 2, tools/pro-compare/adr250-
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -51,6 +52,7 @@ class Fabric(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "parcels")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "Parcels", 3857)[0]

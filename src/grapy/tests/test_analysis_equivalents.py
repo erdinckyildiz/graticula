@@ -1,6 +1,7 @@
 """arcpy.analysis's equivalents (ADR-224 §5.6), against hand-worked answers of the method each names."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -12,6 +13,7 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class AnalysisEquivalents(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def polygons(self, name, boxes):

@@ -9,6 +9,7 @@ declared type alone repaired it, bisected against Pro on 2026-10-31 (D-340). The
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -57,6 +58,7 @@ def old_file(path):
 class Upgrade(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.mark = len(_runtime.MESSAGES)   # other tests' messages are left alone: some read them later
         _gpkgupgrade._SAID.clear()

@@ -13,6 +13,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -53,6 +54,7 @@ def scene(path, seed=1):
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.scratchWorkspace = self.directory         # where a .dlpk is unpacked
         arcpy.env.randomGenerator = None
@@ -366,6 +368,7 @@ class MemorySaving(unittest.TestCase):
         import torch
         from grapy import _deeplearning as dl
         folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
         results = []
         for from_disk in (False, True):
             torch.manual_seed(0)

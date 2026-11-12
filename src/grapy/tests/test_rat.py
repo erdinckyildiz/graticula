@@ -6,6 +6,7 @@ three-row raster the cell in row r and column k has its centre at (5 + 10k, 25 -
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -38,6 +39,7 @@ def table(path, fields="*"):
 class Rat(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 
@@ -220,6 +222,7 @@ class Rat(unittest.TestCase):
 class ArrayZM(unittest.TestCase):
     def test_feature_class_to_numpy_array_reads_z_and_m(self):
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         arcpy.management.CreateFeatureclass(directory, "zm.gpkg", "POINT", has_m="ENABLED", has_z="ENABLED",
                                             spatial_reference=3857)
         path = os.path.join(directory, "zm.gpkg")

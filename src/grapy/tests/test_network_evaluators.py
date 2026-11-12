@@ -14,6 +14,7 @@ worked by hand from those numbers.
 import datetime
 import os
 import sys
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -47,6 +48,7 @@ class Doubler(nax.AttributeEvaluator):
 class Network(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "transport", 3857)[0]
@@ -231,6 +233,7 @@ class Network(unittest.TestCase):
 
     def test_a_persisted_evaluator_and_attribute_parameters(self):
         folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
         with open(os.path.join(folder, "grapy_test_customization.py"), "w", encoding="utf-8") as written:
             written.write(textwrap.dedent('''
                 import grapy as arcpy
@@ -446,6 +449,7 @@ class FleetTraversal(unittest.TestCase):
 
     def test_a_vehicle_routing_layer_keeps_its_legs(self):
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         arcpy.env.workspace = directory
         gpkg = arcpy.management.CreateFileGDB(directory, "city")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "t", 3857)[0]

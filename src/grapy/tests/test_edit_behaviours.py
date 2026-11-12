@@ -5,6 +5,7 @@ import datetime
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -26,6 +27,7 @@ def _line(*xy):
 class _Base(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, True)
         self.gpkg = os.path.join(self.folder, "work.gpkg")
         arcpy.management.CreateFeatureclass(self.gpkg, "roads", "POLYLINE", spatial_reference=3857)
         self.roads = self.gpkg + "/roads"

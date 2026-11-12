@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -57,6 +58,7 @@ INDEX = [[v - 1 for v in row] for row in TRUTH]
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 

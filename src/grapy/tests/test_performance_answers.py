@@ -10,6 +10,7 @@ crop from 218 s to 182 s.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -247,6 +248,7 @@ class Segmentation(unittest.TestCase):
 class Topo(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)

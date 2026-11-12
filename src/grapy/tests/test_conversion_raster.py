@@ -1,6 +1,7 @@
 """grapy.conversion between rasters and features, against answers worked out by hand — ADR-224."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -20,6 +21,7 @@ def grid(values, cell=10.0, nodata=None):
 class RasterAndFeatures(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def tearDown(self):

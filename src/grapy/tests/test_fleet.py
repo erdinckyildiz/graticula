@@ -11,6 +11,7 @@ import itertools
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,7 @@ def at(hour, minute=0):
 class Fleet(unittest.TestCase):
     def network(self, lines):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(gpkg, "t", 3857)[0]

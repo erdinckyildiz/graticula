@@ -12,6 +12,7 @@ changes touch different columns and merge to ("bb", 30).
 import datetime
 import os
 import sys
+import shutil
 import tempfile
 import time
 import unittest
@@ -29,6 +30,7 @@ def point(x, y):
 class Versions(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
         arcpy.env.workspace = self.directory
         self.gpkg = os.path.join(self.directory, "parcels.gpkg")

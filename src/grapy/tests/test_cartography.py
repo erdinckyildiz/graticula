@@ -1,6 +1,7 @@
 """arcpy.cartography in grapy, each tool against an answer worked by hand from the algorithm Esri documents."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -23,6 +24,7 @@ ZIGZAG = ((0, 0), (10, 1), (20, 0), (30, 5), (40, 0))
 class Cartography(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def make(self, name, rows):
