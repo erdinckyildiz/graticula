@@ -210,11 +210,12 @@ public sealed class MapAreaBasemapTests : IDisposable
     }
 
     [Fact]
-    public void Migration_140_lets_a_package_have_no_replica_and_is_the_level_this_build_was_written_against()
+    public void Migrations_140_and_141_let_one_service_give_a_geodatabase_and_a_tile_package_and_141_is_this_builds_level()
     {
-        Assert.Equal(new SchemaVersion(140), PlatformMigrations.ComponentSchemaVersion);
+        Assert.Equal(new SchemaVersion(141), PlatformMigrations.ComponentSchemaVersion);
         Assert.Contains(PlatformMigrations.All.All, m => m.Version == new SchemaVersion(139));
         Assert.Contains(PlatformMigrations.All.All, m => m.Version == new SchemaVersion(140));
+        Assert.Contains(PlatformMigrations.All.All, m => m.Version == new SchemaVersion(141));
     }
 
     private sealed class Replicas : IOfflineSyncStore

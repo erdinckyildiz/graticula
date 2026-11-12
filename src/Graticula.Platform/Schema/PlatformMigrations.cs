@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(140);
+    public static SchemaVersion ComponentSchemaVersion => new(141);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -167,6 +167,7 @@ public static class PlatformMigrations
         AServiceMayBeTakenOfflineV138,
         AMapAreaIsAnItemV139,
         AMapAreaMayHoldABasemapPackageV140,
+        AMapAreaHoldsOnePackagePerServiceAndKindV141,
     ]);
 
     /// <summary>
@@ -314,6 +315,30 @@ public static class PlatformMigrations
         "alter table map_area_package drop constraint if exists map_area_package_replica_iff_sqlite",
 
         "alter table map_area_package add constraint map_area_package_replica_iff_sqlite check ((format = 'sqlite') = (replica_id is not null))");
+
+    /// <summary>
+    /// A map area holds one package per service <i>and kind</i> — ADR-288 section 11a.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured, not supposed.</b> A hosted service here can carry a FeatureServer and a VectorTileServer under one
+    /// name, and a map can use one face for its data and the other for its basemap. On dev on 2026-11-12 such a map's area
+    /// failed with <c>map_area_package_one_per_service</c>: the geodatabase and the tile package were two packages of
+    /// one service. Migration 139's rule, one per (area, service), was written before an area packaged basemaps; the
+    /// rule is now one per (area, service, format).
+    /// </para>
+    /// <para>
+    /// <b>Expand</b>: a uniqueness that every row satisfying the old one also satisfies. Nothing older writes a row it
+    /// rejects.
+    /// </para>
+    /// </remarks>
+    private static Migration AMapAreaHoldsOnePackagePerServiceAndKindV141 => Migration.Expand(
+        new SchemaVersion(141),
+        "A map area holds one package per service and kind, so one service may give a geodatabase and a tile package (ADR-288 section 11a).",
+
+        "alter table map_area_package drop constraint if exists map_area_package_one_per_service",
+
+        "alter table map_area_package add constraint map_area_package_one_per_service unique (area_id, service_id, format)");
 
     /// <summary>
     /// A hosted feature service may be taken offline and synchronised — ADR-288: whether its sync is on, and the
