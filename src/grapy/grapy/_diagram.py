@@ -135,6 +135,33 @@ def templates(network):
     return [r[0] for r in network.q("select name from grapy_nd_template where network = ? order by rowid", network.name)]
 
 
+def _rule_step(rule, params=None):
+    return {"kind": "rule", "rule": rule, "active": True, "params": params or {}}
+
+
+def default_templates(network):
+    """The three templates a new utility network has, as ArcGIS Pro 3.7 makes them (measured 2026-11-12, the nd sweep:
+    GetDiagramTemplateNames on a new file geodatabase network answers ``Basic``, ``CollapseContainers`` and
+    ``ExpandContainers``). Each keeps line vertices and draws connectivity associations and structural attachments as
+    edges; CollapseContainers collapses every container first, ExpandContainers expands every one, both with their
+    tools' defaults — what Pro's diagrams from them held on the sweep's network. INFERRED: Basic is the default
+    template, and the rules run in that order (the measured diagrams do not tell the orders apart)."""
+    ensure(network.connection)
+    associations = [_rule_step("ConnectivityAssociations"), _rule_step("StructuralAttachments")]
+    every = {"by": "source", "include": False, "sources": []}
+    for name, first, is_default in (
+            ("Basic", [], True),
+            ("CollapseContainers", [_rule_step("CollapseContainer", {"selector": every, "container_type": "BOTH",
+                                                                      "aggregate": True})], False),
+            ("ExpandContainers", [_rule_step("ExpandContainer", {"selector": every, "container_type": "BOTH",
+                                                                  "hide": False})], False)):
+        if template(network, name, must=False):
+            continue
+        found = dict(TEMPLATE_DEFAULTS, name=name, is_default=is_default, keep_vertices=True,
+                     steps=first + associations)
+        save_template(network, found, revise=False)
+
+
 def save_template(network, found, revise=True):
     data = {k: v for k, v in found.items() if k != "name"}
     if revise:

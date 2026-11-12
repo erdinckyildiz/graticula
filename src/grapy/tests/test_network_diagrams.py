@@ -140,28 +140,34 @@ class Diagrams(unittest.TestCase):
             d = _diagram.load(network, diagram)
             return {f.id: sorted(self.name_of(g) for _, g in f.aggregated) for f in d.features.values() if f.aggregated}
 
-    def template(self, name="Basic"):
+    def template(self, name="Blank"):
         arcpy.nd.AddDiagramTemplate(self.un, name)
         return name
 
-    def create(self, template="Basic", features=None):
+    def create(self, template="Blank", features=None):
         return arcpy.nd.CreateDiagram(self.un, template, features or self.everything)[1]
 
     # -- templates --
 
     def test_templates_are_added_named_altered_and_deleted_with_their_diagrams(self):
-        self.template("Basic")
+        # A new network has Pro's three templates (Basic, CollapseContainers, ExpandContainers: measured in ArcGIS Pro
+        # 3.7, 2026-11-12, the nd sweep); this test's own templates follow them.
+        defaults = "Basic;CollapseContainers;ExpandContainers"
+        self.template("Blank")
         self.template("Reduced")
-        self.assertEqual(arcpy.nd.GetDiagramTemplateNames(self.un)[0], "Basic;Reduced")
+        self.assertEqual(arcpy.nd.GetDiagramTemplateNames(self.un)[0], f"{defaults};Blank;Reduced")
         with self.assertRaises(ExecuteError):
-            arcpy.nd.AddDiagramTemplate(self.un, "Basic")
+            arcpy.nd.AddDiagramTemplate(self.un, "Blank")
         name = self.create("Reduced")
         self.assertEqual(name, "Temporary Diagram")
         self.assertEqual(self.create("Reduced"), "Temporary Diagram 2")
         arcpy.nd.AlterDiagramTemplate(self.un, "Reduced", "Simple", "DEFAULT_TEMPLATE")
-        self.assertEqual(arcpy.nd.GetDiagramTemplateNames(self.un)[0], "Basic;Simple")
+        # the order of names is not pinned (Pro's was not measured): Simple, made the default, is saved again
+        self.assertEqual(sorted(arcpy.nd.GetDiagramTemplateNames(self.un)[0].split(";")),
+                         sorted(f"{defaults};Blank;Simple".split(";")))
         arcpy.nd.DeleteDiagramTemplate(self.un, "Simple")
-        self.assertEqual(arcpy.nd.GetDiagramTemplateNames(self.un)[0], "Basic")
+        self.assertEqual(sorted(arcpy.nd.GetDiagramTemplateNames(self.un)[0].split(";")),
+                         sorted(f"{defaults};Blank".split(";")))
         self.assertEqual(self.content(name)["J"], {})
 
     def test_a_diagram_of_every_feature_holds_its_junctions_edges_and_container(self):
@@ -178,7 +184,7 @@ class Diagrams(unittest.TestCase):
 
     def test_kept_vertices_follow_the_line(self):
         self.template()
-        arcpy.nd.AlterDiagramTemplate(self.un, "Basic", are_vertices_kept="KEEP_VERTICES")
+        arcpy.nd.AlterDiagramTemplate(self.un, "Blank", are_vertices_kept="KEEP_VERTICES")
         edges = {e[0]: e[3] for e in self.content(self.create())["E"]}
         self.assertEqual(edges["L2"], [(6, 0), (13, 0), (20, 0)])
 
@@ -192,14 +198,14 @@ class Diagrams(unittest.TestCase):
         _layers.LAYERS.clear()
         arcpy.management.MakeFeatureLayer(self.device, "devices")
         arcpy.management.SelectLayerByAttribute("devices", "NEW_SELECTION", "NAME = 'V1'")
-        name = arcpy.nd.CreateDiagram(self.un, "Basic")[1]  # the map: grapy's layers' selections
+        name = arcpy.nd.CreateDiagram(self.un, "Blank")[1]  # the map: grapy's layers' selections
         self.assertEqual(set(self.content(name)["J"]), {"V1"})
 
     def test_nonnetwork_input_and_dirty_areas_make_no_diagram(self):
         self.template()
         other = arcpy.management.CreateFeatureclass(self.directory, "other.gpkg", "POINT", spatial_reference=3857)[0]
         with self.assertRaises(ExecuteError):
-            arcpy.nd.CreateDiagram(self.un, "Basic", [other])
+            arcpy.nd.CreateDiagram(self.un, "Blank", [other])
         with arcpy.da.UpdateCursor(self.line, ["SHAPE@"], "NAME = 'L4'") as rows:
             for _ in rows:
                 rows.updateRow(["LINESTRING(20 0, 21 10)"])
@@ -213,7 +219,7 @@ class Diagrams(unittest.TestCase):
 
     def test_reducing_junctions_by_their_connections(self):
         self.template()
-        arcpy.nd.AddReduceJunctionRule(self.un, "Basic", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
+        arcpy.nd.AddReduceJunctionRule(self.un, "Blank", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
         name = self.create()
         found = self.content(name)
         self.assertEqual(set(found["J"]), {"S", "T", "V2", "E"})
@@ -231,7 +237,7 @@ class Diagrams(unittest.TestCase):
 
     def test_the_valence_count_and_edge_attributes_hold_a_reduction_back(self):
         self.template()
-        arcpy.nd.AddReduceJunctionRule(self.un, "Basic", "ACTIVE", "INCLUDE_SOURCE_CLASSES", ["WaterJunction"])
+        arcpy.nd.AddReduceJunctionRule(self.un, "Blank", "ACTIVE", "INCLUDE_SOURCE_CLASSES", ["WaterJunction"])
         found = self.content(self.create())
         self.assertIn("T", found["J"])  # T meets three junctions: MAX_2 leaves it
         self.template("Three")
@@ -246,7 +252,7 @@ class Diagrams(unittest.TestCase):
 
     def test_a_reduce_edge_rule_merges_a_line_and_its_ends_into_one_junction(self):
         self.template()
-        arcpy.nd.AddReduceEdgeByAttributeRule(self.un, "Basic", "ACTIVE", self.line, "NAME = 'L4'")
+        arcpy.nd.AddReduceEdgeByAttributeRule(self.un, "Blank", "ACTIVE", self.line, "NAME = 'L4'")
         found = self.content(self.create())
         self.assertIn("R:L4", found["J"])
         self.assertNotIn("T", found["J"])
@@ -257,7 +263,7 @@ class Diagrams(unittest.TestCase):
 
     def test_removing_features_with_and_without_a_connectivity_constraint(self):
         self.template()
-        arcpy.nd.AddRemoveFeatureByAttributeRule(self.un, "Basic", "ACTIVE", self.junction, "NAME = 'E'",
+        arcpy.nd.AddRemoveFeatureByAttributeRule(self.un, "Blank", "ACTIVE", self.junction, "NAME = 'E'",
                                                  unconnected_junctions="MUST_BE_UNCONNECTED")
         self.assertIn("E", self.content(self.create())["J"])
         self.template("Plain")
@@ -271,7 +277,7 @@ class Diagrams(unittest.TestCase):
 
     def test_collapsing_a_container_and_preventing_it(self):
         self.template()
-        arcpy.nd.AddCollapseContainerRule(self.un, "Basic")
+        arcpy.nd.AddCollapseContainerRule(self.un, "Blank")
         name = self.create()
         found = self.content(name)
         self.assertEqual(found["C"], {})
@@ -288,7 +294,7 @@ class Diagrams(unittest.TestCase):
 
     def test_expanding_a_container_adds_its_content(self):
         self.template()
-        arcpy.nd.AddExpandContainerRule(self.un, "Basic")
+        arcpy.nd.AddExpandContainerRule(self.un, "Blank")
         arcpy.management.MakeFeatureLayer(self.vault, "vaults")
         found = self.content(self.create(features=["vaults"]))
         self.assertEqual(found["C"], {"VA": (29.5, -0.5, 30.5, 0.5)})
@@ -298,9 +304,9 @@ class Diagrams(unittest.TestCase):
         found = self.content(self.create("Hidden", ["vaults"]))
         self.assertEqual((set(found["J"]), found["C"]), ({"V2"}, {}))
 
-    def test_a_trace_rule_makes_the_diagram_what_the_trace_returns(self):
+    def test_a_trace_rule_adds_what_the_trace_returns_to_the_diagram(self):
         self.template()
-        arcpy.nd.AddTraceRule(self.un, "Basic", "ACTIVE", "CONNECTED")
+        arcpy.nd.AddTraceRule(self.un, "Blank", "ACTIVE", "CONNECTED")
         arcpy.management.MakeFeatureLayer(self.junction, "tees")
         arcpy.management.SelectLayerByAttribute("tees", "NEW_SELECTION", "NAME = 'E'")
         found = self.content(self.create(features=["tees"]))
@@ -317,7 +323,7 @@ class Diagrams(unittest.TestCase):
 
     def test_a_spatial_query_rule_adds_what_meets_the_diagram(self):
         self.template()
-        arcpy.nd.AddSpatialQueryRule(self.un, "Basic", "ACTIVE", self.device, "WITHIN_A_DISTANCE", self.junction,
+        arcpy.nd.AddSpatialQueryRule(self.un, "Blank", "ACTIVE", self.device, "WITHIN_A_DISTANCE", self.junction,
                                      "11 Meters", "NAME = 'V2'")
         arcpy.management.MakeFeatureLayer(self.junction, "tees")
         found = self.content(self.create(features=["tees"]))
@@ -330,9 +336,11 @@ class Diagrams(unittest.TestCase):
         arcpy.un.ValidateNetworkTopology(self.un)
         self.template()
         self.assertEqual(len(self.content(self.create())["E"]), 4)
-        arcpy.nd.AddConnectivityAssociationsRule(self.un, "Basic")
+        arcpy.nd.AddConnectivityAssociationsRule(self.un, "Blank")
         edges = self.content(self.create())["E"]
-        self.assertIn(("E", "V3"), [(e[1], e[2]) for e in edges])
+        # Drawn from the end first in the diagram, not from the association's from feature: Pro 3.7 drew an association
+        # imported tee → valve as valve → tee (measured 2026-11-12, the nd sweep); this pinned E → V3 before.
+        self.assertIn(("V3", "E"), [(e[1], e[2]) for e in edges])
 
     def test_iteration_reduces_again_what_a_reduction_made_reducible(self):
         # Tees first, then devices: T (three connections) is passed over, E is folded into T, S into V1, V1 — now with
@@ -354,7 +362,7 @@ class Diagrams(unittest.TestCase):
 
     def test_the_smart_tree_from_the_root_junction(self):
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
         name = self.create()
         arcpy.nd.ApplySmartTreeLayout(name)
         found = self.content(name)
@@ -373,7 +381,7 @@ class Diagrams(unittest.TestCase):
 
     def test_orthogonal_edges_break_where_the_breakpoint_says(self):
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
         name = self.create()
         arcpy.nd.ApplySmartTreeLayout(name, edge_display_type="ORTHOGONAL_EDGES", breakpoint_position=0)
         edges = {e[0]: e[3] for e in self.content(name)["E"]}
@@ -381,7 +389,7 @@ class Diagrams(unittest.TestCase):
 
     def test_the_radial_tree_puts_each_level_on_its_circle(self):
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
         name = self.create()
         arcpy.nd.ApplyRadialTreeLayout(name)
         found = self.content(name)["J"]
@@ -394,12 +402,15 @@ class Diagrams(unittest.TestCase):
 
     def test_the_mainline_tree_runs_the_longest_branch_straight(self):
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
         name = self.create()
         arcpy.nd.ApplyMainlineTreeLayout(name)
         found = self.content(name)["J"]
-        self.assertEqual([found[n] for n in ("S", "V1", "T")], [(0, 0), (2, 0), (4, 0)])
-        self.assertEqual(sorted([found["E"], found["V2"]]), [(4, 2), (6, 0)])
+        # Fitted to the diagram's size and centred as the smart tree is, the branch's first junction one step along as
+        # well as across: Pro 3.7, measured 2026-11-12 (the nd sweep: S, V1, T, V2 10 apart, E at T + (10, 10)); this
+        # pinned an unfitted tree 2 apart with E straight across from T before.
+        self.assertEqual([found[n] for n in ("S", "V1", "T")], [(0, 0), (10, 0), (20, 0)])
+        self.assertEqual(sorted([found["E"], found["V2"]]), [(30, 0), (30, 10)])
 
     def test_geo_positions_bring_a_laid_out_diagram_back(self):
         self.template()
@@ -408,11 +419,15 @@ class Diagrams(unittest.TestCase):
         arcpy.nd.ApplyGeoPositionsLayout(name)
         found = self.content(name)
         self.assertEqual(found["J"]["V1"], (6, 0))
-        self.assertEqual({e[0]: e[3] for e in found["E"]}["L2"], [(6, 0), (13, 0), (20, 0)])
+        # by default the edges come back straight (Pro 3.7, measured 2026-11-12, the nd sweep); this pinned the
+        # restored vertex without the argument before
+        self.assertEqual({e[0]: e[3] for e in found["E"]}["L2"], [(6, 0), (20, 0)])
+        arcpy.nd.ApplyGeoPositionsLayout(name, "RESTORE_EDGES_GEO_POSITIONS")
+        self.assertEqual({e[0]: e[3] for e in self.content(name)["E"]}["L2"], [(6, 0), (13, 0), (20, 0)])
 
     def test_grid_snaps_junctions_and_a_template_presets_its_cell(self):
         self.template()
-        arcpy.nd.AddGridLayout(self.un, "Basic", "INACTIVE", None, "3 Meters", "3 Meters")
+        arcpy.nd.AddGridLayout(self.un, "Blank", "INACTIVE", None, "3 Meters", "3 Meters")
         name = self.create()
         self.assertEqual(self.content(name)["J"]["V1"], (6, 0))  # an inactive layout does not run
         arcpy.nd.ApplyGridLayout(name)
@@ -464,8 +479,8 @@ class Diagrams(unittest.TestCase):
 
     def test_a_template_lays_its_diagrams_out_when_they_are_made(self):
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
-        arcpy.nd.AddSmartTreeLayout(self.un, "Basic")
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.nd.AddSmartTreeLayout(self.un, "Blank")
         name = self.create()
         self.assertEqual(self.content(name)["J"]["T"], (20, 5))
         arcpy.nd.ApplyGeoPositionsLayout(name)
@@ -474,9 +489,9 @@ class Diagrams(unittest.TestCase):
 
     def test_a_feature_selection_limits_the_next_layout(self):
         self.template()
-        arcpy.nd.AddDiagramFeatureSelectionToLayout(self.un, "Basic", "ACTIVE", "SELECT_BY_ATTRIBUTES",
+        arcpy.nd.AddDiagramFeatureSelectionToLayout(self.un, "Blank", "ACTIVE", "SELECT_BY_ATTRIBUTES",
                                                     source_by_attribute=self.device, where_clause="NAME = 'V1'")
-        arcpy.nd.AddGridLayout(self.un, "Basic", "ACTIVE", None, "4 Meters", "4 Meters")
+        arcpy.nd.AddGridLayout(self.un, "Blank", "ACTIVE", None, "4 Meters", "4 Meters")
         found = self.content(self.create())["J"]
         self.assertEqual(found["V1"], (8, 0))
         self.assertEqual(found["T"], (20, 0))  # not selected: not moved
@@ -514,8 +529,11 @@ class Diagrams(unittest.TestCase):
         _ndlayout.partial_overlapping_edges(_ndlayout.View(d), {"buffer_width": 2.0, "offset": 4.0}, 0.5)
         first = [tuple(round(c, 6) for c in xy) for xy in d.features[5].shape.coords]
         second = [tuple(round(c, 6) for c in xy) for xy in d.features[6].shape.coords]
-        self.assertEqual(first, [(0, 0), (0, -1.5), (5, -1.5), (15, -1.5), (20, -1.5), (20, 0)])
-        self.assertEqual(second, [(0, 1), (0, 2.5), (5, 2.5), (15, 2.5), (20, 2.5), (20, 1)])
+        # the vertex gained at an end lies the larger of buffer width and offset (4) along, as Pro 3.7 places it
+        # (measured 2026-11-12, the nd sweep), here no further than half the 5 m end segment (INFERRED); this pinned it
+        # straight beside the junction before
+        self.assertEqual(first, [(0, 0), (2.5, -1.5), (5, -1.5), (15, -1.5), (17.5, -1.5), (20, 0)])
+        self.assertEqual(second, [(0, 1), (2.5, 2.5), (5, 2.5), (15, 2.5), (17.5, 2.5), (20, 1)])
 
     def test_reshape_edges(self):
         d = self.diagram({"A": (0, 0), "B": (20, 10)}, [("A", "B", [(0, 0), (10, 9.9), (20, 10)])])
@@ -562,21 +580,21 @@ class Diagrams(unittest.TestCase):
         arcpy.nd.PurgeTemporaryDiagrams(self.un)
         with _utility_network(self.un) as network:
             self.assertEqual([r[0] for r in network.q("select name from grapy_nd_diagram")], ["Ours"])
-        arcpy.nd.DeleteDiagram(self.un, "Basic")
+        arcpy.nd.DeleteDiagram(self.un, "Blank")
         with _utility_network(self.un) as network:
             self.assertEqual(network.q("select count(*) from grapy_nd_diagram").fetchone()[0], 0)
 
     def test_storing_needs_a_consistent_diagram_and_updating_makes_it_so(self):
         self.template()
         name = self.create()
-        arcpy.nd.AddReduceJunctionRule(self.un, "Basic", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
+        arcpy.nd.AddReduceJunctionRule(self.un, "Blank", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
         with self.assertRaises(ExecuteError) as said:
             arcpy.nd.StoreDiagram(name, "Kept")
         self.assertIn("inconsistent", str(said.exception))
         arcpy.nd.UpdateDiagram(self.un, diagram_names=[name])
         self.assertNotIn("V1", self.content(name)["J"])
         arcpy.nd.StoreDiagram(name, "Kept")
-        arcpy.nd.AlterDiagramTemplate(self.un, "Basic", is_diagram_storage_enabled="DISABLE_DIAGRAM_STORAGE")
+        arcpy.nd.AlterDiagramTemplate(self.un, "Blank", is_diagram_storage_enabled="DISABLE_DIAGRAM_STORAGE")
         with self.assertRaises(ExecuteError):
             arcpy.nd.StoreDiagram(self.create(), "Other")
 
@@ -584,7 +602,7 @@ class Diagrams(unittest.TestCase):
         self.template()
         arcpy.management.MakeFeatureLayer(self.line, "lines")
         arcpy.management.SelectLayerByAttribute("lines", "NEW_SELECTION", "NAME = 'L4'")
-        name = arcpy.nd.CreateDiagram(self.un, "Basic", ["lines"])[1]
+        name = arcpy.nd.CreateDiagram(self.un, "Blank", ["lines"])[1]
         arcpy.management.SelectLayerByAttribute("lines", "NEW_SELECTION", "NAME = 'L1'")
         arcpy.nd.AppendToDiagram(name, "Map")
         self.assertEqual(set(self.content(name)["J"]), {"T", "E", "S", "V1"})
@@ -593,13 +611,13 @@ class Diagrams(unittest.TestCase):
         with self.assertRaises(ExecuteError) as said:
             arcpy.nd.ExtendDiagram(name)
         self.assertIn("extended", str(said.exception))
-        arcpy.nd.AlterDiagramTemplate(self.un, "Basic", is_diagram_extension_enabled="ENABLE_DIAGRAM_EXTENSION")
+        arcpy.nd.AlterDiagramTemplate(self.un, "Blank", is_diagram_extension_enabled="ENABLE_DIAGRAM_EXTENSION")
         arcpy.nd.ExtendDiagram(name, None, "BY_CONNECTIVITY")
         found = self.content(name)
         self.assertEqual(set(found["J"]), {"S", "V1", "T"})
         self.assertEqual(found["J"]["T"], (20, 0))
         arcpy.management.MakeFeatureLayer(self.vault, "vaults")
-        vault = arcpy.nd.CreateDiagram(self.un, "Basic", ["vaults"])[1]
+        vault = arcpy.nd.CreateDiagram(self.un, "Blank", ["vaults"])[1]
         self.assertEqual(set(self.content(vault)["J"]), {"VA"})
         arcpy.nd.ExtendDiagram(vault, None, "BY_CONTAINMENT")
         found = self.content(vault)
@@ -607,7 +625,7 @@ class Diagrams(unittest.TestCase):
 
     def test_diagram_layers_sublayers_and_exported_content(self):
         self.template()
-        arcpy.nd.AddReduceJunctionRule(self.un, "Basic", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
+        arcpy.nd.AddReduceJunctionRule(self.un, "Blank", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
         name = self.create()
         arcpy.nd.MakeDiagramLayer(self.un, name, "view", "ADD_SUBLAYERS")
         with arcpy.da.SearchCursor("view/Edges", ["OID@"]) as read:
@@ -619,7 +637,7 @@ class Diagrams(unittest.TestCase):
                                       "INCLUDE_ATTRIBUTES", "INCLUDE_AGGREGATIONS", "USE_CODED_VALUE_NAMES")
         doc = json.load(open(out, encoding="utf-8"))
         self.assertEqual(doc["diagram"], name)
-        self.assertEqual(doc["diagramInfo"]["template"], "Basic")
+        self.assertEqual(doc["diagramInfo"]["template"], "Blank")
         self.assertEqual((doc["diagramInfo"]["junctionCount"], doc["diagramInfo"]["edgeCount"],
                           doc["diagramInfo"]["containerCount"]), (4, 3, 1))
         reduction = [e for e in doc["edges"] if e["userType"] == "Reduction"][0]
@@ -632,20 +650,20 @@ class Diagrams(unittest.TestCase):
 
     def test_template_definitions_round_trip_between_networks(self):
         self.template()
-        arcpy.nd.AddReduceJunctionRule(self.un, "Basic", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
-        arcpy.nd.AddSmartTreeLayout(self.un, "Basic", "INACTIVE", tree_direction="FROM_TOP_TO_BOTTOM")
+        arcpy.nd.AddReduceJunctionRule(self.un, "Blank", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
+        arcpy.nd.AddSmartTreeLayout(self.un, "Blank", "INACTIVE", tree_direction="FROM_TOP_TO_BOTTOM")
         out = os.path.join(self.directory, "basic.ndbd")
-        arcpy.nd.ExportDiagramTemplateDefinitions(self.un, "Basic", out)
+        arcpy.nd.ExportDiagramTemplateDefinitions(self.un, "Blank", out)
         self.template("Copy")
         arcpy.nd.ImportDiagramTemplateDefinitions(self.un, "Copy", out)
         self.assertNotIn("V1", self.content(self.create("Copy"))["J"])
         with self.assertRaises(NotBuiltError):
-            arcpy.nd.ExportDiagramTemplateDefinitions(self.un, "Basic", out, os.path.join(self.directory, "x.ndld"))
+            arcpy.nd.ExportDiagramTemplateDefinitions(self.un, "Blank", out, os.path.join(self.directory, "x.ndld"))
 
     def test_subnetwork_system_diagrams_follow_update_subnetwork(self):
         self.template()
         arcpy.un.DisableNetworkTopology(self.un)
-        arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Basic"])
+        arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Blank"])
         arcpy.un.EnableNetworkTopology(self.un)
         arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
         found = self.content("Zone1")
@@ -669,15 +687,15 @@ class Diagrams(unittest.TestCase):
                     getattr(module, name)(self.un)
                 self.assertIn(words, str(said.exception))
         with self.assertRaises(NotBuiltError) as said:
-            arcpy.nd.CreateGeoprocessingModelFromDiagramTemplate(self.un, "Basic", "x.atbx")
+            arcpy.nd.CreateGeoprocessingModelFromDiagramTemplate(self.un, "Blank", "x.atbx")
         self.assertIn("ModelBuilder", str(said.exception))
         with self.assertRaises(NotBuiltError) as said:
-            arcpy.nd.CreateDiagram(self.un, "Basic", None, None, "CREATE_DIAGRAM_FROM_CIRCUIT_NAME", "C1")
+            arcpy.nd.CreateDiagram(self.un, "Blank", None, None, "CREATE_DIAGRAM_FROM_CIRCUIT_NAME", "C1")
         self.assertIn("telecom", str(said.exception))
         with self.assertRaises(NotBuiltError):
-            arcpy.nd.AddTraceRule(self.un, "Basic", "ACTIVE", "CIRCUIT")
+            arcpy.nd.AddTraceRule(self.un, "Blank", "ACTIVE", "CIRCUIT")
         with self.assertRaises(NotBuiltError) as said:
-            arcpy.nd.AddTraceRule(self.un, "Basic", "ACTIVE", "PATH", path_direction="PATH_UPSTREAM")
+            arcpy.nd.AddTraceRule(self.un, "Blank", "ACTIVE", "PATH", path_direction="PATH_UPSTREAM")
         self.assertIn("trace network", str(said.exception))
         with self.assertRaises(NotBuiltError):
             arcpy.nd.AddDiagramTemplate(self.un, "Other", None, os.path.join(self.directory, "x.ndld"))

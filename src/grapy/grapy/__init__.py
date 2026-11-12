@@ -278,6 +278,12 @@ class _DescribedWorkspace:
         self.children = []
 
 
+class _DescribedDiagramLayer:
+    """A network diagram layer (nd.MakeDiagramLayer): its data type. Pro 3.7 answered DiagramLayer and no name
+    (measured 2026-11-12, the nd sweep); the diagram's own properties are what ExportDiagramContent writes."""
+    dataType = "DiagramLayer"
+
+
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
     object), a folder, a GeoPackage of several tables (a workspace), a topology, relationship class or network
@@ -289,6 +295,10 @@ def Describe(value, datatype=None):
         path = os.fspath(value)
     except TypeError:  # A layer object: described by its source.
         return _Described(value)
+    from . import _layers
+    layer = _layers.find(path)
+    if layer is not None and layer.kind == "DiagramLayer":
+        return _DescribedDiagramLayer()
     from . import _las, _mosaic, _terrain, _tin
     for model in (_tin, _las, _mosaic, _terrain):  # a TIN may be a folder, a .lasd is no raster (ADR-229), a mosaic
         described = model.describe(path)  # dataset's catalog is no feature class (ADR-230), nor a terrain (ADR-234)

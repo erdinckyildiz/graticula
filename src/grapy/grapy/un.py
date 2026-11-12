@@ -121,7 +121,13 @@ def CreateUtilityNetwork(in_feature_dataset, in_utility_network_name, service_te
         raise ExecuteError("ERROR 000622: the feature dataset and the service territory must have the same spatial "
                            "reference.")
     _utility.create(file, dataset, str(in_utility_network_name), f"{file}/{t_table}", int(srid), version)
-    return Result(f"{file}/{dataset}/{in_utility_network_name}")
+    from . import _diagram
+    path = f"{file}/{dataset}/{in_utility_network_name}"
+    # A new network has Pro's three diagram templates (measured in Pro 3.7, 2026-11-12, the nd sweep).
+    _diagram.ensure_classes(path)
+    with _utility.Network(path) as network:
+        _diagram.default_templates(network)
+    return Result(path)
 
 
 def AddDomainNetwork(in_utility_network, domain_network_name, tier_definition, subnetwork_controller_type,

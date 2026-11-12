@@ -804,7 +804,8 @@ class WaterNetwork(unittest.TestCase):
         self.assertEqual(self.subnet_rows()[0][1], 2)
         arcpy.un.DisableNetworkTopology(self.un)
         with self.assertRaises(ExecuteError) as said:
-            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Basic"])
+            # "Nothing", not "Basic": a new network has Pro's Basic template (measured in Pro 3.7, 2026-11-12)
+            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Nothing"])
         self.assertIn("not a diagram template", str(said.exception))
 
     def test_update_is_connected(self):
