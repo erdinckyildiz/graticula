@@ -106,6 +106,14 @@ internal static class VectorTileEndpoints
                 $"{prefix}/{{serviceName}}/VectorTileServer/tilemap/{{z:int}}/{{top:int}}/{{left:int}}/{{width:int}}/{{height:int}}",
                 TilemapAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // <b>The same resource with no block, which is what Esri's own clients ask first</b> — measured 2026-11-12:
+            // ArcGIS Pro's Download Map with basemap and tile layers and Field Maps 26.2.2 both ask
+            // `tilemap?f=json` and nothing else. It was a 404, and Pro hung after twelve tiles in "Exporting Vector
+            // Tile Cache" while Field Maps skipped its download-size estimate. A literal segment count of its own, so
+            // the block route above is untouched.
+            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/tilemap", TilemapIndexAsync)
+                .Governed(SharingGovernedExtensions.ByService);
         }
     }
 
@@ -558,10 +566,7 @@ internal static class VectorTileEndpoints
                     ? scheme.Envelope(new TileAddress(z, left + column, top + row))
                     : default;
 
-                bool may = inside && drawn.Any(e =>
-                    e is not { } box
-                    || (box.MinX <= tile.MaxX && box.MaxX >= tile.MinX
-                        && box.MinY <= tile.MaxY && box.MaxY >= tile.MinY));
+                bool may = inside && MayHold(drawn, tile);
 
                 data[(row * width) + column] = may ? 1 : 0;
             }
@@ -574,6 +579,107 @@ internal static class VectorTileEndpoints
             data,
             valid = true,
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether a tile may hold anything: one of the extents of the layers that draw at its level touches it, or one of
+    /// them is unknown (null), which is never a reason to call a tile empty. The one rule the block tile map and the
+    /// quadtree both ask.
+    /// </summary>
+    /// <param name="drawn">The extents of the layers that draw at the tile's level, in the scheme's reference.</param>
+    /// <param name="tile">The tile's box.</param>
+    internal static bool MayHold(IReadOnlyList<Envelope?> drawn, Envelope tile) =>
+        drawn.Any(e =>
+            e is not { } box
+            || (box.MinX <= tile.MaxX && box.MaxX >= tile.MinX
+                && box.MinY <= tile.MaxY && box.MaxY >= tile.MinY));
+
+    /// <summary>
+    /// The quadtree of which tiles exist — <c>GET …/VectorTileServer/tilemap</c> with no block, the form Esri documents
+    /// as <i>Vector Tilemap</i> and the one ArcGIS Pro and Field Maps ask.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The rule for a tile that exists is the block form's</b> (<see cref="MayHold"/>): a layer that draws at the
+    /// level, by <see cref="VisibleScaleRange"/>, has an extent touching the tile. The shape, the order of the quadrants
+    /// and the bound on its size are <see cref="VectorTilemapIndex"/>'s, which cites the public page. The block form
+    /// stays exact where this one is cut at a level that fits a bounded answer.
+    /// </para>
+    /// <para>
+    /// <b>A scheme whose levels do not double is answered 404</b> with the reason, because a quadtree cannot describe it
+    /// and a wrong one would hide tiles; its block form still works. Like the block form, GET only and with no cache
+    /// header of its own — the service's extent can change with an edit.
+    /// </para>
+    /// </remarks>
+    private static async Task TilemapIndexAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await TileableAsync(context, serviceName, catalog, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return;
+        }
+
+        VectorTileScheme scheme = service.TileScheme;
+
+        if (!VectorTilemapIndex.IsQuadtree(scheme))
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 404,
+                        message = "This service's tiling scheme does not halve its tile size from level to level, so its "
+                            + "tiles are not a quadtree and no index can describe them. Ask for a block: "
+                            + "tilemap/{level}/{row}/{column}/{width}/{height}.",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status404NotFound)
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // Each layer's extent in the scheme's reference, once; null for one that could not be projected, which says
+        // nothing about where its data is.
+        List<(VisibleScaleRange Range, Envelope? Box)> footprints = [];
+
+        foreach (PublishedLayer layer in service.Layers)
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+            if (described.Extent is not { } extent)
+            {
+                continue; // no rows: nothing to draw anywhere
+            }
+
+            footprints.Add((
+                layer.VisibleRange,
+                await InSchemeAsync(extent, layer.Definition.Srid, scheme, projector, cancellation).ConfigureAwait(false)));
+        }
+
+        // Which layers draw at a level does not depend on the tile, so it is worked out once per level, as it is in the
+        // block form.
+        List<Envelope?>?[] atLevel = new List<Envelope?>?[scheme.MaxLevel + 1];
+
+        object[] index = VectorTilemapIndex.Build(
+            scheme.MaxLevel,
+            (z, column, row) =>
+            {
+                List<Envelope?> drawn = atLevel[z] ??= [.. footprints.Where(f => scheme.Draws(f.Range, z)).Select(f => f.Box)];
+
+                return MayHold(drawn, scheme.Envelope(new TileAddress(z, column, row)));
+            });
+
+        await Results.Json(new { index }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>The range a whole tile service draws in — ADR-070.</summary>

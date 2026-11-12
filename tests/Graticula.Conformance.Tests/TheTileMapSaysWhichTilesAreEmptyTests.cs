@@ -24,6 +24,7 @@ public sealed class TheTileMapSaysWhichTilesAreEmptyTests : ArcGisClient
     private const double Half = 20037508.342789244;
     private const int Level = 12;
     private const int Block = 8;
+    private static readonly int[] ZeroOrOne = [0, 1];
 
     [Fact]
     public async Task A_tile_the_map_calls_empty_is_empty_and_the_middle_of_the_data_is_not()
@@ -85,6 +86,46 @@ public sealed class TheTileMapSaysWhichTilesAreEmptyTests : ArcGisClient
 
             Assert.True(tile.IsSuccessStatusCode && bytes.Length == 0,
                 $"Tile {Level}/{r}/{c} is called empty by the tile map and answered {(int)tile.StatusCode} with {bytes.Length} bytes.");
+        }
+    }
+
+    [Fact]
+    public async Task The_tilemap_with_no_block_is_the_quadtree_ArcGIS_Pro_and_Field_Maps_ask_for()
+    {
+        string root = await RequireServerAsync();
+        string? service = Environment.GetEnvironmentVariable(ServiceVariable);
+        Assert.False(string.IsNullOrWhiteSpace(service), $"{ServiceVariable} is not set, so this test FAILS rather than skips.");
+
+        using HttpClient http = new(new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        });
+
+        // Both clients ask exactly this and it was a 404 (measured 2026-11-12).
+        using HttpResponseMessage answered = await http.GetAsync(
+            new Uri($"{root}/rest/services/{service!.Trim('/')}/VectorTileServer/tilemap?f=json"));
+        string body = await answered.Content.ReadAsStringAsync();
+        Assert.True(answered.StatusCode == HttpStatusCode.OK, $"The tilemap answered {(int)answered.StatusCode}: {body}");
+
+        // Esri's "Vector Tilemap": {"index": [...]}, the root's four children, each 0, 1 or an array of four.
+        JsonElement index = JsonDocument.Parse(body).RootElement.GetProperty("index");
+        Assert.Equal(4, index.GetArrayLength());
+        Assert.All(index.EnumerateArray(), Check);
+
+        // A service with data has at least one tile in it.
+        Assert.Contains(index.EnumerateArray(), cell => cell.ValueKind == JsonValueKind.Array || cell.GetInt32() == 1);
+
+        static void Check(JsonElement cell)
+        {
+            if (cell.ValueKind == JsonValueKind.Array)
+            {
+                Assert.Equal(4, cell.GetArrayLength());
+                Assert.All(cell.EnumerateArray(), Check);
+            }
+            else
+            {
+                Assert.Contains(cell.GetInt32(), ZeroOrOne);
+            }
         }
     }
 

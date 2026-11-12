@@ -31,8 +31,9 @@ namespace Graticula.Host;
 /// </para>
 /// <para>
 /// <b>Three things differ inside a VTPK, on purpose.</b> Its tiles are gzip-compressed, so its service document says
-/// <c>tileCompression: gzip</c> where the live one says <c>none</c>; it has no tile map and cannot export, so
-/// <c>tileMap</c> goes and <c>capabilities</c> is <c>TilesOnly</c>; and its levels end at the highest level exported,
+/// <c>tileCompression: gzip</c> where the live one says <c>none</c>; it has no live tile map route and cannot export, so
+/// <c>tileMap</c> goes and <c>capabilities</c> is <c>TilesOnly</c> — the quadtree of what it holds is a file,
+/// <c>p12/tilemap/root.json</c> (<see cref="TilemapOf"/>); and its levels end at the highest level exported,
 /// so a client over-zooms the last one rather than asking for tiles the package does not hold.
 /// </para>
 /// </remarks>
@@ -118,12 +119,66 @@ internal static class TileExportPackage
     /// <param name="Resources">Everything else under <c>p12/resources/</c>, by path below it.</param>
     /// <param name="ItemInfo"><c>esriinfo/iteminfo.xml</c>.</param>
     /// <param name="PackageInfo"><c>esriinfo/item.pkinfo</c>.</param>
+    /// <param name="Tilemap"><c>p12/tilemap/root.json</c>, or null for a package written without one.</param>
     internal sealed record VtpkDocuments(
         byte[] Service,
         byte[] Style,
         IReadOnlyDictionary<string, byte[]> Resources,
         byte[] ItemInfo,
-        byte[] PackageInfo);
+        byte[] PackageInfo,
+        byte[]? Tilemap = null);
+
+    /// <summary>
+    /// The quadtree of the tiles a package holds — the area and levels of its plan and nothing else.
+    /// </summary>
+    /// <param name="plan">The plan the package is written from.</param>
+    /// <param name="scheme">The service's tiling scheme.</param>
+    /// <returns>The index document, <c>{"index":[...]}</c>, or null when the scheme is not a quadtree.</returns>
+    /// <remarks>
+    /// <b>Exactly the plan's rectangles</b>, at every level the plan covers; a tile of a coarser level than the plan's
+    /// first is described as existing when a tile below it does, because the quadtree has no way to say "no tile here,
+    /// but there are some beneath" and a client that reads a 0 would never descend. INFERRED to be read as Esri's reader
+    /// reads an Esri package. A tile the plan holds that came out empty and was not staged is still a 1: the promise
+    /// is that a 0 is empty, as it is on the live route. Cut at <see cref="VectorTilemapIndex.PackageNodeBudget"/>,
+    /// which the export's own tile ceiling stays well inside. A scheme whose levels do not double has no quadtree and
+    /// the package carries none.
+    /// </remarks>
+    internal static byte[]? TilemapOf(TileSeedPlan plan, VectorTileScheme scheme)
+    {
+        if (!VectorTilemapIndex.IsQuadtree(scheme))
+        {
+            return null;
+        }
+
+        int lowest = plan.Levels[0].Z;
+        int highest = plan.Levels[^1].Z;
+        Dictionary<int, TileRange> byLevel = plan.Levels.ToDictionary(r => r.Z);
+
+        object[] index = VectorTilemapIndex.Build(
+            highest,
+            (z, column, row) =>
+            {
+                if (byLevel.TryGetValue(z, out TileRange range))
+                {
+                    return column >= range.MinX && column <= range.MaxX && row >= range.MinY && row <= range.MaxY;
+                }
+
+                // Above the plan's first level: the tile has a descendant in the first level's rectangle.
+                if (z < lowest)
+                {
+                    TileRange first = byLevel[lowest];
+                    int shift = lowest - z;
+
+                    return column >= (first.MinX >> shift) && column <= (first.MaxX >> shift)
+                        && row >= (first.MinY >> shift) && row <= (first.MaxY >> shift);
+                }
+
+                return false;
+            },
+            VectorTilemapIndex.PackageNodeBudget);
+
+        return JsonSerializer.SerializeToUtf8Bytes(new { index }, Web);
+    }
 
     /// <summary>Writes a VTPK from the staged tiles.</summary>
     /// <param name="output">Where to — the package file.</param>
@@ -139,6 +194,11 @@ internal static class TileExportPackage
         package.Add(VectorTilePackage.ItemInfo, documents.ItemInfo);
         package.Add(VectorTilePackage.ServiceDocument, documents.Service);
         package.Add(VectorTilePackage.StyleDocument, documents.Style);
+
+        if (documents.Tilemap is { } tilemap)
+        {
+            package.Add(VectorTilePackage.TilemapDocument, tilemap);
+        }
 
         foreach ((string path, byte[] bytes) in documents.Resources.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
@@ -326,7 +386,8 @@ internal static class TileExportPackage
                 degrees.MinY,
                 degrees.MaxX,
                 degrees.MaxY),
-            VectorTilePackage.PackageInfoDocument(id, service.Name, now));
+            VectorTilePackage.PackageInfoDocument(id, service.Name, now),
+            TilemapOf(plan, scheme));
     }
 
     /// <summary>What a PMTiles archive of this service says about itself — Web Mercator only.</summary>

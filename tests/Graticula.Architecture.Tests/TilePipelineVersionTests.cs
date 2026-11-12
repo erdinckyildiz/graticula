@@ -234,7 +234,10 @@ public sealed class TilePipelineVersionTests
         // became nullable for tables, and the tile source and the style read them through `RequireGeometryColumn()` and
         // `RequireGeometryType()`, which answer the same names for every layer a tile draws; a table is never in a tile.
         // And `Tileable` answers false for a table, which only ever took a table out of tile lists it was never in.
-        "bcd32662f2dc777edc873005bd19039d8cca2c95e6f5f574d31eeabf3f2310fe";
+        // <b>Moved again 2026-11-12, and the version did not move.</b> `VectorTileEndpoints` gained the root `tilemap`
+        // route (Esri's quadtree of which tiles exist, `TilemapIndexAsync`) and `MayHold`, the box test the block tile map
+        // already made, split out so both ask one rule. No tile, key, statement or encoder byte changed.
+        "3e493e9b3c68262517a9a8b1b81fde2bd8d4ca322192d0ee2f9a4aa2d0d159ea";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

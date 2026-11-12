@@ -297,6 +297,11 @@ serves the same shape. None was stated by the owner.
    reference's creation moment (a package is the data as of then, even if its packager has synced since). An upload names
    no replica id the server checks; it matches rows by layer and GlobalID. [D-410](../architecture-debt.md) keeps the rest. **Measured end to end on the device the same morning** (research note §5a): Field Maps 26.2.2 downloaded the area with its geodatabase and its VTPK. It registered its own replica and synced, collected a point with the network off that reached the server, and received a point added on the server. Two more repairs were needed on the way: the area's extent is stated in its map's reference, and a tile package's `fullExtent` is grown to cover the area it was exported for.
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
+   *(Progress 2026-11-12.)* Pro's *Download Map* with *Include basemap & tile layers* fetched twelve tiles and hung in
+   "Exporting Vector Tile Cache"; Field Maps 26.2.2 skipped its download-size estimate. Both ask
+   `VectorTileServer/tilemap?f=json` with no block, which was a 404 (measured). The root tilemap is now served — Esri's
+   *Vector Tilemap* quadtree, bounded at 20,000 entries — and a VTPK carries one at `p12/tilemap/root.json`
+   (`VectorTilemapIndex`). Not yet re-measured in Pro, so this condition stays open; [D-404](../architecture-debt.md) is the open row beside it.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
    **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On
    2026-11-10, a row edited on the server and on the phone kept the edit that reached the server last. On 2026-11-12, p2

@@ -40,6 +40,10 @@ public sealed class VectorTilePackage : IDisposable
     /// <summary>The service document inside the package.</summary>
     public const string ServiceDocument = ServiceFolder + "root.json";
 
+    /// <summary>The tile index inside the package — Esri's VTPKs carry a <c>tilemap</c> folder, and this is its root.</summary>
+    /// <remarks>Its content is <see cref="VectorTilemapIndex"/>'s. The folder and file name are as Esri's packages have them; that a reader asks for exactly this path is INFERRED.</remarks>
+    public const string TilemapDocument = ServiceFolder + "tilemap/root.json";
+
     /// <summary>The default style inside the package.</summary>
     public const string StyleDocument = ServiceFolder + "resources/styles/root.json";
 
