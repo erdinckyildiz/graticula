@@ -12,6 +12,7 @@ import datetime
 import enum
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -27,6 +28,7 @@ MEASURED = "measured in ArcGIS Pro 3.7, 2026-11-12"
 class ProSweepNax(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "transport", 3857)[0]

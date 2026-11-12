@@ -860,8 +860,10 @@ class Registered(unittest.TestCase):
         arcpy.ia.RemoveThermalNoise(name, tool)
         self.assertIsInstance(denoised, arcpy.Raster)
         self.assertTrue(np.allclose(denoised._array, arcpy.Raster(tool)._array))
+        old = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, old, True)
         with self.assertRaises(arcpy.ExecuteError):
-            arcpy.ia.S1RadiometricCalibration(F.safe(tempfile.mkdtemp(), "GRD", {"VV": dn}, ipf="002.34"))
+            arcpy.ia.S1RadiometricCalibration(F.safe(old, "GRD", {"VV": dn}, ipf="002.34"))
 
 
 class Blocks(unittest.TestCase):

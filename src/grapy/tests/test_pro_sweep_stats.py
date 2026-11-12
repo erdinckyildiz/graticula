@@ -8,6 +8,7 @@ Similarity Search, OLS's coefficient table, Calculate Composite Index and Calcul
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -20,6 +21,7 @@ from grapy import stats  # noqa: E402
 class ProSweepStats(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.overwriteOutput = True
 

@@ -6,6 +6,7 @@ Everything is on EPSG:3857, so a distance of "N Meters" is N data units.
 import os
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -32,6 +33,7 @@ def line(*points):
 class ProSweepConversion(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 

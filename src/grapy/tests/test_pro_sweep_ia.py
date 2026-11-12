@@ -5,6 +5,7 @@ Pro's answer by an example worked by hand.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -43,6 +44,7 @@ def cube_raster(series, mask=None, columns=1):
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
 

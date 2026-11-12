@@ -124,10 +124,13 @@ class ProSweepNd(unittest.TestCase):
         # Pro's ExportDiagramContent: S's attributes by alias ("Asset group", "Object ID", "Tier name" …), sourceMapping
         # only the classes in the diagram under their aliases, Web Mercator as wkid 102100.
         import json
+        import shutil
         import tempfile
         self.template()
         diagram = self.create()
-        out = os.path.join(tempfile.mkdtemp(), "content.json")
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        out = os.path.join(folder, "content.json")
         arcpy.nd.ExportDiagramContent(self.un, diagram, out, "INCLUDE_DIAGRAM_PROPERTIES", "INCLUDE_GEOMETRIES",
                                       "INCLUDE_ATTRIBUTES")
         with open(out, encoding="utf-8") as read:
