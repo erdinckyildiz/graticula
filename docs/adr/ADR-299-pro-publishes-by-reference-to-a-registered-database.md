@@ -56,6 +56,8 @@ server. See §5 for what was chosen instead.
 - **The binary message format is not built.** Two real servers answer `GetMessageFormats` with
   `esriServiceCatalogMessageFormatSoapOrBin`. Graticula answers `…Soap` only, because the binary format is not
   publicly documented (CLAUDE.md §5). If Pro needs the binary format for a later step, this road is closed.
+  Measured 2026-11-12: offered both, Pro switches `PublishingTools` to the binary format — so the SOAP answer is the
+  one that keeps that job readable.
 - **The server describes its own licence in ArcGIS words.** `admin/system/licenses` answers with a GIS Server
   edition and features so that Pro's analyzer accepts the server. This does not give anybody an Esri licence and
   does not license Pro ([ADR-285](ADR-285-graticula-does-not-license-arcgis-pro.md) stands): it describes what this
@@ -78,6 +80,11 @@ read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answe
 | Analyzer 00147 "GIS server role is not licensed" stays on the query layer after licences, machines and the MapServer type were answered with copies of a real server's answers, and with the registration removed | stage results | 2026-11-10 |
 | Pro asks `portals/{id}/subscriptionInfo` with the origin-hash id from before ADR-216 and got 400 | wire log; hash of `https://dev.graticula.com/studio` | 2026-11-12 |
 | A real portal lists its server's `adminUrl` as the server base, and answers `subscriptionInfo` with `orgCapabilities: []` | real answers | esriqa.aecon.com, 2026-11-12 |
+| **00147 is not about references and not about query layers.** It stays when the same query layer is staged with `copyDataToServer=True`, and a file-geodatabase point layer staged as a map image layer (data copied) gets it too: Pro does not accept this server for any map image layer | stage results | 2026-11-12 |
+| 00147 stays with every call answered 200 (the `PublishingTools` fonts job included), with the portal fixes of 2026-11-12, with the machine's `platform` as `Windows`, with eight GIS/Image Server feature names in `system/licenses` — **and with `system/licenses` answered `{}`.** The licence document's contents do not decide it | stage results, wire log | 2026-11-12 |
+| Offered `…SoapOrBin`, Pro speaks the binary format (`application/octet-stream`) to `PublishingTools` and nothing else changes; 00147 stays | wire log, recorded call | 2026-11-12 |
+| Pro's binaries do not contain `isServerLicensed`; the licence is read only through `system/licenses` (string search, not disassembly) | Pro 3.7 install | 2026-11-12 |
+| Aecon's real 12.0 server answers `canCreateService` for MapServer with "not supported with your current ArcGIS Server license" (403), so the licence answers copied from it may be an unlicensed server's | real answer | esriqa.aecon.com, 2026-11-10 |
 | Esri: 00147 is also raised when Pro cannot reach the server's administration URL | [KB 000018287](https://support.esri.com/en-us/knowledge-base/problem-error-00147-when-the-server-role-is-authorized-000018287) | public |
 
 ## 5. Decision
@@ -107,7 +114,9 @@ database is offered to Pro with no password in the listing.
   included. **INFERRED** that this is acceptable; listed for the owner.
 - Not built: reading the reference `.sd`, matching it, creating the service, the upload and publish calls, the
   publisher address in the Studio UI.
-- 00147 is not solved.
+- 00147 is not solved, and since 2026-11-12 it is known to block **every** map image layer from Pro to this
+  server, not only a reference one — so it is the gate for Pro-published map image layers in general, and the next
+  step is a comparison with a real federated server that does accept one (Aecon's was down that night).
 
 **State.** In the catalogue: `data_source.publisher_address` (nullable text, migration 136), shared by every node.
 At runtime: nothing kept between requests; the registration check reads the catalogue each time.
