@@ -263,8 +263,9 @@ class Fleet(unittest.TestCase):
                                          key=lambda s: s[1])]
         self.assertEqual(sequence[0], "s0")
         route.returnToStart = True
+        # LastStopID: LastStopOID is the loaded feature's ObjectID, None from an insertCursor (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)).
         ((closed, last),) = list(route.solve().searchCursor(nax.RouteOutputDataType.Routes, ["Total_Minutes",
-                                                                                              "LastStopOID"]))
+                                                                                              "LastStopID"]))
         self.assertEqual(last, 1)
         tour = min(sum(minutes(p, q) for p, q in zip((points[0],) + order, order + (points[0],)))
                    for order in itertools.permutations(points[1:]))
@@ -328,7 +329,9 @@ class Fleet(unittest.TestCase):
         # s0 and s1 share the edge (0,0)–(10,0): one unit, one collecting line.
         self.assertEqual(stops[0][3], stops[1][3])
         routes = self.rows(result, out.Routes, ["Name", "StopCount", "RenewalCount", "TotalBins_1"])
-        self.assertEqual(routes, [("T1", 6, 2, 6.0), ("T2", 0, 0, None)])
+        # A route with no renewal visit has a null RenewalCount, as Pro writes it (measured in ArcGIS Pro 3.7,
+        # 2026-11-12, Pro sweep); this said 0.
+        self.assertEqual(routes, [("T1", 6, 2, 6.0), ("T2", 0, None, None)])
         visits = self.rows(result, out.RenewalVisits, ["RouteName", "RenewalName", "Sequence", "UnloadedBins_1"])
         self.assertEqual([v[:3] for v in visits], [("T1", "Tip", 1), ("T1", "Tip", 2)])
         self.assertEqual(sum(v[3] for v in visits), 6.0)

@@ -135,6 +135,8 @@ def compare_features(p, g):
                 if d < cost or (d == cost and best is not None and all(
                         _same(p["rows"][i][pidx[n]], g["rows"][j][gidx[n]]) for n in shared)):
                     best, cost = j, d
+            if best is None:              # no pairing within any distance (a shape on one side only): take in order
+                best = free[0]
             free.remove(best)
             pairs.append((i, best, cost))
     else:

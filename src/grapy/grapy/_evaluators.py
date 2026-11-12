@@ -25,8 +25,8 @@ network edge (``eid`` the edge's EID, ``direction`` True along its digitised dir
 keeps the base value; a junction cost is charged when a route passes through the junction, and a restricted junction
 cannot be passed through; a junction's base value is 0 (or False), grapy's junctions carrying no attribute values;
 an Attribute holds its ``name`` and its ``index`` in the network's attribute order; enumeration values number their
-members in the order the pages list them, ``NetworkTimeUsage.Unused`` (named only by NetworkQuery's page) first;
-``AdjacentEdge`` is an Edge as reached from a junction, what ``NetworkQuery.edges(junction)`` answers.
+members as ArcGIS Pro 3.7 does (measured 2026-11-12), and a time-neutral ``attributeValue`` takes no time usage;
+``NetworkQuery.edges(junction)`` answers Edge objects, as ArcGIS Pro 3.7's does (measured 2026-11-12).
 """
 from __future__ import annotations
 
@@ -38,20 +38,22 @@ import math
 from ._runtime import ExecuteError
 
 
-class NetworkTimeUsage(enum.Enum):
-    Unused = 0
+# IntEnums with ArcGIS Pro's members and values, measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep): Pro's
+# NetworkTimeUsage has no Unused member, and its AttributeUsage numbers Restriction 2 and Hierarchy 3.
+
+class NetworkTimeUsage(enum.IntEnum):
     BeforeTraversal = 1
     AfterTraversal = 2
 
 
-class AttributeUsage(enum.Enum):
+class AttributeUsage(enum.IntEnum):
     Cost = 0
     Descriptor = 1
-    Hierarchy = 2
-    Restriction = 3
+    Restriction = 2
+    Hierarchy = 3
 
 
-class AttributeParameterUsage(enum.Enum):
+class AttributeParameterUsage(enum.IntEnum):
     General = 0
     Restriction = 1
 
@@ -88,11 +90,13 @@ class NetworkElement:
         return hash(self._key())
 
     def __repr__(self):
-        return f"<{type(self).__name__} {self.eid}>"
+        return str(self.eid)          # Pro's elements print as their EID (measured in ArcGIS Pro 3.7, 2026-11-12)
 
 
 class Edge(NetworkElement):
-    """One direction of travel along a network edge (INFERRED, the class page answering 404)."""
+    """One direction of travel along a network edge (INFERRED, the class page answering 404). ``isAlong``,
+    ``isAgainst`` and ``opposite`` are the properties ArcGIS Pro 3.7's Edge has (measured 2026-11-12); ``direction``
+    is grapy's, True along."""
 
     _kind = "edge"
 
@@ -100,12 +104,31 @@ class Edge(NetworkElement):
         super().__init__(eid)
         self.direction = bool(direction)
 
+    @property
+    def isAlong(self):
+        return self.direction
+
+    @property
+    def isAgainst(self):
+        return not self.direction
+
+    @property
+    def opposite(self):
+        return Edge(self.eid, not self.direction)
+
     def _key(self):
-        return (self._kind, self.eid, self.direction)
+        return ("edge", self.eid, self.direction)
 
 
-class AdjacentEdge(Edge):
-    """An edge as reached from a junction: what ``NetworkQuery.edges(junction)`` answers (INFERRED)."""
+class AdjacentEdge:
+    """arcpy.nax.AdjacentEdge. ArcGIS Pro 3.7's is no NetworkElement and not what ``NetworkQuery.edges(junction)``
+    answers — that is Edge objects (measured 2026-11-12); grapy hands it nowhere. It holds an edge and its direction."""
+
+    def __init__(self, eid, direction=True):
+        self.eid, self.direction = int(eid), bool(direction)
+
+    def __repr__(self):
+        return str(self.eid)
 
 
 class Junction(NetworkElement):
@@ -120,7 +143,8 @@ class Turn(NetworkElement):
 
 
 class Attribute:
-    """The identifier of a network attribute: its name and its index in the network's attribute order."""
+    """The identifier of a network attribute: its index in the network's attribute order, from 1, which is what it
+    prints and converts to, as ArcGIS Pro 3.7's does (measured 2026-11-12: Length, the first, is 1)."""
 
     def __init__(self, index, name):
         self.index, self.name = int(index), str(name)
@@ -135,7 +159,7 @@ class Attribute:
         return self.index
 
     def __repr__(self):
-        return f"<Attribute {self.index} {self.name}>"
+        return str(self.index)
 
 
 class AttributeParameter:
@@ -227,13 +251,13 @@ class NetworkQuery:
 
     def attribute(self, attribute_name):
         names = list(self._graph.attributes)
-        return Attribute(names.index(attribute_name), attribute_name) if attribute_name in names else None
+        return Attribute(names.index(attribute_name) + 1, attribute_name) if attribute_name in names else None
 
     def _name(self, attribute):
         if isinstance(attribute, Attribute):
             return attribute.name
         if isinstance(attribute, int):
-            return list(self._graph.attributes)[attribute]
+            return list(self._graph.attributes)[attribute - 1]
         return str(attribute)
 
     def attributeUsage(self, attribute):
@@ -288,9 +312,9 @@ class NetworkQuery:
         out = []
         for e in graph.edges:
             if e["u"] == element.eid:
-                out.append(AdjacentEdge(e["edge_id"], True))
+                out.append(Edge(e["edge_id"], True))
             if e["v"] == element.eid:
-                out.append(AdjacentEdge(e["edge_id"], False))
+                out.append(Edge(e["edge_id"], False))
         return out
 
     def edgePositions(self, edge):
@@ -316,7 +340,7 @@ class NetworkQuery:
         model = self._turn_model()
         return (len(graph.sources) + 2 + model.classes.index(t["class"]), int(t["oid"]))
 
-    def attributeValue(self, element, attribute, time_usage=NetworkTimeUsage.Unused, local_time=None):
+    def attributeValue(self, element, attribute, time_usage=None, local_time=None):
         graph = self._graph
         name = self._name(attribute)
         usage = graph.attributes[name][0]
@@ -470,9 +494,10 @@ def _apply(graph, evaluator):
     attribute = query.attribute(evaluator.attributeName)
     if attribute is None:
         return
-    evaluator._attribute = attribute
-    if not evaluator.attach(query):
+    evaluator._attribute = None           # set once attached: ArcGIS Pro 3.7's is None during attach() (measured
+    if not evaluator.attach(query):       # 2026-11-12), so an evaluator reads networkQuery.attribute(attributeName)
         return
+    evaluator._attribute = attribute
     evaluator._networkQuery, evaluator._attached = self_query, True
     evaluator.refresh()
     name = attribute.name
