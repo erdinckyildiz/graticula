@@ -87,6 +87,9 @@ class Bands(_Base):
         mag, direction = uv.getRasterBands()
         np.testing.assert_allclose(cells(mag)[0], [1.0, 1.0], atol=1e-6)
         np.testing.assert_allclose(cells(direction)[0], [0.0, 90.0], atol=1e-5)  # north, then east
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: a vector pointing west of north is a negative direction, −45°, not 315°.
+        west = sa.VectorField(grid([[-1.0]]), grid([[1.0]]), "Vector-UV", "Geographic", "Vector-MagDir")
+        self.assertAlmostEqual(cells(west.getRasterBands()[1])[0][0], -45.0, places=4)
         md = sa.VectorField(grid([[2.0]]), grid([[90.0]]), "Vector-MagDir", "Arithmetic", "Vector-UV")
         u, v = md.getRasterBands()
         self.assertAlmostEqual(cells(u)[0][0], 0.0, delta=1e-5)

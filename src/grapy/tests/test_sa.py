@@ -129,11 +129,48 @@ class Surface(unittest.TestCase):
         slope = cells(sa.Slope(self.plane))
         self.assertAlmostEqual(slope[1][1], 45.0, places=4)
         self.assertAlmostEqual(slope[2][2], 45.0, places=4)
-        # The western column has no western neighbour: NoData, as ArcGIS Pro 3.7 answers the outer ring (measured
-        # 2026-11-08; grapy answered atan(0.5) here, taking the centre's z for the missing cells).
-        self.assertEqual(slope[1][0], -1)  # cells() writes NoData as -1
+        # The western column: d is off the grid. This pinned the centre's z in its place (atan(0.5) = 26.565°) until
+        # ArcGIS Pro 3.7 was measured, 2026-11-08: a cell missing an edge neighbour is NoData, so the outer ring is.
+        self.assertEqual(slope[1][0], -1)
+        self.assertEqual(slope[0], [-1, -1, -1, -1])
+
+    def test_slope_beside_nodata_as_pro_measures_it(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-08. z = x + 2y on 10 m cells (rows north first), the cell at the lower
+        # right of the centre NoData. With e the centre: the left side is (a + 2d + g) / 4 = e − 10; the right side has
+        # lost i, so it is (c + 2f) / 3 = ((e + 30) + 2(e + 10)) / 3 = e + 50/3; dz/dx = (50/3 + 10) / 20 = 4/3. The
+        # upper side is (a + 2b + c) / 4 = e + 20, the lower (g + 2h) / 3 = ((e − 30) + 2(e − 20)) / 3 = e − 70/3;
+        # |dz/dy| = (20 + 70/3) / 20 = 13/6. The slope is atan(√((4/3)² + (13/6)²)) = 68.54°.
+        rows = [[x + 2 * y for x in (0, 10, 20, 30)] for y in (30, 20, 10, 0)]
+        rows[2][2] = -9999
+        slope = cells(sa.Slope(grid(rows, nodata=-9999)))
+        self.assertAlmostEqual(slope[1][1], math.degrees(math.atan(math.hypot(4 / 3, 13 / 6))), places=4)
+        self.assertEqual(slope[2][2], -1)
+        # The cell above the NoData one has lost only its lower side's middle cell h; the side keeps g and i, half its
+        # weight, and (g + i) / 2 lies on the plane: atan(√5).
+        self.assertAlmostEqual(slope[1][2], math.degrees(math.atan(math.sqrt(5))), places=4)
+        # Two NoData cells one above the other: the cell left of the upper one has lost f and i from its right side,
+        # which keeps c alone, less than half its weight — NoData.
+        column = [[x + 2 * y for x in (0, 10, 20, 30, 40)] for y in (30, 20, 10, 0)]
+        column[1][2] = column[2][2] = -9999
+        slope = cells(sa.Slope(grid(column, nodata=-9999)))
+        self.assertEqual(slope[1][1], -1)
+        self.assertEqual(slope[2][1], -1)
         self.assertAlmostEqual(cells(sa.Slope(self.plane, "PERCENT_RISE"))[1][1], 100.0, places=3)
         self.assertAlmostEqual(cells(sa.Slope(self.plane, "DEGREE", 0.5))[1][1], math.degrees(math.atan(0.5)), places=4)
+
+    def test_aspect_beside_a_single_nodata_cell_as_pro_measures_it(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: z = x + 2y on a 5×5 grid of 10 m cells, the centre NoData. Pro
+        # answers the four cells beside the hole (they keep enough of each side's weight), not NoData; grapy's
+        # earlier edge mask made them NoData. The cell north of the hole has lost h only; its lower side is
+        # (g + i) / 2, so dz/dx = 1 and dz/dy = 2 as on the plane: atan2(dy, -dx) gives 206.565°.
+        rows = [[x + 2 * y for x in (0, 10, 20, 30, 40)] for y in (40, 30, 20, 10, 0)]
+        rows[2][2] = -9999
+        aspect = cells(sa.Aspect(grid(rows, nodata=-9999)))
+        self.assertAlmostEqual(aspect[1][2], 206.565, places=3)
+        self.assertAlmostEqual(aspect[2][1], 206.565, places=3)
+        self.assertAlmostEqual(aspect[1][1], 211.608, places=2)  # Pro printed to 3 places
+        self.assertEqual(aspect[2][2], -1)
+        self.assertEqual(aspect[0], [-1] * 5)
 
     def test_aspect_faces_downhill_and_flat_is_minus_one(self):
         self.assertAlmostEqual(cells(sa.Aspect(self.plane))[1][1], 270.0, places=4)
@@ -163,8 +200,9 @@ class Neighbourhoods(unittest.TestCase):
         with_gap = grid([[1, 2], [3, -9]], nodata=-9)
         self.assertEqual(cells(sa.FocalStatistics(with_gap, statistics_type="SUM"))[0][0], 6)
         self.assertEqual(cells(sa.FocalStatistics(with_gap, statistics_type="SUM", ignore_nodata="NODATA"))[0][0], -1)
-        with self.assertRaises(NotImplementedError):
-            sa.FocalStatistics(a, sa.NbrRectangle(2, 2, "CELL"))
+        # An even rectangle was refused here until ArcGIS Pro 3.7 was measured (2026-11-08): it reaches one cell further
+        # right and down, so a 2 × 2 at the top-left cell sums 1 + 2 + 4 + 5.
+        self.assertEqual(cells(sa.FocalStatistics(a, sa.NbrRectangle(2, 2, "CELL"), "SUM"))[0][0], 12)
 
     def test_block_and_cell_statistics(self):
         a = grid([[1, 2, 3, 4], [5, 6, 7, 8]])
@@ -212,6 +250,25 @@ class ReclassAndZones(unittest.TestCase):
         with arcpy.da.SearchCursor(table, ["name", "COUNT", "AREA", "MIN", "MAX", "MEAN", "SUM"]) as rows:
             got = sorted(tuple(r) for r in rows)
         self.assertEqual(got, [("east", 4, 400.0, 20.0, 70.0, 42.5, 170.0), ("west", 2, 200.0, 10.0, 30.0, 20.0, 40.0)])
+
+    def test_zonal_statistics_as_table_all_as_pro_writes_it(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: ALL writes MEDIAN and PCT90 (numpy's linear percentile) and, over an
+        # integer raster, VARIETY and the majority and minority with their counts and per cent of the zone's cells.
+        # One zone of values 1, 1, 1, 2, 2, 5: majority 1 (3 cells, 50 %), minority 5 (1 cell, 16.6667 %), median 1.5
+        # (rounded to 2 for an integer raster), PCT90 3.5 → 4.
+        zones = grid([[1, 1, 1], [1, 1, 1]])
+        table = sa.ZonalStatisticsAsTable(zones, "Value", grid([[1, 1, 1], [2, 2, 5]]),
+                                          os.path.join(self.directory, "all.gpkg"))
+        self.assertEqual(table.outputCount, 2)
+        names = ["COUNT", "VARIETY", "MAJORITY", "MAJORITY_COUNT", "MAJORITY_PERCENT", "MINORITY", "MINORITY_COUNT",
+                 "MINORITY_PERCENT", "MEDIAN", "PCT90"]
+        with arcpy.da.SearchCursor(table.getOutput(0), names) as rows:
+            self.assertEqual(list(next(rows)), [6.0, 3, 1, 3, 50.0, 5, 1, 16.6667, 2, 4])
+        floats = sa.ZonalStatisticsAsTable(zones, "Value", grid([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
+                                           os.path.join(self.directory, "float.gpkg")).getOutput(0)
+        self.assertNotIn("MAJORITY", [f.name for f in arcpy.ListFields(floats)])
+        with arcpy.da.SearchCursor(floats, ["MEDIAN", "PCT90"]) as rows:
+            self.assertEqual([round(v, 6) for v in next(rows)], [3.5, 5.5])
 
 
 class DistanceAndExtraction(unittest.TestCase):

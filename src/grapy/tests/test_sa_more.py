@@ -219,6 +219,10 @@ class More(_Fixture):
 
     def test_sink_and_fill(self):
         self.assertEqual(cells(sa.Sink(grid([[1, 0], [3, 4]]))), [[ND, 1], [1, ND]])
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: two cells pointing at each other (1 east, 16 west), as Flow Direction
+        # writes a one-cell pit, are a sink; the cell flowing into them (1 east, from the left) and one leaving the
+        # raster (4 south) are not.
+        self.assertEqual(cells(sa.Sink(grid([[1, 1, 16, 4]]))), [[ND, 1, 1, ND]])
         self.assertEqual(cells(sa.Fill(grid([[5, 5, 5], [5, 1, 5], [5, 5, 5]]))), [[5, 5, 5], [5, 5, 5], [5, 5, 5]])
         self.assertEqual(cells(sa.Fill(grid([[5, 5, 5], [5, 1, 2], [5, 5, 5]])))[1], [5, 2, 2])
         with self.assertRaises(arcpy.NotBuiltError):
@@ -316,19 +320,33 @@ class Equivalents(_Fixture):
 
     def test_threshold_stretch_and_principal_components(self):
         self.assertEqual(cells(sa.Threshold(grid([[0.0, 0.0, 10.0, 10.0]]))), [[0, 0, 1, 1]])
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: the cut is the best bin's centre, not its upper edge. Over 0 … 256 in
+        # 256 bins the first bin is [0, 1) and best (it splits the 0s from the 256s); 0.7 is above its centre 0.5.
+        self.assertEqual(cells(sa.Threshold(grid([[0.0, 0.0, 0.0, 0.7, 256.0, 256.0, 256.0]]))), [[0, 0, 0, 1, 1, 1, 1]])
         ramp = grid([[0.0, 5.0, 10.0]])
-        # 5 of 0…10 is 127.5, rounded to 128.
-        self.assertEqual(cells(sa.Stretch(ramp, "MinMax", 0, 10)), [[0, 128, 255]])
-        # Mean 5, standard deviation 3: one deviation either side runs from 2 to 8,.
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: min and max are the output's range, and the output is floating point
+        # (this pinned rounded 0…255 integers before): 0, 5, 10 stretched to 0…10 stay 0, 5, 10; to 0…255, 127.5.
+        self.assertEqual(cells(sa.Stretch(ramp, "MinMax", 0, 10)), [[0, 5, 10]])
+        self.assertEqual(cells(sa.Stretch(ramp, "MinMax")), [[0, 127.5, 255]])
+        self.assertEqual(sa.Stretch(ramp, "MinMax").pixelType, "F32")
+        # The sample standard deviation of 2, 8, 2, 8 is √12 ≈ 3.46: one either side reaches past 2 and 8, so the range
+        # is held at the minimum and maximum, as Pro holds it.
         self.assertEqual(cells(sa.Stretch(grid([[2.0, 8.0, 2.0, 8.0]]), "StdDev", num_stddev=1)), [[0, 255, 0, 255]])
+        # 0, 4, 8, 12: mean 6, sample σ = √(80/3) ≈ 5.164; half a σ either side is 3.418 … 8.582.
+        quarter = cells(sa.Stretch(grid([[0.0, 4.0, 8.0, 12.0]]), "StdDev", num_stddev=0.5))[0]
+        sd = math.sqrt(80 / 3)
+        self.assertEqual(quarter[0], 0)
+        self.assertAlmostEqual(quarter[1], 255 * (4 - (6 - sd / 2)) / sd, places=3)
+        self.assertEqual(quarter[3], 255)
         with self.assertRaises(arcpy.NotBuiltError):
             sa.Stretch(ramp, "PercentClip")
         b1 = grid([[0.0, 1.0, 2.0, 3.0]])
         b2 = grid([[0.0, 2.0, 4.0, 6.0]])
-        # All the variance lies along (1, 2)/√5; the first cell is (−1.5, −3) from the means: −7.5/√5.
+        # All the variance lies along (1, 2)/√5. This pinned the values less the means (−7.5/√5 first) until ArcGIS
+        # Pro 3.7 was measured, 2026-11-08: the bands are projected as they are, so the cells are (0, 5, 10, 15)/√5.
         first = cells(sa.PrincipalComponents([b1, b2], 1))[0]
-        for got, want in zip(first, [-7.5, -2.5, 2.5, 7.5]):
-            self.assertAlmostEqual(got, want / math.sqrt(5))
+        for got, want in zip(first, [0, 5, 10, 15]):
+            self.assertAlmostEqual(got, want / math.sqrt(5), places=5)
 
     def test_natural_neighbor_reproduces_a_plane(self):
         # Sibson's interpolant is exact for linear data: on z = x it answers each centre's x.
@@ -567,9 +585,17 @@ class ReclassByAsciiFile(unittest.TestCase):
         saved = arcpy.ddd.ReclassByASCIIFile(raster, single, os.path.join(self.directory, "out.tif"), "NODATA")
         self.assertEqual(cells(arcpy.Raster(saved.getOutput(0))), [[ND, ND, ND], [100, ND, 300]])
 
+    def test_a_file_mixing_values_and_ranges_is_read_as_pro_reads_it(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: "1 : 10", "2 : 20", "3 4 : 30" over cells 1..4 gives 10, 20, 30, 30.
+        raster = grid([[1, 2], [3, 4]])
+        mixed = self.remap("mixed.rmp", "1 : 10", "2 : 20", "3 4 : 30")
+        self.assertEqual(cells(sa.ReclassByASCIIFile(raster, mixed)), [[10, 20], [30, 30]])
+
     def test_what_the_pages_forbid_or_leave_open_is_refused(self):
         raster = grid([[1, 3, 4], [5, 6, 9]])
-        for name, lines in (("mixed.rmp", ["1 : 2", "3 5 : 6"]), ("descending.rmp", ["5 : 1", "2 : 3"]),
+        # A file mixing single values and ranges was refused here until ArcGIS Pro 3.7 was measured reading one
+        # (2026-11-08); test_a_file_mixing_values_and_ranges_is_read_as_pro_reads_it pins that.
+        for name, lines in (("descending.rmp", ["5 : 1", "2 : 3"]),
                             ("overlap.rmp", ["1 4 : 1", "3 6 : 2"]), ("words.rmp", ["one : 2"]),
                             ("nocolon.rmp", ["1 2"]), ("empty.rmp", ["# nothing"])):
             with self.assertRaises(ValueError, msg=name):

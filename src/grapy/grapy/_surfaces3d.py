@@ -668,7 +668,14 @@ def SplineWithBarriers(Input_point_features, Z_value_field, Input_barrier_featur
     if not 0 <= s <= 1:
         raise ValueError(f"{tool}: the smoothing factor runs from 0 to 1.")
     xs, ys, zs = sa._points(Input_point_features, Z_value_field, tool)
-    grid = sa._point_grid(Input_point_features, Output_cell_size, xs, ys, tool)
+    barrier = _barrier_lines(Input_barrier_features)
+    # Measured in ArcGIS Pro 3.7 (2026-11-08): the output covers the barriers' extent too (points inside a 600 m square
+    # of barrier lines give the square's 61 × 61 cells, laid as Idw lays them); grapy covered the points only until then.
+    gx, gy = xs, ys
+    if barrier is not None and not barrier.is_empty:
+        x0, y0, x1, y1 = barrier.bounds
+        gx, gy = np.append(xs, [x0, x1]), np.append(ys, [y0, y1])
+    grid = sa._point_grid(Input_point_features, Output_cell_size, gx, gy, tool)
     rows, columns = grid.rows, grid.columns
     n = rows * columns
     col = np.clip(np.floor((xs - grid.left) / grid.width).astype(np.int64), 0, columns - 1)
@@ -678,7 +685,7 @@ def SplineWithBarriers(Input_point_features, Z_value_field, Input_barrier_featur
     counts = np.bincount(flat, minlength=n)
     data = counts > 0
     value = np.where(data, sums / np.maximum(counts, 1), 0.0)
-    east, south = _links(grid, _barrier_lines(Input_barrier_features))
+    east, south = _links(grid, barrier)
     pairs = _pairs(east, south, np.ones((rows, columns), bool))
     adjacency = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(n, n)).tocsr()
     adjacency = adjacency + adjacency.T

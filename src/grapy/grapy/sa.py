@@ -272,10 +272,11 @@ def _neighbours(raster):
 
 
 def _edge_mask(raster):
-    """The cells Slope, Aspect and Hillshade answer NoData: NoData itself, or with a NoData or off-grid neighbour to
-    the north, south, east or west. Measured in ArcGIS Pro 3.7, 2026-11-08: the outer ring of a DEM is NoData in all
-    three, and so is the ring of cells edge-adjacent to a NoData hole, while a cell touching it only at a corner is
-    computed (its missing neighbour taking the centre's value). grapy computed every cell with data."""
+    """The cells Hillshade answers NoData: NoData itself, or with a NoData or off-grid neighbour to the north, south,
+    east or west. Measured in ArcGIS Pro 3.7, 2026-11-08 on the shared DEM: its outer ring is NoData. Slope and Aspect
+    used this mask too until a 5×5 probe of 2026-11-12 showed Pro computing the cells beside a single NoData cell;
+    they now use ``_horn``'s rule. Whether Hillshade keeps those cells is not measured (the same probe answered
+    Hillshade NoData everywhere, which is not understood), so Hillshade keeps this mask."""
     m = raster._mask
     padded = np.pad(m, 1, constant_values=True)
     return m | padded[:-2, 1:-1] | padded[2:, 1:-1] | padded[1:-1, :-2] | padded[1:-1, 2:]
@@ -289,13 +290,51 @@ def _gradients(raster, z_factor):
     return dx, dy
 
 
+def _horn(raster, z_factor):
+    """Horn's gradients as ArcGIS Pro 3.7 computes them for Slope and Aspect (measured 2026-11-08 and 2026-11-12):
+    each side's weighted mean (weights 1, 2, 1) is taken over the neighbours present, NoData or off-grid ones
+    dropping out, and a cell is NoData (``missing``) when a side keeps less than half its weight. So the outer ring
+    is NoData, while a cell beside a single NoData cell keeps its value. Returns ``(dx, dy, missing)``."""
+    z = np.where(raster._mask, np.nan, raster._array.astype(np.float64))
+    padded = np.pad(z, 1, constant_values=np.nan)
+    rows, columns = z.shape
+    n = {k: padded[dr:dr + rows, dc:dc + columns]
+         for k, (dr, dc) in zip("abcdefghi", [(r, c) for r in range(3) for c in range(3)])}
+
+    def side(*names):
+        values = np.stack([n[k] for k in names])
+        weights = np.where(np.isnan(values), 0.0, np.array([1.0, 2.0, 1.0])[:, None, None])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.nansum(np.nan_to_num(values) * weights, axis=0) / weights.sum(axis=0)
+
+    w, h = raster._grid.width, raster._grid.height
+    with np.errstate(invalid="ignore"):
+        dx = (side("c", "f", "i") - side("a", "d", "g")) / (2 * w) * z_factor
+        dy = (side("g", "h", "i") - side("a", "b", "c")) / (2 * h) * z_factor
+    def weight(*names):
+        return sum(np.where(np.isnan(n[k]), 0.0, wt) for k, wt in zip(names, (1.0, 2.0, 1.0)))
+
+    # NoData where a side keeps less than half its weight: its middle cell and a corner gone, or all three.
+    missing = raster._mask | np.zeros(z.shape, bool)
+    for names in (("a", "b", "c"), ("g", "h", "i"), ("a", "d", "g"), ("c", "f", "i")):
+        missing |= weight(*names) < 2
+    dx, dy = np.where(missing, 0.0, dx), np.where(missing, 0.0, dy)
+    return dx, dy, missing
+
+
 def Slope(in_raster, output_measurement="DEGREE", z_factor=1, method="PLANAR", z_unit="METER", analysis_target_device=None):
-    """Steepest downhill slope of each cell by Horn's method: degrees, or ``PERCENT_RISE``."""
+    """Steepest downhill slope of each cell by Horn's method: degrees, or ``PERCENT_RISE``.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): each side's weighted mean (weights 1, 2, 1) is taken over the neighbours
+    present, NoData or off the raster ones dropping out; a cell is NoData when a side keeps less than half its weight
+    (its middle cell and a corner gone, or all three), so the outer ring of cells is NoData, but a side that has lost
+    only its middle cell keeps its two corners. Until then grapy put the centre's value in place of every
+    missing neighbour, edge ones included."""
     _refuse_environment("arcpy.sa.Slope")
     raster = as_raster(in_raster, "Slope")
     if str(method).upper() != "PLANAR":
         raise NotBuiltError(f"Slope: method '{method}' is not built in grapy yet; PLANAR is.")
-    dx, dy = _gradients(raster, float(z_factor))
+    dx, dy, missing = _horn(raster, float(z_factor))
     rise = np.sqrt(dx * dx + dy * dy)
     kind = str(output_measurement).upper()
     if kind == "DEGREE":
@@ -304,7 +343,7 @@ def Slope(in_raster, output_measurement="DEGREE", z_factor=1, method="PLANAR", z
         value = rise * 100
     else:
         raise NotBuiltError(f"Slope: output_measurement '{output_measurement}' is not built in grapy yet.")
-    return Raster._of(value.astype(np.float32), _edge_mask(raster), raster._grid)
+    return Raster._of(np.where(missing, 0, value).astype(np.float32), missing, raster._grid)
 
 
 def _aspect_degrees(dx, dy):
@@ -320,8 +359,9 @@ def Aspect(in_raster, method="PLANAR", z_unit="METER", analysis_target_device=No
     raster = as_raster(in_raster, "Aspect")
     if str(method).upper() != "PLANAR":
         raise NotBuiltError(f"Aspect: method '{method}' is not built in grapy yet; PLANAR is.")
-    dx, dy = _gradients(raster, 1.0)
-    return Raster._of(_aspect_degrees(dx, dy).astype(np.float32), _edge_mask(raster), raster._grid)
+    # ArcGIS Pro 3.7 measured 2026-11-12: Aspect keeps the cells beside a single NoData cell, as Slope does.
+    dx, dy, missing = _horn(raster, 1.0)
+    return Raster._of(np.where(missing, 0, _aspect_degrees(dx, dy)).astype(np.float32), missing, raster._grid)
 
 
 def Hillshade(in_raster, azimuth=315, altitude=45, model_shadows="NO_SHADOWS", z_factor=1):
@@ -350,29 +390,45 @@ def Hillshade(in_raster, azimuth=315, altitude=45, model_shadows="NO_SHADOWS", z
 # ---- neighbourhoods
 
 
+def _nbr_cells(value, units, size):
+    """A neighbourhood's distance in cells. Measured in ArcGIS Pro 3.7 (2026-11-08): a distance in map units is divided by
+    the cell size and rounded half up (15, 22, 25, 34.9 and 35 m on 10 m cells are 2, 2, 3, 3 and 4 cells)."""
+    if str(units).upper() == "MAP":
+        return math.floor(float(value) / size + 0.5)
+    return float(value)
+
+
 class NbrRectangle:
     def __init__(self, width=3, height=3, units="CELL"):
         self.width, self.height, self.units = width, height, units
 
+    def __str__(self):
+        return f"RECTANGLE {self.width} {self.height} {self.units}"
+
     def _footprint(self, grid):
-        if str(self.units).upper() != "CELL":
-            raise NotBuiltError("NbrRectangle: units 'MAP' are not built in grapy yet; CELL is.")
-        if int(self.width) % 2 == 0 or int(self.height) % 2 == 0:
-            raise NotBuiltError("NbrRectangle: an even width or height is not built in grapy yet.")
-        return np.ones((int(self.height), int(self.width)), bool)
+        width = int(_nbr_cells(self.width, self.units, grid.width))
+        height = int(_nbr_cells(self.height, self.units, grid.height))
+        # Measured in ArcGIS Pro 3.7 (2026-11-08): an even side reaches one cell further right or down than left or
+        # up (4 × 4 cells: one up and left of the processing cell, two down and right). The footprint is laid in an odd
+        # array centred on the processing cell, as FocalStatistics reads it.
+        out = np.zeros((height + 1 - height % 2, width + 1 - width % 2), bool)
+        out[1 - height % 2:, 1 - width % 2:] = True
+        return out
 
 
 class NbrCircle:
     def __init__(self, radius=3, units="CELL"):
         self.radius, self.units = radius, units
 
+    def __str__(self):
+        return f"CIRCLE {self.radius} {self.units}"
+
     def _footprint(self, grid):
-        if str(self.units).upper() != "CELL":
-            raise NotBuiltError("NbrCircle: units 'MAP' are not built in grapy yet; CELL is.")
-        r = float(self.radius)
+        r = _nbr_cells(self.radius, self.units, grid.width)
         n = int(math.floor(r))
         y, x = np.mgrid[-n:n + 1, -n:n + 1]
-        # INFERRED: a cell is in the circle when its centre is within the radius of the processing cell's centre.
+        # A cell is in the circle when its centre is within the radius of the processing cell's centre (Pro 3.7's
+        # 29 cells for a radius of 3, measured 2026-11-08).
         return (x * x + y * y) <= r * r
 
 
@@ -380,13 +436,18 @@ class NbrAnnulus:
     def __init__(self, innerRadius=1, outerRadius=3, units="CELL"):
         self.innerRadius, self.outerRadius, self.units = innerRadius, outerRadius, units
 
+    def __str__(self):
+        return f"ANNULUS {self.innerRadius} {self.outerRadius} {self.units}"
+
     def _footprint(self, grid):
-        if str(self.units).upper() != "CELL":
-            raise NotBuiltError("NbrAnnulus: units 'MAP' are not built in grapy yet; CELL is.")
-        n = int(math.floor(float(self.outerRadius)))
+        inner = _nbr_cells(self.innerRadius, self.units, grid.width)
+        outer = _nbr_cells(self.outerRadius, self.units, grid.width)
+        n = int(math.floor(outer))
         y, x = np.mgrid[-n:n + 1, -n:n + 1]
         d2 = x * x + y * y
-        return (d2 <= float(self.outerRadius) ** 2) & (d2 > float(self.innerRadius) ** 2)
+        # Measured in ArcGIS Pro 3.7 (2026-11-08): a cell exactly at the inner radius is in the annulus (inner 2,
+        # outer 3: 20 cells; inner 1, outer 4: 48, only the processing cell left out). grapy left it out until then.
+        return (d2 <= outer ** 2) & (d2 >= inner ** 2)
 
 
 def _majority(values, minority=False, lowest=False):
@@ -594,10 +655,18 @@ class RemapValue:
     def __init__(self, remapTable=None):
         self.remapTable = remapTable or []
 
+    def __str__(self):
+        # As ArcGIS Pro 3.7 writes it (measured 2026-11-08): "1 10; 2 20; 3 NODATA".
+        return "; ".join(" ".join(str(v) for v in row) for row in self.remapTable)
+
 
 class RemapRange:
     def __init__(self, remapTable=None):
         self.remapTable = remapTable or []
+
+    def __str__(self):
+        # As ArcGIS Pro 3.7 writes it (measured 2026-11-08): "90 110 1; 110 130 2".
+        return "; ".join(" ".join(str(v) for v in row) for row in self.remapTable)
 
 
 def Reclassify(in_raster, reclass_field, remap, missing_values="DATA"):
@@ -634,7 +703,12 @@ def Reclassify(in_raster, reclass_field, remap, missing_values="DATA"):
     keep = str(missing_values).upper() == "DATA"
     out = np.where(~done & keep, a, out)
     mask = set_nodata | (~done & (raster._mask | (not keep)))
-    integer = all(str(r[-1]).upper() == "NODATA" or float(r[-1]).is_integer() for r in remap.remapTable) and (raster.isInteger or not keep)
+    # Measured in ArcGIS Pro 3.7 (2026-11-08): a floating-point raster whose every value a range names comes out
+    # integer (a DEM over 90 … 200 by three ranges: U8); grapy wrote it floating point until then. It stays floating
+    # point when DATA keeps a value no row names.
+    kept = ~done & keep & ~raster._mask
+    integer = all(str(r[-1]).upper() == "NODATA" or float(r[-1]).is_integer() for r in remap.remapTable) and (
+        raster.isInteger or not keep or not kept.any())
     out = np.where(mask, 0, out)
     return Raster._of(out.astype(np.int32) if integer else out, mask, raster._grid)
 
@@ -751,26 +825,61 @@ def ZonalStatistics(in_zone_data, zone_field, in_value_raster, statistics_type="
 
 
 def ZonalStatisticsAsTable(in_zone_data, zone_field, in_value_raster, out_table, ignore_nodata="DATA",
-                           statistics_type="ALL", *_, **__):
-    """A table with a row per zone: COUNT, AREA and the statistics asked (``ALL``: MIN, MAX, RANGE, MEAN, STD, SUM)."""
+                           statistics_type="ALL", process_as_multidimensional=None, percentile_values=90,
+                           percentile_interpolation_type="AUTO_DETECT", circular_calculation=None,
+                           circular_wrap_value=None, out_join_layer=None):
+    """A table with a row per zone: COUNT, AREA and the statistics asked (``ALL``: MIN, MAX, RANGE, MEAN, STD, SUM,
+    MEDIAN and PCT<percentile>, with MAJORITY, MINORITY and VARIETY for an integer value raster).
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): ALL over a floating-point raster writes MEDIAN and PCT90 too, the
+    percentile interpolated linearly between the ordered values (numpy's default); over an integer raster it writes
+    VARIETY, MAJORITY, MAJORITY_COUNT, MAJORITY_PERCENT, MINORITY, MINORITY_COUNT and MINORITY_PERCENT too, and the
+    statistics that stay integers as integers; COUNT is a double; the result has a second, empty output (the join
+    layer). Until then grapy's ALL stopped at SUM.
+
+    INFERRED: an integer raster's median or percentile falling between two values is rounded to the nearest integer."""
     from . import _gpkg, da
     from .analysis import _out
     from ._result import Result
     value = as_raster(in_value_raster, "ZonalStatisticsAsTable")
     z, zm, names, (v, vm, grid) = _zones(in_zone_data, zone_field, value, "ZonalStatisticsAsTable")
-    groups = {"ALL": ["MIN", "MAX", "RANGE", "MEAN", "STD", "SUM"], "MEAN_STD": ["MEAN", "STD"],
-              "MIN_MAX": ["MIN", "MAX"], "MIN_MAX_MEAN": ["MIN", "MAX", "MEAN"]}
+    try:
+        pct = float(str(percentile_values).split(";")[0]) if percentile_values not in (None, "", "#") else 90.0
+    except ValueError:
+        pct = 90.0
+    pct_name = "PCT%g" % pct
+    integer_values = np.issubdtype(v.dtype, np.integer)
+    groups = {"ALL": ["MIN", "MAX", "RANGE", "MEAN", "STD", "SUM"]
+              + (["VARIETY", "MAJORITY", "MAJORITY_COUNT", "MAJORITY_PERCENT", "MINORITY", "MINORITY_COUNT",
+                  "MINORITY_PERCENT"] if integer_values else []) + ["MEDIAN", pct_name],
+              "MEAN_STD": ["MEAN", "STD"], "MIN_MAX": ["MIN", "MAX"], "MIN_MAX_MEAN": ["MIN", "MAX", "MEAN"]}
     kind = str(statistics_type).upper()
     single = {"MEAN": "MEAN", "MAXIMUM": "MAX", "MINIMUM": "MIN", "RANGE": "RANGE", "STD": "STD", "SUM": "SUM",
-              "MEDIAN": "MEDIAN", "MAJORITY": "MAJORITY", "MINORITY": "MINORITY", "VARIETY": "VARIETY"}
+              "MEDIAN": "MEDIAN", "MAJORITY": "MAJORITY", "MINORITY": "MINORITY", "VARIETY": "VARIETY",
+              "PERCENTILE": pct_name}
     wanted = groups.get(kind) or ([single[kind]] if kind in single else None)
     if wanted is None:
         raise NotBuiltError(f"ZonalStatisticsAsTable: statistics_type '{statistics_type}' is not built in grapy yet.")
     function = {"MIN": "MINIMUM", "MAX": "MAXIMUM"}
     zone_name = zone_field if zone_field else "Value"
     text_zones = bool(names)
-    columns = [_gpkg.Column(zone_name, "String" if text_zones else "Integer"), _gpkg.Column("COUNT", "Integer"),
-               _gpkg.Column("AREA", "Double"), *[_gpkg.Column(w, "Double") for w in wanted]]
+    # Over an integer raster Pro writes the statistics that stay integers as integers (measured 2026-11-08).
+    whole = {"MIN", "MAX", "RANGE", "VARIETY", "MAJORITY", "MINORITY", "MAJORITY_COUNT", "MINORITY_COUNT", "MEDIAN",
+             pct_name} if integer_values else {"VARIETY", "MAJORITY_COUNT", "MINORITY_COUNT"}
+    columns = [_gpkg.Column(zone_name, "String" if text_zones else "Integer"), _gpkg.Column("COUNT", "Double"),
+               _gpkg.Column("AREA", "Double"), *[_gpkg.Column(w, "Integer" if w in whole else "Double") for w in wanted]]
+
+    def statistic(w, values):
+        if w == pct_name:
+            return float(np.percentile(values.astype(np.float64), pct))
+        if w.endswith(("_COUNT", "_PERCENT")):
+            # Measured in ArcGIS Pro 3.7 (2026-11-08): the cells holding the majority (minority) value, and their share
+            # of the zone's cells in per cent to four decimals (254 of 900: 28.2222).
+            kind_, _, part = w.partition("_")
+            count = int((values == _zonal_value(kind_, values)).sum())
+            return count if part == "COUNT" else round(100.0 * count / values.size, 4)
+        return float(_zonal_value(function.get(w, w), values))
+
     out = _out(out_table)
     _gpkg.create(out, "Geometry", 0, columns)
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
@@ -780,9 +889,10 @@ def ZonalStatisticsAsTable(in_zone_data, zone_field, in_value_raster, out_table,
             if not data.any() or (str(ignore_nodata).upper() == "NODATA" and (inside & vm).any()):
                 continue
             label = names.get(zone, zone) if text_zones else int(zone)
-            stats = [float(_zonal_value(function.get(w, w), v[data])) for w in wanted]
-            written.insertRow((label, int(data.sum()), float(data.sum() * grid.width * grid.height), *stats, None))
-    return Result(out)
+            stats = [statistic(w, v[data]) for w in wanted]
+            stats = [(int(round(x)) if math.isfinite(x) else None) if w in whole else x for w, x in zip(wanted, stats)]
+            written.insertRow((label, float(data.sum()), float(data.sum() * grid.width * grid.height), *stats, None))
+    return Result(out, "")
 
 
 # ---- distance
@@ -1249,6 +1359,10 @@ class WSTable:
 
     def __init__(self, weightedSumTable=None):
         self.weightedSumTable = weightedSumTable or []
+
+    def __str__(self):
+        # As ArcGIS Pro 3.7 writes it (measured 2026-11-08): the raster quoted, then field and weight, rows by "; ".
+        return "; ".join(f"'{row[0]}' {row[1]} {row[2]}" for row in self.weightedSumTable)
 
 
 def WeightedSum(in_rasters):
@@ -2155,12 +2269,31 @@ def Sink(in_flow_direction_raster, analysis_target_device=None):
     """Each sink — a cell, or a set of connected cells, whose flow direction is not one of the eight codes — given a
     unique value from 1; every other cell NoData.
 
+    Measured in ArcGIS Pro 3.7 (2026-11-08): cells whose codes point round a loop (a pit's two cells pointing at each
+    other, as Flow Direction writes a one-cell pit) are a sink too, since their flow never leaves; grapy flagged only
+    undefined codes until then.
+
     INFERRED: cells are connected through their eight neighbours; sinks are numbered in scan order, left to right, top
     to bottom — the page says only that they are numbered from 1."""
     from scipy.ndimage import label
     _refuse_environment("arcpy.sa.Sink")
     raster = _d8(in_flow_direction_raster, "Sink")
     undefined = ~raster._mask & ~np.isin(raster._array, list(_D8))
+    # The cells on a loop: strip every cell nothing flows into, repeatedly; what is left with a downstream cell is a
+    # cycle (each cell has one downstream cell at most).
+    down = _downstream(raster)
+    inflow = np.bincount(down[down >= 0], minlength=down.size)
+    alive = down >= 0
+    queue = list(np.flatnonzero(alive & (inflow == 0)))
+    while queue:
+        cell = queue.pop()
+        alive[cell] = False
+        target = down[cell]
+        if target >= 0:
+            inflow[target] -= 1
+            if inflow[target] == 0 and alive[target]:
+                queue.append(target)
+    undefined = undefined | alive.reshape(undefined.shape)
     groups, _ = label(undefined, np.ones((3, 3), int))
     return Raster._of(_scan_labels(groups, ~undefined), ~undefined, raster._grid)
 
@@ -2453,12 +2586,26 @@ class RadiusVariable:
     def __init__(self, numberofPoints=12, maxDistance=None):
         self.numberofPoints, self.maxDistance = numberofPoints, maxDistance
 
+    # ArcGIS Pro 3.7 answers the property as numberOfPoints (measured 2026-11-08); the constructor's spelling is kept.
+    numberOfPoints = property(lambda self: self.numberofPoints,
+                              lambda self, value: setattr(self, "numberofPoints", value))
+
+    def __str__(self):
+        return " ".join(str(v) for v in ("VARIABLE", self.numberofPoints, self.maxDistance) if v is not None)
+
 
 class RadiusFixed:
     """arcpy.sa.RadiusFixed: every point within ``distance``, widening to ``minNumberofPoints``."""
 
     def __init__(self, distance=None, minNumberofPoints=0):
         self.distance, self.minNumberofPoints = distance, minNumberofPoints
+
+    # ArcGIS Pro 3.7 answers the property as minNumberOfPoints (measured 2026-11-08); the constructor's spelling is kept.
+    minNumberOfPoints = property(lambda self: self.minNumberofPoints,
+                                 lambda self, value: setattr(self, "minNumberofPoints", value))
+
+    def __str__(self):
+        return " ".join(str(v) for v in ("FIXED", self.distance, self.minNumberofPoints) if v is not None)
 
 
 def _radius(search_radius):
@@ -3723,8 +3870,11 @@ def _silverman_radius(xs, ys, weights):
 @_equivalent("Otsu's threshold on a 256-bin histogram", "Otsu 1979, IEEE Trans. Systems, Man and Cybernetics 9(1)")
 def Threshold(raster):
     """EQUIVALENT: Otsu's (1979) method, which Esri's Binary Thresholding page names: the cells' values are counted in 256
-    equal bins over their range, and the threshold is the bin edge that maximises the between-class variance. Cells
-    above it are 1, the rest 0; NoData stays NoData.
+    equal bins over their range, and the threshold is the centre of the bin that maximises the between-class variance
+    (the bin and those below it one class). Cells above it are 1, the rest 0; NoData stays NoData.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): on the sweep's DEM Pro's cut lies between 125.187 and 125.204, the centre
+    of the 256-bin histogram's best bin (125.195); grapy cut at the bin's upper edge (125.314) until then.
 
     INFERRED: of equal maxima, the lowest edge is taken; a constant raster is all 0."""
     _refuse_environment("arcpy.sa.Threshold")
@@ -3744,7 +3894,7 @@ def Threshold(raster):
         mean1 = (total - sum0) / weight1
         between = weight0 * weight1 * (mean0 - mean1) ** 2
     between = np.where(np.isfinite(between), between, -1.0)
-    cut = edges[int(np.argmax(between)) + 1]
+    cut = centres[int(np.argmax(between))]
     out = (source._array.astype(np.float64) > cut).astype(np.int32)
     return Raster._of(np.where(source._mask, 0, out).astype(np.int32), source._mask.copy(), source._grid)
 
@@ -3752,18 +3902,25 @@ def Threshold(raster):
 @_equivalent("a linear contrast stretch to 0–255", "Richards and Jia, Remote Sensing Digital Image Analysis, 4th ed., §4.3")
 def Stretch(raster, stretch_type=0, min=None, max=None, num_stddev=None, statistics=None, dra=None, min_percent=None,
             max_percent=None, gamma=None, compute_gamma=None, sigmoid_strength_level=None):
-    """EQUIVALENT: the linear contrast stretch (Richards and Jia, §4.3): a lower and an upper value are mapped to 0 and
-    255, values between them linearly, and values beyond them clipped. ``MinMax`` takes them from ``min`` and ``max``
-    (or the statistics); ``StdDev`` from the mean ∓ ``num_stddev`` standard deviations; ``PercentClip`` from the
+    """EQUIVALENT: the linear contrast stretch (Richards and Jia, §4.3): a lower and an upper input value are mapped to
+    the output's minimum and maximum (``min`` and ``max``, 0 and 255 when not given), values between them linearly,
+    and values beyond them clipped. ``MinMax`` stretches from the raster's minimum and maximum; ``StdDev`` from the
+    mean ∓ ``num_stddev`` standard deviations, held within the minimum and maximum; ``PercentClip`` from the
     ``min_percent`` and ``max_percent`` percentiles of the values. ``None`` (0, the default) leaves the raster as it
     is, as documented.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): ``min`` and ``max`` are the output's range, not the input's (MinMax 100,
+    180 over a DEM of 100.35..161.21 gives 100 at its minimum and 180 at its maximum); the output is 32-bit floating
+    point, not rounded; the standard deviation is the sample one (n − 1), and StdDev's range is held within the
+    raster's minimum and maximum (mean − 2σ below the minimum stretched from the minimum). Until then grapy read
+    ``min`` and ``max`` as the input's range and wrote rounded 8-bit integers.
 
     Refused: Histogram and Sigmoid, ``dra``, ``gamma`` and ``compute_gamma``; a StdDev or PercentClip stretch without
     its number, whose defaults the page does not give; rasters of several bands.
 
-    INFERRED: the output is 8-bit unsigned, rounded to the nearest integer; the statistics are those of the raster's
-    cells (population standard deviation) unless ``statistics`` gives ``[[min, max, mean, std]]``; percentiles are
-    numpy's linear ones, the lower percentile cutting ``min_percent`` from the bottom."""
+    INFERRED: the statistics are those of the raster's cells unless ``statistics`` gives ``[[min, max, mean, std]]``;
+    percentiles are numpy's linear ones, the lower percentile cutting ``min_percent`` from the bottom."""
+    import builtins   # min and max are parameters here
     _refuse_environment("arcpy.sa.Stretch")
     kind = str(stretch_type).upper() if stretch_type not in (None, 0, "0", "") else "NONE"
     source = as_raster(raster, "Stretch")
@@ -3773,14 +3930,17 @@ def Stretch(raster, stretch_type=0, min=None, max=None, num_stddev=None, statist
         if value:
             _refuse("Stretch", name, value)
     values = source._values().astype(np.float64)
-    stats = statistics[0] if statistics else [values.min(), values.max(), values.mean(), values.std()]
+    stats = statistics[0] if statistics else [values.min(), values.max(), values.mean(),
+                                              values.std(ddof=1) if values.size > 1 else 0.0]
+    out_low = float(min) if min is not None else 0.0
+    out_high = float(max) if max is not None else 255.0
     if kind == "MINMAX":
-        low = float(min) if min is not None else float(stats[0])
-        high = float(max) if max is not None else float(stats[1])
+        low, high = float(stats[0]), float(stats[1])
     elif kind == "STDDEV":
         if num_stddev is None:
             _refuse("Stretch", "num_stddev", "(empty)", "its default is not documented")
-        low, high = stats[2] - float(num_stddev) * stats[3], stats[2] + float(num_stddev) * stats[3]
+        low = builtins.max(float(stats[0]), stats[2] - float(num_stddev) * stats[3])
+        high = builtins.min(float(stats[1]), stats[2] + float(num_stddev) * stats[3])
     elif kind == "PERCENTCLIP":
         if min_percent is None or max_percent is None:
             _refuse("Stretch", "min_percent/max_percent", "(empty)", "their defaults are not documented")
@@ -3790,16 +3950,21 @@ def Stretch(raster, stretch_type=0, min=None, max=None, num_stddev=None, statist
     if high <= low:
         raise ValueError("Stretch: the upper value must be above the lower.")
     a = source._array.astype(np.float64)
-    out = np.clip(np.floor((a - low) / (high - low) * 255 + 0.5), 0, 255)
-    return Raster._of(np.where(source._mask, 0, out).astype(np.uint8), source._mask.copy(), source._grid)
+    out = np.clip(out_low + (a - low) / (high - low) * (out_high - out_low), *sorted((out_low, out_high)))
+    return Raster._of(np.where(source._mask, 0, out).astype(np.float32), source._mask.copy(), source._grid)
 
 
 @_equivalent("principal components of the band covariance matrix", "Jolliffe 2002, Principal Component Analysis, ch. 1")
 def PrincipalComponents(in_raster_bands, number_components=None, out_data_file=None):
     """EQUIVALENT: principal components analysis of the bands' covariance matrix (Jolliffe 2002, ch. 1): each component
     is an eigenvector, ordered by decreasing eigenvalue, and a cell's component value is the eigenvector's dot product
-    with the cell's band values less the band means. A cell with NoData in any band is NoData and left out of the
-    covariance. The sign of each eigenvector is fixed so that its largest-magnitude loading is positive.
+    with the cell's band values. A cell with NoData in any band is NoData and left out of the covariance. The sign of
+    each eigenvector is fixed so that its largest-magnitude loading is positive.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): the band values are projected as they are, not less the band means (a
+    three-band image's first component is 0.552·b1 + 0.783·b2 + 0.287·b3 exactly, no constant), and the output is
+    32-bit floating point. grapy subtracted the means and wrote 64-bit until then. Pro's signs agree with the
+    largest-loading rule on that image.
 
     Refused: ``out_data_file``, whose layout the page does not give.
 
@@ -3820,7 +3985,6 @@ def PrincipalComponents(in_raster_bands, number_components=None, out_data_file=N
         raise ValueError("PrincipalComponents needs at least two bands.")
     mask = np.logical_or.reduce(masks)
     data = np.stack([a.astype(np.float64)[~mask] for a in arrays], axis=1)
-    means = data.mean(axis=0)
     values, vectors = np.linalg.eigh(np.cov(data, rowvar=False))
     order = np.argsort(values)[::-1]
     vectors = vectors[:, order]
@@ -3828,9 +3992,9 @@ def PrincipalComponents(in_raster_bands, number_components=None, out_data_file=N
         if vectors[np.argmax(np.abs(vectors[:, k])), k] < 0:
             vectors[:, k] = -vectors[:, k]
     n = int(number_components) if _given(number_components) else len(arrays)
-    full = np.stack([a.astype(np.float64) for a in arrays], axis=-1) - means
+    full = np.stack([a.astype(np.float64) for a in arrays], axis=-1)
     scores = full @ vectors[:, :n]
-    outputs = [np.where(mask, 0, scores[..., k]) for k in range(n)]
+    outputs = [np.where(mask, 0, scores[..., k]).astype(np.float32) for k in range(n)]
     if n == 1:
         return Raster._of(outputs[0], mask.copy(), grid)
     return _Bands(outputs, [mask.copy() for _ in outputs], grid)
@@ -3843,14 +4007,21 @@ def NaturalNeighbor(in_point_features, z_field, cell_size=None):
     theirs. A cell whose centre is outside the points' convex hull is NoData, as Esri's page says; one on a point takes
     the point's value.
 
-    INFERRED: a centre exactly on the hull's boundary is NoData (its Voronoi cell is unbounded); the grid is as Idw's;
-    points at one place are refused."""
+    INFERRED: a centre exactly on the hull's boundary is NoData (its Voronoi cell is unbounded); points at one place are
+    refused.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): the grid starts where Idw's does (the lower-left cell's centre on the
+    points' lower-left corner) but has floor(extent / cell) + 1 cells along each side, not Idw's round(extent / cell)
+    + 1: points 536.1 m by 494.4 m wide on 10 m cells give 54 × 50 cells, where grapy gave Idw's 55 × 50."""
     import shapely
     from shapely.geometry import MultiPoint, Point as _P, box
     xs, ys, zs = _points(in_point_features, z_field, "NaturalNeighbor")
     if len({(x, y) for x, y in zip(xs, ys)}) != len(xs):
         _refuse("NaturalNeighbor", "in_point_features", in_point_features, "coincident points are not built")
     grid = _point_grid(in_point_features, cell_size, xs, ys, "NaturalNeighbor")
+    columns = int(math.floor((xs.max() - xs.min()) / grid.width)) + 1
+    rows_ = int(math.floor((ys.max() - ys.min()) / grid.height)) + 1
+    grid = _Grid(grid.left, grid.bottom + rows_ * grid.height, grid.width, grid.height, rows_, columns, grid.srid)
     sites = [(float(x), float(y)) for x, y in zip(xs, ys)]
     hull = MultiPoint(sites).convex_hull
     span = max(xs.max() - xs.min(), ys.max() - ys.min(), grid.width) * 10
@@ -4858,8 +5029,10 @@ def _transform(f, x, low, high, from_scale, to_scale, everything):
         c = 100.0
         a = c / float(f.yInterceptPercent) - 1
         b = ln(a) / (0.5 * (hi + lo) - lo)
-        sign = -1 if name == "TfLogisticGrowth" else 1
-        return c / (1 + a * np.exp(sign * (x - lo) * b))
+        # f(lo) is yInterceptPercent and f(midpoint) is 50 for both: c / (1 + a·e^(−b(x − lo))). Decay's a is below 1,
+        # so its b is negative and the curve falls. grapy put +b in decay's exponent until ArcGIS Pro 3.7 was measured
+        # (2026-11-08), which made decay rise.
+        return c / (1 + a * np.exp(-(x - lo) * b))
     if name in ("TfMSLarge", "TfMSSmall"):
         n_means = float(f.meanMultiplier) * everything.mean()
         n_std = float(f.STDMultiplier) * everything.std()
@@ -4894,8 +5067,9 @@ def RescaleByFunction(in_raster, transformation_function=None, from_scale=1, to_
     ``from_scale``), cells above the upper one ``valueAboveThreshold`` (by default ``to_scale``); ``"NODATA"`` makes
     them NoData. The default function is TfMSSmall; the output is floating point.
 
-    The equivalent part is the rescaling's endpoints: the page names the minimum and maximum transformed values without
-    saying over which cells; here they are those of the cells transformed.
+    The rescaling's endpoints are the function's least and greatest values between the thresholds (the page names the
+    minimum and maximum transformed values without saying over what; ArcGIS Pro 3.7 was measured on 2026-11-08 to take
+    them over the whole interval, not only at the cells), found here on a dense sampling of the interval.
 
     INFERRED: a cell where the function has no value (the logarithm of a negative number) is NoData; MSSmall's and
     MSLarge's mean and standard deviation are of every cell, the standard deviation the population one."""
@@ -4918,7 +5092,16 @@ def RescaleByFunction(in_raster, transformation_function=None, from_scale=1, to_
     out = np.zeros(x.shape)
     mask = source._mask | (within & ~np.isfinite(transformed))
     if usable.any():
-        fmin, fmax = transformed[usable].min(), transformed[usable].max()
+        # The function's least and greatest values between the thresholds, not only at the cells: measured in ArcGIS
+        # Pro 3.7 (2026-11-08), TfLinear(110, 170) between thresholds 100 and 175 over a DEM reaching only 161 rescales
+        # f = 0 … 1 onto 1 … 10 (113.24 → 1.486), where the cells' own greatest f, 0.853, was taken until then.
+        dense = np.unique(np.concatenate([np.linspace(low, high, 200001), transformed[usable] * 0 + x[usable],
+                                          [v for v in (getattr(f, k, None) for k in ("minimum", "maximum", "midpoint"))
+                                           if isinstance(v, (int, float)) and low <= v <= high]]))
+        with np.errstate(all="ignore"):
+            curve = np.asarray(_transform(f, dense, low, high, lo_s, hi_s, values), dtype=np.float64)
+        curve = curve[np.isfinite(curve)]
+        fmin, fmax = curve.min(), curve.max()
         scaled = lo_s + (transformed - fmin) / ((fmax - fmin) or 1.0) * (hi_s - lo_s) if fmax > fmin else \
             np.full(x.shape, lo_s)
         out = np.where(usable, scaled, out)
@@ -5728,8 +5911,8 @@ for _built in ("MTVI2", "CreateRandomRaster", "CreateNormalRaster"):
 def _read_remap_file(path, tool):
     """The remap of an ASCII remap file, as *How Reclass by ASCII File works* gives it (doc.esri.com, read 2026-11-02:
     ``tool-reference/spatial-analyst/how-reclass-by-ascii-file-works.html``): comment lines begin with #; each
-    assignment line is ``in_value : out_value`` or ``in_min_value in_max_value : out_value``, numbers only, every line in
-    the same form, in ascending order, ranges overlapping only at a boundary — where the higher end of the lower range
+    assignment line is ``in_value : out_value`` or ``in_min_value in_max_value : out_value``, numbers only (the page asks
+    for every line in the same form; Pro reads a mix, measured 2026-11-08), in ascending order, ranges overlapping only at a boundary — where the higher end of the lower range
     is inclusive and the lower end of the higher range exclusive. Allowed extensions are .rmp, .txt and .asc (the tool
     page).
 
@@ -5766,7 +5949,9 @@ def _read_remap_file(path, tool):
     if not rows:
         raise ValueError(f"{tool}: {text} has no assignment lines.")
     if len({len(ins) for ins, _ in rows}) > 1:
-        raise ValueError(f"{tool}: all assignment lines in an ASCII remap file must be in the same format.")
+        # The page asks for every line in one form, but ArcGIS Pro 3.7 reads a file mixing them (measured 2026-11-08:
+        # "1 : 10", "2 : 20", "3 4 : 30" reclassify 1, 2, 3 and 4), so a single value is read as the range [v, v].
+        rows = [(ins * 2 if len(ins) == 1 else ins, out) for ins, out in rows]
     if len(rows[0][0]) == 1:
         values = [ins[0] for ins, _ in rows]
         if any(b <= a for a, b in zip(values, values[1:])):
