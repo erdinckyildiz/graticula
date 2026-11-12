@@ -1130,6 +1130,10 @@ internal static partial class PortalEndpoints
                 state = "active",
                 expDate = -1,
                 maxUsersPerLevel = new { },
+
+                // What an Enterprise portal answers (esriqa.aecon.com 12.0, 2026-11-12): no organisation
+                // capabilities. ADR-299.
+                orgCapabilities = Array.Empty<string>(),
             })
             : Unknown("Organization");
 
@@ -1162,7 +1166,9 @@ internal static partial class PortalEndpoints
                             id = PortalId(context),
                             name = context.Request.Host.Value,
                             url = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
-                            adminUrl = $"{context.Request.Scheme}://{context.Request.Host}/arcgis/admin",
+                            // The server's base, as a real portal lists it (esriqa.aecon.com 12.0, 2026-11-12): Pro
+                            // appends /admin itself. ADR-299.
+                            adminUrl = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
                             isHosted = true,
                             serverType = "ArcGIS",
                             serverRole = "HOSTING_SERVER",
@@ -3247,9 +3253,22 @@ internal static partial class PortalEndpoints
     /// own organisation. <c>portals/self/categorySchema</c> answered 400 while the same route under the id answered
     /// (veteran review V-86, 2026-10-17).
     /// </summary>
+    /// <remarks>
+    /// <b>The id this portal had before it was kept</b> is still this portal (ADR-299, measured 2026-11-12). Before
+    /// ADR-216 the id was the origin's hash; ArcGIS Pro remembers the id of a portal it has signed in to, and a Pro that
+    /// signed in then still asks <c>portals/{old id}/subscriptionInfo</c> — and was told the organisation does not
+    /// exist. Only the default organisation had that id, so only it answers to it.
+    /// </remarks>
     private static bool IsThisPortal(HttpContext context, string id) =>
         string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase);
+        || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+        || (context.Features.Get<TenantFeature>() is not { Tenant.IsDefault: false }
+            && string.Equals(id, OriginPortalId(context), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The id derived from the origin: what <see cref="PortalId"/> was before ADR-216, and its fallback.</summary>
+    private static string OriginPortalId(HttpContext context) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(Origin(context))))[..16].ToUpperInvariant();
 
     /// <summary>
     /// A portal id that is the same for every request to one deployment, at every address it answers.
@@ -3273,9 +3292,6 @@ internal static partial class PortalEndpoints
             return kept;
         }
 
-        byte[] hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(Origin(context)));
-
-        return Convert.ToHexString(hash)[..16].ToUpperInvariant();
+        return OriginPortalId(context);
     }
 }
