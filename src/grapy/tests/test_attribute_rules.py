@@ -4,6 +4,7 @@ rule's script and the rows written."""
 import csv
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -22,6 +23,7 @@ def square(x0, y0, size):
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         _runtime.MESSAGES.clear()
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]

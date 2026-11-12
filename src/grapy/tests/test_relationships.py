@@ -3,6 +3,7 @@ OGC Related Tables Extension, against hand-worked answers."""
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -15,6 +16,7 @@ from grapy import _gpkg, _relationships  # noqa: E402
 class Relationships(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "grid")[0]
         self.poles = arcpy.management.CreateFeatureclass(self.gpkg, "poles", "POINT", spatial_reference=3857)[0]

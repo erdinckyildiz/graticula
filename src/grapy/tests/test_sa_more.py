@@ -6,6 +6,7 @@ in row r and column k has its centre at (5 + 10k, rows·10 − 5 − 10r).
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -42,6 +43,7 @@ DEM = [[100 - 10 * k - 3 * r for k in range(4)] for r in range(4)]
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 
@@ -561,6 +563,7 @@ class ReclassByAsciiFile(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 

@@ -12,6 +12,7 @@ the cheapest way is out to the dead end at S, a U-turn there and back up (30 m) 
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,6 +31,7 @@ OID = {name: n for n, (name, _) in enumerate(ROADS, start=1)}
 class Turns(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "transport", 3857)[0]

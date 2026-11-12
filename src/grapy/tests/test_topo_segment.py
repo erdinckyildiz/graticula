@@ -5,6 +5,7 @@ Rasters are written north to south with 10-unit cells on EPSG:3857, the top-left
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -31,6 +32,7 @@ def cells(raster, nodata=ND):
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)

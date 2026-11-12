@@ -1,6 +1,7 @@
 """A raster's attribute table through the field tools, ListFields, Describe and the raster–feature conversions."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -14,6 +15,7 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class RatWiring(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)
         # 1 1      cells of 10 m, the lower-left corner at (0, 0)

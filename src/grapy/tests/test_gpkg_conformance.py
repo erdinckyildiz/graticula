@@ -25,6 +25,7 @@ def declared_type(connection, table, column):
 class Conformance(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         self.file = os.path.join(self.directory, "made.gpkg")
         arcpy.env.overwriteOutput = True
         sr = arcpy.SpatialReference(3857)
@@ -154,6 +155,7 @@ class OtherWriters(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
 
     def tearDown(self):
         shutil.rmtree(self.directory, ignore_errors=True)
@@ -256,6 +258,7 @@ class SpatialIndexAndExtent(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         self.file = os.path.join(self.directory, "indexed.gpkg")
         arcpy.env.overwriteOutput = True
         arcpy.management.CreateFeatureclass(self.file, "pts", "POINT", spatial_reference=arcpy.SpatialReference(3857))

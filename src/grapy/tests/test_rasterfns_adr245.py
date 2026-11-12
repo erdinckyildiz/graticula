@@ -3,6 +3,7 @@ against the pages' formulas and worked examples, published tables, and answers w
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -29,6 +30,7 @@ def cells(raster, nodata=ND):
 class _Base(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         for name in ("extent", "cellSize", "mask", "snapRaster", "outputCoordinateSystem"):
             setattr(arcpy.env, name, None)

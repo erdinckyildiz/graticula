@@ -13,6 +13,7 @@ import math
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,7 @@ NS = 1 - 0.00669437999014
 class Network(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "transport", 3857)[0]

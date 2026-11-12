@@ -7,6 +7,7 @@ The rasters have 10-unit cells on EPSG:3857 with the lower-left corner at (0, 0)
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -38,6 +39,7 @@ def bands(raster):
 class Multiband(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.path = sa.CompositeBand([grid(B1), grid(B2), grid(B3)]).save(os.path.join(self.directory, "three.tif"))

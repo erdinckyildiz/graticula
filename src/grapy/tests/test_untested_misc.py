@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 import warnings
@@ -36,6 +37,7 @@ def square(left, bottom, size):
 class _Folder(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
         arcpy.env.workspace = self.directory
         _runtime.MESSAGES.clear()
@@ -88,6 +90,7 @@ class Runtime(_Folder):
         open(os.path.join(self.directory, "out0.gpkg"), "w").close()
         self.assertEqual(arcpy.CreateUniqueName("out.gpkg"), os.path.join(self.directory, "out1.gpkg"))
         other = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other, True)
         self.assertEqual(arcpy.CreateUniqueName("out.gpkg", other), os.path.join(other, "out.gpkg"))
 
     def test_validate_field_name_replaces_invalid_characters_with_an_underscore(self):

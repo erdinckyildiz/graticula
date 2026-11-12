@@ -3,6 +3,7 @@ import math
 import os
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -14,6 +15,7 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class Sweep(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         if hasattr(arcpy.env, "randomGenerator"):
             del arcpy.env.randomGenerator

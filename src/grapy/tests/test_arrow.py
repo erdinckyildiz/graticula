@@ -5,6 +5,7 @@ import json
 import os
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -24,6 +25,7 @@ except ImportError:  # pragma: no cover — CI's grapy jobs and the image instal
 class TableToArrowTable(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
         self.fc = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POLYGON", spatial_reference=4326)

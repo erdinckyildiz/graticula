@@ -7,6 +7,7 @@ z 6. The point at (0.5, 0.5) is withheld. 384 ground points and 32 roof points, 
 import os
 import re
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -57,6 +58,7 @@ def rows(path, fields):
 class Base(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.folder = os.path.join(self.directory, "lidar")
         os.makedirs(self.folder)

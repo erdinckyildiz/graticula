@@ -7,6 +7,7 @@ import os
 import sqlite3
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -26,6 +27,7 @@ def wkb_type(blob):
 class ZM(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def make(self, name, kind, has_z="DISABLED", has_m="DISABLED"):

@@ -5,6 +5,7 @@ import re
 import sqlite3
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -68,6 +69,7 @@ def exif_jpeg(path, taken=None, latitude=None, longitude=None, altitude=None, di
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         _runtime.MESSAGES.clear()
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "water")[0]

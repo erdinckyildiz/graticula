@@ -3,6 +3,7 @@ the units the tool's page requires; and the video tools refused, with their reas
 import csv
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -15,6 +16,7 @@ from grapy._runtime import ExecuteError, NotBuiltError  # noqa: E402
 class ConvertVideoMetadata(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
         self.source = os.path.join(self.dir, "drone.csv")
         with open(self.source, "w", newline="") as f:
             w = csv.writer(f)

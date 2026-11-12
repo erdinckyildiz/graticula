@@ -6,6 +6,7 @@ implementation can be checked. The rasters are 10 m cells in EPSG:32633 written 
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -36,6 +37,7 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "relief")[0]
 

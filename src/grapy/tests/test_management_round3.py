@@ -3,6 +3,7 @@ raster statistics and pyramids, and KML — ADR-224. Every answer is worked out 
 import datetime
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -20,6 +21,7 @@ def box(x0, y0, x1, y1):
 class Round3(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
 

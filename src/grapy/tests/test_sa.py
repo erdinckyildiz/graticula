@@ -8,6 +8,7 @@ cos(135° − 180°)) = 255 · (0.5 + 0.5 · 0.70711) = 217.66, rounded to 218.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -35,6 +36,7 @@ def cells(raster, nodata=-1):
 class MapAlgebra(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def tearDown(self):
@@ -217,6 +219,7 @@ class Neighbourhoods(unittest.TestCase):
 class ReclassAndZones(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def test_reclassify_by_value_and_by_range(self):
@@ -274,6 +277,7 @@ class ReclassAndZones(unittest.TestCase):
 class DistanceAndExtraction(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def test_euclidean_distance_from_source_cells(self):
@@ -325,6 +329,7 @@ class RasterAsAnOptionalArgument(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
 
     def tearDown(self):

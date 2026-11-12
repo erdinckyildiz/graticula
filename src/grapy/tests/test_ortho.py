@@ -10,6 +10,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -73,11 +74,13 @@ class Ortho(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.images = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, cls.images, True)
         for i, values in TRUTH.items():
             render(os.path.join(cls.images, f"img{i}.tif"), values)
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.cellSize = None
         arcpy.env.resamplingMethod = "BILINEAR"

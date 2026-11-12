@@ -2,6 +2,7 @@
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -17,6 +18,7 @@ def box(x0, y0, x1, y1):
 class Topology(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "land")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "fds", 3857)[0]
@@ -145,6 +147,7 @@ class SubtypeRules(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "land")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "fds", 3857)[0]

@@ -1,6 +1,7 @@
 """AddJoin and RemoveJoin, and the cursors reading a joined layer — ADR-224. Answers are worked out by hand."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -16,6 +17,7 @@ def box(x0):
 class Joins(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         if hasattr(arcpy.env, "qualifiedFieldNames"):
             arcpy.env.qualifiedFieldNames = True

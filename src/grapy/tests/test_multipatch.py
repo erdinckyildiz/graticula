@@ -9,6 +9,7 @@ import math
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -41,6 +42,7 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
 

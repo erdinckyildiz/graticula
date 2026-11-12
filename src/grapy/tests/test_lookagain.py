@@ -8,6 +8,7 @@ holds 100 × (0 + 10 + 10) / 3.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -37,6 +38,7 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
 
@@ -353,6 +355,7 @@ class Las(unittest.TestCase):
     def setUp(self):
         from test_las import scene
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.folder = os.path.join(self.directory, "lidar")
         os.makedirs(self.folder)

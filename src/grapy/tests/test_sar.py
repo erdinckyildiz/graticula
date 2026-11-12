@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -74,6 +75,7 @@ class Geometry(unittest.TestCase):
 class SafeAndCalibration(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
 
     def _grd(self, **kw):
         dn = np.full((F.ROWS, F.COLS), 100, np.uint16)
@@ -160,6 +162,7 @@ class SafeAndCalibration(unittest.TestCase):
 class DeburstAndMultilook(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
 
     def test_bursts_are_joined_at_the_middle_of_their_overlap(self):
         # Three bursts of 10 lines; each burst starts 7 lines after the one before, so 3 lines overlap; lines 0 and 9
@@ -215,6 +218,7 @@ class DeburstAndMultilook(unittest.TestCase):
 class Units(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
 
     def _dataset(self, values, kind, scale="linear"):
         m = F.meta(rows=2, cols=2, values=kind)
@@ -293,6 +297,7 @@ class Speckle(unittest.TestCase):
 
     def test_despeckle_writes_intensity_and_keeps_nodata(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         rng = np.random.default_rng(5)
         z = rng.gamma(1, 1.0, (F.ROWS, F.COLS)).astype(np.float32)
         z[0, 0] = np.nan
@@ -309,6 +314,7 @@ class Speckle(unittest.TestCase):
 class Interferometry(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
 
     def _pair(self, baseline=(0.0, 150.0, 80.0)):
         """A reference and a secondary on one grid, each sample exp(−i4πR/λ) of its own sensor's range to the
@@ -552,6 +558,7 @@ class SpeedKeepsTheAnswer(unittest.TestCase):
 class Terrain(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
 
     def test_terrain_correction_places_each_cell_where_the_independent_solution_does(self):
         m = F.meta()
@@ -687,6 +694,7 @@ class Terrain(unittest.TestCase):
 class Ocean(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
 
     def test_cmod5n_reproduces_the_published_fit_to_cmod5(self):
         # Hersbach (2008), ECMWF Tech. Memo. 554, Figures 4–6, over 1–25 m/s and 17–65°: B0 of CMOD5.N at v + b
@@ -829,6 +837,7 @@ class Registered(unittest.TestCase):
 
     def test_radar_calibration_answers_a_raster(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         dn = np.full((F.ROWS, F.COLS), 100, np.uint16)
         name = F.safe(d, "GRD", {"VV": dn})
         with arcpy.EnvManager(scratchWorkspace=d):
@@ -840,6 +849,7 @@ class Registered(unittest.TestCase):
     def test_the_sentinel_1_raster_functions_answer_as_their_tools_do(self):
         # The Sentinel-1 Radiometric Calibration and Thermal Noise Removal raster function pages (read 2026-10-31).
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         dn = np.full((F.ROWS, F.COLS), 100, np.uint16)
         name = F.safe(d, "GRD", {"VV": dn})
         with arcpy.EnvManager(scratchWorkspace=d):
@@ -860,6 +870,7 @@ class Blocks(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
         self.held = _sar.BLOCK_CELLS, _sartools.GTC_TILE_CELLS
         self.reads = []
         original = _sar.Band.read

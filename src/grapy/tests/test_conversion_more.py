@@ -5,6 +5,7 @@ Every expected text, value and coordinate below is written out by hand; none is 
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -23,6 +24,7 @@ def box(x0, y0, x1, y1):
 class ConversionMore(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE")],

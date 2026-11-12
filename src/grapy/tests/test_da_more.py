@@ -2,6 +2,7 @@
 worked out by hand."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -20,6 +21,7 @@ def point(x, y):
 class DaMore(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
         arcpy.env.workspace = self.directory
         self.fc = os.path.join(self.directory, "pts.gpkg")
@@ -179,6 +181,7 @@ class CreateTableAsDocumented(unittest.TestCase):
     def test_a_table_and_a_feature_class_with_validated_names(self):
         import tempfile
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         path, names = arcpy.da.CreateTable(os.path.join(directory, "t.gpkg"),
                                            [("street", "Text", "Street Address"), ("state", "Text", "", 2), ("bad name", "LONG")])
         self.assertEqual(names, ["street", "state", "bad_name"])

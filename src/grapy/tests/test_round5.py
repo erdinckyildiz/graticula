@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -13,6 +14,7 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class Round5(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         arcpy.env.workspace = self.directory
         self.parcels = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POINT", spatial_reference=3857)
@@ -105,6 +107,7 @@ class Round5(unittest.TestCase):
 class TopLevelListVersions(unittest.TestCase):
     def test_list_versions_answers_names(self):
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         gpkg = arcpy.management.CreateFileGDB(directory, "versions")[0]
         arcpy.management.CreateVersion(gpkg, "DEFAULT", "edit", "PUBLIC")
         self.assertEqual(arcpy.ListVersions(gpkg), ["DEFAULT", "edit"])
