@@ -248,6 +248,33 @@ internal static class OfflineReplicaEndpoints
     // ------------------------------------------------------------------------------------------------ createReplica
 
     /// <summary>
+    /// The parameters a refused <c>createReplica</c> carried, appended to its refusal — ADR-288 condition 3.
+    /// </summary>
+    /// <remarks>
+    /// ArcGIS Field Maps shows a refusal's message verbatim in its own log and nowhere else, so this is how what a client
+    /// sent is read: measured 2026-11-12, Field Maps registers a downloaded map-area package with a <c>createReplica</c>
+    /// whose parameters had not been seen. Names and the first 160 characters of each value; <c>token</c> and anything
+    /// that names a password or secret are left out.
+    /// </remarks>
+    private static string Received(HttpContext context)
+    {
+        IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> pairs = context.Request.Query;
+
+        if (context.Request.HasFormContentType && context.Request.Form is { } form)
+        {
+            pairs = pairs.Concat(form);
+        }
+
+        string[] shown = [.. pairs
+            .Where(p => !p.Key.Equals("token", StringComparison.OrdinalIgnoreCase)
+                && !p.Key.Contains("password", StringComparison.OrdinalIgnoreCase)
+                && !p.Key.Contains("secret", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Key + "=" + (p.Value.ToString() is { Length: > 160 } v ? v[..160] + "…" : p.Value.ToString()))];
+
+        return shown.Length == 0 ? string.Empty : " Received: " + string.Join("; ", shown) + ".";
+    }
+
+    /// <summary>
     /// <c>createReplica</c> — Esri, <i>Create Replica (Feature Service)</i>: the layers asked for, filtered by the area
     /// and each layer's clause, written as a mobile geodatabase, and registered when <c>syncModel=perLayer</c>.
     /// </summary>
@@ -264,7 +291,7 @@ internal static class OfflineReplicaEndpoints
 
         if (!OfflineReplicaRequests.TryReadCreate(field, service, out CreateReplicaRequest? request, out string? error))
         {
-            await RefuseAsync(context, 400, error!).ConfigureAwait(false);
+            await RefuseAsync(context, 400, error! + Received(context)).ConfigureAwait(false);
             return;
         }
 
