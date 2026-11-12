@@ -320,6 +320,7 @@ def _mainline_tree(a, units):
     out.update(_tree_spacing(a, units, ("perpendicular", "along", "offset")))
     absolute = _flag(a.get("is_unit_absolute"), "ABSOLUTE_UNIT", "PROPORTIONAL_UNIT", "PROPORTIONAL_UNIT")
     _pair(out, "disjoined", a.get("disjoined_graph_absolute"), a.get("disjoined_graph_proportional"), absolute, units)
+    out["proportional"] = not absolute
     _edge_display(out, a.get("are_edges_orthogonal"), a.get("breakpoint_position"), a.get("edge_display_type"))
     return out
 
@@ -392,7 +393,7 @@ def _geo(a, units):
     out = {}
     if _given(a.get("restore_edges_geo_positions")):
         out["restore_edges"] = _flag(a["restore_edges_geo_positions"], "RESTORE_EDGES_GEO_POSITIONS",
-                                     "DO_NOT_RESTORE_EDGES_GEO_POSITIONS", "RESTORE_EDGES_GEO_POSITIONS",
+                                     "DO_NOT_RESTORE_EDGES_GEO_POSITIONS", "DO_NOT_RESTORE_EDGES_GEO_POSITIONS",
                                      "restore_edges_geo_positions")
     return out
 
@@ -427,10 +428,8 @@ def _apply(layout, a, tool):
 
 
 def _require(layout, params, tool):
-    if layout == "PartialOverlappingEdges":
-        for key in ("buffer_width", "offset"):
-            if key not in params:
-                raise ExecuteError(f"ERROR 000735: {tool}: {key}_absolute is required.")
+    """No layout requires a value: Pro 3.7 ran Partial Overlapping Edges with none (measured 2026-11-12), with the
+    defaults ``_ndlayout.partial_overlapping_edges`` takes."""
 
 
 def _add_layout(layout, a, tool):
@@ -1152,8 +1151,9 @@ def AddReshapeDiagramEdgesLayout(in_utility_network, template_name, is_active="A
 # ---- layouts applied to a diagram ----------------------------------------------------------------------------------
 
 def ApplyGeoPositionsLayout(in_network_diagram_layer, restore_edges_geo_positions=None, run_async=None):
-    """Each junction and edge moved back to its network feature's geographic position; edge vertices restored where
-    an edge is one piece of a line, else straight; reduction edges always straight."""
+    """Each junction and edge moved back to its network feature's geographic position; with RESTORE_EDGES_GEO_POSITIONS
+    edge vertices restored where an edge is one piece of a line, else — the default, as Pro 3.7 answered — straight;
+    reduction edges always straight."""
     return _apply("GeoPositions", locals(), "ApplyGeoPositionsLayout")
 
 

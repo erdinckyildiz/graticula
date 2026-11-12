@@ -120,6 +120,58 @@ class ProSweepNd(unittest.TestCase):
             self.assertAlmostEqual(by, cy)
         self.assertEqual(len(edges["L1"]), 2)
 
+    def test_export_keys_attributes_by_pro_s_aliases(self):
+        # Pro's ExportDiagramContent: S's attributes by alias ("Asset group", "Object ID", "Tier name" …), sourceMapping
+        # only the classes in the diagram under their aliases, Web Mercator as wkid 102100.
+        import json
+        import tempfile
+        self.template()
+        diagram = self.create()
+        out = os.path.join(tempfile.mkdtemp(), "content.json")
+        arcpy.nd.ExportDiagramContent(self.un, diagram, out, "INCLUDE_DIAGRAM_PROPERTIES", "INCLUDE_GEOMETRIES",
+                                      "INCLUDE_ATTRIBUTES")
+        with open(out, encoding="utf-8") as read:
+            doc = json.load(read)
+        s = next(j for j in doc["junctions"] if j["assocGlobalID"].upper() == self.ids["S"])
+        self.assertEqual(sorted(s["attributes"]), [
+            "Asset group", "Asset type", "Association status", "Global ID", "Is connected", "Is subnetwork controller",
+            "NAME", "Object ID", "Subnetwork controller name", "Subnetwork name", "Supported subnetwork name",
+            "Supporting subnetwork name", "Terminal path", "Tier name", "Tier rank"])
+        self.assertEqual(sorted(doc["sourceMapping"]), ["Structure Junction", "Water Device", "Water Junction",
+                                                        "Water Line"])
+        self.assertEqual(doc["spatialRef"], {"wkid": 102100, "latestWkid": 3857})
+
+    def test_geo_positions_draw_edges_straight_by_default(self):
+        # Pro: ApplyGeoPositionsLayout with no values drew L2 without its vertex at (13, 0).
+        self.template()
+        diagram = self.create()
+        arcpy.nd.ApplyGeoPositionsLayout(diagram)
+        self.assertEqual({e[0]: e[3] for e in self.content(diagram)["E"]}["L2"], [(6, 0), (20, 0)])
+
+    def test_a_mainline_tree_is_fitted_and_its_branch_starts_a_step_along(self):
+        # Pro: 10 apart on a diagram 30 wide, E at T + (10, 10) (the branch one step along as well as across).
+        self.template()
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
+        diagram = self.create()
+        arcpy.nd.ApplyMainlineTreeLayout(diagram)
+        found = self.content(diagram)["J"]
+        self.assertEqual((found["T"][0] - found["V1"][0], found["V1"][0] - found["S"][0]), (10, 10))
+        self.assertEqual({found["E"], found["V2"]}, {(found["T"][0] + 10, found["T"][1]),
+                                                     (found["T"][0] + 10, found["T"][1] + 10)})
+
+    def test_partial_overlapping_edges_need_no_values(self):
+        # Pro: the association V1 → T on L2, spread with no values: L2 through (6.5, 0.25) and (19.5, 0.25), the
+        # association through (6.5, -0.25) and (19.5, -0.25); with 2 and 1: (8, ±0.5) and (18, ±0.5).
+        self.associate()
+        self.template()
+        arcpy.nd.AddConnectivityAssociationsRule(self.un, "Blank")
+        for args, along, half in (((), 0.5, 0.25), (("2 Meters", "1 Meters"), 2, 0.5), (("1 Meters", "2 Meters"), 2, 1)):
+            diagram = self.create()
+            arcpy.nd.ApplyPartialOverlappingEdgesLayout(diagram, *args)
+            edges = {e[0]: e[3] for e in self.content(diagram)["E"]}
+            self.assertEqual(edges["L2"], [(6, 0), (6 + along, half), (20 - along, half), (20, 0)])
+            self.assertEqual(edges[None], [(6, 0), (6 + along, -half), (20 - along, -half), (20, 0)])
+
 
 if __name__ == "__main__":
     unittest.main()

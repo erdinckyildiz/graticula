@@ -328,10 +328,14 @@ class DiagramLayouts(unittest.TestCase):
         arcpy.un.AddMainlineTreeLayout(self.un, "Blank", "ACTIVE", None, "FROM_LEFT_TO_RIGHT", "LEFT_SIDE",
                                        "ABSOLUTE_UNIT", "4 Meters", None, "3 Meters")
         self.assertEqual(self.last_step("Blank")["params"], {"direction": "FROM_LEFT_TO_RIGHT", "placement": "LEFT_SIDE",
-                                                             "perpendicular": 4.0, "along": 3.0})
+                                                             "perpendicular": 4.0, "along": 3.0,
+                                                             "proportional": False})
         found = self.content(self.create())["J"]
-        self.assertEqual([found[n] for n in ("S", "V1", "T")], [(0, 0), (3, 0), (6, 0)])
-        self.assertEqual(sorted([found["E"], found["V2"]]), [(6, 4), (9, 0)])
+        # Centred where the junctions were, the branch one step along as well as across (Pro 3.7, measured 2026-11-12,
+        # the nd sweep, in proportional units; INFERRED for absolute ones, as the smart tree is centred in both): the
+        # tree spans x 0 … 9 and y 0 … 4 before it is centred on (15, 5); this pinned it uncentred, E at (6, 4), before.
+        self.assertEqual([found[n] for n in ("S", "V1", "T")], [(10.5, 3), (13.5, 3), (16.5, 3)])
+        self.assertEqual(sorted([found["E"], found["V2"]]), [(19.5, 3), (19.5, 7)])
 
     def test_radial_tree_preset_from_the_root_junction(self):
         # The root S at its own place; level radii 4, 4 + 8 = 12, 12 + 16 = 28 (radius factor 2, INFERRED). V1 and T
@@ -394,23 +398,29 @@ class DiagramLayouts(unittest.TestCase):
         arcpy.un.ApplyPartialOverlappingEdgesLayout(name)  # the template's values, as the page says
         edges = {e[0]: e[3] for e in self.content(name)["E"]}
         spread = sorted([edges["L2"], edges["L6"]])
-        self.assertEqual(spread, [[(6, 0), (6, -1), (20, -1), (20, 0)], [(6, 0), (6, 1), (20, 1), (20, 0)]])
+        # the vertex gained at each end lies the larger of the buffer width and the offset along (Pro 3.7, measured
+        # 2026-11-12, the nd sweep); this pinned it straight beside the junction before
+        self.assertEqual(spread, [[(6, 0), (8, -1), (18, -1), (20, 0)], [(6, 0), (8, 1), (18, 1), (20, 0)]])
         self.assertEqual(edges["L1"], [(0, 0), (6, 0)])  # meets L2 end to end only: not overlapping
         self.template("On")
         arcpy.nd.AddPartialOverlappingEdgesLayout(self.un, "On", "ACTIVE", "0.5 Meters", "4 Meters")
         edges = {e[0]: e[3] for e in self.content(self.create("On"))["E"]}
         self.assertEqual(sorted([edges["L2"], edges["L6"]]),
-                         [[(6, 0), (6, -2), (20, -2), (20, 0)], [(6, 0), (6, 2), (20, 2), (20, 0)]])
-        with self.assertRaises(ExecuteError):  # buffer width and offset are required
-            arcpy.nd.AddPartialOverlappingEdgesLayout(self.un, "On", "ACTIVE", None, "4 Meters")
+                         [[(6, 0), (10, -2), (16, -2), (20, 0)], [(6, 0), (10, 2), (16, 2), (20, 0)]])
+        # Neither value is required: Pro 3.7 ran the layout with none (measured 2026-11-12, the nd sweep), 0.5 and 0.5
+        # by its answer; this test pinned an error for each before.
+        arcpy.nd.AddPartialOverlappingEdgesLayout(self.un, "On", "ACTIVE", None, "4 Meters")
         self.template("Bare")
         bare = self.create("Bare")
-        with self.assertRaises(ExecuteError):
-            arcpy.nd.ApplyPartialOverlappingEdgesLayout(bare)
+        arcpy.nd.ApplyPartialOverlappingEdgesLayout(bare)
+        edges = {e[0]: e[3] for e in self.content(bare)["E"]}
+        self.assertEqual(sorted([edges["L2"], edges["L6"]]),
+                         [[(6, 0), (6.5, -0.25), (19.5, -0.25), (20, 0)], [(6, 0), (6.5, 0.25), (19.5, 0.25), (20, 0)]])
+        bare = self.create("Bare")
         arcpy.nd.ApplyPartialOverlappingEdgesLayout(bare, "0.5 Meters", "2 Meters", "OPTIMIZE_EDGES")
         edges = {e[0]: e[3] for e in self.content(bare)["E"]}
         self.assertEqual(sorted([edges["L2"], edges["L6"]]),
-                         [[(6, 0), (6, -1), (20, -1), (20, 0)], [(6, 0), (6, 1), (20, 1), (20, 0)]])
+                         [[(6, 0), (8, -1), (18, -1), (20, 0)], [(6, 0), (8, 1), (18, 1), (20, 0)]])
 
     def test_reshape_edges_preset_and_apply(self):
         # REMOVE_VERTICES: L2, drawn with its vertex (13, 0) when vertices are kept, loses it.

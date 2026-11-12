@@ -406,8 +406,11 @@ class Diagrams(unittest.TestCase):
         name = self.create()
         arcpy.nd.ApplyMainlineTreeLayout(name)
         found = self.content(name)["J"]
-        self.assertEqual([found[n] for n in ("S", "V1", "T")], [(0, 0), (2, 0), (4, 0)])
-        self.assertEqual(sorted([found["E"], found["V2"]]), [(4, 2), (6, 0)])
+        # Fitted to the diagram's size and centred as the smart tree is, the branch's first junction one step along as
+        # well as across: Pro 3.7, measured 2026-11-12 (the nd sweep: S, V1, T, V2 10 apart, E at T + (10, 10)); this
+        # pinned an unfitted tree 2 apart with E straight across from T before.
+        self.assertEqual([found[n] for n in ("S", "V1", "T")], [(0, 0), (10, 0), (20, 0)])
+        self.assertEqual(sorted([found["E"], found["V2"]]), [(30, 0), (30, 10)])
 
     def test_geo_positions_bring_a_laid_out_diagram_back(self):
         self.template()
@@ -416,7 +419,11 @@ class Diagrams(unittest.TestCase):
         arcpy.nd.ApplyGeoPositionsLayout(name)
         found = self.content(name)
         self.assertEqual(found["J"]["V1"], (6, 0))
-        self.assertEqual({e[0]: e[3] for e in found["E"]}["L2"], [(6, 0), (13, 0), (20, 0)])
+        # by default the edges come back straight (Pro 3.7, measured 2026-11-12, the nd sweep); this pinned the
+        # restored vertex without the argument before
+        self.assertEqual({e[0]: e[3] for e in found["E"]}["L2"], [(6, 0), (20, 0)])
+        arcpy.nd.ApplyGeoPositionsLayout(name, "RESTORE_EDGES_GEO_POSITIONS")
+        self.assertEqual({e[0]: e[3] for e in self.content(name)["E"]}["L2"], [(6, 0), (13, 0), (20, 0)])
 
     def test_grid_snaps_junctions_and_a_template_presets_its_cell(self):
         self.template()
@@ -522,8 +529,11 @@ class Diagrams(unittest.TestCase):
         _ndlayout.partial_overlapping_edges(_ndlayout.View(d), {"buffer_width": 2.0, "offset": 4.0}, 0.5)
         first = [tuple(round(c, 6) for c in xy) for xy in d.features[5].shape.coords]
         second = [tuple(round(c, 6) for c in xy) for xy in d.features[6].shape.coords]
-        self.assertEqual(first, [(0, 0), (0, -1.5), (5, -1.5), (15, -1.5), (20, -1.5), (20, 0)])
-        self.assertEqual(second, [(0, 1), (0, 2.5), (5, 2.5), (15, 2.5), (20, 2.5), (20, 1)])
+        # the vertex gained at an end lies the larger of buffer width and offset (4) along, as Pro 3.7 places it
+        # (measured 2026-11-12, the nd sweep), here no further than half the 5 m end segment (INFERRED); this pinned it
+        # straight beside the junction before
+        self.assertEqual(first, [(0, 0), (2.5, -1.5), (5, -1.5), (15, -1.5), (17.5, -1.5), (20, 0)])
+        self.assertEqual(second, [(0, 1), (2.5, 2.5), (5, 2.5), (15, 2.5), (17.5, 2.5), (20, 1)])
 
     def test_reshape_edges(self):
         d = self.diagram({"A": (0, 0), "B": (20, 10)}, [("A", "B", [(0, 0), (10, 9.9), (20, 10)])])

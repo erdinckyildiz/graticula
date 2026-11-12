@@ -217,7 +217,9 @@ def order_values(builder, d, p):
 
 def geo_positions(builder, d, p, margin, selected):
     """Apply Geo Positions Layout: every junction back at its network feature's position; edges along their lines when
-    RESTORE_EDGES_GEO_POSITIONS and they represent one piece of a line, else straight; reduced edges always straight."""
+    RESTORE_EDGES_GEO_POSITIONS and they represent one piece of a line, else straight; reduced edges always straight.
+    Not restoring is the default: Pro 3.7 drew L2 straight, without its vertex at (13, 0), when the tool was given no
+    value (measured 2026-11-12, the nd sweep)."""
     view = View(d, False, selected)
     placed = {}
     new = {}
@@ -225,7 +227,7 @@ def geo_positions(builder, d, p, margin, selected):
         placed[n] = builder.junction_position(d, d.features[n], placed)
         new[n] = placed[n].coords[0]
     shapes = {}
-    restore = p.get("restore_edges", True)
+    restore = p.get("restore_edges", False)
     for e in d.edges():
         if e.from_id not in view.node_set or e.to_id not in view.node_set:
             continue
@@ -625,8 +627,12 @@ def _roots(view, comp):
 
 
 def _place_components(view, laid, gap, frame):
-    """Components side by side across the tree direction, ``gap`` apart; the first root keeps its position."""
+    """Components side by side across the tree direction, ``gap`` apart, in the order their roots (first nodes) stood
+    across it before; the first root keeps its position. The order: Pro 3.7, measured 2026-11-12 (the nd sweep), put
+    the pole P (6, 3) above a tree rooted at S (0, 0) laid left to right, and beside it, after the tree, laid top to
+    bottom — INFERRED from those two that the roots' places across the direction decide it."""
     u, v = frame
+    laid = sorted(laid, key=lambda coords: (lambda q: q[0] * v[0] + q[1] * v[1])(view.pos[next(iter(coords))]))
     new = {}
     origin = None
     edge = None
@@ -906,9 +912,11 @@ def mainline(root, children, along, perp, placement):
                     s = max(s, reach[side] + along - lo)
         out[m] = (s, 0.0)
         for side, nodes in laid.items():
+            # a branch starts one step along as well as across: Pro 3.7 put E at T + (1, 1) steps on ADR-232's
+            # diagram (2026-10-31, D-338) and again on the nd sweep's (2026-11-12)
             for n, (q, dep) in nodes.items():
-                out[n] = (s + q, side * dep * perp)
-            hi = max(q for q, _ in nodes.values())
+                out[n] = (s + along + q, side * dep * perp)
+            hi = max(q for q, _ in nodes.values()) + along
             reach[side] = max(reach[side] if reach[side] is not None else -math.inf, s + hi)
     return out
 
@@ -927,6 +935,11 @@ def mainline_tree(view, p, margin):
         coords = mainline(roots[0], children, along, perp, p.get("placement", "BOTH_SIDES"))
         laid.append({roots[0]: coords[roots[0]], **{n: c for n, c in coords.items() if n != roots[0]}})
     new = _place_components(view, laid, _spacing(p, "disjoined", 4.0), frame)
+    # fitted and centred as the smart tree is: Pro 3.7 drew this tree 10 apart on the nd sweep's diagram (2026-11-12),
+    # as it drew the smart tree, which ADR-232 condition 5 measured (D-338 named the fit for the mainline tree)
+    if p.get("proportional", True):
+        new = _fitted(view, new)
+    new = _centred(view, new)
     shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 30.0), offset,
                     frame, slanted=True)
     view.commit(new, shapes, margin=margin)
@@ -1040,8 +1053,13 @@ def partial_overlapping_edges(view, p, margin):
     other — both ends of one within it of the other's line, within 10 degrees of parallel and overlapping along it
     (INFERRED) — form a set; a set of k is spread to offsets (i − (k − 1)/2)·offset about its middle, in their present
     order across it (or, OPTIMIZE_EDGES, in the order of their edges' far ends, INFERRED). A shifted segment that
-    ends on a junction keeps the junction and gains a vertex; a vertex two shifted segments share takes their mean."""
-    width, offset = float(p["buffer_width"]), float(p["offset"])
+    ends on a junction keeps the junction and gains a vertex the larger of ``buffer_width`` and ``offset`` along from
+    it, so the edge leaves the junction slanting; a vertex two shifted segments share takes their mean. Both values
+    default to 0.5. Measured in Pro 3.7, 2026-11-12 (the nd sweep), two edges on one line V1 (6, 0) – T (20, 0): with no
+    values they were drawn through (6.5, ±0.25) and (19.5, ±0.25); with a buffer width of 2 and an offset of 1 through
+    (8, ±0.5) and (18, ±0.5); with 1 and 2 through (8, ±1) and (18, ±1) — the larger of the two along, INFERRED from
+    those three."""
+    width, offset = float(p.get("buffer_width", 0.5)), float(p.get("offset", 0.5))
     segs = _segments(view)
     parent = list(range(len(segs)))
 
@@ -1092,7 +1110,9 @@ def partial_overlapping_edges(view, p, margin):
                 return sum((q.x - a[0]) * nx + (q.y - a[1]) * ny for q in ends) / 2
             ordered = sorted(members, key=lambda i: (far(i), segs[i][0]))
         else:
-            ordered = sorted(members, key=lambda i: (across(i), segs[i][0]))
+            # edges on one line: the later edge on the right of the first segment's direction, as Pro 3.7 drew the
+            # association V1 → T (made after L2) below L2 (measured 2026-11-12; INFERRED that the id decides it)
+            ordered = sorted(members, key=lambda i: (round(across(i), 9), -segs[i][0]))
         middle = sum(across(i) for i in members) / len(members)
         k = len(ordered)
         for rank, i in enumerate(ordered):
@@ -1116,10 +1136,16 @@ def partial_overlapping_edges(view, p, margin):
                 mx = sum(m[0] for m in moves[k]) / len(moves[k])
                 my = sum(m[1] for m in moves[k]) / len(moves[k])
                 moved = (c[0] + mx, c[1] + my)
+
+                def stepped(towards):
+                    dx, dy = towards[0] - c[0], towards[1] - c[1]
+                    length = math.hypot(dx, dy)
+                    step = min(max(width, offset), length / 2) / length if length else 0.0
+                    return (moved[0] + dx * step, moved[1] + dy * step)
                 if k == 0:
-                    out += [c, moved]
+                    out += [c, stepped(coords[1])]
                 elif k == last:
-                    out += [moved, c]
+                    out += [stepped(coords[k - 1]), c]
                 else:
                     out.append(moved)
             else:

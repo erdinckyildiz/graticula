@@ -207,7 +207,11 @@ def _content(ap, net, diagram):
         name = "R" if e.get("aggregations") else named(e)
         agg = sorted(names.get(str(a.get("globalID", "")).strip("{}").upper(), "?") for a in e.get("aggregations", []))
         g = e.get("geometry") or {}
-        path = [[round(p[0], 3), round(p[1], 3)] for p in (g.get("paths") or [[]])[0]]
+        path = []
+        for p in (g.get("paths") or [[]])[0]:     # a vertex repeated in place is no vertex (Pro writes some)
+            q = [round(p[0], 3), round(p[1], 3)]
+            if not path or q != path[-1]:
+                path.append(q)
         found["E"].append([name, label.get(e.get("fromID")), label.get(e.get("toID")), agg, path])
     found["E"].sort(key=str)
     info = doc.get("diagramInfo") or {}
@@ -400,7 +404,17 @@ def _layout_case(name, add=None, apply=None, args=None):
             # the association T–V1 drawn as an edge lies on L2: something to spread, and a ring
             rules.append(("AddConnectivityAssociationsRule", ["ACTIVE"]))
         if "MainRing" in name:
-            # Pro refuses a main ring on disjoint graphs (ERROR 002637): no pole
+            # Pro finds no ring in the tree with the association beside L2 (ERROR 002638): a line L5 from E round to
+            # V2 closes T–E–V2 (this case runs in a process of its own, so no other case sees it); and Pro refuses a
+            # main ring on disjoint graphs (ERROR 002637): no pole
+            with ap.da.Editor(net["gdb"]), ap.da.InsertCursor(net["line"], ["NAME", "ASSETGROUP", "ASSETTYPE",
+                                                                             "SHAPE@WKT"]) as out:
+                out.insertRow(("L5", 1, 1, "LINESTRING Z (20 10 0, 30 10 0, 30 0 0)"))
+            with ap.da.SearchCursor(net["line"], ["NAME", "GLOBALID@"], "NAME = 'L5'") as read:
+                for n, g in read:
+                    net["ids"][n] = g.upper()
+                    net["names"][g.upper().strip("{}")] = n
+            ap.un.ValidateNetworkTopology(net["un"])
             features = [net["device"], net["line"], net["junction"]]
         if add:
             rules.append((add, ["ACTIVE", *(args or [])]))

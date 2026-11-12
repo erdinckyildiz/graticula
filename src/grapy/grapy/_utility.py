@@ -362,14 +362,36 @@ def _create_class(file, dataset, name, shape, srid, columns, z, m):
     return f"{dataset}/{name}"
 
 
+# The aliases ArcGIS Pro 3.7 gives a network class's system fields: the attribute names ExportDiagramContent wrote for
+# the nd sweep's features (measured 2026-11-12) — a diagram feature's attributes are keyed by alias.
+SYSTEM_ALIASES = {"ASSETGROUP": "Asset group", "ASSETTYPE": "Asset type", "ASSOCIATIONSTATUS": "Association status",
+                  "GLOBALID": "Global ID", "ISCONNECTED": "Is connected",
+                  "ISSUBNETWORKCONTROLLER": "Is subnetwork controller",
+                  "SUBNETWORKCONTROLLERNAME": "Subnetwork controller name", "SUBNETWORKNAME": "Subnetwork name",
+                  "SUPPORTEDSUBNETWORKNAME": "Supported subnetwork name",
+                  "SUPPORTINGSUBNETWORKNAME": "Supporting subnetwork name", "TERMINALCONFIGURATION": "Terminal path",
+                  "TIERNAME": "Tier name", "TIERRANK": "Tier rank", "FROMDEVICETERMINAL": "From device terminal",
+                  "TODEVICETERMINAL": "To device terminal"}
+
+
 def _prepare_class(connection, table, alias_group=True):
-    """ASSETGROUP as the subtype field with its 0 Unknown subtype, and global IDs (ADR-228)."""
+    """ASSETGROUP as the subtype field with its 0 Unknown subtype, global IDs (ADR-228), and Pro's aliases of the
+    system fields."""
     from . import _attachments, _subtypes
+    from .management import _domain_tables
     _subtypes.ensure(connection)
     if alias_group:
         connection.execute("insert into grapy_subtype_field values (?, 'ASSETGROUP', 0)", (table,))
         connection.execute("insert into grapy_subtype values (?, 0, 'Unknown')", (table,))
     _attachments.add_global_ids(connection, table)
+    _domain_tables(connection)
+    oid = _gpkg.oid_column(connection, table)
+    for (column,) in [(r[1],) for r in connection.execute(f'pragma table_info("{table}")')]:
+        alias = "Object ID" if column == oid else SYSTEM_ALIASES.get(column.upper())
+        if alias:
+            connection.execute("insert into gpkg_data_columns (table_name, column_name, name, title) values (?, ?, ?, ?) "
+                                "on conflict (table_name, column_name) do update set title = excluded.title",
+                                (table, column, column, alias))
 
 
 def _base_columns(role):
@@ -521,6 +543,12 @@ def add_tier(path, domain, name, rank, topology_type, tier_group, subnetwork_fie
                 taken = {r[1].lower() for r in network.q(f'pragma table_info("{class_name}")')}
                 if field.lower() not in taken:
                     network.q(f'alter table "{class_name}" add column "{field}" TEXT')
+                    if field.upper() in SYSTEM_ALIASES:
+                        from .management import _domain_tables
+                        _domain_tables(network.connection)
+                        network.q("insert into gpkg_data_columns (table_name, column_name, name, title) values "
+                                  "(?, ?, ?, ?) on conflict (table_name, column_name) do update set title = "
+                                  "excluded.title", class_name, field, field, SYSTEM_ALIASES[field.upper()])
 
 
 # ---- definition rows -----------------------------------------------------------------------------------------------
