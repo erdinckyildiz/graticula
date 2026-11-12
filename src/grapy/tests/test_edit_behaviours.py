@@ -250,6 +250,7 @@ class UnregisteredAndRegistration(_Base):
         self.assertEqual(out, self.gpkg.replace("\\", "/") + "/plain")
         self.assertEqual(self.sql("select count(*) from gpkg_contents where table_name = 'plain'"), [(0,)])
         self.assertEqual([(r[1], r[2]) for r in self.sql("pragma table_info(plain)")], [("OBJECTID", "INTEGER")])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.gpkg
         self.addCleanup(setattr, arcpy.env, "workspace", None)
         self.assertNotIn("plain", arcpy.ListTables())

@@ -53,6 +53,7 @@ class Mosaic(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.images = os.path.join(self.directory, "images")
         self.a = write_tif(os.path.join(self.images, "a.tif"), 0, 4, np.full((4, 4), 10))
@@ -113,14 +114,17 @@ class Mosaic(unittest.TestCase):
         self.assertEqual(arcpy.da.Describe(self.md)["dataType"], "MosaicDataset")
 
     def test_a_mosaic_dataset_is_listed_as_a_dataset_and_not_as_a_feature_class(self):
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.gpkg
         self.assertEqual(arcpy.ListDatasets(feature_type="Mosaic"), ["md"])
         self.assertIn("md", arcpy.ListDatasets())
         self.assertEqual(arcpy.ListFeatureClasses(), [])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.assertEqual(arcpy.ListDatasets("*", "Mosaic"), ["data.gpkg/md"])
 
     def test_a_mosaic_dataset_is_named_by_its_name_inside_a_geopackage_workspace(self):
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.gpkg
         self.assertEqual(cells("md")[0], [10, 10, 10, 10, 20, 20])
 

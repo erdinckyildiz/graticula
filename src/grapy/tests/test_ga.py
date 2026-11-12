@@ -23,6 +23,7 @@ class Ga(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.two = self.points("two", [(0, 0, 0.0), (100, 100, 100.0)])

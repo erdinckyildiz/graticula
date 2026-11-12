@@ -32,6 +32,7 @@ class Versions(unittest.TestCase):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POINT", spatial_reference=3857)

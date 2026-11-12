@@ -45,6 +45,7 @@ class Fixture(unittest.TestCase):
         MESSAGES.clear()
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
 
     def gpkg(self, name):

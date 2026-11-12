@@ -53,6 +53,7 @@ class Fabric(unittest.TestCase):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "parcels")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "Parcels", 3857)[0]

@@ -19,6 +19,7 @@ class DefineProjectionOnARaster(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         arcpy.NumPyArrayToRaster(numpy.arange(6, dtype="float32").reshape(2, 3), arcpy.Point(500000, 4000000), 10, 10) \

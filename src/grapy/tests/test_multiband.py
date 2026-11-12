@@ -40,6 +40,7 @@ class Multiband(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.path = sa.CompositeBand([grid(B1), grid(B2), grid(B3)]).save(os.path.join(self.directory, "three.tif"))

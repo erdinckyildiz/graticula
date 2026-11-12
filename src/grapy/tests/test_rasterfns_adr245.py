@@ -31,6 +31,7 @@ class _Base(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         for name in ("extent", "cellSize", "mask", "snapRaster", "outputCoordinateSystem"):
             setattr(arcpy.env, name, None)

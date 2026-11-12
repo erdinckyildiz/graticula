@@ -27,7 +27,9 @@ class Stats(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
+        self.addCleanup(setattr, arcpy.env, "scratchWorkspace", arcpy.env.scratchWorkspace)
         arcpy.env.scratchWorkspace = self.directory
         arcpy.env.outputCoordinateSystem = None
 
