@@ -638,54 +638,67 @@ def _(ap, I, O):
     return flat({"OS": ap.GetSystemEnvironment("OS"), "none": ap.GetSystemEnvironment("NO_SUCH_VARIABLE_HERE")})
 
 
-def _ran(ap, I):
-    return ap.management.GetCount(I["points"])
+def _ran(ap, I, O):
+    """GetCount on a GeoPackage, the last tool before a message case reads the messages. On a file geodatabase Pro
+    also writes "Row Count = 30"; on a GeoPackage, the workspace grapy writes, it writes only its start and end lines
+    (measured 2026-11-12), so the cases compare on a GeoPackage, as the workspace-dependent cases do."""
+    return ap.management.GetCount(gpkg(ap, I, O)[1])
 
 
-def _words(text):
-    """The first two words of a message: what it says, without its timestamp or elapsed time."""
-    return " ".join(str(text).split()[:2])
+_TIME = r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), [A-Z][a-z]+ \d{1,2}, \d{4} \d{1,2}:\d{2}:\d{2} [AP]M"
+
+
+def _shape(text):
+    """A message with its time and elapsed time replaced by <time> and <elapsed>, when they have the form Pro writes:
+    times differ between runs, their form must not."""
+    text = re.sub(_TIME, "<time>", str(text))
+    return re.sub(r"\(Elapsed Time: (\d+\.\d\d seconds|\d+ minutes \d+ seconds)\)", "(Elapsed Time: <elapsed>)", text)
+
+
+def _all(ap):
+    return [[m[0], m[1], _shape(m[2])] for m in ap.GetAllMessages()]
+
 
 
 @case("arcpy.GetMessages")
 def _(ap, I, O):
-    _ran(ap, I)
-    return flat({"all": [_words(m) for m in ap.GetMessages().splitlines()], "errors": ap.GetMessages(2)})
+    _ran(ap, I, O)
+    return flat({"all": [_shape(m) for m in ap.GetMessages().splitlines()], "errors": ap.GetMessages(2)})
 
 
 @case("arcpy.GetMessage")
 def _(ap, I, O):
-    _ran(ap, I)
-    return flat({"first": _words(ap.GetMessage(0))})
+    _ran(ap, I, O)
+    return flat({"first": _shape(ap.GetMessage(0))})
 
 
 @case("arcpy.GetMessageCount")
 def _(ap, I, O):
-    _ran(ap, I)
+    _ran(ap, I, O)
     return flat({"count": ap.GetMessageCount()})
 
 
 @case("arcpy.GetAllMessages")
 def _(ap, I, O):
-    _ran(ap, I)
-    return flat({"all": [[m[0], m[1], _words(m[2])] for m in ap.GetAllMessages()]})
+    _ran(ap, I, O)
+    return flat({"all": _all(ap)})
 
 
 @case("arcpy.GetMaxSeverity")
 def _(ap, I, O):
-    _ran(ap, I)
+    _ran(ap, I, O)
     return flat({"max": ap.GetMaxSeverity()})
 
 
 @case("arcpy.GetSeverity")
 def _(ap, I, O):
-    _ran(ap, I)
+    _ran(ap, I, O)
     return flat({"first": ap.GetSeverity(0)})
 
 
 @case("arcpy.GetReturnCode")
 def _(ap, I, O):
-    _ran(ap, I)
+    _ran(ap, I, O)
     return flat({"first": ap.GetReturnCode(0)})
 
 
@@ -711,56 +724,56 @@ def _(ap, I, O):
     return flat({"inside": inside, "after": ap.GetSeverityLevel()})
 
 
-def _outside_tool(ap, I, call):
+def _outside_tool(ap, I, O, call):
     """A messaging or progress call made outside a tool: what it answers, and that a tool's messages are unchanged."""
-    _ran(ap, I)
+    _ran(ap, I, O)
     answer = call()
     return flat({"answer": answer, "count": ap.GetMessageCount(), "max": ap.GetMaxSeverity()})
 
 
 @case("arcpy.AddMessage")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.AddMessage("hello"))
+    return _outside_tool(ap, I, O, lambda: ap.AddMessage("hello"))
 
 
 @case("arcpy.AddWarning")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.AddWarning("careful"))
+    return _outside_tool(ap, I, O, lambda: ap.AddWarning("careful"))
 
 
 @case("arcpy.AddError")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.AddError("broken"))
+    return _outside_tool(ap, I, O, lambda: ap.AddError("broken"))
 
 
 @case("arcpy.AddIDMessage")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.AddIDMessage("WARNING", 12, "out"))
+    return _outside_tool(ap, I, O, lambda: ap.AddIDMessage("WARNING", 12, "out"))
 
 
 @case("arcpy.AddReturnMessage")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.AddReturnMessage(0))
+    return _outside_tool(ap, I, O, lambda: ap.AddReturnMessage(0))
 
 
 @case("arcpy.SetProgressor")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.SetProgressor("step", "working", 0, 10, 1))
+    return _outside_tool(ap, I, O, lambda: ap.SetProgressor("step", "working", 0, 10, 1))
 
 
 @case("arcpy.SetProgressorLabel")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.SetProgressorLabel("label"))
+    return _outside_tool(ap, I, O, lambda: ap.SetProgressorLabel("label"))
 
 
 @case("arcpy.SetProgressorPosition")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.SetProgressorPosition(3))
+    return _outside_tool(ap, I, O, lambda: ap.SetProgressorPosition(3))
 
 
 @case("arcpy.ResetProgressor")
 def _(ap, I, O):
-    return _outside_tool(ap, I, lambda: ap.ResetProgressor())
+    return _outside_tool(ap, I, O, lambda: ap.ResetProgressor())
 
 
 # ---- script tool parameters, outside a tool run: they read sys.argv -----------------------------------------------
@@ -961,15 +974,176 @@ def _(ap, I, O):
 
 @case("arcpy.Command")
 def _(ap, I, O):
-    return flat({"answer": _try(ap.Command, f"GetCount_management {I['points']}")})
+    # On a GeoPackage, as the message cases (see _ran); the times compared by their form (_shape).
+    _, points = gpkg(ap, I, O)
+    before = _all(ap)
+    answer = _try(ap.Command, f"GetCount_management {points}")
+    failed = _try(ap.Command, f"GetCount_management {os.path.join(I['work'], 'no_such.gpkg', 'nothing')}")
+    failed = failed.splitlines()
+    # What a failed tool's middle lines say is each side's own (Pro: "Failed to execute. Parameters are not valid." and
+    # ERROR 000732); its first line and its last two are compared, and that GetMessages still answers the tool before.
+    return flat({"answer": _shape(answer), "failed.first": _shape(failed[0]), "failed.end": [_shape(f) for f in failed[-2:]],
+                 "after.unchanged": _all(ap) == before})
 
 
 @case("arcpy.Result")
 def _(ap, I, O):
-    r = ap.management.GetCount(I["points"])
+    _, points = gpkg(ap, I, O)
+    r = ap.management.GetCount(points)
     return flat({"output": r.getOutput(0), "outputCount": r.outputCount, "status": r.status,
                  "inputCount": _try(lambda: r.inputCount), "maxSeverity": _try(lambda: r.maxSeverity),
                  "messageCount": _try(lambda: r.messageCount), "severity0": _try(lambda: r.getSeverity(0))})
+
+
+@case("arcpy.Result.messages")
+def _(ap, I, O):
+    # A Result keeps its tool's messages after other tools run (measured 2026-11-12, ADR-289 §5.3).
+    db, points = gpkg(ap, I, O)
+    r = ap.management.GetCount(points)
+    b = ap.analysis.Buffer(points, os.path.join(db, "buffered"), "10 Meters")
+    return flat({"messages": [_shape(m) for m in r.getMessages().splitlines()], "warnings": r.getMessages(1),
+                 "all": [[m[0], m[1], _shape(m[2])] for m in r.getAllMessages()], "first": _shape(r.getMessage(0)),
+                 "past": r.getMessage(99), "inputCount": r.inputCount, "input0": os.path.basename(str(r.getInput(0))),
+                 "input1": _try(r.getInput, 1), "buffer.inputCount": b.inputCount, "buffer.input1": b.getInput(1),
+                 "buffer.messageCount": b.messageCount})
+
+
+# ---- a script tool's messages: a Python toolbox run on both sides, so what it says is the same text ---------------
+
+_MSG_PYT = '''try:
+    import arcpy
+except ImportError:  # grapy's side
+    import grapy as arcpy
+
+
+class Toolbox:
+    def __init__(self):
+        self.label = "Messages"
+        self.alias = "msgtbx"
+        self.tools = [Outer, Warns, Fails, Ids]
+
+
+class Outer:
+    """Runs a tool inside itself and writes what GetAllMessages answers there to the file MSGTBX_SEEN names."""
+
+    def __init__(self):
+        self.label = "Outer"
+
+    def getParameterInfo(self):
+        return [arcpy.Parameter(name="rows", displayName="Rows", direction="Input", datatype="GPString",
+                                parameterType="Required")]
+
+    def execute(self, parameters, messages):
+        import json
+        import os
+        seen = {}
+        arcpy.AddMessage("outer says hi")
+        seen["before"] = [list(m) for m in arcpy.GetAllMessages()]
+        arcpy.management.GetCount(parameters[0].valueAsText)
+        seen["after"] = [list(m) for m in arcpy.GetAllMessages()]
+        arcpy.AddReturnMessage(1)
+        messages.addMessage("via messages")
+        with open(os.environ["MSGTBX_SEEN"], "w") as out:
+            json.dump(seen, out)
+
+
+class Warns:
+    def __init__(self):
+        self.label = "Warns"
+
+    def getParameterInfo(self):
+        return []
+
+    def execute(self, parameters, messages):
+        arcpy.AddWarning("a warning")
+        arcpy.AddMessage("after the warning")
+
+
+class Fails:
+    def __init__(self):
+        self.label = "Fails"
+
+    def getParameterInfo(self):
+        return []
+
+    def execute(self, parameters, messages):
+        arcpy.AddMessage("about to fail")
+        arcpy.AddError("an error")
+
+
+class Ids:
+    def __init__(self):
+        self.label = "Ids"
+
+    def getParameterInfo(self):
+        return []
+
+    def execute(self, parameters, messages):
+        arcpy.AddIDMessage("WARNING", 12, "x")
+        arcpy.AddIDMessage("INFORMATIVE", 12, "x")
+        arcpy.AddMessage("ERROR 000732: looks like an id")
+'''
+
+
+def _msg_toolbox(ap, O):
+    folder = O("msgtbx", "folder")
+    path = os.path.join(folder, "Messages.pyt")
+    open(path, "w", encoding="utf-8").write(_MSG_PYT)
+    return ap.ImportToolbox(path)
+
+
+def _shapes(rows):
+    return [[m[0], m[1], _shape(m[2])] for m in rows]
+
+
+@case("arcpy.GetMessages.nested")
+def _(ap, I, O):
+    # Inside a script tool, GetMessages answers the last tool it ran (nothing before it runs one); that tool's messages
+    # do not join the script tool's, unless AddReturnMessage copies one; afterwards the script tool's are answered.
+    import json
+    _msg_toolbox(ap, O)
+    _, points = gpkg(ap, I, O)
+    os.environ["MSGTBX_SEEN"] = os.path.join(O("seen", "folder"), "seen.json")
+    ap.Outer_msgtbx(points)
+    seen = json.load(open(os.environ["MSGTBX_SEEN"], encoding="utf-8"))
+    return flat({"after": _all(ap), "max": ap.GetMaxSeverity(), "inside.before": _shapes(seen["before"]),
+                 "inside.after": _shapes(seen["after"])})
+
+
+@case("arcpy.GetMessages.levels")
+def _(ap, I, O):
+    _msg_toolbox(ap, O)
+    out = {}
+    r = ap.Warns_msgtbx()
+    out["warns"] = {"all": _all(ap), "warnings": ap.GetMessages(1), "errors": ap.GetMessages(2),
+                    "result": [r.status, r.messageCount, r.maxSeverity, r.outputCount, r.getMessages(1)]}
+    try:
+        ap.Fails_msgtbx()
+        out["fails"] = "no exception"
+    except Exception as error:  # noqa: BLE001
+        out["fails"] = [type(error).__name__, str(error), isinstance(error, ap.ExecuteError)]
+    out["fails.all"] = _all(ap)
+    out["fails.max"] = ap.GetMaxSeverity()
+    out["fails.codes"] = [ap.GetReturnCode(i) for i in range(ap.GetMessageCount())]
+    ap.Ids_msgtbx()
+    # Kinds and codes only: an ID message's text is Esri's message catalogue ("WARNING 000012: x already exists"),
+    # which is not published as data (GetIDMessage is refused for it).
+    out["ids"] = [m[:2] for m in ap.GetAllMessages()]
+    out["past"] = [_try(ap.GetMessage, 99), _try(ap.GetSeverity, 99), _try(ap.GetReturnCode, 99)]
+    try:
+        ap.SetSeverityLevel(1)
+        try:
+            ap.Warns_msgtbx()
+            out["level1"] = "no exception"
+        except Exception as error:  # noqa: BLE001
+            out["level1"] = [type(error).__name__, str(error), isinstance(error, RuntimeError)]
+        out["level1.count"] = ap.GetMessageCount()
+        ap.SetSeverityLevel(0)
+        r = ap.Fails_msgtbx()
+        out["level0"] = [str(r), r.status, r.outputCount, r.messageCount, r.maxSeverity, r.getMessages(2)]
+    finally:
+        ap.SetSeverityLevel(2)
+    return flat(out)
 
 
 @case("arcpy.CreateObject")

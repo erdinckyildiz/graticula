@@ -65,13 +65,17 @@ class _Folder(unittest.TestCase):
 
 class Runtime(_Folder):
     def test_add_id_message_takes_its_severity_from_the_type(self):
-        arcpy.AddIDMessage("ERROR", 12, "roads")
-        arcpy.AddIDMessage("WARNING", 345)
-        arcpy.AddIDMessage("INFORMATIVE", 7, "a", "b")
-        # GetMessages(2) answers errors only, (1) warnings and errors, (0) all, as documented.
-        self.assertEqual(arcpy.GetMessages(2), "12 roads")
-        self.assertEqual(arcpy.GetMessages(1), "12 roads\n345")
-        self.assertEqual(arcpy.GetMessages(0).splitlines()[-1], "7 a b")
+        # Read from the run's list, which the server's job answers: outside a tool, ArcGIS Pro 3.7 prints these and
+        # GetMessages does not answer them (measured 2026-11-12, ADR-289 §5.3); this test read them with GetMessages.
+        # GetMessages' severities inside a tool are pinned in test_messages.py.
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):   # printed, as Pro prints them
+            arcpy.AddIDMessage("ERROR", 12, "roads")
+            arcpy.AddIDMessage("WARNING", 345)
+            arcpy.AddIDMessage("INFORMATIVE", 7, "a", "b")
+        self.assertEqual([(m["type"][len("esriJobMessageType"):], m["description"]) for m in _runtime.MESSAGES],
+                         [("Error", "12 roads"), ("Warning", "345"), ("Informative", "7 a b")])
 
     def test_licences_are_always_there_on_the_server(self):
         # A toolbox written for Pro checks out an extension before using it; on this server every tool grapy builds is
@@ -119,7 +123,9 @@ class Runtime(_Folder):
         self.assertIsNone(arcpy.SetProgressorLabel("half way"))
         self.assertIsNone(arcpy.SetProgressorPosition(5))
         self.assertIsNone(arcpy.ResetProgressor())
-        self.assertEqual(arcpy.GetMessageCount(), 0)
+        # The run's list: GetMessageCount answers the last tool's count since ADR-289 §5.3 (ArcGIS Pro 3.7, measured
+        # 2026-11-12), which an earlier test's tool sets.
+        self.assertEqual(len(_runtime.MESSAGES), 0)
 
     def test_result_answers_its_outputs(self):
         result = arcpy.Result("a.gpkg", 3)

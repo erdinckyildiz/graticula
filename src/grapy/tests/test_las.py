@@ -244,9 +244,11 @@ class LasDataset(unittest.TestCase):
 
     def test_classify_las_ground_is_an_equivalent_that_finds_the_ground_under_a_roof(self):
         arcpy.ddd.ChangeLasClassCodes(self.lasd, [[-1, 1, "NO_CHANGE", "NO_CHANGE", "NO_CHANGE", "NO_CHANGE"]])
-        before = len(arcpy.GetMessages())
         arcpy.ddd.ClassifyLasGround(self.lasd, "STANDARD")
-        self.assertIn("progressive morphological filter", arcpy.GetMessages()[before:] or arcpy.GetMessages())
+        # The run's list (ADR-223), where the once-per-run warning stays: since ADR-289 §5.3 GetMessages answers only
+        # the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("progressive morphological filter",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         a = _las.arrays(_las.read_file(self.las))
         ground = a["classification"] == 2
         self.assertEqual(int(ground.sum()), GROUND - 1)   # the withheld ground point is not evaluated, as documented

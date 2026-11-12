@@ -112,7 +112,10 @@ class Network(unittest.TestCase):
         self.assertEqual([g[:2] + g[3:] for g in got], [("start", 1, 0, 1, 2.0, 0.0), ("end", 2, 0, 5, 20.0, 4.0)])
         self.assertEqual(got[0][2], 0.0)
         self.assertAlmostEqual(got[1][2], 18 + 4 * NS)
-        self.assertIn("Solve is an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("Solve is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         self.assertTrue(hasattr(na.Solve, "__grapy_equivalent__"))
 
     def test_field_costs_restrictions_and_travel_modes(self):
@@ -194,7 +197,10 @@ class Network(unittest.TestCase):
         result.export(nax.RouteOutputDataType.Routes, out)
         self.assertEqual(self.rows(out, ["SHAPE@LENGTH"]), [(22.0,)])
         self.assertTrue(hasattr(nax.Route, "__grapy_equivalent__"))
-        self.assertIn("nax.Route.solve is an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("nax.Route.solve is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
 
     def test_nax_closest_facility_od_and_service_area(self):
         na.BuildNetwork(self.network)

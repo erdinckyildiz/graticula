@@ -7,6 +7,10 @@ workspace grapy writes; the first run compared Pro's file geodatabase with grapy
 First run: MATCH 24, DIFF 56, GRAPY-ERROR 22, REFUSED 4, BOTH-ERROR 5, PRO-ERROR 3, SCHEMA 1 (the BOTH-ERROR and
 PRO-ERROR cases were faults in the case: arguments Pro's signature does not take).
 Now: MATCH 84, DIFF 30, PRO-ERROR 1.
+Run again 2026-11-12 after the message model (ADR-289 §5.3), 118 names with the three message cases added: MATCH 104,
+DIFF 13, PRO-ERROR 1 — every message case matches. The message cases now run their tool on a GeoPackage (Pro writes
+"Row Count = 30" on a file geodatabase and nothing between its start and end lines on a GeoPackage, measured
+2026-11-12) and compare each message's time and elapsed time by their form, not their value.
 
 Note on the harness: compare.py ignores `result.json` when a case also writes an output (`O(...)`), so for FeatureSet,
 RecordSet, FieldMap, FieldMappings, AlterAliasName, Row and NumPyArrayToRaster the answers were also compared label by
@@ -14,13 +18,13 @@ label by hand; the one difference left there is FeatureSet's (below).
 
 | Name | First run | Now | Action | Note |
 |---|---|---|---|---|
-| AddError | DIFF | DIFF | recorded | message model (open 1) |
+| AddError | DIFF | MATCH | fixed | outside a tool it prints and joins nothing (ADR-289 §5.3, test_messages.py) |
 | AddFieldDelimiters | DIFF | MATCH | case | Pro on a GeoPackage quotes `"val"` as grapy does; the first run was Pro's file geodatabase |
-| AddIDMessage | DIFF | DIFF | recorded | message model (open 1) |
-| AddMessage | DIFF | DIFF | recorded | message model (open 1) |
-| AddReturnMessage | DIFF | DIFF | recorded | message model (open 1) |
+| AddIDMessage | DIFF | MATCH | fixed | as AddError; inside a tool its code is the ID. Its text is not Esri's catalogue's (GetIDMessage stays refused) |
+| AddMessage | DIFF | MATCH | fixed | as AddError (test_messages.py) |
+| AddReturnMessage | DIFF | MATCH | fixed | copies the last tool's message with its type and code (test_messages.py) |
 | AddToolbox | GRAPY-ERROR | MATCH | case | the .pyt imports `grapy as arcpy` where there is no arcpy |
-| AddWarning | DIFF | DIFF | recorded | message model (open 1) |
+| AddWarning | DIFF | MATCH | fixed | as AddError (test_messages.py) |
 | AlterAliasName | GRAPY-ERROR | MATCH | fixed | Describe had no aliasName |
 | ArealUnitConversionFactor | MATCH | MATCH | — | |
 | Array | BOTH-ERROR | MATCH | fixed | replace, remove(index), next/reset added (case dropped clone, which Pro rejects) |
@@ -30,7 +34,7 @@ label by hand; the one difference left there is FeatureSet's (below).
 | CheckOutExtension | MATCH | MATCH | — | |
 | CheckProduct | DIFF | MATCH | fixed | ArcInfo Available, ArcEditor/ArcView NotLicensed, unknown "" |
 | ClearEnvironment | DIFF | DIFF | recorded | workspace default (open 3) |
-| Command | DIFF | DIFF | recorded | message model (open 1): GetCount writes no "Row Count" message in grapy |
+| Command | DIFF | MATCH | fixed | answers the tool's messages, start and end lines included, failed or not, and leaves GetMessages alone (test_messages.py); compared on a GeoPackage, where Pro writes no "Row Count" line |
 | CopyParameter | DIFF | MATCH | fixed | outside a tool run: does nothing |
 | CreateObject | PRO-ERROR | DIFF | recorded | Pro answers factoryCode 0 for CreateObject("SpatialReference", 32635) and RuntimeError for an unknown name (grapy 32635, ValueError); Pro looks to ignore the option — not copied |
 | CreateRandomValueGenerator | MATCH | MATCH | — | |
@@ -54,19 +58,21 @@ label by hand; the one difference left there is FeatureSet's (below).
 | FromWKT | DIFF | MATCH | fixed | WKT: polygons always MULTIPOLYGON, outer rings counterclockwise and holes clockwise; polylines MULTILINESTRING (also SHAPE@WKT) |
 | Geometry | GRAPY-ERROR | MATCH | fixed | Geometry(type, inputs, sr); CopyFeatures(..., Geometry()) answers a geometry list |
 | GeostatisticalDatasets | REFUSED | MATCH | case | as CrossValidationResult |
-| GetAllMessages | DIFF | DIFF | recorded | message model (open 1) |
+| GetAllMessages | DIFF | MATCH | fixed | the last tool's, types 2/0/50/100/3 with Pro's codes (test_messages.py) |
 | GetArgumentCount | DIFF | MATCH | fixed | outside a tool run: the script's arguments |
-| GetMaxSeverity | DIFF | DIFF | recorded | message model (open 1) |
-| GetMessage | DIFF | DIFF | recorded | message model (open 1) |
-| GetMessageCount | DIFF | DIFF | recorded | message model (open 1) |
-| GetMessages | DIFF | DIFF | recorded | message model (open 1) |
+| GetMaxSeverity | DIFF | MATCH | fixed | the last tool's (test_messages.py) |
+| GetMessage | DIFF | MATCH | fixed | the last tool's; past the end Pro raises RuntimeError, before any tool "", and -1 answers all (test_messages.py) |
+| GetMessageCount | DIFF | MATCH | fixed | the last tool's (test_messages.py) |
+| GetMessages.levels | — | MATCH | added | Python toolbox tools that warn, fail and say ID messages, at levels 2, 1 and 0: ExecuteWarning, status 4 and 5, return codes 1 and the ID (test_messages.py) |
+| GetMessages.nested | — | MATCH | added | inside a script tool GetMessages answers the last tool it ran, nothing before; its messages do not join the script tool's (test_messages.py) |
+| GetMessages | DIFF | MATCH | fixed | the last tool's; 1 is warnings only and 2 errors only, each line ending in a newline (test_messages.py) |
 | GetParameter | DIFF | MATCH | fixed | outside a tool run: sys.argv |
 | GetParameterAsText | DIFF | MATCH | fixed | outside a tool run: sys.argv |
 | GetParameterCount | DIFF | MATCH | fixed | counts the named tool's parameters (Buffer 8, Clip 4) |
 | GetParameterInfo | GRAPY-ERROR | MATCH | fixed | Parameter.datatype answers the type's name ("Double", "Linear Unit"); the keyword stays for the server |
 | GetParameterValue | GRAPY-ERROR | MATCH | case | .pyt import |
 | GetReturnCode | MATCH | MATCH | — | |
-| GetSeverity | DIFF | DIFF | recorded | message model (open 1) |
+| GetSeverity | DIFF | MATCH | fixed | the last tool's (test_messages.py) |
 | GetSeverityLevel | MATCH | MATCH | — | |
 | GetSystemEnvironment | MATCH | MATCH | — | |
 | GetUTMFromLocation | MATCH | MATCH | — | |
@@ -105,8 +111,9 @@ label by hand; the one difference left there is FeatureSet's (below).
 | RecordSet | GRAPY-ERROR | MATCH | fixed | a table's JSON has no geometryType |
 | RemoveToolbox | GRAPY-ERROR | MATCH | case | .pyt import |
 | ResetEnvironments | DIFF | DIFF | recorded | workspace default and XYTolerance not held (open 3) |
-| ResetProgressor | DIFF | DIFF | recorded | answers None as Pro; the message counts after it differ (open 1) |
-| Result | GRAPY-ERROR | DIFF | recorded | inputCount, maxSeverity, messageCount, getSeverity missing (open 1) |
+| ResetProgressor | DIFF | MATCH | fixed | the counts after it are the last tool's (ADR-289 §5.3) |
+| Result.messages | — | MATCH | added | a Result's messages kept after Buffer runs; getInput past the end raises IndexError; Buffer's inputCount 7 (test_messages.py) |
+| Result | GRAPY-ERROR | MATCH | fixed | inputCount, getInput, messageCount, maxSeverity, getMessage(s), getSeverity, getAllMessages: the tool's, kept after other tools run (test_messages.py) |
 | Row | DIFF | MATCH | fixed | the lock (see Cursor) |
 | SearchCursor | MATCH | MATCH | — | |
 | SearchNeighborhoodSmooth | DIFF | MATCH | fixed | nbrType and Pro's string form |
@@ -116,10 +123,10 @@ label by hand; the one difference left there is FeatureSet's (below).
 | SearchNeighborhoodStandardCircular | DIFF | MATCH | fixed | as above |
 | SetParameter | DIFF | MATCH | fixed | outside a tool run: does nothing |
 | SetParameterAsText | DIFF | MATCH | fixed | as SetParameter |
-| SetProgressor | DIFF | DIFF | recorded | as ResetProgressor |
-| SetProgressorLabel | DIFF | DIFF | recorded | as ResetProgressor |
-| SetProgressorPosition | DIFF | DIFF | recorded | as ResetProgressor |
-| SetSeverityLevel | REFUSED | DIFF | recorded | levels 0 and 1 stay refused (open 2) |
+| SetProgressor | DIFF | MATCH | fixed | as ResetProgressor |
+| SetProgressorLabel | DIFF | MATCH | fixed | as ResetProgressor |
+| SetProgressorPosition | DIFF | MATCH | fixed | as ResetProgressor |
+| SetSeverityLevel | REFUSED | MATCH | fixed | levels 0 and 1 built: every tool consults the level through one wrapper (test_messages.py) |
 | SeverityLevel | DIFF | MATCH | fixed | the block puts the previous level back |
 | SpatialReference | GRAPY-ERROR | MATCH | fixed | Esri names (WGS_1984_UTM_Zone_35N), projection parameters, GCS, datum/spheroid, tolerances; exportToString is Esri WKT |
 | TestSchemaLock | MATCH | MATCH | — | |
@@ -132,14 +139,14 @@ label by hand; the one difference left there is FeatureSet's (below).
 
 ## Open differences worth a debt row
 
-1. **The message model** (AddMessage, AddWarning, AddError, AddIDMessage, AddReturnMessage, the Get*Message* family,
-   GetMaxSeverity, GetSeverity, Command, Result.inputCount/maxSeverity/messageCount/getSeverity, the progressor names'
-   counts). Pro answers the last tool's messages — "Start Time…", the tool's own ("Row Count = 30"), "Succeeded at…",
-   with GetAllMessages types 2/0/3 — and AddMessage outside a tool prints without joining them; grapy keeps one list for
-   the whole run, its tools write none of the start/end messages, and AddMessage appends to it. Changing it means every
-   tool's call is wrapped (ADR-223's message list is what the server's job answers). Estimate: 1–2 days.
-2. **SetSeverityLevel 0 and 1** stay refused: every tool would have to consult the level. Estimate: half a day once (1)
-   exists.
+1. ~~**The message model**~~ **Built 2026-11-12 (ADR-289 §5.3)**: every tool runs through one wrapper,
+   `_runtime.tool`, which keeps its own messages with Pro's start and end lines; GetMessages and its family answer the
+   last tool's; AddMessage outside a tool prints and joins nothing; the run's list the server's job answers (ADR-223) is
+   kept as it was. What stays different: a grapy tool that fails raises its own exception (ValueError,
+   FileNotFoundError …) where Pro raises ExecuteError, and its error lines are grapy's text, not Esri's
+   "Failed to execute. Parameters are not valid." and ERROR 0000xx; an ID message's text is not Esri's catalogue's.
+2. ~~**SetSeverityLevel 0 and 1**~~ **Built 2026-11-12** with (1): level 1 raises ExecuteWarning after a tool that
+   warned, level 0 answers a Result with no outputs for a tool that failed, as measured.
 3. **Environment defaults and the environments held**: Pro's ClearEnvironment/ResetEnvironments leave workspace None;
    grapy's default is the run's directory by its documented INFERRED choice for the fenced server (ADR-223 §5.5) — left,
    needs an owner decision. grapy holds 12 of Pro's 75 environments (XYTolerance, parallelProcessingFactor, cellAlignment…

@@ -944,8 +944,8 @@ def CreateObject(name, *options):
 
 
 class SeverityLevel:
-    """A severity level for a ``with`` block or a decorated function. As SetSeverityLevel, only 2 — a tool raises on
-    an error, arcpy's default — is built; 0 and 1 would change how every tool ends."""
+    """A severity level for a ``with`` block or a decorated function: 0, 1 or 2, as SetSeverityLevel takes it, and the
+    level before put back afterwards."""
 
     def __init__(self, severity_level=2):
         self._level = int(severity_level)
@@ -1295,3 +1295,31 @@ from ._imagefns import GetUTMFromLocation, Mensuration  # noqa: E402,F401
 from ._randomgen import CreateRandomValueGenerator, RandomNumberGenerator  # noqa: E402,F401
 from ._toolboxes import (AddToolbox, Command, GetParameterInfo, GetParameterValue, ImportToolbox,  # noqa: E402,F401
                          ListToolboxes, ListTools, RemoveToolbox, Usage)
+
+
+# ---- ADR-289 §5.3: every tool runs as arcpy runs one — its own messages with the start and end lines, read back by
+# GetMessages once it ends, and the severity level consulted — through one wrapper, _runtime.tool. The tools are those
+# ListTools names (each toolbox module's public functions with a capitalised name) and those of arcpy.parcel,
+# arcpy.topographic and arcpy.locref, which are toolboxes in Pro too.
+def _tools_run_as_tools():
+    import sys
+    from . import _runtime as _rt
+    from ._toolboxes import SYSTEM, _module, _system_tools
+    wrapped = {}
+    for alias in (*SYSTEM, "parcel", "topographic", "locref"):
+        module = _module(alias)
+        for name, function in _system_tools(alias).items():
+            if function.__module__ in ("grapy._runtime", "grapy._toolboxes"):
+                continue   # AddWarning, ExecuteError's kin, imported into a toolbox module: not tools
+            wrapped[id(function)] = _rt.tool(function)
+            setattr(module, name, wrapped[id(function)])
+    # The same tool under another module's name (nax.BuildNetwork is na.BuildNetwork) stays the same object.
+    for name, module in list(sys.modules.items()):
+        if module is None or not (name == "grapy" or name.startswith("grapy.")):
+            continue
+        for attribute, value in list(vars(module).items()):
+            if not attribute.startswith("_") and id(value) in wrapped and callable(value):
+                setattr(module, attribute, wrapped[id(value)])
+
+
+_tools_run_as_tools()

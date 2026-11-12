@@ -179,20 +179,31 @@ def _runs(alias, name, cls):
                 raise ExecuteError("; ".join(refused))
             try:
                 tool.execute(parameters, _Messages())
-            except ExecuteError:
+            except ExecuteError as failure:
+                failure._grapy_in_execute = True
                 raise
             except Exception as failure:  # noqa: BLE001 — a tool's own failure is the tool failing, as in arcpy
                 _runtime.AddError(f"{type(failure).__name__}: {failure}")
-                raise ExecuteError(f"{type(failure).__name__}: {failure}") from failure
+                raised = ExecuteError(f"{type(failure).__name__}: {failure}")
+                raised._grapy_in_execute = True
+                raise raised from failure
             if sum(1 for m in _runtime.MESSAGES if m["type"] == "esriJobMessageTypeError") > errors:
-                raise ExecuteError(_runtime.GetMessages(2))
+                # Its text is the tool's error messages, which run_tool — the wrapper this runs inside — gives it.
+                raised = ExecuteError()
+                raised._grapy_in_execute = True
+                raise raised
         finally:
             _runtime.PARAMETERS[:] = held
         return Result(*[p.valueAsText for p in parameters if p.direction == "Output"])
 
     run.__name__ = run.__qualname__ = name
     run.__doc__ = getattr(cls, "description", None) or getattr(cls, "label", None) or name
-    return run
+    return _runtime_tool(run, name, always=True)  # a toolbox's tool runs as a tool, with its messages (ADR-289 §5.3)
+
+
+def _runtime_tool(function, name, always):
+    from ._runtime import tool
+    return tool(function, name, always=always)
 
 
 def ImportToolbox(input_file, module_name=None):
@@ -351,24 +362,23 @@ def GetParameterValue(tool_name, index):
 
 def Command(command_line):
     """A tool run from one string in the legacy Command Line syntax — the tool's name, then its parameters separated
-    by spaces, a parameter with a space in it quoted, ``#`` for a default — answering its messages separated by
-    newlines, or only its error messages when it fails, as documented. INFERRED: a failure is answered, not raised —
-    the page says the string holds the error messages."""
+    by spaces, a parameter with a space in it quoted, ``#`` for a default — answering the tool's messages separated by
+    newlines. ArcGIS Pro 3.7 answers all of them, the start and end lines included, when the tool fails as when it
+    succeeds; it raises nothing, and GetMessages goes on answering the tool before (measured 2026-11-12)."""
     from . import _runtime
     tokens = [t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'" else t
               for t in shlex.split(str(command_line), posix=False)]
     if not tokens:
         raise ValueError("The command line names no tool.")
     kind, where, name, target = _resolve(tokens[0])
-    function = (lambda *a: _runs(where["alias"], name, target)(*a)) if kind == "pyt" else target
+    function = _runs(where["alias"], name, target).__wrapped__ if kind == "pyt" else target
     arguments = [None if t == "#" else t for t in tokens[1:]]
-    start = len(_runtime.MESSAGES)
+    aside = _runtime._Frame()   # the tool's messages end here, not where Command was called
+    _runtime._STACK.append(aside)
     try:
-        function(*arguments)
-    except Exception as failure:  # noqa: BLE001 — the page answers a failure as its error messages
-        said = [m["description"] for m in _runtime.MESSAGES[start:] if m["type"] == "esriJobMessageTypeError"]
-        text = f"{type(failure).__name__}: {failure}"
-        if not any(text.endswith(s) or s.endswith(str(failure)) for s in said):
-            said.append(text)
-        return "\n".join(said)
-    return "\n".join(m["description"] for m in _runtime.MESSAGES[start:])
+        _runtime.run_tool(name, function, arguments)
+    except Exception:  # noqa: BLE001 — the tool's messages say its failure
+        pass
+    finally:
+        _runtime._STACK.remove(aside)
+    return "\n".join(m["text"] for m in aside.last)
