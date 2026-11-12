@@ -535,14 +535,32 @@ def _entries(kind):
 
 def ListFeatureClasses(wild_card=None, feature_type=None, feature_dataset=None):
     """The feature classes of the current workspace, filtered by a case-insensitive wildcard and by shape type (Point,
-    Multipoint, Polyline, Polygon; Line is Polyline). INFERRED: a GeoPackage has no feature datasets, so naming one
-    answers an empty list, and the feature types grapy cannot hold (Annotation, Dimension, Multipatch …) find none."""
-    if _is_given(feature_dataset):
-        return []
+    Multipoint, Polyline, Polygon; Line is Polyline). Feature types grapy cannot hold (Annotation, Dimension …) find
+    none. Measured in ArcGIS Pro 3.7, 2026-11-12, in a file geodatabase holding a feature dataset: with no
+    ``feature_dataset`` (or an empty one) only the classes outside every feature dataset are listed; naming one lists
+    the classes inside it by their own names, and naming one that does not exist answers an empty list. grapy listed
+    a dataset's classes at the root as ``ds/name`` and answered nothing for a named dataset."""
     wanted = str(feature_type or "All").upper()
     wanted = "POLYLINE" if wanted == "LINE" else wanted
-    return [name for name, shape in _entries("features")
-            if _matches(name, wild_card) and (wanted in ("ALL", "") or shape.upper() == wanted)]
+    workspace = os.fspath(env.workspace or os.getcwd())
+    in_gpkg = workspace.lower().endswith(".gpkg")
+    dataset = str(feature_dataset) if _is_given(feature_dataset) else None
+    if dataset is not None and not in_gpkg:
+        return []
+    found = []
+    for name, shape in _entries("features"):
+        if not (wanted in ("ALL", "") or shape.upper() == wanted):
+            continue
+        if in_gpkg and "/" in name:
+            parent, own = name.rsplit("/", 1)
+            if dataset is None or parent.lower() != dataset.lower():
+                continue
+            name = own
+        elif dataset is not None:
+            continue
+        if _matches(name, wild_card):
+            found.append(name)
+    return found
 
 
 def ListTables(wild_card=None, table_type=None):

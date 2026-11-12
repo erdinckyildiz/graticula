@@ -668,6 +668,7 @@ internal static partial class PortalEndpoints
         // anonymous principal without touching the directory.
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+        long storageUsage = signedIn ? await StorageUsageAsync(context, cancellation).ConfigureAwait(false) : 0;
 
         // <b>The geometry service is offered only to a caller it would answer — 2026-09-15.</b> This
         // named it for everybody, and on a deployment where it is not shared with everyone an
@@ -804,7 +805,7 @@ internal static partial class PortalEndpoints
             contentCategorySetsGroupQuery = string.Empty,
             featuredItemsGroupQuery = string.Empty,
             analysisLayersGroupQuery = string.Empty,
-            user = signedIn ? Self(context, current, groups) : null,
+            user = signedIn ? Self(context, current, groups, storageUsage) : null,
 
             // <b>Pro asks where the geometry service is rather than assuming.</b>
             // We have one (ADR-022) and it is at the address every ArcGIS client
@@ -918,17 +919,18 @@ internal static partial class PortalEndpoints
 
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+        long storageUsage = await StorageUsageAsync(context, cancellation).ConfigureAwait(false);
 
         // <b>`userLicensedItems` only when asked for</b>, as a real portal answers (measured 2026-11-08): ArcGIS Field Maps
         // asks with `returnUserLicensedItems=true` after signing in, and offered no Collect while it was missing.
         if (string.Equals(context.Request.Query["returnUserLicensedItems"], "true", StringComparison.OrdinalIgnoreCase))
         {
-            System.Text.Json.Nodes.JsonObject self = System.Text.Json.JsonSerializer.SerializeToNode(Self(context, current, groups))!.AsObject();
+            System.Text.Json.Nodes.JsonObject self = System.Text.Json.JsonSerializer.SerializeToNode(Self(context, current, groups, storageUsage))!.AsObject();
             self["userLicensedItems"] = System.Text.Json.JsonSerializer.SerializeToNode(LicensedItems());
             return Results.Text(self.ToJsonString(), "application/json; charset=utf-8");
         }
 
-        return Results.Ok(Self(context, current, groups));
+        return Results.Ok(Self(context, current, groups, storageUsage));
     }
 
     /// <summary>One user's profile.</summary>
@@ -970,8 +972,45 @@ internal static partial class PortalEndpoints
 
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+        long storageUsage = await StorageUsageAsync(context, cancellation).ConfigureAwait(false);
 
-        return Results.Ok(Self(context, current, groups));
+        return Results.Ok(Self(context, current, groups, storageUsage));
+    }
+
+    /// <summary>
+    /// The quota a member is told: 2 TB, the storage an ArcGIS Enterprise portal gives each member unless its administrator
+    /// sets another.
+    /// </summary>
+    /// <remarks>
+    /// <b>Told, not enforced, and that is the decision rather than an oversight.</b> This server has no storage quota: a
+    /// document is bounded by its size limit and a scene package by <c>ScenePackageMaxMB</c>, not by what its owner already
+    /// has. But ArcGIS Pro reads <c>storageQuota</c> less <c>storageUsage</c> from the member's own profile before it
+    /// uploads a package, and with neither field present it refused a 4.6 kB scene layer package with
+    /// <i>ERROR 001147: There is not enough space in your online account</i> before sending a byte (2026-11-09, Pro 3.7
+    /// Share Package against dev). Enterprise's default was chosen by owner decision the same day over the free space of the
+    /// server directories, which a site of several nodes cannot answer as one number.
+    /// </remarks>
+    internal const long StorageQuotaBytes = 2L * 1024 * 1024 * 1024 * 1024;
+
+    /// <summary>What a member's own documents take, in bytes: the <c>storageUsage</c> of their profile.</summary>
+    /// <remarks>
+    /// Documents are the items this server keeps bytes for — files, packages, web scenes' and apps' JSON; a hosted layer's
+    /// rows live in its table and are not counted, as no ArcGIS client is told a table's size here either.
+    /// </remarks>
+    /// <param name="context">The request, for the store and the caller.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The sum of the sizes of the documents the caller owns.</returns>
+    private static async Task<long> StorageUsageAsync(HttpContext context, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        if (current.Principal == Principal.Anonymous
+            || context.RequestServices.GetService<IDocumentStore>() is not { } documents)
+        {
+            return 0;
+        }
+
+        IReadOnlyList<Document> all = await documents.ListAsync(cancellation).ConfigureAwait(false);
+        return all.Where(d => d.Owner == current.Principal.Id).Sum(d => Math.Max(0, d.Size));
     }
 
     /// <summary>The signed-in caller, as a portal describes one.</summary>
@@ -996,8 +1035,9 @@ internal static partial class PortalEndpoints
     /// <param name="context">The request, for the organisation's id.</param>
     /// <param name="current">Who is asking.</param>
     /// <param name="groups">Their groups, from <see cref="MineAsync"/>.</param>
+    /// <param name="storageUsage">What their documents take, from <see cref="StorageUsageAsync"/>.</param>
     /// <returns>The user document.</returns>
-    private static object Self(HttpContext context, RequestPrincipal current, IReadOnlyList<object> groups)
+    private static object Self(HttpContext context, RequestPrincipal current, IReadOnlyList<object> groups, long storageUsage)
     {
         bool administrator = current.Authorization.Allows(Privilege.AdminManageServer);
 
@@ -1041,6 +1081,9 @@ internal static partial class PortalEndpoints
             userLicenseTypeId = LicenseTypeIdOf(current.Authorization.UserType),
             level = "2",
             disabled = false,
+            // ADR-269 condition 2: Pro's Share Package reads these before it uploads (see StorageQuotaBytes).
+            storageUsage,
+            storageQuota = StorageQuotaBytes,
             units = "metric",
             culture = "en",
             region = string.Empty,

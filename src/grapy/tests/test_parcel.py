@@ -204,7 +204,9 @@ class Model(Fabric):
             cursor.insertRow([1, None, "POINT(0 0)"])
             cursor.insertRow([0, 5.0, "POINT(5 0)"])
             cursor.insertRow([0, None, "POINT(9 0)"])
-        self.assertEqual([r[0] for r in rows(self.points, ["Preserve"])], [1, 1, None])
+        # The third is No (0), not null: Pro 3.7 writes 0 on a new point (measured 2026-11-08 by the Pro sweep; this
+        # test expected null until then).
+        self.assertEqual([r[0] for r in rows(self.points, ["Preserve"])], [1, 1, 0])
         with self.assertRaises(Exception):
             with arcpy.da.UpdateCursor(self.points, ["SHAPE@"], "IsFixed = 1") as cursor:
                 for _ in cursor:
@@ -245,9 +247,15 @@ class Links(Fabric):
         self.assertEqual(rows(links, ["OID@"]), [])
         self.assertEqual(sorted(r[0].firstPoint.X for r in rows(anchors, ["SHAPE@"])), [0.0, 10.0])
 
-    def test_links_need_the_points_history(self):
-        with self.assertRaises(ExecuteError):
-            arcpy.parcel.GenerateParcelFabricLinks(self.fabric, f"{self.gpkg}/l", f"{self.gpkg}/a", "2026-01-01")
+    def test_links_without_the_points_history_are_empty(self):
+        # Pro 3.7 writes both outputs empty for a fabric whose points keep no history (a file geodatabase's; measured
+        # 2026-11-08 by the Pro sweep). This test expected ERROR 000800 until then.
+        links, anchors = arcpy.parcel.GenerateParcelFabricLinks(self.fabric, f"{self.gpkg}/l", f"{self.gpkg}/a",
+                                                                "2026-01-01")
+        self.assertEqual(rows(links, ["OID@"]), [])
+        self.assertEqual(rows(anchors, ["OID@"]), [])
+        self.assertEqual([f.name for f in arcpy.ListFields(anchors) if f.type not in ("OID", "Geometry")],
+                         ["SOURCE_GUID"])
 
 
 class Build(Fabric):

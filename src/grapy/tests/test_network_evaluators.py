@@ -23,6 +23,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 import grapy.na as na  # noqa: E402
 import grapy.nax as nax  # noqa: E402
+# Length is an edge's length on the ellipsoid, as ArcGIS Pro's Length attribute measures it (measured in ArcGIS Pro 3.7,
+# 2026-11-12, Pro sweep): on Web Mercator at the equator a north–south metre is 1 − e² of a metre on the ellipsoid, an
+# east–west one a metre. Until then Length was the planar length.
+NS = 1 - 0.00669437999014
 
 ROADS = [("WC", "LINESTRING(0 10,10 10)"), ("CE", "LINESTRING(10 10,20 10)"), ("CN", "LINESTRING(10 10,10 20)"),
          ("CS", "LINESTRING(10 10,10 5)"), ("EN", "LINESTRING(20 10,20 20,10 20)")]
@@ -289,8 +293,10 @@ class Network(unittest.TestCase):
                                          ["SourceName", "SourceOID", "RouteEdgeID", "FromPosition", "ToPosition",
                                           "FromJunctionID", "ToJunctionID", "RouteID", "Attr_Minutes",
                                           "Cumul_Minutes", "Attr_Kilometers"]))
-        self.assertEqual(edges, [("roads", OID["WC"], 1, 0.0, 1.0, 1, 2, 1, 1.0, 1.0, 0.01),
-                                 ("roads", OID["CN"], 3, 0.0, 1.0, 2, 3, 1, 1.0, 2.5, 0.01)])
+        self.assertEqual([e[:-1] for e in edges], [("roads", OID["WC"], 1, 0.0, 1.0, 1, 2, 1, 1.0, 1.0),
+                                                   ("roads", OID["CN"], 3, 0.0, 1.0, 2, 3, 1, 1.0, 2.5)])
+        self.assertAlmostEqual(edges[0][-1], 0.01)                     # WC runs east–west
+        self.assertAlmostEqual(edges[1][-1], 0.01 * NS)                # CN north–south
         junctions = list(result.searchCursor(nax.RouteOutputDataType.RouteJunctions,
                                              ["ObjectID", "SourceName", "SourceOID", "RouteJunctionID", "Cumul_Minutes"]))
         # The first stop, C, N and the last stop; the stops by their ObjectIDs.
@@ -312,7 +318,7 @@ class Network(unittest.TestCase):
                           "TraversedJunction", "TraversedJunction"])
         self.assertEqual([e.type for e in found][:2], [nax.TraversedElementType.Stop, nax.TraversedElementType.Edge])
         self.assertEqual([e.accumulatedImpedance for e in found], [0.0, 1.0, 1.0, 1.5, 2.5, 2.5, 2.5])
-        self.assertAlmostEqual(found[4].accumulatedLength, 20.0)
+        self.assertAlmostEqual(found[4].accumulatedLength, 10 + 10 * NS)       # WC east–west, CN north–south
         self.assertEqual(found[1].element, nax.Edge(1, True))
         self.assertEqual((found[1].sourceID, found[1].sourceObjectID, found[1].fromPosition, found[1].toPostition),
                          (1, OID["WC"], 0.0, 1.0))
@@ -382,11 +388,13 @@ class Network(unittest.TestCase):
         na.Solve(layer)
         (total, minutes, shape), = arcpy.da.SearchCursor(na.GetNASublayer(layer, "Routes"),
                                                          ["Total_Length", "Total_Minutes", "SHAPE@"])
-        self.assertAlmostEqual(total, 20.0)
+        self.assertAlmostEqual(total, 10 + 10 * NS)                    # 10 m east–west, 10 m north–south
         self.assertAlmostEqual(minutes, 2.0)
         self.assertEqual(shape.pointCount, 2)                         # a straight line
         props.findBestSequence = True
-        self.assertEqual((props.findBestSequence, props.orderingType), ("FIND_BEST_ORDER", "PRESERVE_BOTH"))
+        # The ordering is PRESERVE_NONE until set (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep); this said
+        # PRESERVE_BOTH.
+        self.assertEqual((props.findBestSequence, props.orderingType), ("FIND_BEST_ORDER", "PRESERVE_NONE"))
         props.orderingType = "PRESERVE_NONE"
         self.assertEqual(layer.settings["sequence"], "FIND_BEST_ORDER")
         props.applyTravelMode(na.GetTravelModes(self.network)["Driving"])
@@ -409,12 +417,12 @@ class Network(unittest.TestCase):
         sa = na.MakeServiceAreaAnalysisLayer(self.network, "sa", "Driving", cutoffs=[1, 2])[0]
         p = na.GetSolverProperties(sa)
         self.assertEqual((p.defaultBreaks, p.polygonNesting, p.lineType, p.polygonType),
-                         ([1.0, 2.0], "RINGS", "NO_LINES", "DETAILED_POLYS"))
+                         ([1.0, 2.0], "RINGS", "NO_LINES", "SIMPLE_POLYS"))   # Pro 3.7's word, measured
         p.lineType = "TRUE_LINES"
         p.polygonNesting = "DISKS"
         self.assertEqual((sa.settings["output"], sa.settings["rings"]), ("POLYGONS_AND_LINES", False))
         with self.assertRaises(arcpy.NotBuiltError):
-            p.polygonType = "SIMPLE_POLYS"
+            p.polygonType = "DETAILED_POLYS"
         od = na.MakeODCostMatrixAnalysisLayer(self.network, "od", "Driving")[0]
         p = na.GetSolverProperties(od)
         p.defaultTargetDestinationCount = 2

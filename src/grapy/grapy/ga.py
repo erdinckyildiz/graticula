@@ -142,8 +142,11 @@ def _required_neighbourhood(tool, value):
 
 
 def _grid(layer, cell_size, tool):
-    """The output grid over the layer's points, its top-left corner at their extent's, at the cell size given or the
-    documented default: the shorter side of the extent divided by 250."""
+    """The output grid over the layer's points at the cell size given or the documented default: the shorter side of
+    the extent divided by 250. As ArcGIS Pro 3.7 lays it (measured 2026-11-08 at nine cell sizes): the first cell's
+    centre on the points' lower-left corner, and round(width / cell) + 1 columns and round(height / cell) + 1 rows
+    from there, so the grid reaches up to half a cell past the points on each side. (grapy put the top-left corner on
+    the extent's and took ceil(width / cell) columns until then.)"""
     from . import sa
     from ._raster import _Grid, _refuse_environment
     _refuse_environment(f"arcpy.ga.{tool}")
@@ -154,9 +157,9 @@ def _grid(layer, cell_size, tool):
         if shorter <= 0:
             _refuse(tool, "cell_size", "(empty)", "the points' extent has no width or height to divide by 250")
         cell = shorter / 250.0
-    columns = max(1, int(math.ceil((right - left) / cell)))
-    rows = max(1, int(math.ceil((top - bottom) / cell)))
-    return _Grid(left, top, cell, cell, rows, columns, layer.srid)
+    columns = int(math.floor((right - left) / cell + 0.5)) + 1
+    rows = int(math.floor((top - bottom) / cell + 0.5)) + 1
+    return _Grid(left - cell / 2, bottom - cell / 2 + rows * cell, cell, cell, rows, columns, layer.srid)
 
 
 def _raster(values, grid):
@@ -448,6 +451,9 @@ _PATHS = {  # (method, leaf) → (where in the model, the key); the paths the GA
     ("KRIGING", "RANGE"): ("semivariogram", "range"),
     ("KRIGING", "SILL"): ("semivariogram", "partialSill"),
     ("KRIGING", "NUMBEROFLAGS"): (None, "numberOfLags"),
+    # An IDW layer's power: /model[@name = 'IDW']/value[@name = 'Power'], which ArcGIS Pro 3.7 answers (measured
+    # 2026-11-08: "3" for power 3; error 045015 on a layer of another method).
+    ("IDW", "POWER"): (None, "power"),
 }
 
 
@@ -458,12 +464,12 @@ def _paths(tool, layer, model_param_xpath):
         auto = path.rstrip().endswith("/@auto")
         if not names:
             raise ValueError(f"arcpy.ga.{tool}: '{path}' is not a model parameter path.")
-        method = {"KRIGING": "KRIGING"}.get(names[0].upper())
+        method = {"KRIGING": "KRIGING", "IDW": "IDW"}.get(names[0].upper())
         key = _PATHS.get((method, names[-1].upper())) if method == layer.method else None
         if key is None or (auto and key[0] is None):
             _refuse(tool, "model_param_xpath", path, "grapy's model is its own JSON (ADR-233 §5.2), and of Esri's XML "
                     "paths it answers the ones the page prints: a kriging layer's Nugget, Range, Sill (the partial "
-                    "sill), NumberOfLags, and their @auto")
+                    "sill), NumberOfLags, and their @auto; and an IDW layer's Power, measured in Pro")
         found.append((key, auto))
     return found
 
@@ -478,7 +484,9 @@ def GAGetModelParameter(in_ga_model_source, model_param_xpath):
     for (where, key), auto in _paths(tool, layer, model_param_xpath):
         holder = layer.parameters.get(where) or {} if where else layer.parameters
         value = (holder.get("auto") or {}).get(key, False) if auto else holder.get(key)
-        values.append("" if value is None else (str(value).lower() if isinstance(value, bool) else repr(value)
+        # A whole number without its ".0": Pro 3.7 answers "3" for an IDW power of 3 (measured 2026-11-08).
+        values.append("" if value is None else (str(value).lower() if isinstance(value, bool) else
+                                                (str(int(value)) if value.is_integer() else repr(value))
                                                 if isinstance(value, float) else str(value)))
     return Result(";".join(values))
 
@@ -648,13 +656,13 @@ def _validated(layer, measured, predictions):
 
 def GALayerToPoints(in_geostat_layer, in_locations, z_field=None, out_feature_class=None, append_all_fields="ALL",
                     elevation_field=None, elevation_units=None):
-    """Predictions at the locations: ``Source_ID``, ``Included`` (Yes, or Not enough neighbors), ``Predicted`` and,
-    for a kriging layer, ``StdError``; with ``z_field``, validation against it — ``Error`` (predicted minus the value),
+    """Predictions at the locations: ``Included`` (Yes, or Not enough neighbors), ``Predicted`` and, for a kriging
+    layer, ``StdError``; with ``z_field``, validation against it — ``Error`` (predicted minus the value),
     ``Stdd_Error`` (Error / StdError) and ``NormValue`` — the field names the page gives. ``ALL`` copies the locations'
-    fields, ``FID_ONLY`` keeps ``Source_ID`` alone.
+    fields; ``FID_ONLY`` writes ``Source_ID`` instead, and the z field's copy — as Pro 3.7 does (measured 2026-11-08).
 
-    Refused: ``elevation_field`` (3D layers are EBK3D's). INFERRED: Source_ID is written in both modes, a copied field
-    whose name is one of the tool's is left out, and fields a layer cannot answer (StdError for IDW) are not written."""
+    Refused: ``elevation_field`` (3D layers are EBK3D's). INFERRED: a copied field whose name is one of the tool's is
+    left out, and fields a layer cannot answer (StdError for IDW) are not written."""
     tool = "GALayerToPoints"
     if _given(elevation_field):
         _refuse(tool, "elevation_field", elevation_field, "it is for 3D layers, which only EmpiricalBayesianKriging3D makes")
@@ -663,11 +671,12 @@ def GALayerToPoints(in_geostat_layer, in_locations, z_field=None, out_feature_cl
     layer = _geostat.open_layer(in_geostat_layer, tool)
     columns, srid, rows = _locations(in_locations, tool)
     predictions = [layer.predict(x, y) for _, _, (x, y) in rows]
-    own = ["Source_ID", "Included", "Predicted"] + (["StdError"] if layer.has_errors() else [])
-    fields = [("Source_ID", "Integer"), ("Included", "String"), ("Predicted", "Double")] + (
-        [("StdError", "Double")] if layer.has_errors() else [])
-    values = [[oid, "Yes" if p is not None else "Not enough neighbors", None if p is None else p[0]]
-              + ([None if p is None else p[1]] if layer.has_errors() else []) for (oid, _, _), p in zip(rows, predictions)]
+    every = _keyword(append_all_fields or "ALL") in ("ALL", "TRUE")
+    included = [("Included", "String"), ["Yes" if p is not None else "Not enough neighbors" for p in predictions]]
+    own = [(("Predicted", "Double"), [None if p is None else p[0] for p in predictions])]
+    if layer.has_errors():
+        own.append((("StdError", "Double"), [None if p is None else p[1] for p in predictions]))
+    k = None
     if _given(z_field):
         names = {c.name.lower(): i for i, c in enumerate(columns)}
         if str(z_field).lower() not in names:
@@ -675,22 +684,24 @@ def GALayerToPoints(in_geostat_layer, in_locations, z_field=None, out_feature_cl
         k = names[str(z_field).lower()]
         measured = [None if r[1][k] is None else float(r[1][k]) for r in rows]
         errors, _, standardized, norms = _validated(layer, measured, predictions)
-        fields.append(("Error", "Double"))
-        own.append("Error")
+        own.append((("Error", "Double"), errors))
         if layer.has_errors():
-            fields += [("Stdd_Error", "Double"), ("NormValue", "Double")]
-            own += ["Stdd_Error", "NormValue"]
-        for i, v in enumerate(values):
-            v.append(errors[i])
-            if layer.has_errors():
-                v += [standardized[i], norms[i]]
-    keep = []
-    if _keyword(append_all_fields or "ALL") in ("ALL", "TRUE"):
-        taken = {f.lower() for f in own}
+            own += [(("Stdd_Error", "Double"), standardized), (("NormValue", "Double"), norms)]
+    # The order ArcGIS Pro 3.7 writes (measured 2026-11-08 on an IDW layer): ALL — the locations' fields, Included,
+    # Predicted, Error, and no Source_ID; FID_ONLY — the z field's copy when one is given, Predicted, Error, Source_ID,
+    # Included. grapy wrote Source_ID in both modes, first. INFERRED: kriging's StdError follows Predicted and its
+    # Stdd_Error and NormValue follow Error.
+    taken = {"source_id", "included"} | {f[0].lower() for f, _ in own}
+    if every:
         keep = [i for i, c in enumerate(columns) if c.name.lower() not in taken]
-        fields += [(columns[i].name, columns[i].type) for i in keep]
+        built = [((columns[i].name, columns[i].type), [r[1][i] for r in rows]) for i in keep] + [tuple(included)] + own
+    else:
+        copied = [((columns[k].name, columns[k].type), [r[1][k] for r in rows])] if k is not None and \
+            columns[k].name.lower() not in taken else []
+        built = copied + own + [(("Source_ID", "Integer"), [r[0] for r in rows]), tuple(included)]
+    fields = [f for f, _ in built]
     out = _write_points(out_feature_class, srid, fields,
-                        [(v + [r[1][i] for i in keep], r[2][0], r[2][1]) for v, r in zip(values, rows)])
+                        [([v[n] for _, v in built], r[2][0], r[2][1]) for n, r in enumerate(rows)])
     return Result(out)
 
 
@@ -699,8 +710,8 @@ def GALayerToContour(in_geostat_layer, contour_type, out_feature_class, contour_
     """Contour lines of the layer's predictions, made as arcpy.sa.Contour makes them (How contouring works) on the
     layer's default grid — the shorter side of the points' extent divided by 250 (INFERRED for DRAFT). ``MANUAL``
     breaks are the contour values; ``EQUAL_INTERVAL`` with N classes gives the N − 1 values that split the
-    predictions' range into N equal classes (INFERRED: the range of the predictions on that grid). Each line carries
-    its value in ``Contour`` (INFERRED, as arcpy.sa.Contour).
+    predictions' range into N equal classes (INFERRED: the range of the predictions on that grid). Each value is one
+    feature with ``Classes`` and ``Value``, as Pro 3.7 writes it (measured, ``_write_classes``).
 
     Refused: FILLED_CONTOUR (polygon contours are not built in grapy's contouring), SAME_AS_LAYER (a renderer),
     PRESENTATION (how much more detail is not given), GEOMETRIC_INTERVAL (Esri's classification, not published as a
@@ -732,7 +743,25 @@ def GALayerToContour(in_geostat_layer, contour_type, out_feature_class, contour_
         levels = [low + k * (high - low) / n for k in range(1, n)]
     else:
         raise ValueError(f"arcpy.ga.{tool}: give classification_type MANUAL with classes_breaks, or EQUAL_INTERVAL.")
-    return sa._write_contours(out_feature_class, surface, sa._contour_lines(surface, levels))
+    return _write_classes(out_feature_class, layer.srid, levels, sa._contour_lines(surface, levels))
+
+
+def _write_classes(out_feature_class, srid, levels, lines):
+    """One feature per contour value, every line of that value in it, with ``Classes`` (1, 2 … from the lowest value)
+    and ``Value``: what GA Layer To Contour writes in ArcGIS Pro 3.7 (measured 2026-11-08, MANUAL breaks 40, 50, 60;
+    grapy wrote arcpy.sa.Contour's Id and Contour, one feature per line, the highest first). INFERRED: a value with no
+    line writes no feature."""
+    from shapely.geometry import MultiLineString
+    from . import _gpkg, da
+    from .analysis import _out
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polyline", srid, [_gpkg.Column("Classes", "Integer"), _gpkg.Column("Value", "Double")])
+    with da.InsertCursor(out, ["Classes", "Value", "SHAPE@"]) as written:
+        for n, level in enumerate(levels, start=1):
+            parts = [list(line.coords) for value, line in lines if value == level]
+            if parts:
+                written.insertRow((n, float(level), MultiLineString(parts)))
+    return Result(out)
 
 
 # ---- cross-validation
@@ -799,6 +828,13 @@ _CRITERIA = {"ACCURACY": lambda s: s["rmse"], "BIAS": lambda s: abs(s["mean"]), 
              "PRECISION": lambda s: s["ase"]}
 
 
+_DESCRIPTIONS = {"IDW": "Inverse Distance Weighted", "GLOBAL_POLYNOMIAL": "Global Polynomial Interpolation",
+                 "LOCAL_POLYNOMIAL": "Local Polynomial Interpolation", "RADIAL_BASIS": "Radial Basis Functions",
+                 "KRIGING": "Kriging", "COKRIGING": "Cokriging"}   # the last two INFERRED
+_RANK_FIELDS = {"ACCURACY": "RMS_RANK", "BIAS": "ME_RANK", "WORST_CASE": "MAXE_RANK", "STANDARD_ERROR": "RMSS_RANK",
+                "PRECISION": "ASE_RANK"}   # ACCURACY, BIAS and WORST_CASE measured in Pro 3.7, the rest INFERRED
+
+
 def _competition(scores):
     """Ranks, smaller first, tied results sharing the highest rank of their group (1, 2, 2, 4), as documented."""
     return [1 + sum(1 for t in scores if t < s) for s in scores]
@@ -818,10 +854,10 @@ def CompareGeostatisticalLayers(in_geostat_layers, out_cv_table, out_geostat_lay
     (1 − value/100)). Refused: MAX_MEAN_ERROR and MIN_MEAN_ERROR, which the page describes in the same words. A
     standard-error criterion with a layer that has none is an error, as the page makes the option unavailable.
 
-    INFERRED: the table's fields beyond ``RANK`` and ``Included`` — ``Layer``, ``Description``, ``Count``,
-    ``MeanError``, ``RMSE``, ``MaxAbsError``, ``MeanStdError``, ``RMSStdError``, ``AvgStdError``, and for AVERAGE_RANK
-    ``Rank_<criterion>`` and ``WeightedAverageRank``; in SORTING the next tie block starts at the best of the rest; the
-    weighted average is Σ wᵢ rᵢ / Σ wᵢ; SD is the sample standard deviation (n − 1) of the layer's data."""
+    The table's fields are Pro 3.7's (measured 2026-11-08; see the comment where it is written); the weighted
+    average is Σ wᵢ rᵢ / Σ wᵢ and SD the sample standard deviation (n − 1) of the layer's data, both measured there.
+    INFERRED: the standard-error fields and three criteria's rank names; in SORTING the next tie block starts at the
+    best of the rest."""
     tool = "CompareGeostatisticalLayers"
     from . import _gpkg, da
     from .analysis import _table
@@ -909,19 +945,32 @@ def CompareGeostatisticalLayers(in_geostat_layers, out_cv_table, out_geostat_lay
         ranks = _competition(average)
     else:
         raise ValueError(f"arcpy.ga.{tool}: '{comparison_method}' is not a comparison method.")
-    columns = [_gpkg.Column("Layer", "String"), _gpkg.Column("Description", "String"), _gpkg.Column("RANK", "Integer"),
-               _gpkg.Column("Included", "String"), _gpkg.Column("Count", "Integer"), _gpkg.Column("MeanError", "Double"),
-               _gpkg.Column("RMSE", "Double"), _gpkg.Column("MaxAbsError", "Double"),
-               _gpkg.Column("MeanStdError", "Double"), _gpkg.Column("RMSStdError", "Double"),
-               _gpkg.Column("AvgStdError", "Double")] + [_gpkg.Column(k, "Double") for k in extra]
+    # The table as ArcGIS Pro 3.7 writes it (measured 2026-11-08 on IDW, global and local polynomial and radial basis
+    # layers): GA_LYR (the layer as given), RANK, DESCR (the method's name), INCLUDED, RMSE, ME (mean error),
+    # MAX_ERROR (the largest absolute error) and PERC_ERROR, (1 − RMSE / SD) × 100 with SD the sample standard
+    # deviation; for AVERAGE_RANK each criterion's rank (ACCURACY RMS_RANK, BIAS ME_RANK, measured) and AVE_RANK; rows in
+    # rank order. INFERRED: the standard-error columns (MeanStdError, RMSStdError, AvgStdError) when a layer has
+    # standard errors, the other criteria's rank names, excluded rows last.
+    errors = any(layer.has_errors() for layer in layers)
+    rank_names = {k: _RANK_FIELDS.get(_keyword(k[5:]), k) for k in extra if k.startswith("Rank_")}
+    columns = [_gpkg.Column("GA_LYR", "String"), _gpkg.Column("RANK", "Integer"), _gpkg.Column("DESCR", "String"),
+               _gpkg.Column("INCLUDED", "String"), _gpkg.Column("RMSE", "Double"), _gpkg.Column("ME", "Double"),
+               _gpkg.Column("MAX_ERROR", "Double"), _gpkg.Column("PERC_ERROR", "Double")] + (
+        [_gpkg.Column("MeanStdError", "Double"), _gpkg.Column("RMSStdError", "Double"),
+         _gpkg.Column("AvgStdError", "Double")] if errors else []) + [
+        _gpkg.Column(rank_names[k], "Integer") if k in rank_names else _gpkg.Column("AVE_RANK", "Double") for k in extra]
     out = _table(out_cv_table, columns)
+    order = sorted(range(len(layers)), key=lambda i: (i not in kept, ranks[kept.index(i)] if i in kept else 0, i))
     with da.InsertCursor(out, [c.name for c in columns]) as written:
-        for i, (name, layer, s) in enumerate(zip(names, layers, stats)):
+        for i in order:
+            name, layer, s = names[i], layers[i], stats[i]
             position = kept.index(i) if i in kept else None
-            written.insertRow((str(name), layer.method, None if position is None else ranks[position],
-                               "Yes" if position is not None else "No", s["count"], s["mean"], s["rmse"], s["worst"],
-                               s["ms"], s["rmss"], s["ase"],
-                               *[None if position is None else float(v[position]) for v in extra.values()]))
+            perc = None if not s["sd"] or s["rmse"] is None else (1 - s["rmse"] / s["sd"]) * 100
+            written.insertRow((str(name), None if position is None else ranks[position],
+                               _DESCRIPTIONS.get(layer.method, layer.method), "Yes" if position is not None else "No",
+                               s["rmse"], s["mean"], s["worst"], perc, *([s["ms"], s["rmss"], s["ase"]] if errors else []),
+                               *[None if position is None else (int(v[position]) if k in rank_names else
+                                                                float(v[position])) for k, v in extra.items()]))
     top = ""
     if _given(out_geostat_layer) and kept and ranks.count(1) == 1:
         top = _geostat.save_layer(out_geostat_layer, layers[kept[ranks.index(1)]])

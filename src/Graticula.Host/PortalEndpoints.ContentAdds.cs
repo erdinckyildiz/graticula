@@ -198,7 +198,7 @@ internal static partial class PortalEndpoints
     /// </summary>
     private static async Task<IResult> AddDocumentAsync(
         HttpContext context, RequestPrincipal current, IFormCollection form, IFormFile file, string type, Guid? folder,
-        CancellationToken cancellation)
+        CancellationToken cancellation, Guid? given = null)
     {
         IServiceProvider services = context.RequestServices;
         IDocumentStore documents = services.GetRequiredService<IDocumentStore>();
@@ -221,14 +221,16 @@ internal static partial class PortalEndpoints
         }
 
         (int status, string? message, JsonElement made) = await WithFormAsync(context, fields, file, () =>
-            InnerAnswerAsync(context, () => AdminEndpoints.CreateDocumentAsync(context, documents, audit, cancellation)))
+            InnerAnswerAsync(context, () => AdminEndpoints.CreateDocumentUnderAsync(context, documents, audit, given, cancellation)))
             .ConfigureAwait(false);
 
         if (status is < 200 or >= 300 || made.ValueKind != JsonValueKind.Object
-            || !made.TryGetProperty("id", out JsonElement madeId) || madeId.GetString() is not { } id)
+            || !made.TryGetProperty("id", out JsonElement madeId) || madeId.GetString() is not { } documentId)
         {
             return PortalError(status is >= 200 and < 300 ? 500 : status, message ?? $"'{file.FileName}' was not added.");
         }
+
+        string id = documentId;
 
         if (TagsOf(First(form, context, "tags"), out _) is { Count: > 0 } tags)
         {
@@ -288,8 +290,11 @@ internal static partial class PortalEndpoints
         await using (FileStream stream = File.OpenRead(staged.File))
         {
             FormFile file = new(stream, 0, stream.Length, "file", fileName) { Headers = new HeaderDictionary() };
+            // ADR-269 condition 2: the item keeps the id addItem gave it, as a portal's does — Pro asks for it by that id
+            // after commit, and a document under another id was one it could not find, update, share or publish.
             answer = await AddDocumentAsync(
-                context, current, new FormCollection(fields), file, staged.ItemType!, staged.Folder, cancellation).ConfigureAwait(false);
+                context, current, new FormCollection(fields), file, staged.ItemType!, staged.Folder, cancellation,
+                Guid.TryParseExact(staged.Id, "N", out Guid stagedId) ? stagedId : null).ConfigureAwait(false);
         }
 
         if (answer is IValueHttpResult { Value: { } value }

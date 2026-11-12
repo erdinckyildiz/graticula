@@ -461,7 +461,10 @@ def export_record(fab, record, target):
     for table in (fab.connections, fab.points):
         name = f"{dataset}/{table.rsplit('/', 1)[-1]}"
         outputs.append(_export(fab.file, table, out_file, name, tagged(pf.read(fab.file, table)), status))
-    records_out = _export(fab.file, fab.records, out_file, f"{dataset}/{fab.records.rsplit('/', 1)[-1]}", [record])
+    # The records class carries ExportedStatus too, left null: ArcGIS Pro 3.7 writes it so (measured 2026-11-08 by the
+    # Pro sweep; grapy wrote the records class without it).
+    records_out = _export(fab.file, fab.records, out_file, f"{dataset}/{fab.records.rsplit('/', 1)[-1]}", [record],
+                          status)
     from . import management
     for path in outputs:
         management.AssignDomainToField(path, "ExportedStatus", pf.EXPORT_STATUS[0])
@@ -907,29 +910,43 @@ def links(fab, out_links, out_anchors, start, end, minimum, box):
     """EQUIVALENT (§5.4): each point's location at the From date and at the To date (or now) read from its class's
     history — branch versioned or archived (ADR-227) — and a link drawn from the first to the second where the point
     moved at least ``minimum``; an anchor at the first location for every other point. Points that did not exist at
-    the From date have no original location and give neither."""
-    from . import _attachments, _versions
+    the From date have no original location and give neither; points with no history give neither, as Pro 3.7's
+    fabric in a file geodatabase gives none (measured 2026-11-08)."""
+    from . import _versions
     connection = _gpkg.connect(fab.file)
     try:
         if _versions.kind(connection, fab.points) is None:
-            raise ExecuteError("ERROR 000800: GenerateParcelFabricLinks: the fabric's points keep no history; register "
-                               "the fabric's feature dataset as versioned (RegisterAsVersioned) or enable archiving on "
-                               "its points (EnableArchiving) before the edits whose links are wanted.")
-        _, oid, geometry = _versions.columns(connection, fab.points)
-        guid = _attachments.global_id_field(connection, fab.points)
-        guid_sql = f'"{guid}"' if guid else "null"
-        first = _versions.moment_at(connection, start)
-        last = _versions.moment_at(connection, end) if end is not None else _versions.current_moment(connection)
-
-        def state(moment):
-            if moment <= 0:
-                return {}
-            sql = (f'select "{oid}", "{geometry}", {guid_sql} from '
-                   f'{_versions.state_sql(connection, fab.points, 0, 0, until=moment)}')
-            return {r[0]: (_gpkg.decode(r[1]), r[2]) for r in connection.execute(sql)}
-        before, after = state(first), state(last)
+            # No history, no original locations: both outputs are written empty. ArcGIS Pro 3.7 does this on a file
+            # geodatabase's fabric, whatever the From date (measured 2026-11-08 by the Pro sweep: "Row Count = 0");
+            # grapy raised ERROR 000800 until then.
+            AddWarning("GenerateParcelFabricLinks: the fabric's points keep no history (register the feature dataset as "
+                       "versioned or enable archiving on its points), so no point has an original location.")
+            before = after = {}
+        else:
+            before, after = _states(connection, fab, start, end)
     finally:
         connection.close()
+    return _write_links(fab, out_links, out_anchors, before, after, minimum, box)
+
+
+def _states(connection, fab, start, end):
+    from . import _attachments, _versions
+    _, oid, geometry = _versions.columns(connection, fab.points)
+    guid = _attachments.global_id_field(connection, fab.points)
+    guid_sql = f'"{guid}"' if guid else "null"
+    first = _versions.moment_at(connection, start)
+    last = _versions.moment_at(connection, end) if end is not None else _versions.current_moment(connection)
+
+    def state(moment):
+        if moment <= 0:
+            return {}
+        sql = (f'select "{oid}", "{geometry}", {guid_sql} from '
+               f'{_versions.state_sql(connection, fab.points, 0, 0, until=moment)}')
+        return {r[0]: (_gpkg.decode(r[1]), r[2]) for r in connection.execute(sql)}
+    return state(first), state(last)
+
+
+def _write_links(fab, out_links, out_anchors, before, after, minimum, box):
     link_rows, anchor_rows = [], []
     for object_id, (shape, point_id) in sorted(before.items()):
         if shape is None or shape.is_empty or (box is not None and not shape.intersects(box)):
@@ -937,14 +954,15 @@ def links(fab, out_links, out_anchors, start, end, minimum, box):
         now = after.get(object_id, (None, None))[0]
         moved = now.distance(shape) if now is not None and not now.is_empty else 0.0
         if moved > 0 and moved >= minimum:
-            link_rows.append({"PointID": point_id, "shape": LineString([(shape.x, shape.y), (now.x, now.y)])})
+            link_rows.append({"SOURCE_GUID": point_id, "shape": LineString([(shape.x, shape.y), (now.x, now.y)])})
         else:
-            anchor_rows.append({"PointID": point_id, "shape": Point(shape.x, shape.y)})
+            anchor_rows.append({"SOURCE_GUID": point_id, "shape": Point(shape.x, shape.y)})
     outputs = []
     for out, shape_type, written in ((out_links, "Polyline", link_rows), (out_anchors, "Point", anchor_rows)):
         out_file, out_table = _gpkg.split(out if ".gpkg" in out.lower() else out + ".gpkg")
         out_table = out_table or os.path.splitext(os.path.basename(out_file))[0]
-        _gpkg.create(f"{out_file}/{out_table}", shape_type, fab.srid, [_gpkg.Column("PointID", "String")])
+        # SOURCE_GUID, a GUID: Pro 3.7's one field (measured 2026-11-08; grapy wrote PointID, a string, until then).
+        _gpkg.create(f"{out_file}/{out_table}", shape_type, fab.srid, [_gpkg.Column("SOURCE_GUID", "Guid")])
         pf.insert(out_file, out_table, written)
         outputs.append(f"{out_file}/{out_table}")
     AddMessage(f"{len(link_rows)} links and {len(anchor_rows)} anchor points generated.")

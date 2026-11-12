@@ -255,8 +255,19 @@ internal static partial class AdminEndpoints
     /// <b>Multipart</b>: <c>file</c>, and optionally <c>title</c> (the file's name without its extension otherwise),
     /// <c>snippet</c> and <c>sharing</c> (private otherwise).
     /// </remarks>
-    internal static async Task CreateDocumentAsync(
-        HttpContext context, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    internal static Task CreateDocumentAsync(
+        HttpContext context, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation) =>
+        CreateDocumentUnderAsync(context, documents, audit, null, cancellation);
+
+    /// <summary>Files a new document under <paramref name="id"/> when the server has already given the item one.</summary>
+    /// <remarks>
+    /// <b>Only the server names the id, never the request</b>: this is not the route's delegate, so nothing a caller
+    /// sends can bind to <paramref name="id"/>. The portal's multipart <c>addItem</c> gives its id before the file
+    /// exists, and ArcGIS Pro goes on using that id — <c>update</c>, the item, <c>shareItems</c>, <c>publish</c> — after
+    /// <c>commit</c> (ADR-269 condition 2, 2026-11-09); a document filed under a fresh id was an item Pro could not find.
+    /// </remarks>
+    internal static async Task CreateDocumentUnderAsync(
+        HttpContext context, IDocumentStore documents, IAuditLog audit, Guid? id, CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentCreate).ConfigureAwait(false))
         {
@@ -279,10 +290,10 @@ internal static partial class AdminEndpoints
         Document made = upload.File is { } kept
             ? await documents.CreateFileAsync(
                 upload.Title, upload.Snippet, current.Principal.Id, upload.Sharing, upload.FileName, upload.Kind, kept.Size,
-                kept.Recorded, kept.Sha256, cancellation).ConfigureAwait(false)
+                kept.Recorded, kept.Sha256, cancellation, id).ConfigureAwait(false)
             : await documents.CreateAsync(
                 upload.Title, upload.Snippet, current.Principal.Id, upload.Sharing, upload.FileName, upload.Kind, upload.Content,
-                cancellation).ConfigureAwait(false);
+                cancellation, id).ConfigureAwait(false);
 
         // ADR-268: a PDF is given its first page as its picture; a failure leaves it without one and the upload kept.
         await DocumentPictures.DrawAsync(context.RequestServices, made, upload.Content, cancellation).ConfigureAwait(false);

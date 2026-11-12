@@ -72,6 +72,23 @@ class Workspace(_Folder):
         self.assertEqual(arcpy.ListFeatureClasses(), ["parcels", "roads"])
         self.assertEqual(arcpy.ListFiles(), [])
 
+    def test_list_feature_classes_inside_and_outside_a_feature_dataset(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-12, in a file geodatabase: the root lists only "top"; feature_dataset
+        # "ds" lists ["inner", "inpt"]; with feature_type Point ["inpt"]; a dataset that does not exist answers [].
+        # grapy listed "ds/inner" and "ds/inpt" at the root and nothing for "ds".
+        gdb = arcpy.management.CreateFileGDB(self.directory, "fd")[0]
+        arcpy.management.CreateFeatureDataset(gdb, "ds", 32635)
+        arcpy.management.CreateFeatureclass(gdb, "top", "POINT", spatial_reference=32635)
+        arcpy.management.CreateFeatureclass(os.path.join(gdb, "ds"), "inner", "POLYLINE", spatial_reference=32635)
+        arcpy.management.CreateFeatureclass(os.path.join(gdb, "ds"), "inpt", "POINT", spatial_reference=32635)
+        arcpy.env.workspace = gdb
+        self.assertEqual(arcpy.ListFeatureClasses(), ["top"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_dataset=""), ["top"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_dataset="ds"), ["inner", "inpt"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_type="Point", feature_dataset="ds"), ["inpt"])
+        self.assertEqual(arcpy.ListFeatureClasses("inn*", feature_dataset="ds"), ["inner"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_dataset="nope"), [])
+
     def test_list_indexes_and_field_domains(self):
         connection = sqlite3.connect(self.pts)
         connection.execute('create unique index ix_name on pts ("name")')

@@ -387,7 +387,7 @@ pre .k{color:var(--accent)}
     <div class="rail">
       <p class="marg">What runs</p>
       <div class="col">
-        <h2>Five service types, and what each one still cannot do</h2>
+        <h2>Six service types, and what each one still cannot do</h2>
         <p class="sub">Read out of the code rather than off a roadmap. Where a surface is
         partial, the entry names the missing part.</p>
         <div class="key">
@@ -451,6 +451,19 @@ pre .k{color:var(--accent)}
               Statistics, measurement on the ground, a raster attribute table, Download and pyramids.
               MrSID and ECW are refused by name: only their makers' SDKs read them.</p>
               <p class="ops"><code>exportImage</code><code>identify</code><code>query</code><code>measure</code><code>getSamples</code></p>
+            </div>
+          </div>
+          <div class="cap">
+            <i class="sw full"><span class="vh">Complete.</span></i>
+            <div>
+              <h3>Scene services</h3>
+              <p>A scene layer package added to content is served as a <code>SceneServer</code>: 3D objects, points,
+              integrated meshes, point clouds, buildings and voxels. Studio's scene viewer opens, draws and saves web
+              scenes, and writes a 3D object or point scene layer from a polygon or point layer, rebuilt when the layer
+              changes. glb, OBJ, COLLADA, FBX, IFC and USD models are placed in a 3D object layer; 3D Tiles archives and
+              Gaussian splats are served and drawn. <b>ArcGIS Pro shares its own scene layer packages and web scenes
+              here</b>, and draws the layers this server writes.</p>
+              <p class="ops"><code>layers</code><code>nodes</code><code>web scenes</code></p>
             </div>
           </div>
 
@@ -584,10 +597,14 @@ pre .k{color:var(--accent)}
           </div>
 
           <div class="gap">
-            <i class="sw none"><span class="vh">Not built.</span></i>
+            <i class="sw half"><span class="vh">Partial.</span></i>
             <div>
-              <h3>No geocoding service</h3>
-              <p>Address parsing, matching and reverse geocoding are designed and unbuilt.</p>
+              <h3>Geocoding only through a Photon you run</h3>
+              <p>Point the server at a <a href="https://github.com/komoot/photon">Photon</a> instance
+              and <code>Utilities/Geocode/GeocodeServer</code> answers with suggestions, search and
+              reverse geocoding. The Maps SDK Search widget and the ArcGIS API for Python have used it.
+              It searches OpenStreetMap, so house numbers are only as good as OpenStreetMap&rsquo;s.
+              A locator over your own address table is not built.</p>
             </div>
           </div>
 
@@ -603,8 +620,8 @@ pre .k{color:var(--accent)}
             <div>
               <h3>No apps or dashboards</h3>
               <p>Studio is the portal's job for <b>content and people</b> &mdash; items, members,
-              roles, groups, sharing. It authors one thing: a <b>web map</b>, saved as an ArcGIS Web
-              Map that Pro and the Maps SDK open. There is no app builder, no dashboards and no
+              roles, groups, sharing. It authors two things: a <b>web map</b>, saved as an ArcGIS Web
+              Map that Pro and the Maps SDK open, and a <b>web scene</b>, which Pro shares here and Studio opens. There is no app builder, no dashboards and no
               Living Atlas. Bring your own client; the services are the product.</p>
             </div>
           </div>
