@@ -149,6 +149,60 @@ internal static class OfflineJsonReplica
         }
     }
 
+    /// <summary>
+    /// Writes the answer to a registration of existing data: the replica's shape with every layer's <c>features</c> and
+    /// <c>attachments</c> empty, because the device already holds the data.
+    /// </summary>
+    /// <remarks>
+    /// <b>INFERRED:</b> that ArcGIS answers this request with the replica's shape and empty arrays. Its answer was not
+    /// captured (research note §5a); the shape is the one a JSON replica has, so a client that reads one reads this.
+    /// </remarks>
+    /// <param name="file">Where to write.</param>
+    /// <param name="replica">The new replica.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A task.</returns>
+    public static async Task WriteRegistrationAsync(string file, ReplicaRecord replica, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(replica);
+
+        try
+        {
+            await using FileStream stream = new(file, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
+            await using Utf8JsonWriter json = new(stream);
+
+            json.WriteStartObject();
+            json.WriteString("replicaName", replica.Name);
+            json.WriteString("replicaID", OfflineReplicaRequests.Wire(replica.Id));
+            json.WriteString("targetType", "client");
+            json.WriteString("transportType", "esriTransportTypeUrl");
+            json.WriteString("responseType", "esriReplicaResponseTypeData");
+            json.WriteString("syncModel", "perLayer");
+            WriteGenerations(json, replica.Layers);
+
+            json.WriteStartArray("layers");
+
+            foreach (ReplicaLayer layer in replica.Layers)
+            {
+                json.WriteStartObject();
+                json.WriteNumber("id", layer.Id);
+                json.WriteStartArray("features");
+                json.WriteEndArray();
+                json.WriteStartArray("attachments");
+                json.WriteEndArray();
+                json.WriteEndObject();
+            }
+
+            json.WriteEndArray();
+            json.WriteEndObject();
+            await json.FlushAsync(cancellation).ConfigureAwait(false);
+        }
+        catch
+        {
+            ReplicaJobs.TryDelete(file);
+            throw;
+        }
+    }
+
     /// <summary>The address a layer's attachment is fetched from.</summary>
     /// <param name="featureServerUrl">The FeatureServer address.</param>
     /// <param name="layerId">The layer.</param>

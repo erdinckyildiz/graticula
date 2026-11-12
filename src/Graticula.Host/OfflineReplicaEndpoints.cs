@@ -289,6 +289,18 @@ internal static class OfflineReplicaEndpoints
         IServiceProvider services = context.RequestServices;
         Func<string, string?> field = await FieldsAsync(context, cancellation).ConfigureAwait(false);
 
+        if (!OfflineReplicaRequests.TryReadRegisterExisting(field, out Guid? reference, out string? existingError))
+        {
+            await RefuseAsync(context, 400, existingError! + Received(context)).ConfigureAwait(false);
+            return;
+        }
+
+        if (reference is { } referenced)
+        {
+            await RegisterExistingAsync(context, service, caller, field, referenced, cancellation).ConfigureAwait(false);
+            return;
+        }
+
         if (!OfflineReplicaRequests.TryReadCreate(field, service, out CreateReplicaRequest? request, out string? error))
         {
             await RefuseAsync(context, 400, error! + Received(context)).ConfigureAwait(false);
@@ -372,6 +384,128 @@ internal static class OfflineReplicaEndpoints
         }
 
         await RunAsync(context, job, request.Async, WorkAsync, cancellation, request.Embedded).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Decides a registration of existing data: the new replica, or why not (a status and a message naming the value).
+    /// </summary>
+    /// <param name="reference">The replica the request names, as the store holds it, or null.</param>
+    /// <param name="referenceId">The id the request named.</param>
+    /// <param name="service">The service the request is on.</param>
+    /// <param name="ownerId">The caller, who will own the new replica.</param>
+    /// <param name="ownerName">The caller's name.</param>
+    /// <param name="requestedName">The <c>replicaName</c> sent, or null.</param>
+    /// <param name="now">The moment of registration.</param>
+    /// <returns>The replica, or a status and message.</returns>
+    internal static (ReplicaRecord? Created, int Status, string? Why) Registration(
+        ReplicaRecord? reference, Guid referenceId, PublishedService service, Guid ownerId, string ownerName,
+        string? requestedName, DateTimeOffset now)
+    {
+        string wire = OfflineReplicaRequests.Wire(referenceId);
+
+        if (reference is null || reference.ServiceId != service.Id)
+        {
+            return (null, 404, $"replicaOptions.registerExistingData.refReplicaId '{wire}' is not a replica registered on this service.");
+        }
+
+        if (reference.Layers.FirstOrDefault(l => service.LayerOrTable(l.Id) is null) is { } gone)
+        {
+            return (null, 409, $"Layer {gone.Id} of replica {wire} is no longer in the service; its package cannot be registered.");
+        }
+
+        string name = (requestedName ?? string.Empty).Trim();
+
+        if (name.Length == 0)
+        {
+            string stem = reference.Name.Length > 100 ? reference.Name[..100] : reference.Name;
+            name = stem + "_" + Guid.NewGuid().ToString("N")[..8];
+        }
+        else if (!OfflineReplicaRequests.IsReplicaName(name))
+        {
+            return (null, 400, $"replicaName '{name}' is not a valid replica name: it may hold letters, digits and underscores only, as ArcGIS requires.");
+        }
+
+        long packaged = reference.Created.ToUnixTimeMilliseconds();
+
+        return (new ReplicaRecord(
+            Guid.NewGuid(), name, service.Id, ownerId, ownerName, "perLayer",
+            [.. reference.Layers.Select(l => l with { ServerGeneration = Math.Min(l.ServerGeneration, packaged) })],
+            reference.ReturnAttachments, reference.AttachmentsSyncDirection, reference.Geometry, reference.Wkid, now, now), 200, null);
+    }
+
+    /// <summary>
+    /// <c>createReplica</c> with <c>replicaOptions.registerExistingData</c> — a device that downloaded a map area's package
+    /// registers its copy: a new <c>perLayer</c> replica of the caller's, with the reference replica's layers and generations.
+    /// No data is written or read; the next <c>synchronizeReplica</c> downloads what changed since those generations.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The caller need not own the reference</b> — every device registers its own copy (D-406). They must be allowed to
+    /// sync the service, which <see cref="AdmitAsync"/> has checked. The reference must be a replica of this service.
+    /// </para>
+    /// <para>
+    /// <b>Generations are the package's, not the reference's now (INFERRED).</b> A package holds the data as of the
+    /// reference's creation; if its packager has synchronised since, the reference's generations are later than the file.
+    /// Each layer therefore starts at the lesser of its stored generation and the reference's creation moment.
+    /// </para>
+    /// </remarks>
+    private static async Task RegisterExistingAsync(
+        HttpContext context, PublishedService service, RequestPrincipal caller, Func<string, string?> field, Guid referenceId,
+        CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        IOfflineSyncStore store = services.GetRequiredService<IOfflineSyncStore>();
+        ReplicaJobs jobs = services.GetRequiredService<ReplicaJobs>();
+        DateTimeOffset now = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
+
+        ReplicaRecord? stored = await store.FindAsync(referenceId, cancellation).ConfigureAwait(false);
+        (ReplicaRecord? created, int status, string? why) = Registration(
+            stored, referenceId, service, caller.Principal.Id, caller.Principal.Name, field("replicaName"), now);
+
+        if (created is null)
+        {
+            await RefuseAsync(context, status, why! + (status == 404 ? Received(context) : string.Empty)).ConfigureAwait(false);
+            return;
+        }
+
+        if (jobs.Start(caller.Principal.Id, service.Id, "esriReplicaResponseTypeData") is not { } job)
+        {
+            await BusyAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        bool async = OfflineReplicaRequests.IsTrue(field("async"));
+        bool embedded = !async && (field("transportType") ?? string.Empty).Trim()
+            .Equals("esriTransportTypeEmbedded", StringComparison.OrdinalIgnoreCase);
+        job.ReplicaName = created.Name;
+        job.ReplicaId = created.Id;
+        job.DownloadName = created.Name + ".json";
+
+        async Task WorkAsync(CancellationToken stopping)
+        {
+            job.Status = "ExportingData";
+            job.Updated = jobs.Now;
+
+            string file = jobs.FileFor(job, ".json");
+            await OfflineJsonReplica.WriteRegistrationAsync(file, created, stopping).ConfigureAwait(false);
+            job.File = file;
+
+            try
+            {
+                await store.CreateAsync(created, stopping).ConfigureAwait(false);
+            }
+            catch
+            {
+                ReplicaJobs.TryDelete(file);
+                throw;
+            }
+
+            job.Generations = created.Layers;
+            job.Status = "Completed";
+            job.Updated = jobs.Now;
+        }
+
+        await RunAsync(context, job, async, WorkAsync, cancellation, embedded).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------------------------------------ synchronizeReplica
@@ -1333,19 +1467,26 @@ internal static class OfflineReplicaEndpoints
     {
         ReplicaRecord? replica = await store.FindAsync(id, cancellation).ConfigureAwait(false);
 
-        if (replica is null || replica.ServiceId != service.Id)
+        if (Gate(replica, service.Id, caller.Principal.Id, IsAdministrator(caller), id) is { } refusal)
         {
-            await RefuseAsync(context, 404, $"Replica {OfflineReplicaRequests.Wire(id)} is not registered on this service.").ConfigureAwait(false);
-            return null;
-        }
-
-        if (replica.OwnerId != caller.Principal.Id && !IsAdministrator(caller))
-        {
-            await RefuseAsync(context, 403, $"Replica {OfflineReplicaRequests.Wire(id)} is not yours.").ConfigureAwait(false);
+            await RefuseAsync(context, refusal.Status, refusal.Message).ConfigureAwait(false);
             return null;
         }
 
         return replica;
+    }
+
+    /// <summary>Why a caller may not sync a replica: it is not this service's (404) or not theirs (403); null when they may.</summary>
+    internal static (int Status, string Message)? Gate(ReplicaRecord? replica, Guid serviceId, Guid callerId, bool administrator, Guid asked)
+    {
+        if (replica is null || replica.ServiceId != serviceId)
+        {
+            return (404, $"Replica {OfflineReplicaRequests.Wire(asked)} is not registered on this service.");
+        }
+
+        return replica.OwnerId != callerId && !administrator
+            ? (403, $"Replica {OfflineReplicaRequests.Wire(asked)} is not yours.")
+            : null;
     }
 
     private static bool IsAdministrator(RequestPrincipal caller) =>

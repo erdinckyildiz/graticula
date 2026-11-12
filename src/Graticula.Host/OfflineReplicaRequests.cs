@@ -257,6 +257,76 @@ internal static partial class OfflineReplicaRequests
         return true;
     }
 
+    /// <summary>
+    /// Reads <c>replicaOptions.registerExistingData.refReplicaId</c>: the registration of a package already downloaded,
+    /// which Field Maps sends with no other parameter (measured 2026-11-12, research note §5a).
+    /// </summary>
+    /// <param name="field">A parameter by name.</param>
+    /// <param name="referenceId">The reference replica, or null when the request is not such a registration.</param>
+    /// <param name="error">Why the request is malformed, when this returns false.</param>
+    /// <returns>False when <c>replicaOptions</c> is malformed or names an id that is not a GUID.</returns>
+    /// <remarks>
+    /// A <c>replicaOptions</c> without <c>registerExistingData</c> is not read (no other option is offered). Any other
+    /// parameter sent beside a registration (<c>layers</c>, <c>geometry</c>, <c>syncModel</c>, <c>dataFormat</c>…) is
+    /// ignored — the layers, area and filters come from the reference replica (<c>INFERRED</c>, ADR-288 §11a: clients
+    /// differ in what they add, and a registration cannot change what was downloaded).
+    /// </remarks>
+    public static bool TryReadRegisterExisting(Func<string, string?> field, out Guid? referenceId, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+
+        referenceId = null;
+        error = null;
+
+        if (field("replicaOptions") is not { } text || text.Trim().Length == 0)
+        {
+            return true;
+        }
+
+        string shown = text.Length > 160 ? text[..160] + "..." : text;
+        JsonElement root;
+
+        try
+        {
+            root = JsonDocument.Parse(text).RootElement;
+        }
+        catch (JsonException)
+        {
+            error = $"replicaOptions '{shown}' is not JSON.";
+            return false;
+        }
+
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            error = $"replicaOptions '{shown}' is not a JSON object.";
+            return false;
+        }
+
+        if (!root.TryGetProperty("registerExistingData", out JsonElement existing))
+        {
+            return true;
+        }
+
+        if (existing.ValueKind != JsonValueKind.Object
+            || !existing.TryGetProperty("refReplicaId", out JsonElement id)
+            || id.ValueKind != JsonValueKind.String)
+        {
+            error = $"replicaOptions '{shown}': registerExistingData needs a refReplicaId, the id of the replica whose package was downloaded.";
+            return false;
+        }
+
+        string value = id.GetString()!;
+
+        if (!TryReadReplicaId(value, out Guid parsed))
+        {
+            error = $"replicaOptions.registerExistingData.refReplicaId '{(value.Length > 80 ? value[..80] + "..." : value)}' is not a replica id.";
+            return false;
+        }
+
+        referenceId = parsed;
+        return true;
+    }
+
     /// <summary>The keys of a <c>layerQueries</c> object as <c>0,1</c>, or null when it is not one.</summary>
     private static string? LayerKeysOf(string text)
     {
@@ -653,6 +723,6 @@ internal static partial class OfflineReplicaRequests
     /// <summary>A value as a refusal quotes it: short enough to read in a log.</summary>
     private static string Clip(string text) => text.Length > 120 ? text[..120] + "..." : text;
 
-    private static bool IsTrue(string? value) =>
+    internal static bool IsTrue(string? value) =>
         string.Equals(value?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
 }

@@ -104,7 +104,7 @@ public sealed class JsonReplicaTests
     [Fact]
     public void A_registration_that_names_its_layers_only_in_layerQueries_is_read_and_asks_for_no_rows()
     {
-        // What Field Maps sends to register a package it has downloaded is not yet seen; this is the tolerant reading.
+        // A registration that names its layers only in layerQueries; Field Maps's own registration is replicaOptions.registerExistingData (RegisterExistingDataTests).
         CreateReplicaRequest request = Read(
             ("dataFormat", "json"), ("syncModel", "perLayer"), ("returnAttachments", "false"),
             ("layerQueries", """{"0":{"queryOption":"none"},"1":{"queryOption":"none"}}"""));

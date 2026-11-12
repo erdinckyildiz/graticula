@@ -288,9 +288,14 @@ serves the same shape. None was stated by the owner.
    `exportTiles`' ArcGIS-origin export keeps), an item of type `Vector Tile Package` related by `Area2Package`; a basemap
    layer that is not ours is named under `skipped` and has no item. And `createReplica` answers `dataFormat=json`
    (§5.4), which is what Field Maps registers a downloaded package with. **Still not measured on the device:** that Field
-   Maps then completes the download of an area with both; the exact `createReplica` parameters it sends to register a
-   package were never read, so the JSON path is tolerant and every refusal names the parameter and value it refused
-   (Field Maps' log shows them) — [D-410](../architecture-debt.md).
+   Maps then completes the download of an area with both. **Registration read 2026-11-12:** Field Maps registers a
+   downloaded package with `createReplica` carrying only `replicaOptions={"registerExistingData":{"refReplicaId":…}}`
+   (research note §5a). The server now registers a new `perLayer` replica of the *caller's* with the reference replica's
+   layers and generations, and no data is written, which also lifts [D-406](../architecture-debt.md): each device syncs
+   its own replica. `INFERRED`: the JSON shape of the answer (empty `features`/`attachments`), that other parameters sent
+   beside `registerExistingData` are ignored, and that a layer starts at the lesser of its stored generation and the
+   reference's creation moment (a package is the data as of then, even if its packager has synced since). An upload names
+   no replica id the server checks; it matches rows by layer and GlobalID. [D-410](../architecture-debt.md) keeps the rest.
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
    **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On

@@ -194,8 +194,20 @@ log (*Profile › Troubleshooting › View logs*, verbose) were read:
 - **Download fetches the package, then registers it with `createReplica`.** After `GET …/items/{package}/data`, Field
   Maps posted `createReplica` to the feature service with **`dataFormat=json`**. So a device registers its own replica
   for the package it downloaded, and this is the call that makes the copy syncable. The package's own replica is not
-  synced by the device. The full parameters were not read; Graticula refused `json` (ADR-288 §5.4), and Field Maps
-  logged that refusal verbatim.
+  synced by the device. **Measured 2026-11-12** (Field Maps 26.2.2, read from its log through our refusal, which echoes what it received), the
+  whole request is:
+
+  ```
+  POST …/FeatureServer/createReplica
+  async=true; f=json; transportType=esriTransportTypeUrl;
+  replicaOptions={"registerExistingData":{"refReplicaId":"{75f74eb9-c9aa-4e16-9857-d605b8d3d270}"}}
+  ```
+
+  No `layers`, `dataFormat`, `geometry`, `syncModel` or `replicaName`. `refReplicaId` is the replica id of the package
+  the device downloaded (braced, lower case). The *answer* ArcGIS gives was not captured. Graticula answers a new
+  `perLayer` replica of the caller's (a new id, the reference's layers and generations) as a JSON replica with empty
+  `features` and `attachments`, which is `INFERRED` (ADR-288 condition 3). An earlier attempt, which Graticula refused
+  as `dataFormat=json` with no layers, was the same request read before its parameters were known.
 - **A basemap without a package fails the whole download.** The map's basemap was a Graticula vector tile layer. Field
   Maps logged *"Layer: probe tiles - Error: Not found. Missing preplanned vector tile package"* and then *"The map
   download contains one or more errors"*. The area was marked *Download failed*. A map with a basemap therefore needs
