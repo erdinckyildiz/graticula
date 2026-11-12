@@ -206,13 +206,15 @@ class Arguments(unittest.TestCase):
     def test_find_argument_statistics(self):
         times = [_mdim.to_time(f"{y}-01-01") for y in (2001, 2002, 2003, 2004)]
         r = cube_raster([2, 8, 3, 8], times)
-        self.assertEqual(cells(ia.FindArgumentStatistics(r, "StdTime", statistics_type="ARGUMENT_MAX")), [[2002.0]])
+        # A time is written as its OLE Automation date, as ArcGIS Pro 3.7 writes it (measured 2026-11-08; this test
+        # pinned decimal years, 2002.0, before): 2002-01-01 is 37257 days after 1899-12-30, 2004-01-01 37987.
+        self.assertEqual(cells(ia.FindArgumentStatistics(r, "StdTime", statistics_type="ARGUMENT_MAX")), [[37257.0]])
         self.assertEqual(cells(ia.FindArgumentStatistics(r, "StdTime", statistics_type="ARGUMENT_MAX",
-                                                         occurrence="LAST_OCCURRENCE")), [[2004.0]])
+                                                         occurrence="LAST_OCCURRENCE")), [[37987.0]])
         self.assertEqual(cells(ia.FindArgumentStatistics(r, "StdTime", statistics_type="ARGUMENT_MAX",
                                                          multiple_occurrence=99)), [[99.0]])
         self.assertEqual(cells(ia.FindArgumentStatistics(r, "StdTime", statistics_type="ARGUMENT_VALUE", value=2,
-                                                         comparison="GREATER_THAN")), [[2002.0]])
+                                                         comparison="GREATER_THAN")), [[37257.0]])
         with self.assertRaisesRegex(NotBuiltError, "interval keyword"):
             ia.FindArgumentStatistics(r, "StdTime", "INTERVAL_KEYWORD", "RECURRING_MONTHLY")
 
@@ -302,8 +304,16 @@ class Trends(unittest.TestCase):
     def test_trend_to_rgb(self):
         times = [_mdim.to_time("2020-01-01") + np.timedelta64(d, "D") for d in range(3)]
         r = cube_raster([[0, 10], [1, 8], [2, 6]], times, columns=2)  # slopes +1 and −2, intercepts 0 and 10
-        rgb = ia.TrendToRGB(ia.GenerateTrend(r, "StdTime"))
-        self.assertEqual([cells(b) for b in rgb.getRasterBands()], [[[255, 0]], [[0, 255]], [[0, 255]]])
+        trend = ia.GenerateTrend(r, "StdTime")
+        rgb = ia.TrendToRGB(trend)
+        # Pro 3.7's linear Trend to RGB (measured 2026-11-08; this test pinned grapy's 0–255 stretch before): the
+        # positive slope, the intercept and minus the negative slope, unstretched, then the trend's other bands.
+        self.assertEqual(rgb.bandNames[:3], ["Increase_Trend", "Intercept", "Decrease_Trend"])
+        bands = [cells(b)[0] for b in rgb.getRasterBands()]
+        np.testing.assert_allclose(bands[0], [1.0, 0.0], atol=1e-9)
+        np.testing.assert_allclose(bands[2], [0.0, 2.0], atol=1e-9)
+        # The Intercept band is the line's value at the first time, the series' first values 0 and 10.
+        np.testing.assert_allclose(bands[1], [0.0, 10.0], atol=1e-6)
 
 
 class Components(unittest.TestCase):
@@ -318,12 +328,21 @@ class Components(unittest.TestCase):
                                                         "eig.csv", None, "90%")
         pc = arcpy.Raster(result[0])
         self.assertEqual(pc.bandCount, 1)
-        # Scores: (x − mean)·v with v = (1, 2)/√5, the means 2.5 and 5.
-        np.testing.assert_allclose(cells(pc)[0], [(-1.5 - 2 * 3) / math.sqrt(5), (-0.5 - 2 * 1) / math.sqrt(5),
-                                                  (0.5 + 2 * 1) / math.sqrt(5), (1.5 + 2 * 3) / math.sqrt(5)], atol=1e-9)
-        lines = open(result[2], encoding="utf-8").read().splitlines()
-        self.assertEqual(lines[0], "PC,Eigenvalue,Percent,Cumulative")
+        # Scores: x·v with v = (1, 2)/√5, not centred — Pro 3.7, measured 2026-11-08 (this test pinned centred scores,
+        # (x − mean)·v, before): (1 + 2·2)/√5 = √5 for the first pixel.
+        np.testing.assert_allclose(cells(pc)[0], [5 / math.sqrt(5), 10 / math.sqrt(5), 15 / math.sqrt(5),
+                                                  20 / math.sqrt(5)], atol=1e-9)
+        with open(result[2], encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        # The components kept only, with Pro's fields; the eigenvalue is var(x) + var(2x) = 5·(5/3).
+        self.assertEqual(lines[0], "PC,Eigenvalue,CumVarPctg")
+        self.assertEqual(len(lines), 2)
         self.assertAlmostEqual(float(lines[1].split(",")[2]), 100.0)
+        with open(result[1], encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        # A loading is the eigenvector times √eigenvalue: (1/√5)·√(25/3) = √(5/3).
+        self.assertEqual(lines[0], "DimValue,PC_1")
+        self.assertAlmostEqual(float(lines[1].split(",")[1]), math.sqrt(5 / 3))
         with self.assertRaisesRegex(NotBuiltError, "random reprojection"):
             ia.MultidimensionalPrincipalComponents(r, "SPATIAL_REDUCTION", "StdTime", "a", "b")
 
@@ -349,10 +368,12 @@ class Xarray(unittest.TestCase):
     def test_raster_to_xarray_and_back(self):
         r = cube_raster([[1, 2], [3, 4]], columns=2, mask=[[False, False], [True, False]])
         ds = ia.RasterToXarray(r)
-        self.assertEqual(ds["v"].dims, ("StdTime", "y", "x"))
+        # Pro 3.7's layout (measured 2026-11-08; this test pinned (StdTime, y, x) at the centres before): lat and lon
+        # first, at each cell's lower-left corner, lat south to north.
+        self.assertEqual(ds["v"].dims, ("lat", "lon", "StdTime"))
         self.assertEqual(ds.attrs["crs"], "EPSG:3857")
-        self.assertEqual(ds["x"].values.tolist(), [5.0, 15.0])
-        self.assertTrue(np.isnan(ds["v"].values[1, 0, 0]))
+        self.assertEqual(ds["lon"].values.tolist(), [0.0, 10.0])
+        self.assertTrue(np.isnan(ds["v"].values[0, 0, 1]))
         hourly = ds.resample(StdTime="6h").nearest()
         back = ia.XarrayToRaster(hourly)
         self.assertEqual(back.variables, ["v(StdTime=5)"])
@@ -419,20 +440,20 @@ class Points(unittest.TestCase):
                 rows.insertRow((value, when, xy))
 
     def test_each_day_is_a_slice(self):
-        out = ia.InterpolateFromSpatiotemporalPoints(self.path, "daily.nc", "temp", "when", "DAILY", 10, "MEAN")
-        r = arcpy.Raster(out.getOutput(0), True)
+        # Pro's six arguments, answering a Raster (measured in ArcGIS Pro 3.7, 2026-11-08; the output path is gone).
+        r = ia.InterpolateFromSpatiotemporalPoints(self.path, "temp", "when", "DAILY", 10, "MEAN")
         self.assertEqual(r.getDimensionValues("temp", "StdTime"), ["2020-01-01T00:00:00", "2020-01-02T00:00:00"])
         # A 3 × 3 grid of 10 m cells from (0, 20) at the top left: day one's points fall in the bottom row.
         self.assertEqual(slices(r)[0][2], [10.0, ND, 25.0])
-        out = ia.InterpolateFromSpatiotemporalPoints(self.path, "near.nc", "temp", "when", "DAILY", 10,
-                                                     "NEAREST_NEIGHBOR")
-        self.assertEqual(slices(arcpy.Raster(out.getOutput(0), True))[1], [[5.0] * 3] * 3)
-        out = ia.InterpolateFromSpatiotemporalPoints(self.path, "idw.nc", "temp", "when", "DAILY", 10, "IDW")
-        # The middle bottom cell's centre (15, 5) is √50 from (20, 0) and √250 from (0, 0); weights 1/d².
-        expected = (10 / 250 + 20 / 50 + 30 / 50) / (1 / 250 + 2 / 50)
-        self.assertAlmostEqual(slices(arcpy.Raster(out.getOutput(0), True))[0][2][1], expected)
+        out = ia.InterpolateFromSpatiotemporalPoints(self.path, "temp", "when", "DAILY", 10, "NEAREST_NEIGHBOR")
+        self.assertEqual(slices(out)[1], [[5.0] * 3] * 3)
+        out = ia.InterpolateFromSpatiotemporalPoints(self.path, "temp", "when", "DAILY", 10, "IDW")
+        # Pro 3.7's grid (measured 2026-11-08; this test had cells from the points' corner before): cells centred on
+        # the points, so the middle bottom cell's centre (10, 0) is 10 from (0, 0) and from (20, 0); weights 1/d².
+        expected = (10 + 20 + 30) / 3
+        self.assertAlmostEqual(slices(out)[0][2][1], expected)
         with self.assertRaisesRegex(NotBuiltError, "image"):
-            ia.InterpolateFromSpatiotemporalPoints(self.path, "q.nc", "temp", "when", "DAILY", 10, "QUADRATIC")
+            ia.InterpolateFromSpatiotemporalPoints(self.path, "temp", "when", "DAILY", 10, "QUADRATIC")
 
 
 class Change(unittest.TestCase):
@@ -445,12 +466,15 @@ class Change(unittest.TestCase):
         b = arcpy.NumPyArrayToRaster(np.array([[1, 3], [2, 3]]), arcpy.Point(0, 0), 10, 10)
         self.assertEqual(cells(ia.ComputeChange(a, b)), [[0, 1], [-1, 0]])
         self.assertEqual(cells(ia.ComputeChange(a, b, "RELATIVE_DIFFERENCE")), [[0.0, 1 / 3], [-1 / 3, 0.0]])
+        # Pro 3.7's encoding, measured 2026-11-08 (this test pinned grapy's INFERRED numbering from 1 before): the
+        # differing pairs 1->2, 1->3, 2->1, 2->3, 3->1, 3->2 are 0…5 and No Change 6; the function lists them all.
         c = ia.ComputeChange(a, b, "CATEGORICAL_DIFFERENCE", filter_method="CHANGED_PIXELS_ONLY")
-        self.assertEqual(cells(c), [[0, 1], [2, 0]])
-        self.assertEqual([row[:5] for row in c._rat.rows], [[0, "Other", "", "", 2], [1, "2>3", "2", "3", 1],
-                                                           [2, "3>2", "3", "2", 1]])
+        self.assertEqual(cells(c), [[6, 3], [5, 6]])
+        self.assertEqual([row[:5] for row in c._rat.rows][3:], [[3, 7, "2->3", "2", "3"], [4, 8, "3->1", "3", "1"],
+                                                               [5, 9, "3->2", "3", "2"],
+                                                               [6, 10, "No Change", "Same", "Same"]])
         c = ia.ComputeChangeRaster(a, b, "CATEGORICAL_DIFFERENCE", filter_method="UNCHANGED_PIXELS_ONLY")
-        self.assertEqual(c._rat.rows[0][1], "No Change")
+        self.assertEqual(c._rat.rows[-1][2], "Changed")
         x = ia.CompositeBand([arcpy.NumPyArrayToRaster(np.array([[v]])) for v in (1.0, 0.0)])
         y = ia.CompositeBand([arcpy.NumPyArrayToRaster(np.array([[v]])) for v in (0.0, 1.0)])
         self.assertAlmostEqual(cells(ia.ComputeChangeRaster(x, y, "SPECTRAL_ANGLE_DIFFERENCE"))[0][0], math.pi / 2)
