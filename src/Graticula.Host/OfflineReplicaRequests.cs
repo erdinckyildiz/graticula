@@ -32,6 +32,8 @@ internal sealed record ReplicaLayerQuery(string QueryOption, string Where, bool 
 /// <param name="AttachmentsSyncDirection"><c>none</c>, <c>upload</c> or <c>bidirectional</c>.</param>
 /// <param name="SyncModel"><c>none</c> or <c>perLayer</c>.</param>
 /// <param name="Async">Whether the client asked for a status URL.</param>
+/// <param name="DataFormat"><c>sqlite</c>, a mobile geodatabase, or <c>json</c>, ArcGIS's JSON replica (ADR-288 §11a).</param>
+/// <param name="Embedded">Whether the JSON replica is asked to travel in the answer itself (<c>esriTransportTypeEmbedded</c>).</param>
 internal sealed record CreateReplicaRequest(
     string Name,
     IReadOnlyList<int> Layers,
@@ -43,10 +45,15 @@ internal sealed record CreateReplicaRequest(
     bool ReturnAttachments,
     string AttachmentsSyncDirection,
     string SyncModel,
-    bool Async)
+    bool Async,
+    string DataFormat = "sqlite",
+    bool Embedded = false)
 {
     /// <summary>Whether the replica is registered, so the server keeps its generations.</summary>
     public bool Registered => SyncModel == "perLayer";
+
+    /// <summary>Whether the copy is a JSON replica rather than a mobile geodatabase.</summary>
+    public bool IsJson => DataFormat == "json";
 }
 
 /// <summary>One layer of a <c>synchronizeReplica</c>'s <c>syncLayers</c>.</summary>
@@ -63,6 +70,7 @@ internal sealed record SyncLayerRequest(int Id, long? ServerGeneration, string D
 /// <param name="Async">Whether the client asked for a status URL.</param>
 /// <param name="ReturnAttachments">Whether attachments travel.</param>
 /// <param name="CloseReplica">Whether the replica is unregistered once synchronised.</param>
+/// <param name="DataFormat"><c>sqlite</c> or <c>json</c>: how the download is written.</param>
 internal sealed record SynchronizeReplicaRequest(
     Guid ReplicaId,
     string Direction,
@@ -70,7 +78,8 @@ internal sealed record SynchronizeReplicaRequest(
     string? UploadId,
     bool Async,
     bool ReturnAttachments,
-    bool CloseReplica);
+    bool CloseReplica,
+    string DataFormat = "sqlite");
 
 /// <summary>
 /// Reads <c>createReplica</c> and <c>synchronizeReplica</c> as Esri's public REST reference describes them — ADR-288.
@@ -118,11 +127,13 @@ internal static partial class OfflineReplicaRequests
         request = null;
 
         string format = (field("dataFormat") ?? "json").Trim();
-        if (!format.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+        bool json = format.Equals("json", StringComparison.OrdinalIgnoreCase);
+
+        if (!json && !format.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
         {
-            error = $"dataFormat '{format}' is not offered: this server writes replicas as a mobile geodatabase "
-                + "(dataFormat=sqlite) only, which is what ArcGIS Field Maps and ArcGIS Pro ask for; JSON replicas are a later "
-                + "step (ADR-288 §5.4).";
+            error = $"dataFormat '{format}' is not offered: this server writes a replica as a mobile geodatabase "
+                + "(dataFormat=sqlite), which ArcGIS Pro asks for, or as ArcGIS's JSON replica (dataFormat=json), which "
+                + "ArcGIS Field Maps registers a downloaded package with (ADR-288 §5.4, §11a).";
             return false;
         }
 
@@ -141,12 +152,33 @@ internal static partial class OfflineReplicaRequests
 
         model = model.Equals("none", StringComparison.OrdinalIgnoreCase) ? "none" : "perLayer";
 
+        bool embedded = false;
+        bool async = IsTrue(field("async"));
+
         if (field("transportType") is { } transport && transport.Trim().Length > 0
             && !transport.Trim().Equals("esriTransportTypeUrl", StringComparison.OrdinalIgnoreCase))
         {
-            error = $"transportType '{transport.Trim()}' is not offered: a mobile geodatabase is a file, sent by URL "
-                + "(esriTransportTypeUrl).";
-            return false;
+            if (json && transport.Trim().Equals("esriTransportTypeEmbedded", StringComparison.OrdinalIgnoreCase))
+            {
+                if (async)
+                {
+                    error = "transportType 'esriTransportTypeEmbedded' with async 'true' is not offered: a JSON replica "
+                        + "travels in the answer only when the request is answered at once. Send async=false, or "
+                        + "transportType=esriTransportTypeUrl.";
+                    return false;
+                }
+
+                embedded = true;
+            }
+            else
+            {
+                error = $"transportType '{transport.Trim()}' is not offered"
+                    + (json
+                        ? ": a JSON replica is sent by URL (esriTransportTypeUrl) or, when answered at once, embedded "
+                            + "(esriTransportTypeEmbedded)."
+                        : ": a mobile geodatabase is a file, sent by URL (esriTransportTypeUrl).");
+                return false;
+            }
         }
 
         if (field("targetType") is { } target && target.Trim().Length > 0
@@ -169,7 +201,15 @@ internal static partial class OfflineReplicaRequests
             return false;
         }
 
-        if (!TryReadLayers(field("layers"), service, out List<int> layers, out error))
+        // A JSON replica that names its layers only in layerQueries (a registration of a package already downloaded) is
+        // read as asking for those layers; a mobile geodatabase request is stricter, as it always was.
+        string? layersText = field("layers");
+        if (json && layersText is null && field("layerQueries") is { } queriesText)
+        {
+            layersText = LayerKeysOf(queriesText);
+        }
+
+        if (!TryReadLayers(layersText, service, out List<int> layers, out error))
         {
             return false;
         }
@@ -210,9 +250,27 @@ internal static partial class OfflineReplicaRequests
             IsTrue(field("returnAttachments")),
             direction,
             model,
-            IsTrue(field("async")));
+            async,
+            json ? "json" : "sqlite",
+            embedded);
         error = null;
         return true;
+    }
+
+    /// <summary>The keys of a <c>layerQueries</c> object as <c>0,1</c>, or null when it is not one.</summary>
+    private static string? LayerKeysOf(string text)
+    {
+        try
+        {
+            JsonElement root = JsonDocument.Parse(text).RootElement;
+            return root.ValueKind == JsonValueKind.Object
+                ? string.Join(',', root.EnumerateObject().Select(p => p.Name))
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Reads a <c>synchronizeReplica</c> request.</summary>
@@ -232,11 +290,21 @@ internal static partial class OfflineReplicaRequests
             return false;
         }
 
-        if (field("dataFormat") is { } format && format.Trim().Length > 0
-            && !format.Trim().Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+        string dataFormat = (field("dataFormat") ?? "sqlite").Trim();
+        bool json = dataFormat.Equals("json", StringComparison.OrdinalIgnoreCase);
+
+        if (!json && !dataFormat.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
         {
-            error = $"dataFormat '{format.Trim()}' is not offered: changes travel as a mobile geodatabase (dataFormat=sqlite) "
-                + "only (ADR-288 §5.4).";
+            error = $"dataFormat '{dataFormat}' is not offered: changes travel as a mobile geodatabase (dataFormat=sqlite) "
+                + "or as ArcGIS's JSON edits (dataFormat=json) (ADR-288 §5.4, §11a).";
+            return false;
+        }
+
+        if (json && field("edits") is { } inline)
+        {
+            error = $"edits '{(inline.Length > 80 ? inline[..80] + "..." : inline)}' is not read: a JSON replica is "
+                + "downloaded from here, not uploaded to it (D-409). Upload the changes as a mobile geodatabase delta "
+                + "(editsUploadID, dataFormat=sqlite), or apply them with applyEdits.";
             return false;
         }
 
@@ -301,6 +369,13 @@ internal static partial class OfflineReplicaRequests
         string? upload = field("editsUploadID")?.Trim();
         if (upload is { Length: > 0 })
         {
+            if (json)
+            {
+                error = $"editsUploadID '{upload}' with dataFormat 'json' is not read: a JSON replica is downloaded from "
+                    + "here, not uploaded to it (D-409).";
+                return false;
+            }
+
             string uploadFormat = (field("editsUploadFormat") ?? "sqlite").Trim();
             if (!uploadFormat.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
             {
@@ -316,7 +391,8 @@ internal static partial class OfflineReplicaRequests
             upload is { Length: > 0 } ? upload : null,
             IsTrue(field("async")),
             !string.Equals(field("returnAttachments")?.Trim(), "false", StringComparison.OrdinalIgnoreCase),
-            IsTrue(field("closeReplica")));
+            IsTrue(field("closeReplica")),
+            json ? "json" : "sqlite");
         error = null;
         return true;
     }
@@ -342,7 +418,7 @@ internal static partial class OfflineReplicaRequests
 
         if (text.Length == 0)
         {
-            error = "layers is required: the ids of the layers and tables to take offline, as 0,1 or [0,1].";
+            error = $"layers '{raw}' is not usable: send the ids of the layers and tables to take offline, as 0,1 or [0,1].";
             return false;
         }
 
@@ -389,7 +465,7 @@ internal static partial class OfflineReplicaRequests
 
             if (root.ValueKind != JsonValueKind.Object)
             {
-                error = "layerQueries must be a JSON object keyed by layer id.";
+                error = $"layerQueries '{Clip(text)}' must be a JSON object keyed by layer id.";
                 return false;
             }
 
@@ -423,7 +499,7 @@ internal static partial class OfflineReplicaRequests
         }
         catch (JsonException)
         {
-            error = "layerQueries is not JSON.";
+            error = $"layerQueries '{Clip(text)}' is not JSON.";
             return false;
         }
 
@@ -467,7 +543,7 @@ internal static partial class OfflineReplicaRequests
 
             if (numbers.Length != 4 || numbers.Any(double.IsNaN))
             {
-                error = "geometry must be an envelope as xmin,ymin,xmax,ymax or as JSON, or a polygon as JSON.";
+                error = $"geometry '{Clip(text)}' must be an envelope as xmin,ymin,xmax,ymax or as JSON, or a polygon as JSON.";
                 return false;
             }
 
@@ -514,7 +590,7 @@ internal static partial class OfflineReplicaRequests
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
         {
-            error = "geometry must be an envelope as xmin,ymin,xmax,ymax or as JSON, or a polygon as JSON.";
+            error = $"geometry '{Clip(text)}' must be an envelope as xmin,ymin,xmax,ymax or as JSON, or a polygon as JSON.";
             return false;
         }
     }
@@ -573,6 +649,9 @@ internal static partial class OfflineReplicaRequests
 
         return false;
     }
+
+    /// <summary>A value as a refusal quotes it: short enough to read in a log.</summary>
+    private static string Clip(string text) => text.Length > 120 ? text[..120] + "..." : text;
 
     private static bool IsTrue(string? value) =>
         string.Equals(value?.Trim(), "true", StringComparison.OrdinalIgnoreCase);

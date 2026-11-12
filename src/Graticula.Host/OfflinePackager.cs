@@ -216,8 +216,7 @@ internal static class OfflinePackager
             Envelope area = request.Extent
                 ?? OfflineReplicaEndpoints.Union(layers.Select(l => l.Extent))
                 ?? new Envelope(0, 0, 0, 0);
-            List<ReplicaLayer> generations = [.. plan.Layers.Select(p => new ReplicaLayer(
-                p.Id, generation.ToUnixTimeMilliseconds(), p.Filter.Option, p.Filter.Where, p.Filter.UseGeometry))];
+            List<ReplicaLayer> generations = [.. GenerationsOf(plan, generation)];
 
             OfflineReplica? replica = replicaId is { } rid
                 ? new OfflineReplica(rid, request.Name, serviceUrl, owner.Name, generation.ToUnixTimeMilliseconds(), generation, area, request.Srid)
@@ -227,10 +226,7 @@ internal static class OfflinePackager
 
             if (replicaId is { } registered)
             {
-                await store.CreateAsync(new ReplicaRecord(
-                    registered, request.Name, service.Id, owner.Id, owner.Name, "perLayer", generations,
-                    request.ReturnAttachments, request.AttachmentsSyncDirection, request.GeometryJson, request.Srid,
-                    generation, generation), cancellation).ConfigureAwait(false);
+                await RegisterAsync(store, plan, registered, owner, generations, generation, cancellation).ConfigureAwait(false);
             }
 
             return generations;
@@ -240,6 +236,98 @@ internal static class OfflinePackager
             ReplicaJobs.TryDelete(file);
             throw;
         }
+    }
+
+    /// <summary>The generation each layer of a plan is copied at: the moment, with the filter the layer was read through.</summary>
+    /// <param name="plan">The plan.</param>
+    /// <param name="generation">The moment.</param>
+    /// <returns>The layers' generations.</returns>
+    public static IReadOnlyList<ReplicaLayer> GenerationsOf(PackagePlan plan, DateTimeOffset generation)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        return [.. plan.Layers.Select(p => new ReplicaLayer(
+            p.Id, generation.ToUnixTimeMilliseconds(), p.Filter.Option, p.Filter.Where, p.Filter.UseGeometry))];
+    }
+
+    /// <summary>
+    /// Records a registered replica — the one place a replica is registered, for a mobile geodatabase and for a JSON
+    /// replica alike, so <c>synchronizeReplica</c>, <c>replicas</c> and <c>unRegisterReplica</c> see no difference.
+    /// </summary>
+    /// <param name="store">The registry.</param>
+    /// <param name="plan">The plan.</param>
+    /// <param name="replicaId">The replica.</param>
+    /// <param name="owner">Who owns it.</param>
+    /// <param name="generations">The layers' generations.</param>
+    /// <param name="generation">The moment the copy is of.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A task.</returns>
+    public static Task RegisterAsync(
+        IOfflineSyncStore store,
+        PackagePlan plan,
+        Guid replicaId,
+        ReplicaOwner owner,
+        IReadOnlyList<ReplicaLayer> generations,
+        DateTimeOffset generation,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(owner);
+        CreateReplicaRequest request = plan.Request;
+
+        return store.CreateAsync(new ReplicaRecord(
+            replicaId, request.Name, plan.Service.Id, owner.Id, owner.Name, "perLayer", generations,
+            request.ReturnAttachments, request.AttachmentsSyncDirection, request.GeometryJson, request.Srid,
+            generation, generation), cancellation);
+    }
+
+    /// <summary>
+    /// Writes a planned replica as ArcGIS's JSON replica and, when it is registered, records it exactly as
+    /// <see cref="WriteAsync"/> does. A file left behind by a failure is removed.
+    /// </summary>
+    /// <param name="services">The services.</param>
+    /// <param name="plan">The plan.</param>
+    /// <param name="replicaId">The replica's id when it is registered; null for a snapshot.</param>
+    /// <param name="owner">Who owns it.</param>
+    /// <param name="featureServerUrl">The service's address, which attachment URLs hang from.</param>
+    /// <param name="generation">The moment the copy is of.</param>
+    /// <param name="file">Where to write it.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The layers' server generations.</returns>
+    public static async Task<IReadOnlyList<ReplicaLayer>> WriteJsonAsync(
+        IServiceProvider services,
+        PackagePlan plan,
+        Guid? replicaId,
+        ReplicaOwner owner,
+        string featureServerUrl,
+        DateTimeOffset generation,
+        string file,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(owner);
+
+        IReadOnlyList<ReplicaLayer> generations = GenerationsOf(plan, generation);
+        await OfflineJsonReplica.WriteAsync(services.GetRequiredService<LayerConnections>().AttachmentsFor, plan, replicaId, generation, generations, featureServerUrl, file, cancellation)
+            .ConfigureAwait(false);
+
+        if (replicaId is { } registered)
+        {
+            try
+            {
+                await RegisterAsync(services.GetRequiredService<IOfflineSyncStore>(), plan, registered, owner, generations, generation, cancellation)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                ReplicaJobs.TryDelete(file);
+                throw;
+            }
+        }
+
+        return generations;
     }
 
     /// <summary>

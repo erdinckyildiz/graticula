@@ -217,8 +217,9 @@ public sealed class UpdateDefinitionTests : ArcGisClient
                 ["syncModel"] = "perLayer",
             });
 
-            Assert.True(json == HttpStatusCode.BadRequest, jsonBody);
-            Assert.Contains("ADR-288", jsonBody, StringComparison.Ordinal);
+            // A JSON replica is written by this server, whatever mobile geodatabase writer a deployment installed (ADR-288 §11a).
+            Assert.True(json == HttpStatusCode.OK, jsonBody);
+            Assert.Contains("esriReplicaResponseTypeData", jsonBody, StringComparison.Ordinal);
 
             (HttpStatusCode replica, string replicaBody) = await PostAsync($"{service}/createReplica", new()
             {

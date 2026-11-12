@@ -107,21 +107,22 @@ public sealed class OfflineReplicaTests
     }
 
     [Theory]
-    [InlineData("json")]
     [InlineData("filegdb")]
-    public void A_format_other_than_sqlite_is_refused_and_names_the_decision(string format)
+    [InlineData("pbf")]
+    public void A_format_other_than_sqlite_or_json_is_refused_and_names_the_decision(string format)
     {
         Assert.False(OfflineReplicaRequests.TryReadCreate(
             Fields(("dataFormat", format), ("syncModel", "perLayer"), ("layers", "0")), Service(), out _, out string? error));
 
         Assert.Contains("ADR-288 §5.4", error, StringComparison.Ordinal);
+        Assert.Contains($"dataFormat '{format}'", error, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_missing_format_is_ArcGISs_default_json_and_is_refused_too()
+    public void A_missing_format_is_ArcGISs_default_json_and_is_read_as_a_JSON_replica()
     {
-        Assert.False(OfflineReplicaRequests.TryReadCreate(Fields(("layers", "0")), Service(), out _, out string? error));
-        Assert.Contains("sqlite", error, StringComparison.Ordinal);
+        Assert.True(OfflineReplicaRequests.TryReadCreate(Fields(("layers", "0")), Service(), out CreateReplicaRequest? request, out _));
+        Assert.True(request!.IsJson);
     }
 
     [Theory]

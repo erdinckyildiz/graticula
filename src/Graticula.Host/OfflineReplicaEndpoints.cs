@@ -268,9 +268,17 @@ internal static class OfflineReplicaEndpoints
             return;
         }
 
-        if (await WriterAsync(context).ConfigureAwait(false) is not { } writer)
+        // A JSON replica is written by this server; only a mobile geodatabase needs the writer a deployment installs.
+        IMobileGeodatabaseWriter? writer = null;
+
+        if (!request!.IsJson)
         {
-            return;
+            if (await WriterAsync(context).ConfigureAwait(false) is not { } installed)
+            {
+                return;
+            }
+
+            writer = installed;
         }
 
         // ---- everything the file needs from the request, while the request is here ----
@@ -312,16 +320,19 @@ internal static class OfflineReplicaEndpoints
 
         job.ReplicaName = request.Name;
         job.ReplicaId = replicaId;
-        job.DownloadName = request.Name + ".geodatabase";
+        job.DownloadName = request.Name + (request.IsJson ? ".json" : ".geodatabase");
 
         async Task WorkAsync(CancellationToken stopping)
         {
             job.Status = "ExportingData";
             job.Updated = jobs.Now;
 
-            string file = jobs.FileFor(job);
-            IReadOnlyList<ReplicaLayer> generations = await OfflinePackager.WriteAsync(
-                services, writer, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false);
+            string file = jobs.FileFor(job, request.IsJson ? ".json" : ".geodatabase");
+            IReadOnlyList<ReplicaLayer> generations = request.IsJson
+                ? await OfflinePackager.WriteJsonAsync(
+                    services, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false)
+                : await OfflinePackager.WriteAsync(
+                    services, writer!, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false);
             job.File = file;
 
             if (replicaId is not null)
@@ -333,7 +344,7 @@ internal static class OfflineReplicaEndpoints
             job.Updated = jobs.Now;
         }
 
-        await RunAsync(context, job, request.Async, WorkAsync, cancellation).ConfigureAwait(false);
+        await RunAsync(context, job, request.Async, WorkAsync, cancellation, request.Embedded).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------------------------------------ synchronizeReplica
@@ -365,14 +376,21 @@ internal static class OfflineReplicaEndpoints
             return;
         }
 
-        if (await WriterAsync(context).ConfigureAwait(false) is not { } writer)
+        IMobileGeodatabaseWriter? writer = null;
+
+        if (request!.DataFormat != "json")
         {
-            return;
+            if (await WriterAsync(context).ConfigureAwait(false) is not { } installed)
+            {
+                return;
+            }
+
+            writer = installed;
         }
 
         IOfflineSyncStore store = services.GetRequiredService<IOfflineSyncStore>();
 
-        if (await OwnReplicaAsync(context, store, service, caller, request!.ReplicaId, cancellation).ConfigureAwait(false) is not { } replica)
+        if (await OwnReplicaAsync(context, store, service, caller, request.ReplicaId, cancellation).ConfigureAwait(false) is not { } replica)
         {
             return;
         }
@@ -480,7 +498,8 @@ internal static class OfflineReplicaEndpoints
 
         job.ReplicaName = replica.Name;
         job.ReplicaId = replica.Id;
-        job.DownloadName = replica.Name + "_changes.geodatabase";
+        bool jsonSync = request.DataFormat == "json";
+        job.DownloadName = replica.Name + (jsonSync ? "_changes.json" : "_changes.geodatabase");
 
         // ---- the upload, on this request ----
         HashSet<Guid> uploaded = [];
@@ -514,6 +533,7 @@ internal static class OfflineReplicaEndpoints
         async Task WorkAsync(CancellationToken stopping)
         {
             List<ReplicaLayer> advanced = [];
+            List<OfflineLayerChanges> jsonChanges = [];
 
             if (downloading)
             {
@@ -542,10 +562,16 @@ internal static class OfflineReplicaEndpoints
                     }
                 }
 
-                string file = jobs.FileFor(job);
-                await writer.WriteDeltaAsync(new OfflineDelta(replica.Id, generation.ToUnixTimeMilliseconds(), changes, service.Name), file, stopping)
-                    .ConfigureAwait(false);
+                string file = jobs.FileFor(job, jsonSync ? ".json" : ".geodatabase");
+
+                if (!jsonSync)
+                {
+                    await writer!.WriteDeltaAsync(new OfflineDelta(replica.Id, generation.ToUnixTimeMilliseconds(), changes, service.Name), file, stopping)
+                        .ConfigureAwait(false);
+                }
+
                 job.File = file;
+                jsonChanges = changes;
             }
 
             foreach (ReplicaLayer stored in replica.Layers)
@@ -554,6 +580,12 @@ internal static class OfflineReplicaEndpoints
 
                 // A layer only uploaded keeps its generation: advancing it would skip the server's changes it has not had.
                 advanced.Add(down ? stored with { ServerGeneration = generation.ToUnixTimeMilliseconds() } : stored);
+            }
+
+            if (jsonSync && downloading && job.File is { } jsonFile)
+            {
+                // JSON edits state the generations the sync leaves the replica at, so they are written after they are known.
+                await OfflineJsonReplica.WriteChangesAsync(jsonFile, replica, jsonChanges, advanced, stopping).ConfigureAwait(false);
             }
 
             if (request.CloseReplica)
@@ -932,7 +964,8 @@ internal static class OfflineReplicaEndpoints
         }
 
         context.Response.Headers.CacheControl = "private, no-store";
-        await Results.File(file, "application/x-sqlite3", job.DownloadName).ExecuteAsync(context).ConfigureAwait(false);
+        await Results.File(file, file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? OfflineJsonReplica.MediaType : "application/x-sqlite3",
+                job.DownloadName).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------------------------------------ reading rows
@@ -1293,7 +1326,8 @@ internal static class OfflineReplicaEndpoints
 
     /// <summary>Runs a job: here, answering its result, or behind a status URL.</summary>
     private static async Task RunAsync(
-        HttpContext context, ReplicaJob job, bool async, Func<CancellationToken, Task> work, CancellationToken cancellation)
+        HttpContext context, ReplicaJob job, bool async, Func<CancellationToken, Task> work, CancellationToken cancellation,
+        bool embedded = false)
     {
         ReplicaJobs jobs = context.RequestServices.GetRequiredService<ReplicaJobs>();
 
@@ -1321,6 +1355,15 @@ internal static class OfflineReplicaEndpoints
         {
             await GuardedAsync(cancellation).ConfigureAwait(false);
             int status = job.Status == "Failed" ? 500 : 200;
+
+            // esriTransportTypeEmbedded: the JSON replica itself is the answer, as ArcGIS answers it.
+            if (embedded && status == 200 && job.File is { } embeddedFile && File.Exists(embeddedFile))
+            {
+                context.Response.Headers.CacheControl = "private, no-store";
+                await Results.File(embeddedFile, OfflineJsonReplica.MediaType).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
             await Results.Json(OfflineReplicaShapes.Status(job, ResultUrl(context, job)), statusCode: status)
                 .ExecuteAsync(context).ConfigureAwait(false);
             return;

@@ -140,11 +140,12 @@ internal sealed class ReplicaJobs
     /// <summary>The file a job writes: inside the directory, named by the job's id and nothing a caller sent.</summary>
     /// <param name="job">The job.</param>
     /// <returns>The path.</returns>
-    public string FileFor(ReplicaJob job)
+    /// <param name="extension">The file's extension: <c>.geodatabase</c>, or <c>.json</c> for a JSON replica.</param>
+    public string FileFor(ReplicaJob job, string extension = ".geodatabase")
     {
         ArgumentNullException.ThrowIfNull(job);
         System.IO.Directory.CreateDirectory(Directory);
-        return Path.Combine(Directory, job.Id.ToString("N") + ".geodatabase");
+        return Path.Combine(Directory, job.Id.ToString("N") + extension);
     }
 
     /// <summary>Drops the jobs older than <see cref="Kept"/>, and their files.</summary>
