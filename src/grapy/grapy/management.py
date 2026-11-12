@@ -7278,9 +7278,10 @@ def AddGlobalIDs(in_datasets):
 
 
 def EnableAttachments(in_dataset):
-    """Attachments enabled: the ``<name>__ATTACH`` table and the ``<name>__ATTACHREL`` relationship class, with global
-    IDs added first when the class has none (INFERRED: the page is silent; ArcGIS's attachment tables key on them). A
-    class that has attachments gets a warning and nothing more, as documented."""
+    """Attachments enabled: the ``<name>__ATTACH`` table and the ``<name>__ATTACHREL`` relationship class, as
+    documented. A class with global IDs relates them by ``REL_GLOBALID``; a class without them gets none and relates
+    them by ``REL_OBJECTID``, its object id (measured in ArcGIS Pro 3.7, 2026-11-12; ADR-289 §5.4). A class that has
+    attachments gets a warning and nothing more, as documented."""
     from . import _attachments
     from ._runtime import AddWarning
     connection, table = _model_table("EnableAttachments", in_dataset)
@@ -7313,18 +7314,20 @@ def DisableAttachments(in_dataset):
 
 
 def _attached(tool, in_dataset):
-    """(file, table, GlobalID field) of a class with attachments; an error without them."""
+    """(file, table, cursor field, attachment-table field) of a class with attachments — ``OID@`` and
+    ``REL_OBJECTID``, or its GlobalID field and ``REL_GLOBALID``, as its attachment table holds (ADR-289 §5.4); an
+    error without them."""
     from . import _attachments
     from ._runtime import ExecuteError
     connection, table = _model_table(tool, in_dataset)
     try:
         if not _attachments.enabled(connection, table):
             raise ExecuteError(f"ERROR 000800: attachments are not enabled on '{table}'; run EnableAttachments first.")
-        key = _attachments.global_id_field(connection, table)
+        origin, column = _attachments.keys(connection, table)
         file = connection.execute("pragma database_list").fetchone()[2]
     finally:
         connection.close()
-    return file, table, key
+    return file, table, "OID@" if column == "REL_OBJECTID" else origin, column
 
 
 def _join_key(value):
@@ -7350,7 +7353,7 @@ def AddAttachments(in_dataset, in_join_field, in_match_table, in_match_join_fiel
     content type is its MIME type by extension."""
     from . import _attachments, da
     from ._runtime import AddWarning
-    file, table, key = _attached("AddAttachments", in_dataset)
+    file, table, key, _ = _attached("AddAttachments", in_dataset)
     by_value = _rows_by_key(file, table, in_join_field, key)
     match, where = _source(in_match_table)
     with da.SearchCursor(match, [str(in_match_join_field), str(in_match_path_field)], where) as rows:
@@ -7383,7 +7386,7 @@ def RemoveAttachments(in_dataset, in_join_field, in_match_table, in_match_join_f
     honoured. INFERRED: a name is compared with the attachment's name as a file name (a path's directory is
     dropped), ignoring case."""
     from . import _attachments, da
-    file, table, key = _attached("RemoveAttachments", in_dataset)
+    file, table, key, column = _attached("RemoveAttachments", in_dataset)
     by_value = _rows_by_key(file, table, in_join_field, key)
     match, where = _source(in_match_table)
     fields = [str(in_match_join_field)] + ([str(in_match_name_field)] if _given(in_match_name_field) else [])
@@ -7395,9 +7398,9 @@ def RemoveAttachments(in_dataset, in_join_field, in_match_table, in_match_join_f
         for value, name in wanted:
             for guid in by_value.get(_join_key(value), []):
                 if name is None or str(name).strip() == "":
-                    connection.execute(f'delete from "{attached}" where REL_GLOBALID = ?', (guid,))
+                    connection.execute(f'delete from "{attached}" where {column} = ?', (guid,))
                 else:
-                    connection.execute(f'delete from "{attached}" where REL_GLOBALID = ? and lower(ATT_NAME) = lower(?)',
+                    connection.execute(f'delete from "{attached}" where {column} = ? and lower(ATT_NAME) = lower(?)',
                                        (guid, os.path.basename(str(name).replace("\\", "/"))))
         _attachments.refresh(connection, table)
         connection.commit()
@@ -7480,7 +7483,7 @@ def ExportAttachments(in_dataset, out_location, subdirectory_field=None, name_fo
     run's attachments would share gets ``_1``, ``_2`` … before its extension."""
     from . import _attachments, da
     from ._runtime import ExecuteError
-    file, table, key = _attached("ExportAttachments", in_dataset)
+    file, table, key, column = _attached("ExportAttachments", in_dataset)
     style = str(name_format or "ORIGINAL").upper()
     if style not in ("ORIGINAL", "REPLACE", "PREFIX", "SUFFIX"):
         raise ExecuteError(f"ERROR 000800: '{name_format}' is not ORIGINAL, REPLACE, PREFIX or SUFFIX.")
@@ -7501,7 +7504,7 @@ def ExportAttachments(in_dataset, out_location, subdirectory_field=None, name_fo
             target = os.path.join(folder, _safe(rest[0])) if subfield else folder
             values = "_".join(_safe(v) for v in rest[len(subfield):])
             for name, data in connection.execute(f'select ATT_NAME, DATA from "{_attachments.attach_table(table)}" '
-                                                 'where REL_GLOBALID = ? order by ATTACHMENTID', (guid,)).fetchall():
+                                                 f'where {column} = ? order by ATTACHMENTID', (guid,)).fetchall():
                 stem, extension = os.path.splitext(name)
                 stem = {"ORIGINAL": stem, "REPLACE": values, "PREFIX": f"{values}_{stem}",
                         "SUFFIX": f"{stem}_{values}"}[style]
@@ -7522,7 +7525,7 @@ def ExportAttachments(in_dataset, out_location, subdirectory_field=None, name_fo
 
 def _upgrade_fields(tool, in_dataset, fields, add):
     from . import _attachments
-    file, table, _ = _attached(tool, in_dataset)
+    file, table, _, _ = _attached(tool, in_dataset)
     connection = _gpkg.connect(file)
     try:
         attached = _attachments.attach_table(table)
@@ -7578,7 +7581,7 @@ def _attach_files(path, files_by_oid):
     try:
         if not _attachments.enabled(connection, table):
             _attachments.enable(connection, table)
-        key = _attachments.global_id_field(connection, table)
+        key = _attachments.keys(connection, table)[0]
         oid = _gpkg.oid_column(connection, table)
         for each, files in files_by_oid.items():
             guid = connection.execute(f'select "{key}" from "{table}" where "{oid}" = ?', (each,)).fetchone()[0]

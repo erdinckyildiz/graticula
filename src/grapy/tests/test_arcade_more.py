@@ -240,7 +240,9 @@ class ModelReads(_Workspace):
         parcels = self.feature_class("parcels", "POLYGON", [("photos", "LONG")])
         arcpy.management.EnableAttachments(parcels)
         self.insert(parcels, ["SHAPE@"], [(poly(0, 0, 1, 1),), (poly(2, 2, 3, 3),)])
-        guid = self.rows(parcels, ["GLOBALID@"], "fid = 1")[0][0]
+        # parcels has no global IDs, so its attachments key on the object id (REL_OBJECTID), as ArcGIS Pro 3.7 was
+        # measured to key them, 2026-11-12 (ADR-289 §5.4); this test read GLOBALID@ before.
+        guid = self.rows(parcels, ["OID@"], "fid = 1")[0][0]
         from grapy import _gpkg
         connection = _gpkg.connect(self.gpkg)
         _attachments.add(connection, "parcels", guid, "front.jpg", b"x" * 10)

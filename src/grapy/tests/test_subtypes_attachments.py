@@ -304,6 +304,9 @@ class Attachments(_Workspace):
         return self.rows(self.attach, ["OID@", "ATT_NAME", "CONTENT_TYPE", "DATA_SIZE", "DATA"])
 
     def test_enabling_makes_the_table_the_relationship_class_and_the_media_relation(self):
+        # The class has global IDs here: it keeps REL_GLOBALID, as Pro does (measured in ArcGIS Pro 3.7, 2026-11-12);
+        # until ADR-289 §5.4 grapy added them itself. A class without them is ObjectIdKeyedAttachments below.
+        arcpy.management.AddGlobalIDs(self.pipes)
         arcpy.management.EnableAttachments(self.pipes)
         self.assertEqual([f.name for f in arcpy.ListFields(self.attach)],
                          ["ATTACHMENTID", "REL_GLOBALID", "CONTENT_TYPE", "ATT_NAME", "DATA_SIZE", "DATA"])
@@ -459,9 +462,132 @@ class Attachments(_Workspace):
             arcpy.management.UpgradeAttachments(self.pipes, "ALL")
 
     def test_the_global_id_field_of_a_class_with_attachments_cannot_be_deleted(self):
+        # Global IDs added first: EnableAttachments no longer adds them (measured in ArcGIS Pro 3.7, 2026-11-12, where
+        # DeleteField refuses GlobalID with ERROR 001334 on a class with attachments keyed either way).
+        arcpy.management.AddGlobalIDs(self.pipes)
         arcpy.management.EnableAttachments(self.pipes)
         with self.assertRaises(ExecuteError):
             arcpy.management.DeleteField(self.pipes, "GlobalID")
+
+
+class ObjectIdKeyedAttachments(_Workspace):
+    """ADR-289 §5.4: what ArcGIS Pro 3.7 writes, measured 2026-11-12 (tools/pro-compare/sweep, management_1 and
+    management_2's attachment cases, and a probe of EnableAttachments, AddGlobalIDs and DeleteField): a class without
+    global IDs gets none, and its attachment table relates by REL_OBJECTID (Integer) to the object id; a class with
+    global IDs keeps REL_GLOBALID."""
+
+    def setUp(self):
+        super().setUp()
+        self.oids = self.insert(self.pipes, ["code", "SHAPE@XY"], [("A1", (0, 0)), ("B2", (1, 1)), ("C3", (2, 2))])
+        self.files = os.path.join(self.directory, "files")
+        os.makedirs(self.files)
+        for name, body in (("A1.jpg", b"jpeg-a"), ("A1_side.png", b"png-a"), ("B2.pdf", b"%PDF-b")):
+            with open(os.path.join(self.files, name), "wb") as written:
+                written.write(body)
+        self.attach = self.gpkg + "/pipes__ATTACH"
+
+    def match(self, rows, name="match"):
+        table = arcpy.management.CreateTable(self.gpkg, name)[0]
+        arcpy.management.AddField(table, "key", "TEXT")
+        arcpy.management.AddField(table, "path", "TEXT")
+        self.insert(table, ["key", "path"], rows)
+        return table
+
+    def attach_all(self):
+        arcpy.management.AddAttachments(self.pipes, "code", self.match([("A1", "A1.jpg"), ("A1", "A1_side.png"),
+                                                                        ("B2", "B2.pdf")]), "key", "path", self.files)
+
+    def test_a_class_without_global_ids_gets_none_and_relates_by_object_id(self):
+        arcpy.management.EnableAttachments(self.pipes)
+        self.assertEqual([[f.name, f.type] for f in arcpy.ListFields(self.attach)],
+                         [["ATTACHMENTID", "OID"], ["REL_OBJECTID", "Integer"], ["CONTENT_TYPE", "String"],
+                          ["ATT_NAME", "String"], ["DATA_SIZE", "Integer"], ["DATA", "Blob"]])
+        self.assertFalse(arcpy.Describe(self.pipes).hasGlobalID)
+        described = arcpy.Describe(self.gpkg + "/pipes__ATTACHREL")
+        oid = arcpy.Describe(self.pipes).OIDFieldName
+        self.assertEqual((described.isAttachmentRelationship, described.isComposite, described.cardinality,
+                          described.originClassKeys),
+                         (True, True, "OneToMany", [(oid, "OriginPrimary", ""), ("REL_OBJECTID", "OriginForeign", "")]))
+
+    def test_attachments_are_added_removed_exported_and_deleted_by_object_id(self):
+        arcpy.management.EnableAttachments(self.pipes)
+        self.attach_all()
+        self.assertEqual(self.rows(self.attach, ["REL_OBJECTID", "ATT_NAME"]),
+                         [(self.oids[0], "A1.jpg"), (self.oids[0], "A1_side.png"), (self.oids[1], "B2.pdf")])
+        with arcpy.da.SearchRelatedRecords(self.gpkg + "/pipes__ATTACHREL", destination_fields="ATT_NAME",
+                                           origin_fields="code") as related:
+            self.assertEqual(list(related), [(("A1",), ("A1.jpg",)), (("A1",), ("A1_side.png",)), (("B2",), ("B2.pdf",))])
+        out = os.path.join(self.directory, "out")
+        arcpy.management.ExportAttachments(self.pipes, out, None, "PREFIX", ["code"])
+        self.assertEqual(sorted(os.listdir(out)), ["A1_A1.jpg", "A1_A1_side.png", "B2_B2.pdf"])
+        arcpy.management.RemoveAttachments(self.pipes, "code", self.match([("A1", "A1_side.png")], "drop"), "key", "path")
+        self.assertEqual([r[0] for r in self.rows(self.attach, ["ATT_NAME"])], ["A1.jpg", "B2.pdf"])
+        with arcpy.da.UpdateCursor(self.pipes, ["code"], "code = 'B2'") as rows:   # composite: Pro deletes them too
+            for _ in rows:
+                rows.deleteRow()
+        self.assertEqual(self.rows(self.attach, ["REL_OBJECTID", "ATT_NAME"]), [(self.oids[0], "A1.jpg")])
+        arcpy.management.UpgradeAttachments(self.pipes)
+        self.assertEqual([f.name for f in arcpy.ListFields(self.attach)][1], "REL_OBJECTID")
+
+    def test_global_ids_added_later_leave_the_key_as_it_was(self):
+        arcpy.management.EnableAttachments(self.pipes)
+        self.attach_all()
+        arcpy.management.AddGlobalIDs(self.pipes)
+        self.assertTrue(arcpy.Describe(self.pipes).hasGlobalID)
+        self.assertIn("REL_OBJECTID", [f.name for f in arcpy.ListFields(self.attach)])
+        self.assertEqual(arcpy.Describe(self.gpkg + "/pipes__ATTACHREL").originClassKeys[1],
+                         ("REL_OBJECTID", "OriginForeign", ""))
+        arcpy.management.AddAttachments(self.pipes, "code", self.match([("C3", "B2.pdf")], "more"), "key", "path",
+                                        self.files)
+        self.assertEqual(self.rows(self.attach, ["REL_OBJECTID"], "ATT_NAME = 'B2.pdf'"),
+                         [(self.oids[1],), (self.oids[2],)])
+        with self.assertRaises(ExecuteError):   # Pro: ERROR 001334, GlobalID is a required field
+            arcpy.management.DeleteField(self.pipes, "GlobalID")
+
+    def test_attachments_written_before_adr_289_by_global_id_are_still_read(self):
+        # The layout grapy wrote until ADR-289 §5.4: global IDs added by EnableAttachments to a class that had none,
+        # and REL_GLOBALID. Written here as that code wrote it, so the reading is tested against the old file.
+        from grapy import _attachments, _gpkg, _relationships
+        connection = _gpkg.connect(self.gpkg)
+        try:
+            key = _attachments.add_global_ids(connection, "pipes")
+            connection.execute('''create table "pipes__ATTACH" (ATTACHMENTID integer primary key autoincrement,
+                REL_GLOBALID TEXT not null, CONTENT_TYPE TEXT not null, ATT_NAME TEXT not null,
+                DATA_SIZE INTEGER not null, DATA BLOB not null)''')
+            connection.execute("insert into gpkg_contents (table_name, data_type, identifier) values "
+                               "('pipes__ATTACH', 'attributes', 'pipes__ATTACH')")
+            _relationships.ensure(connection)
+            connection.execute("insert into grapy_relationship_class (name, origin, destination, relationship_type, "
+                               "forward_label, backward_label, message_direction, cardinality, attributed, "
+                               "origin_primary_key, origin_foreign_key) values ('pipes__ATTACHREL', 'pipes', "
+                               "'pipes__ATTACH', 'COMPOSITE', 'pipes__ATTACH', 'pipes', 'FORWARD', 'ONE_TO_MANY', 0, ?, "
+                               "'REL_GLOBALID')", (key,))
+            guids = dict(connection.execute(f'select code, "{key}" from pipes'))
+            connection.execute('insert into "pipes__ATTACH" (REL_GLOBALID, CONTENT_TYPE, ATT_NAME, DATA_SIZE, DATA) '
+                               "values (?, 'image/jpeg', 'old.jpg', 3, ?)", (guids["C3"], b"old"))
+            connection.commit()
+        finally:
+            connection.close()
+        self.assertTrue(arcpy.Describe(self.gpkg + "/pipes__ATTACHREL").isAttachmentRelationship)
+        self.attach_all()
+        self.assertEqual(self.rows(self.attach, ["REL_GLOBALID", "ATT_NAME"]),
+                         [(guids["C3"], "old.jpg"), (guids["A1"], "A1.jpg"), (guids["A1"], "A1_side.png"),
+                          (guids["B2"], "B2.pdf")])
+        out = os.path.join(self.directory, "out")
+        arcpy.management.ExportAttachments(self.pipes, out, None, "PREFIX", ["code"])
+        self.assertEqual(sorted(os.listdir(out)), ["A1_A1.jpg", "A1_A1_side.png", "B2_B2.pdf", "C3_old.jpg"])
+        arcpy.management.RemoveAttachments(self.pipes, "code", self.match([("A1", "")], "drop"), "key")
+        with arcpy.da.UpdateCursor(self.pipes, ["code"], "code = 'B2'") as rows:
+            for _ in rows:
+                rows.deleteRow()
+        self.assertEqual([r[0] for r in self.rows(self.attach, ["ATT_NAME"])], ["old.jpg"])
+        arcpy.management.AddField(self.pipes, "photos", "LONG")
+        arcpy.management.AddAttributeRule(self.pipes, "photos", "CALCULATION", "Count(Attachments($feature))",
+                                          field="photos", triggering_events="UPDATE")
+        with arcpy.da.UpdateCursor(self.pipes, ["photos"]) as rows:
+            for row in rows:
+                rows.updateRow([-1])
+        self.assertEqual(self.rows(self.pipes, ["code", "photos"]), [("A1", 0), ("C3", 1)])
 
 
 class Photos(_Workspace):

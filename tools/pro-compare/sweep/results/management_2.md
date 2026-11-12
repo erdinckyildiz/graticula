@@ -9,7 +9,7 @@ names files differently in Pro: `GenerateID0.csv`, `a(2).las`).
 First run: MATCH 45, BOTH-ERROR 27, DIFF 23, REFUSED 11, PRO-ERROR 9, GRAPY-ERROR 8, SCHEMA 3. (The first run is the
 first of three batches of cases each; most BOTH-ERRORs and PRO-ERRORs were the case: attribute rules need global IDs
 in Pro, an `O(..., "file")` path the harness then tried to dump, `drop` as a table name, EXIF rationals.)
-Now: MATCH 103, DIFF 10, BOTH-ERROR 7, PRO-ERROR 5, SCHEMA 1 — every one recorded below as not comparable or an open
+Now (attachments run again 2026-11-12): MATCH 104, DIFF 9, BOTH-ERROR 7, PRO-ERROR 5, SCHEMA 1 — every one recorded below as not comparable or an open
 difference.
 
 Where grapy refuses one option of a tool by name (REFUSED in the first run), the case was narrowed to the options
@@ -138,7 +138,7 @@ grapy builds, so the rest is compared, and the refused option is listed in open 
 | TruncateTable | MATCH | MATCH | — |  |
 | UnregisterAsVersioned | BOTH-ERROR | BOTH-ERROR | not comparable | as RegisterAsVersioned |
 | UnsplitLine | DIFF | MATCH | fixed | statistics counted only the lines merged (crossing lines were counted in each other) |
-| UpgradeAttachments | GRAPY-ERROR | DIFF | recorded | fields match but the key: Pro REL_OBJECTID (no global IDs), grapy REL_GLOBALID (open 10) |
+| UpgradeAttachments | GRAPY-ERROR | MATCH | fixed | the key is REL_OBJECTID on a class without global IDs, as Pro's (ADR-289 §5.4, run again 2026-11-12; open 10 built) |
 | UpgradeGDB | PRO-ERROR | MATCH | fixed | a current geodatabase is refused with ERROR 001046, the check alone too |
 | ValidateTopology | GRAPY-ERROR | MATCH | — |  |
 | XYTableToPoint | MATCH | MATCH | — |  |
@@ -187,8 +187,9 @@ grapy builds, so the rest is compared, and the refused option is listed in open 
 9. **MigrateObjectIDTo64Bit** — a file geodatabase's OID field goes from length 4 to 8; a GeoPackage's object IDs are
    64-bit already and ListFields answers 4 before and after. A workspace difference; whether ListFields should answer 8
    for a GeoPackage OID needs Pro's answer on a GeoPackage.
-10. **Attachments keyed by object ID** — Pro's attachment table on a class without global IDs relates by REL_OBJECTID
-    (Integer); grapy always by REL_GLOBALID (ADR-228). Found by UpgradeAttachments; every attachment tool carries it.
+10. ~~**Attachments keyed by object ID** — Pro's attachment table on a class without global IDs relates by REL_OBJECTID
+    (Integer); grapy always by REL_GLOBALID (ADR-228). Found by UpgradeAttachments; every attachment tool carries it.~~
+    **Built 2026-11-12 (ADR-289 §5.4)**; ExportAttachments, RemoveAttachments and UpgradeAttachments run again: MATCH.
 11. **Contingent values are not enforced by Pro's cursors** — measured with a RESTRICT field group: Pro's InsertCursor and
     UpdateCursor accept a combination no contingent value allows; grapy's raise RuleError (ADR-235 §5.8). An ADR-level
     choice in `grapy._rules`, not changed here; GenerateContingentValues' case uses DO_NOT_RESTRICT to compare.
