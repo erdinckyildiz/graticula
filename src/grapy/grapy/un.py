@@ -22,7 +22,9 @@ from . import _gpkg, _unjson, _untrace, _utility
 from ._result import Result
 from ._runtime import AddWarning, ExecuteError, NotBuiltError, equivalent
 
-_VERSIONS = {"COMPATIBLE": "8", "CURRENT": "8", "VERSION_8": "8", "VERSION_7": "7", "VERSION_6": "6", "VERSION_5": "5"}
+# Measured in ArcGIS Pro 3.7, 2026-11-12, in a file geodatabase: COMPATIBLE and CURRENT both make a version 7 network
+# (schemaGeneration 7); only VERSION_8 makes an 8, which alone has the Propagator Resetter category.
+_VERSIONS = {"COMPATIBLE": "7", "CURRENT": "7", "VERSION_8": "8", "VERSION_7": "7", "VERSION_6": "6", "VERSION_5": "5"}
 
 
 def _given(value):
@@ -85,9 +87,10 @@ def _cells(row):
 def CreateUtilityNetwork(in_feature_dataset, in_utility_network_name, service_territory_feature_class,
                          utility_network_version="COMPATIBLE"):
     """A utility network in a feature dataset, with its structure network's five classes, as documented. The service
-    territory must be a polygon class in the dataset, z- and m-enabled. INFERRED (ADR-231 §5.9 (a)): COMPATIBLE and
-    CURRENT make a version 8 network, the version Pro 3.7 makes; the version is recorded and changes nothing else
-    except that big integer network attributes need 7 or later. The network's associations and dirty areas are the
+    territory must be a polygon class in the dataset, z- and m-enabled. COMPATIBLE and CURRENT make a version 7 network, as
+    Pro 3.7 makes in a file geodatabase (measured 2026-11-12; ADR-231 §5.9 (a) had INFERRED 8), VERSION_8 an 8 with the
+    Propagator Resetter category; the version is recorded and changes nothing else except that big integer network
+    attributes need 7 or later. The network's associations and dirty areas are the
     classes ``<name>_Associations`` and ``<name>_DirtyAreas`` beside it."""
     from .management import _feature_dataset_of
     file, dataset = _gpkg.split(_path(in_feature_dataset))
@@ -256,7 +259,8 @@ def AddNetworkCategory(in_utility_network, category_name):
 
 
 def SetNetworkCategory(in_utility_network, domain_network, featureclass, assetgroup, assettype, category=None):
-    """The categories of an asset type replaced by those named; none named unassigns them all. Subnetwork Controller
+    """The categories of an asset type replaced by those named; none named changes nothing (measured in ArcGIS Pro 3.7,
+    2026-11-12; grapy unassigned them all before). Subnetwork Controller
     only on a device or junction object of a traditional domain network, and in a partitioned one only on an asset type
     whose terminal configuration is directional with an upstream and a downstream terminal, as the page says."""
     with _utility.Network(_path(in_utility_network)) as network:
@@ -283,6 +287,9 @@ def SetNetworkCategory(in_utility_network, domain_network, featureclass, assetgr
                     raise ExecuteError("ERROR 002092: in a partitioned domain network a subnetwork controller's asset "
                                        "type needs a directional terminal configuration with an upstream and a "
                                        "downstream terminal.")
+        if not names:
+            # Measured in ArcGIS Pro 3.7, 2026-11-12: no category named leaves the asset type's categories as they are.
+            return Result(_path(in_utility_network))
         network.q("delete from grapy_un_category_asset where network = ? and class_name = ? and asset_group = ? and "
                   "asset_type = ?", network.name, class_name, group, kind)
         for name in names:
@@ -314,8 +321,9 @@ def DeleteNetworkCategory(in_utility_network, category_name):
 def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, traversability_model,
                              terminals_directional=None, terminals_bidirectional=None, valid_paths=None,
                              default_path=None):
-    """A terminal configuration: two to eight terminals of at most 32 characters, numbered 2, 3 … in the order given,
-    1 being the Single Terminal of an asset type without a configuration (measured in Pro 3.7, ADR-231 §5.9 (b)); valid paths named, each All, None or terminal pairs ``A-B, A-C``; required for a
+    """A terminal configuration: two to eight terminals of at most 32 characters, numbered in the order given on from
+    the network's last terminal — 2, 3 … in its first configuration, 1 being the Single Terminal of an asset type
+    without a configuration (measured in Pro 3.7, ADR-231 §5.9 (b), and again 2026-11-12); valid paths named, each All, None or terminal pairs ``A-B, A-C``; required for a
     bidirectional configuration of three or four terminals. A directional configuration needs an upstream terminal.
     The default path is a path's name, ALL or NONE, ALL when none is given."""
     model = _word(traversability_model, "")
@@ -341,7 +349,7 @@ def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, tr
     names = [n for n, _ in terminals]
     if any(len(n) > 32 for n in names) or len({n.lower() for n in names}) != len(names):
         raise ExecuteError("ERROR 002096: terminal names are unique and at most 32 characters.")
-    ids = {n.lower(): i + 1 for i, n in enumerate(names)}
+    ids = {n.lower(): i + 2 for i, n in enumerate(names)}   # the terminals are numbered from 2, as stored below
     paths = {}
     for row in _rows(valid_paths):
         cells = _cells(row)
@@ -373,18 +381,26 @@ def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, tr
         if network.q("select 1 from grapy_un_terminal_config where network = ? and lower(name) = lower(?)",
                      network.name, str(terminal_configuration_name)).fetchone():
             raise ExecuteError(f"ERROR 000258: the terminal configuration '{terminal_configuration_name}' exists.")
-        new_id = network.q("select coalesce(max(id), 0) + 1 from grapy_un_terminal_config where network = ?",
-                           network.name).fetchone()[0]
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: configurations are numbered from 2 (0 is the Single terminal one)
+        # and terminal ids run on through the whole network — Source-Load's 2 and 3, the next configuration's from 4.
+        new_id = max(1, network.q("select coalesce(max(id), 0) from grapy_un_terminal_config where network = ?",
+                                  network.name).fetchone()[0]) + 1
+        used = [t[0] for (text,) in network.q("select terminals from grapy_un_terminal_config where network = ?",
+                                              network.name) for t in json.loads(text)]
+        shift = max(used, default=1) + 1 - 2
+        paths = {k: v if isinstance(v, str) else [(x + shift, y + shift) for x, y in v] for k, v in paths.items()}
         network.q("insert into grapy_un_terminal_config values (?, ?, ?, ?, ?, ?, ?)", network.name, new_id,
                   str(terminal_configuration_name), model,
-                  json.dumps([[i + 2, n, bool(up)] for i, (n, up) in enumerate(terminals)]), json.dumps(paths), default)
+                  json.dumps([[i + 2 + shift, n, bool(up)] for i, (n, up) in enumerate(terminals)]), json.dumps(paths),
+                  default)
     return Result(_path(in_utility_network))
 
 
 def SetTerminalConfiguration(in_utility_network, domain_network, device_featureclass, assetgroup, assettype,
                              terminal_configuration):
     """A terminal configuration assigned to an asset type of a device class or junction object table — permanent once
-    the network topology has been enabled, as the page cautions."""
+    the network topology has been enabled, as the page cautions, and refused on an asset type a connectivity rule names
+    (ERROR 004114, measured in ArcGIS Pro 3.7, 2026-11-12)."""
     with _utility.Network(_path(in_utility_network)) as network:
         network.require_disabled("SetTerminalConfiguration")
         if network.ever_enabled:
@@ -401,6 +417,14 @@ def SetTerminalConfiguration(in_utility_network, domain_network, device_featurec
                         network.name, str(terminal_configuration)).fetchone()
         if row is None:
             raise ExecuteError(f"ERROR 000732: '{terminal_configuration}' is not a terminal configuration.")
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: an asset type named in a connectivity rule keeps its terminals.
+        ruled = [r for (r,) in network.q(
+            "select id from grapy_un_rule where network = ? and rule_type not in ('CONTAINMENT', "
+            "'STRUCTURAL_ATTACHMENT') and ((from_class = ? and from_group = ? and from_type = ?) or (to_class = ? and "
+            "to_group = ? and to_type = ?) or (via_class = ? and via_group = ? and via_type = ?)) order by id",
+            network.name, *(class_name, group, kind) * 3)]
+        if ruled:
+            raise ExecuteError(f"ERROR 004114: The asset type has one or more connectivity rules: {ruled}.")
         network.q("insert or replace into grapy_un_terminal_asset values (?, ?, ?, ?, ?)", network.name, class_name, group,
                   kind, row[0])
     return Result(_path(in_utility_network))
@@ -552,7 +576,8 @@ def ImportRules(in_utility_network, rule_type, csv_file):
 
 def ExportRules(in_utility_network, rule_type, out_csv_file):
     """The network's rules of a type written to a .csv file of the documented columns, names rather than codes; a
-    rule on every terminal of an asset type with terminals writes ``*``."""
+    rule on every terminal of an asset type with terminals writes ``*``, an asset type without terminals an empty
+    terminal (measured in ArcGIS Pro 3.7, 2026-11-12; grapy wrote "Single Terminal")."""
     kind = _word(rule_type, "ALL")
     with _utility.Network(_path(in_utility_network)) as network:
         lines = []
@@ -573,7 +598,8 @@ def ExportRules(in_utility_network, rule_type, out_csv_file):
                     terminal = network.terminal_name(cls, rule[f"{prefix}_group"], rule[f"{prefix}_type"],
                                                      rule[f"{prefix}_terminal"])
                 else:
-                    terminal = "*" if config else "Single Terminal"
+                    # An asset type without terminals writes nothing (measured in ArcGIS Pro 3.7, 2026-11-12).
+                    terminal = "*" if config else ""
                 row += [cls.rsplit("/", 1)[-1], group, asset, terminal]
             lines.append(row)
     with open(_path(out_csv_file), "w", newline="", encoding="utf-8") as written:
@@ -695,8 +721,11 @@ def _enable_controller(network, class_name, globalid, terminal_name, controller_
               network.name, class_name, globalid, terminal)
     network.q("insert into grapy_un_controller values (?, ?, ?, ?, ?, ?, ?, ?, ?)", network.name, class_name, globalid,
               terminal, str(controller_name), tier[1], str(subnetwork_name), description, notes)
+    # The feature's SUBNETWORKCONTROLLERNAME is "<terminal>/<controller>" for a terminal (measured in ArcGIS Pro 3.7,
+    # 2026-11-12: "Load/Plant"); grapy wrote the controller's name alone.
+    label = f"{network.terminal_name(class_name, group, kind, terminal)}/{controller_name}" if terminal is not None         else str(controller_name)
     network.q(f'update "{class_name}" set ISSUBNETWORKCONTROLLER = 1, SUBNETWORKCONTROLLERNAME = ?, TIERNAME = ?, '
-              f'TIERRANK = ? where upper(GLOBALID) = ?', str(controller_name), tier[1], tier[2], globalid)
+              f'TIERRANK = ? where upper(GLOBALID) = ?', label, tier[1], tier[2], globalid)
 
 
 def _disable_controller(network, class_name, globalid, terminal_name):
@@ -790,10 +819,13 @@ class UtilityNetwork:
         with _utility.Network(self._path) as network:
             _utility.delete_association(network, association_global_id, {2})
 
-    def DeleteStructualAttachmentAssociation(self, association_global_id):
-        """Spelled as arcpy spells it."""
+    def DeleteStructuralAttachmentAssociation(self, association_global_id):
+        """Spelled so in ArcGIS Pro 3.7 (measured 2026-11-12); grapy spelled it as the page once did,
+        DeleteStructualAttachmentAssociation, which is kept as an alias."""
         with _utility.Network(self._path) as network:
             _utility.delete_association(network, association_global_id, {3})
+
+    DeleteStructualAttachmentAssociation = DeleteStructuralAttachmentAssociation
 
     def EnableSubnetworkController(self, table, global_id, terminal_name, subnetwork_controller_name, subnetwork_name,
                                    tier_name, description=None, notes=None):
@@ -868,6 +900,20 @@ def _extent(value, tool="ValidateNetworkTopology"):
     return shapely.unary_union([s for s in shapes if s is not None]).bounds
 
 
+def _network_present(network, bounds):
+    """Whether a feature of the network meets the extent: Pro 3.7 refuses to validate (ERROR 160521) or rebuild an
+    extent with none (measured 2026-11-12)."""
+    area = shapely.box(*bounds)
+    for class_name, _, role in network.sources().values():
+        if role in _utility.OBJECT_ROLES or role == "SubnetLine":
+            continue
+        for (blob,) in network.q(f'select geom from "{class_name}" where geom is not null'):
+            shape = _gpkg.decode(blob)
+            if shape is not None and not shape.is_empty and shape.intersects(area):
+                return True
+    return False
+
+
 def ValidateNetworkTopology(in_utility_network, extent=None):
     """The features and associations whose dirty areas intersect the extent (all of them with none) brought into the
     network topology, and the errors found again. INFERRED (ADR-231 §5.9 (d)): a feature is validated whole when its
@@ -877,7 +923,11 @@ def ValidateNetworkTopology(in_utility_network, extent=None):
     from . import _unsubnet
     with _utility.Network(_path(in_utility_network)) as network:
         network.require_enabled("ValidateNetworkTopology")
-        _utility.refresh(network, extent=_extent(extent))
+        bounds = _extent(extent)
+        if bounds is not None and not _network_present(network, bounds):
+            raise ExecuteError("ERROR 160521: A network is not present within or intersecting the input extent for the "
+                               "validate network topology request. Validating the network topology did not occur.")
+        _utility.refresh(network, extent=bounds)
         _utility.write_dirty_areas(network)
         discovered = _unsubnet.discover(network)
     return Result(_path(in_utility_network), json.dumps({"discoveredSubnetworks": discovered}))
@@ -1123,8 +1173,9 @@ def _trace(params):
 def AddTraceLocations(in_utility_network, out_feature_class, load_selected_features="DO_NOT_LOAD_SELECTED_FEATURES",
                       clear_trace_locations="KEEP_LOCATIONS", trace_locations=None,
                       filter_barrier="TRAVERSABILITY_BARRIER"):
-    """Trace locations written to a point class in the schema Trace reads: FEATUREGLOBALID, TERMINALID, PERCENTALONG and
-    ISFILTERBARRIER (INFERRED, ADR-231 §5.9 (n): the page names no fields), from the selection of the network's layers or
+    """Trace locations written to a point class with the fields ArcGIS Pro 3.7 writes (measured 2026-11-12; grapy wrote
+    four, INFERRED): LAYERNAME, SOURCEID, ASSETGROUPCODE, ASSETTYPE, FEATUREGLOBALID, FEATUREOID, TERMINALID (-1 on an
+    edge), PERCENTALONG, DISPLAYNAME (the asset group's name, INFERRED from one measurement) and ISFILTERBARRIER, from the selection of the network's layers or
     from rows (Layer Name, Global ID, Terminal ID, Percent Along) — Percent Along 0.5 on a line or edge object when none
     is given, as the page says. A junction's point is its shape, a line's the point at its percent along; an object's
     location has no shape."""
@@ -1157,7 +1208,7 @@ def AddTraceLocations(in_utility_network, out_feature_class, load_selected_featu
                 for fid in sorted(layer.selection):
                     found = network.q(f'select GLOBALID from "{class_name}" where "{oid}" = ?', fid).fetchone()
                     if found:
-                        wanted.append((class_name, found[0], None, None))
+                        wanted.append((class_name, found[0], None, None, layer.name))
         for row in rows:
             cells = _cells(row)
             cells += [None] * (4 - len(cells))
@@ -1165,41 +1216,64 @@ def AddTraceLocations(in_utility_network, out_feature_class, load_selected_featu
             layer = LAYERS.get(name)
             class_name = network.table(_gpkg.split(layer.source)[1] if layer is not None else name)
             terminal = cells[2] if _given(cells[2]) else None
+            if terminal is not None and str(terminal).strip().startswith("("):
+                # Pro 3.7 names a terminal "(1/Single Terminal)" (its parameter's choices, measured 2026-11-12)
+                terminal = str(terminal).strip().strip("()").split("/", 1)[0]
             percent = float(cells[3]) if _given(cells[3]) else None
-            wanted.append((class_name, str(cells[1]), terminal, percent))
+            wanted.append((class_name, str(cells[1]), terminal, percent, name.replace("\\", "/").rsplit("/", 1)[-1]))
         out = []
-        for class_name, globalid, terminal, percent in wanted:
+        for class_name, globalid, terminal, percent, layer_name in wanted:
             oid, group, kind = network.feature_by_globalid(class_name, globalid)
             role = network.role(class_name)
             terminal_id = network.terminal_id(class_name, group, kind, terminal) if terminal is not None else None
+            if terminal is not None and terminal_id is None:
+                terminal_id = 1  # the Single Terminal, written 1 as Pro 3.7 writes it (measured 2026-11-12)
             shape = None
             if role in _utility.LINE_ROLES or role == "EdgeObject":
                 percent = 0.5 if percent is None else percent
             else:
-                percent = None
+                percent = -1.0  # no percent along on a junction: -1, as Pro 3.7 writes (measured 2026-11-12)
             if role not in _utility.OBJECT_ROLES:
                 blob = network.q(f'select geom from "{class_name}" where "{network.oid(class_name)}" = ?', oid).fetchone()[0]
                 geometry = _gpkg.decode(blob)
                 if geometry is not None and not geometry.is_empty:
-                    geometry = shapely.force_2d(geometry)
+                    # z kept: Pro 3.7 writes the locations as points with z (measured 2026-11-12)
+                    geometry = geometry if geometry.has_z else shapely.force_3d(geometry)
                     shape = geometry if geometry.geom_type == "Point" else (
                         shapely.line_merge(geometry) if geometry.geom_type == "MultiLineString" else geometry
-                    ).interpolate(percent or 0.0, normalized=True)
-            out.append((str(globalid).upper(), terminal_id, percent, int(is_filter), shape))
+                    ).interpolate(max(percent, 0.0), normalized=True)
+            if role in _utility.LINE_ROLES or role == "EdgeObject":
+                terminal_id = -1  # an edge has no terminal: -1, as Pro 3.7 writes (measured 2026-11-12)
+            out.append((str(globalid).upper(), terminal_id, percent, int(is_filter), shape,
+                        (layer_name, network.source_of(class_name), group, kind, oid,
+                         network.asset_names(class_name, group, kind)[0])))
     path = _path(out_feature_class)
     _trace_location_class(path, srid)
     connection, table = _gpkg.table_of(path)
     try:
         if clear == "CLEAR_LOCATIONS":
             connection.execute(f'delete from "{table}"')
-        for globalid, terminal, percent, flag, shape in out:
-            connection.execute(f'insert into "{table}" (geom, FEATUREGLOBALID, TERMINALID, PERCENTALONG, ISFILTERBARRIER) '
-                               'values (?, ?, ?, ?, ?)', (_gpkg.encode(shape, srid) if shape is not None else None,
-                                                          globalid, terminal, percent, flag))
+        flat = not _gpkg.dimensions(connection, table)[0]  # an existing 2D class keeps its points 2D
+        for globalid, terminal, percent, flag, shape, more in out:
+            if flat and shape is not None:
+                shape = shapely.force_2d(shape)
+            connection.execute(f'insert into "{table}" (geom, LAYERNAME, SOURCEID, ASSETGROUPCODE, ASSETTYPE, '
+                               'FEATUREGLOBALID, FEATUREOID, TERMINALID, PERCENTALONG, DISPLAYNAME, ISFILTERBARRIER) '
+                               'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                               (_gpkg.encode(shape, srid) if shape is not None else None, *more[:4], globalid,
+                                more[4], terminal, percent, more[5], flag))
         connection.commit()
     finally:
         connection.close()
     return Result(path)
+
+
+# The trace locations class's fields, as ArcGIS Pro 3.7 writes them (measured 2026-11-12) but for LAYERID, an id of the
+# map layer that grapy, with no map, does not have.
+_LOCATION_FIELDS = (("LAYERNAME", "String"), ("SOURCEID", "Integer"), ("ASSETGROUPCODE", "Integer"),
+                    ("ASSETTYPE", "Integer"), ("FEATUREGLOBALID", "String"), ("FEATUREOID", "Integer"),
+                    ("TERMINALID", "Integer"), ("PERCENTALONG", "Double"), ("DISPLAYNAME", "String"),
+                    ("ISFILTERBARRIER", "SmallInteger"))
 
 
 def _trace_location_class(path, srid):
@@ -1212,15 +1286,15 @@ def _trace_location_class(path, srid):
                 fields = {c.name.upper() for c in _gpkg.describe(connection, table)[0]}
                 if not {"FEATUREGLOBALID", "TERMINALID", "PERCENTALONG"} <= fields:
                     raise ExecuteError(f"ERROR 000800: '{path}' is not a trace locations class.")
-                if "ISFILTERBARRIER" not in fields:
-                    connection.execute(f'alter table "{table}" add column ISFILTERBARRIER SMALLINT')
-                    connection.commit()
+                for name, kind in _LOCATION_FIELDS:
+                    if name not in fields:
+                        connection.execute(f'alter table "{table}" add column {name} '
+                                           f'{"TEXT" if kind == "String" else "INTEGER"}')
+                connection.commit()
                 return
         finally:
             connection.close()
-    _gpkg.create(path, "Point", srid, [_gpkg.Column("FEATUREGLOBALID", "String"), _gpkg.Column("TERMINALID", "Integer"),
-                                       _gpkg.Column("PERCENTALONG", "Double"),
-                                       _gpkg.Column("ISFILTERBARRIER", "SmallInteger")])
+    _gpkg.create(path, "Point", srid, [_gpkg.Column(n, k) for n, k in _LOCATION_FIELDS], has_z=True)
 
 
 # The AddTraceConfiguration parameters a configuration keeps, in the page's order after the network, name, type,
@@ -1414,6 +1488,10 @@ def AddTraceConfiguration(in_utility_network, trace_config_name, trace_type="CON
             _untrace._function_word(row[0], kind)
     config = {k: given[k] for k in _CONFIG if k != "result_types" and given[k] is not None}
     results = [_word(t, "") for t in _rows(result_types)] or ["SELECTION"]
+    for word in results:
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: a configuration keeps only these two result types.
+        if word not in ("SELECTION", "AGGREGATED_GEOMETRY"):
+            raise ExecuteError("ERROR 000800: The value is not a member of SELECTION | AGGREGATED_GEOMETRY.")
     with _utility.Network(_path(in_utility_network)) as network:
         if int(network.version) < 5:
             raise ExecuteError("ERROR 002090: trace configurations need utility network version 5 or later.")
@@ -1497,15 +1575,17 @@ def SetSubnetworkDefinition(in_utility_network, domain_network, tier_name,
                             edit_mode_for_named_version="WITHOUT_EVENTING", valid_junctions=None,
                             valid_junction_objects=None, valid_junction_object_subnetwork_controller=None,
                             valid_edge_objects=None, manage_subnetwork_isdirty=None,
-                            include_containers="EXCLUDE_CONTAINERS", include_content="EXCLUDE_CONTENT",
-                            include_structures="EXCLUDE_STRUCTURES",
+                            include_containers="INCLUDE_CONTAINERS", include_content="INCLUDE_CONTENT",
+                            include_structures="INCLUDE_STRUCTURES",
                             validate_locatability="DO_NOT_VALIDATE_LOCATABILITY"):
     """A tier's subnetwork definition set or replaced, with the topology disabled, as the page says: the valid asset
     types (``AssetGroup/AssetType``), the aggregated lines (a subset of the valid lines), summaries written to SubnetLine
     fields, condition and function barriers, propagators and their propagated fields, and the update, container and
-    Is dirty options. Disjoint subnetworks are supported by default in a hierarchical tier only, and Is dirty is managed
-    by default unless the tier has no controllers. The edit modes are kept and change nothing: grapy writes subnetwork
-    names in place, as WITHOUT_EVENTING does (INFERRED, ADR-231 §5.9 (m)). The diagram templates named are those
+    Is dirty options. Containers, content and structures are included by default (measured in ArcGIS Pro 3.7,
+    2026-11-12: a definition set without them describes includeContainers, includeContent and includeStructures as
+    True, and a subnetwork's export holds the vault containing its valve). Disjoint subnetworks are supported by default in a hierarchical tier only, and Is dirty is managed
+    by default (measured in ArcGIS Pro 3.7, 2026-11-12, on a tier with no controllers yet). The edit modes are kept and
+    change nothing: grapy writes subnetwork names in place, as WITHOUT_EVENTING does (INFERRED, ADR-231 §5.9 (m)). The diagram templates named are those
     UpdateSubnetwork keeps the subnetwork system diagrams of (ADR-232 §5.6)."""
     from . import _diagram, _unsubnet
     templates = [str(t).strip("'\"") for t in _rows(diagram_template)]
@@ -1563,10 +1643,10 @@ def SetSubnetworkDefinition(in_utility_network, domain_network, tier_name,
         options = (("update_structure_features", update_structure_features, "UPDATE", "NOT_UPDATE", "UPDATE", 4),
                    ("update_container_features", update_container_features, "UPDATE", "NOT_UPDATE", "UPDATE", 4),
                    ("include_containers", include_containers, "INCLUDE_CONTAINERS", "EXCLUDE_CONTAINERS",
-                    "EXCLUDE_CONTAINERS", 5),
-                   ("include_content", include_content, "INCLUDE_CONTENT", "EXCLUDE_CONTENT", "EXCLUDE_CONTENT", 5),
+                    "INCLUDE_CONTAINERS", 5),
+                   ("include_content", include_content, "INCLUDE_CONTENT", "EXCLUDE_CONTENT", "INCLUDE_CONTENT", 5),
                    ("include_structures", include_structures, "INCLUDE_STRUCTURES", "EXCLUDE_STRUCTURES",
-                    "EXCLUDE_STRUCTURES", 5),
+                    "INCLUDE_STRUCTURES", 5),
                    ("validate_locatability", validate_locatability, "VALIDATE_LOCATABILITY",
                     "DO_NOT_VALIDATE_LOCATABILITY", "DO_NOT_VALIDATE_LOCATABILITY", 5))
         for name, value, yes, no, default, needs in options:
@@ -1579,10 +1659,8 @@ def SetSubnetworkDefinition(in_utility_network, domain_network, tier_name,
             if word not in ("WITHOUT_EVENTING", "WITH_EVENTING"):
                 raise ExecuteError(f"ERROR 000800: {name} is WITHOUT_EVENTING or WITH_EVENTING.")
             found[name] = word
-        has_controllers = bool(network.q("select 1 from grapy_un_controller where network = ? and lower(tier) = "
-                                         "lower(?)", network.name, tier[1]).fetchone())
-        found["manage_subnetwork_isdirty"] = _boolean(manage_subnetwork_isdirty, "MANAGE", "NOT_MANAGE",
-                                                      "MANAGE" if has_controllers else "NOT_MANAGE")
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: Is dirty is managed by default, controllers or none.
+        found["manage_subnetwork_isdirty"] = _boolean(manage_subnetwork_isdirty, "MANAGE", "NOT_MANAGE", "MANAGE")
         _diagram.ensure(network.connection)
         found["diagram_template"] = [_diagram.template(network, t)["name"] for t in templates]
         network.q("insert or replace into grapy_un_subnetwork_definition values (?, ?, ?, ?)", network.name, domain[0],
@@ -1649,6 +1727,32 @@ def UpdateSubnetwork(in_utility_network, domain_network, tier, all_subnetworks_i
     return Result(path)
 
 
+_TRACE_ONLY = ("globalFunctionResults", "kFeaturesForKNNFound", "startingPointsIgnored", "warnings", "elements")
+
+
+def _pro_layout(document, types, srid):
+    """An exported subnetwork as ArcGIS Pro 3.7 writes it (measured 2026-11-12): the results at the top level —
+    featureElements, connectivity … — beside controllers (without their names), resultTypes as objects, sourceMapping
+    and the spatial reference; no identity fields and no trace bookkeeping. A deleted subnetwork keeps isDeleted
+    (INFERRED: Pro was not measured on one)."""
+    out = {}
+    for key, value in (document.get("traceResults") or {}).items():
+        if key not in _TRACE_ONLY:
+            out[key] = value
+    out["controllers"] = [{k: v for k, v in c.items() if k != "subnetworkControllerName"}
+                          for c in document.get("controllers", [])]
+    out["resultTypes"] = [{"type": str(t).lower(), "includeGeometry": False, "includePropagatedValues": False,
+                           "includeDomainDescriptions": False, "includeFlowDirections": False,
+                           "networkAttributeNames": [], "diagramTemplateName": "", "resultTypeFields": []}
+                          for t in types]
+    if "sourceMapping" in document:
+        out["sourceMapping"] = document["sourceMapping"]
+    out["spatialReference"] = {"wkid": srid, "latestWkid": srid}
+    if document.get("isDeleted"):
+        out["isDeleted"] = True
+    return out
+
+
 def ExportSubnetwork(in_utility_network, domain_network, tier, subnetwork_name, export_acknowledged="NO_ACKNOWLEDGE",
                      out_json_file=None, condition_barriers=None, function_barriers=None, include_barriers=None,
                      traversability_scope=None, propagators=None, include_geometry="EXCLUDE_GEOMETRY", result_types=None,
@@ -1656,8 +1760,8 @@ def ExportSubnetwork(in_utility_network, domain_network, tier, subnetwork_name, 
                      include_domain_descriptions="EXCLUDE_DOMAIN_DESCRIPTIONS", related_record_fields=None,
                      include_flow_directions="EXCLUDE_FLOW_DIRECTIONS",
                      include_propagated_values="EXCLUDE_PROPAGATED_VALUES"):
-    """A clean subnetwork written to a .json file: the subnetwork's identity and its ``controllers``, beside the
-    result types asked for in the layout of Trace's JSON (``_unjson``; INFERRED, ADR-231 §5.9 (l)). With no result type
+    """A clean subnetwork written to a .json file in the layout ArcGIS Pro 3.7 writes (``_pro_layout``, measured
+    2026-11-12; grapy wrapped them in Trace's layout before): the result types asked for and the ``controllers``. With no result type
     only the controllers are written. ACKNOWLEDGE, with the topology enabled, stamps LASTACKEXPORTSUBNETWORK on its
     Subnetworks row and SubnetLine, and removes the row of a deleted subnetwork, as the page says."""
     from . import _unsubnet
@@ -1710,7 +1814,8 @@ def ExportSubnetwork(in_utility_network, domain_network, tier, subnetwork_name, 
                                           "EXCLUDE_PROPAGATED_VALUES", "EXCLUDE_PROPAGATED_VALUES"))
             document["controllers"] = controllers
             document = writer.document(types, document)
-        _unjson.write(_path(out_json_file), document)
+        srid = int(network.q("select srs_id from grapy_feature_datasets where name = ?", network.dataset).fetchone()[0])
+        _unjson.write(_path(out_json_file), _pro_layout(document, types, srid))
         if acknowledge:
             stamp = _unsubnet.now()
             table = network.q("select class_name from grapy_un_source where network = ? and domain = ? and role = "
@@ -1728,8 +1833,8 @@ def ExportSubnetwork(in_utility_network, domain_network, tier, subnetwork_name, 
 
 def UpdateIsConnected(in_utility_network):
     """ISCONNECTED written on every feature of each traditional domain network: 1 (True) where connectivity reaches a
-    subnetwork controller, 2 (False) where it does not (INFERRED codes, ADR-231 §5.9 (m)). The topology must be
-    enabled."""
+    subnetwork controller, 0 (False) where it does not — the codes of Pro 3.7's IsConnected domain (measured
+    2026-11-12; grapy wrote 2, INFERRED). The topology must be enabled."""
     from . import _unsubnet
     with _utility.Network(_path(in_utility_network)) as network:
         network.require_enabled("UpdateIsConnected")
@@ -1764,14 +1869,18 @@ def SetEdgeConnectivity(in_utility_network, domain_network, line_featureclass, a
 def SetAssociationRole(in_utility_network, domain_network, featureclass, assetgroup, assettype, association_role_type,
                        association_deletion_semantics=None, view_scale=None, split_content="DO_NOT_SPLIT"):
     """An asset type's association role — CONTAINER, STRUCTURE or NONE — and deletion semantics (CASCADE,
-    SET_TO_NONE, RESTRICTED). The topology disabled; a role removed only before it is first enabled; a view scale not on
+    SET_TO_NONE, RESTRICTED), required for a container or structure role (measured in ArcGIS Pro 3.7, 2026-11-12;
+    grapy defaulted to CASCADE). The topology disabled; a role removed only before it is first enabled; a view scale not on
     junction or edge objects; split content only for a container line. Once a role is set, only a container contains and
     only a structure has attachments; the deletion semantics act when a utility network tool next finds the delete, and
     the view scale and split content are kept for a map and an editor grapy does not have (INFERRED, ADR-231 §5.9 (k))."""
     role = _word(association_role_type, "")
     if role not in ("CONTAINER", "STRUCTURE", "NONE"):
         raise ExecuteError("ERROR 000800: association_role_type is CONTAINER, STRUCTURE or NONE.")
-    deletion = _word(association_deletion_semantics, "CASCADE" if role != "NONE" else "")
+    deletion = _word(association_deletion_semantics, "")
+    if role != "NONE" and not deletion:
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: a container or structure role needs its deletion semantics.
+        raise ExecuteError("ERROR 000735: Deletion Semantics: Value is required")
     if role != "NONE" and deletion not in ("CASCADE", "SET_TO_NONE", "RESTRICTED"):
         raise ExecuteError("ERROR 000800: association_deletion_semantics is CASCADE, SET_TO_NONE or RESTRICTED.")
     split = _flag(split_content, "SPLIT", "DO_NOT_SPLIT", "DO_NOT_SPLIT")
@@ -1801,9 +1910,12 @@ def SetAssociationRole(in_utility_network, domain_network, featureclass, assetgr
 
 
 def RebuildNetworkTopology(in_utility_network, extent=None):
-    """The network topology rebuilt in an extent: every feature in it taken into the record again whether its area is
+    """The network topology rebuilt in an extent, which is required (measured in ArcGIS Pro 3.7, 2026-11-12): every feature in it taken into the record again whether its area is
     dirty or not, and the errors found again. The topology must be enabled. Dirty areas are not clipped (INFERRED,
     ADR-231 §5.9 (d))."""
+    if not _given(extent):
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: the extent is required.
+        raise ExecuteError("ERROR 000735: Extent: Value is required")
     with _utility.Network(_path(in_utility_network)) as network:
         network.require_enabled("RebuildNetworkTopology")
         _utility.refresh(network, extent=_extent(extent, "RebuildNetworkTopology"), everything=True)
@@ -1829,12 +1941,11 @@ _CLUSTERS = ("cluster keys as the connected components of the network topology, 
 def CalculateClusterKeys(in_utility_network, in_overwrite_values="DO_NOT_OVERWRITE_VALUES", in_extent=None):
     """EQUIVALENT (ADR-224 §5.6): the page says cluster keys group features and objects for the topology but not how
     they are computed; grapy groups what is connected — and an object with its container or structure, as the page's
-    "especially with nonspatial junction and edge objects" asks. Over the topology as last enabled, the topology
-    disabled, every class carrying CLUSTERKEY; features whose shape meets the extent, and only empty keys unless
+    "especially with nonspatial junction and edge objects" asks. Over the topology as last enabled, enabled or
+    disabled now (Pro 3.7 calculates them on an enabled topology, measured 2026-11-12), every class carrying CLUSTERKEY; features whose shape meets the extent, and only empty keys unless
     OVERWRITE_VALUES."""
     overwrite = _flag(in_overwrite_values, "OVERWRITE_VALUES", "DO_NOT_OVERWRITE_VALUES", "DO_NOT_OVERWRITE_VALUES")
     with _utility.Network(_path(in_utility_network)) as network:
-        network.require_disabled("CalculateClusterKeys")
         window = _extent(in_extent, "CalculateClusterKeys")
         sources = network.sources()
         for class_name, _, _ in sources.values():

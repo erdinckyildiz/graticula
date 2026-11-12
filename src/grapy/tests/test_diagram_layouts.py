@@ -460,7 +460,11 @@ class DiagramLayouts(unittest.TestCase):
             arcpy.un.DeleteNetworkCategory(self.un, "Isolating")
         self.assertIn("assigned", str(said.exception))
         self.assertIn("Isolating", self.categories())
-        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard")  # none: unassigned
+        # Naming no category changes nothing (measured in ArcGIS Pro 3.7, 2026-11-12); naming another replaces it.
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard")
+        with self.assertRaises(ExecuteError):
+            arcpy.un.DeleteNetworkCategory(self.un, "Isolating")
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard", ["Spare"])
         arcpy.un.DeleteNetworkCategory(self.un, "Isolating")
         self.assertNotIn("Isolating", self.categories())
         # A system-provided category is refused (INFERRED: the page does not say; Pro's are the network's own).

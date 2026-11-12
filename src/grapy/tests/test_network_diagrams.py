@@ -308,7 +308,10 @@ class Diagrams(unittest.TestCase):
         self.template("Down")
         arcpy.nd.AddSetStartingPointByAttributeRule(self.un, "Down", "ACTIVE", self.junction, "NAME = 'T'")
         arcpy.nd.AddTraceRule(self.un, "Down", "ACTIVE", "DOWNSTREAM", "Water", "Pressure")
-        found = self.content(self.create("Down"))
+        # The trace's result is added to what the diagram holds (measured in ArcGIS Pro 3.7, 2026-11-12), so the
+        # diagram starts from T alone to show what the trace reaches.
+        arcpy.management.MakeFeatureLayer(self.junction, "tee_t", "NAME = 'T'")
+        found = self.content(self.create("Down", features=["tee_t"]))
         self.assertEqual(set(found["J"]), {"T", "V2", "E"})
 
     def test_a_spatial_query_rule_adds_what_meets_the_diagram(self):

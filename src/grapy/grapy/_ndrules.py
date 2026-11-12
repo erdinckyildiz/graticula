@@ -6,7 +6,8 @@ in ADR-232 §5.9 (c) (INFERRED). A rule is a step of the template, ``{"kind": "r
 definitions move between networks with the same classes (Export and Import Diagram Template Definitions).
 
 - **Trace**: the trace runs from the diagram's features — or the starting points a Set Starting Point rule chose, or the
-  trace locations the diagram was created from — and what it returns becomes the diagram's content.
+  trace locations the diagram was created from — and what it returns is added to the diagram's content (measured in
+  ArcGIS Pro 3.7, 2026-11-12; it replaced the content before).
 - **Set starting point, set root junction, diagram feature capability**: flags later rules and layouts read.
 - **Spatial query**: features of a class are added where they meet, as the overlap type says, features of another class
   already in the diagram.
@@ -200,7 +201,8 @@ def _trace(builder, d, p, ctx):
                                  p.get("output_conditions", []))
     keys = _untrace.features(graph, ids)
     keys = _untrace.related(graph, keys, False, False, p.get("include_structures", False))
-    d.features.clear()
+    # What the trace returns is added to the diagram, which keeps what it held: measured in ArcGIS Pro 3.7, 2026-11-12,
+    # a downstream trace rule from L5 on a diagram of L1 and L5 keeps L1 (grapy replaced the content before).
     builder.add_elements(d, ids)
     bare = {k for k in keys if not graph.by_feature.get(k)}
     wanted = set(bare)
@@ -302,6 +304,11 @@ def _remove(builder, d, p, ctx):
             if not ((unconnected and n == 0) or (single and n == 1)):
                 continue
         d.remove(f.id)
+    # A system junction left with no edge goes too: measured in ArcGIS Pro 3.7, 2026-11-12, removing the line that ends
+    # at one leaves no junction behind.
+    for f in list(d.junctions()):
+        if f.id in d.features and f.source == 0 and not d.incident(f.id):
+            d.remove(f.id)
 
 
 def _edge_value(builder, d, e, name):

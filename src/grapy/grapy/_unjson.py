@@ -102,8 +102,19 @@ class Writer:
 
     # -- the result types --
 
+    def _listed(self):
+        """The traced elements, and an element of each feature the containers, content and structures options added
+        (``keys``) that no traced element stands for: measured in ArcGIS Pro 3.7, 2026-11-12, a trace including
+        containers lists the vault containing a traced valve among its elements, and so does an exported subnetwork."""
+        covered = {self.graph.elements[i].feature for i in self.ids}
+        added = {}
+        for i, e in enumerate(self.graph.elements):
+            if e.feature is not None and e.feature in self.keys and e.feature not in covered and e.feature not in added:
+                added[e.feature] = i
+        return sorted(set(self.ids) | set(added.values()))
+
     def elements(self):
-        return [self.element(i) for i in sorted(self.ids) if self.graph.elements[i].feature is not None]
+        return [self.element(i) for i in self._listed() if self.graph.elements[i].feature is not None]
 
     def connectivity(self):
         """An entry per traced edge element from each junction at its start to each at its end (via the edge), and per
@@ -127,7 +138,7 @@ class Writer:
 
     def feature_elements(self):
         out = []
-        for i in sorted(self.ids):
+        for i in self._listed():
             e = self.graph.elements[i]
             if e.feature is None:
                 continue
