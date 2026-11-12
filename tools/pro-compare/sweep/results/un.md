@@ -39,40 +39,40 @@ wrong terminals â€” the Single Terminal among them â€” and a device's internal p
 |---|---|---|---|---|
 | Name | First run | Now | Action | Note |
 |---|---|---|---|---|
-| AddAngleDirectedLayout | MATCH | MATCH | — |  |
-| AddCollapseContainerByAttributeRule | MATCH | MATCH | — |  |
-| AddCollapseContainerRule | MATCH | MATCH | — |  |
+| AddAngleDirectedLayout | MATCH | MATCH | â€” |  |
+| AddCollapseContainerByAttributeRule | MATCH | MATCH | â€” |  |
+| AddCollapseContainerRule | MATCH | MATCH | â€” |  |
 | AddCompressionLayout | DIFF | DIFF | recorded | Pro compresses to about 13.65 m steps, grapy to 20 m |
-| AddConnectivityAssociationsRule | MATCH | MATCH | — |  |
+| AddConnectivityAssociationsRule | MATCH | MATCH | â€” |  |
 | AddDiagramFeatureCapabilityByAttributeRule | DIFF | MATCH | recorded | Pro collapses the vault although PREVENT_TO_COLLAPSE_CONTAINER is set on it; grapy keeps it; which feature the capability must be set on is not derived from one measurement |
-| AddDiagramTemplate | MATCH | MATCH | — |  |
+| AddDiagramTemplate | MATCH | MATCH | â€” |  |
 | AddDomainNetwork | GRAPY-ERROR | DIFF | fixed / recorded | SubnetLine is an edge source; SUPPORTED/SUPPORTINGSUBNETWORKNAME come with the first tier; FROM/TODEVICETERMINAL SmallInteger, FLOWDIRECTION. Open: TIERNAME is a SmallInteger coded by tier in Pro (grapy String), SubnetLine has no DOMAINNETWORKNAME in Pro |
-| AddExpandContainerByAttributeRule | MATCH | MATCH | — |  |
-| AddExpandContainerRule | MATCH | MATCH | — |  |
+| AddExpandContainerByAttributeRule | MATCH | MATCH | â€” |  |
+| AddExpandContainerRule | MATCH | MATCH | â€” |  |
 | AddForceDirectedLayout | DIFF | DIFF | recorded | a force-directed layout: different positions, EQUIVALENT |
 | AddGridLayout | PRO-ERROR | MATCH | case | Pro refuses its default cells here (ERROR 001777, too small); the case gives 20 m cells |
-| AddLinearDispatchLayout | MATCH | MATCH | — |  |
+| AddLinearDispatchLayout | MATCH | MATCH | â€” |  |
 | AddMainRingLayout | DIFF | DIFF | recorded | positions differ (ring and tree placement) |
 | AddMainlineTreeLayout | DIFF | DIFF | recorded | Pro's default spacing 80 m (along) against grapy's 2 (relative units), the open D-338 question |
 | AddNetworkAttribute | GRAPY-ERROR | MATCH | fixed | Describe's networkAttributes: Pro's ten system attributes, in order, with their bit sizes and assignments |
 | AddNetworkCategory | GRAPY-ERROR | MATCH | fixed | categories described; no Propagator Resetter in a version 7 network |
 | AddPartialOverlappingEdgesLayout | GRAPY-ERROR | MATCH | fixed | the Add tool takes the buffer width alone (grapy required the offset); the Apply tool needs both, as Pro |
 | AddRadialTreeLayout | DIFF | DIFF | recorded | Pro's radius in hundreds of metres, grapy's in units of 5; root placed differently (D-338) |
-| AddReduceEdgeByAttributeRule | MATCH | MATCH | — |  |
-| AddReduceJunctionByAttributeRule | MATCH | MATCH | — |  |
-| AddReduceJunctionRule | MATCH | MATCH | — |  |
+| AddReduceEdgeByAttributeRule | MATCH | MATCH | â€” |  |
+| AddReduceJunctionByAttributeRule | MATCH | MATCH | â€” |  |
+| AddReduceJunctionRule | MATCH | MATCH | â€” |  |
 | AddRemoveFeatureByAttributeRule | DIFF | MATCH | fixed | a system junction left with no edge goes with the removed line |
-| AddRemoveFeatureRule | MATCH | MATCH | — |  |
-| AddReshapeDiagramEdgesLayout | MATCH | MATCH | — |  |
+| AddRemoveFeatureRule | MATCH | MATCH | â€” |  |
+| AddReshapeDiagramEdgesLayout | MATCH | MATCH | â€” |  |
 | AddRule | PRO-ERROR | MATCH | fixed | SetAssociationRole needs its deletion semantics for a container or structure role (ERROR 000735; grapy defaulted to CASCADE) |
-| AddSetRootJunctionByAttributeRule | MATCH | MATCH | — |  |
+| AddSetRootJunctionByAttributeRule | MATCH | MATCH | â€” |  |
 | AddSetStartingPointByAttributeRule | DIFF | MATCH | fixed | the trace rule adds its result to the diagram, which keeps what it held (grapy replaced it) |
-| AddSmartTreeLayout | MATCH | MATCH | — |  |
+| AddSmartTreeLayout | MATCH | MATCH | â€” |  |
 | AddSpatialDispatchLayout | DIFF | DIFF | recorded | Pro moves junctions apart by a few metres; grapy keeps them where they are |
-| AddSpatialQueryRule | MATCH | MATCH | — |  |
-| AddStartIterationRule | MATCH | MATCH | — |  |
-| AddStopIterationRule | MATCH | MATCH | — |  |
-| AddStructuralAttachmentsRule | MATCH | MATCH | — |  |
+| AddSpatialQueryRule | MATCH | MATCH | â€” |  |
+| AddStartIterationRule | MATCH | MATCH | â€” |  |
+| AddStopIterationRule | MATCH | MATCH | â€” |  |
+| AddStructuralAttachmentsRule | MATCH | MATCH | â€” |  |
 | AddTerminalConfiguration | GRAPY-ERROR | MATCH | fixed | configurations numbered from 2, terminal ids run on through the network (Three's are 4-6 after Source-Load's 2-3); a valid path's pairs were stored with ids one too low (a grapy bug: paths named the wrong terminals); path descriptions 'A-B,A-C' |
 | AddTier | GRAPY-ERROR | MATCH | fixed | the tier's fields; SUPPORTED/SUPPORTING added with the first tier |
 | AddTierGroup | GRAPY-ERROR | MATCH | fixed | first run GRAPY-ERROR: no Describe of a utility network |
@@ -80,53 +80,53 @@ wrong terminals â€” the Single Terminal among them â€” and a device's internal p
 | AddTraceLocations | PRO-ERROR | DIFF | fixed / recorded | Pro's fields (LAYERNAME, SOURCEID, ASSETGROUPCODE, ASSETTYPE, FEATUREOID, DISPLAYNAME), TERMINALID -1 on an edge and 1 for the Single Terminal, PERCENTALONG -1 on a junction, points with z, '(1/Single Terminal)' read; network sources numbered as Pro numbers them. Open: LAYERID (a map layer's id), FEATUREGLOBALID Guid and FEATUREOID BigInteger types (grapy's GeoPackage fields are String and Integer) |
 | AddTraceRule | DIFF | MATCH | fixed | as above, and indeterminate flow traced by default (grapy ignored it by default) |
 | AlterDiagramProperties | PRO-ERROR | MATCH | case | runs alone (one stored diagram per Pro process) |
-| AlterDiagramTemplate | MATCH | MATCH | — |  |
+| AlterDiagramTemplate | MATCH | MATCH | â€” |  |
 | AppendToDiagram | PRO-ERROR | PRO-ERROR | not comparable | Pro: ERROR 000735 Input Map: Value is required; a map needs a project, which is not opened here |
-| ApplyAngleDirectedLayout | MATCH | MATCH | — |  |
+| ApplyAngleDirectedLayout | MATCH | MATCH | â€” |  |
 | ApplyCompressionLayout | DIFF | DIFF | recorded | as AddCompressionLayout |
 | ApplyForceDirectedLayout | DIFF | DIFF | recorded | as AddForceDirectedLayout |
-| ApplyGeoPositionsLayout | MATCH | MATCH | — |  |
+| ApplyGeoPositionsLayout | MATCH | MATCH | â€” |  |
 | ApplyGridLayout | PRO-ERROR | MATCH | case | as AddGridLayout |
-| ApplyLinearDispatchLayout | MATCH | MATCH | — |  |
+| ApplyLinearDispatchLayout | MATCH | MATCH | â€” |  |
 | ApplyMainRingLayout | DIFF | DIFF | recorded | as AddMainRingLayout |
 | ApplyMainlineTreeLayout | DIFF | DIFF | recorded | as AddMainlineTreeLayout |
 | ApplyPartialOverlappingEdgesLayout | PRO-ERROR | MATCH | case | Pro needs the offset (ERROR 000530); the case gives one |
 | ApplyRadialTreeLayout | DIFF | DIFF | recorded | as AddRadialTreeLayout |
-| ApplySmartTreeLayout | MATCH | MATCH | — |  |
+| ApplySmartTreeLayout | MATCH | MATCH | â€” |  |
 | ApplySpatialDispatchLayout | DIFF | DIFF | recorded | as AddSpatialDispatchLayout |
-| ApplyTemplateLayouts | MATCH | MATCH | — |  |
+| ApplyTemplateLayouts | MATCH | MATCH | â€” |  |
 | CalculateClusterKeys | GRAPY-ERROR | DIFF | fixed / recorded | calculated on an enabled topology (grapy required it disabled). Open: EQUIVALENT keys: Pro gives the devices 3 keys, the junctions 1, the lines 3; grapy one per connected component (1) |
 | ChangeDiagramsOwner | BOTH-ERROR | BOTH-ERROR | not comparable | Pro: ERROR 000229 Cannot open the network: diagram owners are an enterprise geodatabase's |
 | CreateDiagram | DIFF | MATCH | fixed | the containers of the junctions an edge brings in are in the diagram (a diagram of lines holds the vault containing V2) |
 | CreateUtilityNetwork | GRAPY-ERROR | MATCH | fixed | Describe of a utility network built (_undescribe); COMPATIBLE and CURRENT make version 7 (grapy said 8), Propagator Resetter only in VERSION_8; structure classes lose SUPPORTEDSUBNETWORKNAME, StructureLine gets FLOWDIRECTION |
 | DeleteDiagram | PRO-ERROR | MATCH | case | runs alone (one stored diagram per Pro process) |
-| DeleteDiagramTemplate | MATCH | MATCH | — |  |
+| DeleteDiagramTemplate | MATCH | MATCH | â€” |  |
 | DeleteNetworkCategory | GRAPY-ERROR | MATCH | fixed | as AddNetworkCategory |
 | DeleteRule | GRAPY-ERROR | MATCH | case | the rule is named by its id, '7: From[...] To[...]' |
 | DeleteTerminalConfiguration | GRAPY-ERROR | MATCH | fixed | first run GRAPY-ERROR: no Describe |
 | DeleteTraceConfiguration | PRO-ERROR | PRO-ERROR | not comparable | ERROR 160281: A requested row object could not be located (no portal user here) |
-| DisableNetworkTopology | MATCH | MATCH | — |  |
-| EnableClusterKeys | MATCH | MATCH | — |  |
+| DisableNetworkTopology | MATCH | MATCH | â€” |  |
+| EnableClusterKeys | MATCH | MATCH | â€” |  |
 | EnableNetworkTopology | DIFF | DIFF | recorded | error dirty areas: Pro's ERRORCODE 256 (the plug with no rule) and 260 (the asset group 0 line) against grapy's 2 for the line only; Pro's code scheme is not the error list's numbers |
-| ExportAssociations | MATCH | MATCH | — |  |
-| ExportDiagramContent | MATCH | MATCH | — |  |
-| ExportDiagramTemplateDefinitions | REFUSED | REFUSED | recorded | REFUSED by name for the .ndld (a map's layer definitions, ADR-232 §5.7); the .ndbd is written |
+| ExportAssociations | MATCH | MATCH | â€” |  |
+| ExportDiagramContent | MATCH | MATCH | â€” |  |
+| ExportDiagramTemplateDefinitions | REFUSED | REFUSED | recorded | REFUSED by name for the .ndld (a map's layer definitions, ADR-232 Â§5.7); the .ndbd is written |
 | ExportRules | DIFF | MATCH | fixed | an asset type without terminals writes an empty terminal (grapy wrote 'Single Terminal') |
 | ExportSubnetwork | DIFF | DIFF | fixed / recorded | the file in Pro's layout: results at the top level, controllers without names, resultTypes as objects, spatialReference; containers in by default. Open: Pro lists system junctions as feature elements (source 2) and one more connectivity row |
-| ExportSubnetworkControllers | MATCH | MATCH | — |  |
+| ExportSubnetworkControllers | MATCH | MATCH | â€” |  |
 | ExportTraceConfigurations | PRO-ERROR | PRO-ERROR | not comparable | Pro writes [] for a configuration it added (no portal user here) |
 | ExtendDiagram | PRO-ERROR | PRO-ERROR | not comparable | Pro: ERROR 999999 on a file geodatabase diagram, alone or not |
-| GetDiagramTemplateNames | MATCH | MATCH | — |  |
-| ImportAssociations | MATCH | MATCH | — |  |
-| ImportDiagramTemplateDefinitions | MATCH | MATCH | — |  |
+| GetDiagramTemplateNames | MATCH | MATCH | â€” |  |
+| ImportAssociations | MATCH | MATCH | â€” |  |
+| ImportDiagramTemplateDefinitions | MATCH | MATCH | â€” |  |
 | ImportRules | DIFF | MATCH | fixed | a junction-junction rule is kept from the lower network source (Pro exported Plug-to-Valve as Valve-to-Plug; INFERRED from one measurement) |
 | ImportSubnetworkControllers | DIFF | DIFF | fixed / recorded | SUBNETWORKCONTROLLERNAME is 'Load/Plant', terminal/controller. Open: TIERNAME coded (1, not 'Pressure'); Pro writes 0, ' ' and 0 on the devices that are not controllers where grapy leaves nulls |
 | ImportTraceConfigurations | PRO-ERROR | PRO-ERROR | not comparable | Pro's DeleteTraceConfiguration fails, ERROR 160281 (no portal user here) |
-| MakeDiagramLayer | MATCH | MATCH | — |  |
+| MakeDiagramLayer | MATCH | MATCH | â€” |  |
 | OverwriteDiagram | PRO-ERROR | PRO-ERROR | not comparable | as AppendToDiagram |
-| PurgeTemporaryDiagrams | MATCH | MATCH | — |  |
+| PurgeTemporaryDiagrams | MATCH | MATCH | â€” |  |
 | RebuildNetworkTopology | PRO-ERROR | MATCH | fixed | the extent is required (ERROR 000735) |
-| ReshapeDiagramEdgesLayout | MATCH | MATCH | — |  |
+| ReshapeDiagramEdgesLayout | MATCH | MATCH | â€” |  |
 | SetAssociationRole | GRAPY-ERROR | MATCH | fixed | deletion semantics required; first run GRAPY-ERROR: no Describe |
 | SetEdgeConnectivity | GRAPY-ERROR | MATCH | fixed | first run GRAPY-ERROR: no Describe |
 | SetNetworkAttribute | GRAPY-ERROR | MATCH | fixed / case | assignments described; the case assigns a nullable attribute: grapy's AddField keeps no nullability (management's), so a NOT_NULLABLE attribute cannot be assigned on grapy |
@@ -139,7 +139,7 @@ wrong terminals â€” the Single Terminal among them â€” and a device's internal p
 | UpdateIsConnected | DIFF | MATCH | fixed | IsConnected codes 0 False, 1 True, 2 Unknown, Pro's domain (grapy had 0 Unknown, 2 False, INFERRED) |
 | UpdateSubnetwork | DIFF | DIFF | recorded | Pro writes no SubnetLine row when the definition aggregates no lines (grapy one of every line); Pro's names read ' ::Zone1' on features that held ' ' before |
 | UtilityNetwork | DIFF | DIFF | fixed / recorded | DeleteStructuralAttachmentAssociation spelled as Pro spells it (grapy had 'Structual'; kept as an alias). Open: the non-controller placeholders, as ImportSubnetworkControllers |
-| ValidateNetworkTopology | PRO-ERROR | DIFF | fixed / recorded | ERROR 160521 for an extent with no network feature (grapy validated nothing quietly). Open: Pro writes a dirty area when an edit is made in an edit session; grapy finds it when a utility network tool next runs (ADR-231 §5.4) |
+| ValidateNetworkTopology | PRO-ERROR | DIFF | fixed / recorded | ERROR 160521 for an extent with no network feature (grapy validated nothing quietly). Open: Pro writes a dirty area when an edit is made in an edit session; grapy finds it when a utility network tool next runs (ADR-231 Â§5.4) |
 
 ## Not comparable here
 
