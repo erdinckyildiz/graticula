@@ -152,4 +152,32 @@ public sealed class PortalUsersTests : ArcGisClient
             await SendAsync(HttpMethod.Delete, $"/admin/members/{contributor}");
         }
     }
+
+    /// <summary>
+    /// ADR-269 condition 2: ArcGIS Pro's Share Package reads <c>storageQuota</c> and <c>storageUsage</c> from the member's
+    /// own profile before it uploads, and with neither present refused a 4.6 kB scene layer package with
+    /// <i>ERROR 001147: There is not enough space in your online account</i> (2026-11-09). Every door to the profile —
+    /// <c>community/self</c>, <c>community/users/{me}</c>, <c>portals/self</c>'s user and an administrator's member list —
+    /// tells the same two numbers, and the quota leaves room.
+    /// </summary>
+    [Fact]
+    public async Task A_members_profile_tells_their_storage_and_quota_through_every_door()
+    {
+        JsonElement self = await SendAsync(HttpMethod.Get, "/sharing/rest/community/self?f=json");
+        string me = self.GetProperty("username").GetString()!;
+        JsonElement user = await SendAsync(HttpMethod.Get, $"/sharing/rest/community/users/{me}?f=json");
+        JsonElement portal = (await SendAsync(HttpMethod.Get, "/sharing/rest/portals/self?f=json")).GetProperty("user");
+        JsonElement listed = await FindAsync(me) ?? throw new InvalidOperationException($"'{me}' is not in the member list.");
+
+        long quota = self.GetProperty("storageQuota").GetInt64();
+        long usage = self.GetProperty("storageUsage").GetInt64();
+        Assert.Equal(2L * 1024 * 1024 * 1024 * 1024, quota);
+        Assert.InRange(usage, 0, quota - 1);
+
+        foreach (JsonElement door in new[] { user, portal, listed })
+        {
+            Assert.Equal(quota, door.GetProperty("storageQuota").GetInt64());
+            Assert.Equal(usage, door.GetProperty("storageUsage").GetInt64());
+        }
+    }
 }

@@ -123,6 +123,22 @@ internal static partial class PortalEndpoints
             });
         }
 
+        // A document — the scene layer package Pro's Share Package added and reads back here after commit (ADR-269
+        // condition 2, 2026-11-09) — when it is the user's the path names, as for a web map.
+        if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is { } document
+            && document.Owner == acting.Owner)
+        {
+            return Results.Ok(new
+            {
+                item = DocumentItem(context, document),
+                sharing = new
+                {
+                    access = Access(document.Sharing),
+                    groups = (document.SharedWith ?? []).Select(g => g.ToString("N")).ToArray(),
+                },
+            });
+        }
+
         return Unknown("Item");
     }
 
@@ -203,8 +219,10 @@ internal static partial class PortalEndpoints
 
         if (service is not { } found)
         {
-            // A web map Pro added after its layers (Share As Web Map) is shared by the same form.
+            // A web map Pro added after its layers (Share As Web Map) is shared by the same form; a document — the scene
+            // layer package Pro's Share Package added, ADR-269 condition 2 — by the same form too.
             return await ShareMapAsync(current, maps, groups, id, scope, groupIds, cancellation).ConfigureAwait(false)
+                ?? await ShareDocumentAsync(context, current, groups, id, scope, groupIds, cancellation).ConfigureAwait(false)
                 ?? (false, [], $"No item '{id}' that this portal can share.");
         }
 
@@ -237,6 +255,70 @@ internal static partial class PortalEndpoints
                 GroupChange outcome = group is null || !current.Authorization.Allows(Privilege.GroupsShareTo)
                     ? GroupChange.Absent
                     : await groups.ShareAsync(current.Principal.Id, administrator, group.Name, found.Name, found.Folder, true, cancellation)
+                        .ConfigureAwait(false);
+
+                if (outcome != GroupChange.Done)
+                {
+                    notShared.Add(groupId);
+                }
+            }
+        }
+
+        return (true, notShared, null);
+    }
+
+    /// <summary>
+    /// A document shared by the portal's share form — its scope and its groups, by the rules a service's share keeps. Null
+    /// when <paramref name="id"/> is no document this caller can read.
+    /// </summary>
+    /// <remarks>
+    /// Added 2026-11-09 when ArcGIS Pro's Share Package shared the scene layer package it had just added and was told
+    /// <i>No item … that this portal can share</i>: the share form knew services and web maps, and a document was
+    /// shared only from Studio.
+    /// </remarks>
+    private static async Task<(bool Ok, List<string> NotShared, string? Error)?> ShareDocumentAsync(
+        HttpContext context, RequestPrincipal current, IGroupDirectory groups, string id, SharingScope scope,
+        string[] groupIds, CancellationToken cancellation)
+    {
+        if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is not { } document)
+        {
+            return null;
+        }
+
+        bool administrator = current.Authorization.Allows(Privilege.AdminManageAllContent);
+
+        if (scope == SharingScope.Organization && document.Sharing == SharingScope.AllOrganizations)
+        {
+            scope = SharingScope.AllOrganizations;
+        }
+
+        // Studio's rule for a document's or a map's scope (AdminEndpoints.MayShareAsync): no privilege to keep it or to
+        // make it private, and the scope's own privilege otherwise, a group's being the organisation's.
+        bool mayShare = scope == document.Sharing || scope == SharingScope.Private
+            || current.Authorization.Allows(SharingPrivileges.ToShareAt(scope) is { } named && scope != SharingScope.Group
+                ? named
+                : Privilege.SharingShareToOrganization);
+
+        if (!mayShare || (document.Owner != current.Principal.Id && !administrator))
+        {
+            return (false, [], $"Sharing '{document.Title}' {scope.ToString().ToLowerInvariant()} is not yours to do.");
+        }
+
+        IDocumentStore documents = context.RequestServices.GetRequiredService<IDocumentStore>();
+        await documents.UpdateAsync(document.Id, document.Title, document.Snippet, scope, cancellation).ConfigureAwait(false);
+
+        List<string> notShared = [];
+        if (groupIds.Length > 0)
+        {
+            IReadOnlyList<GroupSummary> mine = await groups.ListAsync(current.Principal.Id, administrator, cancellation)
+                .ConfigureAwait(false);
+
+            foreach (string groupId in groupIds)
+            {
+                GroupSummary? group = mine.FirstOrDefault(g => string.Equals(g.Id.ToString("N"), groupId, StringComparison.OrdinalIgnoreCase));
+                GroupChange outcome = group is null || !current.Authorization.Allows(Privilege.GroupsShareTo)
+                    ? GroupChange.Absent
+                    : await groups.ShareDocumentAsync(current.Principal.Id, administrator, group.Name, document.Id, true, cancellation)
                         .ConfigureAwait(false);
 
                 if (outcome != GroupChange.Done)
