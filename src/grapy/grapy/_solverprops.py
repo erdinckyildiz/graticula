@@ -299,7 +299,9 @@ class RouteSolverProperties(_SolverProperties):
             return "PRESERVE_NONE"
         if sequence.startswith("PRESERVE_"):
             return sequence
-        return self._settings.get("ordering", "PRESERVE_BOTH")
+        # PRESERVE_NONE until set: measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep) — a route layer made with the
+        # default sequence answers PRESERVE_NONE once findBestSequence is set.
+        return self._settings.get("ordering", "PRESERVE_NONE")
 
     @orderingType.setter
     def orderingType(self, value):
@@ -320,7 +322,9 @@ class RouteSolverProperties(_SolverProperties):
 
     @property
     def useTimeWindows(self):
-        return self._settings.get("use_time_windows", "USE_TIMEWINDOWS")
+        # NO_TIMEWINDOWS until set: measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep), on a route layer over a
+        # distance impedance.
+        return self._settings.get("use_time_windows", "NO_TIMEWINDOWS")
 
     @useTimeWindows.setter
     def useTimeWindows(self, value):
@@ -361,6 +365,10 @@ class ClosestFacilitySolverProperties(_Direction, _SolverProperties):
 
     @property
     def timeOfDayUsage(self):
+        # NOT_USED while the layer has no time of day (grapy refuses one): measured in ArcGIS Pro 3.7, 2026-11-12
+        # (Pro sweep), on a layer made with the default START_TIME and no time of day.
+        if self._settings.get("time_of_day") is None:
+            return "NOT_USED"
         return self._settings.get("time_of_day_usage", "START_TIME")
 
     @timeOfDayUsage.setter
@@ -434,16 +442,18 @@ class ServiceAreaSolverProperties(_Direction, _SolverProperties):
 
     @property
     def polygonType(self):
-        return "DETAILED_POLYS" if self._outputs()[0] else "NO_POLYS"
+        # The STANDARD polygons the Make tool builds are SIMPLE_POLYS: measured in ArcGIS Pro 3.7, 2026-11-12 (Pro
+        # sweep), on a layer made with the default polygon detail. This said DETAILED_POLYS.
+        return "SIMPLE_POLYS" if self._outputs()[0] else "NO_POLYS"
 
     @polygonType.setter
     def polygonType(self, value):
         word = str(value).upper()
-        if word == "SIMPLE_POLYS":
-            _refuse("generalized polygons are not built in grapy.")
-        if word not in ("DETAILED_POLYS", "NO_POLYS"):
+        if word == "DETAILED_POLYS":
+            _refuse("detailed (HIGH) polygons are not built in grapy; SIMPLE_POLYS, the STANDARD detail, is.")
+        if word not in ("SIMPLE_POLYS", "NO_POLYS"):
             raise ValueError(f"'{value}' is not a service area polygon type.")
-        self._set_outputs(word == "DETAILED_POLYS", self._outputs()[1])
+        self._set_outputs(word == "SIMPLE_POLYS", self._outputs()[1])
 
     @property
     def polygonMerge(self):

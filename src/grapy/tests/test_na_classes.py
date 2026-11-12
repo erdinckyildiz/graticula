@@ -32,6 +32,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 import grapy.na as na  # noqa: E402
 import grapy.nax as nax  # noqa: E402
+# Length is an edge's length on the ellipsoid, as ArcGIS Pro's Length attribute measures it (measured in ArcGIS Pro 3.7,
+# 2026-11-12, Pro sweep): on Web Mercator at the equator a north–south metre is 1 − e² of a metre on the ellipsoid, an
+# east–west one a metre. Until then Length was the planar length.
+NS = 1 - 0.00669437999014
 
 DAY = datetime.date(2026, 1, 5)
 
@@ -137,6 +141,8 @@ class NaClasses(_Networks):
         # The impedance decides the solve. A mode minimising Length on the same network routes by metres.
         by_length = na.TravelMode(str(driving))
         by_length.name, by_length.impedance = "Shortest", "Length"
+        # A solve totals the mode's time attribute too (Pro 3.7, measured 2026-11-12, Pro sweep): none here.
+        by_length.timeAttributeName = None
         fixtures = self.points("stops", [("start", "POINT(2 0)"), ("end", "POINT(20 4)")])
         totals = {}
         for mode in (driving, by_length):
@@ -174,7 +180,8 @@ class NaClasses(_Networks):
                          [("North", "1 Main St"), ("West", "2 Side Rd")])
         na.Solve(layer)
         polygons = self.rows(na.GetNASublayer(layer, "Polygons"), ["Name"])
-        self.assertEqual(sorted(p[0] for p in polygons), ["North : 0.0 - 2.0", "West : 0.0 - 2.0"])
+        # Whole cutoffs without decimals (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep); this said 0.0 - 2.0.
+        self.assertEqual(sorted(p[0] for p in polygons), ["North : 0 - 2", "West : 0 - 2"])
 
     def test_na_class_field_map_default_value(self):
         # NAClassFieldMap: a property takes a constant (defaultValue) when no field is mapped. Two facilities per
@@ -240,8 +247,10 @@ class NaClasses(_Networks):
         na.Solve(layer)
         self.assertEqual(sorted(self.rows(na.GetNASublayer(layer, "Polygons"), ["FromBreak", "ToBreak"])),
                          [(0.0, 0.5), (0.0, 1.0)])
+        # The STANDARD polygons the Make tool builds are SIMPLE_POLYS, as Pro answers (measured in ArcGIS Pro 3.7,
+        # 2026-11-12, Pro sweep); DETAILED_POLYS, HIGH detail, is the one not built. This refused SIMPLE_POLYS.
         with self.assertRaises(arcpy.NotBuiltError):
-            props.polygonType = "SIMPLE_POLYS"
+            props.polygonType = "DETAILED_POLYS"
 
     def test_od_cost_matrix_solver_properties(self):
         network = self.grid()
@@ -343,7 +352,7 @@ class NaxClasses(_Networks):
         names = result.fieldNames(nax.RouteOutputDataType.Routes)
         self.assertNotIn("Total_Minutes", names)                 # no time attribute in the mode
         (km,), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Kilometers"])
-        self.assertAlmostEqual(km, 0.022)
+        self.assertAlmostEqual(km, (18 + 4 * NS) / 1000)
 
     def test_time_and_distance_units_scale_the_totals(self):
         network = self.grid()
@@ -352,17 +361,17 @@ class NaxClasses(_Networks):
             nax.RouteOutputDataType.Routes, ["Total_Minutes", "Total_Seconds", "Total_Meters", "Total_Kilometers"])
         self.assertAlmostEqual(minutes, 2.2)
         self.assertAlmostEqual(seconds, 132.0)
-        self.assertAlmostEqual(meters, 22.0)
-        self.assertAlmostEqual(km, 0.022)
+        self.assertAlmostEqual(meters, 18 + 4 * NS)
+        self.assertAlmostEqual(km, (18 + 4 * NS) / 1000)
         result = self.route(network, timeUnits=nax.TimeUnits.Hours, distanceUnits=nax.DistanceUnits.Feet)
         (hours, feet), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Hours", "Total_Feet"])
         self.assertAlmostEqual(hours, 2.2 / 60)
         # D-323, measured in Pro: arcpy.nax's Feet and Yards are US survey units (1200/3937 m to the foot).
-        self.assertAlmostEqual(feet, 22 / (1200 / 3937))
+        self.assertAlmostEqual(feet, (18 + 4 * NS) / (1200 / 3937))
         result = self.route(network, timeUnits=nax.TimeUnits.Days, distanceUnits=nax.DistanceUnits.Yards)
         (days, yards), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Days", "Total_Yards"])
         self.assertAlmostEqual(days, 2.2 / 1440)
-        self.assertAlmostEqual(yards, 22 / (3600 / 3937))
+        self.assertAlmostEqual(yards, (18 + 4 * NS) / (3600 / 3937))
         # searchToleranceUnits: a stop 3 m from the road is lost at 2 m and found at 10 feet (3.048 m).
         for units, tolerance, located in ((nax.DistanceUnits.Meters, 2, False), (nax.DistanceUnits.Feet, 10, True)):
             route = nax.Route(network)
