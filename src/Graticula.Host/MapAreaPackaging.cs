@@ -223,6 +223,18 @@ internal static class MapAreaPackaging
                     }
 
                     string? url = layer["url"] is JsonValue u && u.TryGetValue(out string? text) && !string.IsNullOrWhiteSpace(text) ? text.Trim() : null;
+
+                    // A vector tile layer may name only its style (measured 2026-11-12: the probe map's basemap had no
+                    // `url`, only `styleUrl` = …/VectorTileServer/resources/styles/root.json, which is what Field Maps
+                    // fetched). The service is the address up to and including /VectorTileServer.
+                    if (url is null
+                        && layer["styleUrl"] is JsonValue s && s.TryGetValue(out string? style) && !string.IsNullOrWhiteSpace(style)
+                        && style.Trim() is var trimmed
+                        && trimmed.IndexOf("/VectorTileServer", StringComparison.OrdinalIgnoreCase) is var at and >= 0)
+                    {
+                        url = trimmed[..(at + "/VectorTileServer".Length)];
+                    }
+
                     string type = layer["layerType"] is JsonValue t && t.TryGetValue(out string? kind) ? kind : string.Empty;
                     string title = (layer["title"] as JsonValue)?.TryGetValue(out string? name) == true && !string.IsNullOrWhiteSpace(name)
                         ? name

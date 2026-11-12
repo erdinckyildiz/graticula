@@ -92,6 +92,21 @@ public sealed class MapAreaBasemapTests : IDisposable
         Assert.Empty(MapAreaPackaging.BasemapLayersOf(null));
     }
 
+    [Fact]
+    public void A_vector_tile_basemap_that_names_only_its_style_is_found_by_its_style()
+    {
+        // Measured 2026-11-12 on dev: the probe map's basemap had no url, only a styleUrl, and the area skipped it.
+        const string document = """
+            {"baseMap":{"baseMapLayers":[
+               {"id":"t","layerType":"VectorTileLayer","title":"probe tiles","styleUrl":" https://dev.example/rest/services/hosted/probe/VectorTileServer/resources/styles/root.json "}]}}
+            """;
+
+        MapAreaPackaging.BasemapLayer layer = Assert.Single(MapAreaPackaging.BasemapLayersOf(document));
+
+        Assert.Equal("https://dev.example/rest/services/hosted/probe/VectorTileServer", layer.Url);
+        Assert.True(layer.IsVectorTile);
+    }
+
     [Theory]
     [InlineData("https://portal.example/rest/services/hosted/streets/VectorTileServer", "hosted/streets")]
     [InlineData("https://portal.example/rest/services/streets/VectorTileServer?f=json", "streets")]
