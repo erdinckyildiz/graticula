@@ -13,6 +13,7 @@ import math
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -24,11 +25,18 @@ import grapy.nax as nax  # noqa: E402
 from grapy import _network  # noqa: E402
 
 DE = 2 * math.sqrt(50)
+# Length is an edge's length on the ellipsoid, as ArcGIS Pro's Length attribute measures it (measured in ArcGIS Pro 3.7,
+# 2026-11-12, Pro sweep). On Web Mercator at the equator a metre east–west is a metre on the ellipsoid and a metre
+# north–south is 1 − e² of one (the meridian's radius of curvature there, a(1 − e²), over the sphere's a): the
+# north–south legs of these hand-worked costs are scaled by NS. Until then Length was the planar length.
+NS = 1 - 0.00669437999014
 
 
 class Network(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "transport", 3857)[0]
@@ -51,6 +59,16 @@ class Network(unittest.TestCase):
             for row in rows:
                 written.insertRow(row)
         return path
+
+    @staticmethod
+    def approx(value):
+        """A float that equals any float within 1e-9 of it, for a cost inside a row compared with assertEqual."""
+        class Approx(float):
+            def __eq__(self, other):
+                return isinstance(other, float) and abs(other - value) < 1e-9
+
+            __hash__ = float.__hash__
+        return Approx(value)
 
     def rows(self, path, fields):
         with arcpy.da.SearchCursor(path, fields) as read:
@@ -88,12 +106,19 @@ class Network(unittest.TestCase):
         self.assertEqual(result[1], "true")
         # (2,0) → B 8 → C 10 → (20,4) 4: 22. Through D it would be 8 + 10 + 14.14 + 6.
         routes = na.GetNASublayer(layer, "Routes")
-        self.assertEqual(self.rows(routes, ["Name", "StopCount", "FirstStopID", "LastStopID", "Total_Length", "SHAPE@WKT"]),
-                         [("start - end", 2, 1, 2, 22.0, "LINESTRING (2 0, 10 0, 20 0, 20 4)")])
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        (route,) = self.rows(routes, ["Name", "StopCount", "FirstStopID", "LastStopID", "Total_Length", "SHAPE@WKT"])
+        self.assertEqual(route[:4] + route[5:], ("start - end", 2, 1, 2, "MULTILINESTRING ((2 0, 10 0, 20 0, 20 4))"))
+        self.assertAlmostEqual(route[4], 18 + 4 * NS)
         stops = na.GetNASublayer(layer, "Stops")
-        self.assertEqual(self.rows(stops, ["Name", "Sequence", "Cumul_Length", "Status", "SourceOID", "SnapX", "SnapY"]),
-                         [("start", 1, 0.0, 0, 1, 2.0, 0.0), ("end", 2, 22.0, 0, 5, 20.0, 4.0)])
-        self.assertIn("Solve is an equivalent", arcpy.GetMessages())
+        got = self.rows(stops, ["Name", "Sequence", "Cumul_Length", "Status", "SourceOID", "SnapX", "SnapY"])
+        self.assertEqual([g[:2] + g[3:] for g in got], [("start", 1, 0, 1, 2.0, 0.0), ("end", 2, 0, 5, 20.0, 4.0)])
+        self.assertEqual(got[0][2], 0.0)
+        self.assertAlmostEqual(got[1][2], 18 + 4 * NS)
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("Solve is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         self.assertTrue(hasattr(na.Solve, "__grapy_equivalent__"))
 
     def test_field_costs_restrictions_and_travel_modes(self):
@@ -109,7 +134,9 @@ class Network(unittest.TestCase):
                 if row[0] == 2:
                     rows.updateRow([row[0], 1])
         na.BuildNetwork(self.network)
-        self.assertEqual(list(na.GetTravelModes(self.network)), ["Length", "Driving"])
+        # CreateNetworkDataset makes no travel mode, as Pro's makes none (measured in ArcGIS Pro 3.7, 2026-11-12, Pro
+        # sweep); this said ["Length", "Driving"].
+        self.assertEqual(list(na.GetTravelModes(self.network)), ["Driving"])
         layer = na.MakeRouteAnalysisLayer(self.network, "drive", "Driving", generate_directions_on_solve="NO_DIRECTIONS",
                                           accumulate_attributes=["Length"])[0]
         na.AddLocations(layer, "Stops", self.points)
@@ -117,7 +144,7 @@ class Network(unittest.TestCase):
         # BC closed: (2,0) → B (0.8 min) → (10,5) (half of BD: 0.5) → F to (20,5) (half of F: 2) → (20,4) (0.1 of CE).
         got = self.rows(na.GetNASublayer(layer, "Routes"), ["Total_Minutes", "Total_Length"])[0]
         self.assertAlmostEqual(got[0], 0.8 + 0.5 + 2.0 + 0.1)
-        self.assertAlmostEqual(got[1], 8 + 5 + 10 + 1)
+        self.assertAlmostEqual(got[1], 8 + 5 * NS + 10 + 1 * NS)
 
     def test_closest_facility_od_matrix_and_service_area(self):
         na.BuildNetwork(self.network)
@@ -130,25 +157,28 @@ class Network(unittest.TestCase):
         # From (14,0): to (10,9) via B 4 + 9 = 13; to (0,0) via B 4 + 10 = 14 — the first is closest.
         self.assertEqual(self.rows(na.GetNASublayer(cf, "Routes"), ["Name", "FacilityID", "FacilityRank", "IncidentID",
                                                                     "Total_Length"]),
-                         [("call - near", 1, 1, 1, 13.0)])
+                         [("call - near", 1, 1, 1, self.approx(4 + 9 * NS))])
         od = na.MakeODCostMatrixAnalysisLayer(self.network, "od")[0]
         na.AddLocations(od, "Origins", incidents)
         na.AddLocations(od, "Destinations", facilities)
         na.Solve(od)
         self.assertEqual(self.rows(na.GetNASublayer(od, "Lines"), ["Name", "OriginID", "DestinationID", "DestinationRank",
                                                                    "Total_Length"]),
-                         [("call - near", 1, 1, 1, 13.0), ("call - far", 1, 2, 2, 14.0)])
+                         [("call - near", 1, 1, 1, self.approx(4 + 9 * NS)), ("call - far", 1, 2, 2, self.approx(14.0))])
         sa = na.MakeServiceAreaAnalysisLayer(self.network, "sa", None, "FROM_FACILITIES", [5, 12], output_type="POLYGONS_AND_LINES",
                                              polygon_trim_distance="1 Meters")[0]
         na.AddLocations(sa, "Facilities", incidents)
         na.Solve(sa)
         lines = self.rows(na.GetNASublayer(sa, "Lines"), ["FromCumul_Length", "ToCumul_Length", "SHAPE@LENGTH"])
-        # Within 12 of (14,0): 4 west to B and 8 on to (2,0); 6 east to C and 6 up CE; 8 up BD from B.
+        # Within 12 of (14,0): 4 west to B and 8 on to (2,0); 6 east to C and 6 up CE; 8 up BD from B — the costs up
+        # CE and BD north–south, so 6 / NS and 8 / NS of their planar length.
         reached = sum(l[2] for l in lines)
-        self.assertAlmostEqual(reached, 4 + 8 + 6 + 6 + 8)
+        self.assertAlmostEqual(reached, 4 + 8 + 6 + 6 / NS + 8 / NS)
         self.assertTrue(all(l[1] <= 12 + 1e-9 for l in lines))
         polygons = self.rows(na.GetNASublayer(sa, "Polygons"), ["Name", "FromBreak", "ToBreak"])
-        self.assertEqual(polygons, [("call : 0.0 - 5.0", 0.0, 5.0), ("call : 5.0 - 12.0", 5.0, 12.0)])
+        # Whole cutoffs are named without decimals (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep): this said
+        # "call : 0.0 - 5.0".
+        self.assertEqual(polygons, [("call : 0 - 5", 0.0, 5.0), ("call : 5 - 12", 5.0, 12.0)])
 
     # ---- solving with the nax objects
 
@@ -160,17 +190,20 @@ class Network(unittest.TestCase):
         self.assertTrue(result.solveSucceeded)
         # 22 metres of Length, a distance attribute: Total_Kilometers and Total_Miles, as the Route output page names them.
         (km, miles, name), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Kilometers", "Total_Miles", "Name"])
-        self.assertAlmostEqual(km, 0.022)
-        self.assertAlmostEqual(miles, 22 / 1609.344)
+        self.assertAlmostEqual(km, (18 + 4 * NS) / 1000)
+        self.assertAlmostEqual(miles, (18 + 4 * NS) / 1609.344)
         self.assertEqual(name, "start - end")
         stops = list(result.searchCursor(nax.RouteOutputDataType.Stops, ["Name", "Sequence", "Cumul_Kilometers"]))
         self.assertEqual([s[:2] for s in stops], [("start", 1), ("end", 2)])
-        self.assertAlmostEqual(stops[1][2], 0.022)
+        self.assertAlmostEqual(stops[1][2], (18 + 4 * NS) / 1000)
         out = os.path.join(self.directory, "route_out.gpkg")
         result.export(nax.RouteOutputDataType.Routes, out)
         self.assertEqual(self.rows(out, ["SHAPE@LENGTH"]), [(22.0,)])
         self.assertTrue(hasattr(nax.Route, "__grapy_equivalent__"))
-        self.assertIn("nax.Route.solve is an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("nax.Route.solve is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
 
     def test_nax_closest_facility_od_and_service_area(self):
         na.BuildNetwork(self.network)
@@ -190,18 +223,23 @@ class Network(unittest.TestCase):
             cursor.insertRow([(14, 0)])
         with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Destinations, ["SHAPE@XY"]) as cursor:
             cursor.insertRow([(10, 9)])
+        # Pro's Lines (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)): OriginOID and DestinationOID are the loaded features' ObjectIDs (None from an
+        # insertCursor), OriginID and DestinationID the inputs', and the cost is Total_Distance in distanceUnits.
         lines = list(od.solve().searchCursor(nax.OriginDestinationCostMatrixOutputDataType.Lines,
-                                             ["OriginOID", "DestinationOID", "DestinationRank", "Total_Kilometers"]))
+                                             ["OriginID", "DestinationID", "DestinationRank", "Total_Distance",
+                                              "OriginOID"]))
         self.assertEqual(lines[0][:3], (1, 1, 1))
-        self.assertAlmostEqual(lines[0][3], 0.013)
+        self.assertAlmostEqual(lines[0][3], (4 + 9 * NS) / 1000)
+        self.assertIsNone(lines[0][4])
         area = nax.ServiceArea(self.network)
+        area.distanceUnits = nax.DistanceUnits.Meters     # cutoffs are in distanceUnits, as Pro reads them (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep))
         area.defaultImpedanceCutoffs = [12]
         area.polygonBufferDistance = 1
         with area.insertCursor(nax.ServiceAreaInputDataType.Facilities, ["Name", "SHAPE@XY"]) as cursor:
             cursor.insertRow(["call", (14, 0)])
         result = area.solve()
         self.assertEqual(list(result.searchCursor(nax.ServiceAreaOutputDataType.Polygons, ["Name", "ToBreak"])),
-                         [("call : 0.0 - 12.0", 12.0)])
+                         [("call : 0 - 12", 12.0)])        # Pro writes the breaks as 0 and 12 (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep))
         with self.assertRaises(arcpy.NotBuiltError):
             result.searchCursor(nax.ServiceAreaOutputDataType.Lines, ["FacilityID"])     # polygons were asked for
 
@@ -285,36 +323,53 @@ class Network(unittest.TestCase):
         na.ExportNetworkTravelModes(self.network, modes)
         with open(modes, encoding="utf-8") as read:
             import json
-            self.assertEqual(json.load(read)["Length"]["impedanceAttributeName"], "Length")
+            self.assertEqual(json.load(read), {})          # no travel mode (Pro 3.7, measured 2026-11-12)
         _network.add_attribute(self.network, "Minutes", "Cost", "Minutes", [("roads", "BOTH", "FIELD", "minutes")])
         with open(modes, "w", encoding="utf-8") as written:
             written.write('{"Driving": {"name": "Driving", "impedanceAttributeName": "Minutes"}}')
+        # A network with a time cost takes no travel mode without a time attribute, and the modes it had are kept
+        # (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep: ERROR 030403).
+        with self.assertRaisesRegex(arcpy.ExecuteError, "030403"):
+            na.ReplaceNetworkTravelModes(modes, self.network)
+        with open(modes, "w", encoding="utf-8") as written:
+            written.write('{"Driving": {"name": "Driving", "impedanceAttributeName": "Minutes", '
+                          '"timeAttributeName": "Minutes"}}')
         na.ReplaceNetworkTravelModes(modes, self.network)
         self.assertEqual(list(na.GetTravelModes(self.network)), ["Driving"])
-        self.assertEqual(na.UpgradeNetwork(self.network)[0], self.network)
+        # A network made at the current release is refused, as Pro refuses one (measured in ArcGIS Pro 3.7,
+        # 2026-11-12, Pro sweep); this answered the network.
+        with self.assertRaisesRegex(arcpy.ExecuteError, "030087"):
+            na.UpgradeNetwork(self.network)
         self.assertIs(nax.BuildNetwork, na.BuildNetwork)
         route = nax.Route(self.network)
         mappings = route.fieldMappings(nax.RouteInputDataType.Stops, False, arcpy.ListFields(self.points))
         self.assertEqual(mappings["Name"].mappedFieldName, "Name")
-        self.assertIsNone(mappings["RouteName"].mappedFieldName)
+        # Every property maps to the field of its own name, whatever the candidates (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this said None.
+        self.assertEqual(mappings["RouteName"].mappedFieldName, "RouteName")
 
     def test_describe_and_the_network_dataset_query_api(self):
         na.BuildNetwork(self.network)
         described = arcpy.Describe(self.network)
         self.assertEqual((described.dataType, described.defaultTravelModeName, described.supportsTurns,
-                          described.trafficSupportType), ("NetworkDataset", "Length", False, "NONE"))
+                          described.trafficSupportType), ("NetworkDataset", "", False, "NONE"))   # no travel mode
         self.assertEqual([(s.name, s.sourceID, s.sourceType) for s in described.sources],
                          [("roads", 1, "EdgeFeature"), ("streets_Junctions", 2, "SystemJunction")])
         self.assertEqual([(a.name, a.usageType, a.units) for a in described.attributes], [("Length", "Cost", "Meters")])
+        # The network has no travel mode (CreateNetworkDataset makes none, as Pro's): one for the cost queries below.
+        arcpy.graticula.AddNetworkTravelMode(self.network, "Length", "Length")
         network = nax.NetworkDataset(self.network)
-        self.assertEqual((network.edgeCount, network.junctionCount, network.turnCount, network.isBuilt), (6, 7, 0, True))
+        # edgeCount counts each edge once in each direction, as Pro does (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this said 6.
+        self.assertEqual((network.edgeCount, network.junctionCount, network.turnCount, network.isBuilt), (12, 7, 0, True))
         self.assertIsNotNone(network.buildTimestamp)
         self.assertTrue(network.getDataSourceFromSourceID(1).endswith("transport/roads"))
         # Junctions are numbered as the ends are met: AB gives 1 (0,0) and 2 (10,0); BC 3 (20,0); BD 4 (10,10) …
         with network.edges(["EID", "SOURCEOID", "DIRECTION", "FROMJUNCTION", "TOJUNCTION", "COST"], eids=[1],
                            travel_mode="Length") as edges:
-            self.assertEqual(list(edges), [(1, 1, True, 1, 2, 10.0), (1, 1, False, 2, 1, 10.0)])
-        self.assertEqual(list(network.edges("EID", "Length", eids=[3])), [(3, 10.0), (3, 10.0)])
+            self.assertEqual(list(edges), [(1, 1, True, 1, 2, self.approx(10.0)),
+                                           (1, 1, False, 2, 1, self.approx(10.0))])
+        # BD runs north–south.
+        self.assertEqual(list(network.edges("EID", "Length", eids=[3])),
+                         [(3, self.approx(10 * NS)), (3, self.approx(10 * NS))])
         self.assertEqual(list(network.junctions(["EID", "SOURCEID"], eids=[1, 4])), [(1, 2), (4, 2)])
         with self.assertRaises(ValueError):
             network.edges("COST")                                    # a cost needs a travel mode

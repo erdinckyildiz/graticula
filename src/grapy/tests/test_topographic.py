@@ -7,6 +7,7 @@ import getpass
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,6 +31,8 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "topo")[0]
 
@@ -210,7 +213,7 @@ class Splitting(Fixture):
         arcpy.topographic.SplitFeatures(cutter, target)   # nothing selected: a warning, nothing split
         self.assertEqual(len(self.rows(target)), 1)
         arcpy.management.MakeFeatureLayer(cutter, "cut_lyr")
-        arcpy.management.SelectLayerByAttribute("cut_lyr", "NEW_SELECTION", "fid = 1")
+        arcpy.management.SelectLayerByAttribute("cut_lyr", "NEW_SELECTION", "OBJECTID = 1")
         arcpy.topographic.SplitFeatures("cut_lyr", target)
         self.assertEqual(sorted((round(r[2].length, 6), r[1]) for r in self.rows(target, ["NAME"])),
                          [(10.0, "a"), (10.0, "a")])

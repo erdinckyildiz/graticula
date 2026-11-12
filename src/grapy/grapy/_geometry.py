@@ -1,6 +1,7 @@
 """arcpy's geometry objects, by their documented names, held as shapely geometries — ADR-223 §5.2."""
 from __future__ import annotations
 
+import numpy
 import shapely
 from shapely.geometry import LineString, MultiLineString, MultiPoint, MultiPolygon, Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
@@ -53,9 +54,39 @@ class Point:
     def equals(self, other):
         return isinstance(other, Point) and (self.X, self.Y) == (other.X, other.Y)
 
+    # A Point's relations, as documented (contains, crosses, disjoint, overlaps, touches, within), are its point
+    # geometry's; the other may be a Point, a geometry or an Extent.
+
+    def _related(self, other):
+        from ._reference import Extent
+        if isinstance(other, Point):
+            return PointGeometry(other)
+        if isinstance(other, Extent):
+            return other.polygon
+        return other
+
+    def contains(self, other):
+        return PointGeometry(self).contains(self._related(other))
+
+    def within(self, other):
+        return PointGeometry(self).within(self._related(other))
+
+    def crosses(self, other):
+        return PointGeometry(self).crosses(self._related(other))
+
+    def disjoint(self, other):
+        return PointGeometry(self).disjoint(self._related(other))
+
+    def overlaps(self, other):
+        return PointGeometry(self).overlaps(self._related(other))
+
+    def touches(self, other):
+        return PointGeometry(self).touches(self._related(other))
+
 
 class Array(list):
-    """arcpy's Array: a list of Points, or of Arrays for parts."""
+    """arcpy's Array: a list of Points, or of Arrays for parts. ``remove`` takes an index, as arcpy's does, and
+    ``next`` and ``reset`` walk it."""
 
     def add(self, value):
         self.append(value)
@@ -66,24 +97,77 @@ class Array(list):
     def removeAll(self):
         self.clear()
 
+    def replace(self, index, value):
+        self[index] = value
+
+    def remove(self, index):
+        del self[index]
+
+    def next(self):
+        at = getattr(self, "_at", 0)
+        if at >= len(self):
+            return None
+        self._at = at + 1
+        return self[at]
+
+    def reset(self):
+        self._at = 0
+
     @property
     def count(self):
         return len(self)
 
 
 class Geometry:
-    """A geometry with its reference. ``Geometry(shapely)`` is grapy's own; the arcpy constructors are the subclasses."""
+    """A geometry with its reference. ``Geometry(shapely)`` is grapy's own; the arcpy constructors are the subclasses,
+    and ``Geometry("polyline", inputs, spatial_reference, has_z, has_m)`` makes one of them by its type, as
+    documented."""
 
     type = "geometry"
 
-    def __init__(self, shape=None, spatial_reference=None):
+    def __init__(self, shape=None, spatial_reference=None, has_z=False, has_m=False, *_):
+        if isinstance(shape, str):
+            kinds = {"point": PointGeometry, "multipoint": Multipoint, "polyline": Polyline, "polygon": Polygon}
+            if shape.lower() not in kinds:
+                raise ValueError(f"Geometry: '{shape}' is not a geometry type (point, multipoint, polyline, polygon).")
+            inputs = spatial_reference
+            reference = has_z if not isinstance(has_z, bool) else None
+            made = kinds[shape.lower()](inputs, reference, *_[:2])
+            self.__class__ = type(made)
+            self.__dict__.update(made.__dict__)
+            return
         self._shape = shape
         self.spatialReference = reference_of(spatial_reference)
 
     # -- what arcpy reads off any geometry
     @property
     def WKT(self):
-        return shapely.to_wkt(self._shape)
+        """Well-known text as ArcGIS Pro 3.7 writes it (measured 2026-11-08): a polygon always as a MULTIPOLYGON whose
+        outer rings run counterclockwise and holes clockwise, a polyline always as a MULTILINESTRING."""
+        return esri_wkt(self._shape)
+
+    @property
+    def hasCurves(self):
+        """False: grapy's geometries hold straight segments only."""
+        return False
+
+    @property
+    def hullRectangle(self):
+        """The four corners of the smallest rectangle around the geometry, as one space-delimited string of x y pairs.
+        ArcGIS Pro 3.7 answers an axis-aligned square's corners upper left, upper right, lower right, lower left
+        (measured 2026-11-08). INFERRED: a rotated rectangle starts at its highest corner (the leftmost of two) and runs
+        clockwise, as that order does."""
+        if self._shape is None or self._shape.is_empty:
+            return ""
+        rectangle = shapely.minimum_rotated_rectangle(self._shape)
+        corners = [tuple(c) for c in shapely.get_coordinates(rectangle)][:-1] if rectangle.geom_type == "Polygon" \
+            else [tuple(c) for c in shapely.get_coordinates(rectangle)]
+        if len(corners) == 4:
+            if shapely.geometry.LinearRing(corners).is_ccw:
+                corners.reverse()
+            start = min(range(4), key=lambda i: (-corners[i][1], corners[i][0]))
+            corners = corners[start:] + corners[:start]
+        return " ".join(f"{_text_number(x)} {_text_number(y)}" for x, y in corners)
 
     @property
     def WKB(self):
@@ -113,15 +197,50 @@ class Geometry:
 
     @property
     def centroid(self):
+        """The true centroid where it lies within or on the geometry, else the label point, as documented. ArcGIS Pro
+        3.7 answers (300, 200) for the line (0 0, 300 0, 300 400), whose true centroid (235.7, 114.3) is off it, and
+        (50, 40) for a multipoint whose mean is no point of it (measured 2026-11-08)."""
+        c = self._shape.centroid
+        if c.is_empty or self._shape.distance(c) <= 1e-9:
+            return Point(c.x, c.y)
+        return self.labelPoint
+
+    @property
+    def trueCentroid(self):
+        """The centre of gravity: the area-, length- or point-weighted mean."""
         c = self._shape.centroid
         return Point(c.x, c.y)
 
     @property
-    def trueCentroid(self):
-        return self.centroid
-
-    @property
     def labelPoint(self):
+        """A point within the geometry. A polygon's is its centroid when that lies inside it — ArcGIS Pro 3.7 labels a
+        triangle at its centroid (measured 2026-11-08); INFERRED: otherwise a point inside it (shapely's
+        representative point), the rule Pro uses for that case not being documented."""
+        if _dimension(self._shape) == 2 and not self._shape.is_empty:
+            c = self._shape.centroid
+            if self._shape.contains(c):
+                return Point(c.x, c.y)
+        if self._shape.geom_type in ("LineString", "MultiLineString") and not self._shape.is_empty:
+            # A line's label point is its point nearest the centre of its extent — the first such where two are as
+            # near — as ArcGIS Pro 3.7 answers: (75, 75) on (0 0, 100 100, 200 0), (300, 200) on (0 0, 300 0, 300 400)
+            # (measured 2026-11-08).
+            x0, y0, x1, y1 = self._shape.bounds
+            middle = ShapelyPoint((x0 + x1) / 2, (y0 + y1) / 2)
+            best = None
+            for line in getattr(self._shape, "geoms", [self._shape]):
+                coordinates = list(line.coords)
+                for a, b in zip(coordinates, coordinates[1:]):
+                    segment = LineString([a, b])
+                    gap = segment.distance(middle)
+                    if best is None or gap < best[0] - 1e-9:
+                        best = (gap, segment.interpolate(segment.project(middle)))
+            if best is not None:
+                return Point(best[1].x, best[1].y)
+        if self._shape.geom_type == "MultiPoint" and not self._shape.is_empty:
+            # A multipoint's label point is the centre of its extent, as ArcGIS Pro 3.7 answers: (5, 5) for
+            # (0 0, 10 0, 0 10) (measured 2026-11-08).
+            x0, y0, x1, y1 = self._shape.bounds
+            return Point((x0 + x1) / 2, (y0 + y1) / 2)
         p = self._shape.representative_point()
         return Point(p.x, p.y)
 
@@ -149,6 +268,13 @@ class Geometry:
     def extent(self):
         from ._reference import Extent
         x0, y0, x1, y1 = self._shape.bounds
+        if self._shape.has_z and not self._shape.is_empty:
+            # A z-aware shape's extent carries its heights, as Pro 3.7 answers a multipatch's (measured 2026-11-08).
+            import shapely
+            zs = shapely.get_coordinates(self._shape, include_z=True)[:, 2]
+            zs = zs[~numpy.isnan(zs)] if len(zs) else zs
+            if len(zs):
+                return Extent(x0, y0, x1, y1, float(zs.min()), float(zs.max()), None, None, self.spatialReference)
         return Extent(x0, y0, x1, y1, self.spatialReference)
 
     @property
@@ -274,10 +400,19 @@ class Geometry:
             raise ValueError("Geometry.intersect: dimension is 1 (points), 2 (lines) or 4 (polygons).")
         if wanted > natural:
             raise ValueError("Geometry.intersect: two inputs cannot meet in a higher dimension than the lower of theirs.")
-        if wanted < natural:
+        if wanted < natural and not (wanted == 0 and natural == 1):
             from ._runtime import NotBuiltError
-            raise NotBuiltError("Geometry.intersect: a dimension lower than the inputs' own is not built in grapy.")
+            raise NotBuiltError("Geometry.intersect: a dimension lower than the inputs' own is not built in grapy, "
+                                "but for the points where two lines meet.")
         result = self._shape.intersection(b)
+        if wanted == 0 and natural == 1:
+            # Two lines meeting in points (dimension 1): where they cross or touch. INFERRED: where they share a
+            # stretch, its two ends are the points.
+            points = [g for g in getattr(result, "geoms", [result]) if not g.is_empty and _dimension(g) == 0]
+            for g in getattr(result, "geoms", [result]):
+                if not g.is_empty and _dimension(g) == 1:
+                    points.extend(getattr(g.boundary, "geoms", [g.boundary]))
+            return _wrap(shapely.union_all(points) if points else MultiPoint(), self.spatialReference)
         parts = [g for g in getattr(result, "geoms", [result]) if not g.is_empty and _dimension(g) == wanted]
         empty = {0: MultiPoint(), 1: MultiLineString(), 2: MultiPolygon()}[wanted]
         return _wrap(shapely.union_all(parts) if parts else empty, self.spatialReference)
@@ -299,7 +434,23 @@ class Geometry:
         import math
         kind = str(method).upper()
         if kind == "DISTANCE":
-            return _wrap(shapely.segmentize(self._shape, float(distance)), self.spatialReference)
+            step = float(distance)
+
+            def split(coordinates):
+                # Each segment cut into floor(length / distance) + 1 equal pieces, so every piece is shorter than the
+                # distance: ArcGIS Pro 3.7 cuts a 300 m segment at 50 m into 7 (measured 2026-11-08), where "no
+                # longer than" would make 6.
+                import math
+                out = [tuple(coordinates[0])]
+                for a, b in zip(coordinates, coordinates[1:]):
+                    length = math.dist(a[:2], b[:2])
+                    pieces = int(math.floor(length / step)) + 1 if step > 0 else 1
+                    for i in range(1, pieces):
+                        t = i / pieces
+                        out.append(tuple(a[k] + (b[k] - a[k]) * t for k in range(len(a))))
+                    out.append(tuple(b))
+                return out
+            return _wrap(_map_lines(self._shape, split), self.spatialReference)
         from ._runtime import NotBuiltError
         if kind != "GEODESIC":
             raise NotBuiltError(f"Geometry.densify: method '{method}' is not built in grapy; DISTANCE and GEODESIC are.")
@@ -353,6 +504,9 @@ class Geometry:
                 return out
             return Array(_points_zm(part))
         parts = list(self._shape.geoms) if hasattr(self._shape, "geoms") else [self._shape]
+        if self._shape.geom_type == "MultiPoint" and index is not None:
+            # A multipoint's part is its Point, as ArcGIS Pro 3.7 answers getPart(i) (measured 2026-11-08).
+            return _points_zm(parts[int(index)])[0]
         if index is None:
             return Array(points(p) for p in parts)
         return points(parts[int(index)])
@@ -593,6 +747,25 @@ class Polygon(Geometry):
         super().__init__(inputs, spatial_reference)
 
 
+def _text_number(v):
+    return str(int(v)) if float(v).is_integer() else repr(float(v))
+
+
+def esri_wkt(shape):
+    """Well-known text in the form ArcGIS Pro 3.7 writes it (measured 2026-11-08, the Pro sweep): a polygon is always
+    a MULTIPOLYGON, its outer rings counterclockwise and its holes clockwise; a polyline always a MULTILINESTRING;
+    points and multipoints as they are. Shared by Geometry.WKT and the cursors' SHAPE@WKT token."""
+    if shape is None:
+        return None
+    kind = shape.geom_type
+    if kind in ("Polygon", "MultiPolygon") and not shape.is_empty:
+        parts = [shapely.geometry.polygon.orient(g, 1.0) for g in getattr(shape, "geoms", [shape])]
+        shape = MultiPolygon(parts)
+    elif kind in ("LineString", "LinearRing") and not shape.is_empty:
+        shape = MultiLineString([shape])
+    return shapely.to_wkt(shape)
+
+
 def _from_points(kind, parts, has_z, has_m):
     """A shapely geometry from arcpy Points, carrying Z and M when asked. INFERRED: a Point with no Z gets 0 in a
     geometry that has z-values, and one with no M gets NaN, arcpy's empty M."""
@@ -640,7 +813,15 @@ def _points_zm(shape):
 
 
 def _shape_of(other):
-    return other._shape if isinstance(other, Geometry) else other
+    """The shapely geometry of a geometry, an arcpy Point or an Extent (its rectangle), as the relations take them."""
+    if isinstance(other, Geometry):
+        return other._shape
+    if isinstance(other, Point):
+        return ShapelyPoint(other.X, other.Y)
+    from ._reference import Extent
+    if isinstance(other, Extent):
+        return shapely.box(other.XMin, other.YMin, other.XMax, other.YMax)
+    return other
 
 
 def _coordinates(shape):
@@ -721,9 +902,9 @@ def FromWKT(wkt_string, spatial_reference=None):
     return _wrap(shapely.from_wkt(wkt_string), reference_of(spatial_reference))
 
 
-def FromWKB(byte_array):
-    """A geometry from well-known binary; WKB carries no reference, so it has none."""
-    return _wrap(shapely.from_wkb(bytes(byte_array)), None)
+def FromWKB(byte_array, spatial_reference=None):
+    """A geometry from well-known binary, in the reference given (WKB carries none)."""
+    return _wrap(shapely.from_wkb(bytes(byte_array)), reference_of(spatial_reference))
 
 
 def AsShape(geojson_struct, esri_json=False):
@@ -782,8 +963,8 @@ def _angle(text, notation):
 
 def FromCoordString(string, notation):
     """A PointGeometry in WGS 84 from coordinate notation. Built: DD, DDM and DMS (latitude then longitude, each with a
-    hemisphere letter or a sign, as the page's examples) and UTM (zone, MGRS latitude band, easting, northing). MGRS,
-    USNG, GARS, GEOREF and UTMNS are refused: their grids are not written out in the documentation."""
+    hemisphere letter or a sign, as the page's examples), UTM (zone, MGRS latitude band, easting, northing), and MGRS and
+    USNG (see ``_mgrs``). GARS, GEOREF and UTMNS are refused: their grids are not written out in the documentation."""
     import re
     kind = str(notation).upper()
     if kind in ("DD", "DDM", "DMS"):
@@ -807,5 +988,49 @@ def FromCoordString(string, notation):
         zone, band, easting, northing = int(match[1]), match[2], float(match[3]), float(match[4])
         code = (32600 if band >= "N" else 32700) + zone
         return PointGeometry(ShapelyPoint(easting, northing), SpatialReference(code)).projectAs(SpatialReference(4326))
+    if kind in ("MGRS", "USNG"):
+        return PointGeometry(ShapelyPoint(*_mgrs(string)), SpatialReference(4326))
     from ._runtime import NotBuiltError
-    raise NotBuiltError(f"arcpy.FromCoordString: notation '{notation}' is not built in grapy; DD, DDM, DMS and UTM are.")
+    raise NotBuiltError(f"arcpy.FromCoordString: notation '{notation}' is not built in grapy; DD, DDM, DMS, UTM, MGRS "
+                        "and USNG are.")
+
+
+_MGRS_BANDS = "CDEFGHJKLMNPQRSTUVWX"
+_MGRS_COLUMNS = ("ABCDEFGH", "JKLMNPQR", "STUVWXYZ")
+_MGRS_ROWS = "ABCDEFGHJKLMNPQRSTUV"
+
+
+def _mgrs(text):
+    """(longitude, latitude) of an MGRS (or USNG) reference on WGS 84, by the published grid (NGA's MGRS, the AA
+    scheme): the zone and latitude band, the 100 km square's column letter (A–H, J–R or S–Z by zone) and row letter
+    (A–V without I and O, starting at F in even zones), then easting and northing digits. The northing is the one in
+    the band, the 2,000 km row cycle placed at the band's southern edge. ArcGIS Pro 3.7 reads "35TNE0000083000" as
+    (27.0, 40.497705) (measured 2026-11-08). The polar UPS letters (A, B, Y, Z) are refused."""
+    import re
+    from pyproj import Transformer
+    match = re.match(r"^\s*(\d{1,2})\s*([C-HJ-NP-X])\s*([A-HJ-NP-Z])([A-HJ-NP-V])\s*(\d*)\s*(\d*)\s*$", str(text).upper())
+    if not match:
+        raise ValueError(f"FromCoordString: '{text}' is not an MGRS reference (zone, band, square, digits).")
+    zone, band, column, row = int(match[1]), match[2], match[3], match[4]
+    digits = match[5] + match[6]
+    if len(digits) % 2:
+        raise ValueError(f"FromCoordString: '{text}' has an odd number of digits.")
+    half = len(digits) // 2
+    scale = 10 ** (5 - half)
+    east = int(digits[:half] or 0) * scale
+    north = int(digits[half:] or 0) * scale
+    letters = _MGRS_COLUMNS[(zone - 1) % 3]
+    if column not in letters:
+        raise ValueError(f"FromCoordString: '{column}' is not a column letter of zone {zone}.")
+    easting = (letters.index(column) + 1) * 100000 + east
+    row_index = (_MGRS_ROWS.index(row) - (5 if zone % 2 == 0 else 0)) % 20
+    northing = row_index * 100000 + north
+    south = band < "N"
+    code = (32700 if south else 32600) + zone
+    to_grid = Transformer.from_crs(4326, code, always_xy=True).transform
+    band_south = -80 + 8 * _MGRS_BANDS.index(band)
+    floor = to_grid(6 * zone - 183, band_south)[1]
+    while northing < floor - 1:
+        northing += 2000000
+    to_degrees = Transformer.from_crs(code, 4326, always_xy=True).transform
+    return to_degrees(easting, northing)

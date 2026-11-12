@@ -1,6 +1,7 @@
 """arcpy.stats.EvaluateBinSizes as grapy builds it: an equivalent of the method its two pages describe (Ramos 2025)."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -29,6 +30,8 @@ def table(path, fields):
 class EvaluateBinSizes(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         arcpy.env.randomGenerator = None

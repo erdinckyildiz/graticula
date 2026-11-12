@@ -298,7 +298,7 @@ def items(connection, name, where=None, extra=()):
     wanted = [f for f, _ in FIELDS] + [e for e in extra if e and e.lower() not in {f.lower() for f, _ in FIELDS}]
     present = {c.lower(): c for c, _ in columns_of(connection, name)}
     selected = [present[w.lower()] for w in wanted if w.lower() in present]
-    sql = (f'select "{OID}", "{_gpkg.GEOMETRY}"' + "".join(f', "{c}"' for c in selected) + f' from "{name}"'
+    sql = (f'select "{OID}", {_gpkg.shape_sql(connection, name)}' + "".join(f', "{c}"' for c in selected) + f' from "{name}"'
            + where_sql(where) + f' order by "{OID}"')
     try:
         rows = connection.execute(sql).fetchall()
@@ -929,6 +929,11 @@ class Described:
         for key, val in rec.properties.items():
             if key != "cellSize":
                 setattr(self, key, val)
+        # The resampling method by name, as Pro 3.7 answers it ("Bilinear Interpolation" for BILINEAR, measured
+        # 2026-11-08; the other names are INFERRED from the same pattern of Esri's resampling labels).
+        self.defaultResamplingMethod = {"NEAREST": "Nearest Neighbor", "BILINEAR": "Bilinear Interpolation",
+                                        "CUBIC": "Cubic Convolution", "MAJORITY": "Majority"}.get(
+            str(rec.properties.get("defaultResamplingMethod") or "").upper(), rec.properties.get("defaultResamplingMethod"))
         self.sortAscending = "Ascending" if rec.properties.get("sortAscending", True) else "Descending"
         self.isMultidimensional = False
         self.OIDFieldName = OID

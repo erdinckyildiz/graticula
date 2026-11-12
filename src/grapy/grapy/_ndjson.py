@@ -17,10 +17,24 @@ from ._unjson import esri
 def document(network, d, props, geoms, attrs, aggs, names):
     srid = _diagram.srid_of(network)
     sources = network.sources()
-    doc = {"diagram": d.name, "spatialRef": {"wkid": srid, "latestWkid": srid},
-           "sourceMapping": {**{c.rsplit("/", 1)[-1]: s for s, (c, _, _) in sources.items()},
-                             _diagram.SYSTEM_JUNCTIONS: 0, "Associations": _diagram.ASSOCIATION_SOURCE}}
+    # Pro 3.7 (measured 2026-11-12, the nd sweep) wrote Web Mercator as wkid 102100 (latestWkid 3857), and in
+    # sourceMapping only the sources of the diagram's features, each under its class's alias ("Water Device"); grapy's
+    # classes are named in CamelCase, the alias the words of it (INFERRED). System junctions and association edges
+    # keep their own entries when the diagram holds them (INFERRED: the measured diagram held neither).
     features = sorted(d.features.values(), key=lambda f: f.id)
+    used = {int(f.source) for f in features if f.source is not None and not f.reduction and not f.association}
+
+    def alias(class_name):
+        import re
+        return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", class_name.rsplit("/", 1)[-1])
+
+    mapping = {alias(c): s for s, (c, _, _) in sources.items() if s in used}
+    if 0 in used:
+        mapping[_diagram.SYSTEM_JUNCTIONS] = 0
+    if any(f.association for f in features):
+        mapping["Associations"] = _diagram.ASSOCIATION_SOURCE
+    doc = {"diagram": d.name, "spatialRef": {"wkid": 102100 if srid == 3857 else srid, "latestWkid": srid},
+           "sourceMapping": mapping}
     cache = {}
 
     def user_type(f):
@@ -109,7 +123,7 @@ def document(network, d, props, geoms, attrs, aggs, names):
         network_shapes = []
         for f in features:
             if f.key and f.source in sources:
-                found = network.q(f'select geom from "{sources[int(f.source)][0]}" where upper(GLOBALID) = upper(?)',
+                found = network.q(f'select {network.shape(sources[int(f.source)][0])} from "{sources[int(f.source)][0]}" where upper(GLOBALID) = upper(?)',
                                   str(f.globalid)).fetchone() if sources[int(f.source)][2] not in (
                     "JunctionObject", "EdgeObject") else None
                 shape = _gpkg.decode(found[0]) if found and found[0] else None

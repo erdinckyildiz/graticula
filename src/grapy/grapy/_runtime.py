@@ -1,7 +1,8 @@
 """What a running tool shares with grapy: its messages, its parameters and its environment — ADR-223 §5.2.
 
-Messages go to a list the runner writes out as the job's messages; ``AddError`` also raises nothing by itself, as in
-arcpy, where a tool says its error and then raises ``ExecuteError`` or returns.
+Messages go to a list the runner writes out as the job's messages, and to the tool that said them, whose messages
+GetMessages answers once it ends (ADR-289 §5.3, below); ``AddError`` also raises nothing by itself, as in arcpy, where a
+tool says its error and then raises ``ExecuteError`` or returns.
 """
 from __future__ import annotations
 
@@ -27,35 +28,132 @@ MESSAGES: list[dict] = []
 PARAMETERS: list = []
 
 
-def _say(kind: str, text) -> None:
-    MESSAGES.append({"type": kind, "description": str(text)})
+def wildcard(name, wild_card):
+    """Whether ``name`` matches a List function's ``wild_card``, without regard to case. Only ``*`` is a wildcard:
+    ArcGIS Pro 3.7 finds nothing for "[dz]*" or "de?.tif" where "d*" finds dem.tif (measured 2026-11-08), so brackets
+    and question marks are ordinary characters."""
+    import re
+    if wild_card in (None, "", "*"):
+        return True
+    pattern = ".*".join(re.escape(part) for part in str(wild_card).split("*"))
+    return re.fullmatch(pattern, str(name), re.IGNORECASE | re.DOTALL) is not None
+
+
+# ---- messages: the run's list, and each tool's own (ADR-223 §5.2, ADR-289 §5.3)
+#
+# grapy keeps two records. ``MESSAGES`` is the run's: everything AddMessage, AddWarning, AddError, AddIDMessage and
+# AddReturnMessage say while the run lasts, which the runner writes out as the server job's messages (ADR-223) and which
+# ADR-289 leaves as it was. The other is arcpy's own model, measured in ArcGIS Pro 3.7 (2026-11-12): a tool run from a
+# script keeps its own messages — "Start Time: …", what it said, and "Succeeded at … (Elapsed Time: …)", or when it
+# fails its errors, "Failed to execute (<tool>)." and "Failed at …" — and GetMessages and its family answer the
+# messages of the last tool that ended, never the script's own. AddMessage outside a tool prints its text and joins
+# nothing. Inside a script tool they answer the last tool *it* ran, and nothing before it has run one; the tools it runs
+# do not add to its messages (AddReturnMessage copies one across). Each tool runs through one wrapper, ``tool``.
+
+_PRO_KIND = {"esriJobMessageTypeInformative": 0, "esriJobMessageTypeWarning": 50, "esriJobMessageTypeError": 100}
+_JOB_TYPE = {50: "esriJobMessageTypeWarning", 100: "esriJobMessageTypeError"}  # any other kind is informative
+_GENERIC = -2147467259   # the return code of an error that has no ID, as GetAllMessages documents and Pro answers
+
+
+class _Frame:
+    """One tool run: the messages it has said, and the messages of the last tool it ran — what GetMessages answers
+    while it runs. The script itself is the frame at the bottom of the stack, with no messages of its own."""
+
+    __slots__ = ("name", "messages", "last")
+
+    def __init__(self, name=None):
+        self.name, self.messages, self.last = name, [], []
+
+
+_STACK = [_Frame()]
+
+
+def _from_grapy(depth):
+    """Whether the code ``depth`` calls above the caller is grapy's own — a tool calling another, or a tool saying its
+    message — rather than a script's or a toolbox's. The runner's and _toolboxes' ``messages`` objects speak for the
+    toolbox that was handed them."""
+    import sys
+    name = sys._getframe(depth + 1).f_globals.get("__name__", "")
+    return name.startswith("grapy.") and name not in ("grapy.runner", "grapy._toolboxes")
+
+
+def _code(text, kind, said_by_grapy):
+    """A message's return code. ArcGIS Pro 3.7 (measured 2026-11-12) answers 1 for a script's AddError and 0 for its
+    AddMessage and AddWarning; a tool's own message carries its ID — 732 for "ERROR 000732: …" — and an error with
+    none answers -2147467259. grapy's tools write Esri's IDs into their texts, so the ID is read back from there."""
+    if not said_by_grapy:
+        return 1 if kind == 100 else 0
+    import re
+    found = re.match(r"(?:ERROR|WARNING) (\d{6}):", text)
+    if found:
+        return int(found.group(1))
+    return _GENERIC if kind == 100 else 0
+
+
+def _print(kind, text):
+    """What arcpy prints for a message a script says — in ArcGIS Pro 3.7, outside a tool and inside a script tool run
+    from a script alike, with ``WARNING: `` or ``ERROR: `` before a warning or an error (measured 2026-11-12)."""
+    import sys
+    prefix = {50: "WARNING: ", 100: "ERROR: "}.get(kind, "")
+    try:
+        sys.stdout.write(f"{prefix}{text}\n")
+    except (AttributeError, OSError, ValueError):  # no stdout, or a closed one: the message is still kept
+        pass
+
+
+def _say(kind: str, text, said_by_grapy=False, code=None) -> None:
+    text = str(text)
+    MESSAGES.append({"type": kind, "description": text})
+    pro = _PRO_KIND[kind]
+    if len(_STACK) > 1:
+        _STACK[-1].messages.append({"kind": pro, "code": _code(text, pro, said_by_grapy) if code is None else code,
+                                    "text": text})
+    if not said_by_grapy:
+        _print(pro, text)
 
 
 def AddMessage(message):
-    _say("esriJobMessageTypeInformative", message)
+    _say("esriJobMessageTypeInformative", message, _from_grapy(1))
 
 
 def AddWarning(message):
-    _say("esriJobMessageTypeWarning", message)
+    _say("esriJobMessageTypeWarning", message, _from_grapy(1))
 
 
 def AddError(message):
-    _say("esriJobMessageTypeError", message)
+    _say("esriJobMessageTypeError", message, _from_grapy(1))
 
 
 def AddIDMessage(message_type, message_ID, add_argument1=None, add_argument2=None):
+    """A message by its ID. Its return code is the ID, as ArcGIS Pro 3.7's (measured 2026-11-12); its text is the ID
+    and the arguments, because Esri's message catalogue — Pro's text is "WARNING 000012: x already exists" — is not
+    published as data."""
+    word = str(message_type).upper()
     kind = {"ERROR": "esriJobMessageTypeError", "WARNING": "esriJobMessageTypeWarning"}.get(
-        str(message_type).upper(), "esriJobMessageTypeInformative")
-    _say(kind, " ".join(str(x) for x in (message_ID, add_argument1, add_argument2) if x is not None))
+        word, "esriJobMessageTypeInformative")
+    _say(kind, " ".join(str(x) for x in (message_ID, add_argument1, add_argument2) if x is not None),
+         _from_grapy(1), code=int(message_ID))
+
+
+def _view():
+    """The messages GetMessages and its family read: the last tool's that ended where the caller is."""
+    return _STACK[-1].last
 
 
 def GetMessages(severity=0):
-    wanted = {0: None, 1: ("esriJobMessageTypeWarning", "esriJobMessageTypeError"), 2: ("esriJobMessageTypeError",)}[severity]
-    return "\n".join(m["description"] for m in MESSAGES if wanted is None or m["type"] in wanted)
+    """The last tool's messages: with 0, all of them, one to a line; with 1 only its warnings and with 2 only its
+    errors, each followed by a newline — ArcGIS Pro 3.7 answers "a warning\\n" for 1 and "" for 1 when the tool wrote
+    errors and no warnings (measured 2026-11-12)."""
+    view = _view()
+    level = int(severity)
+    if level == 0:
+        return "\n".join(m["text"] for m in view)
+    wanted = {1: 50, 2: 100}[level]
+    return "".join(m["text"] + "\n" for m in view if m["kind"] == wanted)
 
 
 def GetMessageCount():
-    return len(MESSAGES)
+    return len(_view())
 
 
 def SetProgressor(*_, **__):
@@ -74,24 +172,53 @@ def ResetProgressor():
     pass
 
 
+# Outside a tool run — a script run from a command line — the parameters are the script's arguments, as ArcGIS Pro 3.7
+# reads them: GetParameterAsText(0) is sys.argv[1], GetArgumentCount the number of arguments, and SetParameter and
+# SetParameterAsText do nothing (measured 2026-11-08).
+
+
+def _arguments():
+    import sys
+    return [str(a) for a in sys.argv[1:]]
+
+
 def GetParameterAsText(index):
+    if not PARAMETERS:
+        arguments = _arguments()
+        return arguments[index] if index < len(arguments) else ""
     value = PARAMETERS[index].valueAsText if index < len(PARAMETERS) else ""
     return value or ""
 
 
 def GetParameter(index):
+    if not PARAMETERS:
+        arguments = _arguments()
+        return arguments[index] if index < len(arguments) else None
     return PARAMETERS[index].value if index < len(PARAMETERS) else None
 
 
 def GetParameterCount(tool_name=None):
+    """The number of parameters of the tool named — a Python toolbox's tool's, or grapy's own tool's function's —
+    or, with no name, of the tool running. ArcGIS Pro 3.7 answers 8 for Buffer_analysis and 4 for Clip (measured
+    2026-11-08). INFERRED: one of grapy's own tools counts its function's named parameters, which follow arcpy's."""
+    if tool_name not in (None, "", "#"):
+        from ._toolboxes import _resolve, _syntax_of
+        kind, where, name, target = _resolve(tool_name)
+        if kind == "pyt":
+            return len(list(target().getParameterInfo() or []))
+        return len(_syntax_of(kind, where, name, target))
     return len(PARAMETERS)
 
 
 def SetParameter(index, value):
+    if not PARAMETERS:
+        return
     PARAMETERS[index].value = value
 
 
 def SetParameterAsText(index, text):
+    if not PARAMETERS:
+        return
     PARAMETERS[index].value = text
 
 
@@ -148,8 +275,7 @@ env = _Environment()
 
 def ListEnvironments(wild_card=None):
     """The names of the environment settings grapy holds, filtered by a case-insensitive wildcard."""
-    import fnmatch
-    return [n for n in env.keys() if wild_card in (None, "", "*") or fnmatch.fnmatch(n.lower(), str(wild_card).lower())]
+    return [n for n in env.keys() if wildcard(n, wild_card)]
 
 
 def ClearEnvironment(environment_name):
@@ -207,53 +333,79 @@ class EnvManager:
         return wrapped
 
 
-# ---- the message stack, read back
+# ---- the last tool's messages, read back, and the wrapper every tool runs through
 
-_SEVERITY = {"esriJobMessageTypeInformative": 0, "esriJobMessageTypeWarning": 1, "esriJobMessageTypeError": 2}
+_SEVERITY = {50: 1, 100: 2}
 _SEVERITY_LEVEL = [2]
 
 
-def _message(index):
-    return MESSAGES[int(index)]
+def _message(index, what):
+    """The last tool's message at ``index``, or None when the last tool has none. ArcGIS Pro 3.7 answers "" or 0 for
+    any index before a tool has run, and raises RuntimeError("Object: Error in getting <what>") for an index past the
+    last message or below 0 once one has (measured 2026-11-12)."""
+    view = _view()
+    index = int(index)
+    if not view:
+        return None
+    if not 0 <= index < len(view):
+        raise RuntimeError(f"Object: Error in getting {what}")
+    return view[index]
 
 
 def GetMessage(index):
-    return _message(index)["description"]
+    """The text of the last tool's message at ``index`` (see ``_message`` for an index it does not hold). Pro answers
+    every message, one to a line, for -1 (measured 2026-11-12), and grapy does too."""
+    if int(index) == -1 and _view():
+        return GetMessages(0)
+    message = _message(index, "message")
+    return message["text"] if message else ""
 
 
 def GetSeverity(index):
     """0 for a message, 1 for a warning, 2 for an error."""
-    return _SEVERITY.get(_message(index)["type"], 0)
+    message = _message(index, "severity")
+    return _SEVERITY.get(message["kind"], 0) if message else 0
 
 
 def GetMaxSeverity():
-    return max((_SEVERITY.get(m["type"], 0) for m in MESSAGES), default=0)
+    return max((_SEVERITY.get(m["kind"], 0) for m in _view()), default=0)
 
 
 def GetReturnCode(index):
-    """0 for a message or warning. INFERRED: an error answers -2147467259, the code GetAllMessages documents for an
-    error that has no ID — grapy's messages carry none."""
-    return -2147467259 if GetSeverity(index) == 2 else 0
+    """The message's return code: 0 for a message or warning a script said and 1 for its error; a tool's own error its
+    ID, or -2147467259 when it has none (measured in ArcGIS Pro 3.7, 2026-11-12; see ``_code``)."""
+    message = _message(index, "return code")
+    return message["code"] if message else 0
 
 
 def GetAllMessages():
-    """``[type, return code, text]`` for each message: type 0 informative, 50 warning, 100 error, as documented."""
-    kinds = {0: 0, 1: 50, 2: 100}
-    return [[kinds[GetSeverity(i)], GetReturnCode(i), GetMessage(i)] for i in range(len(MESSAGES))]
+    """``[type, return code, text]`` for each of the last tool's messages: type 0 informative, 2 its start, 3 its end,
+    50 a warning and 100 an error, as documented and as ArcGIS Pro 3.7 answers (measured 2026-11-12)."""
+    return [[m["kind"], m["code"], m["text"]] for m in _view()]
 
 
 def AddReturnMessage(index):
-    """The message at ``index`` added again as the script's own, its severity kept."""
-    message = _message(index)
-    _say(message["type"], message["description"])
+    """The last tool's message at ``index`` said again as the script's own, with its type and return code — Pro keeps
+    the end line's type 3 (measured 2026-11-12). An index it does not hold raises RuntimeError, as Pro's does."""
+    view, index = _view(), int(index)
+    if not 0 <= index < len(view):
+        raise RuntimeError("Object: Error in adding return message")
+    message = view[index]
+    MESSAGES.append({"type": _JOB_TYPE.get(message["kind"], "esriJobMessageTypeInformative"),
+                     "description": message["text"]})
+    if len(_STACK) > 1:
+        _STACK[-1].messages.append(dict(message))
+    _print(message["kind"], message["text"])
 
 
 def SetSeverityLevel(severity_level):
-    """Only 2, the default — a tool raises on an error — is built. Levels 0 (never raise) and 1 (raise on a warning)
-    would change how every tool ends, which grapy's tools do not yet consult; they are refused."""
+    """How a tool ends when it warns or fails, which every tool consults through ``tool``: 2, the default, raises
+    ExecuteError when a tool fails; 1 also raises ExecuteWarning, after the tool, when it warned; 0 raises neither and
+    answers a Result with no outputs (ArcGIS Pro 3.7, measured 2026-11-12). A refusal grapy says (NotBuiltError) is
+    raised at every level: it is not a tool failing. INFERRED: a level other than 0, 1 or 2 is a ValueError."""
     level = int(severity_level)
-    if level != 2:
-        raise NotBuiltError(f"arcpy.SetSeverityLevel: severity_level {level} is not built in grapy; only 2, the default, is.")
+    if level not in (0, 1, 2):
+        raise ValueError(f"arcpy.SetSeverityLevel: severity_level is 0, 1 or 2, not {severity_level}.")
     _SEVERITY_LEVEL[0] = level
 
 
@@ -261,17 +413,146 @@ def GetSeverityLevel():
     return _SEVERITY_LEVEL[0]
 
 
+_DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+           "November", "December")
+
+
+def _when(seconds):
+    """A time as a tool's start and end lines write it: "Thursday, November 12, 2026 9:26:54 AM" in ArcGIS Pro 3.7
+    (measured 2026-11-12), the local time, in English whatever the locale."""
+    import time
+    t = time.localtime(seconds)
+    return (f"{_DAYS[t.tm_wday]}, {_MONTHS[t.tm_mon - 1]} {t.tm_mday}, {t.tm_year} "
+            f"{t.tm_hour % 12 or 12}:{t.tm_min:02d}:{t.tm_sec:02d} {'AM' if t.tm_hour < 12 else 'PM'}")
+
+
+def _elapsed(seconds):
+    """A run's length as its end line writes it. ArcGIS Pro 3.7 writes "0.05 seconds" and "12.50 seconds" under a
+    minute, and whole minutes and seconds from one: "1 minutes 1 seconds" for 61.5 s, "2 minutes 5 seconds" for 125.2 s
+    (measured 2026-11-12). INFERRED: from an hour, "<h> hours <m> minutes <s> seconds" — not measured."""
+    if seconds < 60:
+        return f"{seconds:.2f} seconds"
+    whole = int(seconds)
+    hours, rest = divmod(whole, 3600)
+    minutes, secs = divmod(rest, 60)
+    return (f"{hours} hours " if hours else "") + f"{minutes} minutes {secs} seconds"
+
+
+def _inputs(function, args, kwargs):
+    """A tool's input values as text, for Result.inputCount and getInput: its parameters but the ``out_`` ones, its
+    outputs by arcpy's naming. ArcGIS Pro 3.7 answers 1 for GetCount and 7 for Buffer, whose eighth parameter is its
+    output (measured 2026-11-12). INFERRED: a parameter not given is its default as text, "" for None."""
+    import inspect
+    try:
+        signature = inspect.signature(function)
+        bound = signature.bind_partial(*args, **kwargs)
+    except (TypeError, ValueError):
+        return [str(a) for a in args]
+    bound.apply_defaults()
+    found = []
+    for name, parameter in signature.parameters.items():
+        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD) or name.startswith("out_"):
+            continue
+        value = bound.arguments.get(name)
+        found.append("" if value is None else str(value))
+    return found
+
+
+def run_tool(name, function, args=(), kwargs=None):
+    """Runs ``function`` as arcpy runs a tool: its own messages, with the start and end lines; the last tool's
+    messages of whoever called it set to them when it ends; and the severity level consulted (SetSeverityLevel)."""
+    import time
+    from ._result import Result
+    kwargs = kwargs or {}
+    frame = _Frame(name)
+    parent = _STACK[-1]
+    started = time.time()
+    frame.messages.append({"kind": 2, "code": 0, "text": f"Start Time: {_when(started)}"})
+    _STACK.append(frame)
+    try:
+        answer = function(*args, **kwargs)
+    except Exception as failure:
+        _STACK.pop()
+        said = [m["text"] for m in frame.messages if m["kind"] == 100]
+        if not isinstance(failure, NotBuiltError):
+            text = str(failure) if isinstance(failure, ExecuteError) else f"{type(failure).__name__}: {failure}"
+            for line in text.splitlines():
+                if line.strip() and line not in said:
+                    frame.messages.append({"kind": 100, "code": _code(line, 100, True), "text": line})
+        frame.messages.append({"kind": 100, "code": _GENERIC, "text": f"Failed to execute ({name})."})
+        ended = time.time()
+        frame.messages.append({"kind": 3, "code": 0,
+                               "text": f"Failed at {_when(ended)} (Elapsed Time: {_elapsed(ended - started)})"})
+        parent.last = frame.messages
+        if isinstance(failure, ExecuteError):
+            # Pro's ExecuteError says the tool's errors, each with a newline after it (measured 2026-11-12).
+            failure.args = ("".join(m["text"] + "\n" for m in frame.messages if m["kind"] == 100),)
+        if _SEVERITY_LEVEL[0] == 0 and not isinstance(failure, NotBuiltError):
+            # Level 0: no exception, a Result with no outputs. Pro answers status 5 (failed) when the tool's parameters
+            # were refused and 4 when a script tool's execute said an error (measured 2026-11-12); grapy's own tools
+            # check as they run, so a failure of theirs is 5.
+            result = Result()
+            result.status = 4 if getattr(failure, "_grapy_in_execute", False) else 5
+            result._messages = frame.messages
+            return result
+        raise
+    except BaseException:
+        _STACK.pop()
+        raise
+    _STACK.pop()
+    ended = time.time()
+    frame.messages.append({"kind": 3, "code": 0,
+                           "text": f"Succeeded at {_when(ended)} (Elapsed Time: {_elapsed(ended - started)})"})
+    parent.last = frame.messages
+    if isinstance(answer, Result):
+        answer._messages = frame.messages
+        answer._inputs = _inputs(function, args, kwargs)
+    if _SEVERITY_LEVEL[0] == 1:
+        warnings = [m["text"] for m in frame.messages if m["kind"] == 50]
+        if warnings:
+            raise ExecuteWarning("".join(w + "\n" for w in warnings))
+    return answer
+
+
+_WRAPPED: dict = {}
+
+
+def tool(function, name=None, always=False):
+    """``function`` as a tool: called from a script or a toolbox it runs through ``run_tool``; called by grapy's own
+    code — one tool using another — it runs as it is, inside the tool that called it, so its messages are that tool's.
+    ``always`` runs it as a tool whoever calls it: a Python toolbox's tool, which grapy runs on a script's behalf."""
+    import functools
+    if getattr(function, "__grapy_tool__", False):
+        return function
+    if id(function) in _WRAPPED and not always and name is None:
+        return _WRAPPED[id(function)]
+    title = name or function.__name__
+
+    @functools.wraps(function)
+    def run(*args, **kwargs):
+        if not always and _from_grapy(1):
+            return function(*args, **kwargs)
+        return run_tool(title, function, args, kwargs)
+
+    run.__grapy_tool__ = True
+    if not always and name is None:
+        _WRAPPED[id(function)] = run
+    return run
+
+
 def GetArgumentCount():
-    """The number of parameters passed to the tool."""
-    return len(PARAMETERS)
+    """The number of parameters passed to the tool; outside a tool run, the script's arguments."""
+    return len(PARAMETERS) if PARAMETERS else len(_arguments())
 
 
 class ExecuteError(Exception):
     """What arcpy raises when a tool fails, and what a tool raises to fail."""
 
 
-class ExecuteWarning(Warning):
-    pass
+class ExecuteWarning(RuntimeError):
+    """What a tool raises at severity level 1 when it warned. A RuntimeError, as ArcGIS Pro 3.7's (measured 2026-11-12);
+    grapy's was a Warning before it was ever raised."""
 
 
 class NotBuiltError(NotImplementedError, AttributeError):

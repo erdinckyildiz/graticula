@@ -25,10 +25,11 @@ VALID_LISTS = {"valid_devices": "Device", "valid_subnetwork_controller": "Device
                "aggregated_line": "Line", "valid_junctions": "Junction", "valid_junction_objects": "JunctionObject",
                "valid_junction_object_subnetwork_controller": "JunctionObject", "valid_edge_objects": "EdgeObject"}
 # INFERRED (ADR-231 §5.9 (m)): ISDIRTY 0 clean, 1 dirty, 2 invalid — the three states the Update Subnetwork page names;
-# ISCONNECTED 0 Unknown, 1 True, 2 False — the three values of the Is connected attribute page; a feature in several
+# ISCONNECTED 0 False, 1 True, 2 Unknown — the coded values of Pro 3.7's IsConnected domain (measured 2026-11-12; grapy
+# had 0 Unknown and 2 False, INFERRED); a feature in several
 # subnetworks of a tier carries their names joined by "::", and one in none carries "Unknown".
 CLEAN, DIRTY, INVALID = 0, 1, 2
-UNKNOWN, CONNECTED, NOT_CONNECTED = 0, 1, 2
+UNKNOWN, CONNECTED, NOT_CONNECTED = 2, 1, 0
 SEPARATOR = "::"
 
 
@@ -41,8 +42,8 @@ def default_definition():
             "include_barriers": True, "traversability_scope": "BOTH_JUNCTIONS_AND_EDGES", "propagators": [],
             "update_structure_features": True, "update_container_features": True,
             "edit_mode_for_default_version": "WITHOUT_EVENTING", "edit_mode_for_named_version": "WITHOUT_EVENTING",
-            "manage_subnetwork_isdirty": True, "include_containers": False, "include_content": False,
-            "include_structures": False, "validate_locatability": False,
+            "manage_subnetwork_isdirty": True, "include_containers": True, "include_content": True,
+            "include_structures": True, "validate_locatability": False,
             **{name: [] for name in VALID_LISTS}}
 
 
@@ -321,7 +322,7 @@ def update(network, domain, tier, name, extra):
         summaries[columns[str(row[6]).lower()]] = result
     network.q(f'delete from "{subnet_line}" where DOMAINNETWORKNAME = ? and TIERNAME = ? and SUBNETWORKNAME = ?', *match)
     names_sql = ", ".join(f'"{c}"' for c in summaries)
-    network.q(f'insert into "{subnet_line}" (geom, DOMAINNETWORKNAME, TIERNAME, SUBNETWORKNAME, SUBNETWORKCONTROLLERNAMES, '
+    network.q(f'insert into "{subnet_line}" ({network.shape(subnet_line)}, DOMAINNETWORKNAME, TIERNAME, SUBNETWORKNAME, SUBNETWORKCONTROLLERNAMES, '
               f'ISDIRTY, LASTUPDATESUBNETWORK{", " + names_sql if summaries else ""}) values (?, ?, ?, ?, ?, ?, ?'
               f'{", ?" * len(summaries)})', _gpkg.encode(shape, srid) if shape is not None else None, *match,
               controllers, CLEAN, stamp, *summaries.values())

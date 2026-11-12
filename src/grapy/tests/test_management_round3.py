@@ -3,6 +3,7 @@ raster statistics and pyramids, and KML — ADR-224. Every answer is worked out 
 import datetime
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -20,6 +21,8 @@ def box(x0, y0, x1, y1):
 class Round3(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
 
@@ -74,7 +77,8 @@ class Round3(unittest.TestCase):
     def test_calculate_value_and_clear_workspace_cache(self):
         self.assertEqual(arcpy.management.CalculateValue("double(21)", "def double(x):\n    return x * 2", "Long")[0], "42")
         self.assertEqual(arcpy.management.CalculateValue("7 / 2", None, "Double")[0], "3.5")
-        self.assertEqual(arcpy.management.ClearWorkspaceCache()[0], "")
+        # Pro answers "true" (measured in ArcGIS Pro 3.7, 2026-11-08); this pinned "" before.
+        self.assertEqual(arcpy.management.ClearWorkspaceCache()[0], "true")
 
     # ---- tables
 
@@ -155,10 +159,14 @@ class Round3(unittest.TestCase):
     def test_transects_along_lines(self):
         line = self.make("line", "POLYLINE", [], [("LINESTRING(0 0,100 0)",)])
         out = arcpy.management.GenerateTransectsAlongLines(line, self.out("tr.gpkg"), "30 Meters", "20 Meters")[0]
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        # Each transect runs from the line's right side to its left (south to north here): measured in ArcGIS Pro 3.7,
+        # 2026-11-08 (this pinned north to south).
         self.assertEqual(self.rows(out, ["ORIG_FID", "SHAPE@WKT"]),
-                         [(1, "LINESTRING (30 10, 30 -10)"), (1, "LINESTRING (60 10, 60 -10)"), (1, "LINESTRING (90 10, 90 -10)")])
+                         [(1, "MULTILINESTRING ((30 -10, 30 10))"), (1, "MULTILINESTRING ((60 -10, 60 10))"), (1, "MULTILINESTRING ((90 -10, 90 10))")])
         ends = arcpy.management.GenerateTransectsAlongLines(line, self.out("tr2.gpkg"), 30, 20, "END_POINTS")[0]
-        self.assertEqual([r[0] for r in self.rows(ends, ["SHAPE@WKT"])][::4], ["LINESTRING (0 10, 0 -10)", "LINESTRING (100 10, 100 -10)"])
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual([r[0] for r in self.rows(ends, ["SHAPE@WKT"])][::4], ["MULTILINESTRING ((0 -10, 0 10))", "MULTILINESTRING ((100 -10, 100 10))"])
 
     # ---- rasters
 
@@ -205,7 +213,8 @@ class Round3(unittest.TestCase):
         points = gpkg + "/Placemarks/Points"
         self.assertEqual(self.rows(points, ["Name", "FolderPath", "PopupInfo", "SHAPE@WKT"]),
                          [("w1", "Doc/Wells", "deep", "MULTIPOINT ((30 40))"), ("pair", "Doc", None, "MULTIPOINT ((1 1), (2 2))")])
-        self.assertEqual(self.rows(gpkg + "/Placemarks/Lines", ["Name", "SHAPE@LENGTH"]), [("road", 5.0)])
+        # Polylines, as Pro 3.7 names the class (measured 2026-11-08; this test pinned "Lines").
+        self.assertEqual(self.rows(gpkg + "/Placemarks/Polylines", ["Name", "SHAPE@LENGTH"]), [("road", 5.0)])
         self.assertEqual(self.rows(gpkg + "/Placemarks/Polygons", ["Name", "SHAPE@AREA"]), [("lot", 96.0)])
         self.assertEqual(arcpy.Describe(points).spatialReference.factoryCode, 4326)
 

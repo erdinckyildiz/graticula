@@ -9,6 +9,7 @@ declared type alone repaired it, bisected against Pro on 2026-10-31 (D-340). The
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -57,6 +58,8 @@ def old_file(path):
 class Upgrade(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.mark = len(_runtime.MESSAGES)   # other tests' messages are left alone: some read them later
         _gpkgupgrade._SAID.clear()
@@ -118,9 +121,12 @@ class Upgrade(unittest.TestCase):
             connection.close()
         self.assertEqual(found, [])
         self.assertEqual(arcpy.Describe(self.file + "/wells").shapeType, "Point")
-        # A second run finds nothing to do and keeps no second copy.
-        arcpy.management.UpgradeGDB(self.file)
-        self.assertIn("nothing to upgrade", self.said())
+        # A second run finds nothing to do: Pro refuses a geodatabase already current with ERROR 001046 (measured in
+        # ArcGIS Pro 3.7, 2026-11-08; this pinned a message), and no second copy is kept.
+        with self.assertRaisesRegex(arcpy.ExecuteError, "001046"):
+            arcpy.management.UpgradeGDB(self.file)
+        with self.assertRaisesRegex(arcpy.ExecuteError, "001046"):
+            arcpy.management.UpgradeGDB(self.file, "PREREQUISITE_CHECK", "NO_UPGRADE")
         self.assertFalse(os.path.exists(self.file + ".before-upgrade-2"))
 
     def test_the_prerequisite_check_alone_changes_nothing(self):
@@ -133,8 +139,10 @@ class Upgrade(unittest.TestCase):
     def test_a_file_grapy_writes_now_is_already_current(self):
         current = arcpy.management.CreateFeatureclass(self.directory, "fresh.gpkg", "POINT", spatial_reference=3857)[0]
         file = _gpkg.split(current)[0]
-        arcpy.management.UpgradeGDB(file)
-        self.assertIn("nothing to upgrade", self.said())
+        # Pro 3.7 refuses a current geodatabase, the check alone too (ERROR 001046, measured 2026-11-08).
+        for upgrade in ("UPGRADE", "NO_UPGRADE"):
+            with self.assertRaisesRegex(arcpy.ExecuteError, "001046"):
+                arcpy.management.UpgradeGDB(file, "PREREQUISITE_CHECK", upgrade)
         self.assertFalse(os.path.exists(file + ".before-upgrade"))
 
 

@@ -8,6 +8,7 @@ holds 100 × (0 + 10 + 10) / 3.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -37,6 +38,8 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
 
@@ -139,9 +142,10 @@ class Multidimensional(Base):
         table = ia.SummarizeCategoricalRaster(r, os.path.join(self.directory, "lc.csv"))[0]
         with open(table, encoding="utf-8") as f:
             lines = [line.strip().split(",") for line in f]
-        self.assertEqual(lines[0], ["StdTime", "Class_1", "Class_2", "Class_3"])
-        self.assertEqual(lines[1][1:], ["2", "1", "1"])
-        self.assertEqual(lines[2][1:], ["0", "3", "1"])
+        # Pro 3.7's field names, C_<value> and a NoData count (measured 2026-11-08; this test pinned Class_<value>).
+        self.assertEqual(lines[0], ["StdTime", "C_1", "C_2", "C_3", "NoData"])
+        self.assertEqual(lines[1][1:], ["2", "1", "1", "0"])
+        self.assertEqual(lines[2][1:], ["0", "3", "1", "0"])
         # Class names from CF flag_values and flag_meanings; one area of interest over the first two cells.
         named = cube([variable("lc", t, [[1, 1, 2, 3], [2, 2, 2, 3]],
                                attrs={"flag_values": "1 2 3", "flag_meanings": "water forest urban"})],
@@ -178,16 +182,18 @@ class Multidimensional(Base):
         path = cube([variable("temp", t, [[1, 2], [3, 4]], attrs={"units": "K"})]).save(
             os.path.join(self.directory, "t.nc"))
         p = arcpy.NetCDFFileProperties(path)
-        self.assertEqual(sorted(p.getVariables()), ["crs", "temp"])
+        # The coordinate variables are variables too, and a CF time is a Date, as ArcGIS Pro 3.7 answers (measured
+        # 2026-11-08, the Pro sweep); this test left them out and said Double before.
+        self.assertEqual(sorted(p.getVariables()), sorted(["crs", "temp", "x", "y", "StdTime"]))
         self.assertEqual(p.getDimensions(), ["x", "y", "StdTime"])
         self.assertEqual(p.getDimensionsByVariable("temp"), ["StdTime", "y", "x"])
-        self.assertEqual(p.getVariablesByDimension("StdTime"), ["temp"])
+        self.assertEqual(sorted(p.getVariablesByDimension("StdTime")), ["StdTime", "temp"])
         self.assertEqual(p.getDimensionSize("StdTime"), 2)
         self.assertEqual(p.getDimensionValue("StdTime", 1), 10959.0)  # 2000-01-03, in days since 1970-01-01
         self.assertEqual(p.getDimensionIndex("StdTime", 10959), 1)
         self.assertEqual(p.getFieldType("temp"), "Double")
         self.assertEqual(p.getFieldType("crs"), "Integer")
-        self.assertEqual(p.getFieldType("StdTime"), "Double")
+        self.assertEqual(p.getFieldType("StdTime"), "Date")
         self.assertEqual(p.getAttributeValue("temp", "units"), "K")
         self.assertIn("Conventions", p.getAttributeNames())
         self.assertEqual(p.getSpatialReference("temp", "x", "y").factoryCode, 3857)
@@ -233,9 +239,12 @@ class Multipatch(Base):
         mp = self.multipatch("b", [box((0, 0, 1), (4, 2, 3)), box((6, 0, 0), (8, 2, 5))])
         high = arcpy.conversion.MultipatchToRaster(mp, os.path.join(self.directory, "high.tif"), 1)[0]
         cells = arcpy.RasterToNumPyArray(high, nodata_to_value=-1).tolist()
-        self.assertEqual(cells, [[3, 3, 3, 3, -1, -1, 5, 5], [3, 3, 3, 3, -1, -1, 5, 5]])
+        # The grid is the 8 × 2 extent widened by half a cell, as Pro 3.7 lays it (measured 2026-11-08; this test
+        # pinned the bare extent's 8 × 2 cells): 9 × 3 cells centred on x = 0 … 8, y = 0 … 2. A centre on a box's side
+        # (x = 4, x = 6) meets it.
+        self.assertEqual(cells, [[3, 3, 3, 3, 3, -1, 5, 5, 5]] * 3)
         low = arcpy.conversion.MultipatchToRaster(mp, os.path.join(self.directory, "low.tif"), 1, "MINIMUM_HEIGHT")[0]
-        self.assertEqual(arcpy.RasterToNumPyArray(low, nodata_to_value=-1).tolist()[0], [1, 1, 1, 1, -1, -1, 0, 0])
+        self.assertEqual(arcpy.RasterToNumPyArray(low, nodata_to_value=-1).tolist()[0], [1, 1, 1, 1, 1, -1, 0, 0, 0])
         # The default cell size: the shorter side of the 8 × 2 extent over 250.
         default = arcpy.conversion.MultipatchToRaster(mp, os.path.join(self.directory, "d.tif"))[0]
         self.assertAlmostEqual(arcpy.Raster(default).meanCellWidth, 2 / 250)
@@ -347,6 +356,8 @@ class Las(unittest.TestCase):
     def setUp(self):
         from test_las import scene
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.folder = os.path.join(self.directory, "lidar")
         os.makedirs(self.folder)

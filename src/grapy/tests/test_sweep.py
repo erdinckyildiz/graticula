@@ -3,6 +3,7 @@ import math
 import os
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -14,6 +15,8 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class Sweep(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         if hasattr(arcpy.env, "randomGenerator"):
             del arcpy.env.randomGenerator
@@ -60,14 +63,17 @@ class Sweep(unittest.TestCase):
             for row in rows:
                 rows.updateRow([row[0].densify("DISTANCE", 4)])
         diced = arcpy.management.Dice(square, self.out("diced.gpkg"), 25)[0]
-        # 41 vertices; cut across x = 20, each half holds 24 and is within the limit.
-        self.assertEqual(sorted(r[1] for r in self.rows(diced, ["n", "SHAPE@AREA"])), [800.0, 800.0])
+        # Each 40 m side cut in 11 (densify makes every piece shorter than 4 m, as ArcGIS Pro 3.7 does, measured
+        # 2026-11-08; this test counted 10 pieces, 41 vertices, before): 45 vertices, cut across x = 20.
+        self.assertEqual([round(r[1], 6) for r in sorted(self.rows(diced, ["n", "SHAPE@AREA"]), key=lambda r: r[1])],
+                         [800.0, 800.0])
         a = self.make("a", "POLYLINE", [], [("LINESTRING(0 0,10 0)",)])
         b = self.make("b", "POLYLINE", [], [("LINESTRING(5 -5,5 5)",), ("LINESTRING(10.0004 0,10.0004 5)",)])
         arcpy.management.Integrate([[b, 1], [a, 2]], "0.001 Meters")
         # A's end at (10,0) moves onto B's better-ranked vertex 0.0004 away, and both lines get the crossing (5,0).
-        self.assertEqual(self.rows(a, ["SHAPE@WKT"]), [("LINESTRING (0 0, 5 0, 10.0004 0)",)])
-        self.assertEqual(self.rows(b, ["SHAPE@WKT"])[0], ("LINESTRING (5 -5, 5 0, 5 5)",))
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(self.rows(a, ["SHAPE@WKT"]), [("MULTILINESTRING ((0 0, 5 0, 10.0004 0))",)])
+        self.assertEqual(self.rows(b, ["SHAPE@WKT"])[0], ("MULTILINESTRING ((5 -5, 5 0, 5 5))",))
 
     def test_table_to_ellipse(self):
         centres = self.table("c", [("x", "DOUBLE"), ("y", "DOUBLE"), ("major", "DOUBLE"), ("minor", "DOUBLE"),
@@ -100,19 +106,24 @@ class Sweep(unittest.TestCase):
         data = self.table("d", [("kind", "TEXT"), ("v", "DOUBLE")],
                           [("a", 1.0), ("b", math.e), ("a", math.e ** 2)])
         arcpy.management.EncodeField(data, "kind")
-        self.assertEqual(self.rows(data, ["kind_a", "kind_b"]), [(1, 0), (0, 1), (1, 0)])
+        # Named <method>_<field>_<category>: measured in ArcGIS Pro 3.7, 2026-11-08 (was kind_a, an inference).
+        self.assertEqual(self.rows(data, ["ONEHOT_kind_a", "ONEHOT_kind_b"]), [(1, 0), (0, 1), (1, 0)])
         arcpy.management.TransformField(data, "v", "LOG")
-        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_LOG"])], [0.0, 1.0, 2.0])
+        # Pro 3.7 names the fields <field>_LOGARITHM, _BOX_COX (measured 2026-11-08; were _LOG, _BOXCOX).
+        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_LOGARITHM"])], [0.0, 1.0, 2.0])
         arcpy.management.TransformField(data, "v", "BOX-COX", 1)
-        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_BOXCOX"])],
+        self.assertEqual([round(r[0], 12) for r in self.rows(data, ["v_BOX_COX"])],
                          [0.0, round(math.e - 1, 12), round(math.e ** 2 - 1, 12)])
         values = self.table("n", [("x", "DOUBLE")], [(v,) for v in (0.0, 5.0, 10.0)])
         arcpy.management.ReclassifyField(values, "x", "EQUAL_INTERVAL", 2, output_field_name="eq")
-        self.assertEqual(self.rows(values, ["eq_CLASS", "eq_RANGE"]), [(1, "0 - 5"), (1, "0 - 5"), (2, "5 - 10")])
+        # Pro 3.7: the class field is the name itself, a double's range has six decimals and the next class starts one
+        # millionth above (measured 2026-11-08; this pinned eq_CLASS and "0 - 5", "5 - 10").
+        self.assertEqual(self.rows(values, ["eq", "eq_RANGE"]),
+                         [(1, "0.000000 - 5.000000"), (1, "0.000000 - 5.000000"), (2, "5.000001 - 10.000000")])
         groups = self.table("g", [("x", "DOUBLE")], [(v,) for v in (1.0, 2.0, 3.0, 10.0, 11.0, 12.0)])
         arcpy.management.ReclassifyField(groups, "x", "NATURAL_BREAKS", 2, output_field_name="nb")
         # The two natural groups 1–3 and 10–12.
-        self.assertEqual([r[0] for r in self.rows(groups, ["nb_CLASS"])], [1, 1, 1, 2, 2, 2])
+        self.assertEqual([r[0] for r in self.rows(groups, ["nb"])], [1, 1, 1, 2, 2, 2])
 
     def test_standardize_field_by_the_pages_four_equations(self):
         data = self.table("s", [("x", "DOUBLE")], [(v,) for v in (1.0, 2.0, 3.0, 4.0, None)])
@@ -135,13 +146,16 @@ class Sweep(unittest.TestCase):
     def test_convert_coordinate_notation(self):
         origin = self.table("o", [("lon", "DOUBLE"), ("lat", "DOUBLE")], [(0.0, 0.0), (500.0, 0.0)])
         mgrs = arcpy.management.ConvertCoordinateNotation(origin, self.out("m.gpkg"), "lon", "lat", "DD_2", "MGRS")[0]
-        # 0°, 0° is 166021 m east in UTM zone 31N: square AA, 66021 → 6602 at 10 m.
-        self.assertEqual(self.rows(mgrs, ["MGRS", "SHAPE@XY"]), [("31NAA66020000", (0.0, 0.0))])  # 500° excluded
+        # 0°, 0° is 166021.44 m east in UTM zone 31N: square AA, 66021 at 1 m -- five digits rounded, as Pro writes
+        # MGRS (measured in ArcGIS Pro 3.7, 2026-11-08; this pinned four truncated digits, 6602, before).
+        self.assertEqual(self.rows(mgrs, ["MGRS", "SHAPE@XY"]), [("31NAA6602100000", (0.0, 0.0))])  # 500° excluded
         gars = arcpy.management.ConvertCoordinateNotation(origin, self.out("g.gpkg"), "lon", "lat", "DD_2", "GARS",
                                                           exclude_invalid_records="INCLUDE_INVALID")[0]
         self.assertEqual(self.rows(gars, ["GARS"]), [("361HN37",), (None,)])
         dd = arcpy.management.ConvertCoordinateNotation(origin, self.out("dd.gpkg"), "lon", "lat", "DD_2", "DD_1")[0]
-        self.assertEqual(self.rows(dd, ["DD_1"]), [("0.00000N 0.00000E",)])
+        # Pro names the field DDLatLon and writes eight decimals, degrees padded to 2 and 3 digits (measured
+        # 2026-11-08); this pinned a DD_1 field of five decimals before.
+        self.assertEqual(self.rows(dd, ["DDLatLon"]), [("00.00000000N 000.00000000E",)])
 
     def test_shapefile_and_dbase_writers(self):
         lines = self.make("routes", "POLYLINE", [("averylongname1", "TEXT"), ("averylongname2", "LONG")],
@@ -167,11 +181,15 @@ class Sweep(unittest.TestCase):
         lines = self.make("ln", "POLYLINE", [("v", "LONG"), ("p", "LONG")],
                           [(1, 0, "LINESTRING(0 6,20 6)"), (2, 0, "LINESTRING(0 8,5 8)"), (2, 0, "LINESTRING(0 7,6 7)")])
         # Cell 0 (x 0..10): value 1 runs 10, value 2 runs 5 and 6 — the longest line is 1's, the longest total is 2's.
+        # The grid has one cell more than fit whole across the 20 m extent, as Pro 3.7 lays a line raster (measured
+        # 2026-11-08; this test pinned 2 cells); line 1 only touches the third cell's left edge, so it stays NoData.
         longest = arcpy.Raster(arcpy.conversion.PolylineToRaster(lines, "v", self.out("a.tif"), cellsize=10)[0])
-        self.assertEqual(longest._array.tolist(), [[1, 1]])
+        self.assertEqual(longest._array.tolist()[0][:2], [1, 1])
+        self.assertEqual(longest._mask.tolist(), [[False, False, True]])
         combined = arcpy.Raster(arcpy.conversion.PolylineToRaster(lines, "v", self.out("b.tif"), "MAXIMUM_COMBINED_LENGTH",
                                                                   cellsize=10)[0])
-        self.assertEqual(combined._array.tolist(), [[2, 1]])
+        self.assertEqual(combined._array.tolist()[0][:2], [2, 1])
+        self.assertEqual(combined._mask.tolist(), [[False, False, True]])
 
 
     def test_raster_to_dted(self):
@@ -181,7 +199,10 @@ class Sweep(unittest.TestCase):
         # 0.1-degree cells of 123.4 over 32.1–32.6 E, 39.5–39.9 N: inside tile e032/n39 only.
         grid = _raster._Grid(32.1, 39.9, 0.1, 0.1, 4, 5, 4326)
         source = _raster.Raster._of(numpy.full((4, 5), 123.4), numpy.zeros((4, 5), bool), grid).save(self.out("dem.tif"))
-        folder = arcpy.management.RasterToDTED(source, self.out("dted"), "DTED_0", "NEAREST")[0]
+        out = arcpy.management.RasterToDTED(source, self.out("dted"), "DTED_0", "NEAREST")[0]
+        # The tiles sit in a "dted0" folder inside the output folder, as Pro 3.7 writes them (measured 2026-11-08).
+        self.assertEqual(os.listdir(out), ["dted0"])
+        folder = os.path.join(out, "dted0")
         self.assertEqual(sorted(os.listdir(folder)), ["e032"])
         self.assertEqual(os.listdir(os.path.join(folder, "e032")), ["n39.dt0"])
         with rasterio.open(os.path.join(folder, "e032", "n39.dt0")) as tile:

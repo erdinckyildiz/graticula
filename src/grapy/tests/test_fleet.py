@@ -11,6 +11,7 @@ import itertools
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,8 @@ def at(hour, minute=0):
 class Fleet(unittest.TestCase):
     def network(self, lines):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(gpkg, "t", 3857)[0]
@@ -98,13 +101,17 @@ class Fleet(unittest.TestCase):
                                ("e", "R2", 3, at(8, 5), 0)])
         routes = self.rows(result, O2.Routes, ["Name", "OrderCount", "TotalCost", "TotalTime", "TotalTravelTime",
                                                "TotalOrderServiceTime", "TotalDistance", "EndTime", "SHAPE@WKT"])
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
         self.assertEqual([r[:2] + tuple(round(v, 9) for v in r[2:7]) + r[7:] for r in routes],
-                         [("R1", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "LINESTRING (50 0, 20 0, 10 0, 50 0)"),
-                          ("R2", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "LINESTRING (50 0, 80 0, 90 0, 50 0)")])
+                         [("R1", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "MULTILINESTRING ((50 0, 20 0, 10 0, 50 0))"),
+                          ("R2", 2, 10.0, 10.0, 8.0, 2.0, 0.08, at(8, 10), "MULTILINESTRING ((50 0, 80 0, 90 0, 50 0))")])
         self.assertEqual(self.rows(result, O2.DepotVisits, ["DepotName", "RouteName", "Sequence", "VisitType"]),
                          [("D", "R1", 1, 1), ("D", "R1", 4, 2), ("D", "R2", 1, 1), ("D", "R2", 4, 2)])
         self.assertTrue(nax.VehicleRoutingProblem.__grapy_equivalent__.startswith("Solomon's insertion"))
-        self.assertIn("nax.VehicleRoutingProblem.solve is an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("nax.VehicleRoutingProblem.solve is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         # One route of capacity 4 takes all four, and the costlier second route is left unused.
         routes = [{"Name": "Big", "StartDepotName": "D", "EndDepotName": "D", "Capacity_1": 4},
                   {"Name": "Dear", "StartDepotName": "D", "EndDepotName": "D", "Capacity_1": 4, "FixedCost": 100}]
@@ -262,8 +269,9 @@ class Fleet(unittest.TestCase):
                                          key=lambda s: s[1])]
         self.assertEqual(sequence[0], "s0")
         route.returnToStart = True
+        # LastStopID: LastStopOID is the loaded feature's ObjectID, None from an insertCursor (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)).
         ((closed, last),) = list(route.solve().searchCursor(nax.RouteOutputDataType.Routes, ["Total_Minutes",
-                                                                                              "LastStopOID"]))
+                                                                                              "LastStopID"]))
         self.assertEqual(last, 1)
         tour = min(sum(minutes(p, q) for p, q in zip((points[0],) + order, order + (points[0],)))
                    for order in itertools.permutations(points[1:]))
@@ -296,7 +304,10 @@ class Fleet(unittest.TestCase):
         self.assertEqual(self.rows(result, out.DepotVisits, ["VisitType", "Sequence"]), [(1, 0), (2, 30)])
         ((total,),) = self.rows(result, out.Routes, ["TotalTravelTime"])
         self.assertAlmostEqual(total, 8.0)
-        self.assertIn("nax.LastMileDelivery.solve is an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("nax.LastMileDelivery.solve is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
 
     # ---- waste collection
 
@@ -306,6 +317,9 @@ class Fleet(unittest.TestCase):
         wc.travelMode = "Driving"
         wc.routeStartTime = datetime.time(6)
         wc.maxRouteTotalTime = 120
+        # The stops give no CollectionMode, so the analysis gives the default: Pro fails the solve without one
+        # (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep, ERROR 030092).
+        wc.stopCollectionMode = nax.StopCollectionMode.BothSides
         I = nax.WasteCollectionInputDataType
         with wc.insertCursor(I.Depots, ["Name", "SHAPE@XY"]) as cursor:
             cursor.insertRow(["Yard", (0, 0)])
@@ -327,7 +341,9 @@ class Fleet(unittest.TestCase):
         # s0 and s1 share the edge (0,0)–(10,0): one unit, one collecting line.
         self.assertEqual(stops[0][3], stops[1][3])
         routes = self.rows(result, out.Routes, ["Name", "StopCount", "RenewalCount", "TotalBins_1"])
-        self.assertEqual(routes, [("T1", 6, 2, 6.0), ("T2", 0, 0, None)])
+        # A route with no renewal visit has a null RenewalCount, as Pro writes it (measured in ArcGIS Pro 3.7,
+        # 2026-11-12, Pro sweep); this said 0.
+        self.assertEqual(routes, [("T1", 6, 2, 6.0), ("T2", 0, None, None)])
         visits = self.rows(result, out.RenewalVisits, ["RouteName", "RenewalName", "Sequence", "UnloadedBins_1"])
         self.assertEqual([v[:3] for v in visits], [("T1", "Tip", 1), ("T1", "Tip", 2)])
         self.assertEqual(sum(v[3] for v in visits), 6.0)
@@ -341,7 +357,7 @@ class Fleet(unittest.TestCase):
                                                     max_route_total_time=120, stop_collection_mode="BOTH_SIDES")[0]
         self.assertEqual(na.GetNAClassNames(layer, "INPUT"), {
             "Stops": "Stops", "Depots": "Depots", "Routes": "Routes", "Renewals": "Renewals",
-            "RouteRenewals": "Route Renewals", "RenewalVisits": "Renewal Visits", "PointBarriers": "Point Barriers",
+            "RouteRenewals": "Route Renewals", "RenewalVisits": "Renewal Visits", "Barriers": "Point Barriers",
             "PolylineBarriers": "Line Barriers", "PolygonBarriers": "Polygon Barriers"})
         depot = self.points("yard", [("Yard", "POINT(0 0)")])
         stops = self.points("stops", [("s0", "POINT(5 0)"), ("s1", "POINT(20 15)"), ("s2", "POINT(5 20)")])
@@ -399,7 +415,9 @@ class Fleet(unittest.TestCase):
                                             ["Name", "OrderCount", "TotalTravelTime", "TotalBreakServiceTime",
                                              "EarliestStartTime"]))
         self.assertEqual(routes[0][:4], ("Van1", 2, 16.0, 15.0))
-        self.assertTrue(str(routes[0][4]).startswith("2026-01-05 08:00"))
+        # The default earliest start is 8:00 alone, on Esri's time-only date (measured in ArcGIS Pro 3.7, 2026-11-12,
+        # Pro sweep); it is read on the layer's default date, which the travel time above shows. This said 2026-01-05.
+        self.assertTrue(str(routes[0][4]).startswith("1899-12-30 08:00"))
         # The break is taken ten minutes into the drive, part-way along the second leg (4 minutes then 8); the four
         # minutes home after it are within its limit, which bounds them too.
         (brk,) = list(arcpy.da.SearchCursor(na.GetNASublayer(layer, "Breaks"),
@@ -408,7 +426,10 @@ class Fleet(unittest.TestCase):
         self.assertAlmostEqual(brk[3], 10.0)
         visits = list(arcpy.da.SearchCursor(na.GetNASublayer(layer, "Depot Visits"), ["VisitType", "Sequence"]))
         self.assertEqual(visits, [(1, 1), (2, 5)])
-        self.assertIn("arcpy.na.Solve solves a vehicle routing problem by an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("arcpy.na.Solve solves a vehicle routing problem by an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         lmd = na.MakeLastMileDeliveryAnalysisLayer(network, "lmd", "Driving", earliest_route_start_date=DAY,
                                                    earliest_route_start_time=datetime.time(7), max_route_total_time=60)[0]
         self.assertIn("Zones", na.GetNAClassNames(lmd, "INPUT"))

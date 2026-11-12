@@ -5,6 +5,7 @@ import datetime
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -26,6 +27,7 @@ def _line(*xy):
 class _Base(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, True)
         self.gpkg = os.path.join(self.folder, "work.gpkg")
         arcpy.management.CreateFeatureclass(self.gpkg, "roads", "POLYLINE", spatial_reference=3857)
         self.roads = self.gpkg + "/roads"
@@ -149,7 +151,9 @@ class EditorTracking(_Base):
         arcpy.management.EnableEditorTracking(self.roads, "made_by", add_fields="ADD_FIELDS")
         connection = sqlite3.connect(self.gpkg)
         try:
-            key = _attachments.global_id_field(connection, "roads")
+            # The row's object id or GlobalID, as the attachment table keys on (ADR-289 §5.4: roads has no global
+            # IDs, so the object id, as ArcGIS Pro 3.7 was measured to key them, 2026-11-12).
+            key = _attachments.keys(connection, "roads")[0]
             guid = connection.execute(f'select "{key}" from roads').fetchone()[0]
             with self.edit_as("dave", T1):
                 _attachments.add(connection, "roads", guid, "a.txt", b"hello")
@@ -211,7 +215,7 @@ class LastEditTime(_Base):
         arcpy.management.CreateFeatureclass(self.gpkg + "/net", "valves", "POINT")
         for table in ("net/pipes", "net/valves"):
             self.sql("update gpkg_contents set last_change = ? where table_name = ?", self.OLD, table)
-            self.sql(f'insert into "{table}" (geom) values (null)')
+            self.sql(f'insert into "{table}" (Shape) values (null)')  # Pro's names, measured (ADR-289 §5.1)
             self.assertGreater(self.changed(table), "2026-")
 
     def test_a_rename_keeps_it(self):
@@ -248,13 +252,14 @@ class UnregisteredAndRegistration(_Base):
         self.assertEqual(out, self.gpkg.replace("\\", "/") + "/plain")
         self.assertEqual(self.sql("select count(*) from gpkg_contents where table_name = 'plain'"), [(0,)])
         self.assertEqual([(r[1], r[2]) for r in self.sql("pragma table_info(plain)")], [("OBJECTID", "INTEGER")])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.gpkg
         self.addCleanup(setattr, arcpy.env, "workspace", None)
         self.assertNotIn("plain", arcpy.ListTables())
 
     def test_a_template_gives_its_fields(self):
         arcpy.management.CreateUnRegisteredTable(self.gpkg, "copy", self.roads)
-        self.assertEqual([r[1] for r in self.sql("pragma table_info(copy)")], ["fid", "name"])
+        self.assertEqual([r[1] for r in self.sql("pragma table_info(copy)")], ["OBJECTID", "name"])  # Pro's names, measured (ADR-289 §5.1)
 
     def test_an_incrementing_id_is_kept_by_the_database(self):
         arcpy.management.CreateUnRegisteredTable(self.gpkg, "plain")
@@ -289,9 +294,9 @@ class UnregisteredAndRegistration(_Base):
         self.assertEqual(self.sql("select data_type, srs_id, min_x, min_y, max_x, max_y from gpkg_contents where "
                                   "table_name = 'parcels'"), [("features", 3857, 0.0, 0.0, 2.0, 2.0)])
         self.assertEqual(self.sql("select column_name, geometry_type_name, srs_id from gpkg_geometry_columns where "
-                                  "table_name = 'parcels'"), [("geom", "MULTIPOLYGON", 3857)])
+                                  "table_name = 'parcels'"), [("Shape", "MULTIPOLYGON", 3857)])  # Pro's names, measured (ADR-289 §5.1)
         self.assertEqual(arcpy.Describe(self.gpkg + "/parcels").spatialReference.factoryCode, 3857)
-        self.assertEqual(self.sql("select distinct substr(geom, 5, 4) from parcels"), [((3857).to_bytes(4, "little"),)])
+        self.assertEqual(self.sql("select distinct substr(Shape, 5, 4) from parcels"), [((3857).to_bytes(4, "little"),)])
         described = arcpy.Describe(self.gpkg + "/parcels")
         self.assertEqual((described.OIDFieldName, described.shapeType), ("OBJECTID", "Polygon"))
         self.assertEqual(self.rows(self.gpkg + "/parcels", ["OID@"]), [(1,), (2,)])
@@ -318,7 +323,8 @@ class UnregisteredAndRegistration(_Base):
         self.sql("insert into plain (OBJECTID) values (1)")
         with self.assertRaisesRegex(ExecuteError, "must be unique"):
             arcpy.management.RegisterWithGeodatabase(self.gpkg + "/plain", "OBJECTID")
-        with self.assertRaisesRegex(ExecuteError, "already registered"):
+        # Pro 3.7's ERROR 001050 (measured 2026-11-08; this matched grapy's own "already registered" wording).
+        with self.assertRaisesRegex(ExecuteError, "001050"):
             arcpy.management.RegisterWithGeodatabase(self.roads)
         arcpy.management.CreateDatabaseView(self.gpkg, "v", "select name from roads")
         with self.assertRaises(NotBuiltError):
@@ -352,10 +358,12 @@ class ViewsAndStatistics(_Base):
         out = arcpy.management.CreateDatabaseView(self.gpkg, "named", "select name from roads where name <> 'a'")[0]
         self.assertEqual(self.rows(out, ["name"]), [("b",)])
         self.assertEqual(self.sql("select count(*) from gpkg_contents where table_name = 'named'"), [(0,)])
-        keyed = arcpy.management.CreateDatabaseView(self.gpkg, "keyed", "select fid, name from roads")[0]
+        keyed = arcpy.management.CreateDatabaseView(self.gpkg, "keyed", "select OBJECTID, name from roads")[0]
         self.assertEqual(self.rows(keyed, "*"), [(1, "a"), (2, "b")])  # OID@ is its first integer field
-        self.assertEqual(arcpy.Describe(keyed).OIDFieldName, "fid")
-        self.assertIn("no integer field", arcpy.GetMessages(1))  # 'named' had none
+        self.assertEqual(arcpy.Describe(keyed).OIDFieldName, "OBJECTID")  # Pro's names, measured (ADR-289 §5.1)
+        # 'named' had none. Read from the run's list: the warning is said when 'named' is read, not by the last tool,
+        # and GetMessages answers the last tool's since ADR-289 §5.3, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("no integer field", "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
 
     def test_a_bad_or_second_statement_is_an_error(self):
         with self.assertRaisesRegex(ExecuteError, "not valid SQL"):

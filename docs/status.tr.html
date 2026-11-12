@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>79fb60a2</code> · 2026-11-09 20:06</p>
+<p class="stamp">Şu commit’ten üretildi: <code>cab3c989</code> · 2026-11-12 12:04</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">284</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">687/737</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">285</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">690/740</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
-<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">331 ödendi · 22 tetiğini bekliyor</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">331 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">6152</div><div class="kpi-l">test</div><div class="kpi-n">681 kaynak dosya, 301,874 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">52 madde</span></div><p><b>39 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">63 madde</span></div><p><b>39 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -463,6 +463,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">284</td><td>Contributor and Mobile Worker, as ArcGIS has them: one ceiling, two names</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/1</td></tr>
 <tr><td class="id">285</td><td>Graticula does not provide ArcGIS Pro licences</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">286</td><td>ArcGIS Field Maps tasks are turned on from a map&#x27;s Settings in Studio</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
+<tr><td class="id">289</td><td>The owner&#x27;s four answers after the Pro sweep: Pro&#x27;s column names, Pro&#x27;s messages, Pro&#x27;s attachment keys, and the page over Pro</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -503,6 +504,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-396</td><td>An item&#x27;s Settings tab jumps from the page&#x27;s h1 to h4.</td><td class="muted-t">The next change to the item page&#x27;s structure, or any one item Settings tab being re-levelled — then all of them…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-397</td><td>grapy&#x27;s buffer tools are planar only, and until 2026-11-08 a GEODESIC request was answered planar.</td><td class="muted-t">A user tool that passes GEODESIC, or a Pro comparison of a buffer at high latitude</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-398</td><td>The console suite does not run in CI.</td><td class="muted-t">The owner asks for it back, the first console defect that reaches a release, or the console suite rebalanced so its…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-409</td><td>grapy&#x27;s message model and environments are not Pro&#x27;s.</td><td class="muted-t">The owner&#x27;s choice whether scripts should see Pro&#x27;s per-tool messages; or a user&#x27;s script that parses the start and end…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-410</td><td>grapy&#x27;s GeoPackage tables are named the GeoPackage way, Pro&#x27;s the geodatabase way.</td><td class="muted-t">The owner&#x27;s choice between Pro&#x27;s names and the GeoPackage&#x27;s; or a script that hard-codes OBJECTID or Shape against a…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-411</td><td>grapy keys attachments on global IDs where Pro keys them on object IDs.</td><td class="muted-t">The owner&#x27;s choice; or a script reading RELOBJECTID</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-412</td><td>grapy&#x27;s general tools drop z and m.</td><td class="muted-t">Next grapy work on general tools, or a user&#x27;s 3D data losing its z</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-413</td><td>grapy&#x27;s multidimensional rasters and flow-direction loops differ from Pro&#x27;s.</td><td class="muted-t">Next grapy raster work; or a user&#x27;s DEM with such a pit</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-414</td><td>Raster and surface rules not yet derived from Pro.</td><td class="muted-t">Next grapy raster work, or a user&#x27;s result found to differ</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-415</td><td>Vector, data management and statistics differences left open.</td><td class="muted-t">Next grapy work in the module, or a user&#x27;s script found to depend on one</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-416</td><td>Network analysis outputs differ from Pro&#x27;s in times, numbering and failed solves.</td><td class="muted-t">Next grapy network work, or a script reading one of these fields</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-417</td><td>Utility network schema details and one trace differ from Pro&#x27;s.</td><td class="muted-t">Next grapy utility network work; the trace defect first</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-418</td><td>EQUIVALENT algorithms whose results differ from Pro&#x27;s.</td><td class="muted-t">Esri publishes a rule, or a user reports a result that matters</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-419</td><td>Pro sweep names not compared on this machine.</td><td class="muted-t">A fixture, licence or environment that makes one comparable</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">331 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -659,27 +671,27 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.nax</td><td class="num">77</td><td class="num">9</td><td class="num">18</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">68</td><td class="num">14</td><td class="num">6</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.parcel</td><td class="num">25</td><td class="num">5</td><td class="num">1</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">302</td><td class="num">60</td><td class="num">76</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">302</td><td class="num">59</td><td class="num">76</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">43</td><td class="num">23</td><td class="num">22</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.topographic</td><td class="num">37</td><td class="num">21</td><td class="num">18</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.un</td><td class="num">101</td><td class="num">16</td><td class="num">23</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>79fb60a2</code><time>2026-11-09</time><span>GitHub Pages lists Scene services among the service types, and Studio authors web scenes as well as web maps</span></li>
-<li><code>04b88635</code><time>2026-11-09</time><span>ArcGIS Pro shares scene layer packages and web scenes with Graticula, and Scene services are complete (ADR-269)</span></li>
-<li><code>ac5553e4</code><time>2026-11-08</time><span>grapy: every built name has a test of its own, and the pass&#x27;s four defects are fixed (D-397)</span></li>
-<li><code>c08c7f8e</code><time>2026-11-08</time><span>ArcGIS Field Maps tasks, enabled from Studio, and returnTrueCurves accepted (ADR-286, ADR-215 reversed in part)</span></li>
-<li><code>b238b97e</code><time>2026-11-08</time><span>ArcGIS Field Maps collects into Graticula, and Contributor and Mobile Worker are user types as ArcGIS has them (ADR-077 condition 5, ADR-284, ADR-285)</span></li>
-<li><code>2eaad1e9</code><time>2026-11-08</time><span>ArcGIS Field Maps signs in and opens maps: the sign-in form keeps its path base, validateAppAccess answers, and self says the user type (ADR-077 condition 5, Q-228)</span></li>
-<li><code>5bcf5459</code><time>2026-11-08</time><span>3D scenes: web scenes, scene layer packages served as a SceneServer, scene layers written by this server, 3D object layers from models, and the fixes of 2026-11-07 (ADR-269 to ADR-283)</span></li>
-<li><code>44e270fa</code><time>2026-11-04</time><span>The day of 2026-11-04: Add browses layer items, webhooks get a Studio screen and every event, items take comments everywhere, and the Map Viewer keeps what it drew (ADR-259, 265, 266, 267, 268)</span></li>
-<li><code>9fe1611f</code><time>2026-11-04</time><span>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader (ADR-268, D-321 closed, migration 132)</span></li>
-<li><code>c7f88c05</code><time>2026-11-04</time><span>The night of 2026-11-04: the server prints a web map, webhooks tell other systems what changed, items carry metadata and comments, and the Map Viewer passes its review (ADR-265, 266, 267, ADR-259 condition 2, D-384, D-339)</span></li>
-<li><code>218d1d76</code><time>2026-11-04</time><span>The ArcGIS veteran&#x27;s four open items: a service item&#x27;s own title, the Administrator API&#x27;s start, stop and logs, the portal&#x27;s users, item.export, and apps, links and item resources (ADR-260 to ADR-264)</span></li>
-<li><code>4ed23495</code><time>2026-11-03</time><span>The Map Viewer takes ArcGIS Map Viewer&#x27;s shape, offers vector tiles in sight, and stops blinking on pan</span></li>
-<li><code>a088b1e8</code><time>2026-11-03</time><span>What an ArcGIS veteran&#x27;s review of v1.0.499 found, fixed; the portal names its geocoder; Studio offers Join group</span></li>
-<li><code>da0c1356</code><time>2026-11-02</time><span>An empty hosted service and a service&#x27;s addToDefinition, so the Python API&#x27;s create_service and create_view work; owner decisions of 2026-11-02 evening; CI in four parallel parts</span></li>
+<li><code>cab3c989</code><time>2026-11-12</time><span>grapy writes a GeoPackage&#x27;s object ID as OBJECTID and its geometry as Shape, as Pro does (ADR-289 §5.1)</span></li>
+<li><code>aa0b0e75</code><time>2026-11-12</time><span>grapy finds a GeoPackage&#x27;s object ID and geometry columns from the table (ADR-289 §5.1, first half)</span></li>
+<li><code>c6c695bd</code><time>2026-11-12</time><span>Pro&#x27;s per-tool messages are built (ADR-289 §5.3)</span></li>
+<li><code>9420e96e</code><time>2026-11-12</time><span>Merge branch &#x27;grapy-messages&#x27; into pro-sweep</span></li>
+<li><code>2014ac7b</code><time>2026-11-12</time><span>grapy answers Pro&#x27;s per-tool messages (ADR-289 §5.3)</span></li>
+<li><code>60acc0ee</code><time>2026-11-12</time><span>Attachments keyed by object ID are built (ADR-289 §5.4); the sweep&#x27;s deep learning test is restored</span></li>
+<li><code>05cacf2a</code><time>2026-11-12</time><span>Merge branch &#x27;grapy-attachments-oid&#x27; into pro-sweep</span></li>
+<li><code>92bf2a84</code><time>2026-11-12</time><span>Merge remote-tracking branch &#x27;origin/grapy-test-cleanup&#x27; into pro-sweep</span></li>
+<li><code>a2c94f7c</code><time>2026-11-12</time><span>Sweep tests restore the environments they point at their temporary folders</span></li>
+<li><code>2e5b79be</code><time>2026-11-12</time><span>grapy&#x27;s class-level model folder is removed in tearDownClass, and test_locref restores scratchWorkspace too</span></li>
+<li><code>7df34d41</code><time>2026-11-12</time><span>grapy keys attachments on REL_OBJECTID on a class without global IDs, as ArcGIS Pro does (ADR-289 §5.4)</span></li>
+<li><code>381849f1</code><time>2026-11-12</time><span>Merge remote-tracking branch &#x27;origin/grapy-test-cleanup&#x27; into pro-sweep</span></li>
+<li><code>333b6371</code><time>2026-11-12</time><span>The Pro sweep&#x27;s tests remove the temporary folders they make</span></li>
+<li><code>e6632d1b</code><time>2026-11-12</time><span>grapy&#x27;s tests put arcpy.env&#x27;s workspaces back before their folder is removed</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

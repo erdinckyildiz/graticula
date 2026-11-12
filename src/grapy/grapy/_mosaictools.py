@@ -201,7 +201,8 @@ def _extent_box(value):
 
 def _insert(connection, name, srid, shape, values, oid=None):
     columns = [c for c in values if c != "OBJECTID"]
-    fields = ([f'"{_mosaic.OID}"'] if oid is not None else []) + [f'"{_gpkg.GEOMETRY}"'] + [f'"{c}"' for c in columns]
+    fields = ([f'"{_mosaic.OID}"'] if oid is not None else []) + [_gpkg.shape_sql(connection, name)] + \
+        [f'"{c}"' for c in columns]
     params = ([oid] if oid is not None else []) + [None if shape is None else _gpkg.encode(_mosaic._multi(shape), srid)] + \
              [values[c] for c in columns]
     cursor = connection.execute(f'insert into "{name}" ({", ".join(fields)}) values ({", ".join("?" * len(params))})',
@@ -409,7 +410,7 @@ def _add(in_mosaic_dataset, files, duplicates, tool, statistics=False):
 
 
 def _update(connection, mosaic, srid, oid, shape, values):
-    sets = [f'"{_gpkg.GEOMETRY}" = ?'] + [f'"{c}" = ?' for c in values]
+    sets = [f'{_gpkg.shape_sql(connection, mosaic)} = ?'] + [f'"{c}" = ?' for c in values]
     connection.execute(f'update "{mosaic}" set {", ".join(sets)} where "{_mosaic.OID}" = ?',
                        [_gpkg.encode(_mosaic._multi(shape), srid), *values.values(), oid])
 
@@ -654,7 +655,8 @@ def BuildFootprints(in_mosaic_dataset, where_clause=None, reset_footprint="RADIO
     excludes cells outside ``min_data_value``–``max_data_value`` (and NoData), ``GEOMETRY`` restores the raster's own
     extent, ``NONE`` changes none. ``shrink_distance`` moves the footprint inward by that distance; ``CONVEX_HULL`` and
     ``ENVELOPE`` simplify it; masked regions smaller than ``min_region_size`` cells are kept in it, as documented. Then
-    the boundary, with ``UPDATE_BOUNDARY``.
+    the boundary, with ``UPDATE_BOUNDARY``. Each item's CenterX and CenterY become its new footprint's centroid, as
+    Pro sets them (measured 2026-11-08).
 
     INFERRED (ADR-230 §5.9 (i)): a cell is valid when any band holds a value in range; with no data values given only
     NoData is excluded; the footprint is the union of the valid cells' squares; a masked region is a 4-connected group
@@ -707,8 +709,12 @@ def BuildFootprints(in_mosaic_dataset, where_clause=None, reset_footprint="RADIO
                     shape = shape.buffer(-float(shrink_distance), join_style="mitre")
                 if shape is not None and not shape.is_empty:
                     shape = _simplified(shape, simplify)
-                _update(connection, mosaic, rec.srid, item["OBJECTID"], shape if shape is not None and not shape.is_empty
-                        else shapely.MultiPolygon(), {})
+                kept = shape is not None and not shape.is_empty
+                # CenterX and CenterY follow the new footprint's centroid, as Pro moves them (measured in ArcGIS Pro
+                # 3.7, 2026-11-08: a RADIOMETRY footprint's centroid is the item's new CenterX, CenterY).
+                centre = shape.centroid if kept else None
+                _update(connection, mosaic, rec.srid, item["OBJECTID"], shape if kept else shapely.MultiPolygon(),
+                        {"CenterX": centre.x, "CenterY": centre.y} if centre is not None else {})
         if _word(update_boundary, "UPDATE_BOUNDARY") in ("UPDATE_BOUNDARY", "TRUE"):
             _boundary(connection, mosaic, rec.srid, None, "OVERWRITE", "NONE")
     finally:
@@ -842,6 +848,13 @@ def SetMosaicDatasetProperties(in_mosaic_dataset, rows_maximum_imagesize=None, c
         given = {k: v for k, v in arguments.items() if k in _SET_NAMES and _given(v)}
         for parameter, value in given.items():
             props[_SET_NAMES[parameter]] = value
+        if _given(allowed_compressions):
+            # The default first, then the others in the order given: ArcGIS Pro 3.7 answers "None;JPEG;LZ77" with
+            # LZ77 the default as "LZ77;None;JPEG" (measured 2026-11-08).
+            listed = [str(c) for c in _list(allowed_compressions)]
+            default = str(props.get("defaultCompressionMethod") or "")
+            first = [c for c in listed if c.lower() == default.lower()]
+            props["allowedCompressionMethods"] = ";".join(first + [c for c in listed if c.lower() != default.lower()])
         if _given(allowed_mosaic_methods):
             methods = [_method_word(m, tool) for m in _list(allowed_mosaic_methods)]
             props["allowedMosaicMethods"] = ";".join(methods)
@@ -1044,8 +1057,8 @@ def ExportMosaicDatasetPaths(in_mosaic_dataset, out_table, where_clause=None, ex
     exports only paths whose file cannot be found. grapy's items have raster paths only — no item caches — so
     ``ITEM_CACHE`` alone exports none.
 
-    INFERRED (ADR-230 §5.9 (j)): the other fields, which the page does not name, are ``Path`` and ``Type`` (``RASTER``);
-    a ``.dbf`` output is refused, grapy writing tables into GeoPackages."""
+    The other field is ``Path`` alone — measured in ArcGIS Pro 3.7, 2026-11-08 (grapy also wrote a ``Type`` field, an
+    inference, ADR-230 §5.9 (j)). INFERRED: a ``.dbf`` output is refused, grapy writing tables into GeoPackages."""
     from .stats import _write_table
     if _mosaic.text(out_table).lower().endswith(".dbf"):
         _refuse("ExportMosaicDatasetPaths", "out_table", out_table, "grapy writes tables into GeoPackages, not dBASE")
@@ -1056,9 +1069,9 @@ def ExportMosaicDatasetPaths(in_mosaic_dataset, out_table, where_clause=None, ex
     finally:
         connection.close()
     broken_only = _word(export_mode, "ALL") == "BROKEN"
-    rows = [(i["OBJECTID"], i.get("Raster") or "", "RASTER") for i in chosen if "RASTER" in kinds
+    rows = [(i["OBJECTID"], i.get("Raster") or "") for i in chosen if "RASTER" in kinds
             and (not broken_only or not os.path.isfile(i.get("Raster") or ""))]
-    columns = [_gpkg.Column("SourceOID", "Integer"), _gpkg.Column("Path", "String"), _gpkg.Column("Type", "String")]
+    columns = [_gpkg.Column("SourceOID", "Integer"), _gpkg.Column("Path", "String")]
     return Result(_write_table(out_table, columns, rows))
 
 
@@ -1070,7 +1083,8 @@ def ExportMosaicDatasetItems(in_mosaic_dataset, out_folder, out_base_name=None, 
     OBJECTID, or by its ``Name`` with none; cells holding ``nodata_value`` become NoData; ``EXTENT`` clips to an extent
     (``template_dataset``: an Extent, ``x-min y-min x-max y-max`` or a dataset's extent), ``FEATURE_CLASS`` to a
     feature class's extent. INFERRED (ADR-230 §5.9 (j)): a clip keeps the item's whole cells that the extent overlaps;
-    the output's NoData value is ``nodata_value`` when given; ``.tif`` is added to the name.
+    the output's NoData value is ``nodata_value`` when given. ``.TIF`` is added to the name, in capitals, as ArcGIS Pro
+    3.7 adds it (measured 2026-11-08).
 
     Refused: formats other than TIFF (CRF and MRF are Esri's; the others are not written by grapy); ``IMAGESPACE``,
     distortion removal and band selection (sensor models and band definitions grapy does not have); a cell size other
@@ -1121,7 +1135,7 @@ def ExportMosaicDatasetItems(in_mosaic_dataset, out_folder, out_base_name=None, 
                 _refuse(tool, "cell_size", cell_size, "a cell size other than the item's resamples, which is not built")
         stem = f"{out_base_name}{item['OBJECTID']}" if _given(out_base_name) else (item.get("Name") or
                                                                                   f"item{item['OBJECTID']}")
-        path = os.path.join(folder, stem + ".tif")
+        path = os.path.join(folder, stem + ".TIF")   # Pro 3.7 writes the extension in capitals (measured 2026-11-08)
         if _export(source, path, nodata_value, box):
             written.append(path)
     return Result(folder)

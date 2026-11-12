@@ -24,6 +24,7 @@ import datetime
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -32,6 +33,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 import grapy.na as na  # noqa: E402
 import grapy.nax as nax  # noqa: E402
+# Length is an edge's length on the ellipsoid, as ArcGIS Pro's Length attribute measures it (measured in ArcGIS Pro 3.7,
+# 2026-11-12, Pro sweep): on Web Mercator at the equator a north–south metre is 1 − e² of a metre on the ellipsoid, an
+# east–west one a metre. Until then Length was the planar length.
+NS = 1 - 0.00669437999014
 
 DAY = datetime.date(2026, 1, 5)
 
@@ -39,6 +44,8 @@ DAY = datetime.date(2026, 1, 5)
 class _Networks(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
 
     def feature_dataset(self, name):
@@ -118,8 +125,9 @@ class NaClasses(_Networks):
         # (2,0) → B 0.8 min → C 1 → (20,4) 0.4: 2.2 minutes, 22 m.
         (minutes,), = self.rows(na.GetNASublayer(route, "Routes"), ["Total_Minutes"])
         self.assertAlmostEqual(minutes, 2.2)
-        # The layer name reaches the nax solvers and NetworkDataset too.
-        self.assertEqual(nax.NetworkDataset(layer).edgeCount, 6)
+        # The layer name reaches the nax solvers and NetworkDataset too. edgeCount counts each edge once in each
+        # direction, as Pro does (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this said 6.
+        self.assertEqual(nax.NetworkDataset(layer).edgeCount, 12)
 
     def test_travel_mode_object_and_its_impedance(self):
         network = self.grid()
@@ -136,6 +144,8 @@ class NaClasses(_Networks):
         # The impedance decides the solve. A mode minimising Length on the same network routes by metres.
         by_length = na.TravelMode(str(driving))
         by_length.name, by_length.impedance = "Shortest", "Length"
+        # A solve totals the mode's time attribute too (Pro 3.7, measured 2026-11-12, Pro sweep): none here.
+        by_length.timeAttributeName = None
         fixtures = self.points("stops", [("start", "POINT(2 0)"), ("end", "POINT(20 4)")])
         totals = {}
         for mode in (driving, by_length):
@@ -173,7 +183,8 @@ class NaClasses(_Networks):
                          [("North", "1 Main St"), ("West", "2 Side Rd")])
         na.Solve(layer)
         polygons = self.rows(na.GetNASublayer(layer, "Polygons"), ["Name"])
-        self.assertEqual(sorted(p[0] for p in polygons), ["North : 0.0 - 2.0", "West : 0.0 - 2.0"])
+        # Whole cutoffs without decimals (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep); this said 0.0 - 2.0.
+        self.assertEqual(sorted(p[0] for p in polygons), ["North : 0 - 2", "West : 0 - 2"])
 
     def test_na_class_field_map_default_value(self):
         # NAClassFieldMap: a property takes a constant (defaultValue) when no field is mapped. Two facilities per
@@ -239,8 +250,10 @@ class NaClasses(_Networks):
         na.Solve(layer)
         self.assertEqual(sorted(self.rows(na.GetNASublayer(layer, "Polygons"), ["FromBreak", "ToBreak"])),
                          [(0.0, 0.5), (0.0, 1.0)])
+        # The STANDARD polygons the Make tool builds are SIMPLE_POLYS, as Pro answers (measured in ArcGIS Pro 3.7,
+        # 2026-11-12, Pro sweep); DETAILED_POLYS, HIGH detail, is the one not built. This refused SIMPLE_POLYS.
         with self.assertRaises(arcpy.NotBuiltError):
-            props.polygonType = "SIMPLE_POLYS"
+            props.polygonType = "DETAILED_POLYS"
 
     def test_od_cost_matrix_solver_properties(self):
         network = self.grid()
@@ -342,7 +355,7 @@ class NaxClasses(_Networks):
         names = result.fieldNames(nax.RouteOutputDataType.Routes)
         self.assertNotIn("Total_Minutes", names)                 # no time attribute in the mode
         (km,), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Kilometers"])
-        self.assertAlmostEqual(km, 0.022)
+        self.assertAlmostEqual(km, (18 + 4 * NS) / 1000)
 
     def test_time_and_distance_units_scale_the_totals(self):
         network = self.grid()
@@ -351,17 +364,17 @@ class NaxClasses(_Networks):
             nax.RouteOutputDataType.Routes, ["Total_Minutes", "Total_Seconds", "Total_Meters", "Total_Kilometers"])
         self.assertAlmostEqual(minutes, 2.2)
         self.assertAlmostEqual(seconds, 132.0)
-        self.assertAlmostEqual(meters, 22.0)
-        self.assertAlmostEqual(km, 0.022)
+        self.assertAlmostEqual(meters, 18 + 4 * NS)
+        self.assertAlmostEqual(km, (18 + 4 * NS) / 1000)
         result = self.route(network, timeUnits=nax.TimeUnits.Hours, distanceUnits=nax.DistanceUnits.Feet)
         (hours, feet), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Hours", "Total_Feet"])
         self.assertAlmostEqual(hours, 2.2 / 60)
         # D-323, measured in Pro: arcpy.nax's Feet and Yards are US survey units (1200/3937 m to the foot).
-        self.assertAlmostEqual(feet, 22 / (1200 / 3937))
+        self.assertAlmostEqual(feet, (18 + 4 * NS) / (1200 / 3937))
         result = self.route(network, timeUnits=nax.TimeUnits.Days, distanceUnits=nax.DistanceUnits.Yards)
         (days, yards), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Days", "Total_Yards"])
         self.assertAlmostEqual(days, 2.2 / 1440)
-        self.assertAlmostEqual(yards, 22 / (3600 / 3937))
+        self.assertAlmostEqual(yards, (18 + 4 * NS) / (3600 / 3937))
         # searchToleranceUnits: a stop 3 m from the road is lost at 2 m and found at 10 feet (3.048 m).
         for units, tolerance, located in ((nax.DistanceUnits.Meters, 2, False), (nax.DistanceUnits.Feet, 10, True)):
             route = nax.Route(network)
@@ -383,15 +396,18 @@ class NaxClasses(_Networks):
         for kind in nax.RouteShapeType:
             result = self.route(network, routeShapeType=kind)
             (shapes[kind],), = result.searchCursor(nax.RouteOutputDataType.Routes, ["SHAPE@WKT"])
-        self.assertEqual(shapes[nax.RouteShapeType.TrueShape], "LINESTRING (2 0, 10 0, 20 0, 20 4)")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(shapes[nax.RouteShapeType.TrueShape], "MULTILINESTRING ((2 0, 10 0, 20 0, 20 4))")
         self.assertIn("2 0", shapes[nax.RouteShapeType.TrueShapeWithMeasures])
-        self.assertEqual(shapes[nax.RouteShapeType.StraightLine], "LINESTRING (2 0, 20 4)")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(shapes[nax.RouteShapeType.StraightLine], "MULTILINESTRING ((2 0, 20 4))")
         self.assertIsNone(shapes[nax.RouteShapeType.NoLine])
 
     def test_line_shape_type_changes_the_geometry(self):
         network = self.grid()
-        self.assertEqual([m.name for m in nax.LineShapeType], ["StraightLine", "NoLine"])
-        for kind, wkt in ((nax.LineShapeType.StraightLine, "LINESTRING (14 0, 10 9)"), (nax.LineShapeType.NoLine, None)):
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual([m.name for m in nax.LineShapeType], ["NoLine", "StraightLine"])   # Pro's order (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep))
+        for kind, wkt in ((nax.LineShapeType.StraightLine, "MULTILINESTRING ((14 0, 10 9))"), (nax.LineShapeType.NoLine, None)):
             od = nax.OriginDestinationCostMatrix(network)
             od.travelMode = "Driving"
             od.lineShapeType = kind
@@ -399,8 +415,9 @@ class NaxClasses(_Networks):
                 cursor.insertRow([(14, 0)])
             with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Destinations, ["SHAPE@XY"]) as cursor:
                 cursor.insertRow([(10, 9)])
+            # Pro's OD lines hold Total_Time, in timeUnits (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this read Total_Minutes.
             (shape, minutes), = od.solve().searchCursor(nax.OriginDestinationCostMatrixOutputDataType.Lines,
-                                                        ["SHAPE@WKT", "Total_Minutes"])
+                                                        ["SHAPE@WKT", "Total_Time"])
             self.assertEqual(shape, wkt)
             self.assertAlmostEqual(minutes, 1.3)                   # the cost is the network's either way
 
@@ -473,12 +490,12 @@ class NaxClasses(_Networks):
                 solve(**settings)
 
     def test_curb_approach_is_refused_where_it_is_not_built(self):
-        # CurbApproach's members, numbered as the CurbApproach field's coded values on the solver pages.
+        # CurbApproach's members as Pro names and numbers them (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); they were EitherSideOfVehicle,
+        # RightSideOfVehicle and LeftSideOfVehicle, with no Unknown.
         self.assertEqual([(m.name, m.value) for m in nax.CurbApproach],
-                         [("EitherSideOfVehicle", 0), ("RightSideOfVehicle", 1), ("LeftSideOfVehicle", 2),
-                          ("NoUTurn", 3)])
+                         [("Unknown", -1), ("EitherSide", 0), ("RightSide", 1), ("LeftSide", 2), ("NoUTurn", 3)])
         network = self.grid()
-        for curb in (nax.CurbApproach.EitherSideOfVehicle, 0, None):
+        for curb in (nax.CurbApproach.EitherSide, 0, None):
             route = nax.Route(network)
             with route.insertCursor(nax.RouteInputDataType.Stops, ["Name", "CurbApproach", "SHAPE@XY"]) as cursor:
                 cursor.insertRow(["a", curb, (2, 0)])
@@ -486,7 +503,7 @@ class NaxClasses(_Networks):
             self.assertTrue(route.solve().solveSucceeded)
         # grapy approaches every location from either side, so a side of the vehicle would answer the wrong route:
         # refused, as arcpy.na.Solve and the fleet solvers refuse it.
-        for curb in (nax.CurbApproach.RightSideOfVehicle, 2, nax.CurbApproach.NoUTurn):
+        for curb in (nax.CurbApproach.RightSide, 2, nax.CurbApproach.NoUTurn):
             route = nax.Route(network)
             with route.insertCursor(nax.RouteInputDataType.Stops, ["Name", "CurbApproach", "SHAPE@XY"]) as cursor:
                 cursor.insertRow(["a", curb, (2, 0)])
@@ -502,7 +519,7 @@ class NaxClasses(_Networks):
         self.assertTrue(od.solve().solveSucceeded)
         od = nax.OriginDestinationCostMatrix(network)
         with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Origins, ["CurbApproach", "SHAPE@XY"]) as c:
-            c.insertRow([nax.CurbApproach.LeftSideOfVehicle, (14, 0)])
+            c.insertRow([nax.CurbApproach.LeftSide, (14, 0)])
         with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Destinations, ["SHAPE@XY"]) as c:
             c.insertRow([(10, 9)])
         with self.assertRaises(arcpy.NotBuiltError):
@@ -586,8 +603,9 @@ class NaxClasses(_Networks):
         # The members the pages list. INFERRED: grapy refuses a time of day (traffic, ADR-226 §5.3), so neither
         # TimeZoneUsage nor TimeOfDayUsage can change a grapy solve; the defaults are the documented ones.
         self.assertEqual({m.name for m in nax.TimeZoneUsage}, {"LocalTimeAtLocations", "UTC"})
-        self.assertEqual({m.name for m in nax.TimeOfDayUsage}, {"StartTime", "EndTime"})
-        self.assertEqual({m.name for m in nax.MessageSeverity}, {"All", "Warning", "Error"})
+        # Pro's members (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); these said StartTime and EndTime, and no Info.
+        self.assertEqual({m.name for m in nax.TimeOfDayUsage}, {"DepartureTime", "ArrivalTime"})
+        self.assertEqual({m.name for m in nax.MessageSeverity}, {"All", "Warning", "Error", "Info"})
         network = self.grid()
         route = nax.Route(network)
         self.assertIs(route.timeZone, nax.TimeZoneUsage.LocalTimeAtLocations)

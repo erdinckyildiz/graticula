@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -20,6 +21,8 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class FeatureClassesAndCursors(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.fc = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POLYGON", spatial_reference=3857)
@@ -54,7 +57,7 @@ class FeatureClassesAndCursors(unittest.TestCase):
         described = arcpy.Describe(self.fc)
         self.assertEqual(described.shapeType, "Polygon")
         self.assertEqual(described.spatialReference.factoryCode, 3857)
-        self.assertEqual([f.name for f in arcpy.ListFields(self.fc)][1:3], ["name", "value"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.fc)][2:4], ["name", "value"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         self.assertEqual(described.extent.XMax, 250)
         self.assertTrue(arcpy.Exists(self.fc))
         self.assertIn("parcels.gpkg", arcpy.ListFeatureClasses())
@@ -81,9 +84,11 @@ class FeatureClassesAndCursors(unittest.TestCase):
         def Probe(x):
             return x * 2
 
-        before = arcpy.GetMessageCount()
+        # Read from the run's list, which the server's job answers: Probe is not a tool, and since ADR-289 §5.3
+        # GetMessages answers the last tool's messages, as ArcGIS Pro 3.7 does (measured 2026-11-12).
+        before = len(_runtime.MESSAGES)
         self.assertEqual((Probe(2), Probe(3)), (4, 6))
-        said = [arcpy.GetMessage(i) for i in range(before, arcpy.GetMessageCount())]
+        said = [m["description"] for m in _runtime.MESSAGES[before:]]
         self.assertEqual(len(said), 1)
         self.assertIn("equivalent", said[0])
         self.assertIn("Silverman 1986", Probe.__grapy_equivalent__)
@@ -178,6 +183,7 @@ def _run(directory, run, unfenced):
 class Toolboxes(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         with open(os.path.join(self.directory, "probe.pyt"), "w") as out:
             out.write(TOOLBOX)
         arcpy.management.CreateFeatureclass(self.directory, "in.gpkg", "POINT", spatial_reference=4326)
@@ -297,6 +303,7 @@ class Toolboxes(unittest.TestCase):
 class TheFenceHolds(unittest.TestCase):
     def _hostile(self, what):
         directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
         with open(os.path.join(directory, "probe.pyt"), "w") as out:
             out.write(TOOLBOX)
         return _run(directory, {"mode": "run", "toolbox": "probe.pyt", "tool": "Hostile", "parameters": {"what": what},

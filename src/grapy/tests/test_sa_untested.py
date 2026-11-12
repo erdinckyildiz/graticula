@@ -114,17 +114,34 @@ class Selection(_Fixture):
 
 class Neighbourhoods(_Fixture):
     def test_nbr_annulus_counts_the_ring_only(self):
-        # Inner 1, outer 2 cells: the cells with 1 < d² ≤ 4 — the four diagonals (d² = 2) and the four two away
-        # (d² = 4) — eight cells; the four direct neighbours (d² = 1) and the centre are left out.
+        # Inner 1, outer 2 cells. This test left the four direct neighbours (d² = 1, on the inner radius) out until
+        # ArcGIS Pro 3.7 was measured, 2026-11-08: a cell on the inner radius is in the ring, so 1 ≤ d² ≤ 4 holds the
+        # four direct neighbours, the four diagonals and the four two away — twelve cells; only the centre is left out.
         ones = grid([[1] * 5] * 5)
         got = cells(sa.FocalStatistics(ones, sa.NbrAnnulus(1, 2, "CELL"), "SUM"))
-        self.assertEqual(got[2][2], 8)
+        self.assertEqual(got[2][2], 12)
         marked = np.zeros((5, 5), dtype=int)
-        marked[2, 3] = 100  # a direct neighbour of the centre: inside the inner radius, so not counted
+        marked[2, 2] = 100  # the centre: inside the inner radius, so not counted
         marked[1, 1] = 7    # a diagonal: counted
-        self.assertEqual(cells(sa.FocalStatistics(grid(marked.tolist()), sa.NbrAnnulus(1, 2, "CELL"), "SUM"))[2][2], 7)
-        with self.assertRaises(arcpy.NotBuiltError):
-            sa.FocalStatistics(ones, sa.NbrAnnulus(10, 20, "MAP"), "SUM")
+        marked[2, 3] = 5    # a direct neighbour, on the inner radius: counted
+        self.assertEqual(cells(sa.FocalStatistics(grid(marked.tolist()), sa.NbrAnnulus(1, 2, "CELL"), "SUM"))[2][2], 12)
+
+    def test_neighbourhoods_in_map_units_and_of_even_size_as_pro_measures_them(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-08, with Focal Statistics SUM over an impulse on 10 m cells: map units are
+        # divided by the cell size and rounded half up — a circle of 15 m is 2 cells (13 cells), 25 m is 3 (29 cells);
+        # an annulus of 15 … 25 m is 2 … 3 cells (20 cells).
+        ones = grid([[1] * 9] * 9)
+        for nbr, count in ((sa.NbrCircle(15, "MAP"), 13), (sa.NbrCircle(25, "MAP"), 29), (sa.NbrCircle(34.9, "MAP"), 29),
+                           (sa.NbrCircle(35, "MAP"), 49), (sa.NbrAnnulus(15, 25, "MAP"), 20),
+                           (sa.NbrRectangle(25, 35, "MAP"), 12)):
+            self.assertEqual(cells(sa.FocalStatistics(ones, nbr, "SUM"))[4][4], count, msg=str(nbr))
+        # An even side reaches one cell further right and down: a 2 × 2 rectangle at a cell takes it, its right
+        # neighbour, the one below and the one below right.
+        marked = np.zeros((5, 5), dtype=int)
+        marked[2, 2], marked[2, 3], marked[3, 2], marked[3, 3], marked[1, 1] = 1, 2, 4, 8, 100
+        self.assertEqual(cells(sa.FocalStatistics(grid(marked.tolist()), sa.NbrRectangle(2, 2, "CELL"), "SUM"))[2][2], 15)
+        self.assertEqual(cells(sa.FocalStatistics(grid(marked.tolist()), sa.NbrRectangle(20, 20, "MAP"), "SUM"))[2][2], 15)
+        self.assertEqual(str(sa.NbrCircle(25, "MAP")), "CIRCLE 25 MAP")
 
     def test_search_radii_choose_the_points(self):
         # Points at x = 0, 10 and 100 on y = 0 with z = x; the cell at x = 0 is the point's own value either way.
@@ -205,10 +222,12 @@ class Transformations(_Fixture):
         a, b = 99.0, math.log(99) / 2
         self.check(sa.TfLogisticGrowth(1, 5), [100 / (1 + a * math.exp(-(x - 1) * b)) for x in self.X])
         self.assertEqual(sa.TfLogisticGrowth().yInterceptPercent, 1.0)
-        # Decay with yIntercept 99 %: a = 100/99 − 1, b = ln a / 2 (negative), f = 100 / (1 + a·e^((x − 1)·b)).
+        # Decay with yIntercept 99 %: a = 100/99 − 1, b = ln a / 2 (negative), f = 100 / (1 + a·e^(−(x − 1)·b)):
+        # 99 at x = 1, 50 at the midpoint 3, falling. This pinned e^(+(x − 1)·b), a rising curve, until ArcGIS Pro 3.7
+        # was measured (2026-11-08): Pro's decay falls from the threshold's value to the midpoint's half.
         a = 100 / 99 - 1
         b = math.log(a) / 2
-        self.check(sa.TfLogisticDecay(1, 5), [100 / (1 + a * math.exp((x - 1) * b)) for x in self.X])
+        self.check(sa.TfLogisticDecay(1, 5), [100 / (1 + a * math.exp(-(x - 1) * b)) for x in self.X])
         self.assertEqual(sa.TfLogisticDecay().yInterceptPercent, 99.0)
 
     def test_ms_large_and_ms_small(self):

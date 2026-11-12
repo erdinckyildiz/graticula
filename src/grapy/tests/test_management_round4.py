@@ -2,6 +2,7 @@
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -17,6 +18,8 @@ import grapy.management  # noqa: E402
 class Round4(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         self.parcels = os.path.join(self.directory, "parcels.gpkg")
@@ -65,7 +68,7 @@ class Round4(unittest.TestCase):
 
     def test_alter_fields_keeps_aliases_in_the_schema_extension(self):
         arcpy.management.AlterFields(self.parcels, [["name", "label", "Label of the parcel"]])
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1], ["label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:], ["label"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         connection = sqlite3.connect(self.parcels)
         self.assertEqual(connection.execute("select column_name, title from gpkg_data_columns").fetchall(),
                          [("label", "Label of the parcel")])
@@ -74,7 +77,9 @@ class Round4(unittest.TestCase):
         connection = sqlite3.connect(self.parcels)
         self.assertEqual(connection.execute("select title from gpkg_data_columns").fetchall(), [(None,)])
         connection.close()
-        with self.assertRaises(arcpy.NotBuiltError):
+        # A populated table's field keeps its type, as Pro answers (ERROR 001658, measured in ArcGIS Pro 3.7,
+        # 2026-11-08); this was refused as not built before.
+        with self.assertRaisesRegex(arcpy.ExecuteError, "001658"):
             arcpy.management.AlterField(self.parcels, "label", field_type="LONG")
 
     def test_alter_domain_and_coded_value_description(self):

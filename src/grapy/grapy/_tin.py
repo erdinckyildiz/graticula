@@ -544,6 +544,10 @@ def read_features(path, height_field, sf, tag_field, tool, use_z=True):
     field = str(height_field or "").strip()
     if field.upper() in ("", "#"):
         field = "Shape.Z" if has_z else "<None>"
+    if field.upper() == "SHAPE" and "shape" not in names:
+        # EditTin's height_field lists the geometry as "Shape" (measured in ArcGIS Pro 3.7, 2026-11-08: its choices
+        # are <None> | Shape | <fields>, and Shape.Z is refused, ERROR 000800); it is the z of the shapes.
+        field = "Shape.Z"
     if not use_z and field.upper() == "SHAPE.Z":
         field = "Shape.M"
     wanted = []
@@ -795,4 +799,8 @@ def describe(path):
         file, name = locate(path)
     except (ExecuteError, ValueError, TypeError):
         return None
-    return Described(path, file, name, load(path))
+    described = Described(path, file, name, load(path))
+    if str(path) in LAYERS:
+        # A layer MakeTinLayer made: Describe answers it as the layer it is (ArcGIS Pro 3.7, measured 2026-11-08).
+        described.dataType = "TinLayer"
+    return described

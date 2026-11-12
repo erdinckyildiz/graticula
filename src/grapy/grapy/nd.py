@@ -320,6 +320,7 @@ def _mainline_tree(a, units):
     out.update(_tree_spacing(a, units, ("perpendicular", "along", "offset")))
     absolute = _flag(a.get("is_unit_absolute"), "ABSOLUTE_UNIT", "PROPORTIONAL_UNIT", "PROPORTIONAL_UNIT")
     _pair(out, "disjoined", a.get("disjoined_graph_absolute"), a.get("disjoined_graph_proportional"), absolute, units)
+    out["proportional"] = not absolute
     _edge_display(out, a.get("are_edges_orthogonal"), a.get("breakpoint_position"), a.get("edge_display_type"))
     return out
 
@@ -392,7 +393,7 @@ def _geo(a, units):
     out = {}
     if _given(a.get("restore_edges_geo_positions")):
         out["restore_edges"] = _flag(a["restore_edges_geo_positions"], "RESTORE_EDGES_GEO_POSITIONS",
-                                     "DO_NOT_RESTORE_EDGES_GEO_POSITIONS", "RESTORE_EDGES_GEO_POSITIONS",
+                                     "DO_NOT_RESTORE_EDGES_GEO_POSITIONS", "DO_NOT_RESTORE_EDGES_GEO_POSITIONS",
                                      "restore_edges_geo_positions")
     return out
 
@@ -427,10 +428,13 @@ def _apply(layout, a, tool):
 
 
 def _require(layout, params, tool):
-    if layout == "PartialOverlappingEdges":
-        for key in ("buffer_width", "offset"):
-            if key not in params:
-                raise ExecuteError(f"ERROR 000735: {tool}: {key}_absolute is required.")
+    """Partial Overlapping Edges is the only layout with a rule on its values. Measured in Pro 3.7, 2026-11-12: Apply
+    and Add both ran with neither value, taking the defaults ``_ndlayout.partial_overlapping_edges`` takes (the nd
+    sweep); Add ran with the buffer width alone; Apply refused the buffer width without the offset, ERROR 000530 (the
+    un sweep). INFERRED from those three: Apply wants both or neither."""
+    if layout == "PartialOverlappingEdges" and tool.startswith("Apply"):
+        if ("buffer_width" in params) != ("offset" in params):
+            raise ExecuteError(f"ERROR 000530: {tool}: Buffer Width and Offset are given together or not at all.")
 
 
 def _add_layout(layout, a, tool):
@@ -628,8 +632,9 @@ def _include_categories(value, categories):
     include = _choice(value, ("INCLUDE_CATEGORIES", "EXCLUDE_CATEGORIES"), "EXCLUDE_CATEGORIES",
                       "inverse_category_selection") == "INCLUDE_CATEGORIES"
     names = [str(c) for c in _rows(categories)]
-    if include and not names:
-        raise ExecuteError("ERROR 000735: at least one category is required with INCLUDE_CATEGORIES.")
+    if not names:
+        # with EXCLUDE_CATEGORIES too: Pro 3.7 refuses every by-category rule without one (measured 2026-11-12)
+        raise ExecuteError("ERROR 000735: Network Categories: Value is required.")
     return {"by": "category", "include": include, "categories": names}
 
 
@@ -944,7 +949,7 @@ def AddTraceRule(in_utility_network, template_name, is_active="ACTIVE", trace_ty
                  filter_scope="BOTH_JUNCTIONS_AND_EDGES", filter_bitset_network_attribute_name=None,
                  filter_nearest="DO_NOT_FILTER", nearest_count=None, nearest_cost_network_attribute=None,
                  nearest_categories=None, nearest_assets=None, propagators=None, description=None,
-                 allow_indeterminate_flow="IGNORE_INDETERMINATE_FLOW", path_direction=None,
+                 allow_indeterminate_flow="TRACE_INDETERMINATE_FLOW", path_direction=None,
                  path_network_weight_name=None, use_trace_config="DO_NOT_USE_TRACE_CONFIGURATION",
                  trace_config_name=None, use_digitized_direction="IGNORE_DIGITIZED_DIRECTION", output_assettypes=None,
                  output_conditions=None, num_paths=None, max_hops=None, infer_connectivity="DO_NOT_INFER_CONNECTIVITY"):
@@ -1000,8 +1005,10 @@ def AddTraceRule(in_utility_network, template_name, is_active="ACTIVE", trace_ty
         "traversability_scope": _word(a["traversability_scope"], "BOTH_JUNCTIONS_AND_EDGES"),
         "filter_scope": _word(a["filter_scope"], "BOTH_JUNCTIONS_AND_EDGES"),
         "include_barriers": _flag(a["include_barriers"], "INCLUDE_BARRIERS", "EXCLUDE_BARRIERS", "INCLUDE_BARRIERS"),
+        # Indeterminate flow is traced by default (measured in ArcGIS Pro 3.7, 2026-11-12: a downstream trace rule
+        # from a tee runs on round the loop beyond it; grapy ignored indeterminate flow by default before).
         "allow_indeterminate_flow": _flag(a["allow_indeterminate_flow"], "TRACE_INDETERMINATE_FLOW",
-                                          "IGNORE_INDETERMINATE_FLOW", "IGNORE_INDETERMINATE_FLOW"),
+                                          "IGNORE_INDETERMINATE_FLOW", "TRACE_INDETERMINATE_FLOW"),
         "shortest_path_attribute": str(a["path_network_weight_name"]) if _given(a["path_network_weight_name"]) else None,
         "num_paths": int(a["num_paths"]) if _given(a["num_paths"]) else None,
         "max_hops": int(a["max_hops"]) if _given(a["max_hops"]) else None,
@@ -1036,6 +1043,9 @@ def AddDiagramFeatureSelectionToLayout(in_network, template_name, is_active="ACT
         params.update(source=_class_name(source_by_attribute), where=_where(where_clause))
     elif kind == "SELECT_BY_CATEGORY":
         params["categories"] = [str(c) for c in _rows(category)]
+        if not params["categories"]:
+            # Pro 3.7 answers ERROR 000663 (empty parameter) for a selection by category with none (measured 2026-11-12)
+            raise ExecuteError("ERROR 000663: Empty parameter: category.")
     else:
         params["sources"] = [_class_name(s) for s in _rows(network_source)]
     a = dict(locals())
@@ -1148,8 +1158,9 @@ def AddReshapeDiagramEdgesLayout(in_utility_network, template_name, is_active="A
 # ---- layouts applied to a diagram ----------------------------------------------------------------------------------
 
 def ApplyGeoPositionsLayout(in_network_diagram_layer, restore_edges_geo_positions=None, run_async=None):
-    """Each junction and edge moved back to its network feature's geographic position; edge vertices restored where
-    an edge is one piece of a line, else straight; reduction edges always straight."""
+    """Each junction and edge moved back to its network feature's geographic position; with RESTORE_EDGES_GEO_POSITIONS
+    edge vertices restored where an edge is one piece of a line, else — the default, as Pro 3.7 answered — straight;
+    reduction edges always straight."""
     return _apply("GeoPositions", locals(), "ApplyGeoPositionsLayout")
 
 

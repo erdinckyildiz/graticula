@@ -73,14 +73,16 @@ class _Described:
             columns, shape, srid, geometry = _gpkg.describe(connection, table)
             oid = _gpkg.oid_column(connection, table)
             bounds = None
-            from shapely import union_all
+            from shapely import total_bounds
             own = [r[1] for r in connection.execute(f'pragma table_info("{table}")')]
             has_shape = geometry in own
             shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select "{geometry}" from "{table}"')] \
                 if has_shape else []
             shapes = [s for s in shapes if s is not None and not s.is_empty]
             if shapes:
-                bounds = union_all(shapes).bounds
+                # The envelope of the shapes, not of their union: a union fails on an invalid shape (a bow tie),
+                # and CheckGeometry exists to be given such a class (measured against ArcGIS Pro 3.7, 2026-11-08).
+                bounds = tuple(float(v) for v in total_bounds(shapes))
             domains = _field_domains(connection, table)
             titles = _field_titles(connection, table)
             joined = _joined_fields(path, connection, table, oid, geometry)
@@ -90,6 +92,14 @@ class _Described:
             rules = _rules.rules(connection, table)  # Describe's attributeRules (ADR-235)
             from . import _behaviours
             tracked = _behaviours.tracking(connection, table)  # the editor tracking properties (ADR-240)
+            cogo = _behaviours.cogo_enabled(connection, table)
+            identifier = connection.execute("select identifier from gpkg_contents where table_name = ?",
+                                            (table,)).fetchone()
+            # hasSpatialIndex, isCOGOEnabled and isArchived, as Pro's Describe answers them (sweep, 2026-11-08).
+            spatial_index = has_shape and _gpkg.has_index(connection, table)
+            cogo = _behaviours.cogo_enabled(connection, table)
+            from . import _versions
+            versioning = _versions.kind(connection, table)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -102,8 +112,13 @@ class _Described:
         self.OIDFieldName = oid
         self.hasOID = True
         self.spatialReference = SpatialReference(srid) if srid > 0 else None
-        self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, aliasName=titles.get(c.name.lower()))
+        self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, c.length, aliasName=titles.get(c.name.lower()))
                                                     for c in columns]] + ([Field(geometry, "Geometry")] if has_shape else [])
+        # In the table's own order, the shape where the table holds it: ArcGIS Pro 3.7 answers OBJECTID, Shape, then
+        # the fields for a GeoPackage feature class it wrote, and fid, geom, then the fields for one written with
+        # those names (measured 2026-11-08 and 2026-11-12; ADR-289 §5.1).
+        order = [name.lower() for name in own]
+        self.fields.sort(key=lambda f: order.index(f.name.lower()) if f.name.lower() in order else len(order))
         global_id, subtype, defaults, relationships = model
         for field in self.fields:
             field.domain = domains.get(field.name.lower(), "")
@@ -118,7 +133,12 @@ class _Described:
         self.hasGlobalID = bool(global_id)
         self.relationshipClassNames = relationships
         self.attributeRules = rules
+        self.hasSpatialIndex = bool(spatial_index)
+        self.isCOGOEnabled = bool(cogo)
+        self.isArchived = versioning is not None   # a branch versioned class is archived, as documented
+        self.isVersioned = versioning == "branch"
         self.editorTrackingEnabled = tracked is not None
+        self.isCOGOEnabled = bool(cogo)  # as Pro 3.7's Describe answers it (measured 2026-11-08)
         self.creatorFieldName, self.createdAtFieldName, self.editorFieldName, self.editedAtFieldName = (
             [name or "" for name in tracked[:4]] if tracked else ["", "", "", ""])
         self.isTimeInUTC = tracked[4] if tracked else True
@@ -133,6 +153,16 @@ class _Described:
             self.OIDFieldName = f"{table}.{oid}"
             self.shapeFieldName = f"{table}.{geometry}"
         self.extent = Extent(*bounds, self.spatialReference) if bounds else None
+        # As ArcGIS Pro 3.7 describes a GeoPackage feature class (measured 2026-11-08): no extension, a spatial index
+        # where the R-tree extension holds one, not versionable (grapy's versions are ADR-227's own, registered per
+        # class), no area or length field, and an alias of "main.<table>" until AlterAliasName sets one.
+        alias = identifier[0] if identifier else None
+        self.aliasName = alias if alias not in (None, "", table) else f"main.{table}"
+        self.extension = ""
+        self.hasSpatialIndex = bool(spatial_index)
+        self.canVersion = False
+        self.areaFieldName = ""
+        self.lengthFieldName = ""
         self.featureType = "Simple"
         self.hasZ = has_z
         self.hasM = has_m
@@ -190,6 +220,10 @@ class _DescribedRaster:
         self.pixelType = raster.pixelType
         self.noDataValue = raster.noDataValue
         self.isInteger = raster.isInteger
+        # As ArcGIS Pro 3.7 describes a GeoTIFF (measured 2026-11-08): the file's extension without its dot, and the
+        # compression ("None" for an uncompressed file).
+        self.extension = os.path.splitext(self.catalogPath)[1].lstrip(".").lower()
+        self.compressionType = getattr(raster, "compressionType", "None")
         # The Table group, which the Raster Band group supports for a single-band raster: its attribute table's fields.
         # INFERRED: the table's object id is "OID" (its rows' positions, as the cursors read them), it has no indexes,
         # primaryField is the index of its Value field (-1 with no table) and tableType is GDAL's table type.
@@ -203,6 +237,37 @@ class _DescribedRaster:
         self.tableType = "Thematic" if fields else ""
 
 
+class _DescribedFeatureDataset:
+    """What Describe answers for a feature dataset (``<file>.gpkg/<dataset>``, see management.CreateFeatureDataset):
+    its type and its spatial reference, as Pro answers them (sweep, 2026-11-08)."""
+
+    def __init__(self, path, srid):
+        self.catalogPath = path
+        self.name = self.baseName = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        self.path = _gpkg.split(path)[0]
+        self.dataType = self.datasetType = "FeatureDataset"
+        self.spatialReference = SpatialReference(srid) if srid > 0 else None
+        self.children = []
+
+
+def _feature_dataset_srid(path):
+    """The spatial reference code of the feature dataset a path names, or None when it names none."""
+    try:
+        file, table = _gpkg.split(path)
+    except ValueError:
+        return None
+    if not table or "/" in table or not os.path.exists(file):
+        return None
+    connection = _gpkg.connect(file)
+    try:
+        if not connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+            return None
+        row = connection.execute("select srs_id from grapy_feature_datasets where name = ?", (table,)).fetchone()
+        return int(row[0]) if row else None
+    finally:
+        connection.close()
+
+
 class _DescribedWorkspace:
     """What Describe answers for a folder or a GeoPackage of several tables."""
 
@@ -213,14 +278,21 @@ class _DescribedWorkspace:
         self.path = os.path.dirname(path.rstrip("/\\"))
         self.dataType = "Workspace" if path.lower().endswith(".gpkg") else "Folder"
         self.workspaceType = "LocalDatabase" if path.lower().endswith(".gpkg") else "FileSystem"
-        self.workspaceFactoryProgID = ""
+        # ArcGIS Pro 3.7 opens a GeoPackage through its SQL workspace factory (measured 2026-11-08).
+        self.workspaceFactoryProgID = "esriDataSourcesGDB.SqlWorkspaceFactory" if path.lower().endswith(".gpkg") else ""
         self.children = []
+
+
+class _DescribedDiagramLayer:
+    """A network diagram layer (nd.MakeDiagramLayer): its data type. Pro 3.7 answered DiagramLayer and no name
+    (measured 2026-11-12, the nd sweep); the diagram's own properties are what ExportDiagramContent writes."""
+    dataType = "DiagramLayer"
 
 
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
     object), a folder, a GeoPackage of several tables (a workspace), a topology, relationship class or network
-    dataset held in a GeoPackage (ADR-225, ADR-226), a TIN or LAS dataset (ADR-229), or a mosaic dataset or mosaic
+    dataset held in a GeoPackage (ADR-225, ADR-226), a utility network (ADR-231), a TIN or LAS dataset (ADR-229), or a mosaic dataset or mosaic
     layer (ADR-230)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
@@ -228,6 +300,10 @@ def Describe(value, datatype=None):
         path = os.fspath(value)
     except TypeError:  # A layer object: described by its source.
         return _Described(value)
+    from . import _layers
+    layer = _layers.find(path)
+    if layer is not None and layer.kind == "DiagramLayer":
+        return _DescribedDiagramLayer()
     from . import _las, _mosaic, _terrain, _tin
     for model in (_tin, _las, _mosaic, _terrain):  # a TIN may be a folder, a .lasd is no raster (ADR-229), a mosaic
         described = model.describe(path)  # dataset's catalog is no feature class (ADR-230), nor a terrain (ADR-234)
@@ -239,8 +315,11 @@ def Describe(value, datatype=None):
         return _DescribedRaster(Raster(path))
     if path.lower().endswith(".gpkg") and os.path.exists(path) and len(_own_tables(_contents(path))) != 1:
         return _DescribedWorkspace(path)
-    from . import _network, _relationships, _topology
-    for model in (_network, _topology, _relationships):
+    dataset_srid = _feature_dataset_srid(path)
+    if dataset_srid is not None:
+        return _DescribedFeatureDataset(path, dataset_srid)
+    from . import _network, _relationships, _topology, _undescribe
+    for model in (_undescribe, _network, _topology, _relationships):  # a utility network (the Pro sweep, 2026-11-12)
         described = model.describe(path)
         if described is not None:
             return described
@@ -249,11 +328,11 @@ def Describe(value, datatype=None):
 
 def ListFields(dataset, wild_card=None, field_type=None):
     """The fields of a table, a feature class or a layer — or of a raster's attribute table (none without one)."""
-    import fnmatch
     from ._raster import _is_raster_path
+    from ._runtime import wildcard
     fields = _raster_fields(os.fspath(dataset)) if _is_raster_path(dataset) else _Described(dataset).fields
     return [f for f in fields
-            if (wild_card is None or fnmatch.fnmatch(f.name.lower(), wild_card.lower()))
+            if wildcard(f.name, wild_card)
             and (field_type in (None, "All") or f.type == field_type)]
 
 
@@ -266,6 +345,18 @@ def ListVersions(sde_workspace=None):
 
 
 def Exists(dataset):
+    """Whether the dataset exists. A name that is not a path is looked for in ``env.workspace``, as ArcGIS Pro 3.7
+    finds "dem.tif" there (measured 2026-11-08)."""
+    text = os.fspath(dataset) if not isinstance(dataset, str) else dataset
+    if text and not os.path.isabs(text) and not os.path.exists(text) and env.workspace:
+        here = os.fspath(env.workspace)
+        joined = f"{here}/{text}" if here.lower().endswith(".gpkg") else os.path.join(here, text)
+        if _exists(joined):
+            return True
+    return _exists(dataset)
+
+
+def _exists(dataset):
     try:
         file, table = _gpkg.split(dataset)
     except ValueError:
@@ -279,19 +370,41 @@ def Exists(dataset):
         if connection.execute("select 1 from gpkg_contents where table_name = ?", (table,)).fetchone() is not None:
             return True
         # A feature dataset made by management.CreateFeatureDataset is a row of grapy_feature_datasets.
-        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
-            return connection.execute("select 1 from grapy_feature_datasets where name = ?",
-                                      (table.strip("/"),)).fetchone() is not None
-        return False
+        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone() and \
+                connection.execute("select 1 from grapy_feature_datasets where name = ?",
+                                   (table.strip("/"),)).fetchone() is not None:
+            return True
     finally:
         connection.close()
+    # A relationship class (an attachment class among them), a topology or a network dataset held in grapy's tables,
+    # as Pro answers Exists for '<class>__ATTACHREL' (measured in ArcGIS Pro 3.7, 2026-11-08).
+    from . import _network, _relationships, _topology
+    return any(model.describe(os.fspath(dataset)) is not None for model in (_relationships, _topology, _network))
+
+
+# The extension codes CheckExtension documents. ArcGIS Pro 3.7 answers any other with "Unrecognized extension code
+# <code>" (measured 2026-11-08).
+_EXTENSIONS = {code.lower() for code in (
+    "3D", "Datareviewer", "DataInteroperability", "Airports", "Aeronautical", "Bathymetry", "Nautical", "GeoStats",
+    "LocationReferencing", "Network", "Publisher", "Spatial", "StreetMap", "Tracking", "ImageAnalyst", "Foundation",
+    "Defense", "Intelligence", "Highways", "Business", "Maritime", "Production", "Topographic", "Utility",
+    "PipelineReferencing", "GeoAI", "Parcel", "Indoors", "IndoorsPro", "BusinessPrem", "Schematics")}
+_PRODUCTS = {"arcview": "NotLicensed", "arceditor": "NotLicensed", "arcinfo": "Available", "engine": "NotLicensed",
+             "enginegeodb": "NotLicensed", "arcserver": "NotLicensed"}
 
 
 def CheckProduct(product):
-    return "Available"
+    """grapy builds every tool, as the Advanced level (ArcInfo) does. Measured in ArcGIS Pro 3.7 on an Advanced seat
+    (2026-11-08): ArcInfo is "Available", ArcEditor and ArcView "NotLicensed", an unknown code "". INFERRED: the
+    other documented codes (Engine, EngineGeoDB, ArcServer) answer as ArcEditor does."""
+    return _PRODUCTS.get(str(product).strip().lower(), "")
 
 
 def CheckExtension(extension):
+    """Every documented extension is "Available" — grapy has no licences; an unknown code answers "Unrecognized
+    extension code <code>", as ArcGIS Pro 3.7 does (measured 2026-11-08)."""
+    if str(extension).strip().lower() not in _EXTENSIONS:
+        return f"Unrecognized extension code {extension}"
     return "Available"
 
 
@@ -304,19 +417,64 @@ def CheckInExtension(extension):
 
 
 def CreateUniqueName(base_name, workspace=None):
-    workspace = workspace or env.workspace
+    """A name not yet used in the workspace: the base name, or with 0, 1, … before its extension. In a GeoPackage the
+    names are its tables, as ArcGIS Pro 3.7 answers ``points0`` for a GeoPackage holding ``points`` (measured
+    2026-11-08)."""
+    workspace = os.fspath(workspace or env.workspace)
     stem, extension = os.path.splitext(base_name)
     name, n = base_name, 0
-    while os.path.exists(os.path.join(workspace, name)):
+    inside = workspace.lower().endswith(".gpkg")
+    while (Exists(f"{workspace}/{name}") if inside else os.path.exists(os.path.join(workspace, name))):
         name = f"{stem}{n}{extension}"
         n += 1
-    return os.path.join(workspace, name)
+    return f"{workspace}/{name}" if inside else os.path.join(workspace, name)
+
+
+# SQLite's keywords, which a GeoPackage table or field may not be named without an underscore after it: ArcGIS Pro 3.7
+# makes "select" "select_" in a GeoPackage (measured 2026-11-08). INFERRED: the list is SQLite's own keyword list.
+_SQL_KEYWORDS = {w.lower() for w in (
+    "ABORT ACTION ADD AFTER ALL ALTER ALWAYS ANALYZE AND AS ASC ATTACH AUTOINCREMENT BEFORE BEGIN BETWEEN BY CASCADE "
+    "CASE CAST CHECK COLLATE COLUMN COMMIT CONFLICT CONSTRAINT CREATE CROSS CURRENT CURRENT_DATE CURRENT_TIME "
+    "CURRENT_TIMESTAMP DATABASE DEFAULT DEFERRABLE DEFERRED DELETE DESC DETACH DISTINCT DO DROP EACH ELSE END ESCAPE "
+    "EXCEPT EXCLUDE EXCLUSIVE EXISTS EXPLAIN FAIL FILTER FIRST FOLLOWING FOR FOREIGN FROM FULL GENERATED GLOB GROUP "
+    "GROUPS HAVING IF IGNORE IMMEDIATE IN INDEX INDEXED INITIALLY INNER INSERT INSTEAD INTERSECT INTO IS ISNULL JOIN "
+    "KEY LAST LEFT LIKE LIMIT MATCH MATERIALIZED NATURAL NO NOT NOTHING NOTNULL NULL NULLS OF OFFSET ON OR ORDER "
+    "OTHERS OUTER OVER PARTITION PLAN PRAGMA PRECEDING PRIMARY QUERY RAISE RANGE RECURSIVE REFERENCES REGEXP REINDEX "
+    "RELEASE RENAME REPLACE RESTRICT RETURNING RIGHT ROLLBACK ROW ROWS SAVEPOINT SELECT SET TABLE TEMP TEMPORARY THEN "
+    "TIES TO TRANSACTION TRIGGER UNBOUNDED UNION UNIQUE UPDATE USING VACUUM VALUES VIEW VIRTUAL WHEN WHERE WINDOW "
+    "WITH WITHOUT").split()}
+
+
+def _workspace_kind(workspace):
+    text = os.fspath(workspace or env.workspace or "")
+    return "gpkg" if ".gpkg" in text.lower() else "folder"
+
+
+def _validated(name, workspace, lead):
+    """Each character that is not a letter (any alphabet), digit or underscore made an underscore; in a GeoPackage a
+    leading digit or underscore prefixed with ``lead`` and an SQL keyword followed by one. As ArcGIS Pro 3.7 answers in
+    a GeoPackage (measured 2026-11-08): "1st" is "F1st" as a field and "T1st" as a table, "sélect" is kept, "" stays
+    "". In a folder (shapefiles and dBASE tables), a field starting with a digit is prefixed with "a", and a table's
+    name is kept but for spaces."""
+    import re
+    text = str(name)
+    if text == "":
+        return ""
+    if _workspace_kind(workspace) == "folder":
+        if lead == "T":
+            return text.replace(" ", "_")
+        cleaned = re.sub(r"[^\w]", "_", text)
+        return f"a{cleaned}" if cleaned[0].isdigit() else cleaned
+    cleaned = re.sub(r"[^\w]", "_", text)
+    if cleaned[0].isdigit():
+        cleaned = f"{lead}{cleaned}"
+    if cleaned.lower() in _SQL_KEYWORDS:
+        cleaned = f"{cleaned}_"
+    return cleaned
 
 
 def ValidateFieldName(name, workspace=None):
-    import re
-    cleaned = re.sub(r"[^A-Za-z0-9_]", "_", name)
-    return cleaned if cleaned and not cleaned[0].isdigit() else f"_{cleaned}"
+    return _validated(name, workspace, "F")
 
 
 # ---- what a workspace holds ------------------------------------------------------------------------------------------
@@ -332,8 +490,8 @@ _RASTER_EXTENSIONS = {".tif": "TIF", ".tiff": "TIF", ".img": "IMG", ".jp2": "JP2
 
 
 def _matches(name, wild_card):
-    import fnmatch
-    return wild_card in (None, "", "*") or fnmatch.fnmatch(name.lower(), str(wild_card).lower())
+    from ._runtime import wildcard
+    return wildcard(name, wild_card)
 
 
 def _contents(file):
@@ -382,14 +540,32 @@ def _entries(kind):
 
 def ListFeatureClasses(wild_card=None, feature_type=None, feature_dataset=None):
     """The feature classes of the current workspace, filtered by a case-insensitive wildcard and by shape type (Point,
-    Multipoint, Polyline, Polygon; Line is Polyline). INFERRED: a GeoPackage has no feature datasets, so naming one
-    answers an empty list, and the feature types grapy cannot hold (Annotation, Dimension, Multipatch …) find none."""
-    if _is_given(feature_dataset):
-        return []
+    Multipoint, Polyline, Polygon; Line is Polyline). Feature types grapy cannot hold (Annotation, Dimension …) find
+    none. Measured in ArcGIS Pro 3.7, 2026-11-12, in a file geodatabase holding a feature dataset: with no
+    ``feature_dataset`` (or an empty one) only the classes outside every feature dataset are listed; naming one lists
+    the classes inside it by their own names, and naming one that does not exist answers an empty list. grapy listed
+    a dataset's classes at the root as ``ds/name`` and answered nothing for a named dataset."""
     wanted = str(feature_type or "All").upper()
     wanted = "POLYLINE" if wanted == "LINE" else wanted
-    return [name for name, shape in _entries("features")
-            if _matches(name, wild_card) and (wanted in ("ALL", "") or shape.upper() == wanted)]
+    workspace = os.fspath(env.workspace or os.getcwd())
+    in_gpkg = workspace.lower().endswith(".gpkg")
+    dataset = str(feature_dataset) if _is_given(feature_dataset) else None
+    if dataset is not None and not in_gpkg:
+        return []
+    found = []
+    for name, shape in _entries("features"):
+        if not (wanted in ("ALL", "") or shape.upper() == wanted):
+            continue
+        if in_gpkg and "/" in name:
+            parent, own = name.rsplit("/", 1)
+            if dataset is None or parent.lower() != dataset.lower():
+                continue
+            name = own
+        elif dataset is not None:
+            continue
+        if _matches(name, wild_card):
+            found.append(name)
+    return found
 
 
 def ListTables(wild_card=None, table_type=None):
@@ -424,7 +600,19 @@ def ListDatasets(wild_card=None, feature_type=None):
     ADR-230). INFERRED: the feature datasets, networks, TINs and topologies grapy holds are not listed here yet, so any
     other type finds none."""
     wanted = str(feature_type or "All").upper()
-    found = ListRasters(wild_card) if wanted in ("ALL", "RASTER") else []
+    found = []
+    workspace = os.fspath(env.workspace or os.getcwd())
+    if wanted in ("ALL", "FEATURE") and workspace.lower().endswith(".gpkg") and os.path.exists(workspace):
+        # A GeoPackage's feature datasets (management.CreateFeatureDataset), which ArcGIS Pro 3.7 lists for a
+        # geodatabase holding one (measured 2026-11-08).
+        connection = _gpkg.connect(workspace)
+        try:
+            if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+                found += [r[0] for r in connection.execute("select name from grapy_feature_datasets order by name")
+                          if _matches(r[0], wild_card)]
+        finally:
+            connection.close()
+    found += ListRasters(wild_card) if wanted in ("ALL", "RASTER") else []
     if wanted in ("ALL", "MOSAIC"):
         found += [name for name, _ in _entries("mosaic") if _matches(name, wild_card)]
     return found
@@ -475,6 +663,24 @@ def ListIndexes(dataset, wild_card=None):
             descending = bool(keyed) and all(c[3] for c in keyed)
             if _matches(name, wild_card):
                 found.append(Index(name, [c[2] for c in keyed], bool(unique), not descending))
+        # A full-text index (management.AddFullTextIndex) is listed with the others, as Pro lists one (measured in
+        # ArcGIS Pro 3.7, 2026-11-08, on a mobile geodatabase).
+        from ._storage import _fts_name
+        fts = _fts_name(table)
+        if connection.execute("select 1 from sqlite_master where type = 'trigger' and name = ?",
+                              (f"{fts}_ai",)).fetchone() and _matches(fts, wild_card):
+            found.append(Index(fts, [r[1] for r in connection.execute(f'pragma table_info("{fts}")')], False, True))
+        # After them the spatial index and the object ID's, as Pro lists them on a GeoPackage: rtree_<table>_<shape>,
+        # then FDO_<oid> (measured in ArcGIS Pro 3.7, 2026-11-08 and 2026-11-12; ADR-289 §5.1). Both names follow the
+        # table's own columns: on a GeoPackage written with fid/geom Pro lists rtree_<table>_geom and FDO_fid.
+        shape = _gpkg.geometry_column(connection, table)
+        if shape is not None and _gpkg.has_index(connection, table) and _matches(f"rtree_{table}_{shape}", wild_card):
+            found.append(Index(f"rtree_{table}_{shape}", [shape], False, True))
+        oid = _gpkg.oid_column(connection, table)
+        is_table = connection.execute("select 1 from sqlite_master where name = ? and type = 'table'",
+                                      (table,)).fetchone() is not None
+        if is_table and oid != "rowid" and _matches(f"FDO_{oid}", wild_card):
+            found.append(Index(f"FDO_{oid}", [oid], True, True))
         return found
     finally:
         connection.close()
@@ -493,21 +699,32 @@ def _qualified(name, parts):
     return ", ".join(pieces)
 
 
+def _unqualified_in_geopackage(tool, name, workspace):
+    """A GeoPackage has neither database nor owner: ArcGIS Pro 3.7 answers ", , , val" for a plain name in one and
+    fails with "Invalid parameter value passed to function" for a name qualified with dots (measured 2026-11-08)."""
+    if "." in str(name) and _workspace_kind(workspace) == "gpkg":
+        raise RuntimeError(f"arcpy.{tool}: '{name}' is qualified, and a GeoPackage's names are not: Invalid parameter "
+                           "value passed to function.")
+
+
 def ParseFieldName(name, workspace=None):
-    """"database, owner, table, field". INFERRED: a GeoPackage has neither database nor owner, so those are empty, and
-    a name qualified with dots is read from the right."""
+    """"database, owner, table, field". A GeoPackage has neither database nor owner, so those are empty, and a
+    qualified name is refused there, as in ArcGIS Pro 3.7. INFERRED: elsewhere a name qualified with dots is read from
+    the right."""
+    _unqualified_in_geopackage("ParseFieldName", name, workspace)
     return _qualified(name, 4)
 
 
 def ParseTableName(name, workspace=None):
     """"database, owner, table", as ParseFieldName's."""
+    _unqualified_in_geopackage("ParseTableName", name, workspace)
     return _qualified(name, 3)
 
 
 def ValidateTableName(name, workspace=None):
-    """The name with each character that is not a letter, digit or underscore made an underscore, and a leading digit
-    preceded by one. INFERRED: SQLite takes almost any table name, so grapy keeps the rule ValidateFieldName uses."""
-    return ValidateFieldName(name, workspace)
+    """As ValidateFieldName, with a leading digit prefixed "T" in a GeoPackage, as ArcGIS Pro 3.7 answers (measured
+    2026-11-08)."""
+    return _validated(name, workspace, "T")
 
 
 _SCRATCH_EXTENSIONS = {"FEATURECLASS": ".gpkg", "DATASET": ".gpkg", "GEODATASET": ".gpkg", "ARCINFOTABLE": ".gpkg",
@@ -532,7 +749,10 @@ def CreateScratchName(prefix="xx", suffix="", data_type="", workspace=None):
             if not Exists(path):
                 return path
         else:
-            path = os.path.join(workspace, name + _SCRATCH_EXTENSIONS[kind])
+            extension = _SCRATCH_EXTENSIONS[kind]
+            # A suffix that already ends in the extension keeps it once: ArcGIS Pro 3.7 answers "ras0.tif" for the
+            # prefix "ras" and the suffix ".tif" (measured 2026-11-08).
+            path = os.path.join(workspace, name + ("" if suffix.lower().endswith(extension.lower()) else extension))
             if not os.path.exists(path):
                 return path
     raise RuntimeError("arcpy.CreateScratchName: no free name was found.")
@@ -613,11 +833,19 @@ class FeatureSet:
         from .conversion import FeaturesToJSON
         file = CreateScratchName("fs", "", "Folder", env.scratchWorkspace) + (".geojson" if geojson else ".json")
         FeaturesToJSON(self._path, file, geoJSON="GEOJSON" if geojson else "NO_GEOJSON")
-        with open(file, encoding="utf-8") as read:
-            return read.read()
+        try:
+            with open(file, encoding="utf-8") as read:
+                return read.read()
+        finally:
+            os.remove(file)  # the scratch file is the answer's only, and left nothing behind in the workspace
 
     @property
     def JSON(self):
+        if getattr(self, "_path", None) is None:
+            # An empty FeatureSet() answers JSON with no fields or features, where Pro answers a document for it too
+            # (measured 2026-11-08: non-empty text). INFERRED: the document's content.
+            import json
+            return json.dumps({"fields": [], "features": []})
         return self._json(False)
 
     @property
@@ -643,6 +871,20 @@ class RecordSet(FeatureSet):
 
     def load(self, table_path=None, where_clause=None):
         return super().load(table_path, where_clause)
+
+    def _json(self, geojson):
+        """A table's JSON has no geometry type, reference or geometries, as ArcGIS Pro 3.7 writes a RecordSet's
+        (measured 2026-11-08)."""
+        import json
+        text = super()._json(geojson)
+        if geojson:
+            return text
+        document = json.loads(text)
+        for key in ("geometryType", "spatialReference", "hasZ", "hasM"):
+            document.pop(key, None)
+        for feature in document.get("features", []):
+            feature.pop("geometry", None)
+        return json.dumps(document)
 
 
 # ---- names a user tool on this server has no access to
@@ -691,6 +933,8 @@ def _parameter_index(value):
 def CopyParameter(from_param, to_param):
     """The value of one script tool parameter given to another, each by index or name."""
     from ._runtime import PARAMETERS
+    if not PARAMETERS:  # outside a tool run it does nothing, as ArcGIS Pro 3.7 (measured 2026-11-08)
+        return
     PARAMETERS[_parameter_index(to_param)].value = PARAMETERS[_parameter_index(from_param)].value
 
 
@@ -716,17 +960,19 @@ def CreateObject(name, *options):
 
 
 class SeverityLevel:
-    """A severity level for a ``with`` block or a decorated function. As SetSeverityLevel, only 2 — a tool raises on
-    an error, arcpy's default — is built; 0 and 1 would change how every tool ends."""
+    """A severity level for a ``with`` block or a decorated function: 0, 1 or 2, as SetSeverityLevel takes it, and the
+    level before put back afterwards."""
 
     def __init__(self, severity_level=2):
         self._level = int(severity_level)
+        self._before = GetSeverityLevel()
         SetSeverityLevel(self._level)
 
     def __enter__(self):
         return self
 
     def __exit__(self, *_):
+        SetSeverityLevel(self._before)  # the level before the block, back afterwards
         return False
 
     def __call__(self, function):
@@ -889,13 +1135,19 @@ class Cursor:
             pass
 
 
+def _legacy_rows(cursor, labels, geometry):
+    """A legacy cursor's Row objects. A generator built here, not in the cursor's own method, so it holds no reference
+    to the cursor: one that did made a cycle, and ``del cursor`` left the GeoPackage locked until the next garbage
+    collection, where ArcGIS Pro releases it at once (measured in ArcGIS Pro 3.7, 2026-11-08)."""
+    return (Row(labels, list(values), geometry) for values in cursor)
+
+
 class _SearchCursor(Cursor):
     def __init__(self, dataset, where_clause=None, spatial_reference=None, fields=None, sort_fields=None):
         oid, names, geometry = _legacy_fields(dataset, fields)
         self._cursor = da.SearchCursor(dataset, ["OID@", *names, "SHAPE@"], where_clause or None, spatial_reference,
                                        sql_clause=(None, _order_by(sort_fields)))
-        labels = [oid, *names, geometry]
-        self._rows = (Row(labels, list(values), geometry) for values in self._cursor)
+        self._rows = _legacy_rows(self._cursor, [oid, *names, geometry], geometry)
 
     def _close(self):
         cursor = getattr(self, "_cursor", None)
@@ -914,7 +1166,7 @@ class _UpdateCursor(Cursor):
         self._labels = [oid, *names, geometry]
         self._cursor = da.UpdateCursor(dataset, ["OID@", *names, "SHAPE@"], where_clause or None)
         self._geometry = geometry
-        self._rows = (Row(self._labels, list(values), geometry) for values in self._cursor)
+        self._rows = _legacy_rows(self._cursor, self._labels, geometry)
 
     def updateRow(self, row):
         self._cursor.updateRow(row._ordered())
@@ -1059,3 +1311,31 @@ from ._imagefns import GetUTMFromLocation, Mensuration  # noqa: E402,F401
 from ._randomgen import CreateRandomValueGenerator, RandomNumberGenerator  # noqa: E402,F401
 from ._toolboxes import (AddToolbox, Command, GetParameterInfo, GetParameterValue, ImportToolbox,  # noqa: E402,F401
                          ListToolboxes, ListTools, RemoveToolbox, Usage)
+
+
+# ---- ADR-289 §5.3: every tool runs as arcpy runs one — its own messages with the start and end lines, read back by
+# GetMessages once it ends, and the severity level consulted — through one wrapper, _runtime.tool. The tools are those
+# ListTools names (each toolbox module's public functions with a capitalised name) and those of arcpy.parcel,
+# arcpy.topographic and arcpy.locref, which are toolboxes in Pro too.
+def _tools_run_as_tools():
+    import sys
+    from . import _runtime as _rt
+    from ._toolboxes import SYSTEM, _module, _system_tools
+    wrapped = {}
+    for alias in (*SYSTEM, "parcel", "topographic", "locref"):
+        module = _module(alias)
+        for name, function in _system_tools(alias).items():
+            if function.__module__ in ("grapy._runtime", "grapy._toolboxes"):
+                continue   # AddWarning, ExecuteError's kin, imported into a toolbox module: not tools
+            wrapped[id(function)] = _rt.tool(function)
+            setattr(module, name, wrapped[id(function)])
+    # The same tool under another module's name (nax.BuildNetwork is na.BuildNetwork) stays the same object.
+    for name, module in list(sys.modules.items()):
+        if module is None or not (name == "grapy" or name.startswith("grapy.")):
+            continue
+        for attribute, value in list(vars(module).items()):
+            if not attribute.startswith("_") and id(value) in wrapped and callable(value):
+                setattr(module, attribute, wrapped[id(value)])
+
+
+_tools_run_as_tools()

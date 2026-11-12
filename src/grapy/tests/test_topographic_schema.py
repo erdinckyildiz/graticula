@@ -6,6 +6,7 @@ are read here byte by byte (dBASE III: a 32-byte header, then 32 bytes per field
 import os
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -43,6 +44,8 @@ class Fixture(unittest.TestCase):
         _layers.LAYERS.clear()
         MESSAGES.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
 
     def gpkg(self, name):
@@ -212,6 +215,7 @@ class Shapefiles(Fixture):
             cursor.insertRow([1, 1, "x", LineString([(0, 0), (1, 0)])])
             cursor.insertRow([2, None, None, LineString([(0, 1), (1, 1)])])
         folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
         arcpy.topographic.GeodatabaseToShape(roads, folder, "VALUES_AND_DESCRIPTIONS", "DEFENSE_BY_SUBTYPE")
         # Road: TYPE, SURF and its description, NOTE (the trailing underscore stripped); Track holds no SURF or NOTE.
         self.assertEqual(dbf_fields(os.path.join(folder, "Road.dbf")), (["TYPE", "SURF", "SURF_D", "NOTE"], 1))
@@ -223,6 +227,7 @@ class Shapefiles(Fixture):
         rivers = self.fc(gpkg, "WatrcrsL", "POLYLINE", [("FCODE", "TEXT")],
                          [("BH140", LineString([(0, 0), (1, 0)]))])
         folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
         arcpy.topographic.GeodatabaseToShape(rivers, folder, "VALUES", "MGCP")
         self.assertTrue(os.path.exists(os.path.join(folder, "LBH140.shp")))
         arcpy.topographic.GeodatabaseToShape(rivers, folder, "VALUES", "MUVD")
@@ -238,7 +243,7 @@ class Extract(Fixture):
         self.lines = self.fc(self.source, "Roads", "POLYLINE", [], [(LineString([(0, 5), (20, 5)]),)])
         self.areas = self.fc(self.source, "Sheets", "POLYGON", [], [(square(0, 0, 10, 10),), (square(40, 40, 60, 60),)])
         arcpy.management.MakeFeatureLayer(self.areas, "sheet")
-        arcpy.management.SelectLayerByAttribute("sheet", "NEW_SELECTION", "fid = 1")
+        arcpy.management.SelectLayerByAttribute("sheet", "NEW_SELECTION", "OBJECTID = 1")
 
     def test_filters_and_schema_only(self):
         # The sheet (0,0)-(10,10) holds spots 1 and 2; the road is clipped to 10 m; Sheets goes schema only.

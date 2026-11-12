@@ -3,6 +3,7 @@ against the pages' formulas and worked examples, published tables, and answers w
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -29,6 +30,8 @@ def cells(raster, nodata=ND):
 class _Base(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         for name in ("extent", "cellSize", "mask", "snapRaster", "outputCoordinateSystem"):
             setattr(arcpy.env, name, None)
@@ -87,6 +90,9 @@ class Bands(_Base):
         mag, direction = uv.getRasterBands()
         np.testing.assert_allclose(cells(mag)[0], [1.0, 1.0], atol=1e-6)
         np.testing.assert_allclose(cells(direction)[0], [0.0, 90.0], atol=1e-5)  # north, then east
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: a vector pointing west of north is a negative direction, −45°, not 315°.
+        west = sa.VectorField(grid([[-1.0]]), grid([[1.0]]), "Vector-UV", "Geographic", "Vector-MagDir")
+        self.assertAlmostEqual(cells(west.getRasterBands()[1])[0][0], -45.0, places=4)
         md = sa.VectorField(grid([[2.0]]), grid([[90.0]]), "Vector-MagDir", "Arithmetic", "Vector-UV")
         u, v = md.getRasterBands()
         self.assertAlmostEqual(cells(u)[0][0], 0.0, delta=1e-5)
@@ -270,7 +276,12 @@ class Blocks(_Base):
         self.assertEqual(first.getData()[:, :, 0].tolist(), [[0, 1], [5, 6]])
         self.assertEqual(first.cell_size, (10.0, 10.0))
         self.assertEqual((first.tlc.X, first.tlc.Y), (0.0, 50.0))
-        self.assertEqual(blocks[2, 2].getData().shape, (1, 1, 1))
+        # Pro 3.7 keeps an edge block at the full size, padding past the edge with the pixel type's lowest value
+        # (measured 2026-11-08; this test pinned a 1 × 1 block cut short before).
+        last = blocks[2, 2].getData()
+        self.assertEqual(last.shape, (2, 2, 1))
+        self.assertEqual(last[0, 0, 0], 24.0)
+        self.assertEqual(last[1, 1, 0], np.finfo(last.dtype).min)
         self.assertEqual(sum(1 for _ in blocks), 9)
         self.assertEqual(len(list(blocks.reset())), 9)
         pair = ia.PixelBlockCollection([r, r], (5, 5), nodata_to_values=-1)
@@ -322,19 +333,21 @@ class Sensors(_Base):
     def test_mensuration_measures_through_the_rpc_model(self):
         path = self.rpc_image()
         m = ia.Mensuration(path)
-        centre = m.point((50.5, 50.5))
+        # Image coordinates are the RPC's sample and line, a pixel's centre at whole numbers: Pro 3.7 answers
+        # point((50, 50)) as the offsets exactly (measured 2026-11-08; this test passed 50.5 for the centre before).
+        centre = m.point((50, 50))
         self.assertAlmostEqual(centre.lon, 30.0, places=7)
         self.assertAlmostEqual(centre.lat, 40.0, places=7)
         self.assertEqual(centre.sensor_name, "RPC")
-        east = m.distance((50.5, 50.5), (100.5, 50.5))  # 0.01° of longitude at 40° N
+        east = m.distance((50, 50), (100, 50))  # 0.01° of longitude at 40° N
         self.assertAlmostEqual(east.distance, 111320 * math.cos(math.radians(40)) * 0.01, delta=3)
         self.assertAlmostEqual(east.azimuth, 90.0, delta=0.01)
-        square = m.area([(50.5, 50.5), (100.5, 50.5), (100.5, 0.5), (50.5, 0.5)])
+        square = m.area([(50, 50), (100, 50), (100, 0), (50, 0)])
         self.assertAlmostEqual(square.area, east.distance * 1111.0, delta=square.area * 0.01)
-        self.assertAlmostEqual(m.height((50.5, 50.5), (55.5, 50.5), ia.Mensuration.base_to_top).height, 100.0,
+        self.assertAlmostEqual(m.height((50, 50), (55, 50), ia.Mensuration.base_to_top).height, 100.0,
                                places=2)
         with self.assertRaises(NotBuiltError):
-            m.height((50.5, 50.5), (55.5, 50.5), ia.Mensuration.base_to_shadow)
+            m.height((50, 50), (55, 50), ia.Mensuration.base_to_shadow)
         self.assertIs(arcpy.Mensuration, ia.Mensuration)
         with self.assertRaises(ExecuteError):
             ia.Mensuration(grid([[1]]))
@@ -372,7 +385,9 @@ class LegacySurface(_Base):
         lines = self.features("l", "POLYLINE", [line])
         ddd.SurfaceLength(self.ramp, lines)
         ddd.SurfaceLength(self.ramp, lines, "Doubled", z_factor=2)
-        with da.SearchCursor(lines, ["SURFACE_LENGTH", "Doubled"]) as rows:
+        # The default field is SLength, as ArcGIS Pro 3.7 writes it (measured 2026-11-08; this test read SURFACE_LENGTH,
+        # grapy's inference, until then).
+        with da.SearchCursor(lines, ["SLength", "Doubled"]) as rows:
             length, doubled = next(iter(rows))
         self.assertAlmostEqual(length, math.hypot(30, 30), places=6)
         self.assertAlmostEqual(doubled, math.hypot(30, 60), places=6)

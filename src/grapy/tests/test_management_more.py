@@ -7,6 +7,7 @@ import math
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -27,6 +28,8 @@ def box(x0, y0, x1, y1):
 class ManagementMore(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE")],
@@ -169,7 +172,7 @@ class ManagementMore(unittest.TestCase):
         arcpy.management.JoinField(self.parcels, "kind", lookup, "kind", ["label"])
         self.assertEqual(self.rows(self.parcels, ["name", "label"]), [("p0", "alpha"), ("p1", "alpha"), ("p2", "beta")])
         arcpy.management.JoinField(self.parcels, "kind", lookup, "kind")
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1],
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:],  # the table's own order, as Pro answers it (ADR-289 §5.1)
                          ["name", "kind", "value", "label", "kind_1", "label_1"])
         partial = self.table("partial", [("code", "TEXT"), ("note", "TEXT")], [("b", "only b")])
         arcpy.management.JoinField(self.parcels, "kind", partial, "code", "note")
@@ -218,7 +221,8 @@ class ManagementMore(unittest.TestCase):
         p0 = arcpy.analysis.Select(self.parcels, self.out("p0"), "name = 'p0'")[0]
         faces = arcpy.management.FeatureToPolygon([p0, zone], self.out("faces"))[0]
         self.assertEqual(sorted(r[0] for r in self.rows(faces, ["SHAPE@AREA"])), [1000.0, 1500.0, 5000.0])
-        self.assertEqual({r for r in self.rows(faces, ["FID_p0", "FID_zone", "zone"])}, {(-1, -1, None)})
+        # Empty text is "" (not null): measured in ArcGIS Pro 3.7, 2026-11-08.
+        self.assertEqual({r for r in self.rows(faces, ["FID_p0", "FID_zone", "zone"])}, {(-1, -1, "")})
 
     def test_polygon_to_line_finds_neighbours(self):
         pair = self.make("pair", "POLYGON", [("n", "TEXT")], [("a", box(0, 0, 50, 50)), ("b", box(50, 0, 100, 50))])
@@ -228,7 +232,8 @@ class ManagementMore(unittest.TestCase):
         self.assertEqual((sorted(got[2][:2]), got[2][2]), ([1, 2], 50.0))
         # a's outer line runs clockwise, a on its right: from (50, 0) west, up, and east to (50, 50).
         outer = self.rows(out, ["SHAPE@WKT"], '"RIGHT_FID" = 1 and "LEFT_FID" = -1')[0][0]
-        self.assertEqual(outer, "LINESTRING (50 0, 0 0, 0 50, 50 50)")
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        self.assertEqual(outer, "MULTILINESTRING ((50 0, 0 0, 0 50, 50 50))")
         rings = arcpy.management.PolygonToLine(pair, self.out("rings"), "IGNORE_NEIGHBORS")[0]
         self.assertEqual(self.rows(rings, ["n", "ORIG_FID", "SHAPE@LENGTH"]), [("a", 1, 200.0), ("b", 2, 200.0)])
 
@@ -328,7 +333,7 @@ class ManagementMore(unittest.TestCase):
         end = self.rows(east, ["SHAPE@"])[0][0]._shape.coords[-1]
         self.assertAlmostEqual(end[0], 10.0)
         self.assertAlmostEqual(end[1], 0.0)
-        self.assertEqual([f.name for f in arcpy.ListFields(east)][1:-1], ["x", "y", "d", "b"])
+        self.assertEqual([f.name for f in arcpy.ListFields(east)][2:], ["x", "y", "d", "b"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
 
     # ---- grids
 
@@ -345,13 +350,21 @@ class ManagementMore(unittest.TestCase):
         x, y = self.rows(turned[1], ["SHAPE@XY"])[0][0]
         self.assertAlmostEqual(x, 10.0)
         self.assertAlmostEqual(y, -5.0)
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.management.CreateFishnet(self.out("net4"), "0 0", "0 10", 10, 20, 2, 3)
+        # POLYLINE (the default) was refused here before; Pro writes the grid's whole lines, rows + 1 across and
+        # columns + 1 up (measured in ArcGIS Pro 3.7, 2026-11-08): 2 rows of 3 cells 10 × 20 give 3 lines 30 long
+        # and 4 lines 40 long.
+        lines = arcpy.management.CreateFishnet(self.out("net4"), "0 0", "0 10", 10, 20, 2, 3)[0]
+        self.assertEqual(sorted(round(r[0], 9) for r in self.rows(lines, ["SHAPE@LENGTH"])), [30.0] * 3 + [40.0] * 4)
 
     def test_generate_tessellation(self):
         grid = arcpy.management.GenerateTessellation(self.out("sq"), "0 0 25 15", "SQUARE", "100 SquareMeters", 3857)[0]
         got = self.rows(grid, ["GRID_ID", "SHAPE@AREA"])
-        self.assertEqual([g for g, _ in got], ["A-1", "A-2", "A-3", "B-1", "B-2", "B-3"])
+        # Pro 3.7's lattice (measured 2026-11-08; this pinned grapy's own layout of six cells): a cell centred on the
+        # corner, ceil(25 / 10) + 1 = 4 columns by ceil(15 / 10) + 1 = 3 rows; letters are columns, numbers rows from
+        # the top, written from the bottom row up.
+        self.assertEqual([g for g, _ in got], ["A-3", "B-3", "C-3", "D-3", "A-2", "B-2", "C-2", "D-2",
+                                               "A-1", "B-1", "C-1", "D-1"])
+        self.assertEqual(self.rows(grid, ["SHAPE@WKT"])[0][0], "MULTIPOLYGON (((5 5, -5 5, -5 -5, 5 -5, 5 5)))")
         self.assertEqual({round(a, 9) for _, a in got}, {100.0})
         hexes = arcpy.management.GenerateTessellation(self.out("hx"), "0 0 25 15", "HEXAGON", "100 SquareMeters", 3857)[0]
         cells = [r[0]._shape for r in self.rows(hexes, ["SHAPE@"])]
@@ -403,8 +416,9 @@ class ManagementMore(unittest.TestCase):
             written.insertRow(("short", "POLYGON((0 0,10 0,10.00001 0,10 10,0 10,0 0))"))
         out = arcpy.management.CheckGeometry(self.parcels, self.out("check"))[0]
         self.assertEqual(self.rows(out, ["FEATURE_ID", "TEXT_ID", "PROBLEM"]),
-                         [(4, "4", "Self intersections"), (5, "5", "Null geometry"), (6, "6", "Duplicate vertex"),
-                          (7, "7", "Short segment")])
+                         # Lower case, as Pro writes them (measured in ArcGIS Pro 3.7, 2026-11-08); capitalised before.
+                         [(4, "4", "self intersections"), (5, "5", "null geometry"), (6, "6", "duplicate vertex"),
+                          (7, "7", "short segment")])
         self.assertEqual(self.rows(out, ["CLASS"])[0][0], self.parcels)
 
     # ---- geometry attributes and references
@@ -446,8 +460,15 @@ class ManagementMore(unittest.TestCase):
             arcpy.management.CreateSQLiteDatabase(os.path.join(self.directory, "st.sqlite"))
         folder = arcpy.management.CreateFolder(self.directory, "sub")[0]
         self.assertTrue(os.path.isdir(folder))
-        with self.assertRaises(arcpy.ExecuteError):
-            arcpy.management.CreateFolder(self.directory, "sub")
+        # A folder that exists is an error only when outputs may not be overwritten: ArcGIS Pro 3.7 succeeds with
+        # overwriteOutput set (measured 2026-11-08, the Pro sweep); this test expected the error either way before.
+        before = arcpy.env.overwriteOutput
+        arcpy.env.overwriteOutput = False
+        try:
+            with self.assertRaises(arcpy.ExecuteError):
+                arcpy.management.CreateFolder(self.directory, "sub")
+        finally:
+            arcpy.env.overwriteOutput = before
         copied = arcpy.management.Copy(self.parcels, self.out("copy"))[0]
         self.assertEqual(self.rows(copied, ["OID@", "name"]), [(1, "p0"), (2, "p1"), (3, "p2")])
         arcpy.management.DeleteFeatures(self.parcels + "")  # leave OIDs with a gap in a table copy below

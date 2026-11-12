@@ -67,6 +67,15 @@ class _Grid:
         return None
 
 
+
+def sample_std(values):
+    """The sample standard deviation of cell values (n - 1 in the divisor), ArcGIS Pro's raster statistics; 0 for a
+    single value. Measured in ArcGIS Pro 3.7, 2026-11-08 (Raster.standardDeviation, GetRasterProperties STD and the
+    statistics CalculateStatistics stores all answer it)."""
+    import numpy
+    values = numpy.asarray(values, dtype=float)
+    return float(values.std(ddof=1)) if values.size > 1 else 0.0
+
 def _refuse_environment(tool):
     """Settings arcpy's raster tools honour and grapy does not yet: refused rather than ignored."""
     for name in ("cellSize", "mask", "snapRaster"):
@@ -141,6 +150,8 @@ class Raster:
             t = source.transform
             self._grid = _Grid(t.c, t.f, t.a, -t.e, source.height, source.width, source.crs.to_epsg() if source.crs else 0)
             self._block = source.block_shapes[0] if source.block_shapes else None
+            # A file written with no NoData value (Raster.save writes none where no cell is NoData) answers None.
+            self._declares_no_nodata = source.nodata is None
         self._arrays, self._masks = arrays, masks
         self._names = [names[i - 1] for i in numbers] if band_name is not None or len(arrays) > 1 else None
         if self._names is not None and all(n == f"Band_{k}" for k, n in enumerate(self._names, 1)):
@@ -273,6 +284,18 @@ class Raster:
 
     @property
     def noDataValue(self):
+        """The NoData value: the one NumPyArrayToRaster was given, else None for a raster file that declares none and
+        has no NoData cell, as Pro answers one (measured in ArcGIS Pro 3.7, 2026-11-08: CopyRaster of 300 into
+        8_BIT_UNSIGNED reads back a valid 255), else the cell type's own."""
+        chosen = getattr(self, "_chosen_nodata", None)
+        if chosen is not None and len(self._arrays) == 1:
+            return chosen
+        if getattr(self, "_declares_no_nodata", False) and not any(m.any() for m in self._masks):
+            return None
+        return self._fill()
+
+    def _fill(self):
+        """The value a NoData cell is written as: the cell type's own NoData value."""
         if len(self._arrays) > 1:
             # A GeoTIFF has one NoData value for every band; several bands are saved in one cell type.
             return _nodata_for(_saved_dtype(np.result_type(*[a.dtype for a in self._arrays])))
@@ -302,8 +325,10 @@ class Raster:
 
     @property
     def standardDeviation(self):
+        """The sample standard deviation (dividing by n - 1), as Pro answers it: measured in ArcGIS Pro 3.7,
+        2026-11-08, cells 1, 2, 3, 4 give 1.29099, not the population 1.11803."""
         values = self._values()
-        return float(values.std()) if values.size else None
+        return sample_std(values) if values.size else None
 
     @property
     def hasRAT(self):
@@ -313,6 +338,33 @@ class Raster:
     @property
     def name(self):
         return os.path.basename(self.catalogPath) if self.catalogPath else ""
+
+    # format, compressionType and uncompressedSize as ArcGIS Pro 3.7 answers them for a GeoTIFF (measured
+    # 2026-11-08): "TIFF", "None" for an uncompressed file, and the cells' size in bytes.
+
+    @property
+    def format(self):
+        path = self.catalogPath or ""
+        extension = os.path.splitext(path)[1].lower()
+        return {".tif": "TIFF", ".tiff": "TIFF", ".img": "IMAGINE Image", ".jp2": "JP2", ".png": "PNG",
+                ".jpg": "JPEG", ".jpeg": "JPEG", ".bmp": "BMP", ".gif": "GIF"}.get(extension, "")
+
+    @property
+    def compressionType(self):
+        path = self.catalogPath or ""
+        if not path or not os.path.isfile(path):
+            return "None"
+        try:
+            import rasterio
+            with rasterio.open(path) as source:
+                method = source.compression
+        except Exception:  # noqa: BLE001 — a file rasterio cannot read for its profile
+            return "None"
+        return "None" if method is None else str(method.value if hasattr(method, "value") else method).upper()
+
+    @property
+    def uncompressedSize(self):
+        return int(self.width * self.height * self.bandCount * np.dtype(self._array.dtype).itemsize)
 
     def save(self, name=None):
         """Writes the raster as a GeoTIFF; a name without an extension is given ``.tif``."""
@@ -340,6 +392,9 @@ class Raster:
         # No NoData value where no cell is NoData: a full 8-bit band holds 255, which would read back as NoData (as
         # ColorspaceConversion's saturation and value did, found against Pro 3.7 on 2026-10-31).
         nodata = _nodata_for(array.dtype) if self._mask.any() else None
+        chosen = getattr(self, "_chosen_nodata", None)
+        if chosen is not None and np.can_cast(np.min_scalar_type(chosen), array.dtype, "same_kind"):
+            nodata = chosen  # the value NumPyArrayToRaster was given, kept as the file's NoData value
         written = np.where(self._mask, nodata, array).astype(array.dtype) if nodata is not None else array
         g = self._grid
         profile = {"driver": "GTiff", "height": g.rows, "width": g.columns, "count": 1, "dtype": array.dtype.name,
@@ -393,7 +448,7 @@ class Raster:
         rows = self._grid.rows - row0 if nrows is None else int(nrows)
         if rows <= 0 or columns <= 0 or row0 + rows > self._grid.rows or column0 + columns > self._grid.columns:
             raise _Refused("Raster.read: a window reaching outside the raster is not built in grapy.")
-        fill = self.noDataValue if nodata_to_value is None else nodata_to_value
+        fill = self._fill() if nodata_to_value is None else nodata_to_value
         kind = np.result_type(*[a.dtype for a in self._arrays], np.min_scalar_type(fill))
         window = (slice(row0, row0 + rows), slice(column0, column0 + columns))
         return np.stack([np.where(m[window], np.asarray(fill).astype(kind), a[window].astype(kind))
@@ -418,7 +473,7 @@ class Raster:
         rows, columns = values.shape[0], values.shape[1]
         if row0 + rows > self._grid.rows or column0 + columns > self._grid.columns:
             raise _Refused("Raster.write: a window reaching outside the raster is not built in grapy.")
-        fill = self.noDataValue if value_to_nodata is None else value_to_nodata
+        fill = self._fill() if value_to_nodata is None else value_to_nodata
         window = (slice(row0, row0 + rows), slice(column0, column0 + columns))
         arrays, masks = [], []
         for b, (a, m) in enumerate(zip(self._arrays, self._masks)):
@@ -727,30 +782,64 @@ def _boolean(a, b, operation):
 
 
 def NumPyArrayToRaster(in_array, lower_left_corner=None, x_cell_size=1, y_cell_size=None, value_to_nodata=None):
-    """A raster from a two-dimensional array; the first row is the northern one, as arcpy's is."""
+    """A raster from a two-dimensional array — or, from a three-dimensional one, a raster of one band per first index
+    (bands, rows, columns), as the page documents; the first row is the northern one, as arcpy's is."""
     array = np.asarray(in_array)
-    if array.ndim != 2:
-        raise NotBuiltError("NumPyArrayToRaster: only two-dimensional arrays are built in grapy yet.")
+    if array.ndim not in (2, 3):
+        raise NotBuiltError("NumPyArrayToRaster: only two- and three-dimensional arrays are built in grapy yet.")
     x0, y0 = (lower_left_corner.X, lower_left_corner.Y) if lower_left_corner is not None else (0.0, 0.0)
     height = float(y_cell_size if y_cell_size is not None else x_cell_size)
-    grid = _Grid(x0, y0 + array.shape[0] * height, float(x_cell_size), height, array.shape[0], array.shape[1],
+    grid = _Grid(x0, y0 + array.shape[-2] * height, float(x_cell_size), height, array.shape[-2], array.shape[-1],
                  getattr(getattr(env, "outputCoordinateSystem", None), "factoryCode", 0) or 0)
     mask = np.zeros(array.shape, bool) if value_to_nodata is None else array == value_to_nodata
     if np.issubdtype(array.dtype, np.floating):
         mask |= np.isnan(array)
-    return Raster._of(array.copy(), mask, grid)
+    if array.ndim == 3:
+        raster = Raster._of_bands([a.copy() for a in array], list(mask), grid)
+    else:
+        raster = Raster._of(array.copy(), mask, grid)
+    if value_to_nodata is not None:
+        # The raster's NoData value is the one given: ArcGIS Pro 3.7 answers -1.0 for value_to_nodata=-1 on a float
+        # array (measured 2026-11-08), where the cell type's own was answered before.
+        raster._chosen_nodata = float(value_to_nodata) if np.issubdtype(array.dtype, np.floating) else value_to_nodata
+    return raster
 
 
 def RasterToNumPyArray(in_raster, lower_left_corner=None, ncols=None, nrows=None, nodata_to_value=None):
-    """The cells as an array, NoData written as ``nodata_to_value`` (arcpy's default: the raster's own NoData value)."""
-    raster = as_raster(in_raster, "RasterToNumPyArray")
-    if lower_left_corner is not None or ncols is not None or nrows is not None:
-        raise NotBuiltError("RasterToNumPyArray: reading a window (lower_left_corner, ncols, nrows) is not built in grapy yet.")
+    """The cells as an array, NoData written as ``nodata_to_value`` (arcpy's default: the raster's own NoData value).
+    A raster of several bands answers a three-dimensional array, (bands, rows, columns), as the page documents."""
+    raster = as_raster(in_raster, "RasterToNumPyArray", bands=True)
     fill = raster.noDataValue if nodata_to_value is None else nodata_to_value
-    array = raster._array
+    if fill is None:
+        fill = raster._fill()   # a file that declares no NoData has no NoData cell to fill
+    if raster.bandCount > 1:
+        array, mask = np.stack(raster._arrays), np.stack(raster._masks)
+    else:
+        array, mask = raster._array, raster._mask
+    if lower_left_corner is not None or ncols is not None or nrows is not None:
+        # A window: from the cell holding lower_left_corner (the raster's lower-left by default), ncols to the right
+        # and nrows up, as documented; ArcGIS Pro 3.7 reads 3 rows of 4 from a corner on a cell boundary starting at
+        # the cell above and to the right of it (measured 2026-11-08). INFERRED: a window is cut at the raster's edge.
+        import math
+        e = raster.extent
+        if lower_left_corner is None:
+            x, y = e.XMin, e.YMin
+        elif hasattr(lower_left_corner, "X"):
+            x, y = float(lower_left_corner.X), float(lower_left_corner.Y)
+        else:
+            x, y = float(lower_left_corner[0]), float(lower_left_corner[1])
+        col0 = max(int(math.floor((x - e.XMin) / raster.meanCellWidth + 1e-9)), 0)
+        bottom = min(int(math.ceil((e.YMax - y) / raster.meanCellHeight - 1e-9)) - 1, raster.height - 1)
+        cols = raster.width - col0 if ncols in (None, 0) else int(ncols)
+        rows = bottom + 1 if nrows in (None, 0) else int(nrows)
+        top = max(bottom - rows + 1, 0)
+        window = (Ellipsis, slice(top, bottom + 1), slice(col0, min(col0 + cols, raster.width)))
+        array, mask = array[window], mask[window]
     # A fill the cell type cannot hold (-1 in an unsigned raster, 0.5 in an integer one) widens the array to one that can.
     kind = np.result_type(array.dtype, np.min_scalar_type(fill))
-    return np.where(raster._mask, np.asarray(fill).astype(kind), array.astype(kind))
+    if fill is not None and np.asarray(fill).astype(array.dtype).item() == fill:
+        kind = array.dtype  # a fill the cell type holds exactly keeps it: a float32 DEM reads as float32, as in Pro
+    return np.where(mask, np.asarray(fill).astype(kind), array.astype(kind))
 
 
 # ---- several bands (ADR-224, arcpy.ia): a Raster of several bands, which the band tools build and read.

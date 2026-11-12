@@ -861,8 +861,9 @@ def _by_association(_, args):
     me = _global_id("FeatureSetByAssociation", store, table, args[0])
     terminal_id = _terminal_id(connection, network, table.name, args[0], terminal) if terminal is not None else None
     types, own_end = _ASSOCIATIONS[kind]
+    from .. import _gpkg
     rows = connection.execute(
-        f'select fid, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, TOGLOBALID, TOTERMINALID, '
+        f'select "{_gpkg.oid_column(connection, associations)}", FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, TOGLOBALID, TOTERMINALID, '
         f'ASSOCIATIONTYPE, ISCONTENTVISIBLE, PERCENTALONG from "{associations}" where ASSOCIATIONTYPE in '
         f'({", ".join(str(t) for t in types)}) and (upper(FROMGLOBALID) = upper(?) or upper(TOGLOBALID) = upper(?))',
         (me, me)).fetchall()
@@ -911,7 +912,12 @@ def _attachments_of(_, args):
     from .. import _attachments
     if not _attachments.enabled(store.connection, table.name):
         return []
-    me = _global_id("Attachments", store, table, args[0])
+    # Keyed on the object id or the GlobalID, as the attachment table holds (ADR-289 §5.4).
+    origin, column = _attachments.keys(store.connection, table.name)
+    if column == "REL_GLOBALID":
+        me, match = _global_id("Attachments", store, table, args[0]), f"upper({column}) = upper(?)"
+    else:
+        me, match = args[0].attributes.get(origin), f"{column} = ?"
     options = args[1] if len(args) > 1 and isinstance(args[1], Dictionary) else Dictionary()
     types = [to_text(t).lower().lstrip(".") for t in (options.get("types") or [])]
     low, high = options.get("minsize"), options.get("maxsize")
@@ -921,7 +927,7 @@ def _attachments_of(_, args):
     extra = [c for c in ("EXIFINFO", "KEYWORDS") if c in columns]
     selected = ", ".join(["ATTACHMENTID", "ATT_NAME", "CONTENT_TYPE", "DATA_SIZE", *extra])
     out = []
-    for row in store.connection.execute(f'select {selected} from "{attach}" where upper(REL_GLOBALID) = upper(?) '
+    for row in store.connection.execute(f'select {selected} from "{attach}" where {match} '
                                         "order by ATTACHMENTID", (me,)):
         attachment_id, name, content_type, size = row[:4]
         if types and (name or "").rsplit(".", 1)[-1].lower() not in types:

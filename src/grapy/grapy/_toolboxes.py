@@ -19,7 +19,6 @@ What stays refused, each by its own reason:
 """
 from __future__ import annotations
 
-import fnmatch
 import importlib
 import importlib.machinery
 import importlib.util
@@ -39,6 +38,15 @@ SYSTEM = {
     "stats": "Spatial Statistics Tools", "na": "Network Analyst Tools", "nd": "Network Diagram Tools",
     "un": "Utility Network Tools",
 }
+
+# The alias a tool's name carries where it is not the module's: the 3D Analyst tools are arcpy.ddd's, but ArcGIS Pro 3.7
+# names them Buffer3D_3d and its toolbox "3D Analyst Tools(3d)" (measured 2026-11-08).
+_NAME_ALIAS = {"ddd": "3d"}
+
+
+def _named(alias):
+    return _NAME_ALIAS.get(alias, alias)
+
 
 # Imported toolboxes, by the absolute path of their file: {"alias", "label", "path", "tools": {name: class}}.
 _SESSION: dict = {}
@@ -76,7 +84,7 @@ def _resolve(tool_name):
         alias, tool = text.split(".", 1)
     elif "_" in text:
         head, tail = text.rsplit("_", 1)
-        known = {r["alias"].lower() for r in _SESSION.values()} | set(SYSTEM)
+        known = {r["alias"].lower() for r in _SESSION.values()} | set(SYSTEM) | set(_NAME_ALIAS.values())
         if tail.lower() in known:
             tool, alias = head, tail
     for record in _SESSION.values():
@@ -85,7 +93,7 @@ def _resolve(tool_name):
                 if name.lower() == tool.lower():
                     return "pyt", record, name, cls
     for each in SYSTEM:
-        if alias is None or each == alias.lower():
+        if alias is None or alias.lower() in (each, _named(each)):
             for name, function in _system_tools(each).items():
                 if name.lower() == tool.lower():
                     return "system", each, name, function
@@ -95,8 +103,8 @@ def _resolve(tool_name):
 def _match(names, wild_card):
     if wild_card is None or str(wild_card).strip() in ("", "*"):
         return list(names)
-    pattern = str(wild_card).lower()
-    return [n for n in names if fnmatch.fnmatchcase(n.lower(), pattern)]
+    from ._runtime import wildcard
+    return [n for n in names if wildcard(n, wild_card)]
 
 
 # ---- importing ------------------------------------------------------------------------------------------------------
@@ -171,20 +179,31 @@ def _runs(alias, name, cls):
                 raise ExecuteError("; ".join(refused))
             try:
                 tool.execute(parameters, _Messages())
-            except ExecuteError:
+            except ExecuteError as failure:
+                failure._grapy_in_execute = True
                 raise
             except Exception as failure:  # noqa: BLE001 — a tool's own failure is the tool failing, as in arcpy
                 _runtime.AddError(f"{type(failure).__name__}: {failure}")
-                raise ExecuteError(f"{type(failure).__name__}: {failure}") from failure
+                raised = ExecuteError(f"{type(failure).__name__}: {failure}")
+                raised._grapy_in_execute = True
+                raise raised from failure
             if sum(1 for m in _runtime.MESSAGES if m["type"] == "esriJobMessageTypeError") > errors:
-                raise ExecuteError(_runtime.GetMessages(2))
+                # Its text is the tool's error messages, which run_tool — the wrapper this runs inside — gives it.
+                raised = ExecuteError()
+                raised._grapy_in_execute = True
+                raise raised
         finally:
             _runtime.PARAMETERS[:] = held
         return Result(*[p.valueAsText for p in parameters if p.direction == "Output"])
 
     run.__name__ = run.__qualname__ = name
     run.__doc__ = getattr(cls, "description", None) or getattr(cls, "label", None) or name
-    return run
+    return _runtime_tool(run, name, always=True)  # a toolbox's tool runs as a tool, with its messages (ADR-289 §5.3)
+
+
+def _runtime_tool(function, name, always):
+    from ._runtime import tool
+    return tool(function, name, always=always)
 
 
 def ImportToolbox(input_file, module_name=None):
@@ -257,7 +276,7 @@ def RemoveToolbox(toolbox):
 def ListToolboxes(wild_card=None):
     """The toolboxes of the session, each as ``"<toolbox name>(<alias>)"`` — the form the page *List tools, toolboxes
     and environment settings* gives — grapy's own and then those imported, filtered by a case-insensitive wildcard."""
-    names = [f"{label}({alias})" for alias, label in SYSTEM.items()]
+    names = [f"{label}({_named(alias)})" for alias, label in SYSTEM.items()]
     names += [f"{r['label']}({r['alias']})" for r in _SESSION.values()]
     return _match(names, wild_card)
 
@@ -267,7 +286,7 @@ def ListTools(wild_card=None):
     (``"*_analysis"``, as the page's example)."""
     names = []
     for alias in SYSTEM:
-        names += sorted(f"{name}_{alias}" for name in _system_tools(alias))
+        names += sorted(f"{name}_{_named(alias)}" for name in _system_tools(alias))
     for record in _SESSION.values():
         names += sorted(f"{name}_{record['alias']}" for name in record["tools"])
     return _match(names, wild_card)
@@ -291,7 +310,7 @@ def Usage(tool_name):
     syntax notation, which the page does not show; for grapy's own tools the parameters are those its function names,
     which can be fewer than arcpy's where grapy accepts a trailing parameter without naming it."""
     kind, where, name, target = _resolve(tool_name)
-    alias = where["alias"] if kind == "pyt" else where
+    alias = where["alias"] if kind == "pyt" else _named(where)
     return f"{name}_{alias}({', '.join(_syntax_of(kind, alias, name, target))})"
 
 
@@ -343,24 +362,23 @@ def GetParameterValue(tool_name, index):
 
 def Command(command_line):
     """A tool run from one string in the legacy Command Line syntax — the tool's name, then its parameters separated
-    by spaces, a parameter with a space in it quoted, ``#`` for a default — answering its messages separated by
-    newlines, or only its error messages when it fails, as documented. INFERRED: a failure is answered, not raised —
-    the page says the string holds the error messages."""
+    by spaces, a parameter with a space in it quoted, ``#`` for a default — answering the tool's messages separated by
+    newlines. ArcGIS Pro 3.7 answers all of them, the start and end lines included, when the tool fails as when it
+    succeeds; it raises nothing, and GetMessages goes on answering the tool before (measured 2026-11-12)."""
     from . import _runtime
     tokens = [t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'" else t
               for t in shlex.split(str(command_line), posix=False)]
     if not tokens:
         raise ValueError("The command line names no tool.")
     kind, where, name, target = _resolve(tokens[0])
-    function = (lambda *a: _runs(where["alias"], name, target)(*a)) if kind == "pyt" else target
+    function = _runs(where["alias"], name, target).__wrapped__ if kind == "pyt" else target
     arguments = [None if t == "#" else t for t in tokens[1:]]
-    start = len(_runtime.MESSAGES)
+    aside = _runtime._Frame()   # the tool's messages end here, not where Command was called
+    _runtime._STACK.append(aside)
     try:
-        function(*arguments)
-    except Exception as failure:  # noqa: BLE001 — the page answers a failure as its error messages
-        said = [m["description"] for m in _runtime.MESSAGES[start:] if m["type"] == "esriJobMessageTypeError"]
-        text = f"{type(failure).__name__}: {failure}"
-        if not any(text.endswith(s) or s.endswith(str(failure)) for s in said):
-            said.append(text)
-        return "\n".join(said)
-    return "\n".join(m["description"] for m in _runtime.MESSAGES[start:])
+        _runtime.run_tool(name, function, arguments)
+    except Exception:  # noqa: BLE001 — the tool's messages say its failure
+        pass
+    finally:
+        _runtime._STACK.remove(aside)
+    return "\n".join(m["text"] for m in aside.last)

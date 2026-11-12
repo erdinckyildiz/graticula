@@ -46,7 +46,7 @@ def geojson_to_gpkg(source: str, target: str) -> None:
     _gpkg.create(target, kind, 4326, columns, has_z)
     connection, table = _gpkg.table_of(target)
     try:
-        quoted = ", ".join(['"geom"', *[f'"{c.name}"' for c in columns]])
+        quoted = ", ".join([_gpkg.shape_sql(connection, table), *[f'"{c.name}"' for c in columns]])
         marks = ", ".join("?" for _ in range(len(columns) + 1))
         for feature, geometry in zip(features, geometries):
             if geometry is not None and kind in ("Polyline", "Polygon") and not geometry.geom_type.startswith("Multi"):

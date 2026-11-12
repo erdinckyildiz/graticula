@@ -152,14 +152,21 @@ def HeatIndex(temperature_raster, relative_humidity_raster, temperature_unit="Fa
 
     The temperature is converted to Fahrenheit first and the answer to ``heat_index_unit``.
 
-    INFERRED: the formula is applied at every cell as the page gives it, without the NWS's adjustments for low humidity
-    or for an index below 80 °F, which the page does not give; the answer is 32-bit floating point; an empty unit
-    takes the documented default, Fahrenheit."""
+    Below 80 °F the NWS's simple formula is used instead, HI = ½ (T + 61 + 1.2 (T − 68) + 0.094 R), wherever the mean
+    of it and T is below 80, as the NWS does: ArcGIS Pro 3.7 answers it there (measured 2026-11-08; grapy applied the
+    regression everywhere, up to 8 °F off). Pro also departs from the regression by up to 0.65 °F where R > 85 % and
+    80 ≤ T ≤ 87 °F — the NWS's high-humidity adjustment region — by an amount that is not the NWS's adjustment; that is
+    not reproduced.
+
+    INFERRED: no low-humidity adjustment; the answer is 32-bit floating point; an empty unit takes the documented
+    default, Fahrenheit."""
     tool = "HeatIndex"
     t, r, grid = _pair(temperature_raster, relative_humidity_raster, tool)
     t = _from_kelvin(_to_kelvin(t, _word(temperature_unit, "Fahrenheit"), tool), "fahrenheit", tool)
     hi = (-42.379 + 2.04901523 * t + 10.14333127 * r - 0.22475541 * t * r - 6.83783e-3 * t * t - 5.481717e-2 * r * r
           + 1.22874e-3 * t * t * r + 8.5282e-4 * t * r * r - 1.99e-6 * t * t * r * r)
+    simple = 0.5 * (t + 61.0 + (t - 68.0) * 1.2 + r * 0.094)
+    hi = np.where((simple + t) / 2 >= 80, hi, simple)
     return _float_raster(_from_kelvin(_to_kelvin(hi, "fahrenheit", tool), _word(heat_index_unit, "Fahrenheit"), tool),
                          grid)
 
@@ -221,7 +228,8 @@ def VectorField(raster_u_mag, raster_v_dir, input_data_type="Vector-UV", angle_r
     Refused: ``Unknown`` input, which says neither form.
 
     INFERRED: a direction is the way the vector points, as the page's "0° points due north" reads; an output direction
-    is in the input's angle reference system and from 0 to 360; the bands are 32-bit floating point, NoData where
+    is in the input's angle reference system, from −180 to 180 as Pro 3.7 writes it (measured 2026-11-08 in
+    Geographic; Arithmetic is taken to do the same); the bands are 32-bit floating point, NoData where
     either input is."""
     tool = "VectorField"
     kind_in = _key(_word(input_data_type, "Vector-UV")).replace("-", "")
@@ -244,8 +252,9 @@ def VectorField(raster_u_mag, raster_v_dir, input_data_type="Vector-UV", angle_r
         first, second = u, v
     else:
         first = np.hypot(u, v)
-        angle = np.degrees(np.arctan2(u, v) if reference == "geographic" else np.arctan2(v, u))
-        second = np.mod(angle, 360.0)
+        # Measured in ArcGIS Pro 3.7 (2026-11-08): the direction is atan2's, −180 to 180 (u −0.928, v 1.554 gives
+        # −30.86°, not 329.14°); grapy wrapped it to 0 … 360 until then.
+        second = np.degrees(np.arctan2(u, v) if reference == "geographic" else np.arctan2(v, u))
     one, two = _float_raster(first, grid), _float_raster(second, grid)
     return Raster._of_bands([one._array, two._array], [one._mask | two._mask, one._mask | two._mask], grid)
 
@@ -279,9 +288,20 @@ def ColorspaceConversion(raster, conversion_type="rgb_to_hsv"):
                                   np.where(high == g, (b - r) / span + 2.0, (r - g) / span + 4.0))) * 60.0
         # Pro 3.7, measured 2026-10-31 on every whole-degree hue: H = round(degrees · 240/360), and a chromatic red
         # is 240 rather than 0; a grey's hue is 0.
-        hue = np.floor(h * 240.0 / 360.0 + 0.5)
-        hue = np.where((hue == 0) & (span > 0), 240.0, hue)
-        out = [hue, np.floor(s * 255.0 + 0.5), np.floor(high * 255.0 + 0.5)]
+        # The halves are rounded in whole numbers, not in floating point: 11.25° is 7.5 and becomes 8, a saturation of
+        # 212.5 becomes 213, as Pro writes them (measured 2026-11-08; 7.4999… and 212.4999… had rounded down).
+        xi = x.astype(np.int64)
+        ri, gi, bi = xi
+        hi, lo = xi.max(axis=0), xi.min(axis=0)
+        sp = hi - lo
+        n = np.where(hi == ri, np.where(gi >= bi, gi - bi, gi - bi + 6 * sp),
+                     np.where(hi == gi, bi - ri + 2 * sp, ri - gi + 4 * sp))
+        safe = np.where(sp > 0, sp, 1)
+        hue = np.where(sp > 0, (80 * n + safe) // (2 * safe), 0).astype(np.float64)
+        hue = np.where((hue == 0) & (sp > 0), 240.0, hue)
+        sat = np.where(hi > 0, (2 * 255 * sp + np.where(hi > 0, hi, 1)) // (2 * np.where(hi > 0, hi, 1)), 0)
+        _ = (h, s)
+        out = [hue, sat.astype(np.float64), hi.astype(np.float64)]
     elif kind == "hsvtorgb":
         h = np.mod(x[0] * 360.0 / 240.0, 360.0) / 60.0
         s, v = x[1] / 255.0, x[2] / 255.0
@@ -845,6 +865,31 @@ def ApplyEnvironment(in_raster):
                 _refuse(tool, "snapRaster environment", env.snapRaster, "its cells do not line up with the input's, and "
                         "moving them needs resampling")
     arrays, masks = list(raster._arrays), list(raster._masks)
+    if extent is not None and cell is not None and not isinstance(in_raster, (int, float)):
+        size = _environment_cell(cell, tool)
+        if not (math.isclose(size, g.width) and math.isclose(size, g.height)):
+            # Both set and the cell size changed: the output grid starts at the extent's lower-left corner and has
+            # enough whole cells to cover it, and each output cell takes the input cell holding its centre (a centre on
+            # an input cell's edge taking the cell to its right or below). Measured in ArcGIS Pro 3.7, 2026-11-08: an
+            # extent of 100…400 × 100…450 m at 20 m over a 10 m DEM answers 15 × 18 cells, 100…460 m, every value
+            # equal to that rule; grapy cut the extent on the input's grid first (90…450 m) and differed by up to 3 m.
+            xmin, ymin, xmax, ymax = _environment_extent(extent, tool)
+            columns = max(int(math.ceil((xmax - xmin) / size - 1e-9)), 1)
+            rows_ = max(int(math.ceil((ymax - ymin) / size - 1e-9)), 1)
+            out = _Grid(xmin, ymin + rows_ * size, size, size, rows_, columns, g.srid)
+            cx = xmin + (np.arange(columns) + 0.5) * size
+            cy = out.top - (np.arange(rows_) + 0.5) * size
+            ci = np.floor((cx - g.left) / g.width + 1e-9).astype(int)
+            ri = np.floor((g.top - cy) / g.height + 1e-9).astype(int)
+            okc, okr = (ci >= 0) & (ci < g.columns), (ri >= 0) & (ri < g.rows)
+            cc, rr = np.clip(ci, 0, g.columns - 1), np.clip(ri, 0, g.rows - 1)
+            outside = ~(okr[:, None] & okc[None, :])
+            arrays = [a[np.ix_(rr, cc)] for a in arrays]
+            masks = [m[np.ix_(rr, cc)] | outside for m in masks]
+            raster = Raster._of_bands(arrays, masks, out)
+            cell = None
+            extent = None
+            g = out
     if extent is not None:
         xmin, ymin, xmax, ymax = _environment_extent(extent, tool)
         xs, ys = g.centres()
@@ -864,7 +909,15 @@ def ApplyEnvironment(in_raster):
                 raster = Raster._of_bands([raster._array], [raster._mask], raster._grid)
     if _given(env.mask):
         from . import sa
-        masked = [sa.ExtractByMask(raster._band(b), env.mask) for b in range(1, raster.bandCount + 1)]
+        mask_data = env.mask
+        env.mask = None      # ExtractByMask refuses the environment it is applying here
+        try:
+            # The raster's own extent is kept: Pro 3.7's ApplyEnvironment with a polygon mask answers the whole input
+            # (measured 2026-11-08), where Extract by Mask alone cuts to the mask's extent.
+            masked = [sa.ExtractByMask(raster._band(b), mask_data, "INSIDE", raster.extent)
+                      for b in range(1, raster.bandCount + 1)]
+        finally:
+            env.mask = mask_data
         raster = Raster._of_bands([m._array for m in masked], [m._mask for m in masked], masked[0]._grid)
     if raster.bandCount == 1:
         return Raster._of(raster._arrays[0].copy(), raster._masks[0].copy(), raster._grid)
@@ -910,8 +963,12 @@ class PixelBlockCollection:
 
     Refused: multidimensional rasters (their slices are not held in a pixel block here).
 
-    INFERRED: blocks start at the top-left pixel and every ``stride`` pixels after it, and one starting inside the
-    raster near its edge is cut short rather than padded; ``nodata_to_values`` fills NoData (one value, or one per
+    Blocks start at the top-left pixel and every ``stride`` pixels after it, and one starting inside the raster near
+    its edge keeps the full block size, the part past the edge filled with the pixel type's lowest value (−3.4e38 for
+    32-bit floating point, −2147483648 for 32-bit integers) or ``nodata_to_values`` — Pro 3.7, measured 2026-11-08
+    (a 60-pixel raster in 25-pixel blocks answers 3 × 3 blocks of 25 × 25); grapy cut such a block short until then.
+
+    INFERRED: ``nodata_to_values`` fills NoData (one value, or one per
     raster), and without it NoData is NaN in a floating-point raster and the raster's noDataValue otherwise; UNION fills
     pixels outside a raster as NoData; ``shuffle`` draws from Python's ``random``, seeded by ``env.randomGenerator``'s
     seed when one is set."""
@@ -945,7 +1002,7 @@ class PixelBlockCollection:
         rows = int(round((top - bottom) / first.height))
         self._grid = _Grid(left, top, first.width, first.height, rows, columns, first.srid)
         fills = nodata_to_values if isinstance(nodata_to_values, (list, tuple)) else [nodata_to_values] * len(rasters)
-        self._cubes = []
+        self._cubes, self._pads = [], []
         for r, fill in zip(rasters, fills):
             planes = []
             for a, m in zip(r._arrays, r._masks):
@@ -955,7 +1012,7 @@ class PixelBlockCollection:
                 elif np.issubdtype(a.dtype, np.floating):
                     kind, blank = a.dtype, np.nan
                 else:
-                    kind, blank = a.dtype, r.noDataValue
+                    kind, blank = a.dtype, r._fill()
                 plane = np.full((rows, columns), blank, dtype=kind)
                 g = r._grid
                 r0, c0 = int(round((g.top - top) / g.height)), int(round((g.left - left) / g.width))
@@ -967,7 +1024,15 @@ class PixelBlockCollection:
                     piece = np.where(m, blank, a)[src_r0:src_r0 + n_r, src_c0:src_c0 + n_c]
                     plane[dst_r0:dst_r0 + n_r, dst_c0:dst_c0 + n_c] = piece
                 planes.append(plane)
-            self._cubes.append(np.stack(planes, axis=-1))
+            cube = np.stack(planes, axis=-1)
+            if fill is not None:
+                pad = fill
+            elif np.issubdtype(cube.dtype, np.floating):
+                pad = np.finfo(np.float32 if cube.dtype.itemsize <= 4 else cube.dtype).min
+            else:
+                pad = np.iinfo(cube.dtype).min
+            self._cubes.append(cube)
+            self._pads.append(pad)
         size = tuple(int(v) for v in (pixel_block_size or (512, 512)))
         step = tuple(int(v) for v in stride) if stride else size
         if min(size) <= 0 or min(step) <= 0:
@@ -987,6 +1052,10 @@ class PixelBlockCollection:
         g = self._grid
         r0, c0 = i * self._step[0], j * self._step[1]
         data = self._cubes[k][r0:r0 + self._size[0], c0:c0 + self._size[1], :]
+        if data.shape[:2] != tuple(self._size):
+            full = np.full(tuple(self._size) + data.shape[2:], self._pads[k], dtype=data.dtype)
+            full[:data.shape[0], :data.shape[1]] = data
+            data = full
         left, top = g.left + c0 * g.width, g.top - r0 * g.height
         extent = self._extent_class(left, top - data.shape[0] * g.height, left + data.shape[1] * g.width, top,
                                     self._reference)
@@ -1097,10 +1166,12 @@ class Mensuration:
         self._h = float(model.rpc.height_off)
 
     def _image(self, point):
-        """(column, row) of a tuple, Point or PointGeometry."""
+        """(column, row) from the image's corner, as grapy's sensor model takes them, of a tuple, Point or
+        PointGeometry. A tuple is the RPC's own sample and line, a pixel's centre at whole numbers: Pro 3.7 answers
+        point((50, 50)) as the model's offsets exactly (measured 2026-11-08), where grapy read it half a pixel off."""
         from ._geometry import PointGeometry
         if isinstance(point, (tuple, list)):
-            return float(point[0]), float(point[1])
+            return float(point[0]) + 0.5, float(point[1]) + 0.5
         reference = None
         if isinstance(point, PointGeometry):
             reference = point.spatialReference

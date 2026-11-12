@@ -1,6 +1,7 @@
 """arcpy.cartography in grapy, each tool against an answer worked by hand from the algorithm Esri documents."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -23,6 +24,8 @@ ZIGZAG = ((0, 0), (10, 1), (20, 0), (30, 5), (40, 0))
 class Cartography(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
 
     def make(self, name, rows):
@@ -52,8 +55,10 @@ class Cartography(unittest.TestCase):
         self.assertEqual(self.coords(two[0]), [[(0, 0), (20, 0), (30, 5), (40, 0)]])
         four = cartography.SimplifyLine(path, self.out("dp4"), "POINT_REMOVE", 4)
         self.assertEqual(self.coords(four[0]), [[(0, 0), (30, 5), (40, 0)]])
-        with arcpy.da.SearchCursor(four[0], ["name", "InLine_FID", "SimLnFlag", "MinSimpTol", "MaxSimpTol"]) as rows:
-            self.assertEqual([tuple(r) for r in rows], [("z", 1, 0, 4.0, 4.0)])
+        # No SimLnFlag under the default NO_CHECK: ArcGIS Pro 3.7 writes none (measured 2026-11-08).
+        with arcpy.da.SearchCursor(four[0], ["name", "InLine_FID", "MinSimpTol", "MaxSimpTol"]) as rows:
+            self.assertEqual([tuple(r) for r in rows], [("z", 1, 4.0, 4.0)])
+        self.assertNotIn("SimLnFlag", [f.name for f in arcpy.ListFields(four[0])])
 
     def test_visvalingam_whyatt_removes_triangles_smaller_than_the_tolerance_squared(self):
         # Triangles: (10,1) with its neighbours: |10·0 − 20·1|/2 = 10; (20,0): |10·4 − 20·(−1)|/2 = 30;
@@ -96,7 +101,8 @@ class Cartography(unittest.TestCase):
         # is not an error.
         path = self.make("x", [("h", line((-5, 0), (5, 0))), ("v", line((0, -5), (0, 5))),
                                ("h2", line((-5, 20), (0, 20), (5, 20))), ("v2", line((0, 15), (0, 20), (0, 25)))])
-        result = cartography.SimplifyLine(path, self.out("f"), "POINT_REMOVE", 0.5)
+        # SimLnFlag is written with FLAG_ERRORS only, as in ArcGIS Pro 3.7 (measured 2026-11-08).
+        result = cartography.SimplifyLine(path, self.out("f"), "POINT_REMOVE", 0.5, error_option="FLAG_ERRORS")
         with arcpy.da.SearchCursor(result[0], ["name", "SimLnFlag"]) as rows:
             self.assertEqual([tuple(r) for r in rows], [("h", 1), ("v", 1), ("h2", 0), ("v2", 0)])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "RESOLVE_ERRORS"):
@@ -207,7 +213,7 @@ class Cartography(unittest.TestCase):
 
     def test_collapse_dual_lines_to_centerline_is_the_medial_axis(self):
         # Casings y = 0 and y = 10 from x = 0 to 100: their medial axis is y = 5. The first casing runs east, so the one
-        # at y = 10 is on the left. A line far away stays unpaired: LnType 2.
+        # at y = 10 is on the left. A line far away is left out.
         path = self.make("casings", [("a", line((0, 0), (100, 0))), ("b", line((0, 10), (100, 10))),
                                      ("c", line((0, 500), (100, 500)))])
         out = cartography.CollapseDualLinesToCenterline(path, self.out("cl"), 20).getOutput(0)
@@ -218,7 +224,9 @@ class Cartography(unittest.TestCase):
         ys = {round(c[1], 9) for c in centre[0][3]._shape.coords}
         self.assertEqual(ys, {5.0})
         self.assertGreater(centre[0][3].length, 90)
-        self.assertEqual([g[:3] for g in got if g[0] == 2], [(2, 0, 0)])
+        # The far line c has no line within the maximum width: it is not written, as ArcGIS Pro 3.7 leaves such a
+        # line out (measured 2026-11-08; until then grapy wrote it with LnType 2).
+        self.assertEqual([g[:3] for g in got if g[0] == 2], [])
 
 
 if __name__ == "__main__":
