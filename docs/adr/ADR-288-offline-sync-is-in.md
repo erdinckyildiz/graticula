@@ -198,6 +198,15 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
 ### 11a. INFERRED — preplanned map areas, decided the night of 2026-11-12 while the owner slept; asked as [Q-234](../open-questions.md)
 
 > **Answered by the owner the next morning:** *"Beşini de onaylıyorum"* — all five confirmed (Q-234).
+>
+> **Two changed by the owner the same morning, after the device test** (research note §5a, *measured 2026-11-12*):
+> - **Item 2 is reversed: an area also packages its basemap.** Field Maps failed the whole download of a map with a
+>   basemap and no tile package for it. Asked with that evidence, the owner chose *"Altlık paketi de üretilsin"*: a
+>   map's vector tile basemap is packaged as a VTPK with the existing exporter (ADR-098) and related to the area by
+>   `Area2Package`.
+> - **§5.4's "`dataFormat=json` later" is brought forward, in full.** After downloading a package, Field Maps registers
+>   it with `createReplica` and `dataFormat=json`. Offered a registration-only JSON replica or the whole JSON format,
+>   the owner chose *"Tam JSON replika"*: `createReplica` answers `dataFormat=json` with data, as ArcGIS does.
 
 What an Enterprise portal does was read in the research note (§5a): a `Map Area` item is related to its web map by
 `Map2Area`, and to one `SQLite Geodatabase` package per feature service by `Area2Package`. Each package is a replica
@@ -208,8 +217,9 @@ serves the same shape. None was stated by the owner.
    sends `POST /admin/maps/{id}/areas` with a title and an extent. That one call creates the area and packages it,
    which ArcGIS splits into `CreateMapArea` and `SetupMapArea`. An `OfflinePackaging` GP service that ArcGIS Pro and
    Map Viewer can call is later work, recorded as a debt. Studio gets a control for the route in the same piece of work.
-2. **Feature services only, no basemap package, in the first version.** Field Maps takes an area without a basemap.
-   A vector tile package from the existing exporter (ADR-098) is later work, recorded as a debt.
+2. ~~**Feature services only, no basemap package, in the first version.** Field Maps takes an area without a basemap.
+   A vector tile package from the existing exporter (ADR-098) is later work, recorded as a debt.~~ **Reversed
+   2026-11-12 by the owner** (see above): the basemap is packaged too.
 3. **One registered `perLayer` replica per package, owned by the area's creator, written once.** Every device that
    downloads the package shares it, as on Enterprise. *Refresh* is a route that writes a new package and unregisters
    the old replica. A scheduled refresh (`packageRefreshSchedule`) is not built.

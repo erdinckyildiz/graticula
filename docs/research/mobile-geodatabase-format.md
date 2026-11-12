@@ -201,6 +201,25 @@ log (*Profile › Troubleshooting › View logs*, verbose) were read:
   download contains one or more errors"*. The area was marked *Download failed*. A map with a basemap therefore needs
   a tile package related by `Area2Package` for it.
 
+## 5c. A JSON replica *(measured 2026-11-12, one service)*
+
+`createReplica` with `dataFormat=json`, `syncModel=perLayer`, `async=true` and `returnAttachments=true` on the Aecon
+test service (ArcGIS Server 12.1, our own data). The job answered like a SQLite one (`statusUrl`, then `replicaID`,
+`replicaName`, `layerServerGens`, `responseType`, `targetType`, `transportType` and `resultUrl`). The file at
+`resultUrl` is one JSON object:
+
+- `replicaName`, `replicaID`, `targetType` (`client`), `transportType` (`esriTransportTypeUrl`), `responseType`
+  (`esriReplicaResponseTypeData`), `syncModel` (`perLayer`), and `layerServerGens` (`[{id, serverGen}]`).
+- `layers`: one object per layer, `{id, features, attachments}`.
+  - A feature is `{geometry, attributes}`, as in a query answer: Z included, dates as epoch milliseconds, the
+    object id and GlobalID among the attributes.
+  - An attachment is `{attachmentId, globalId, parentGlobalId, contentType, size, name, url}`. The `url` points at
+    a file the server wrote into its job directory, so the bytes are fetched separately rather than embedded.
+
+A registration-only request (`layerQueries` with `queryOption: none` and no attachments) was also sent. Its job had
+not finished when it was read, and it left no replica registered. What Field Maps itself sends to register a package
+is still to be read from the device.
+
 ## 6. The test that matters: a file written without Esri's library
 
 A probe rebuilt two of the captured files using plain SQLite only — schema statements replayed, the two Esri-module
