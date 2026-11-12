@@ -282,7 +282,10 @@ class Network(unittest.TestCase):
             nax.NetworkDataset(self.network).updateNetworkDatasetSchema(
                 custom_evaluators={"Minutes": {"class": "grapy_test_customization.Missing"}})
             self.assertEqual(self.minutes(self.route()), 2.0)
-            self.assertIn("could not be loaded", arcpy.GetMessages())
+            # The run's list (ADR-223), which keeps a warning said outside a tool: since ADR-289 §5.3
+            # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+            self.assertIn("could not be loaded",
+                          "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         finally:
             sys.path.remove(folder)
             sys.modules.pop("grapy_test_customization", None)

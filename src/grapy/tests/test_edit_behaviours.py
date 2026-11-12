@@ -361,7 +361,9 @@ class ViewsAndStatistics(_Base):
         keyed = arcpy.management.CreateDatabaseView(self.gpkg, "keyed", "select fid, name from roads")[0]
         self.assertEqual(self.rows(keyed, "*"), [(1, "a"), (2, "b")])  # OID@ is its first integer field
         self.assertEqual(arcpy.Describe(keyed).OIDFieldName, "fid")
-        self.assertIn("no integer field", arcpy.GetMessages(1))  # 'named' had none
+        # 'named' had none. Read from the run's list: the warning is said when 'named' is read, not by the last tool,
+        # and GetMessages answers the last tool's since ADR-289 §5.3, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("no integer field", "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
 
     def test_a_bad_or_second_statement_is_an_error(self):
         with self.assertRaisesRegex(ExecuteError, "not valid SQL"):

@@ -240,17 +240,27 @@ class Values(unittest.TestCase):
         self.assertEqual(arcpy.GetSystemEnvironment("TEMP"), os.environ.get("TEMP") or os.environ.get("TMP"))
 
     def test_messages_read_back(self):
-        arcpy.AddMessage("a")
-        arcpy.AddWarning("b")
-        arcpy.AddError("c")
-        self.assertEqual((arcpy.GetMessage(1), arcpy.GetSeverity(2), arcpy.GetMaxSeverity()), ("b", 2, 2))
-        self.assertEqual((arcpy.GetReturnCode(0), arcpy.GetReturnCode(2)), (0, -2147467259))
-        self.assertEqual(arcpy.GetAllMessages(), [[0, 0, "a"], [50, 0, "b"], [100, -2147467259, "c"]])
-        arcpy.AddReturnMessage(1)
-        self.assertEqual((arcpy.GetMessageCount(), arcpy.GetSeverity(3), arcpy.GetMessage(3)), (4, 1, "b"))
+        # Since ADR-289 §5.3 the messages read back are the last tool's, as in ArcGIS Pro 3.7 (measured 2026-11-12):
+        # this test read a script's own AddMessage, AddWarning and AddError back, which Pro prints and does not keep.
+        # The tool's own messages and return codes are pinned in test_messages.py.
+        folder = tempfile.mkdtemp()
+        arcpy.management.CreateFeatureclass(folder, "p.gpkg", "POINT", spatial_reference=3857)
+        arcpy.management.GetCount(os.path.join(folder, "p.gpkg"))
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):   # printed, as Pro prints them
+            arcpy.AddMessage("a")
+            arcpy.AddWarning("b")
+            arcpy.AddError("c")
+            self.assertEqual([m[0] for m in arcpy.GetAllMessages()], [2, 3])
+            self.assertEqual((arcpy.GetSeverity(1), arcpy.GetMaxSeverity(), arcpy.GetReturnCode(1)), (0, 0, 0))
+            arcpy.AddReturnMessage(1)
+        self.assertEqual(arcpy.GetMessageCount(), 2)
         self.assertEqual(arcpy.GetSeverityLevel(), 2)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "severity_level 0"):
-            arcpy.SetSeverityLevel(0)
+        # Levels 0 and 1 are built since ADR-289 §5.3 (test_messages.py); this test expected 0 to be refused.
+        with arcpy.SeverityLevel(0):
+            self.assertEqual(arcpy.GetSeverityLevel(), 0)
+        self.assertEqual(arcpy.GetSeverityLevel(), 2)
         # Outside a tool run the arguments are the script's, as ArcGIS Pro 3.7 counts them (measured 2026-11-08, the
         # Pro sweep); this test compared with the empty parameter list before.
         import sys
@@ -410,8 +420,10 @@ class LegacyAndScriptTools(_Folder):
             arcpy.CreateObject("ArcSDESQLExecute")
         with arcpy.SeverityLevel(2):
             self.assertEqual(arcpy.GetSeverityLevel(), 2)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "severity_level 1"):
-            arcpy.SeverityLevel(1)
+        # Level 1 is built since ADR-289 §5.3, measured in ArcGIS Pro 3.7 (2026-11-12); this expected a refusal.
+        with arcpy.SeverityLevel(1):
+            self.assertEqual(arcpy.GetSeverityLevel(), 1)
+        self.assertEqual(arcpy.GetSeverityLevel(), 2)
         self.assertTrue(arcpy.IsSynchronous("Buffer"))
         self.assertTrue(arcpy.Value("").isEmpty)
         self.assertIs(arcpy.SearchNeighborhoodStandardCircular, arcpy.ga.SearchNeighborhoodStandardCircular)

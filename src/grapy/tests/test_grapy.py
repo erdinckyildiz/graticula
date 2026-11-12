@@ -84,9 +84,11 @@ class FeatureClassesAndCursors(unittest.TestCase):
         def Probe(x):
             return x * 2
 
-        before = arcpy.GetMessageCount()
+        # Read from the run's list, which the server's job answers: Probe is not a tool, and since ADR-289 §5.3
+        # GetMessages answers the last tool's messages, as ArcGIS Pro 3.7 does (measured 2026-11-12).
+        before = len(_runtime.MESSAGES)
         self.assertEqual((Probe(2), Probe(3)), (4, 6))
-        said = [arcpy.GetMessage(i) for i in range(before, arcpy.GetMessageCount())]
+        said = [m["description"] for m in _runtime.MESSAGES[before:]]
         self.assertEqual(len(said), 1)
         self.assertIn("equivalent", said[0])
         self.assertIn("Silverman 1986", Probe.__grapy_equivalent__)

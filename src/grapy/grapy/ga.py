@@ -808,7 +808,7 @@ class CrossValidationResult(Result):
                 rows.append((row, float(xs[i]), float(ys[i])))
             out = _write_points(out_point_feature_class, layer.srid, fields, rows)
         super().__init__(out)
-        self.inputCount, self.messageCount, self.maxSeverity, self.resultID = 1, 0, 0, ""
+        self._inputs, self.resultID = [str(in_geostat_layer)], ""  # inputCount 1; its messages are its tool's (ADR-289)
 
 
 def CrossValidation(in_geostat_layer, out_point_feature_class=None):

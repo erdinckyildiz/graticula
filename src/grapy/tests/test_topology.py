@@ -128,6 +128,8 @@ class Topology(unittest.TestCase):
         topo = arcpy.management.CreateTopology(self.fds, "snap", 0.5)[0]
         arcpy.management.AddFeatureClassToTopology(topo, self.parcels, 1, 1)
         arcpy.management.AddFeatureClassToTopology(topo, near, 2, 1)
+        # Said once per run: forgotten here, so this test does not depend on another having cleared the run's list.
+        arcpy._runtime._SAID_EQUIVALENT.discard("ValidateTopology")
         arcpy.management.ValidateTopology(topo)
         # (10.3, 0.2) lies 0.36 from parcels' corner (10, 0) and moves onto it; (10.3, 5) has nothing within 0.5.
         with arcpy.da.SearchCursor(near, ["SHAPE@WKT"]) as rows:
@@ -136,7 +138,10 @@ class Topology(unittest.TestCase):
         with arcpy.da.SearchCursor(self.parcels, ["SHAPE@AREA"]) as rows:
             self.assertEqual(next(rows)[0], 100.0)                      # the better-ranked class does not move
         self.assertTrue(hasattr(arcpy.management.ValidateTopology, "__grapy_equivalent__"))
-        self.assertIn("ValidateTopology is an equivalent", arcpy.GetMessages())
+        # The run's list (ADR-223), where a once-per-run warning stays: since ADR-289 §5.3
+        # GetMessages answers only the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("ValidateTopology is an equivalent",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.management.CreateTopology(self.gpkg, "outside")       # not in a feature dataset
 

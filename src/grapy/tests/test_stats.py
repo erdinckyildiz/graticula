@@ -1010,7 +1010,9 @@ class Stats(unittest.TestCase):
         self.assertAlmostEqual(float(said.split("Coefficient Intercept: ")[1].split(",")[0]), 2.0)
         self.assertAlmostEqual(float(said.split("Coefficient x: ")[1].split(",")[0]), 3.0)
         # The direct impact is β, the total β/(1 − ρ) = 6.
-        self.assertAlmostEqual(float(said.split("Impacts x: ")[1].split("total ")[1]), 6.0)
+        # The line, not the rest of the text: the tool's end line follows it since ADR-289 §5.3, as in ArcGIS Pro 3.7
+        # (measured 2026-11-12).
+        self.assertAlmostEqual(float(said.split("Impacts x: ")[1].split("total ")[1].splitlines()[0]), 6.0)
         for predicted, residual, count in self.rows(out.getOutput(0), ["PREDICTED", "RESIDUAL", "NUM_NBRS"]):
             self.assertAlmostEqual(residual, 0.0)
             self.assertEqual(count, 2)
