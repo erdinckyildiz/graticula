@@ -643,8 +643,11 @@ def _place_components(view, laid, gap, frame):
     return new
 
 
-def _edges(view, new, parent, display, breakpoint, offset, frame=None):
-    """Tree edges drawn from parent to child: REGULAR_EDGES straight; ORTHOGONAL_EDGES broken at ``breakpoint`` per
+def _edges(view, new, parent, display, breakpoint, offset, frame=None, slanted=False):
+    """Tree edges drawn from parent to child: REGULAR_EDGES straight — or, ``slanted`` (the smart and mainline trees),
+    slanting from the parent to ``breakpoint`` per cent along the tree direction at the child's place across it, then
+    straight on to the child: measured in Pro 3.7, 2026-11-12 (the nd sweep), a tree 10 apart drew T (20, −5) → V2
+    (30, −10) through (23, −10) with the default breakpoint of 30; ORTHOGONAL_EDGES broken at ``breakpoint`` per
     cent along the tree direction (0: at the parent's along-position, 100: no break), siblings' crossing segments
     ``offset`` apart; CURVED_EDGES a cubic Bézier through the two inflexion points at N and 100 − N per cent, drawn as
     sixteen segments (INFERRED, §5.9 (e))."""
@@ -671,6 +674,13 @@ def _edges(view, new, parent, display, breakpoint, offset, frame=None):
                 return (along * u[0] + across * v[0], along * u[1] + across * v[1])
 
             coords = [pa, xy(at, pa_v), xy(at, pb_v), pb]
+        elif display == "REGULAR_EDGES" and slanted and parent is not None:
+            aa, ab = pa[0] * u[0] + pa[1] * u[1], pb[0] * u[0] + pb[1] * u[1]
+            vb = pb[0] * v[0] + pb[1] * v[1]
+            at = aa + float(breakpoint) / 100 * (ab - aa)
+            bend = (at * u[0] + vb * v[0], at * u[1] + vb * v[1])
+            # a child straight along from its parent gets no bend (Pro drew S → V1 straight)
+            coords = [pa, pb] if LineString([pa, pb]).distance(Point(bend)) < 1e-9 else [pa, bend, pb]
         elif display == "CURVED_EDGES":
             n = float(breakpoint) / 100
             aa, ab = pa[0] * u[0] + pa[1] * u[1], pb[0] * u[0] + pb[1] * u[1]
@@ -742,8 +752,8 @@ def smart_tree(view, p, margin):
     if p.get("proportional", True):
         new = _fitted(view, new)
     new = _centred(view, new)
-    shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 50.0), offset,
-                    frame)
+    shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 30.0), offset,
+                    frame, slanted=True)
     view.commit(new, shapes, margin=margin)
 
 
@@ -917,8 +927,8 @@ def mainline_tree(view, p, margin):
         coords = mainline(roots[0], children, along, perp, p.get("placement", "BOTH_SIDES"))
         laid.append({roots[0]: coords[roots[0]], **{n: c for n, c in coords.items() if n != roots[0]}})
     new = _place_components(view, laid, _spacing(p, "disjoined", 4.0), frame)
-    shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 50.0), offset,
-                    frame)
+    shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 30.0), offset,
+                    frame, slanted=True)
     view.commit(new, shapes, margin=margin)
 
 

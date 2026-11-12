@@ -88,8 +88,8 @@ class DiagramLayouts(unittest.TestCase):
         # The page: the junctions of the source the where clause selects are reduced as Reduce Junction says; V1 has
         # two connected junctions, S and T, and REDUCE_JCT_TO_2JCTS is the default: it and L1, L2 become one edge S-T.
         self.template()
-        arcpy.un.AddReduceJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'V1'")
-        step = self.last_step("Basic")
+        arcpy.un.AddReduceJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'V1'")
+        step = self.last_step("Blank")
         self.assertEqual((step["kind"], step["rule"], step["active"]), ("rule", "ReduceJunction", True))
         self.assertEqual(step["params"]["selector"], {"by": "attribute", "source": "WaterDevice", "where": "NAME = 'V1'"})
         self.assertEqual((step["params"]["connectivity"], step["params"]["two"], step["params"]["one"]),
@@ -100,14 +100,14 @@ class DiagramLayouts(unittest.TestCase):
         self.assertEqual([(e[1], e[2], e[3]) for e in found["E"] if e[0] == "R"], [("S", "T", [(0, 0), (20, 0)])])
         self.assertIn(["L1", "L2", "V1"], self.aggregated(name).values())
         with self.assertRaises(ExecuteError):  # the junction source is required
-            arcpy.nd.AddReduceJunctionByAttributeRule(self.un, "Basic", "ACTIVE", None, "NAME = 'V1'")
+            arcpy.nd.AddReduceJunctionByAttributeRule(self.un, "Blank", "ACTIVE", None, "NAME = 'V1'")
 
     def test_reduce_junction_by_category_reduces_the_category_s_junctions(self):
         # Isolating is V1's and V2's category. V1 is reduced as above; V2 is the vault's content and stays in it, as
         # the Reduce Junction tests of test_network_diagrams found Pro 3.7 doing. S is a Source, not Isolating.
         self.template()
-        arcpy.nd.AddReduceJunctionByCategoryRule(self.un, "Basic", "ACTIVE", "INCLUDE_CATEGORIES", "Isolating")
-        self.assertEqual(self.last_step("Basic")["params"]["selector"],
+        arcpy.nd.AddReduceJunctionByCategoryRule(self.un, "Blank", "ACTIVE", "INCLUDE_CATEGORIES", "Isolating")
+        self.assertEqual(self.last_step("Blank")["params"]["selector"],
                          {"by": "category", "include": True, "categories": ["Isolating"]})
         found = self.content(self.create())
         self.assertEqual(set(found["J"]), {"S", "T", "V2", "E"})
@@ -118,16 +118,16 @@ class DiagramLayouts(unittest.TestCase):
         arcpy.nd.AddReduceJunctionByCategoryRule(self.un, "Others", "ACTIVE", "EXCLUDE_CATEGORIES", "Isolating")
         self.assertEqual(set(self.content(self.create("Others"))["J"]), {"S", "V1", "T", "V2", "E"})
         with self.assertRaises(ExecuteError):  # including categories needs one
-            arcpy.nd.AddReduceJunctionByCategoryRule(self.un, "Basic", "ACTIVE", "INCLUDE_CATEGORIES", None)
+            arcpy.nd.AddReduceJunctionByCategoryRule(self.un, "Blank", "ACTIVE", "INCLUDE_CATEGORIES", None)
 
     def test_remove_feature_by_category_removes_the_category_s_junctions(self):
         # V1 and V2 (Isolating) removed; a removed junction takes its edges (INFERRED, ADR-232 §5.9 (c)): L1, L2, L3.
         # The vault, left empty, is drawn as a junction: a polygon only with SAVE_EMPTY_CONTAINER_AS_POLYGON_IF_
         # UNCONNECTED, as the Add Diagram Feature Capability pages offer it.
         self.template()
-        arcpy.nd.AddRemoveFeatureByCategoryRule(self.un, "Basic", "ACTIVE", "JUNCTIONS", "INCLUDE_CATEGORIES",
+        arcpy.nd.AddRemoveFeatureByCategoryRule(self.un, "Blank", "ACTIVE", "JUNCTIONS", "INCLUDE_CATEGORIES",
                                                 ["Isolating"])
-        step = self.last_step("Basic")
+        step = self.last_step("Blank")
         self.assertEqual((step["rule"], step["params"]["source_type"], step["params"]["selector"]["categories"]),
                          ("RemoveFeature", "JUNCTIONS", ["Isolating"]))
         found = self.content(self.create())
@@ -143,8 +143,8 @@ class DiagramLayouts(unittest.TestCase):
         # The page: the container's content is aggregated into it and the edges from the content reconnected to it,
         # by default as one reduction edge: VA becomes a junction at its point (30, 0), V2 goes, L3 becomes T-VA.
         self.template()
-        arcpy.un.AddCollapseContainerByAttributeRule(self.un, "Basic", "ACTIVE", self.vault, "NAME = 'VA'")
-        step = self.last_step("Basic")
+        arcpy.un.AddCollapseContainerByAttributeRule(self.un, "Blank", "ACTIVE", self.vault, "NAME = 'VA'")
+        step = self.last_step("Blank")
         self.assertEqual((step["rule"], step["params"]["selector"], step["params"]["aggregate"]),
                          ("CollapseContainer", {"by": "attribute", "source": "StructureJunction",
                                                 "where": "NAME = 'VA'"}, True))
@@ -161,9 +161,9 @@ class DiagramLayouts(unittest.TestCase):
     def test_collapse_and_expand_container_by_category(self):
         self.chamber()
         self.template()
-        arcpy.nd.AddCollapseContainerByCategoryRule(self.un, "Basic", "ACTIVE", "BOTH", "INCLUDE_CATEGORIES",
+        arcpy.nd.AddCollapseContainerByCategoryRule(self.un, "Blank", "ACTIVE", "BOTH", "INCLUDE_CATEGORIES",
                                                     ["Chamber"])
-        self.assertEqual(self.last_step("Basic")["params"]["selector"],
+        self.assertEqual(self.last_step("Blank")["params"]["selector"],
                          {"by": "category", "include": True, "categories": ["Chamber"]})
         found = self.content(self.create())
         self.assertEqual((found["C"], found["J"]["VA"]), ({}, (30, 0)))
@@ -196,12 +196,12 @@ class DiagramLayouts(unittest.TestCase):
         # say which junctions it is set on by their count of connected junctions; V1 has two, so DO_NOT_APPLY at
         # valence 2 leaves V1 reducible.
         self.template()
-        arcpy.nd.AddDiagramFeatureCapabilityByCategoryRule(self.un, "Basic", "ACTIVE", "INCLUDE_CATEGORIES",
+        arcpy.nd.AddDiagramFeatureCapabilityByCategoryRule(self.un, "Blank", "ACTIVE", "INCLUDE_CATEGORIES",
                                                            ["Isolating"], "PREVENT_TO_REDUCE_JUNCTION")
-        step = self.last_step("Basic")
+        step = self.last_step("Blank")
         self.assertEqual((step["rule"], step["params"]["capability"], step["params"]["valences"]),
                          ("Capability", "PREVENT_TO_REDUCE_JUNCTION", [True, True, True, True]))
-        arcpy.nd.AddReduceJunctionRule(self.un, "Basic", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
+        arcpy.nd.AddReduceJunctionRule(self.un, "Blank", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
         found = self.content(self.create())
         self.assertIn("V1", found["J"])
         self.assertEqual([e for e in found["E"] if e[0] == "R"], [])
@@ -231,8 +231,8 @@ class DiagramLayouts(unittest.TestCase):
         arcpy.un.ValidateNetworkTopology(self.un)
         self.template()
         self.assertEqual(len(self.content(self.create())["E"]), 4)  # without the rule, no attachment edge
-        arcpy.un.AddStructuralAttachmentsRule(self.un, "Basic")
-        step = self.last_step("Basic")
+        arcpy.un.AddStructuralAttachmentsRule(self.un, "Blank")
+        step = self.last_step("Blank")
         self.assertEqual((step["kind"], step["rule"], step["active"], step["params"]),
                          ("rule", "StructuralAttachments", True, {}))
         edges = self.content(self.create())["E"]
@@ -252,10 +252,10 @@ class DiagramLayouts(unittest.TestCase):
         # ITERATIVE_DISTANCE moves V1 toward its even place, midway on S-T at x 10, by an equal share of the maximum
         # shift per iteration (INFERRED, _ndlayout.linear_dispatch): 2 junction sizes over 2 iterations, 1 each: x 8.
         self.template()
-        arcpy.un.AddLinearDispatchLayout(self.un, "Basic", "ACTIVE", "ITERATIVE_DISTANCE", "PROPORTIONAL_UNIT",
+        arcpy.un.AddLinearDispatchLayout(self.un, "Blank", "ACTIVE", "ITERATIVE_DISTANCE", "PROPORTIONAL_UNIT",
                                          maximum_shift_proportional=2, iterations_number=2,
                                          is_path_preserved="IGNORE_PATH")
-        self.assertEqual(self.last_step("Basic"), {"kind": "layout", "layout": "LinearDispatch", "active": True,
+        self.assertEqual(self.last_step("Blank"), {"kind": "layout", "layout": "LinearDispatch", "active": True,
                                                    "params": {"placement": "ITERATIVE_DISTANCE", "maximum_shift": 2.0,
                                                               "iterations": 2, "preserve_path": False}})
         found = self.content(self.create())
@@ -269,8 +269,8 @@ class DiagramLayouts(unittest.TestCase):
         # A separation of 7 junction sizes (INFERRED, _ndlayout.spatial_dispatch): only S and V1 are nearer, 6 apart;
         # each is pushed half the shortfall, 0.5, away from the other.
         self.template()
-        arcpy.un.AddSpatialDispatchLayout(self.un, "Basic", "ACTIVE", None, 1, 7)
-        self.assertEqual(self.last_step("Basic")["params"], {"iterations": 1, "maximum_shift_factor": 7.0})
+        arcpy.un.AddSpatialDispatchLayout(self.un, "Blank", "ACTIVE", None, 1, 7)
+        self.assertEqual(self.last_step("Blank")["params"], {"iterations": 1, "maximum_shift_factor": 7.0})
         found = self.content(self.create())["J"]
         self.assertEqual((found["S"], found["V1"], found["T"], found["E"]), ((-0.5, 0), (6.5, 0), (20, 0), (20, 10)))
 
@@ -278,9 +278,9 @@ class DiagramLayouts(unittest.TestCase):
         # Groups by edges of 6 m or less: {S, V1} (centre 3, 0), {T}, {V2}, {E}. The x gaps 3→20→30 shrink to 6 and
         # the whole keeps its middle: 3, 20, 30 → 10.5, 16.5, 22.5; y 0→10 → 2, 8. ALL removes every edge vertex.
         self.template()
-        arcpy.nd.AlterDiagramTemplate(self.un, "Basic", are_vertices_kept="KEEP_VERTICES")
-        arcpy.un.AddCompressionLayout(self.un, "Basic", "ACTIVE", None, "6 Meters", "ALL")
-        self.assertEqual(self.last_step("Basic")["params"], {"grouping_distance": 6.0, "vertices_removal": "ALL"})
+        arcpy.nd.AlterDiagramTemplate(self.un, "Blank", are_vertices_kept="KEEP_VERTICES")
+        arcpy.un.AddCompressionLayout(self.un, "Blank", "ACTIVE", None, "6 Meters", "ALL")
+        self.assertEqual(self.last_step("Blank")["params"], {"grouping_distance": 6.0, "vertices_removal": "ALL"})
         found = self.content(self.create())
         self.assertEqual(found["J"], {"S": (7.5, 2), "V1": (13.5, 2), "T": (16.5, 2), "V2": (22.5, 2), "E": (16.5, 8)})
         self.assertEqual({e[0]: e[3] for e in found["E"]}["L2"], [(13.5, 2), (16.5, 2)])
@@ -290,8 +290,8 @@ class DiagramLayouts(unittest.TestCase):
         # _ndlayout.angle_directed): four directions, nearest 0 → F at (27.2111, 0); eight, nearest 45 → (25.099, 5.099).
         self.branch()
         self.template()
-        arcpy.un.AddAngleDirectedLayout(self.un, "Basic", "ACTIVE", None, 1, "FOUR_DIRECTIONS")
-        self.assertEqual(self.last_step("Basic")["params"], {"iterations": 1, "directions": "FOUR_DIRECTIONS"})
+        arcpy.un.AddAngleDirectedLayout(self.un, "Blank", "ACTIVE", None, 1, "FOUR_DIRECTIONS")
+        self.assertEqual(self.last_step("Blank")["params"], {"iterations": 1, "directions": "FOUR_DIRECTIONS"})
         found = self.content(self.create())["J"]
         length = math.hypot(6, 4)
         self.near(found["F"], (20 + length, 0), 5)
@@ -307,8 +307,8 @@ class DiagramLayouts(unittest.TestCase):
         arcpy.management.MakeFeatureLayer(self.line, "lines")
         arcpy.management.SelectLayerByAttribute("lines", "NEW_SELECTION", "NAME = 'L4'")
         self.template()
-        arcpy.un.AddForceDirectedLayout(self.un, "Basic", "ACTIVE", None, 1, 2, "LOW")
-        self.assertEqual(self.last_step("Basic")["params"], {"iterations": 1, "repel_factor": 2.0,
+        arcpy.un.AddForceDirectedLayout(self.un, "Blank", "ACTIVE", None, 1, 2, "LOW")
+        self.assertEqual(self.last_step("Blank")["params"], {"iterations": 1, "repel_factor": 2.0,
                                                              "degree_freedom": "LOW"})
         found = self.content(self.create(features=["lines"]))["J"]
         self.assertEqual(found, {"T": (20, -1), "E": (20, 11)})
@@ -324,10 +324,10 @@ class DiagramLayouts(unittest.TestCase):
         # branch from the root: S, V1, T and one of V2 or E (equally deep, the lower feature id, INFERRED) at x 0, 3, 6,
         # 9; the other leaves T as a branch on the left, 4 across: (6, 4).
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
-        arcpy.un.AddMainlineTreeLayout(self.un, "Basic", "ACTIVE", None, "FROM_LEFT_TO_RIGHT", "LEFT_SIDE",
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.un.AddMainlineTreeLayout(self.un, "Blank", "ACTIVE", None, "FROM_LEFT_TO_RIGHT", "LEFT_SIDE",
                                        "ABSOLUTE_UNIT", "4 Meters", None, "3 Meters")
-        self.assertEqual(self.last_step("Basic")["params"], {"direction": "FROM_LEFT_TO_RIGHT", "placement": "LEFT_SIDE",
+        self.assertEqual(self.last_step("Blank")["params"], {"direction": "FROM_LEFT_TO_RIGHT", "placement": "LEFT_SIDE",
                                                              "perpendicular": 4.0, "along": 3.0})
         found = self.content(self.create())["J"]
         self.assertEqual([found[n] for n in ("S", "V1", "T")], [(0, 0), (3, 0), (6, 0)])
@@ -338,9 +338,9 @@ class DiagramLayouts(unittest.TestCase):
         # each the one child of their parent: the middle of the whole circle, angle π; E and V2 split T's wedge in
         # halves, at π/2 and 3π/2 on the third circle.
         self.template()
-        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
-        arcpy.un.AddRadialTreeLayout(self.un, "Basic", "ACTIVE", None, "ABSOLUTE_UNIT", "4 Meters", radius_factor=2)
-        self.assertEqual(self.last_step("Basic")["params"], {"initial_radius": 4.0, "radius_factor": 2.0})
+        arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Blank", "ACTIVE", self.device, "NAME = 'S'")
+        arcpy.un.AddRadialTreeLayout(self.un, "Blank", "ACTIVE", None, "ABSOLUTE_UNIT", "4 Meters", radius_factor=2)
+        self.assertEqual(self.last_step("Blank")["params"], {"initial_radius": 4.0, "radius_factor": 2.0})
         found = self.content(self.create())["J"]
         self.assertEqual((found["S"], found["V1"], found["T"]), ((0, 0), (-4, 0), (-12, 0)))
         self.assertEqual(sorted([found["E"], found["V2"]]), [(0, -28), (0, 28)])
@@ -350,9 +350,9 @@ class DiagramLayouts(unittest.TestCase):
         # circle of radius 6 — the three are 120 degrees apart, the lowest feature id due east (INFERRED); S and V2
         # hang outward from V1 and T, one level of 2 further from the centre.
         self.template()
-        arcpy.un.AddMainRingLayout(self.un, "Basic", "ACTIVE", None, "ELLIPSE", "PROPORTIONAL_UNIT",
+        arcpy.un.AddMainRingLayout(self.un, "Blank", "ACTIVE", None, "ELLIPSE", "PROPORTIONAL_UNIT",
                                    ring_width_proportional=12, ring_height_proportional=12)
-        self.assertEqual(self.last_step("Basic")["params"], {"ring_type": "ELLIPSE", "ring_width": 12.0,
+        self.assertEqual(self.last_step("Blank")["params"], {"ring_type": "ELLIPSE", "ring_width": 12.0,
                                                              "ring_height": 12.0})
         no_loop = self.create()
         self.assertEqual(self.content(no_loop)["J"]["V1"], (6, 0))  # no loop: the page says no effect
@@ -385,8 +385,8 @@ class DiagramLayouts(unittest.TestCase):
         # junctions and gaining a vertex at each end.
         self.lines([("L6", 1, 1, "LINESTRING(6 0, 13 1, 20 0)")])
         self.template()
-        arcpy.un.AddPartialOverlappingEdgesLayout(self.un, "Basic", "INACTIVE", "0.5 Meters", "2 Meters")
-        self.assertEqual(self.last_step("Basic"), {"kind": "layout", "layout": "PartialOverlappingEdges",
+        arcpy.un.AddPartialOverlappingEdgesLayout(self.un, "Blank", "INACTIVE", "0.5 Meters", "2 Meters")
+        self.assertEqual(self.last_step("Blank"), {"kind": "layout", "layout": "PartialOverlappingEdges",
                                                    "active": False, "params": {"buffer_width": 0.5, "offset": 2.0}})
         name = self.create()
         edges = {e[0]: e[3] for e in self.content(name)["E"]}
@@ -415,10 +415,10 @@ class DiagramLayouts(unittest.TestCase):
     def test_reshape_edges_preset_and_apply(self):
         # REMOVE_VERTICES: L2, drawn with its vertex (13, 0) when vertices are kept, loses it.
         self.template()
-        arcpy.nd.AlterDiagramTemplate(self.un, "Basic", are_vertices_kept="KEEP_VERTICES")
+        arcpy.nd.AlterDiagramTemplate(self.un, "Blank", are_vertices_kept="KEEP_VERTICES")
         self.assertEqual({e[0]: e[3] for e in self.content(self.create())["E"]}["L2"], [(6, 0), (13, 0), (20, 0)])
-        arcpy.un.AddReshapeDiagramEdgesLayout(self.un, "Basic", "ACTIVE", None, "REMOVE_VERTICES")
-        self.assertEqual(self.last_step("Basic")["params"], {"reshape_type": "REMOVE_VERTICES"})
+        arcpy.un.AddReshapeDiagramEdgesLayout(self.un, "Blank", "ACTIVE", None, "REMOVE_VERTICES")
+        self.assertEqual(self.last_step("Blank")["params"], {"reshape_type": "REMOVE_VERTICES"})
         self.assertEqual({e[0]: e[3] for e in self.content(self.create())["E"]}["L2"], [(6, 0), (20, 0)])
         # REDUCE_VERTICES_BY_ANGLE: the vertex (13, 0) is a straight angle, 180 >= 160 → removed.
         self.template("Kept")

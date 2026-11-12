@@ -628,8 +628,9 @@ def _include_categories(value, categories):
     include = _choice(value, ("INCLUDE_CATEGORIES", "EXCLUDE_CATEGORIES"), "EXCLUDE_CATEGORIES",
                       "inverse_category_selection") == "INCLUDE_CATEGORIES"
     names = [str(c) for c in _rows(categories)]
-    if include and not names:
-        raise ExecuteError("ERROR 000735: at least one category is required with INCLUDE_CATEGORIES.")
+    if not names:
+        # with EXCLUDE_CATEGORIES too: Pro 3.7 refuses every by-category rule without one (measured 2026-11-12)
+        raise ExecuteError("ERROR 000735: Network Categories: Value is required.")
     return {"by": "category", "include": include, "categories": names}
 
 
@@ -1036,6 +1037,9 @@ def AddDiagramFeatureSelectionToLayout(in_network, template_name, is_active="ACT
         params.update(source=_class_name(source_by_attribute), where=_where(where_clause))
     elif kind == "SELECT_BY_CATEGORY":
         params["categories"] = [str(c) for c in _rows(category)]
+        if not params["categories"]:
+            # Pro 3.7 answers ERROR 000663 (empty parameter) for a selection by category with none (measured 2026-11-12)
+            raise ExecuteError("ERROR 000663: Empty parameter: category.")
     else:
         params["sources"] = [_class_name(s) for s in _rows(network_source)]
     a = dict(locals())

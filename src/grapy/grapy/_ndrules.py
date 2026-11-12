@@ -200,7 +200,11 @@ def _trace(builder, d, p, ctx):
                                  p.get("output_conditions", []))
     keys = _untrace.features(graph, ids)
     keys = _untrace.related(graph, keys, False, False, p.get("include_structures", False))
-    d.features.clear()
+    # What the trace returns is added to the diagram, not put in its place: measured in Pro 3.7, 2026-11-12 (the nd
+    # sweep) — an upstream trace from V2 of a diagram of every feature kept the branch T–E and the pole the trace does
+    # not reach, and a diagram of one line traced CONNECTED holds the whole network. The connectivity associations
+    # between features the trace returns come with them, as edges from their from feature to their to feature (Pro drew
+    # T–V1 so without a Connectivity Associations rule).
     builder.add_elements(d, ids)
     bare = {k for k in keys if not graph.by_feature.get(k)}
     wanted = set(bare)
@@ -211,6 +215,7 @@ def _trace(builder, d, p, ctx):
             holder = builder.container_of.get(holder)
     builder.add_features(d, wanted)
     builder.link_containers(d)
+    _associations(builder, d, p, ctx, among=keys)
 
 
 # ---- adding --------------------------------------------------------------------------------------------------------
@@ -260,17 +265,26 @@ def _spatial_query(builder, d, p, ctx):
         if any(_relates(p["overlap"], shape, s, p.get("distance")) for s in shapes):
             wanted.add(g)
     if wanted:
-        builder.add_features(d, wanted)
-        builder.link_containers(d)
+        # with the containers above them, as a diagram's input has (Pro 3.7, measured 2026-11-12: V2 added within 15 m
+        # of a tee brought its vault in)
+        builder.initial(d, wanted)
 
 
-def _associations(builder, d, p, ctx, kind=1):
+def _associations(builder, d, p, ctx, kind=1, among=None):
     """Connectivity associations (or structural attachments) between two junctions already in the diagram, drawn as
-    straight edges from the association's from feature to its to feature."""
+    straight edges. A structural attachment goes from the structure to the attached feature. A connectivity association
+    drawn by the rule goes from the end that is first in the diagram (the lower diagram feature id) — Pro 3.7, measured
+    2026-11-12, drew the association imported from the tee T to the valve V1 as V1 → T, where V1's id is the lower;
+    INFERRED that the id is the rule, one association not telling it from the class's source id, which orders the two
+    the same way. One a trace returns (``among``: the graph keys it returned) goes from its from feature to its to
+    feature, as Pro drew the same association T → V1 then."""
     _, by_key = builder.index(d)
     drawn = {f.association for f in d.features.values() if f.association}
     for row in builder.graph.associations:
         if int(row["type"]) != kind or str(row["globalid"]).upper() in drawn:
+            continue
+        if among is not None and not {builder.by_globalid.get(str(row[f"{end}_globalid"]).upper())
+                                      for end in ("from", "to")} <= set(among):
             continue
         a = by_key.get((_source_of(builder, row["from_globalid"]), str(row["from_globalid"]).upper()))
         b = by_key.get((_source_of(builder, row["to_globalid"]), str(row["to_globalid"]).upper()))
@@ -280,7 +294,7 @@ def _associations(builder, d, p, ctx, kind=1):
             continue
         e = d.add("E", source=ASSOCIATION_SOURCE, globalid=str(row["globalid"]).upper())
         e.association = str(row["globalid"]).upper()
-        e.from_id, e.to_id = a[0], b[0]
+        e.from_id, e.to_id = (min(a[0], b[0]), max(a[0], b[0])) if kind == 1 and among is None else (a[0], b[0])
 
 
 def _source_of(builder, globalid):
