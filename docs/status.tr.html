@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>abe6d6bf</code> · 2026-11-12 07:28</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d122d218</code> · 2026-11-12 07:42</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">284</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">687/737</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">285</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">687/740</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">42 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">331 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,13 +126,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">63 madde</span></div><p><b>39 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">66 madde</span></div><p><b>42 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-289 · The owner&#x27;s four answers after the</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
@@ -463,6 +464,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">284</td><td>Contributor and Mobile Worker, as ArcGIS has them: one ceiling, two names</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/1</td></tr>
 <tr><td class="id">285</td><td>Graticula does not provide ArcGIS Pro licences</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">286</td><td>ArcGIS Field Maps tasks are turned on from a map&#x27;s Settings in Studio</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
+<tr><td class="id">289</td><td>The owner&#x27;s four answers after the Pro sweep: Pro&#x27;s column names, Pro&#x27;s messages, Pro&#x27;s attachment keys, and the page over Pro</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -677,6 +679,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d122d218</code><time>2026-11-12</time><span>Debt rows for the differences the Pro sweep left open (D-409 to D-419)</span></li>
 <li><code>abe6d6bf</code><time>2026-11-12</time><span>Merge branch &#x27;sweep-nd&#x27; into pro-sweep</span></li>
 <li><code>ad4bbaf2</code><time>2026-11-12</time><span>Pro sweep: arcpy.nd results; layouts, export and partial overlapping edges as Pro 3.7 draws them</span></li>
 <li><code>3b9e060c</code><time>2026-11-12</time><span>Merge branch &#x27;sweep-un&#x27; into pro-sweep</span></li>
@@ -690,7 +693,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4508b064</code><time>2026-11-12</time><span>Merge branch &#x27;pro-sweep&#x27; into sweep-na</span></li>
 <li><code>7b80062f</code><time>2026-11-12</time><span>ListFeatureClasses lists a feature dataset&#x27;s classes as Pro does</span></li>
 <li><code>86d98cd5</code><time>2026-11-12</time><span>Merge branch &#x27;sweep-gaparcel&#x27; into pro-sweep</span></li>
-<li><code>2f45b336</code><time>2026-11-12</time><span>Pro sweep: arcpy.na against ArcGIS Pro 3.7; Length on the ellipsoid, Pro&#x27;s sublayer schemas</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
