@@ -59,6 +59,7 @@ class Upgrade(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.mark = len(_runtime.MESSAGES)   # other tests' messages are left alone: some read them later
         _gpkgupgrade._SAID.clear()

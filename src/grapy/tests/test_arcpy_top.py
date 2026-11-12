@@ -33,7 +33,9 @@ class _Folder(unittest.TestCase):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
+        self.addCleanup(setattr, arcpy.env, "scratchWorkspace", arcpy.env.scratchWorkspace)
         arcpy.env.scratchWorkspace = self.directory
         self.pts = os.path.join(self.directory, "pts.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "pts.gpkg", "POINT", spatial_reference=3857)
@@ -70,6 +72,7 @@ class Workspace(_Folder):
         self.assertEqual(arcpy.ListWorkspaces(), [os.path.join(d, n) for n in ("multi.gpkg", "pts.gpkg", "sub", "t.gpkg")])
         self.assertEqual(arcpy.ListWorkspaces("*", "Folder"), [os.path.join(d, "sub")])
         self.assertEqual(arcpy.ListFiles("*.csv"), ["x.csv"])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = os.path.join(d, "multi.gpkg")
         self.assertEqual(arcpy.ListFeatureClasses(), ["parcels", "roads"])
         self.assertEqual(arcpy.ListFiles(), [])

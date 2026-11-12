@@ -69,6 +69,7 @@ class Conformance(unittest.TestCase):
         self.assertEqual(list(arcpy.da.SearchCursor(f"{self.file}/attrs", ["OID@", "NAME"])), [(1, "a")])
 
     def test_a_table_is_listed_as_a_table(self):
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.file
         self.assertIn("attrs", arcpy.ListTables())
         self.assertNotIn("attrs", arcpy.ListFeatureClasses())

@@ -43,7 +43,9 @@ class Base(unittest.TestCase):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
+        self.addCleanup(setattr, arcpy.env, "scratchWorkspace", arcpy.env.scratchWorkspace)
         arcpy.env.scratchWorkspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "lrs")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "LRS", 3857)[0]
@@ -775,6 +777,7 @@ class UtilityNetwork(unittest.TestCase):
     def test_configure_utility_network_classes(self):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = arcpy.env.scratchWorkspace = directory
         gpkg = arcpy.management.CreateFileGDB(directory, "un")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "net", 3857)[0]

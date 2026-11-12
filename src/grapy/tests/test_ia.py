@@ -34,6 +34,7 @@ class ImageAnalyst(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.bands = ia.CompositeBand([grid([[0.1, 0.2]]), grid([[0.2, 0.2]]), grid([[0.3, 0.0]]), grid([[0.5, 0.0]])])

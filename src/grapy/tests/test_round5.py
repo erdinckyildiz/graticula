@@ -15,6 +15,7 @@ class Round5(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.parcels = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POINT", spatial_reference=3857)
@@ -110,6 +111,7 @@ class TopLevelListVersions(unittest.TestCase):
         gpkg = arcpy.management.CreateFileGDB(directory, "versions")[0]
         arcpy.management.CreateVersion(gpkg, "DEFAULT", "edit", "PUBLIC")
         self.assertEqual(arcpy.ListVersions(gpkg), ["DEFAULT", "edit"])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = gpkg
         self.assertEqual(arcpy.ListVersions(), ["DEFAULT", "edit"])
 

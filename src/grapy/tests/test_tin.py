@@ -30,6 +30,7 @@ class Tin(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
         self.points = self.feature_class("pts", "POINT", [(0, 0, 0), (10, 0, 10), (10, 10, 20), (0, 10, 10), (5, 5, 10)])
@@ -343,6 +344,7 @@ class ConstrainedDelaunay(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
         corners = [(0, 0), (10, 0), (10, 10), (0, 10), (5, 4.5), (5, 5.5)]
@@ -446,6 +448,7 @@ class LandXmlAndDifference(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "data")[0]
 

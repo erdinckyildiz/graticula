@@ -17,6 +17,7 @@ class Relationships(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "grid")[0]
         self.poles = arcpy.management.CreateFeatureclass(self.gpkg, "poles", "POINT", spatial_reference=3857)[0]

@@ -19,6 +19,7 @@ class Topology(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "land")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "fds", 3857)[0]
@@ -146,6 +147,7 @@ class SubtypeRules(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "land")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "fds", 3857)[0]

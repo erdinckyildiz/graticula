@@ -23,6 +23,7 @@ class DaMore(unittest.TestCase):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.fc = os.path.join(self.directory, "pts.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "pts.gpkg", "POINT", spatial_reference=3857)

@@ -36,6 +36,7 @@ class Ddd(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         # z = x: a plane rising 10 per 10-unit cell to the east — 45° of slope facing west.
