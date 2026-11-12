@@ -272,7 +272,7 @@ serves the same shape. None was stated by the owner.
    written against it. **DISCHARGED 2026-11-10**: research note §5b, from an upload Field Maps 26.2.2 sent after an offline
    insert, update and delete; the reader written against the download's shape read it, and all three were applied.
 3. **Preplanned map areas** are measured on an Enterprise portal (their items, relationships and packaging), then
-   served and downloaded by Field Maps. **PARTLY DISCHARGED 2026-11-12.** *Measured:* research note §5a — the items, the
+   served and downloaded by Field Maps. **DISCHARGED 2026-11-12**, end to end on the device (last paragraph). *Measured:* research note §5a — the items, the
    relationships, the replica behind a package and the properties that describe it, read on one Enterprise portal.
    *Built* (§11a, branch `offline-preplanned`, migration 139): `POST /admin/maps/{id}/areas` writes an area and one registered
    `perLayer` replica per sync-enabled feature service of the map, inside the area, as items of type `Map Area` and
@@ -295,7 +295,7 @@ serves the same shape. None was stated by the owner.
    its own replica. `INFERRED`: the JSON shape of the answer (empty `features`/`attachments`), that other parameters sent
    beside `registerExistingData` are ignored, and that a layer starts at the lesser of its stored generation and the
    reference's creation moment (a package is the data as of then, even if its packager has synced since). An upload names
-   no replica id the server checks; it matches rows by layer and GlobalID. [D-410](../architecture-debt.md) keeps the rest.
+   no replica id the server checks; it matches rows by layer and GlobalID. [D-410](../architecture-debt.md) keeps the rest. **Measured end to end on the device the same morning** (research note §5a): Field Maps 26.2.2 downloaded the area with its geodatabase and its VTPK. It registered its own replica and synced, collected a point with the network off that reached the server, and received a point added on the server. Two more repairs were needed on the way: the area's extent is stated in its map's reference, and a tile package's `fullExtent` is grown to cover the area it was exported for.
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
    **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On

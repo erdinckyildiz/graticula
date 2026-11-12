@@ -212,6 +212,16 @@ log (*Profile › Troubleshooting › View logs*, verbose) were read:
   Maps logged *"Layer: probe tiles - Error: Not found. Missing preplanned vector tile package"* and then *"The map
   download contains one or more errors"*. The area was marked *Download failed*. A map with a basemap therefore needs
   a tile package related by `Area2Package` for it.
+- **End to end, the same morning, once the server answered all of the above.** The area (a 442 kB geodatabase and a
+  6.2 MB VTPK) downloaded. Registration answered 200, and the device then asked `replicas/{its new id}` and ran a first
+  `synchronizeReplica`. With the network off, a point collected on the phone reached the server at the next *Sync
+  now*, and a point added on the server meanwhile appeared on the phone.
+- **Two more things the device needed, found on the way:**
+  - **The area's extent is stated in its map's reference.** An extent kept in degrees for a Web Mercator map made
+    Field Maps refuse every location in the area (*"The location is outside the map area"*).
+  - **The tile package's `fullExtent` must cover the area.** Field Maps confines locations to the basemap package's
+    full extent. Graticula's package kept the service's, which is the extent of its data (a few kilometres), so a
+    location inside the area but outside the data was refused. The same location inside the data was taken.
 
 ## 5c. A JSON replica *(measured 2026-11-12, one service)*
 

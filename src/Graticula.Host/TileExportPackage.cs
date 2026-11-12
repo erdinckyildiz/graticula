@@ -199,6 +199,29 @@ internal static class TileExportPackage
             .ConfigureAwait(false);
     }
 
+    /// <summary>Grows a service document's <c>fullExtent</c> to cover an area in the same reference; leaves it when absent.</summary>
+    /// <param name="document">The service document.</param>
+    /// <param name="minX">The area's west.</param>
+    /// <param name="minY">The area's south.</param>
+    /// <param name="maxX">The area's east.</param>
+    /// <param name="maxY">The area's north.</param>
+    internal static void CoverArea(JsonObject document, double minX, double minY, double maxX, double maxY)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        if (document["fullExtent"] is JsonObject full
+            && full["xmin"] is JsonValue fx && fx.TryGetValue(out double fullXMin)
+            && full["ymin"] is JsonValue fy && fy.TryGetValue(out double fullYMin)
+            && full["xmax"] is JsonValue gx && gx.TryGetValue(out double fullXMax)
+            && full["ymax"] is JsonValue gy && gy.TryGetValue(out double fullYMax))
+        {
+            full["xmin"] = Math.Min(fullXMin, minX);
+            full["ymin"] = Math.Min(fullYMin, minY);
+            full["xmax"] = Math.Max(fullXMax, maxX);
+            full["ymax"] = Math.Max(fullYMax, maxY);
+        }
+    }
+
     /// <summary>The documents a VTPK of this service carries — the served ones, adjusted as the type's remarks say.</summary>
     internal static async Task<VtpkDocuments> VtpkDocumentsAsync(
         PublishedService service,
@@ -240,7 +263,14 @@ internal static class TileExportPackage
             }
         }
 
-        // The area exported is where a client opens it; the full extent stays the service's.
+        // The full extent is the service's, grown to cover the area exported. Measured 2026-11-12: Field Maps refused a
+        // location inside a preplanned area — "The location is outside the map area" — because the package's full extent
+        // was the service's data extent, a few kilometres, and the area was larger; it took one inside that extent.
+        // A service here states the extent of its data, where an Esri basemap states the world, so a package that keeps
+        // the service's alone confines a device to the data.
+        CoverArea(document, plan.Area.MinX, plan.Area.MinY, plan.Area.MaxX, plan.Area.MaxY);
+
+        // The area exported is where a client opens it.
         document["initialExtent"] = new JsonObject
         {
             ["xmin"] = plan.Area.MinX,

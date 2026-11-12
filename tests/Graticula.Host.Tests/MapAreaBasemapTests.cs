@@ -93,6 +93,32 @@ public sealed class MapAreaBasemapTests : IDisposable
     }
 
     [Fact]
+    public void A_tile_packages_full_extent_covers_the_area_it_was_exported_for()
+    {
+        // Measured 2026-11-12: the package kept the service's data extent (a few kilometres), and Field Maps refused a
+        // location inside the larger area as outside the map.
+        System.Text.Json.Nodes.JsonObject document = new()
+        {
+            ["fullExtent"] = new System.Text.Json.Nodes.JsonObject { ["xmin"] = 3224925.0, ["ymin"] = 5012341.0, ["xmax"] = 3227152.0, ["ymax"] = 5015292.0 },
+        };
+
+        TileExportPackage.CoverArea(document, 3217133, 5004969, 3239397, 5027102);
+
+        System.Text.Json.Nodes.JsonNode full = document["fullExtent"]!;
+        Assert.Equal(3217133, full["xmin"]!.GetValue<double>());
+        Assert.Equal(5004969, full["ymin"]!.GetValue<double>());
+        Assert.Equal(3239397, full["xmax"]!.GetValue<double>());
+        Assert.Equal(5027102, full["ymax"]!.GetValue<double>());
+
+        // An area inside the service's extent leaves it as it was, and a document without one is left alone.
+        TileExportPackage.CoverArea(document, 3220000, 5010000, 3230000, 5020000);
+        Assert.Equal(3217133, document["fullExtent"]!["xmin"]!.GetValue<double>());
+        System.Text.Json.Nodes.JsonObject bare = [];
+        TileExportPackage.CoverArea(bare, 0, 0, 1, 1);
+        Assert.Null(bare["fullExtent"]);
+    }
+
+    [Fact]
     public void A_vector_tile_basemap_that_names_only_its_style_is_found_by_its_style()
     {
         // Measured 2026-11-12 on dev: the probe map's basemap had no url, only a styleUrl, and the area skipped it.
