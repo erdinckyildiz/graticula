@@ -31,32 +31,35 @@ import enum
 from shapely.ops import substring
 
 
-class TraversedElementType(enum.Enum):
-    """The kinds of traversed element, numbered in the order the page lists them (INFERRED: the page gives no values)."""
-    Edge = 0
-    Elevator = 1
-    Escalator = 2
-    Ferry = 3
-    Hallway = 4
-    HighwayRoad = 5
-    Indoor = 6
-    Junction = 7
-    MajorRoad = 8
-    MovingWalkway = 9
-    PedestrianRamp = 10
-    Ramp = 11
-    RestBreak = 12
-    Road = 13
-    RoadIntersection = 14
-    RoundaboutRoad = 15
-    SailingLine = 16
-    Stairs = 17
-    Stop = 18
-    Transit = 19
-    Turn = 20
-    TurningArc = 21
-    Walkway = 22
-    Waypoint = 23
+class TraversedElementType(enum.IntEnum):
+    """The kinds of traversed element, with ArcGIS Pro's members and values (measured in ArcGIS Pro 3.7, 2026-11-12):
+    a junction, edge or turn kind is a bit flag (0x10000, 0x20000, 0x40000) and the kinds of edge and junction add to
+    it."""
+    Unknown = 0
+    Junction = 65536
+    Edge = 131072
+    Turn = 262144
+    Road = 131073
+    HighwayRoad = 131074
+    Ramp = 131075
+    Ferry = 131076
+    RoundaboutRoad = 131077
+    MajorRoad = 131078
+    Walkway = 131082
+    TurningArc = 131083
+    Stairs = 131084
+    Escalator = 131085
+    Elevator = 131086
+    PedestrianRamp = 131087
+    MovingWalkway = 131088
+    Hallway = 131089
+    Indoor = 131090
+    Transit = 131136
+    SailingLine = 131200
+    Stop = 65636
+    Waypoint = 65637
+    RestBreak = 65638
+    RoadIntersection = 65639
 
 
 # ---- building a traversal -----------------------------------------------------------------------------------------
@@ -315,8 +318,9 @@ def result_rows(traversal, totals):
 
 # ---- the Traversed* objects ---------------------------------------------------------------------------------------
 
-class TraversedElement:
-    """One traversed element: its accumulated impedance, length and time, its row and its network source."""
+class _Traversed:
+    """What every traversed element holds: its accumulated impedance, length and time, its row and its network
+    source."""
 
     def __init__(self, row, graph, element_type):
         mode = graph.mode
@@ -337,6 +341,11 @@ class TraversedElement:
 
     def __repr__(self):
         return f"<{type(self).__name__} {self.rowID}>"
+
+
+class TraversedElement(_Traversed):
+    """A traversed edge or junction. ArcGIS Pro 3.7's TraversedTurn is not one (measured 2026-11-12: its classes are
+    TraversedTurn and object), so grapy's is not either; both share ``_Traversed``."""
 
 
 class _Named:
@@ -394,7 +403,7 @@ class TraversedJunction(TraversedElement, _Named):
         self.directionPoints = []
 
 
-class TraversedTurn(TraversedElement):
+class TraversedTurn(_Traversed):
     def __init__(self, row, graph):
         from ._evaluators import Turn
         super().__init__(row, graph, TraversedElementType.Turn)

@@ -263,8 +263,9 @@ class Fleet(unittest.TestCase):
                                          key=lambda s: s[1])]
         self.assertEqual(sequence[0], "s0")
         route.returnToStart = True
+        # LastStopID: LastStopOID is the loaded feature's ObjectID, None from an insertCursor (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)).
         ((closed, last),) = list(route.solve().searchCursor(nax.RouteOutputDataType.Routes, ["Total_Minutes",
-                                                                                              "LastStopOID"]))
+                                                                                              "LastStopID"]))
         self.assertEqual(last, 1)
         tour = min(sum(minutes(p, q) for p, q in zip((points[0],) + order, order + (points[0],)))
                    for order in itertools.permutations(points[1:]))

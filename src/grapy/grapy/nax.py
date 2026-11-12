@@ -14,145 +14,153 @@ the ID fields of their ``arcpy.na`` sublayers.
 """
 from __future__ import annotations
 
+import datetime
 import enum
 import os
 
 from . import _gpkg, _network
 from ._runtime import ExecuteError, NotBuiltError
 
-
-class DistanceUnits(enum.Enum):
-    Meters = "Meters"
-    Kilometers = "Kilometers"
-    Feet = "Feet"
-    Yards = "Yards"
-    Miles = "Miles"
-    NauticalMiles = "NauticalMiles"
-    Inches = "Inches"
-    Centimeters = "Centimeters"
-    Millimeters = "Millimeters"
-    Decimeters = "Decimeters"
+# Every enumeration below is an IntEnum with ArcGIS Pro's members, values and order — measured in ArcGIS Pro 3.7,
+# 2026-11-12 (Pro sweep): until then they held their names as string values, and four had members Pro does not
+# (CurbApproach's ...OfVehicle names, TimeOfDayUsage's StartTime/EndTime, ClosestFacilityOutputDataType.RouteEdges and
+# VehicleRoutingProblemOutputDataType's direction points and lines) or lacked one (MessageSeverity.Info,
+# ClosestFacilityOutputDataType.ClosestFacilities, CurbApproach.Unknown).
 
 
-class TimeUnits(enum.Enum):
-    Seconds = "Seconds"
-    Minutes = "Minutes"
-    Hours = "Hours"
-    Days = "Days"
+class DistanceUnits(enum.IntEnum):
+    Feet = 3
+    Yards = 4
+    Miles = 5
+    NauticalMiles = 6
+    Meters = 9
+    Kilometers = 10
+    Inches = 11
+    Centimeters = 12
+    Millimeters = 13
+    Decimeters = 14
 
 
-class TravelDirection(enum.Enum):
-    FromFacility = "FromFacility"
-    ToFacility = "ToFacility"
+class TimeUnits(enum.IntEnum):
+    Seconds = 20
+    Minutes = 21
+    Hours = 22
+    Days = 23
 
 
-class RouteShapeType(enum.Enum):
-    TrueShape = "TrueShape"
-    TrueShapeWithMeasures = "TrueShapeWithMeasures"
-    StraightLine = "StraightLine"
-    NoLine = "NoLine"
+class TravelDirection(enum.IntEnum):
+    FromFacility = 0
+    ToFacility = 1
 
 
-class LineShapeType(enum.Enum):
-    StraightLine = "StraightLine"
-    NoLine = "NoLine"
+class RouteShapeType(enum.IntEnum):
+    NoLine = 0
+    StraightLine = 1
+    TrueShape = 2
+    TrueShapeWithMeasures = 3
 
 
-class ServiceAreaOutputType(enum.Enum):
-    Polygons = "Polygons"
-    Lines = "Lines"
-    PolygonsAndLines = "PolygonsAndLines"
+class LineShapeType(enum.IntEnum):
+    NoLine = 0
+    StraightLine = 1
 
 
-class ServiceAreaPolygonCutoffGeometry(enum.Enum):
-    Rings = "Rings"
-    Disks = "Disks"
+class ServiceAreaOutputType(enum.IntEnum):
+    Polygons = 0
+    Lines = 1
+    PolygonsAndLines = 2
 
 
-class ServiceAreaOverlapGeometry(enum.Enum):
-    Overlap = "Overlap"
-    Dissolve = "Dissolve"
-    Split = "Split"
+class ServiceAreaPolygonCutoffGeometry(enum.IntEnum):
+    Disks = 0
+    Rings = 1
 
 
-class ServiceAreaPolygonDetail(enum.Enum):
-    Standard = "Standard"
-    Generalized = "Generalized"
-    High = "High"
+class ServiceAreaOverlapGeometry(enum.IntEnum):
+    Split = 0
+    Overlap = 1
+    Dissolve = 2
 
 
-class TimeZoneUsage(enum.Enum):
-    LocalTimeAtLocations = "LocalTimeAtLocations"
-    UTC = "UTC"
+class ServiceAreaPolygonDetail(enum.IntEnum):
+    Generalized = 0
+    Standard = 1
+    High = 2
 
 
-class MessageSeverity(enum.Enum):
-    All = "All"
-    Warning = "Warning"
-    Error = "Error"
+class TimeZoneUsage(enum.IntEnum):
+    LocalTimeAtLocations = 0
+    UTC = 1
 
 
-class RouteInputDataType(enum.Enum):
-    Stops = "Stops"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class MessageSeverity(enum.IntEnum):
+    All = 0
+    Warning = 1
+    Error = 2
+    Info = 3
 
 
-class RouteOutputDataType(enum.Enum):
-    Routes = "Routes"
-    RouteEdges = "RouteEdges"
-    RouteJunctions = "RouteJunctions"
-    RouteTurns = "RouteTurns"
-    Directions = "Directions"
-    Stops = "Stops"
-    DirectionPoints = "DirectionPoints"
-    DirectionLines = "DirectionLines"
+class RouteInputDataType(enum.IntEnum):
+    Stops = 0
+    PointBarriers = 1
+    LineBarriers = 2
+    PolygonBarriers = 3
 
 
-class ClosestFacilityInputDataType(enum.Enum):
-    Facilities = "Facilities"
-    Incidents = "Incidents"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class RouteOutputDataType(enum.IntEnum):
+    Stops = 0
+    Routes = 1
+    RouteEdges = 2
+    DirectionPoints = 3
+    DirectionLines = 4
+    Directions = 5
+    RouteJunctions = 6
+    RouteTurns = 7
 
 
-class ClosestFacilityOutputDataType(enum.Enum):
-    Routes = "Routes"
-    Facilities = "Facilities"
-    Incidents = "Incidents"
-    RouteEdges = "RouteEdges"
-    Directions = "Directions"
-    DirectionPoints = "DirectionPoints"
-    DirectionLines = "DirectionLines"
+class ClosestFacilityInputDataType(enum.IntEnum):
+    Incidents = 0
+    Facilities = 1
+    PointBarriers = 2
+    LineBarriers = 3
+    PolygonBarriers = 4
 
 
-class ServiceAreaInputDataType(enum.Enum):
-    Facilities = "Facilities"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class ClosestFacilityOutputDataType(enum.IntEnum):
+    Incidents = 0
+    Facilities = 1
+    Routes = 2
+    ClosestFacilities = 3
+    DirectionPoints = 4
+    DirectionLines = 5
+    Directions = 6
 
 
-class ServiceAreaOutputDataType(enum.Enum):
-    Polygons = "Polygons"
-    Lines = "Lines"
-    Facilities = "Facilities"
+class ServiceAreaInputDataType(enum.IntEnum):
+    Facilities = 0
+    PointBarriers = 1
+    LineBarriers = 2
+    PolygonBarriers = 3
 
 
-class OriginDestinationCostMatrixInputDataType(enum.Enum):
-    Origins = "Origins"
-    Destinations = "Destinations"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class ServiceAreaOutputDataType(enum.IntEnum):
+    Facilities = 0
+    Lines = 1
+    Polygons = 2
 
 
-class OriginDestinationCostMatrixOutputDataType(enum.Enum):
-    Lines = "Lines"
-    Origins = "Origins"
-    Destinations = "Destinations"
+class OriginDestinationCostMatrixInputDataType(enum.IntEnum):
+    Origins = 0
+    Destinations = 1
+    PointBarriers = 2
+    LineBarriers = 3
+    PolygonBarriers = 4
+
+
+class OriginDestinationCostMatrixOutputDataType(enum.IntEnum):
+    Origins = 0
+    Destinations = 1
+    Lines = 2
 
 
 _MINUTES = {"SECONDS": 1 / 60, "MINUTES": 1.0, "HOURS": 60.0, "DAYS": 1440.0}
@@ -165,6 +173,85 @@ def _kind(units):
     if key in _network._LINEAR:
         return "distance"
     return "other"
+
+
+# ---- what ArcGIS Pro's solvers read and write, measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep) -------------------
+#
+# A solver's ``fieldNames(input_type)``: its input's properties, in Pro's order (no ObjectID or Shape). With
+# ``use_location_fields`` Pro adds SourceID, SourceOID, PosAlong and SideOfEdge before CurbApproach (else before
+# Bearing), and a line or polygon barrier's Locations after its Name.
+
+_BARRIER_FIELDS = {
+    "PointBarriers": ["Name", "CurbApproach", "FullEdge", "BarrierType", "AdditionalCost", "Additional_Time",
+                      "Additional_Distance", "Bearing", "BearingTol", "NavLatency"],
+    "LineBarriers": ["Name", "BarrierType", "ScaledCostFactor", "ScaledTimeFactor", "ScaledDistanceFactor"],
+    "PolygonBarriers": ["Name", "BarrierType", "ScaledCostFactor", "ScaledTimeFactor", "ScaledDistanceFactor"],
+}
+_PRO_INPUT_FIELDS = {
+    "Route": {"Stops": ["Name", "RouteName", "Sequence", "TimeWindowStart", "TimeWindowEnd", "LocationType",
+                        "CurbApproach", "AdditionalTime", "AdditionalDistance", "AdditionalCost", "Bearing", "BearingTol",
+                        "NavLatency"]},
+    "ClosestFacility": {
+        "Incidents": ["Name", "TargetFacilityCount", "CurbApproach", "ID", "AdditionalTime", "AdditionalDistance",
+                      "AdditionalCost", "Cutoff", "Bearing", "BearingTol", "NavLatency"],
+        "Facilities": ["Name", "CurbApproach", "ID", "AdditionalTime", "AdditionalDistance", "AdditionalCost", "Cutoff",
+                       "Bearing", "BearingTol", "NavLatency"]},
+    "ServiceArea": {"Facilities": ["Name", "CurbApproach", "Breaks", "AdditionalTime", "AdditionalDistance",
+                                   "AdditionalCost", "Bearing", "BearingTol", "NavLatency"]},
+    "OriginDestinationCostMatrix": {
+        "Origins": ["Name", "TargetDestinationCount", "CurbApproach", "Cutoff", "Bearing", "BearingTol", "NavLatency"],
+        "Destinations": ["Name", "CurbApproach", "Bearing", "BearingTol", "NavLatency"]},
+    "LocationAllocation": {
+        "Facilities": ["Name", "FacilityType", "Weight", "Capacity", "CurbApproach", "Bearing", "BearingTol",
+                       "NavLatency"],
+        "DemandPoints": ["Name", "Weight", "GroupName", "ImpedanceTransformation", "ImpedanceParameter", "CurbApproach",
+                         "TimeCutoff", "DistanceCutoff", "Bearing", "BearingTol", "NavLatency", "Cutoff"]},
+}
+
+# The value a property holds when a row does not give one (an insertCursor's row: Pro writes these into its outputs),
+# and the defaultValue of its NAClassFieldMap; every other property's is None. BearingTol's 30 is the field map's only.
+_DEFAULTS = {"CurbApproach": 0, "LocationType": 0, "AdditionalTime": 0.0, "AdditionalDistance": 0.0,
+             "AdditionalCost": 0.0, "FacilityType": 0, "Weight": 1.0}
+_MAP_DEFAULTS = {**_DEFAULTS, "BearingTol": 30.0}
+# Properties no Pro output echoes (measured 2026-11-12): read by the solve, not written back.
+_NOT_ECHOED = {"AdditionalCost", "TimeCutoff", "DistanceCutoff"}
+
+
+def _with_locations(names):
+    names = list(names)
+    if "CurbApproach" not in names and "Bearing" not in names:
+        return names[:1] + ["Locations"] + names[1:]
+    at = names.index("CurbApproach") if "CurbApproach" in names else names.index("Bearing")
+    return names[:at] + ["SourceID", "SourceOID", "PosAlong", "SideOfEdge"] + names[at:]
+
+
+def _curb(side, forward):
+    """The side of the vehicle a location is on, CurbApproach's numbers (1 right, 2 left): its SideOfEdge (of the
+    digitised direction) when travelling along the edge, the other side against it - as Pro's ArriveCurbApproach and
+    DepartCurbApproach answer (measured in ArcGIS Pro 3.7, 2026-11-12)."""
+    if side is None or forward is None:
+        return None
+    return int(side) if forward else 3 - int(side)
+
+
+_ROUTE_FIELDS = ["ObjectID", "Name", "FirstStopID", "LastStopID", "StopCount", "StartTime", "EndTime", "StartTimeUTC",
+                 "EndTimeUTC", "Total_Miles", "Total_Kilometers", "Total_Minutes", "TotalWait_Minutes",
+                 "TotalViolation_Minutes", "FirstStopOID", "LastStopOID"]
+_CLOSEST_FIELDS = ["ObjectID", "FacilityRank", "Name", "IncidentCurbApproach", "FacilityCurbApproach", "StartTime",
+                   "EndTime", "StartTimeUTC", "EndTimeUTC", "FacilityID", "IncidentID", "OutputFacilityOID",
+                   "OutputIncidentOID", "FacilityOID", "IncidentOID", "Total_Miles", "Total_Kilometers", "Total_Minutes"]
+
+
+def _ordered(row, names):
+    """A row's fields in Pro's order (what ``fieldNames`` answers), the rest after."""
+    out = {name: row[name] for name in names if name in row}
+    out.update((k, v) for k, v in row.items() if k not in out)
+    return out
+
+
+def _break(value):
+    """A cutoff as Pro writes it in a service area polygon's name: 0, 0.15, 5 (measured 2026-11-12)."""
+    return f"{float(value):g}"
 
 
 # ---- network datasets and travel modes ----------------------------------------------------------------------------
@@ -193,16 +280,17 @@ class NAClassFieldMappings(dict):
     """A solver input's field maps, by property name, as a solver's ``fieldMappings`` answers them."""
 
 
-class CurbApproach(enum.Enum):
-    EitherSideOfVehicle = 0
-    RightSideOfVehicle = 1
-    LeftSideOfVehicle = 2
+class CurbApproach(enum.IntEnum):
+    Unknown = -1
+    EitherSide = 0
+    RightSide = 1
+    LeftSide = 2
     NoUTurn = 3
 
 
-class TimeOfDayUsage(enum.Enum):
-    StartTime = "StartTime"
-    EndTime = "EndTime"
+class TimeOfDayUsage(enum.IntEnum):
+    DepartureTime = 0
+    ArrivalTime = 1
 
 
 # ---- the network dataset query API ----------------------------------------------------------------------------------
@@ -270,7 +358,9 @@ class NetworkDataset:
 
     @property
     def edgeCount(self):
-        return int(self._query("select count(*) from grapy_network_edge where network = ?")[0][0])
+        """Edge elements, one for each direction of each edge - as ArcGIS Pro 3.7 counts them (measured 2026-11-12: 40
+        street blocks, 80 edges) and as ``edges()`` reads them."""
+        return 2 * int(self._query("select count(*) from grapy_network_edge where network = ?")[0][0])
 
     @property
     def junctionCount(self):
@@ -518,17 +608,20 @@ class _Solver:
         path, where = _source(features)
         columns = [c.name for c in _schema(path)[0]]
         mapping = field_mappings or {}
-        with da.SearchCursor(path, [*columns, "SHAPE@"], where) as rows:
+        with da.SearchCursor(path, [*columns, "OID@", "SHAPE@"], where) as rows:
             for n, row in enumerate(rows):
                 if max_features is not None and n >= int(max_features):
                     break
-                values = dict(zip(columns, row[:-1]))
+                values = dict(zip(columns, row[:-2]))
                 lower = {k.lower(): v for k, v in values.items()}
                 record = {k: v for k, v in values.items()}
                 for prop, field_map in mapping.items():
-                    record[prop] = lower.get(str(field_map.mappedFieldName).lower()) if field_map.mappedFieldName else \
-                        field_map.defaultValue
+                    # The mapped field's value; its defaultValue where the input has no such field or it is null - a
+                    # property maps to its own name by default, which most inputs do not hold.
+                    value = lower.get(str(field_map.mappedFieldName).lower()) if field_map.mappedFieldName else None
+                    record[prop] = field_map.defaultValue if value is None else value
                 record["SHAPE@"] = row[-1]
+                record["_source_oid"] = row[-2]       # Pro's FacilityOID, IncidentOID, FirstStopOID ... (2026-11-12)
                 self._add(input_type, record)
 
     def insertCursor(self, input_type, field_names, append=True):
@@ -541,22 +634,29 @@ class _Solver:
         self._check_type(input_type)
         return len(self._inputs[input_type])
 
+    def _properties(self, input_type):
+        measured = _PRO_INPUT_FIELDS.get(type(self).__name__)
+        if measured is not None:
+            return list(measured.get(input_type.name, []))
+        return ["Name", *[f for f in self._INPUT_FIELDS.get(input_type.name, []) if f != "Name"]]
+
     def fieldNames(self, input_type, use_location_fields=False):
+        """The input's properties, in ArcGIS Pro's order and without ObjectID or Shape, as Pro 3.7 answers them
+        (measured 2026-11-12); with ``use_location_fields``, its network location fields too."""
         self._check_type(input_type)
-        names = ["ObjectID", "Shape", "Name", *self._INPUT_FIELDS.get(input_type.name, [])]
-        if use_location_fields:
-            names += ["SourceID", "SourceOID", "PosAlong", "SideOfEdge"]
-        return names
+        names = self._properties(input_type)
+        return _with_locations(names) if use_location_fields else names
 
     def fieldMappings(self, input_type, use_location_fields=False, list_candidate_fields=None):
-        """The input's properties, each mapped to the candidate field of the same name. Location fields are not built:
-        grapy locates every input when it solves."""
+        """The input's properties, each mapped to the field of its own name with its default value - whatever the
+        candidate fields, as ArcGIS Pro 3.7 answers (measured 2026-11-12: a Route's Stops map AdditionalCost to
+        'AdditionalCost', default 0, among candidates with no such field). Location fields are not built: grapy
+        locates every input when it solves."""
         if use_location_fields:
             raise NotBuiltError("arcpy.nax: loading network location fields is not built in grapy; grapy locates every "
                                 "input.")
-        candidates = {getattr(f, "name", str(f)).lower(): getattr(f, "name", str(f)) for f in (list_candidate_fields or [])}
-        return NAClassFieldMappings({name: NAClassFieldMap(candidates.get(name.lower()))
-                                     for name in self.fieldNames(input_type) if name not in ("ObjectID", "Shape")})
+        return NAClassFieldMappings({name: NAClassFieldMap(name, _MAP_DEFAULTS.get(name))
+                                     for name in self.fieldNames(input_type)})
 
     def setLocateSettingsOverrides(self, input_type, search_sources=None, allow_auto_relocate=None, search_tolerance=None,
                                    search_tolerance_units=None):
@@ -576,7 +676,7 @@ class _Solver:
 
     def _located(self, graph, input_type, prefix):
         per = _network._per_unit(graph.srid) or 1.0
-        tolerance = float(self.searchTolerance) * _network._LINEAR[self.searchToleranceUnits.value.upper()] / per
+        tolerance = float(self.searchTolerance) * _network._LINEAR[self.searchToleranceUnits.name.upper()] / per
         items = []
         for row in self._inputs[input_type]:
             for field in ("CurbApproach", "LocationType"):      # as arcpy.na.Solve refuses them (na._items)
@@ -612,26 +712,74 @@ class _Solver:
             minutes = totals.get(time_attribute, 0.0) * _MINUTES[str(units[time_attribute]).upper()]
             out[f"{prefix}_Minutes"] = minutes
             if self.timeUnits is not TimeUnits.Minutes:
-                out[f"{prefix}_{self.timeUnits.value}"] = minutes / _MINUTES[self.timeUnits.value.upper()]
+                out[f"{prefix}_{self.timeUnits.name}"] = minutes / _MINUTES[self.timeUnits.name.upper()]
         if distance_attribute:
             metres = totals.get(distance_attribute, 0.0) * _network._LINEAR[str(units[distance_attribute]).upper()]
             out[f"{prefix}_Miles"] = metres / _network._LINEAR["MILES"]  # a US survey mile, as Pro's (D-323)
             out[f"{prefix}_Kilometers"] = metres / 1000.0
             if self.distanceUnits not in (DistanceUnits.Miles, DistanceUnits.Kilometers):
-                out[f"{prefix}_{self.distanceUnits.value}"] = metres / _network._LINEAR[self.distanceUnits.value.upper()]
+                out[f"{prefix}_{self.distanceUnits.name}"] = metres / _network._LINEAR[self.distanceUnits.name.upper()]
         if _kind(units[graph.impedance]) == "other":
             out[f"{prefix}_Other" if prefix == "Total" else "Cumul_Cost"] = totals.get(graph.impedance, 0.0)
         for attribute in self.accumulateAttributeNames:
             kind = _kind(units[attribute])
             value = totals.get(attribute, 0.0)
             if kind == "time":
-                out[f"{prefix}_{attribute}_{self.timeUnits.value}"] = \
-                    value * _MINUTES[str(units[attribute]).upper()] / _MINUTES[self.timeUnits.value.upper()]
+                out[f"{prefix}_{attribute}_{self.timeUnits.name}"] = \
+                    value * _MINUTES[str(units[attribute]).upper()] / _MINUTES[self.timeUnits.name.upper()]
             elif kind == "distance":
-                out[f"{prefix}_{attribute}_{self.distanceUnits.value}"] = \
-                    value * _network._LINEAR[str(units[attribute]).upper()] / _network._LINEAR[self.distanceUnits.value.upper()]
+                out[f"{prefix}_{attribute}_{self.distanceUnits.name}"] = \
+                    value * _network._LINEAR[str(units[attribute]).upper()] / _network._LINEAR[self.distanceUnits.name.upper()]
             else:
                 out[f"{prefix}_{attribute}_Other"] = value
+        return out
+
+    def _impedance_per(self, graph):
+        """How many of the impedance attribute's units one of the solver's cutoff units is: a cutoff is in timeUnits
+        when the impedance is a time, in distanceUnits when it is a distance, as ArcGIS Pro 3.7 reads it (measured
+        2026-11-12: a service area cutoff of 0.25 on a Length impedance in metres reached 250 m)."""
+        units = str(graph.attributes[graph.impedance][1] or "")
+        kind = _kind(units)
+        if kind == "time":
+            return _MINUTES[self.timeUnits.name.upper()] / _MINUTES[units.upper().replace(" ", "")]
+        if kind == "distance":
+            return _network._LINEAR[self.distanceUnits.name.upper()] / _network._LINEAR[units.upper().replace(" ", "")]
+        return 1.0
+
+    def _cutoff(self, graph, value):
+        return None if value is None else float(value) * self._impedance_per(graph)
+
+    def _impedance_totals(self, graph, totals, prefix, both=False):
+        """The ``prefix``_ fields of the impedance attribute alone - as Pro writes a location-allocation facility's
+        Total_ and TotalWeighted_ (in the solver's unit), and, with ``both``, a service area line's FromCumul_ and
+        ToCumul_ (Miles and Kilometers both for a distance)."""
+        units = str(graph.attributes[graph.impedance][1] or "")
+        kind = _kind(units)
+        out = self._totals(graph, {**{a: 0.0 for a in graph.attributes}, **totals}, prefix)
+        if kind == "time":
+            keep = {f"{prefix}_Minutes", f"{prefix}_{self.timeUnits.name}"}
+        elif kind == "distance":
+            keep = {f"{prefix}_{self.distanceUnits.name}"} | ({f"{prefix}_Miles", f"{prefix}_Kilometers"} if both else set())
+        else:
+            keep = {f"{prefix}_Other"}
+        found = {}
+        for k, v in out.items():
+            if k in keep:
+                found[k] = v
+        if kind == "time" or kind == "distance":
+            return found
+        return {f"{prefix}_Other" if prefix == "Total" else f"{prefix}_Cost": totals.get(graph.impedance, 0.0)}
+
+    @staticmethod
+    def _sides(graph, legs):
+        """{(stop key, 'arrive' | 'depart'): CurbApproach} of the legs a route travelled."""
+        out = {}
+        for a, b, arcs in legs:
+            if not arcs:
+                continue
+            for item, (i, t0, t1), what in ((a, arcs[0], "depart"), (b, arcs[-1], "arrive")):
+                side = graph.location_fields(item["located"], item["point"])["SideOfEdge"] if item["located"] else None
+                out[(item["key"], what)] = _curb(side, t1 > t0 if t1 != t0 else None)
         return out
 
     def _traverse(self, graph, routes, outputs, wanted):
@@ -644,12 +792,34 @@ class _Solver:
                 outputs[output_type] = rows[kind]
         return traversal
 
-    def _inputs_out(self, items, extra=None):
+    def _inputs_out(self, items, extra=None, graph=None, input_type=None, oid_field=None):
+        """An output that echoes an input: its properties (a row's own values, else their defaults), its network
+        location (SourceID, SourceOID, PosAlong, SideOfEdge, SnapX, SnapY, SnapZ, DistanceToNetworkInMeters) and
+        Status, the ObjectID of the feature it was loaded from under ``oid_field`` (None from an insertCursor), and the
+        solve's ``extra`` fields - Pro's fields, measured in ArcGIS Pro 3.7, 2026-11-12."""
         rows = []
+        properties = self._properties(input_type) if input_type is not None else []
         for item in items:
-            location = {k: v for k, v in item.items() if k not in ("key", "located", "point", "oid", "name")}
-            row = {"ObjectID": item["oid"], "Name": item["name"], **location, "Status": 0 if item["located"] else 1,
-                   "SHAPE": item["point"]}
+            given = {k: v for k, v in item.items() if k not in ("key", "located", "point", "oid", "name")
+                     and not str(k).startswith("_")}
+            row = {"ObjectID": item["oid"]}
+            for name in properties:
+                if name in _NOT_ECHOED:
+                    given.pop(name, None)
+                    continue
+                value = given.pop(name, None)
+                value = _DEFAULTS.get(name) if value is None else value
+                row[name] = int(value) if isinstance(value, enum.Enum) else value
+            row["Name"] = item["name"]
+            row.update(given)
+            if graph is not None:
+                location = graph.location_fields(item["located"], item["point"])
+                row.update({k: v for k, v in location.items() if not k.startswith("_")})
+                row["SnapZ"] = 0.0 if item["located"] else None
+            row["Status"] = 0 if item["located"] else 1
+            if oid_field:
+                row[oid_field] = item.get("_source_oid")
+            row["SHAPE"] = item["point"]
             row.update((extra or {}).get(item["key"], {}))
             rows.append(row)
         return rows
@@ -679,8 +849,9 @@ class _Result:
         return len(self._outputs.get(output_type, []))
 
     def fieldNames(self, output_type):
+        """ObjectID and the output's fields; no Shape, as ArcGIS Pro 3.7 answers (measured 2026-11-12)."""
         rows = self._rows(output_type)
-        names = ["ObjectID", "Shape"]
+        names = ["ObjectID"]
         for row in rows:
             for name in row:
                 if name not in names and name != "SHAPE" and not name.startswith("_"):
@@ -708,19 +879,19 @@ class _Result:
                 else:
                     values.append(row.get(field))
             out.append(tuple(values))
-        return iter(out)
+        return _Rows(out)                     # a context manager too, as Pro's cursor is (measured 2026-11-12)
 
     def export(self, output_type, output_features):
         from . import da
         from .management import _path
         rows = self._rows(output_type)
-        names = [f for f in self.fieldNames(output_type) if f not in ("ObjectID", "Shape")]
+        names = [f for f in self.fieldNames(output_type) if f != "ObjectID"]
         kinds = {}
         for row in rows:
             for name in names:
                 value = row.get(name)
                 if value is not None and name not in kinds:
-                    kinds[name] = "Double" if isinstance(value, float) else "Integer" if isinstance(value, int) else "String"
+                    kinds[name] = "Double" if isinstance(value, float) else "Integer" if isinstance(value, int) else                         "Date" if isinstance(value, datetime.datetime) else "String"
         shapes = {r["SHAPE"].geom_type for r in rows if r.get("SHAPE") is not None}
         shape = "Polygon" if shapes & {"Polygon", "MultiPolygon"} else "Polyline" if shapes & {"LineString", "MultiLineString"} \
             else "Point" if shapes else "Geometry"
@@ -729,7 +900,9 @@ class _Result:
                      [_gpkg.Column(n, kinds.get(n, "String")) for n in names])
         with da.InsertCursor(out, [*names, "SHAPE@"]) as written:
             for row in rows:
-                written.insertRow((*[row.get(n) for n in names], row.get("SHAPE")))
+                # A time of day (a waste collection route's StartTime) is written as its text: no field type holds one.
+                written.insertRow((*[v.isoformat() if isinstance(v, datetime.time) else v
+                                     for v in (row.get(n) for n in names)], row.get("SHAPE")))
 
     def extent(self, output_type=None):
         import shapely
@@ -789,17 +962,30 @@ class Route(_Solver):
             order = {(True, True): "PRESERVE_BOTH", (True, False): "PRESERVE_FIRST", (False, True): "PRESERVE_LAST",
                      (False, False): "FIND_BEST_ORDER"}[(bool(self.preserveFirstStop), bool(self.preserveLastStop))]
         routes, results = _network.solve_route(graph, stops, [], shape, order, bool(self.returnToStart))
+        source = {s["oid"]: s.get("_source_oid") for s in stops}
+        sides = {}
         for n, route in enumerate(routes, start=1):
             route["ObjectID"] = n
             route.pop(f"Total_{graph.impedance}", None)      # before the totals: an impedance may be named Minutes
             route.update(self._totals(graph, route.pop("_totals"), "Total"))
-            route["FirstStopOID"], route["LastStopOID"] = route["FirstStopID"], route["LastStopID"]
+            # Pro's fields (measured 2026-11-12): the stops' source ObjectIDs (None from an insertCursor), and times,
+            # waits and violations, None in a time-neutral solve.
+            route["FirstStopOID"], route["LastStopOID"] = source.get(route["FirstStopID"]), source.get(route["LastStopID"])
+            route.update(StartTime=None, EndTime=None, StartTimeUTC=None, EndTimeUTC=None, TotalWait_Minutes=None,
+                         TotalViolation_Minutes=None)
+            sides.update(self._sides(graph, route.get("_legs", [])))
+        routes[:] = [_ordered(route, _ROUTE_FIELDS) for route in routes]
         extra = {}
         for key, result in results.items():
             cumul = result.pop("_cumul", {})
             result.pop(f"Cumul_{graph.impedance}", None)
-            extra[key] = {**result, **(self._totals(graph, cumul, "Cumul") if cumul else {})}
-        outputs = {RouteOutputDataType.Routes: routes, RouteOutputDataType.Stops: self._inputs_out(stops, extra)}
+            extra[key] = {**result, **(self._totals(graph, cumul, "Cumul") if cumul else {}),
+                          "ArriveCurbApproach": sides.get((key, "arrive")),
+                          "DepartCurbApproach": sides.get((key, "depart")), "ArriveTime": None, "DepartTime": None,
+                          "ArriveTimeUTC": None, "DepartTimeUTC": None, "Wait_Minutes": None, "CumulWait_Minutes": None,
+                          "Violation_Minutes": None, "CumulViolation_Minutes": None}
+        echoed = self._inputs_out(stops, extra, graph, RouteInputDataType.Stops, "ORIG_FID")
+        outputs = {RouteOutputDataType.Routes: routes, RouteOutputDataType.Stops: echoed}
         traversal = self._traverse(graph, routes, outputs, {
             "edges": (self.returnRouteEdges, RouteOutputDataType.RouteEdges),
             "junctions": (self.returnRouteJunctions, RouteOutputDataType.RouteJunctions),
@@ -834,17 +1020,35 @@ class ClosestFacility(_Solver):
         shape = {RouteShapeType.NoLine: "NO_LINES", RouteShapeType.StraightLine: "STRAIGHT_LINES"}.get(
             self.routeShapeType, "ALONG_NETWORK")
         direction = "FROM_FACILITIES" if self.travelDirection is TravelDirection.FromFacility else "TO_FACILITIES"
-        routes = _network.solve_closest_facility(graph, facilities, incidents, direction, self.defaultImpedanceCutoff,
+        routes = _network.solve_closest_facility(graph, facilities, incidents, direction,
+                                                 self._cutoff(graph, self.defaultImpedanceCutoff),
                                                  self.defaultTargetFacilityCount, [], shape)
+        by_oid = {("F", f["oid"]): f for f in facilities} | {("I", i["oid"]): i for i in incidents}
         for n, route in enumerate(routes, start=1):
             route["ObjectID"] = n
             route.pop(f"Total_{graph.impedance}", None)
             route.update(self._totals(graph, route.pop("_totals"), "Total"))
+            # Pro's fields (measured 2026-11-12): FacilityID and IncidentID are the inputs' own ID property, the
+            # output rows' ObjectIDs are OutputFacilityOID and OutputIncidentOID, FacilityOID and IncidentOID the
+            # features' they were loaded from; the curb approaches are the sides the locations are on.
+            facility, incident = by_oid[("F", route.pop("FacilityID"))], by_oid[("I", route.pop("IncidentID"))]
+            sides = self._sides(graph, route.get("_legs", []))
+            route.update(FacilityID=facility.get("ID"), IncidentID=incident.get("ID"),
+                         OutputFacilityOID=facility["oid"], OutputIncidentOID=incident["oid"],
+                         FacilityOID=facility.get("_source_oid"), IncidentOID=incident.get("_source_oid"),
+                         IncidentCurbApproach=sides.get((incident["key"], "depart"), sides.get((incident["key"], "arrive"))),
+                         FacilityCurbApproach=sides.get((facility["key"], "arrive"), sides.get((facility["key"], "depart"))),
+                         StartTime=None, EndTime=None, StartTimeUTC=None, EndTimeUTC=None)
+        routes[:] = [_ordered(route, _CLOSEST_FIELDS) for route in routes]
         outputs = {ClosestFacilityOutputDataType.Routes: routes,
-                   ClosestFacilityOutputDataType.Facilities: self._inputs_out(facilities),
-                   ClosestFacilityOutputDataType.Incidents: self._inputs_out(incidents)}
-        traversal = self._traverse(graph, routes, outputs, {"edges": (True, ClosestFacilityOutputDataType.RouteEdges)})
-        return _Result(outputs, graph.srid, bool(routes), traversal)
+                   ClosestFacilityOutputDataType.Facilities: self._inputs_out(
+                       facilities, None, graph, ClosestFacilityInputDataType.Facilities, "FacilityOID"),
+                   ClosestFacilityOutputDataType.Incidents: self._inputs_out(
+                       incidents, None, graph, ClosestFacilityInputDataType.Incidents, "IncidentOID")}
+        # Pro's ClosestFacility has no RouteEdges output (measured 2026-11-12); the traversal is kept for
+        # arcpy.graticula.TraversedElements.
+        from . import _traversal
+        return _Result(outputs, graph.srid, bool(routes), _traversal.of_routes(graph, routes))
 
 
 class OriginDestinationCostMatrix(_Solver):
@@ -866,17 +1070,34 @@ class OriginDestinationCostMatrix(_Solver):
         graph = self._graph()
         origins = self._located(graph, OriginDestinationCostMatrixInputDataType.Origins, "Origins")
         destinations = self._located(graph, OriginDestinationCostMatrixInputDataType.Destinations, "Destinations")
-        lines = _network.solve_od_cost_matrix(graph, origins, destinations, self.defaultImpedanceCutoff,
+        lines = _network.solve_od_cost_matrix(graph, origins, destinations,
+                                              self._cutoff(graph, self.defaultImpedanceCutoff),
                                               self.defaultDestinationCount, [],
                                               "NO_LINES" if self.lineShapeType is LineShapeType.NoLine else "STRAIGHT_LINES")
+        by_oid = {("O", o["oid"]): o for o in origins} | {("D", d["oid"]): d for d in destinations}
+        counts = {}
+        out = []
         for n, line in enumerate(lines, start=1):
-            line["ObjectID"] = n
-            line["OriginOID"], line["DestinationOID"] = line["OriginID"], line["DestinationID"]
-            line.pop(f"Total_{graph.impedance}", None)
-            line.update(self._totals(graph, line.pop("_totals"), "Total"))
-        return _Result({OriginDestinationCostMatrixOutputDataType.Lines: lines,
-                        OriginDestinationCostMatrixOutputDataType.Origins: self._inputs_out(origins),
-                        OriginDestinationCostMatrixOutputDataType.Destinations: self._inputs_out(destinations)},
+            # Pro's fields (measured 2026-11-12): no Name; Total_Time and Total_Distance in the solver's timeUnits and
+            # distanceUnits; the inputs' names; OriginOID and DestinationOID the features' they were loaded from.
+            origin, destination = by_oid[("O", line["OriginID"])], by_oid[("D", line["DestinationID"])]
+            totals = self._totals(graph, line.pop("_totals"), "Total")
+            row = {"ObjectID": n, "DestinationRank": line["DestinationRank"],
+                   "Total_Time": totals.get(f"Total_{self.timeUnits.name}"),
+                   "Total_Distance": totals.get(f"Total_{self.distanceUnits.name}"),
+                   "OriginID": origin["oid"], "OriginOID": origin.get("_source_oid"), "OriginName": origin["name"],
+                   "DestinationID": destination["oid"], "DestinationOID": destination.get("_source_oid"),
+                   "DestinationName": destination["name"], "SHAPE": line.get("SHAPE")}
+            counts[origin["key"]] = counts.get(origin["key"], 0) + 1
+            counts[destination["key"]] = counts.get(destination["key"], 0) + 1
+            out.append(row)
+        return _Result({OriginDestinationCostMatrixOutputDataType.Lines: out,
+                        OriginDestinationCostMatrixOutputDataType.Origins: self._inputs_out(
+                            origins, {o["key"]: {"DestinationCount": counts.get(o["key"], 0)} for o in origins}, graph,
+                            OriginDestinationCostMatrixInputDataType.Origins, "OriginOID"),
+                        OriginDestinationCostMatrixOutputDataType.Destinations: self._inputs_out(
+                            destinations, {d["key"]: {"OriginCount": counts.get(d["key"], 0)} for d in destinations},
+                            graph, OriginDestinationCostMatrixInputDataType.Destinations, "DestinationOID")},
                        graph.srid, bool(lines))
 
 
@@ -885,7 +1106,9 @@ ODCostMatrix = OriginDestinationCostMatrix
 
 class ServiceArea(_Solver):
     """EQUIVALENT: the network reached within each cutoff by Dijkstra's shortest path, and polygons around it (ADR-226
-    §5.4); see ``_network.solve_service_area``. INFERRED: with no cutoffs, 5, 10 and 15, as the page writes them."""
+    §5.4); see ``_network.solve_service_area``. With no cutoffs set, 5, 10 and 15, as ArcGIS Pro 3.7's
+    ``defaultImpedanceCutoffs`` answers (measured 2026-11-12); cutoffs are in timeUnits or distanceUnits, as the
+    impedance is a time or a distance."""
 
     __grapy_equivalent__ = _EQUIVALENT
     _INPUT_TYPES = tuple(ServiceAreaInputDataType)
@@ -893,7 +1116,7 @@ class ServiceArea(_Solver):
 
     def __init__(self, in_network):
         super().__init__(in_network)
-        self.defaultImpedanceCutoffs = []
+        self.defaultImpedanceCutoffs = [5.0, 10.0, 15.0]
         self.travelDirection = TravelDirection.FromFacility
         self.outputType = ServiceAreaOutputType.Polygons
         self.geometryAtCutoff = ServiceAreaPolygonCutoffGeometry.Rings
@@ -914,15 +1137,37 @@ class ServiceArea(_Solver):
         graph = self._graph()
         facilities = self._located(graph, ServiceAreaInputDataType.Facilities, "Facilities")
         per = _network._per_unit(graph.srid) or 1.0
-        trim = float(self.polygonBufferDistance) * _network._LINEAR[self.polygonBufferDistanceUnits.value.upper()] / per
+        trim = float(self.polygonBufferDistance) * _network._LINEAR[self.polygonBufferDistanceUnits.name.upper()] / per
+        per_cutoff = self._impedance_per(graph)
         lines, polygons = _network.solve_service_area(
-            graph, facilities, list(self.defaultImpedanceCutoffs) or [5, 10, 15],
+            graph, facilities, [float(c) * per_cutoff for c in (self.defaultImpedanceCutoffs or [5, 10, 15])],
             "FROM_FACILITIES" if self.travelDirection is TravelDirection.FromFacility else "TO_FACILITIES",
             self.geometryAtCutoff is ServiceAreaPolygonCutoffGeometry.Rings, trim)
-        for rows in (lines, polygons):
-            for n, row in enumerate(rows, start=1):
-                row["ObjectID"] = n
-        outputs = {ServiceAreaOutputDataType.Facilities: self._inputs_out(facilities)}
+        echoed = self._inputs_out(facilities, None, graph, ServiceAreaInputDataType.Facilities, "FacilityOID")
+        by_oid = {f["oid"]: (f, row) for f, row in zip(facilities, echoed)}
+        sources = {s: s.rsplit("/", 1)[-1] for s in graph.sources}
+        impedance = graph.impedance
+        for n, row in enumerate(lines, start=1):
+            # Pro's fields (measured 2026-11-12): the source's name, not its id; the facility's source ObjectID; the
+            # cumulative costs in the solver's units, named by unit.
+            facility = by_oid[row["FacilityID"]][0]
+            k0, k1 = row.pop(f"FromCumul_{impedance}"), row.pop(f"ToCumul_{impedance}")
+            row["SourceName"] = sources[graph.edges[row["_edge"]]["source"]]
+            row.pop("SourceID", None)
+            row["FacilityOID"] = facility.get("_source_oid")
+            row.update(self._impedance_totals(graph, {impedance: k0}, "FromCumul", both=True))
+            row.update(self._impedance_totals(graph, {impedance: k1}, "ToCumul", both=True))
+            row["ObjectID"] = n
+        for n, row in enumerate(polygons, start=1):
+            # Pro's (measured 2026-11-12): breaks in the solver's units, written as 0, 0.15, 5 in the name, and the
+            # facility's Name (as Name_1), Breaks, AdditionalTime and AdditionalDistance joined on.
+            facility, echo = by_oid[row["FacilityID"]]
+            low, high = row["FromBreak"] / per_cutoff, row["ToBreak"] / per_cutoff
+            row.update(Name=f"{facility['name']} : {_break(low)} - {_break(high)}", FromBreak=low, ToBreak=high,
+                       FacilityOID=facility.get("_source_oid"), Name_1=facility["name"], Breaks=echo.get("Breaks"),
+                       AdditionalTime=echo.get("AdditionalTime"), AdditionalDistance=echo.get("AdditionalDistance"))
+            row["ObjectID"] = n
+        outputs = {ServiceAreaOutputDataType.Facilities: echoed}
         if self.outputType in (ServiceAreaOutputType.Polygons, ServiceAreaOutputType.PolygonsAndLines):
             outputs[ServiceAreaOutputDataType.Polygons] = polygons
         if self.outputType in (ServiceAreaOutputType.Lines, ServiceAreaOutputType.PolygonsAndLines):
@@ -932,125 +1177,122 @@ class ServiceArea(_Solver):
 
 # ---- fleet routing (ADR-239) ------------------------------------------------------------------------------------------
 
-class Importance(enum.Enum):
-    High = "High"
-    Medium = "Medium"
-    Low = "Low"
+class Importance(enum.IntEnum):
+    Low = 0
+    Medium = 1
+    High = 2
 
 
-class DrivingSide(enum.Enum):
-    """The side of the road vehicles drive on. INFERRED values (the page gives the members' type, Integer, but not their
-    numbers). grapy's network holds one (``arcpy.graticula.SetNetworkDrivingSide``); a waste collection pass collects
-    the curb side, which it decides."""
+class DrivingSide(enum.IntEnum):
+    """The side of the road vehicles drive on. grapy's network holds one (``arcpy.graticula.SetNetworkDrivingSide``); a
+    waste collection pass collects the curb side, which it decides."""
     Unknown = 0
-    LeftSide = 1
-    RightSide = 2
+    RightSide = 1
+    LeftSide = 2
 
 
-class StopCollectionMode(enum.Enum):
+class StopCollectionMode(enum.IntEnum):
     """How a waste collection route collects a street's two sides: separately or in one pass."""
     OneSide = 1
     BothSides = 2
 
 
-class VehicleRoutingProblemSchemaVersion(enum.Enum):
-    One = "One"
-    Two = "Two"
+class VehicleRoutingProblemSchemaVersion(enum.IntEnum):
+    One = 1
+    Two = 2
 
 
-class VehicleRoutingProblemInputDataType(enum.Enum):
+class VehicleRoutingProblemInputDataType(enum.IntEnum):
     """Schema version One's inputs."""
-    Orders = "Orders"
-    Depots = "Depots"
-    Routes = "Routes"
-    Breaks = "Breaks"
-    OrderPairs = "OrderPairs"
-    RouteRenewals = "RouteRenewals"
-    RouteZones = "RouteZones"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+    Orders = 0
+    Depots = 1
+    Routes = 2
+    Breaks = 3
+    RouteZones = 4
+    RouteRenewals = 5
+    OrderPairs = 6
+    PointBarriers = 7
+    LineBarriers = 8
+    PolygonBarriers = 9
 
 
-class VehicleRoutingProblemOutputDataType(enum.Enum):
+class VehicleRoutingProblemOutputDataType(enum.IntEnum):
     """Schema version One's outputs."""
-    Routes = "Routes"
-    Stops = "Stops"
-    UnassignedStops = "UnassignedStops"
-    Directions = "Directions"
-    DirectionPoints = "DirectionPoints"
-    DirectionLines = "DirectionLines"
+    UnassignedStops = 0
+    Stops = 1
+    Routes = 2
+    Directions = 3
 
 
-class VehicleRoutingProblemInputDataType2(enum.Enum):
+class VehicleRoutingProblemInputDataType2(enum.IntEnum):
     """Schema version Two's inputs."""
-    Orders = "Orders"
-    Depots = "Depots"
-    Routes = "Routes"
-    Breaks = "Breaks"
-    RouteZones = "RouteZones"
-    RouteRenewals = "RouteRenewals"
-    OrderPairs = "OrderPairs"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
-    OrderSpecialties = "OrderSpecialties"
-    RouteSpecialties = "RouteSpecialties"
+    Orders = 100
+    Depots = 101
+    Routes = 102
+    Breaks = 103
+    RouteZones = 104
+    RouteRenewals = 105
+    OrderPairs = 106
+    PointBarriers = 107
+    LineBarriers = 108
+    PolygonBarriers = 109
+    OrderSpecialties = 110
+    RouteSpecialties = 111
 
 
-class VehicleRoutingProblemOutputDataType2(enum.Enum):
+class VehicleRoutingProblemOutputDataType2(enum.IntEnum):
     """Schema version Two's outputs."""
-    Orders = "Orders"
-    Depots = "Depots"
-    DepotVisits = "DepotVisits"
-    Breaks = "Breaks"
-    Routes = "Routes"
-    DirectionPoints = "DirectionPoints"
-    DirectionLines = "DirectionLines"
+    Orders = 100
+    Depots = 101
+    DepotVisits = 102
+    Breaks = 103
+    Routes = 104
+    DirectionPoints = 105
+    DirectionLines = 106
 
 
-class LastMileDeliveryInputDataType(enum.Enum):
-    Orders = "Orders"
-    Depots = "Depots"
-    Routes = "Routes"
-    OrderSpecialties = "OrderSpecialties"
-    RouteSpecialties = "RouteSpecialties"
-    Zones = "Zones"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class LastMileDeliveryInputDataType(enum.IntEnum):
+    Orders = 200
+    Depots = 201
+    Routes = 202
+    OrderSpecialties = 203
+    RouteSpecialties = 204
+    Zones = 205
+    PointBarriers = 206
+    LineBarriers = 207
+    PolygonBarriers = 208
 
 
-class LastMileDeliveryOutputDataType(enum.Enum):
-    Orders = "Orders"
-    Depots = "Depots"
-    DepotVisits = "DepotVisits"
-    Routes = "Routes"
-    DirectionPoints = "DirectionPoints"
-    DirectionLines = "DirectionLines"
+class LastMileDeliveryOutputDataType(enum.IntEnum):
+    Orders = 250
+    Depots = 251
+    DepotVisits = 252
+    Routes = 253
+    DirectionPoints = 254
+    DirectionLines = 255
 
 
-class WasteCollectionInputDataType(enum.Enum):
-    Stops = "Stops"
-    Depots = "Depots"
-    Routes = "Routes"
-    Renewals = "Renewals"
-    RouteRenewals = "RouteRenewals"
-    RenewalVisits = "RenewalVisits"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class WasteCollectionInputDataType(enum.IntEnum):
+    Stops = 400
+    Depots = 401
+    Routes = 402
+    Renewals = 403
+    RouteRenewals = 404
+    RenewalVisits = 405
+    PointBarriers = 406
+    LineBarriers = 407
+    PolygonBarriers = 408
 
 
-class WasteCollectionOutputDataType(enum.Enum):
-    Stops = "Stops"
-    Depots = "Depots"
-    Renewals = "Renewals"
-    RenewalVisits = "RenewalVisits"
-    Routes = "Routes"
-    RouteLines = "RouteLines"
-    DirectionPoints = "DirectionPoints"
-    DirectionLines = "DirectionLines"
+class WasteCollectionOutputDataType(enum.IntEnum):
+    Stops = 450
+    Depots = 451
+    RenewalVisits = 452
+    RouteLines = 453
+    Routes = 454
+    Renewals = 455
+    DirectionPoints = 456
+    DirectionLines = 457
 
 
 def _fleet_say(name, method):
@@ -1077,7 +1319,7 @@ class _FleetSolver(_Solver):
                 items = self._located(graph, input_type, input_type.name)
                 for item in items:
                     curb = item.get("CurbApproach")
-                    if curb not in (None, 0, CurbApproach.EitherSideOfVehicle):
+                    if curb not in (None, 0, CurbApproach.EitherSide):
                         raise NotBuiltError(f"arcpy.nax.{type(self).__name__}: CurbApproach {curb} is not built in "
                                             "grapy; every location is approached from either side.")
                 inputs[input_type.name] = items
@@ -1147,8 +1389,8 @@ class VehicleRoutingProblem(_FleetSolver):
         _fleet_say("VehicleRoutingProblem", _fleet.METHOD)
         graph = self._check()
         one = self.version is VehicleRoutingProblemSchemaVersion.One
-        problem = _fleet.Fleet(graph, self._fleet_inputs(graph), "VRP", "One" if one else "Two", self.timeUnits.value,
-                               self.distanceUnits.value, _day(self.defaultDate), self.timeWindowFactor,
+        problem = _fleet.Fleet(graph, self._fleet_inputs(graph), "VRP", "One" if one else "Two", self.timeUnits.name,
+                               self.distanceUnits.name, _day(self.defaultDate), self.timeWindowFactor,
                                self.excessTransitFactor, ignore_invalid=self.ignoreInvalidLocations)
         problem.solve()
         shape = {RouteShapeType.NoLine: "NO_LINES", RouteShapeType.StraightLine: "STRAIGHT_LINES"}.get(
@@ -1198,8 +1440,8 @@ class LastMileDelivery(_FleetSolver):
             raise ValueError("routeShapeType TrueShape is not supported by LastMileDelivery, as documented.")
         _fleet_say("LastMileDelivery", _fleet.METHOD)
         graph = self._check()
-        problem = _fleet.Fleet(graph, self._fleet_inputs(graph), "LMD", "Two", self.timeUnits.value,
-                               self.distanceUnits.value, None, "Medium", "Medium", self.earliestRouteStartDate,
+        problem = _fleet.Fleet(graph, self._fleet_inputs(graph), "LMD", "Two", self.timeUnits.name,
+                               self.distanceUnits.name, None, "Medium", "Medium", self.earliestRouteStartDate,
                                self.earliestRouteStartTime, self.maxRouteTotalTime,
                                ignore_invalid=self.ignoreInvalidLocations)
         problem.solve()
@@ -1238,7 +1480,7 @@ class WasteCollection(_FleetSolver):
         graph = self._check()
         mode = None if self.stopCollectionMode is None else (
             "ONE_SIDE" if self.stopCollectionMode is StopCollectionMode.OneSide else "BOTH_SIDES")
-        problem = _fleet.Waste(graph, self._fleet_inputs(graph), self.timeUnits.value, self.distanceUnits.value,
+        problem = _fleet.Waste(graph, self._fleet_inputs(graph), self.timeUnits.name, self.distanceUnits.name,
                                self.routeStartTime, self.maxRouteTotalTime, mode,
                                _turns.driving_side(self.networkDataSource))
         problem.solve()
@@ -1350,34 +1592,34 @@ def __getattr__(name):
 
 # ---- location-allocation ---------------------------------------------------------------------------------------------
 
-class LocationAllocationInputDataType(enum.Enum):
-    Facilities = "Facilities"
-    DemandPoints = "DemandPoints"
-    PointBarriers = "PointBarriers"
-    LineBarriers = "LineBarriers"
-    PolygonBarriers = "PolygonBarriers"
+class LocationAllocationInputDataType(enum.IntEnum):
+    Facilities = 0
+    DemandPoints = 1
+    PointBarriers = 2
+    LineBarriers = 3
+    PolygonBarriers = 4
 
 
-class LocationAllocationOutputDataType(enum.Enum):
-    Facilities = "Facilities"
-    DemandPoints = "DemandPoints"
-    Lines = "Lines"
+class LocationAllocationOutputDataType(enum.IntEnum):
+    Facilities = 0
+    DemandPoints = 1
+    Lines = 2
 
 
-class LocationAllocationProblemType(enum.Enum):
-    MinimizeImpedance = "MinimizeImpedance"
-    MaximizeCoverage = "MaximizeCoverage"
-    MaximizeCapacitatedCoverage = "MaximizeCapacitatedCoverage"
-    MinimizeFacilities = "MinimizeFacilities"
-    MaximizeAttendance = "MaximizeAttendance"
-    MaximizeMarketShare = "MaximizeMarketShare"
-    TargetMarketShare = "TargetMarketShare"
+class LocationAllocationProblemType(enum.IntEnum):
+    MaximizeAttendance = 0
+    MaximizeCapacitatedCoverage = 1
+    MaximizeCoverage = 2
+    MaximizeMarketShare = 3
+    MinimizeFacilities = 4
+    MinimizeImpedance = 5
+    TargetMarketShare = 6
 
 
-class DecayFunctionType(enum.Enum):
-    Linear = "Linear"
-    Power = "Power"
-    Exponential = "Exponential"
+class DecayFunctionType(enum.IntEnum):
+    Linear = 0
+    Power = 1
+    Exponential = 2
 
 
 def _teitz_bart(costs, weights, candidates, required, count):
@@ -1505,24 +1747,28 @@ class LocationAllocation(_Solver):
         facilities = self._located(graph, LocationAllocationInputDataType.Facilities, "Facilities")
         demands = self._located(graph, LocationAllocationInputDataType.DemandPoints, "DemandPoints")
         away = self.travelDirection is TravelDirection.FromFacility
-        solver, chosen, required, weights, served = _allocate(graph, facilities, demands, away, self.defaultImpedanceCutoff,
+        solver, chosen, required, weights, served = _allocate(graph, facilities, demands, away,
+                                                              self._cutoff(graph, self.defaultImpedanceCutoff),
                                                               self.facilityCount, "arcpy.nax.LocationAllocation")
         lines, by_facility = [], {i: [] for i in chosen}
         demand_rows = {}
         for d, demand in enumerate(demands):
             if d not in served:
-                demand_rows[demand["key"]] = {"FacilityID": None, "AllocatedWeight": None}
+                demand_rows[demand["key"]] = {"FacilityID": None, "FacilityOID": None, "AllocatedWeight": None}
                 continue
             f, path = served[d]
             facility = facilities[f]
             totals = {a: solver.total(path, a) for a, (usage, _) in graph.attributes.items() if usage == "Cost"}
             by_facility[f].append((weights[d], totals))
-            demand_rows[demand["key"]] = {"FacilityID": facility["oid"], "AllocatedWeight": weights[d]}
+            demand_rows[demand["key"]] = {"FacilityID": facility["oid"], "FacilityOID": facility.get("_source_oid"),
+                                          "AllocatedWeight": weights[d]}
             name = f"{facility['name']} - {demand['name']}" if away else f"{demand['name']} - {facility['name']}"
+            # Pro's fields (measured 2026-11-12): the inputs' source ObjectIDs, and TotalWeighted_ of the impedance only.
             line = {"ObjectID": len(lines) + 1, "Name": name, "FacilityID": facility["oid"], "DemandID": demand["oid"],
+                    "FacilityOID": facility.get("_source_oid"), "DemandOID": demand.get("_source_oid"),
                     "Weight": weights[d]}
             line.update(self._totals(graph, totals, "Total"))
-            line.update(self._totals(graph, {a: v * weights[d] for a, v in totals.items()}, "TotalWeighted"))
+            line.update(self._impedance_totals(graph, {a: v * weights[d] for a, v in totals.items()}, "TotalWeighted"))
             if self.lineShapeType is not LineShapeType.NoLine:
                 from shapely.geometry import LineString
                 ends = [facility["point"], demand["point"]] if away else [demand["point"], facility["point"]]
@@ -1539,11 +1785,14 @@ class LocationAllocation(_Solver):
                 for a, v in totals.items():
                     summed[a] = summed.get(a, 0.0) + v
                     weighted[a] = weighted.get(a, 0.0) + v * w
-            row.update(self._totals(graph, summed, "Total"))
-            row.update(self._totals(graph, weighted, "TotalWeighted"))
+            # A facility's totals are of the impedance only, as Pro writes them (measured 2026-11-12).
+            row.update(self._impedance_totals(graph, summed, "Total"))
+            row.update(self._impedance_totals(graph, weighted, "TotalWeighted"))
             facility_rows[facility["key"]] = row
-        return _Result({LocationAllocationOutputDataType.Facilities: self._inputs_out(facilities, facility_rows),
-                        LocationAllocationOutputDataType.DemandPoints: self._inputs_out(demands, demand_rows),
+        return _Result({LocationAllocationOutputDataType.Facilities: self._inputs_out(
+                            facilities, facility_rows, graph, LocationAllocationInputDataType.Facilities, "FacilityOID"),
+                        LocationAllocationOutputDataType.DemandPoints: self._inputs_out(
+                            demands, demand_rows, graph, LocationAllocationInputDataType.DemandPoints, "DemandOID"),
                         LocationAllocationOutputDataType.Lines: lines}, graph.srid, bool(lines))
 
 
