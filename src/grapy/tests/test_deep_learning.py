@@ -394,7 +394,11 @@ class Training(_Fixture):
 
     _trained = {}
     _models = tempfile.mkdtemp()
-    self.addCleanup(shutil.rmtree, _models, True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls._models, True)
+        super().tearDownClass()
 
     def trained(self, fmt, model_type):
         """One model of a type, trained once for the tests that only run it (its data is the same in every test)."""

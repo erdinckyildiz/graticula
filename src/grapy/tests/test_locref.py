@@ -777,6 +777,7 @@ class UtilityNetwork(unittest.TestCase):
     def test_configure_utility_network_classes(self):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
+        self.addCleanup(setattr, arcpy.env, "scratchWorkspace", arcpy.env.scratchWorkspace)
         self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = arcpy.env.scratchWorkspace = directory
         gpkg = arcpy.management.CreateFileGDB(directory, "un")[0]
