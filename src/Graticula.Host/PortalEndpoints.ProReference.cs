@@ -122,6 +122,46 @@ internal static partial class PortalEndpoints
             case "data/validateDataItem":
                 return Results.Ok(new { status = "success" });
 
+            // <b>A measuring tool, dev only</b>: while Pro's calls are recorded, the service definition Pro uploads is kept
+            // in the capture directory and acknowledged in the documented Upload Item shape, so the call Pro makes next
+            // can be seen. Nothing publishes it. Outside recording the path is refused as before.
+            case "uploads/upload" when RecordingPro(context.RequestServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>())
+                                      && context.Request.HasFormContentType:
+                IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+                IFormFile? file = form.Files.FirstOrDefault();
+                string itemId = "i" + Guid.NewGuid().ToString("N");
+                string itemName = System.IO.Path.GetFileName(file?.FileName ?? "upload.bin");
+                string kept = System.IO.Path.Combine(
+                    context.RequestServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
+                        ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture"),
+                    "uploads", itemId);
+                System.IO.Directory.CreateDirectory(kept);
+
+                if (file is not null)
+                {
+                    await using System.IO.FileStream target = System.IO.File.Create(System.IO.Path.Combine(kept, itemName));
+                    await file.CopyToAsync(target, cancellation).ConfigureAwait(false);
+                }
+
+                await System.IO.File.WriteAllTextAsync(
+                    System.IO.Path.Combine(kept, "fields.txt"),
+                    string.Join('\n', form.Where(f => !CapturedSecret(f.Key)).Select(f => $"{f.Key}={f.Value}")),
+                    cancellation).ConfigureAwait(false);
+
+                return Results.Ok(new
+                {
+                    status = "success",
+                    item = new
+                    {
+                        itemID = itemId,
+                        itemName,
+                        description = form["description"].ToString() is { Length: > 0 } d ? d : null,
+                        pathOnServer = $"/state/uploads/{itemId}/{itemName}",
+                        date = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        committed = true,
+                    },
+                });
+
             case "services/canCreateService":
                 // A map image layer is published here as a FeatureServer and a MapServer over the same layers (ADR-299 §5d).
                 return Results.Ok(new { status = "success" });
