@@ -359,10 +359,12 @@ def _template_columns(templates):
             columns, _, _, geometry = _gpkg.describe(connection, table)
             listed = [(oid, "INTEGER")] if oid != "rowid" else []
             listed += [(c.name, _gpkg._TYPES.get(c.type.upper(), "TEXT")) for c in columns]
+            # An unregistered template's geometry column is no field: it is the one declared with a geometry type.
+            shapes = {n.lower() for n, d in _columns(connection, table).values() if d in _GEOMETRY_TYPES.values()}
         finally:
             connection.close()
         for name, declared in listed:
-            if name.lower() not in seen and name.lower() != _gpkg.GEOMETRY:
+            if name.lower() not in seen and name.lower() not in shapes:
                 seen.add(name.lower())
                 out.append((name, declared))
     return out
@@ -408,7 +410,8 @@ def CreateUnRegisteredFeatureclass(out_path, out_name, geometry_type="POLYGON", 
     MULTIPOLYGON), as the GeoPackage standard declares one. The reference and the z and m flags are kept in
     ``grapy_unregistered`` until RegisterWithGeodatabase registers the class with them.
 
-    INFERRED (ADR-240 §5.6 e): the geometry column is named ``geom``, grapy's own, so grapy's cursors read and write
+    INFERRED (ADR-240 §5.6 e): the geometry column is named ``Shape``, grapy's own (``geom`` before ADR-289 §5.1),
+    so grapy's cursors read and write
     its shapes before it is registered; without ``spatial_reference``, the first template's reference is used.
     ``config_keyword`` is refused: it is an enterprise geodatabase's storage setting."""
     from ._reference import reference_of
@@ -510,7 +513,8 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
     SQLite having no way to make an existing column the key; without a field named, an integer ``OBJECTID`` already
     there is used, its empty values numbered after its largest, and otherwise a new ``OBJECTID`` is created; values
     that repeat are an error. Without a shape field named, a class made by CreateUnRegisteredFeatureclass registers its
-    ``geom`` column with the type, reference and dimensions it was made with. MULTIPATCH registers polygons with z as a
+    geometry column (``Shape``, or ``geom`` before ADR-289 §5.1: the column declared with a geometry type) with the type,
+    reference and dimensions it was made with. MULTIPATCH registers polygons with z as a
     multipatch class, each polygon a face, as ADR-238 holds one (§5.2 (a)); D-329's sweep."""
     from ._reference import reference_of
     from ._raster import _is_raster_path
@@ -537,7 +541,8 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
             if _behaviours._has(connection, _behaviours.UNREGISTERED) else None
         # The shape.
         multipatch = False
-        shape_field = m._text(in_shape_field) if m._given(in_shape_field) else (_gpkg.GEOMETRY if pending else None)
+        shape_field = m._text(in_shape_field) if m._given(in_shape_field) else (next(
+            (n for n, d in columns.values() if d == str(pending[0]).upper()), _gpkg.GEOMETRY) if pending else None)
         stored = None
         if shape_field is not None:
             found = columns.get(shape_field.lower())

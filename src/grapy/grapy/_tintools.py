@@ -484,7 +484,8 @@ def _breaks(table, default):
     if connection is None:
         raise ExecuteError(f"ERROR 000732: class_breaks_table {table} is not a table grapy reads.")
     try:
-        columns = [r[1] for r in connection.execute(f'pragma table_info("{name}")') if not r[5] and r[1] != _gpkg.GEOMETRY]
+        shape = (_gpkg.geometry_column(connection, name) or "").lower()
+        columns = [r[1] for r in connection.execute(f'pragma table_info("{name}")') if not r[5] and r[1].lower() != shape]
         rows = connection.execute(f'select {", ".join(chr(34) + c + chr(34) for c in columns[:2])} from "{name}" '
                                   f'order by 1').fetchall()
     finally:

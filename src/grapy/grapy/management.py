@@ -1531,11 +1531,18 @@ def AddJoin(in_layer_or_view, in_field, join_table, join_field, join_type="KEEP_
     layer = _as_layer(in_layer_or_view)
     join_path = _plain("AddJoin", join_table)
     connection, their_table = _gpkg.table_of(join_path)
+    # Either side may be joined on its object ID, as in Pro, whatever the table names it (ADR-289 §5.1).
     try:
         theirs = {c.name.lower(): c.name for c in _gpkg.describe(connection, their_table)[0]}
+        their_oid = _gpkg.oid_column(connection, their_table)
+        if their_oid != "rowid":
+            theirs.setdefault(their_oid.lower(), their_oid)
     finally:
         connection.close()
     mine = {c.name.lower(): c.name for c in _schema(layer.source)[0]}
+    own_oid = _oid_of(layer.source)
+    if own_oid != "rowid":
+        mine.setdefault(own_oid.lower(), own_oid)
     own_table = _stem_of(layer.source)
     if str(in_field).lower() not in mine:
         raise ExecuteError(f"ERROR 000728: the field '{in_field}' does not exist in {own_table}.")
@@ -2964,8 +2971,11 @@ def Copy(in_data, out_data, data_type=None, associated_data=None):
         names = ", ".join(f'"{c.name}"' for c in columns)
         origin = f'"{table}"' if same else f'source."{table}"'
         # A table is copied to an attributes table, which has no geometry column (GeoPackage §2.4).
-        shaped = _gpkg.GEOMETRY in [r[1] for r in out_connection.execute(f'pragma table_info("{new_table}")')]
-        into, taken = (f"{_gpkg.OID}, {_gpkg.GEOMETRY}", f'"{oid}", "{geometry}"') if shaped else (_gpkg.OID, f'"{oid}"')
+        # The new table's own names, the source's read from it (ADR-289 §5.1: either may be OBJECTID/Shape or fid/geom).
+        new_geometry = _gpkg.geometry_column(out_connection, new_table)
+        shaped = new_geometry is not None
+        new_oid = _gpkg.oid_sql(out_connection, new_table)
+        into, taken = (f'{new_oid}, "{new_geometry}"', f'"{oid}", "{geometry}"') if shaped else (new_oid, f'"{oid}"')
         out_connection.execute(f'insert into "{new_table}" ({into}{", " + names if names else ""}) '
                                f'select {taken}{", " + names if names else ""} from {origin}')
         if shaped:  # the source's recorded extent comes with its shapes

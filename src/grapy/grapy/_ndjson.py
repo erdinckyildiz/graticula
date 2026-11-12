@@ -123,7 +123,7 @@ def document(network, d, props, geoms, attrs, aggs, names):
         network_shapes = []
         for f in features:
             if f.key and f.source in sources:
-                found = network.q(f'select geom from "{sources[int(f.source)][0]}" where upper(GLOBALID) = upper(?)',
+                found = network.q(f'select {network.shape(sources[int(f.source)][0])} from "{sources[int(f.source)][0]}" where upper(GLOBALID) = upper(?)',
                                   str(f.globalid)).fetchone() if sources[int(f.source)][2] not in (
                     "JunctionObject", "EdgeObject") else None
                 shape = _gpkg.decode(found[0]) if found and found[0] else None

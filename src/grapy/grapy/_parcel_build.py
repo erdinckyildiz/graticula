@@ -584,7 +584,7 @@ def create_records(fab, table, features, names):
 
 
 _NOT_COPIED = {"globalid", "createdbyrecord", "retiredbyrecord", "created_user", "created_date", "last_edited_user",
-               "last_edited_date", "fid"}
+               "last_edited_date", "fid", "objectid"}
 
 
 def _copied(source, source_columns, target_columns):

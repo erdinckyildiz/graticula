@@ -1001,8 +1001,13 @@ def GANeighborhoodSelection(in_dataset, out_layer, point_coord, neighbors_max, n
                 ys.append(xy[1])
     chosen = _geostat.select(nbr, np.array(xs, dtype=np.float64), np.array(ys, dtype=np.float64), *_point(point_coord))
     picked = sorted(int(oids[i]) for i in chosen)
-    from ._gpkg import OID
-    where = f"{OID} IN ({','.join(str(o) for o in picked)})" if picked else "1 = 0"
+    from . import _gpkg
+    connection, table = _gpkg.table_of(in_dataset)
+    try:
+        oid = _gpkg.oid_sql(connection, table)
+    finally:
+        connection.close()
+    where = f"{oid} IN ({','.join(str(o) for o in picked)})" if picked else "1 = 0"
     MakeFeatureLayer(in_dataset, out_layer, where)
     return Result(out_layer)
 

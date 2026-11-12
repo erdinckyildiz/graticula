@@ -322,7 +322,7 @@ def update(network, domain, tier, name, extra):
         summaries[columns[str(row[6]).lower()]] = result
     network.q(f'delete from "{subnet_line}" where DOMAINNETWORKNAME = ? and TIERNAME = ? and SUBNETWORKNAME = ?', *match)
     names_sql = ", ".join(f'"{c}"' for c in summaries)
-    network.q(f'insert into "{subnet_line}" (geom, DOMAINNETWORKNAME, TIERNAME, SUBNETWORKNAME, SUBNETWORKCONTROLLERNAMES, '
+    network.q(f'insert into "{subnet_line}" ({network.shape(subnet_line)}, DOMAINNETWORKNAME, TIERNAME, SUBNETWORKNAME, SUBNETWORKCONTROLLERNAMES, '
               f'ISDIRTY, LASTUPDATESUBNETWORK{", " + names_sql if summaries else ""}) values (?, ?, ?, ?, ?, ?, ?'
               f'{", ?" * len(summaries)})', _gpkg.encode(shape, srid) if shape is not None else None, *match,
               controllers, CLEAN, stamp, *summaries.values())

@@ -349,12 +349,15 @@ class Feature(dict):
         return default
 
 
-def read(file, table, where=None):
-    """Every row of a table (with ``where``, those it keeps) as Features."""
+def read(file, table, where=None, oids=None):
+    """Every row of a table (with ``where``, those it keeps; with ``oids``, those object IDs) as Features."""
     connection = _gpkg.connect(file)
     try:
         columns, _, _, geometry = _gpkg.describe(connection, table)
         oid = _gpkg.oid_column(connection, table)
+        if oids is not None:   # the table's own key, whatever it is named (ADR-289 §5.1)
+            kept = f'"{oid}" in ({", ".join(str(int(o)) for o in oids) or "null"})'
+            where = f"({where}) and {kept}" if where else kept
         names = [c.name for c in columns]
         has_geometry = any(r[1] == geometry for r in connection.execute(f'pragma table_info("{table}")'))
         select = ", ".join([f'"{oid}"'] + [f'"{n}"' for n in names] + ([f'"{geometry}"'] if has_geometry else []))
@@ -500,7 +503,7 @@ def ensure_record(fab, name):
     if found is not None:
         return found.get_ci("GlobalID")
     oid = insert(fab.file, fab.records, [{"Name": str(name).strip(), "shape": None}])[0]
-    return next(r for r in read(fab.file, fab.records, f"fid = {int(oid)}")).get_ci("GlobalID")
+    return next(r for r in read(fab.file, fab.records, oids=[oid])).get_ci("GlobalID")
 
 
 RECORD_POLYGON_LIMIT = 2000

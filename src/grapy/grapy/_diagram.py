@@ -327,12 +327,14 @@ def save(network, d, rename_from=None):
         common = (d.name, f.id, f.source, f.globalid, f.container, int(f.root),
                   int(f.reduction), f.rotation)
         if f.kind == "E":
-            network.q(f'insert into "{class_path(network, "DiagramEdges")}" (geom, DIAGRAMNAME, DIAGRAMFEATUREID, '
+            network.q(f'insert into "{class_path(network, "DiagramEdges")}" '
+                      f'({network.shape(class_path(network, "DiagramEdges"))}, DIAGRAMNAME, DIAGRAMFEATUREID, '
                       'ASSOCSOURCEID, ASSOCGLOBALID, CONTAINERID, ISROOT, ISREDUCTION, ROTATION, FROMID, TOID) values '
                       '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', _gpkg.encode(f.shape, srid), *common, f.from_id, f.to_id)
         else:
             suffix = "DiagramContainers" if f.shape.geom_type == "Polygon" else "DiagramJunctions"
-            network.q(f'insert into "{class_path(network, suffix)}" (geom, DIAGRAMNAME, DIAGRAMFEATUREID, ASSOCSOURCEID, '
+            network.q(f'insert into "{class_path(network, suffix)}" ({network.shape(class_path(network, suffix))}, '
+                      f'DIAGRAMNAME, DIAGRAMFEATUREID, ASSOCSOURCEID, '
                       'ASSOCGLOBALID, CONTAINERID, ISROOT, ISREDUCTION, ROTATION) values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                       _gpkg.encode(f.shape, srid), *common)
 

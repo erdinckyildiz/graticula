@@ -900,7 +900,8 @@ def _extent(value, tool="ValidateNetworkTopology"):
     except Exception:
         raise ExecuteError(f"ERROR 000800: '{value}' is not an extent.") from None
     try:
-        shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select geom from "{table}"')]
+        shapes = [_gpkg.decode(r[0]) for r in connection.execute(
+            f'select {_gpkg.shape_sql(connection, table)} from "{table}"')]
     finally:
         connection.close()
     return shapely.unary_union([s for s in shapes if s is not None]).bounds
@@ -913,7 +914,8 @@ def _network_present(network, bounds):
     for class_name, _, role in network.sources().values():
         if role in _utility.OBJECT_ROLES or role == "SubnetLine":
             continue
-        for (blob,) in network.q(f'select geom from "{class_name}" where geom is not null'):
+        shape = network.shape(class_name)
+        for (blob,) in network.q(f'select {shape} from "{class_name}" where {shape} is not null'):
             shape = _gpkg.decode(blob)
             if shape is not None and not shape.is_empty and shape.intersects(area):
                 return True
@@ -1240,7 +1242,7 @@ def AddTraceLocations(in_utility_network, out_feature_class, load_selected_featu
             else:
                 percent = -1.0  # no percent along on a junction: -1, as Pro 3.7 writes (measured 2026-11-12)
             if role not in _utility.OBJECT_ROLES:
-                blob = network.q(f'select geom from "{class_name}" where "{network.oid(class_name)}" = ?', oid).fetchone()[0]
+                blob = network.q(f'select {network.shape(class_name)} from "{class_name}" where "{network.oid(class_name)}" = ?', oid).fetchone()[0]
                 geometry = _gpkg.decode(blob)
                 if geometry is not None and not geometry.is_empty:
                     # z kept: Pro 3.7 writes the locations as points with z (measured 2026-11-12)
@@ -1263,7 +1265,7 @@ def AddTraceLocations(in_utility_network, out_feature_class, load_selected_featu
         for globalid, terminal, percent, flag, shape, more in out:
             if flat and shape is not None:
                 shape = shapely.force_2d(shape)
-            connection.execute(f'insert into "{table}" (geom, LAYERNAME, SOURCEID, ASSETGROUPCODE, ASSETTYPE, '
+            connection.execute(f'insert into "{table}" ({_gpkg.shape_sql(connection, table)}, LAYERNAME, SOURCEID, ASSETGROUPCODE, ASSETTYPE, '
                                'FEATUREGLOBALID, FEATUREOID, TERMINALID, PERCENTALONG, DISPLAYNAME, ISFILTERBARRIER) '
                                'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                                (_gpkg.encode(shape, srid) if shape is not None else None, *more[:4], globalid,
@@ -2075,7 +2077,7 @@ def _aggregate(file, srid, graph, ids, keys, sources, trace_name, points, lines,
             if clear:
                 connection.execute(f'delete from "{table}"')
             if found:
-                connection.execute(f'insert into "{table}" (geom, TRACENAME) values (?, ?)',
+                connection.execute(f'insert into "{table}" ({_gpkg.shape_sql(connection, table)}, TRACENAME) values (?, ?)',
                                    (_gpkg.encode(combine(found), srid), trace_name))
             connection.commit()
         finally:

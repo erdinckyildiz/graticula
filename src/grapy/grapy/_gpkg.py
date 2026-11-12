@@ -18,6 +18,9 @@ import shapely
 sqlite3.register_adapter(datetime.datetime, lambda value: value.isoformat(" "))
 sqlite3.register_adapter(datetime.date, lambda value: value.isoformat())
 
+# The names grapy *writes* a new feature class's object ID and geometry columns under, and nothing else: every reader
+# finds a table's own columns with ``oid_column`` (its integer primary key) and ``geometry_column`` (its
+# gpkg_geometry_columns row), so a GeoPackage written before 2026-11-12 with ``fid``/``geom``, or by GDAL, still reads.
 GEOMETRY = "geom"
 OID = "fid"
 
@@ -247,12 +250,17 @@ def drop_index(connection: sqlite3.Connection, table: str, column: str | None = 
     answering whether there was one. ``column`` names the geometry column when the table's registration is already
     gone or about to change."""
     if column is None:
+        column = geometry_column(connection, table)
+    if column is None:   # the registration gone: the index's own extension row names its column, else either writer's
         try:
-            row = connection.execute(
-                "select column_name from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
+            row = connection.execute("select column_name from gpkg_extensions where table_name = ? and "
+                                     "extension_name = ?", (table, RTREE)).fetchone()
         except sqlite3.Error:
             row = None
-        column = row[0] if row else GEOMETRY
+        column = row[0] if row else next(
+            (c for c in (GEOMETRY, "Shape", "geom") if connection.execute(
+                "select 1 from sqlite_master where name = ? and type = 'table'", (f"rtree_{table}_{c}",)).fetchone()),
+            GEOMETRY)
     name = f"rtree_{table}_{column}"
     there = bool(connection.execute("select 1 from sqlite_master where name = ? and type = 'table'",
                                     (name,)).fetchone())
@@ -306,6 +314,31 @@ def describe(connection: sqlite3.Connection, table: str) -> tuple[list[Column], 
         from ._multipatch import is_registered
         kind = "MultiPatch" if is_registered(connection, table) else kind
     return columns, kind, int(srid or 0), geometry
+
+
+def geometry_column(connection: sqlite3.Connection, table: str) -> str | None:
+    """A feature table's geometry column, as its gpkg_geometry_columns row names it; None for a table that has none.
+    Every reader finds the column here and never by name (ADR-289 §5.1): grapy writes ``Shape`` since 2026-11-12 and
+    ``geom`` before, GDAL writes ``geom`` and other writers what they like."""
+    try:
+        row = connection.execute(
+            "select column_name from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
+    except sqlite3.Error:      # not a GeoPackage
+        return None
+    return row[0] if row else None
+
+
+def shape_sql(connection: sqlite3.Connection, table: str) -> str:
+    """A feature table's geometry column quoted for SQL (``geometry_column``); refused for a table that has none."""
+    column = geometry_column(connection, table)
+    if column is None:
+        raise ValueError(f"'{table}' has no geometry column.")
+    return _quote(column)
+
+
+def oid_sql(connection: sqlite3.Connection, table: str) -> str:
+    """A table's object ID column quoted for SQL (``oid_column``)."""
+    return _quote(oid_column(connection, table))
 
 
 def oid_column(connection: sqlite3.Connection, table: str) -> str:

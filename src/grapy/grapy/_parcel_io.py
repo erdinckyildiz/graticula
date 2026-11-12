@@ -373,7 +373,7 @@ def append_parcels(parcels, target, method):
     pf.update(target.file, target.records, updates)
     for record, values in inserts:
         oid = pf.insert(target.file, target.records, [values])[0]
-        made = pf.read(target.file, target.records, f'"fid" = {int(oid)}')[0]
+        made = pf.read(target.file, target.records, oids=[oid])[0]
         guid_map[str(record.get_ci("GlobalID")).upper()] = made.get_ci("GlobalID")
 
     def remap(values):

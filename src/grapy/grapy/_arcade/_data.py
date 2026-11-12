@@ -861,8 +861,9 @@ def _by_association(_, args):
     me = _global_id("FeatureSetByAssociation", store, table, args[0])
     terminal_id = _terminal_id(connection, network, table.name, args[0], terminal) if terminal is not None else None
     types, own_end = _ASSOCIATIONS[kind]
+    from .. import _gpkg
     rows = connection.execute(
-        f'select fid, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, TOGLOBALID, TOTERMINALID, '
+        f'select "{_gpkg.oid_column(connection, associations)}", FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, TOGLOBALID, TOTERMINALID, '
         f'ASSOCIATIONTYPE, ISCONTENTVISIBLE, PERCENTALONG from "{associations}" where ASSOCIATIONTYPE in '
         f'({", ".join(str(t) for t in types)}) and (upper(FROMGLOBALID) = upper(?) or upper(TOGLOBALID) = upper(?))',
         (me, me)).fetchall()

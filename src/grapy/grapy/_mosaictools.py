@@ -201,7 +201,8 @@ def _extent_box(value):
 
 def _insert(connection, name, srid, shape, values, oid=None):
     columns = [c for c in values if c != "OBJECTID"]
-    fields = ([f'"{_mosaic.OID}"'] if oid is not None else []) + [f'"{_gpkg.GEOMETRY}"'] + [f'"{c}"' for c in columns]
+    fields = ([f'"{_mosaic.OID}"'] if oid is not None else []) + [_gpkg.shape_sql(connection, name)] + \
+        [f'"{c}"' for c in columns]
     params = ([oid] if oid is not None else []) + [None if shape is None else _gpkg.encode(_mosaic._multi(shape), srid)] + \
              [values[c] for c in columns]
     cursor = connection.execute(f'insert into "{name}" ({", ".join(fields)}) values ({", ".join("?" * len(params))})',
@@ -409,7 +410,7 @@ def _add(in_mosaic_dataset, files, duplicates, tool, statistics=False):
 
 
 def _update(connection, mosaic, srid, oid, shape, values):
-    sets = [f'"{_gpkg.GEOMETRY}" = ?'] + [f'"{c}" = ?' for c in values]
+    sets = [f'{_gpkg.shape_sql(connection, mosaic)} = ?'] + [f'"{c}" = ?' for c in values]
     connection.execute(f'update "{mosaic}" set {", ".join(sets)} where "{_mosaic.OID}" = ?',
                        [_gpkg.encode(_mosaic._multi(shape), srid), *values.values(), oid])
 

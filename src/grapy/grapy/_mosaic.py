@@ -298,7 +298,7 @@ def items(connection, name, where=None, extra=()):
     wanted = [f for f, _ in FIELDS] + [e for e in extra if e and e.lower() not in {f.lower() for f, _ in FIELDS}]
     present = {c.lower(): c for c, _ in columns_of(connection, name)}
     selected = [present[w.lower()] for w in wanted if w.lower() in present]
-    sql = (f'select "{OID}", "{_gpkg.GEOMETRY}"' + "".join(f', "{c}"' for c in selected) + f' from "{name}"'
+    sql = (f'select "{OID}", {_gpkg.shape_sql(connection, name)}' + "".join(f', "{c}"' for c in selected) + f' from "{name}"'
            + where_sql(where) + f' order by "{OID}"')
     try:
         rows = connection.execute(sql).fetchall()

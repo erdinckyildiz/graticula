@@ -312,6 +312,10 @@ class Network:
     def oid(self, class_name):
         return _gpkg.oid_column(self.connection, class_name)
 
+    def shape(self, class_name):
+        """A class's geometry column, quoted for SQL, as its own registration names it (ADR-289 §5.1)."""
+        return _gpkg.shape_sql(self.connection, class_name)
+
     def feature_by_globalid(self, class_name, globalid):
         row = self.q(f'select "{self.oid(class_name)}", ASSETGROUP, ASSETTYPE from "{class_name}" where '
                      'upper(GLOBALID) = upper(?)', str(globalid)).fetchone()
@@ -708,9 +712,9 @@ def association_rows(network):
     table = associations_table(network)
     return [dict(zip(("oid", "from_source", "from_globalid", "from_terminal", "to_source", "to_globalid", "to_terminal",
                       "type", "visible", "percent", "globalid"), r))
-            for r in network.q(f'select fid, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, '
+            for r in network.q(f'select {_gpkg.oid_sql(network.connection, table)}, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, '
                                f'TOGLOBALID, TOTERMINALID, ASSOCIATIONTYPE, ISCONTENTVISIBLE, PERCENTALONG, GlobalID '
-                               f'from "{table}" order by fid')]
+                               f'from "{table}" order by {_gpkg.oid_sql(network.connection, table)}')]
 
 
 def _association_status(network):
@@ -751,9 +755,9 @@ def _current(network):
         wanted = ["ASSETGROUP", "ASSETTYPE"] + [e for e, low in extra if low in columns] + \
             sorted({f for f in fields.values() if f.lower() in columns})
         oid = network.oid(class_name)
-        geometry = "geom" if role not in OBJECT_ROLES else None
+        geometry = network.shape(class_name) if role not in OBJECT_ROLES else None
         select = ", ".join(f'"{w}"' for w in wanted)
-        sql = f'select "{oid}", GLOBALID, {"geom" if geometry else "null"}, {select} from "{class_name}"'
+        sql = f'select "{oid}", GLOBALID, {geometry or "null"}, {select} from "{class_name}"'
         for row in network.q(sql).fetchall():
             shape = _gpkg.decode(row[2]) if geometry else None
             shape = shapely.force_2d(shape) if shape is not None else None
@@ -867,7 +871,7 @@ def write_dirty_areas(network):
         rows.append((area, bits | error_bit, codes[0][0] if codes else 0, "; ".join(c[1] for c in codes) or None,
                      key[0], globalid))
     for shape, status, code, message, source, globalid in rows:
-        network.q(f'insert into "{table}" (geom, STATUS, ERRORCODE, ERRORMESSAGE, NETWORKSOURCEID, FEATUREGLOBALID) '
+        network.q(f'insert into "{table}" ({network.shape(table)}, STATUS, ERRORCODE, ERRORMESSAGE, NETWORKSOURCEID, FEATUREGLOBALID) '
                   'values (?, ?, ?, ?, ?, ?)', _gpkg.encode(shapely.MultiPolygon([shape]) if shape.geom_type == "Polygon"
                                                             else shape, srid), status, code, message, source, globalid)
 
@@ -876,7 +880,8 @@ def _territory_extent(network):
     file, table = _gpkg.split(network.territory)
     connection = _gpkg.connect(file)
     try:
-        shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select geom from "{table}"')]
+        shapes = [_gpkg.decode(r[0]) for r in connection.execute(
+            f'select {_gpkg.shape_sql(connection, table)} from "{table}"')]
     finally:
         connection.close()
     shapes = [s for s in shapes if s is not None and not s.is_empty]
