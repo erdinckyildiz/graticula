@@ -159,8 +159,13 @@ class Index:
 
 
 def _tokens(text):
+    """A value table row's cells: split on spaces, quotes keeping a cell together. Backslashes are characters, not
+    escapes: Pro reads a Windows path in a row (``<gdb path> Shape.Z Mass_Points``) as given (measured in ArcGIS Pro
+    3.7, 2026-11-08, by the ddd sweep: CreateTin's in_features), where shlex's POSIX mode dropped every backslash."""
     import shlex
-    return shlex.split(str(text), posix=True)
+    lexer = shlex.shlex(str(text), posix=True)
+    lexer.whitespace_split, lexer.escape = True, ""
+    return list(lexer)
 
 
 def _quoted(value):

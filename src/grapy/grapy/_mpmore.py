@@ -467,9 +467,12 @@ def SkylineBarrier(in_observer_point_features, in_features, out_feature_class, m
     Refused by value: silhouettes (multipatch input) — its page says a silhouette makes the volume of the shadow cast
     from the observer but not which of the silhouette's edges bound it, and the Skyline tool that writes them is
     refused. INFERRED (Q-209 (h)): a line with an ``OBSV_PT_ID`` field pairs with that observer, any other with every
-    observer; ``ORIGFTR_ID`` is the line's own field of that name when it has one, else null; the near end of the
+    observer; ``ORIGFTR_ID`` is the line's own field of that name when it has one; the near end of the
     edges is ``min_radius`` along each ray (the fan's apex at the observer when 0), and a far end nearer than it is
-    moved out to it; the planes of PROJECT_TO_PLANE are square to the skyline's mean direction from the observer."""
+    moved out to it; the planes of PROJECT_TO_PLANE are square to the skyline's mean direction from the observer.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): a line without ``ORIGFTR_ID`` gives −1 (grapy wrote null), and a third
+    field ``SKYLINE_ID`` holds the skyline line's ObjectID."""
     from . import _gpkg
     from .analysis import _schema
     tool = "SkylineBarrier"
@@ -525,10 +528,11 @@ def SkylineBarrier(in_observer_point_features, in_features, out_feature_class, m
                 if len(t):
                     parts.append(t)
             if parts:
-                out.append(([int(observer_oid), None if original is None else int(original)],
+                out.append(([int(observer_oid), -1 if original is None else int(original), int(oid)],
                             M.from_triangles(np.concatenate(parts))))
     path = M.write(out_feature_class, srid or observers_srid,
-                   [_gpkg.Column("OBSV_PT_ID", "Integer"), _gpkg.Column("ORIGFTR_ID", "Integer")], out)
+                   [_gpkg.Column("OBSV_PT_ID", "Integer"), _gpkg.Column("ORIGFTR_ID", "Integer"),
+                    _gpkg.Column("SKYLINE_ID", "Integer")], out)
     return Result(path)
 
 

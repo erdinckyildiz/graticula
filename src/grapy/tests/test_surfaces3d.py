@@ -362,8 +362,12 @@ class Footprints(_Fixture):
 
 
 class Profile(_Fixture):
-    def test_stack_profile_samples_at_cell_edges(self):
-        # z = x on a 3 × 3 grid; the line y = 15 from x = 5 to 25 crosses the cell edges x = 10 and x = 20.
+    def test_stack_profile_samples_as_interpolate_shape_does(self):
+        # z = x on a 3 × 3 grid of 10-unit cells; the line y = 15 from x = 5 to 25 is 20 long. Measured in ArcGIS Pro
+        # 3.7, 2026-11-08 (this test pinned grapy's cell-edge sampling before): the line is cut into the fewest equal
+        # pieces shorter than the cell size — 3 of 6.67 — so the samples are at 0, 6.67, 13.33 and 20, z = 5 + d.
+        # SRC_NAME is the raster's path with every character not a letter or digit made "_"; LINE_TARG "1_1".
+        import re
         surface = os.path.join(self.directory, "dem.tif")
         grid([[5.0, 15.0, 25.0]] * 3).save(surface)
         lines = self.features("prof", "POLYLINE", [(line((5, 15), (25, 15)),)])
@@ -371,11 +375,13 @@ class Profile(_Fixture):
         legacy = os.path.join(self.directory, "legacy.gpkg")
         ddd.StackProfile(lines, [surface], table, out_legacy_table=legacy)
         rows = self.table(table, ["DISTANCE", "Z", "LINE_ID", "SRC_NAME", "LINE_TARG"])
-        self.assertEqual([[round(d, 6), round(z, 6)] for d, z, *_ in rows], [[0, 5], [5, 10], [15, 20], [20, 25]])
-        self.assertEqual(rows[0][2:], [1, "dem", "1 dem"])
-        self.assertEqual([[round(v, 6) for v in r] for r in self.table(legacy, ["FIRST_DIST", "FIRST_Z", "SEC_DIST",
-                                                                               "SEC_Z"])],
-                         [[0, 5, 5, 10], [5, 10, 15, 20], [15, 20, 20, 25]])
+        third = 20 / 3
+        self.assertEqual([[round(d, 6), round(z, 6)] for d, z, *_ in rows],
+                         [[0, 5], [round(third, 6), round(5 + third, 6)], [round(2 * third, 6), round(5 + 2 * third, 6)],
+                          [20, 25]])
+        self.assertEqual(rows[0][2:], [1, re.sub(r"[^A-Za-z0-9]", "_", os.path.abspath(surface)), "1_1"])
+        self.assertTrue(rows[0][3].endswith("_dem_tif"))
+        self.assertEqual(len(self.table(legacy, ["FIRST_DIST"])), 3)
         with self.assertRaises(arcpy.NotBuiltError):
             ddd.StackProfile(lines, [surface], table, out_graph="chart")
 

@@ -78,8 +78,11 @@ def LandXMLToTin(in_landxml_path, out_tin_folder, tin_basename, tinnames=None):
     ``tinnames`` picks surfaces by name or by position from 1, separated by ``;``; with none, every TIN surface. If a
     TIN of the base name already exists, nothing is written, as documented.
 
-    INFERRED (Q-223 (a)): each TIN is ``<basename><surface name>`` — the name's characters outside letters, digits and
-    ``_`` dropped — or ``<basename><position>`` for an unnamed surface; the TIN is stored as its points (mass points)
+    One TIN written is named the base name alone, as ArcGIS Pro 3.7 names it (measured 2026-11-08: surface "ground"
+    under base name "lx" is the TIN "lx"; grapy wrote "lxground").
+
+    INFERRED (Q-223 (a)): with several, each TIN is ``<basename><surface name>`` — the name's characters outside
+    letters, digits and ``_`` dropped — or ``<basename><position>`` for an unnamed surface; the TIN is stored as its points (mass points)
     and its visible faces (a hard clip), so EditTin re-triangulates the same faces; the reference is the file's
     ``CoordinateSystem/@epsgCode`` when it has one; ``SourceData`` breaklines and boundaries are not read, the faces
     already holding them."""
@@ -112,7 +115,7 @@ def LandXMLToTin(in_landxml_path, out_tin_folder, tin_basename, tinnames=None):
     for k in chosen:
         name = surfaces[k][0]
         suffix = re.sub(r"[^A-Za-z0-9_]", "", name) if name else str(k + 1)
-        targets.append((k, os.path.join(folder, base + (suffix if len(chosen) > 1 or name else ""))))
+        targets.append((k, os.path.join(folder, base + (suffix if len(chosen) > 1 else ""))))
     if any(_tin.exists(t) or os.path.exists(t) for _, t in targets):
         AddWarning(f"A TIN named from the base name '{base}' already exists in {folder}; nothing was written.")
         return Result(folder)

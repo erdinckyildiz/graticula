@@ -90,13 +90,18 @@ class Local(_Fixture):
 
 
 class Surface(_Fixture):
-    def test_aspect_is_nodata_on_the_rim_and_beside_a_hole(self):
+    def test_aspect_is_nodata_on_the_rim_but_not_beside_a_single_hole(self):
         values = [[float(10 * k + r) for k in range(5)] for r in range(5)]
         values[2][2] = -9999.0
         out = cells(sa.Aspect(grid(values, nodata=-9999.0)))
         nodata = [[int(v == ND) for v in row] for row in out]
-        # The outer ring, the hole, and its four edge neighbours; the corner neighbours (1,1) … are computed.
-        self.assertEqual(nodata, [[1, 1, 1, 1, 1], [1, 0, 1, 0, 1], [1, 1, 1, 1, 1], [1, 0, 1, 0, 1], [1, 1, 1, 1, 1]])
+        # Re-measured in ArcGIS Pro 3.7 on this raster, 2026-11-12: the outer ring and the hole are NoData, and every
+        # neighbour of the hole is computed (this test had said the four edge neighbours were NoData, which Pro does
+        # not do; each keeps at least half of every side's 1-2-1 weight). Pro: 266.122 at (1,1), 275.711 at (1,2).
+        self.assertEqual(nodata, [[1, 1, 1, 1, 1], [1, 0, 0, 0, 1], [1, 0, 1, 0, 1], [1, 0, 0, 0, 1], [1, 1, 1, 1, 1]])
+        self.assertAlmostEqual(out[1][1], 266.122, places=2)
+        self.assertAlmostEqual(out[1][2], 275.711, places=2)
+        self.assertAlmostEqual(out[1][3], 284.697, places=2)
 
     def test_hillshade_is_truncated(self):
         # z = x on 10-unit cells: a 45° slope facing west; 255 · (cos 45° cos 45° + sin 45° sin 45° cos 45°) = 217.65.

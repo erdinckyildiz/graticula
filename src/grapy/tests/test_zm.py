@@ -176,8 +176,10 @@ class ZTools(unittest.TestCase):
         path = self.lines("z", [(self.zline((0, 0, 0), (3, 4, 12), (6, 8, 12)),)])
         arcpy.ddd.AddZInformation(path, ["Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "MIN_SLOPE", "MAX_SLOPE",
                                          "AVG_SLOPE"])
-        with arcpy.da.SearchCursor(path, ["Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "MIN_SLOPE",
-                                          "MAX_SLOPE", "AVG_SLOPE"]) as rows:
+        # The fields are named as ArcGIS Pro 3.7 names them (measured 2026-11-08): Length3D and Vertex_Cnt, not the
+        # keywords this test read until then.
+        with arcpy.da.SearchCursor(path, ["Z_Min", "Z_Max", "Z_Mean", "Length3D", "Vertex_Cnt", "Min_Slope",
+                                          "Max_Slope", "Avg_Slope"]) as rows:
             got = next(rows)
         # Segments: run 5 rise 12 (3D 13, grade 240 %, mid z 6) and run 5 rise 0 (3D 5, grade 0, mid z 12).
         self.assertEqual(got[:2], (0.0, 12.0))
