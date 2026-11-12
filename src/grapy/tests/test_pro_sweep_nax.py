@@ -207,6 +207,32 @@ class ProSweepNax(unittest.TestCase):
         with arcpy.da.SearchCursor(out, ["Name", "EndTime"]) as rows:
             self.assertEqual(list(rows), [("r", "08:03:36")])
 
+    def test_vehicle_routing_schema_one_routes(self):
+        # Schema version One's Routes hold the solve's fields, not the route's inputs; no violation is 0; a network
+        # with no time zone writes its UTC times as its local ones; the start depot's FromPrevDistance is 0.
+        vrp = self.solver("VehicleRoutingProblem")
+        T = nax.VehicleRoutingProblemInputDataType
+        self.insert(vrp, T.Depots, [("depot", (10, 0))])
+        self.insert(vrp, T.Orders, [("o", 1.0, (20, 0))], ("Name", "ServiceTime"))
+        with vrp.insertCursor(T.Routes, ["Name", "StartDepotName", "EndDepotName"]) as cursor:
+            cursor.insertRow(("truck", "depot", "depot"))
+        result = vrp.solve()
+        U = nax.VehicleRoutingProblemOutputDataType
+        names = result.fieldNames(U.Routes)
+        self.assertNotIn("StartDepotName", names)
+        (row,) = result.searchCursor(U.Routes, ["ViolatedConstraints", "StartTime", "StartTimeUTC", "EndTime",
+                                                "EndTimeUTC", "TotalTime"])
+        self.assertEqual(row[0], 0)
+        self.assertEqual((row[2], row[4]), (row[1], row[3]))
+        self.assertAlmostEqual(row[5], 3.0)                              # 1 there, 1 service, 1 back
+        depot = [r for r in result.searchCursor(U.Stops, ["StopType", "Sequence", "FromPrevDistance"]) if r[1] == 1]
+        self.assertEqual(depot, [(1, 1, 0.0)])
+        self.assertEqual(vrp.fieldNames(T.Breaks)[0], "RouteName")       # Pro's order, no Name
+
+    def test_waste_collection_times_to_the_second(self):
+        self.assertEqual(nax._second(datetime.time(8, 3, 35, 999999)), datetime.time(8, 3, 36))
+        self.assertEqual(nax._second(datetime.time(8, 3, 35, 400000)), datetime.time(8, 3, 35))
+
     # ---- custom evaluators
 
     def test_custom_evaluator_objects(self):

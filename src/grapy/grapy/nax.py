@@ -198,6 +198,17 @@ _PRO_INPUT_FIELDS = {
                        "Bearing", "BearingTol", "NavLatency"]},
     "ServiceArea": {"Facilities": ["Name", "CurbApproach", "Breaks", "AdditionalTime", "AdditionalDistance",
                                    "AdditionalCost", "Bearing", "BearingTol", "NavLatency"]},
+    "WasteCollection": {
+        "Stops": ["Name", "ServiceTime", "Bins_1", "Weight_1", "Volume_1", "Bins_2", "Weight_2", "Volume_2",
+                  "CollectionMode", "AnchorRule", "AssignmentRule", "RouteName", "Sequence", "Bearing", "BearingTol",
+                  "NavLatency"],
+        "Depots": ["Name", "Bearing", "BearingTol", "NavLatency"],
+        "Routes": ["Name", "StartDepotName", "EndDepotName", "StartDepotServiceTime", "EndDepotServiceTime",
+                   "StartTime", "MaxBins_1", "MaxWeight_1", "MaxVolume_1", "MaxBins_2", "MaxWeight_2", "MaxVolume_2",
+                   "OvertimeStartTime", "MaxTotalTime", "MaxTotalDistance", "AssignmentRule"],
+        "Renewals": ["Name", "Fraction", "Bearing", "BearingTol", "NavLatency"],
+        "RouteRenewals": ["RouteName", "RenewalName", "ServiceTime"],
+        "RenewalVisits": ["RouteName", "RenewalName", "Sequence"]},
     "OriginDestinationCostMatrix": {
         "Origins": ["Name", "TargetDestinationCount", "CurbApproach", "Cutoff", "Bearing", "BearingTol", "NavLatency"],
         "Destinations": ["Name", "CurbApproach", "Bearing", "BearingTol", "NavLatency"]},
@@ -1384,6 +1395,11 @@ class VehicleRoutingProblem(_FleetSolver):
             return _VRP_ONE_FIELDS
         return _layer_fields("Vehicle Routing Problem")
 
+    def _properties(self, input_type):
+        if self.version is VehicleRoutingProblemSchemaVersion.One:
+            return list(_VRP_ONE_FIELDS.get(input_type.name, []))
+        return super()._properties(input_type)
+
     def solve(self):
         from . import _fleet
         _fleet_say("VehicleRoutingProblem", _fleet.METHOD)
@@ -1400,6 +1416,8 @@ class VehicleRoutingProblem(_FleetSolver):
             for kind in ("Stops", "UnassignedStops"):
                 for row in outputs[kind]:
                     row["SHAPE"] = None
+        if one:
+            _schema_one_as_pro(outputs)
         succeeded = any(r.get("OrderCount") for r in outputs["Routes"])
         return self._result(outputs, VehicleRoutingProblemOutputDataType if one else VehicleRoutingProblemOutputDataType2,
                             graph, succeeded)
@@ -1452,6 +1470,15 @@ class LastMileDelivery(_FleetSolver):
         return self._result(outputs, LastMileDeliveryOutputDataType, graph, succeeded)
 
 
+def _second(value):
+    """A time of day to the nearest second, as Pro writes a waste collection route's EndTime (measured 2026-11-12:
+    08:03:36 where grapy's arithmetic gave 08:03:35.999999)."""
+    if not isinstance(value, datetime.time):
+        return value
+    moment = datetime.datetime.combine(datetime.date(2000, 1, 1), value) + datetime.timedelta(microseconds=500000)
+    return moment.replace(microsecond=0).time()
+
+
 class WasteCollection(_FleetSolver):
     """EQUIVALENT: waste collection as ``grapy._fleet.Waste`` routes it: stops grouped by street edge (and side, when
     collected one side at a time), each group a task served by traversing its edge, routes minimised then time.
@@ -1474,6 +1501,37 @@ class WasteCollection(_FleetSolver):
         self.searchSources = None
         self.stopCollectionMode = None
 
+    def _waste_as_pro(self, graph, outputs):
+        """The outputs as ArcGIS Pro 3.7 writes them (measured 2026-11-12): Routes echo every route property and carry
+        no shape (RouteLines do); a total no stop gives a value for, and a count of no renewals, is null; Stops echo
+        their properties and their network location."""
+        from . import _fleet
+        stops = self._inputs[WasteCollectionInputDataType.Stops]
+        given = {m for m in _fleet.Waste.MEASURES if any(r.get(m) is not None for r in stops)}
+        route_fields = self._properties(WasteCollectionInputDataType.Routes)
+        for row in outputs["Routes"]:
+            for name in route_fields:
+                row.setdefault(name, None)
+            row["SHAPE"] = None
+            for m in _fleet.Waste.MEASURES:
+                if m not in given:
+                    row[f"Total{m}"] = None
+            if not row.get("RenewalCount"):
+                row["RenewalCount"] = None
+            row["EndTime"] = _second(row.get("EndTime"))
+        items = {item["oid"]: item for item in self._located(graph, WasteCollectionInputDataType.Stops, "Stops")}
+        stop_fields = [f for f in self._properties(WasteCollectionInputDataType.Stops)
+                       if f not in ("Bearing", "BearingTol", "NavLatency")]
+        for row in outputs["Stops"]:
+            item = items.get(row["ObjectID"])
+            if item is None:
+                continue
+            for name in stop_fields:
+                row.setdefault(name, item.get(name))
+            location = graph.location_fields(item["located"], item["point"])
+            row.update({k: v for k, v in location.items() if not k.startswith("_")})
+            row["SnapZ"] = 0.0 if item["located"] else None
+
     def solve(self):
         from . import _fleet, _turns
         _fleet_say("WasteCollection", _fleet.WASTE_METHOD)
@@ -1485,26 +1543,52 @@ class WasteCollection(_FleetSolver):
                                _turns.driving_side(self.networkDataSource))
         problem.solve()
         outputs = _fleet.waste_outputs(problem)
+        self._waste_as_pro(graph, outputs)
         succeeded = any(r.get("StopCount") for r in outputs["Routes"])
         return self._result(outputs, WasteCollectionOutputDataType, graph, succeeded)
 
 
+# Schema version One's Routes, as ArcGIS Pro 3.7 writes them (measured 2026-11-12): the solve's fields, not the input's.
+_VRP_ONE_ROUTE_FIELDS = ["ObjectID", "Name", "ViolatedConstraints", "ViolatedConstraint_1", "ViolatedConstraint_2",
+                         "ViolatedConstraint_3", "ViolatedConstraint_4", "OrderCount", "TotalCost", "RegularTimeCost",
+                         "OvertimeCost", "DistanceCost", "TotalTime", "TotalOrderServiceTime", "TotalBreakServiceTime",
+                         "TotalTravelTime", "TotalDistance", "StartTime", "EndTime", "StartTimeUTC", "EndTimeUTC",
+                         "TotalWaitTime", "TotalViolationTime", "RenewalCount", "TotalRenewalServiceTime", "SHAPE"]
+
+
+def _schema_one_as_pro(outputs):
+    """A schema version One solve's outputs as ArcGIS Pro 3.7 writes them (measured 2026-11-12): Routes hold the
+    solve's fields only, ViolatedConstraints 0 when none is violated; a network with no time zone writes its UTC times
+    as its local ones; the start depot's FromPrevDistance is 0."""
+    for n, row in enumerate(outputs["Routes"]):
+        row = {k: row.get(k) for k in _VRP_ONE_ROUTE_FIELDS}
+        if row["ViolatedConstraints"] is None and not any(row[f"ViolatedConstraint_{k}"] for k in range(1, 5)):
+            row["ViolatedConstraints"] = 0
+        row["StartTimeUTC"], row["EndTimeUTC"] = row["StartTime"], row["EndTime"]
+        outputs["Routes"][n] = row
+    for row in outputs["Stops"]:
+        row["ArriveTimeUTC"], row["DepartTimeUTC"] = row.get("ArriveTime"), row.get("DepartTime")
+        if row.get("FromPrevDistance") is None and row.get("FromPrevTravelTime") == 0:
+            row["FromPrevDistance"] = 0.0
+
+
+# Schema version One's inputs, in ArcGIS Pro 3.7's order (measured 2026-11-12).
 _VRP_ONE_FIELDS = {
-    "Orders": ["Description", "ServiceTime", "TimeWindowStart1", "TimeWindowEnd1", "TimeWindowStart2", "TimeWindowEnd2",
-               "MaxViolationTime1", "MaxViolationTime2", "InboundArriveTime", "OutboundDepartTime", "DeliveryQuantities",
-               "PickupQuantities", "Revenue", "SpecialtyNames", "AssignmentRule", "RouteName", "Sequence",
-               "CurbApproach", "Bearing", "BearingTol", "NavLatency"],
-    "Depots": ["Description", "TimeWindowStart1", "TimeWindowEnd1", "TimeWindowStart2", "TimeWindowEnd2",
-               "CurbApproach", "Bearing", "BearingTol", "NavLatency"],
-    "Routes": ["Description", "StartDepotName", "EndDepotName", "StartDepotServiceTime", "EndDepotServiceTime",
-               "EarliestStartTime", "LatestStartTime", "ArriveDepartDelay", "Capacities", "FixedCost", "CostPerUnitTime",
+    "Orders": ["Name", "Description", "ServiceTime", "TimeWindowStart2", "TimeWindowEnd2", "MaxViolationTime2",
+               "InboundArriveTime", "OutboundDepartTime", "Revenue", "AssignmentRule", "RouteName", "Sequence",
+               "CurbApproach", "Bearing", "BearingTol", "NavLatency", "DeliveryQuantities", "PickupQuantities",
+               "TimeWindowStart1", "TimeWindowEnd1", "MaxViolationTime1", "SpecialtyNames"],
+    "Depots": ["Name", "Description", "TimeWindowStart2", "TimeWindowEnd2", "CurbApproach", "Bearing", "BearingTol",
+               "NavLatency", "TimeWindowStart1", "TimeWindowEnd1"],
+    "Routes": ["Name", "Description", "StartDepotName", "EndDepotName", "StartDepotServiceTime", "EndDepotServiceTime",
+               "EarliestStartTime", "LatestStartTime", "ArriveDepartDelay", "FixedCost", "CostPerUnitTime",
                "CostPerUnitDistance", "OvertimeStartTime", "CostPerUnitOvertime", "MaxOrderCount", "MaxTotalTime",
-               "MaxTotalTravelTime", "MaxTotalDistance", "SpecialtyNames", "AssignmentRule"],
+               "MaxTotalTravelTime", "MaxTotalDistance", "AssignmentRule", "Capacities", "SpecialtyNames"],
     "Breaks": ["RouteName", "Precedence", "ServiceTime", "TimeWindowStart", "TimeWindowEnd", "MaxViolationTime",
                "MaxTravelTimeBetweenBreaks", "MaxCumulWorkTime", "IsPaid", "Sequence"],
-    "OrderPairs": ["FirstOrderName", "SecondOrderName", "MaxTransitTime"],
-    "RouteRenewals": ["RouteName", "DepotName", "ServiceTime", "Sequences"],
     "RouteZones": ["RouteName", "IsHardZone"],
+    "RouteRenewals": ["RouteName", "DepotName", "ServiceTime", "Sequences"],
+    "OrderPairs": ["FirstOrderName", "SecondOrderName", "MaxTransitTime"],
 }
 
 

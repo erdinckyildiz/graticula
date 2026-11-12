@@ -329,7 +329,9 @@ class Fleet(unittest.TestCase):
         # s0 and s1 share the edge (0,0)–(10,0): one unit, one collecting line.
         self.assertEqual(stops[0][3], stops[1][3])
         routes = self.rows(result, out.Routes, ["Name", "StopCount", "RenewalCount", "TotalBins_1"])
-        self.assertEqual(routes, [("T1", 6, 2, 6.0), ("T2", 0, 0, None)])
+        # A route with no renewal visit has a null RenewalCount, as Pro writes it (measured in ArcGIS Pro 3.7,
+        # 2026-11-12, Pro sweep); this said 0.
+        self.assertEqual(routes, [("T1", 6, 2, 6.0), ("T2", 0, None, None)])
         visits = self.rows(result, out.RenewalVisits, ["RouteName", "RenewalName", "Sequence", "UnloadedBins_1"])
         self.assertEqual([v[:3] for v in visits], [("T1", "Tip", 1), ("T1", "Tip", 2)])
         self.assertEqual(sum(v[3] for v in visits), 6.0)
