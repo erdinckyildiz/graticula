@@ -221,7 +221,8 @@ def VectorField(raster_u_mag, raster_v_dir, input_data_type="Vector-UV", angle_r
     Refused: ``Unknown`` input, which says neither form.
 
     INFERRED: a direction is the way the vector points, as the page's "0° points due north" reads; an output direction
-    is in the input's angle reference system and from 0 to 360; the bands are 32-bit floating point, NoData where
+    is in the input's angle reference system, from −180 to 180 as Pro 3.7 writes it (measured 2026-11-08 in
+    Geographic; Arithmetic is taken to do the same); the bands are 32-bit floating point, NoData where
     either input is."""
     tool = "VectorField"
     kind_in = _key(_word(input_data_type, "Vector-UV")).replace("-", "")
@@ -244,8 +245,9 @@ def VectorField(raster_u_mag, raster_v_dir, input_data_type="Vector-UV", angle_r
         first, second = u, v
     else:
         first = np.hypot(u, v)
-        angle = np.degrees(np.arctan2(u, v) if reference == "geographic" else np.arctan2(v, u))
-        second = np.mod(angle, 360.0)
+        # Measured in ArcGIS Pro 3.7 (2026-11-08): the direction is atan2's, −180 to 180 (u −0.928, v 1.554 gives
+        # −30.86°, not 329.14°); grapy wrapped it to 0 … 360 until then.
+        second = np.degrees(np.arctan2(u, v) if reference == "geographic" else np.arctan2(v, u))
     one, two = _float_raster(first, grid), _float_raster(second, grid)
     return Raster._of_bands([one._array, two._array], [one._mask | two._mask, one._mask | two._mask], grid)
 
