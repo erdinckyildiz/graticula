@@ -307,6 +307,9 @@ class Fleet(unittest.TestCase):
         wc.travelMode = "Driving"
         wc.routeStartTime = datetime.time(6)
         wc.maxRouteTotalTime = 120
+        # The stops give no CollectionMode, so the analysis gives the default: Pro fails the solve without one
+        # (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep, ERROR 030092).
+        wc.stopCollectionMode = nax.StopCollectionMode.BothSides
         I = nax.WasteCollectionInputDataType
         with wc.insertCursor(I.Depots, ["Name", "SHAPE@XY"]) as cursor:
             cursor.insertRow(["Yard", (0, 0)])
@@ -342,7 +345,7 @@ class Fleet(unittest.TestCase):
                                                     max_route_total_time=120, stop_collection_mode="BOTH_SIDES")[0]
         self.assertEqual(na.GetNAClassNames(layer, "INPUT"), {
             "Stops": "Stops", "Depots": "Depots", "Routes": "Routes", "Renewals": "Renewals",
-            "RouteRenewals": "Route Renewals", "RenewalVisits": "Renewal Visits", "PointBarriers": "Point Barriers",
+            "RouteRenewals": "Route Renewals", "RenewalVisits": "Renewal Visits", "Barriers": "Point Barriers",
             "PolylineBarriers": "Line Barriers", "PolygonBarriers": "Polygon Barriers"})
         depot = self.points("yard", [("Yard", "POINT(0 0)")])
         stops = self.points("stops", [("s0", "POINT(5 0)"), ("s1", "POINT(20 15)"), ("s2", "POINT(5 20)")])
@@ -400,7 +403,9 @@ class Fleet(unittest.TestCase):
                                             ["Name", "OrderCount", "TotalTravelTime", "TotalBreakServiceTime",
                                              "EarliestStartTime"]))
         self.assertEqual(routes[0][:4], ("Van1", 2, 16.0, 15.0))
-        self.assertTrue(str(routes[0][4]).startswith("2026-01-05 08:00"))
+        # The default earliest start is 8:00 alone, on Esri's time-only date (measured in ArcGIS Pro 3.7, 2026-11-12,
+        # Pro sweep); it is read on the layer's default date, which the travel time above shows. This said 2026-01-05.
+        self.assertTrue(str(routes[0][4]).startswith("1899-12-30 08:00"))
         # The break is taken ten minutes into the drive, part-way along the second leg (4 minutes then 8); the four
         # minutes home after it are within its limit, which bounds them too.
         (brk,) = list(arcpy.da.SearchCursor(na.GetNASublayer(layer, "Breaks"),

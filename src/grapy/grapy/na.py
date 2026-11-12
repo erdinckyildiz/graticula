@@ -20,7 +20,8 @@ from ._runtime import ExecuteError, NotBuiltError, equivalent
 
 _TEXT, _LONG, _SHORT, _DOUBLE = "String", "Integer", "SmallInteger", "Double"
 _LOCATION = [("SourceID", _LONG), ("SourceOID", _LONG), ("PosAlong", _DOUBLE), ("SideOfEdge", _SHORT), ("SnapX", _DOUBLE),
-             ("SnapY", _DOUBLE), ("DistanceToNetworkInMeters", _DOUBLE)]
+             ("SnapY", _DOUBLE), ("SnapZ", _DOUBLE), ("DistanceToNetworkInMeters", _DOUBLE)]
+_DATE = "Date"
 
 
 def _given(value):
@@ -103,9 +104,15 @@ class TravelMode:
         from ._evaluators import parameter_values
         self.attributeParameters = parameter_values(source.get("attributeParameters") or
                                                     source.get("attributeParameterValues"))
-        self.uTurns = source.get("uTurns", "ALLOW_UTURNS")
-        self.useHierarchy = bool(source.get("useHierarchy", False))
+        self.uTurns = source.get("uTurns") or _UTURN_WORDS.get(str(source.get("uturnAtJunctions") or ""),
+                                                                 "ALLOW_UTURNS")
+        # The keyword, as Pro's TravelMode answers it (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep): grapy
+        # answered a bool. Its JSON keeps true or false.
+        hierarchy = source.get("useHierarchy", False)
+        self.useHierarchy = "USE_HIERARCHY" if str(hierarchy).upper() in ("TRUE", "1", "USE_HIERARCHY") else \
+            "NO_HIERARCHY"
         self.simplificationTolerance = source.get("simplificationTolerance")
+        self.simplificationToleranceUnits = source.get("simplificationToleranceUnits", "esriMeters")
         self.type = source.get("type", "OTHER")
         self.description = source.get("description", "")
 
@@ -115,9 +122,20 @@ class TravelMode:
                            "restrictionAttributeNames": self.restrictions,
                            "attributeParameterValues": [{"attributeName": a, "parameterName": p, "value": v}
                                                         for (a, p), v in self.attributeParameters.items()],
-                           "uTurns": self.uTurns, "useHierarchy": self.useHierarchy,
-                           "simplificationTolerance": self.simplificationTolerance, "type": self.type,
+                           "uturnAtJunctions": _UTURN_JSON.get(str(self.uTurns).upper(), self.uTurns),
+                           "useHierarchy": str(self.useHierarchy).upper() in ("TRUE", "USE_HIERARCHY"),
+                           "simplificationTolerance": self.simplificationTolerance,
+                           "simplificationToleranceUnits": self.simplificationToleranceUnits, "type": self.type,
                            "description": self.description})
+
+
+# A travel mode's JSON names its U-turn policy by the REST words, as ArcGIS Pro's str(TravelMode) and
+# ExportNetworkTravelModes write it (``uturnAtJunctions``, ``simplificationToleranceUnits``): measured in ArcGIS Pro 3.7,
+# 2026-11-12 (Pro sweep). grapy wrote ``uTurns`` with the Python word.
+_UTURN_JSON = {"ALLOW_UTURNS": "esriNFSBAllowBacktrack", "NO_UTURNS": "esriNFSBNoBacktrack",
+               "ALLOW_DEAD_ENDS_ONLY": "esriNFSBAtDeadEndsOnly",
+               "ALLOW_DEAD_ENDS_AND_INTERSECTIONS_ONLY": "esriNFSBAtDeadEndsAndIntersections"}
+_UTURN_WORDS = {v: k for k, v in _UTURN_JSON.items()}
 
 
 def GetTravelModes(network_dataset):
@@ -131,7 +149,7 @@ def _refuse_mode(mode):
     if mode is None or isinstance(mode, str) and not mode.strip().startswith("{"):
         return
     travel = TravelMode(mode)
-    if travel.useHierarchy:
+    if travel.useHierarchy == "USE_HIERARCHY":
         raise NotBuiltError("Hierarchy is refused until it is defined (ADR-226 §5.3).")
     from ._turns import policy
     policy(travel.uTurns)                     # every documented U-turn policy is honoured at junctions (ADR-239)
@@ -154,54 +172,120 @@ class _AnalysisLayer:
 
 ANALYSIS_LAYERS: dict = {}
 
+# The sublayers' fields as ArcGIS Pro 3.7 writes them (measured 2026-11-12, Pro sweep: ListFields of every sublayer of
+# each layer kind). The fields named after the network's cost attributes are added by each Make tool (``_cost_fields``):
+# Attr_<cost> and Cutoff_<cost> (or Breaks_<cost>) for every cost attribute on the inputs, Total_ and Cumul_ for the
+# travel mode's impedance, time and distance attributes and the accumulated ones, and Wait_, Violation_ and their
+# cumulative and total fields for its time attribute. Until then grapy wrote only the impedance's and no SnapZ, time,
+# curb approach or barrier location fields.
+_INPUT_LOCATION = [("SourceID", _LONG), ("SourceOID", _LONG), ("PosAlong", _DOUBLE), ("SideOfEdge", _SHORT),
+                   ("CurbApproach", _SHORT), ("Status", _SHORT), ("SnapX", _DOUBLE), ("SnapY", _DOUBLE), ("SnapZ", _DOUBLE),
+                   ("DistanceToNetworkInMeters", _DOUBLE)]
+_TIMES = [("StartTime", _DATE), ("EndTime", _DATE), ("StartTimeUTC", _DATE), ("EndTimeUTC", _DATE)]
+_CLASSIC_BARRIERS = {
+    "Barriers": ("Point", [("Name", _TEXT), *_INPUT_LOCATION[:6], ("FullEdge", _SHORT), ("BarrierType", _SHORT)]),
+    "PolylineBarriers": ("Polyline", [("Name", _TEXT), ("Locations", "Blob"), ("BarrierType", _SHORT)]),
+    "PolygonBarriers": ("Polygon", [("Name", _TEXT), ("Locations", "Blob"), ("BarrierType", _SHORT)]),
+}
 _SCHEMAS = {
     "Route": {
-        "Stops": ("Point", [("Name", _TEXT), ("RouteName", _TEXT), ("Sequence", _LONG), ("CurbApproach", _SHORT),
-                            ("LocationType", _SHORT), *_LOCATION, ("Status", _SHORT)]),
-        "Routes": ("Polyline", [("Name", _TEXT), ("FirstStopID", _LONG), ("LastStopID", _LONG), ("StopCount", _LONG)]),
-        "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
-        "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
+        "Stops": ("Point", [("Name", _TEXT), ("RouteName", _TEXT), ("Sequence", _LONG), ("TimeWindowStart", _DATE),
+                            ("TimeWindowEnd", _DATE), ("ArriveCurbApproach", _SHORT), ("DepartCurbApproach", _SHORT),
+                            ("ArriveTime", _DATE), ("DepartTime", _DATE), ("ArriveTimeUTC", _DATE),
+                            ("DepartTimeUTC", _DATE), ("LocationType", _SHORT), *_INPUT_LOCATION]),
+        "Routes": ("Polyline", [("Name", _TEXT), ("FirstStopID", _LONG), ("LastStopID", _LONG), ("StopCount", _LONG),
+                                *_TIMES]),
+        **_CLASSIC_BARRIERS,
     },
     "Closest Facility": {
-        "Facilities": ("Point", [("Name", _TEXT), ("CurbApproach", _SHORT), *_LOCATION, ("Status", _SHORT)]),
-        "Incidents": ("Point", [("Name", _TEXT), ("TargetFacilityCount", _LONG), ("CurbApproach", _SHORT), *_LOCATION,
-                                ("Status", _SHORT)]),
-        "CFRoutes": ("Polyline", [("Name", _TEXT), ("FacilityID", _LONG), ("FacilityRank", _LONG), ("IncidentID", _LONG)]),
-        "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
-        "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
+        "Facilities": ("Point", [("Name", _TEXT), *_INPUT_LOCATION]),
+        "Incidents": ("Point", [("Name", _TEXT), ("TargetFacilityCount", _LONG), *_INPUT_LOCATION]),
+        "CFRoutes": ("Polyline", [("FacilityID", _LONG), ("FacilityRank", _LONG), ("Name", _TEXT),
+                                  ("IncidentCurbApproach", _SHORT), ("FacilityCurbApproach", _SHORT),
+                                  ("IncidentID", _LONG), *_TIMES]),
+        **_CLASSIC_BARRIERS,
     },
     "Service Area": {
-        "Facilities": ("Point", [("Name", _TEXT), ("CurbApproach", _SHORT), *_LOCATION, ("Status", _SHORT)]),
-        "SAPolygons": ("Polygon", [("Name", _TEXT), ("FacilityID", _LONG), ("FromBreak", _DOUBLE), ("ToBreak", _DOUBLE)]),
+        "Facilities": ("Point", [("Name", _TEXT), *_INPUT_LOCATION]),
+        "SAPolygons": ("Polygon", [("FacilityID", _LONG), ("Name", _TEXT), ("FromBreak", _DOUBLE), ("ToBreak", _DOUBLE)]),
         "SALines": ("Polyline", [("FacilityID", _LONG), ("SourceID", _LONG), ("SourceOID", _LONG), ("FromPosition", _DOUBLE),
                                  ("ToPosition", _DOUBLE)]),
-        "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
-        "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
+        **_CLASSIC_BARRIERS,
     },
     "Location-Allocation": {
         "Facilities": ("Point", [("Name", _TEXT), ("FacilityType", _SHORT), ("Weight", _DOUBLE), ("Capacity", _DOUBLE),
-                                 ("CurbApproach", _SHORT), *_LOCATION, ("Status", _SHORT), ("DemandCount", _LONG),
-                                 ("DemandWeight", _DOUBLE)]),
-        "DemandPoints": ("Point", [("Name", _TEXT), ("GroupName", _TEXT), ("Weight", _DOUBLE), ("CurbApproach", _SHORT),
-                                   *_LOCATION, ("Status", _SHORT), ("FacilityID", _LONG), ("AllocatedWeight", _DOUBLE)]),
+                                 ("DemandCount", _LONG), ("DemandWeight", _DOUBLE), *_INPUT_LOCATION]),
+        "DemandPoints": ("Point", [("Name", _TEXT), ("Weight", _DOUBLE), ("FacilityID", _LONG),
+                                   ("AllocatedWeight", _DOUBLE), ("GroupName", _TEXT), ("ImpedanceTransformation", _SHORT),
+                                   ("ImpedanceParameter", _DOUBLE), *_INPUT_LOCATION]),
         "LALines": ("Polyline", [("Name", _TEXT), ("FacilityID", _LONG), ("DemandID", _LONG), ("Weight", _DOUBLE)]),
-        "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
-        "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
+        **_CLASSIC_BARRIERS,
     },
     "OD Cost Matrix": {
-        "Origins": ("Point", [("Name", _TEXT), ("TargetDestinationCount", _LONG), ("CurbApproach", _SHORT), *_LOCATION,
-                              ("Status", _SHORT)]),
-        "Destinations": ("Point", [("Name", _TEXT), ("CurbApproach", _SHORT), *_LOCATION, ("Status", _SHORT)]),
+        "Origins": ("Point", [("Name", _TEXT), ("TargetDestinationCount", _LONG), *_INPUT_LOCATION]),
+        "Destinations": ("Point", [("Name", _TEXT), *_INPUT_LOCATION]),
         "ODLines": ("Polyline", [("Name", _TEXT), ("OriginID", _LONG), ("DestinationID", _LONG), ("DestinationRank", _LONG)]),
-        "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
-        "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
+        **_CLASSIC_BARRIERS,
     },
 }
+# What a classic sublayer carries for the network's costs (Pro 3.7, measured 2026-11-12): (prefix, which costs).
+_COST_FIELDS = {
+    ("Route", "Stops"): [("Attr", "all"), ("Cumul", "totals"), ("Wait", "time"), ("CumulWait", "time"),
+                         ("Violation", "time"), ("CumulViolation", "time")],
+    ("Route", "Routes"): [("TotalWait", "time"), ("TotalViolation", "time"), ("Total", "totals")],
+    ("Closest Facility", "Facilities"): [("Attr", "all"), ("Cutoff", "all")],
+    ("Closest Facility", "Incidents"): [("Attr", "all"), ("Cutoff", "all")],
+    ("Closest Facility", "CFRoutes"): [("Total", "totals")],
+    ("Service Area", "Facilities"): [("Attr", "all"), ("Breaks", "all")],
+    ("Service Area", "SALines"): [("FromCumul", "impedance"), ("ToCumul", "impedance")],
+    ("OD Cost Matrix", "Origins"): [("Cutoff", "all")],
+    ("OD Cost Matrix", "ODLines"): [("Total", "totals")],
+    ("Location-Allocation", "Facilities"): [("Total", "totals"), ("TotalWeighted", "totals")],
+    ("Location-Allocation", "DemandPoints"): [("Cutoff", "all")],
+    ("Location-Allocation", "LALines"): [("TotalWeighted", "totals"), ("Total", "totals")],
+}
+for _solver in ("Route", "Closest Facility", "Service Area", "OD Cost Matrix", "Location-Allocation"):
+    for _key in ("Barriers", "PolylineBarriers", "PolygonBarriers"):
+        _COST_FIELDS[(_solver, _key)] = [("Attr", "all")]
+# The values Pro writes on AddLocations where the input gives none (measured 2026-11-12).
+_ADD_DEFAULTS = {"CurbApproach": 0, "LocationType": 0, "SnapZ": 0.0}
+_ADD_DEFAULTS_BY = {("Location-Allocation", "Facilities"): {"Weight": 1.0, "FacilityType": 0, "DemandCount": 0,
+                                                            "DemandWeight": 0.0},
+                    ("Location-Allocation", "DemandPoints"): {"Weight": 1.0},
+                    ("Vehicle Routing Problem", "Orders"): {"AssignmentRule": 3}}
+
+
+def _cost_names(graph):
+    return [a for a, (usage, _) in graph.attributes.items() if usage == "Cost"]
+
+
+def _time_attribute(graph):
+    name = (graph.mode or {}).get("timeAttributeName")
+    return name if name in _cost_names(graph) else None
+
+
+def _totals(graph, accumulate=()):
+    """The costs a solve totals: the travel mode's impedance, time and distance attributes and the accumulated ones,
+    in the network's order (Pro 3.7, measured 2026-11-12)."""
+    mode = graph.mode or {}
+    wanted = {graph.impedance, mode.get("timeAttributeName"), mode.get("distanceAttributeName"), *accumulate}
+    return [a for a in _cost_names(graph) if a in wanted]
+
+
+def _cost_fields(solver, key, graph, accumulate):
+    out = []
+    for prefix, which in _COST_FIELDS.get((solver, key), []):
+        names = {"all": _cost_names(graph), "totals": _totals(graph, accumulate), "impedance": [graph.impedance],
+                 "time": [t for t in [_time_attribute(graph)] if t]}[which]
+        out += [(f"{prefix}_{a}", _DOUBLE) for a in names]
+    return out
+
+
 # The sublayer names the layers show (GetNAClassNames' values). INFERRED for the barrier and output names.
 _SUBLAYER_NAMES = {"Stops": "Stops", "Routes": "Routes", "Facilities": "Facilities", "Incidents": "Incidents",
                    "CFRoutes": "Routes", "SAPolygons": "Polygons", "SALines": "Lines", "Origins": "Origins",
                    "Destinations": "Destinations", "ODLines": "Lines",
-                   "DemandPoints": "Demand Points", "LALines": "Lines", "PointBarriers": "Point Barriers",
+                   "DemandPoints": "Demand Points", "LALines": "Lines", "Barriers": "Point Barriers",
                    "PolylineBarriers": "Line Barriers", "PolygonBarriers": "Polygon Barriers"}
 _INPUTS = {"Stops", "Facilities", "Incidents", "Origins", "Destinations", "DemandPoints"}
 
@@ -261,11 +345,7 @@ def MakeRouteAnalysisLayer(network_data_source, layer_name=None, travel_mode=Non
     accumulate = _accumulate(accumulate_attributes)
 
     def costs(key, graph):
-        if key == "Stops":
-            return [(f"Cumul_{graph.impedance}", _DOUBLE)]
-        if key == "Routes":
-            return [(f"Total_{a}", _DOUBLE) for a in [graph.impedance, *[x for x in accumulate if x != graph.impedance]]]
-        return []
+        return _cost_fields("Route", key, graph, accumulate)
 
     return _make("Route", network_data_source, layer_name, travel_mode,
                  {"line_shape": line_shape, "accumulate": accumulate, "ignore": ignore_invalid_locations,
@@ -285,9 +365,7 @@ def MakeClosestFacilityAnalysisLayer(network_data_source, layer_name=None, trave
     accumulate = _accumulate(accumulate_attributes)
 
     def costs(key, graph):
-        if key == "CFRoutes":
-            return [(f"Total_{a}", _DOUBLE) for a in [graph.impedance, *[x for x in accumulate if x != graph.impedance]]]
-        return []
+        return _cost_fields("Closest Facility", key, graph, accumulate)
 
     return _make("Closest Facility", network_data_source, layer_name, travel_mode,
                  {"direction": travel_direction, "cutoff": float(cutoff) if _given(cutoff) else None,
@@ -319,9 +397,7 @@ def MakeServiceAreaAnalysisLayer(network_data_source, layer_name=None, travel_mo
     breaks = [float(c) for c in _list(cutoffs)] if _given(cutoffs) else [5.0, 10.0, 15.0]
 
     def costs(key, graph):
-        if key == "SALines":
-            return [(f"FromCumul_{graph.impedance}", _DOUBLE), (f"ToCumul_{graph.impedance}", _DOUBLE)]
-        return []
+        return _cost_fields("Service Area", key, graph, ())
 
     return _make("Service Area", network_data_source, layer_name, travel_mode,
                  {"direction": travel_direction, "breaks": breaks, "output": kind,
@@ -339,9 +415,7 @@ def MakeODCostMatrixAnalysisLayer(network_data_source, layer_name=None, travel_m
     accumulate = _accumulate(accumulate_attributes)
 
     def costs(key, graph):
-        if key == "ODLines":
-            return [(f"Total_{a}", _DOUBLE) for a in [graph.impedance, *[x for x in accumulate if x != graph.impedance]]]
-        return []
+        return _cost_fields("OD Cost Matrix", key, graph, accumulate)
 
     return _make("OD Cost Matrix", network_data_source, layer_name, travel_mode,
                  {"cutoff": float(cutoff) if _given(cutoff) else None,
@@ -372,10 +446,7 @@ def MakeLocationAllocationAnalysisLayer(network_data_source, layer_name=None, tr
     accumulate = _accumulate(accumulate_attributes)
 
     def costs(key, graph):
-        names = [graph.impedance, *[x for x in accumulate if x != graph.impedance]]
-        if key in ("Facilities", "LALines"):
-            return [(f"{p}_{a}", _DOUBLE) for p in ("Total", "TotalWeighted") for a in names]
-        return []
+        return _cost_fields("Location-Allocation", key, graph, accumulate)
 
     return _make("Location-Allocation", network_data_source, layer_name, travel_mode,
                  {"direction": travel_direction, "cutoff": float(cutoff) if _given(cutoff) else None,
@@ -397,7 +468,7 @@ def _solve_location_allocation(graph, layer, inputs):
     away = str(s["direction"] or "FROM_FACILITIES").upper() == "FROM_FACILITIES"
     solver, chosen, required, weights, served = _allocate(graph, facilities, demands, away, s["cutoff"], s["count"],
                                                           "arcpy.na.Solve")
-    names = [graph.impedance, *[x for x in s["accumulate"] if x != graph.impedance]]
+    names = _totals(graph, s["accumulate"])
     lines, by_facility, demand_updates = [], {}, {}
     for d, demand in enumerate(demands):
         if d not in served:
@@ -446,10 +517,17 @@ def GetNAClassNames(network_analyst_layer, network_analyst_class_type=None):
     out = {}
     for key in layer.classes:
         is_input = key in _input_keys(layer) or key.endswith("Barriers")
-        if kind == "INPUT" and not is_input or kind == "OUTPUT" and is_input:
+        is_output = not is_input or (layer.solver, key) in _IN_OUT
+        if kind == "INPUT" and not is_input or kind == "OUTPUT" and not is_output:
             continue
         out[key] = _SUBLAYER_NAMES[key]
     return out
+
+
+# Input classes a solve writes to, which GetNAClassNames' OUTPUT lists too (measured in ArcGIS Pro 3.7, 2026-11-12,
+# Pro sweep: a route's Stops, a location-allocation's Facilities and Demand Points). INFERRED: the fleet layers' are
+# not listed, being unmeasured.
+_IN_OUT = {("Route", "Stops"), ("Location-Allocation", "Facilities"), ("Location-Allocation", "DemandPoints")}
 
 
 def GetNASublayer(network_analyst_layer, network_analyst_class):
@@ -459,6 +537,13 @@ def GetNASublayer(network_analyst_layer, network_analyst_class):
         if str(network_analyst_class) in (key, _SUBLAYER_NAMES[key]):
             return path
     raise ExecuteError(f"ERROR 000732: the layer has no sublayer '{network_analyst_class}'.")
+
+
+# The fields a classic solve writes, which are no input properties (Pro's NAClassFieldMappings leaves them out:
+# measured 2026-11-12, a route's Stops map Name, RouteName, Sequence, TimeWindowStart, TimeWindowEnd, CurbApproach,
+# LocationType and Attr_Length).
+_OUTPUT_FIELDS = {"ArriveCurbApproach", "DepartCurbApproach", "ArriveTime", "DepartTime", "ArriveTimeUTC",
+                  "DepartTimeUTC", "SnapZ", "Status", "FacilityID", "AllocatedWeight", "DemandCount", "DemandWeight"}
 
 
 class NAClassFieldMap:
@@ -483,7 +568,7 @@ class NAClassFieldMappings(dict):
         key = next(k for k in layer.classes if sub_layer_name in (k, _SUBLAYER_NAMES[k]))
         candidates = {getattr(f, "name", str(f)).lower(): getattr(f, "name", str(f)) for f in (list_candidate_fields or [])}
         for name, _ in _SCHEMAS[layer.solver][key][1]:
-            if name in dict(_LOCATION) or name == "Status":
+            if name in dict(_INPUT_LOCATION) and name != "CurbApproach" or name in _OUTPUT_FIELDS:
                 continue
             self[name] = NAClassFieldMap(candidates.get(name.lower()))
         # A field AddFieldToAnalysisLayer added is a property too: its page maps one by name (field_mappings['Address']).
@@ -492,7 +577,8 @@ class NAClassFieldMappings(dict):
         for column in _schema(layer.classes[key])[0]:
             name = column.name
             if name.lower() in made or name.lower() in ("fid", "objectid") or \
-                    name.startswith(("Cumul_", "Total_", "TotalWeighted_", "FromCumul_", "ToCumul_")):
+                    name.startswith(("Cumul_", "Total_", "TotalWeighted_", "FromCumul_", "ToCumul_", "Wait_",
+                                     "CumulWait_", "Violation_", "CumulViolation_", "TotalWait_", "TotalViolation_")):
                 continue                                      # the Make tool's and the solve's cost fields
             self.setdefault(name, NAClassFieldMap(candidates.get(name.lower())))
 
@@ -573,6 +659,17 @@ def AddLocations(in_network_analysis_layer, sub_layer, in_table, field_mappings=
             count += 1
             if not record.get("Name"):
                 record["Name"] = f"Location {count}"
+            # What Pro writes where the input gives nothing (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep): curb
+            # approach and location type 0, each cost's Attr_ 0, a location-allocation weight of 1, a vehicle routing
+            # order's AssignmentRule 3, and a route's stops numbered in the order they are added.
+            for field, value in {**_ADD_DEFAULTS, **_ADD_DEFAULTS_BY.get((layer.solver, key), {})}.items():
+                if field in fields and record.get(field) is None:
+                    record[field] = value
+            for field in fields:
+                if field.startswith("Attr_") and record.get(field) is None:
+                    record[field] = 0.0
+            if layer.solver == "Route" and key == "Stops" and record.get("Sequence") is None:
+                record["Sequence"] = count
             record.update({k: v for k, v in location.items() if not k.startswith("_")})
             record["Status"] = 0 if located is not None else 1
             written.insertRow((*[record.get(f) for f in fields], point))
@@ -693,20 +790,30 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
         if layer.solver == "Route":
             routes, results = _network.solve_route(graph, inputs["Stops"], s["accumulate"], s["line_shape"],
                                                    s.get("sequence", "USE_CURRENT_ORDER"))
+            totals = _totals(graph, s["accumulate"])
+            for row in routes:
+                row.update({f"Total_{a}": row["_totals"][a] for a in totals})
             _write(layer.classes["Routes"], routes)
             layer.traversal = _traversed(graph, layer.classes["Routes"], routes)              # ADR-246
+            for result in results.values():
+                cumul = result.get("_cumul") or {}
+                result.update({f"Cumul_{a}": cumul.get(a) for a in totals})
             _update(layer.classes["Stops"], {k[1]: {f: x for f, x in v.items() if not f.startswith("_")}
                                              for k, v in results.items()})
             succeeded = bool(routes)
         elif layer.solver == "Closest Facility":
             routes = _network.solve_closest_facility(graph, inputs["Facilities"], inputs["Incidents"], s["direction"],
                                                      s["cutoff"], s["count"], s["accumulate"], s["line_shape"])
+            for row in routes:
+                row.update({f"Total_{a}": row["_totals"][a] for a in _totals(graph, s["accumulate"])})
             _write(layer.classes["CFRoutes"], routes)
             layer.traversal = _traversed(graph, layer.classes["CFRoutes"], routes)            # ADR-246
             succeeded = bool(routes)
         elif layer.solver == "OD Cost Matrix":
             lines = _network.solve_od_cost_matrix(graph, inputs["Origins"], inputs["Destinations"], s["cutoff"], s["count"],
                                                   s["accumulate"], s["line_shape"])
+            for row in lines:
+                row.update({f"Total_{a}": row["_totals"][a] for a in _totals(graph, s["accumulate"])})
             _write(layer.classes["ODLines"], lines)
             succeeded = bool(lines)
         elif layer.solver == "Location-Allocation":
@@ -921,6 +1028,16 @@ def ReplaceNetworkTravelModes(in_travel_mode_file, in_network_dataset):
     network."""
     with open(str(in_travel_mode_file), encoding="utf-8") as read:
         modes = json.load(read)
+    timed = any(str(v["units"] or "").upper() in _network._TIME and v["usage"] == "Cost"
+                for v in _network.attributes(str(in_network_dataset)).values())
+    for mode_name, properties in modes.items():
+        _refuse_mode(properties)
+        if timed and not TravelMode(properties).timeAttributeName:
+            # Measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep): a network with a time cost takes no travel mode
+            # without a time attribute.
+            raise ExecuteError("ERROR 030403: Error setting network dataset travel modes. The travel mode does not "
+                               "have a time attribute name even though the network dataset has time cost attributes. "
+                               f"[travel mode: {mode_name}]")
     connection, _, _, name = _network.open_network(str(in_network_dataset))
     try:
         connection.execute("delete from grapy_network_travel_mode where network = ?", (name,))
@@ -929,7 +1046,6 @@ def ReplaceNetworkTravelModes(in_travel_mode_file, in_network_dataset):
         connection.close()
     for mode_name, properties in modes.items():
         mode = TravelMode(properties)
-        _refuse_mode(properties)
         _network.add_travel_mode(str(in_network_dataset), mode_name, mode.impedance, mode.restrictions,
                                  mode.timeAttributeName, mode.distanceAttributeName, mode.uTurns)
     return Result(str(in_network_dataset))
@@ -937,9 +1053,10 @@ def ReplaceNetworkTravelModes(in_travel_mode_file, in_network_dataset):
 
 def UpgradeNetwork(in_network_dataset):
     """A network dataset's schema brought to the current release. grapy's network tables have one schema, so a network
-    made by grapy is current already and nothing changes; it must be built, as the page's sample builds it after."""
+    made by grapy is current already, and is refused as ArcGIS Pro refuses a network made at its own release: measured
+    in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep), ``ERROR 030087: The Network Dataset has already been upgraded.``"""
     _network.open_network(str(in_network_dataset))[0].close()
-    return Result(str(in_network_dataset))
+    raise ExecuteError("ERROR 030087: The Network Dataset has already been upgraded.")
 
 
 # ---- fleet routing: vehicle routing, last mile delivery and waste collection (ADR-239) -------------------------------
@@ -953,7 +1070,7 @@ _VISIT_OUT = [("FromPrevTravelTime", _DOUBLE), ("FromPrevDistance", _DOUBLE), ("
               ("ArriveTimeUTC", _DATE), ("DepartTimeUTC", _DATE), ("WaitTime", _DOUBLE), ("CumulWaitTime", _DOUBLE),
               ("CumulViolationTime", _DOUBLE)]
 _VIOLATED = [(f"ViolatedConstraint_{k}", _LONG) for k in range(1, 5)]
-_BARRIERS = {"PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
+_BARRIERS = {"Barriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
              "PolygonBarriers": ("Polygon", [("Name", _TEXT)])}
 _ROUTE_TOTALS = [*_VIOLATED, ("OrderCount", _LONG), ("TotalCost", _DOUBLE), ("RegularTimeCost", _DOUBLE),
                  ("OvertimeCost", _DOUBLE), ("DistanceCost", _DOUBLE), ("TotalTime", _DOUBLE),
@@ -1058,6 +1175,19 @@ _FLEET_INPUTS = {
 _FLEET_LOCATED = {"Orders", "Depots", "Stops", "Renewals"}
 
 
+def _fleet_distance():
+    """The distance units of the na fleet layers' ``distance_units``: international feet, yards and miles. Measured in
+    ArcGIS Pro 3.7, 2026-11-12 (Pro sweep): a vehicle routing layer's FromPrevDistance in Miles is the route's metres
+    over 1609.344 — grapy divided by the US survey mile, as arcpy.nax's DistanceUnits measure (D-323). INFERRED for the
+    units other than Miles."""
+    from . import _units
+    return {**_units.NETWORK, "FEET": _units.FOOT_INT, "YARDS": _units.YARD_INT, "MILES": _units.MILE_INT,
+            "INCHES": _units.INCH_INT, "NAUTICALMILES": _units.NAUTICAL_MILE_INT}
+
+
+_FLEET_DISTANCE = _fleet_distance()
+
+
 def _input_keys(layer):
     """The input classes of an analysis layer: a fleet layer's from ADR-239, the others' from ``_INPUTS``."""
     return _FLEET_INPUTS.get(layer.solver, _INPUTS)
@@ -1125,7 +1255,8 @@ def MakeWasteCollectionAnalysisLayer(network_data_source, layer_name=None, trave
                                      stop_collection_mode=None, analysis_geodatabase=None,
                                      analysis_feature_dataset_name=None):
     """A waste collection analysis layer with the documented sublayers and fields; Solve routes the collection units
-    as ``grapy._fleet.Waste`` does. INFERRED: with no stop collection mode, both sides at once."""
+    as ``grapy._fleet.Waste`` does. With no stop collection mode, a stop with no CollectionMode fails the solve
+    (ERROR 030092), as ArcGIS Pro's does (measured 2026-11-12, Pro sweep); this was INFERRED to collect both sides."""
     mode = str(stop_collection_mode or "").upper()
     if mode not in ("", "#", "ONE_SIDE", "BOTH_SIDES"):
         raise ExecuteError(f"ERROR 030000: '{stop_collection_mode}' is not ONE_SIDE or BOTH_SIDES.")
@@ -1255,6 +1386,10 @@ def AddVehicleRoutingProblemRoutes(in_vrp_layer, number_of_routes=None, route_na
     first = lambda value: (_value_rows(value) or [[]])[0]  # noqa: E731
     record = {"StartDepotName": start_depot_name if _given(start_depot_name) else None,
               "EndDepotName": end_depot_name if _given(end_depot_name) else None}
+    if record["StartDepotName"] is None and record["EndDepotName"] is None:
+        # Measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep), on a vehicle routing problem layer; INFERRED for the
+        # last mile delivery and waste collection layers, whose routes start or end at a depot too.
+        raise ExecuteError("ERROR 030241: Start Depot Name and End Depot Name cannot both be null.")
     if layer.solver == "Waste Collection":
         caps = first(waste_capacities)
         record.update({f"Max{m[0]}": _cell(caps, k) for k, m in enumerate(_WASTE_MEASURES)})
@@ -1280,14 +1415,17 @@ def AddVehicleRoutingProblemRoutes(in_vrp_layer, number_of_routes=None, route_na
         record.update(StartDepotServiceTime=_cell(extra, 0), EndDepotServiceTime=_cell(extra, 1),
                       ArriveDepartDelay=_cell(extra, 2))
         if layer.solver == "Vehicle Routing Problem":
-            from ._fleet import moment, stamp
-            day = layer.settings.get("default_date") or datetime.date.today()
-            day = day if isinstance(day, datetime.date) else stamp(moment(day, datetime.date.today())).date()
+            # The defaults are times alone, 8:00 and 10:00 on Esri's time-only date 1899-12-30 whatever the layer's
+            # default date, and the routes' AssignmentRule is 1 (include): measured in ArcGIS Pro 3.7, 2026-11-12 (Pro
+            # sweep). grapy wrote them on the default date and left AssignmentRule null. A time alone is read on the
+            # layer's default date when solving (``_fleet.moment``).
+            from ._fleet import EPOCH
             record["EarliestStartTime"] = earliest_start_time if _given(earliest_start_time) else \
-                datetime.datetime.combine(day, datetime.time(8))
+                datetime.datetime.combine(EPOCH.date(), datetime.time(8))
             record["LatestStartTime"] = latest_start_time if _given(latest_start_time) else \
-                datetime.datetime.combine(day, datetime.time(10))
+                datetime.datetime.combine(EPOCH.date(), datetime.time(10))
             record["MaxOrderCount"] = int(max_order_count) if _given(max_order_count) else 30
+            record["AssignmentRule"] = 1
         else:
             record["MaxOrderCount"] = int(max_order_count) if _given(max_order_count) else None
             when = first(date_and_time)
@@ -1366,14 +1504,14 @@ def _fleet_solve(layer, graph):
         from . import _turns
         problem = _fleet.Waste(graph, inputs, s["time_units"], s["distance_units"], s.get("route_start_time"),
                                s.get("max_route_total_time"), s.get("stop_collection_mode"),
-                               _turns.driving_side(layer.network))
+                               _turns.driving_side(layer.network), _FLEET_DISTANCE)
         problem.solve()
         return _fleet_write_waste(layer, problem, s)
     kind = "LMD" if layer.solver == "Last Mile Delivery" else "VRP"
     problem = _fleet.Fleet(graph, inputs, kind, "Two", s["time_units"], s["distance_units"],
                            _date(s.get("default_date")), s.get("time_window_factor", "Medium"),
                            s.get("excess_transit_factor", "Medium"), s.get("earliest_date"), s.get("earliest_time"),
-                           s.get("max_route_total_time"), ignore_invalid=not halt)
+                           s.get("max_route_total_time"), ignore_invalid=not halt, distance_table=_FLEET_DISTANCE)
     problem.solve()
     out = _fleet.fleet_outputs(problem, s.get("line_shape"), "LMD" if kind == "LMD" else "Two",
                                s.get("sequence_gap", 1))
@@ -1446,7 +1584,7 @@ def _waste_problem(layer):
     inputs = _fleet_inputs(layer, graph)
     problem = _fleet.Waste(graph, inputs, s["time_units"], s["distance_units"], s.get("route_start_time"),
                            s.get("max_route_total_time"), s.get("stop_collection_mode"),
-                           _turns.driving_side(layer.network))
+                           _turns.driving_side(layer.network), _FLEET_DISTANCE)
     return problem, inputs
 
 
@@ -1586,11 +1724,14 @@ def TurnTableToTurnFeatureClass(in_turn_table, reference_line_features, out_feat
                                 reference_nodes_table=None, maximum_edges=5, config_keyword=None, spatial_grid_1=None,
                                 spatial_grid_2=None, spatial_grid_3=None):
     """An ArcView turn table's turns as a turn feature class in the reference line features' workspace, as documented:
-    each row's from and to edges (``F_EDGE``/``ARC1_``/``ARC1#``/``ARC1-ID``/``F-EDGE`` and their ``T``/``ARC2``
-    names), INFERRED to be the line features' object ids, joined at the end point they share; the row's other fields
-    are kept, all but the turn table's node, azimuth and angle fields. A turn line runs from the middle of its first
-    edge through the junction to the middle of its second. As the page says of a table without a nodes table, U-turns
-    and turns between edges joined at both ends are not made. A reference nodes table (ArcView's nodes.dbf, whose
+    each row's from and to edges (``ARC1_`` and ``ARC2_``, or ``F_EDGE`` and ``T_EDGE``), the line features' object
+    ids, joined at the end point they share; the row's other fields are kept, all but the turn table's node, azimuth
+    and angle fields. The table must have a ``NODE_`` field, else it is no ArcView turn table (ERROR 000591). A turn line
+    runs from three quarters of the way along its first edge through the junction to a quarter of the way along its
+    second, and Edge#Pos are those positions (0.75 and 0.25 when both edges run through the junction). The table, the
+    NODE_ rule, the quarters and the positions measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep): grapy took any table
+    with edge fields, drew from the middles and wrote positions 1 and 0, and read only GeoPackage tables. As the page
+    says of a table without a nodes table, U-turns and turns between edges joined at both ends are not made. A reference nodes table (ArcView's nodes.dbf, whose
     layout is not published) and ArcInfo Workstation INFO turn tables (``.trn``) are refused."""
     from shapely.geometry import LineString
     from shapely.ops import substring
@@ -1600,7 +1741,8 @@ def TurnTableToTurnFeatureClass(in_turn_table, reference_line_features, out_feat
     if _given(reference_nodes_table):
         raise NotBuiltError("arcpy.na.TurnTableToTurnFeatureClass: a reference nodes table is ArcView's nodes.dbf, whose "
                             "layout is not published; grapy finds each turn's junction from its two edges.")
-    table_path = _source(in_turn_table)[0]
+    dbf = str(in_turn_table).lower().endswith(".dbf")
+    table_path = str(in_turn_table) if dbf else _source(in_turn_table)[0]
     if str(table_path).lower().endswith(".trn") or os.path.isdir(str(table_path)):
         raise NotBuiltError("arcpy.na.TurnTableToTurnFeatureClass: ArcInfo Workstation INFO turn tables are stored in a "
                             "format that is not published.")
@@ -1608,13 +1750,17 @@ def TurnTableToTurnFeatureClass(in_turn_table, reference_line_features, out_feat
     file, table = _gpkg.split(lines_path)
     folder = table.rsplit("/", 1)[0] if "/" in table else None
     location = f"{file}/{folder}" if folder else file
-    columns = _schema(table_path)[0]
+    if dbf:
+        columns, dbf_rows = _read_dbf(table_path)
+    else:
+        columns = _schema(table_path)[0]
     names = {c.name.upper(): c.name for c in columns}
     pick = lambda options: next((names[o] for o in options if o in names), None)  # noqa: E731
-    from_field = pick(("F_EDGE", "F-EDGE", "ARC1_", "ARC1#", "ARC1-ID"))
-    to_field = pick(("T_EDGE", "T-EDGE", "ARC2_", "ARC2#", "ARC2-ID"))
-    if from_field is None or to_field is None:
-        raise ExecuteError("ERROR 030000: the turn table has no from-edge and to-edge fields.")
+    from_field = pick(("ARC1_", "F_EDGE"))
+    to_field = pick(("ARC2_", "T_EDGE"))
+    if from_field is None or to_field is None or "NODE_" not in names:
+        raise ExecuteError("ERROR 000591: Input Turn Table parameter not a valid ArcView 3.x Network Analyst turn table "
+                           "or an ArcInfo coverage turn table.")
     kept = [c for c in columns if c.name.upper() not in _TEMPLATE_SKIPPED]
     created = CreateTurnFeatureClass(location, out_feature_class_name, maximum_edges)[0]
     from .management import AddField
@@ -1626,36 +1772,84 @@ def TurnTableToTurnFeatureClass(in_turn_table, reference_line_features, out_feat
     source_id = _source_id_of(lines_path)
     skipped = 0
     out = []
-    with da.SearchCursor(table_path, [from_field, to_field, *[c.name for c in kept]]) as cursor:
-        for row in cursor:
-            first, second = lines.get(_as_int(row[0])), lines.get(_as_int(row[1]))
-            if first is None or second is None or _as_int(row[0]) == _as_int(row[1]):
-                skipped += 1
-                continue
-            ends_a = [tuple(first.coords[0][:2]), tuple(first.coords[-1][:2])]
-            ends_b = [tuple(second.coords[0][:2]), tuple(second.coords[-1][:2])]
-            shared = [p for p in ends_a if p in ends_b]
-            if len(set(shared)) != 1:
-                skipped += 1
-                continue
-            junction = shared[0]
-            at_end_a = junction == ends_a[1]
-            at_start_b = junction == ends_b[0]
-            half_a = substring(first, 0.5, 1.0, normalized=True) if at_end_a else \
-                LineString(list(substring(first, 0.0, 0.5, normalized=True).coords)[::-1])
-            half_b = substring(second, 0.0, 0.5, normalized=True) if at_start_b else \
-                LineString(list(substring(second, 0.5, 1.0, normalized=True).coords)[::-1])
-            coordinates = list(half_a.coords) + list(half_b.coords)[1:]
-            record = {"Edge1End": "Y" if at_end_a else "N", "Edge1FCID": source_id, "Edge1FID": _as_int(row[0]),
-                      "Edge1Pos": 1.0 if at_end_a else 0.0, "Edge2FCID": source_id, "Edge2FID": _as_int(row[1]),
-                      "Edge2Pos": 0.0 if at_start_b else 1.0, "SHAPE": LineString(coordinates)}
-            record.update({c.name: v for c, v in zip(kept, row[2:])})
-            out.append(record)
+    if dbf:
+        at = {c.name: k for k, c in enumerate(columns)}
+        table_rows = [[r[at[n]] for n in (from_field, to_field, *[c.name for c in kept])] for r in dbf_rows]
+    else:
+        with da.SearchCursor(table_path, [from_field, to_field, *[c.name for c in kept]]) as cursor:
+            table_rows = [list(r) for r in cursor]
+    for row in table_rows:
+        first, second = lines.get(_as_int(row[0])), lines.get(_as_int(row[1]))
+        if first is None or second is None or _as_int(row[0]) == _as_int(row[1]):
+            skipped += 1
+            continue
+        ends_a = [tuple(first.coords[0][:2]), tuple(first.coords[-1][:2])]
+        ends_b = [tuple(second.coords[0][:2]), tuple(second.coords[-1][:2])]
+        shared = [p for p in ends_a if p in ends_b]
+        if len(set(shared)) != 1:
+            skipped += 1
+            continue
+        junction = shared[0]
+        at_end_a = junction == ends_a[1]
+        at_start_b = junction == ends_b[0]
+        half_a = substring(first, 0.75, 1.0, normalized=True) if at_end_a else \
+            LineString(list(substring(first, 0.0, 0.25, normalized=True).coords)[::-1])
+        half_b = substring(second, 0.0, 0.25, normalized=True) if at_start_b else \
+            LineString(list(substring(second, 0.75, 1.0, normalized=True).coords)[::-1])
+        coordinates = list(half_a.coords) + list(half_b.coords)[1:]
+        record = {"Edge1End": "Y" if at_end_a else "N", "Edge1FCID": source_id, "Edge1FID": _as_int(row[0]),
+                  "Edge1Pos": 0.75 if at_end_a else 0.25, "Edge2FCID": source_id, "Edge2FID": _as_int(row[1]),
+                  "Edge2Pos": 0.25 if at_start_b else 0.75, "SHAPE": LineString(coordinates)}
+        record.update({c.name: v for c, v in zip(kept, row[2:])})
+        out.append(record)
     _append(created, out)
     if skipped:
         AddWarning(f"TurnTableToTurnFeatureClass: {skipped} turn(s) are U-turns, name missing edges, or join edges that "
                    "do not meet at one end point, and were not made.")
     return Result(created)
+
+
+def _read_dbf(path):
+    """A dBASE table's columns (name, type) and rows, as an ArcView turn table is written: the tool's page takes "the
+    .dbf file … from which the new turn feature class will be created" (measured in ArcGIS Pro 3.7, 2026-11-12, Pro
+    sweep: grapy read only GeoPackage tables). Character, numeric, float, logical and date fields are read."""
+    import collections
+    import datetime
+    import struct
+    column = collections.namedtuple("column", "name type")
+    with open(path, "rb") as read:
+        data = read.read()
+    count, header, size = struct.unpack("<IHH", data[4:12])
+    columns, layout, at = [], [], 1
+    for k in range(32, header - 1, 32):
+        if data[k] == 0x0D:
+            break
+        name = data[k:k + 11].split(b"\0", 1)[0].decode("ascii", "replace")
+        kind, length, decimals = chr(data[k + 11]), data[k + 16], data[k + 17]
+        columns.append(column(name, {"C": "String", "D": "Date", "L": "SmallInteger"}.get(
+            kind, "Double" if decimals or kind == "F" else "Integer")))
+        layout.append((kind, at, length, decimals))
+        at += length
+    rows = []
+    for n in range(count):
+        record = data[header + n * size:header + (n + 1) * size]
+        if not record or record[:1] == b"*":
+            continue
+        row = []
+        for kind, start, length, decimals in layout:
+            text = record[start:start + length].decode("latin-1").strip()
+            if kind == "C":
+                row.append(text)
+            elif kind == "D":
+                row.append(datetime.datetime.strptime(text, "%Y%m%d") if text else None)
+            elif kind == "L":
+                row.append(None if text in ("", "?") else int(text.upper() in ("T", "Y")))
+            elif not text or set(text) <= {"*"}:
+                row.append(None)
+            else:
+                row.append(float(text) if decimals or kind == "F" else int(float(text)))
+        rows.append(row)
+    return columns, rows
 
 
 def _as_int(value):

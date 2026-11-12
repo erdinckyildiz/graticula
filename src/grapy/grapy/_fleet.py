@@ -101,7 +101,11 @@ def moment(value, default_date):
             break
         else:
             raise ExecuteError(f"ERROR 030000: '{value}' is not a date or time.")
-    if isinstance(value, datetime.datetime):
+    if isinstance(value, datetime.datetime) and value.date() == EPOCH.date():
+        # A time alone, as Esri writes one: on 1899-12-30 (ArcGIS Pro 3.7's AddVehicleRoutingProblemRoutes, measured
+        # 2026-11-12, Pro sweep).
+        stamp = datetime.datetime.combine(default_date, value.time())
+    elif isinstance(value, datetime.datetime):
         stamp = value.replace(tzinfo=None)
     elif isinstance(value, datetime.date):
         stamp = datetime.datetime.combine(value, datetime.time())
@@ -326,14 +330,16 @@ class Fleet:
 
     def __init__(self, graph, inputs, kind="VRP", schema="Two", time_units="Minutes", distance_units="Miles",
                  default_date=None, time_window_factor="Medium", excess_transit_factor="Medium",
-                 earliest_date=None, earliest_time=None, max_route_total_time=None, ignore_invalid=True):
+                 earliest_date=None, earliest_time=None, max_route_total_time=None, ignore_invalid=True,
+                 distance_table=None):
         from . import _network
         self.graph, self.kind, self.schema = graph, kind, schema
         self.per_unit = time_factor(time_units)
         self.distance_word = str(getattr(distance_units, "value", distance_units) or "Miles").upper().replace(" ", "")
-        if self.distance_word not in _network._LINEAR:
+        table = distance_table or _network._LINEAR
+        if self.distance_word not in table:
             raise ExecuteError(f"ERROR 030000: '{distance_units}' is not a distance unit.")
-        self.per_distance_unit = _network._LINEAR[self.distance_word]
+        self.per_distance_unit = table[self.distance_word]
         self.default_date = default_date or datetime.date.today()
         self.window_weight = importance(time_window_factor, _WINDOW_IMPORTANCE)
         self.transit_weight = importance(excess_transit_factor)
@@ -1060,12 +1066,12 @@ class Waste:
     CAPACITIES = ("MaxBins_1", "MaxWeight_1", "MaxVolume_1", "MaxBins_2", "MaxWeight_2", "MaxVolume_2")
 
     def __init__(self, graph, inputs, time_units="Minutes", distance_units="Miles", route_start_time=None,
-                 max_route_total_time=None, stop_collection_mode=None, driving_side="RightSide"):
+                 max_route_total_time=None, stop_collection_mode=None, driving_side="RightSide", distance_table=None):
         from . import _network
         self.graph = graph
         self.per_unit = time_factor(time_units)
         self.distance_word = str(getattr(distance_units, "value", distance_units) or "Miles").upper().replace(" ", "")
-        self.per_distance_unit = _network._LINEAR[self.distance_word]
+        self.per_distance_unit = (distance_table or _network._LINEAR)[self.distance_word]
         if inputs.get("RenewalVisits"):
             raise NotBuiltError("arcpy.nax.WasteCollection: preassigned renewal visits (RenewalVisits) are not built in "
                                 "grapy; the solver places every renewal visit.")
@@ -1076,6 +1082,15 @@ class Waste:
         for row in depots + renewals:
             if row.get("located") is None:
                 raise ExecuteError(f"ERROR 030024: '{get(row, 'Name')}' is not located on the network.")
+        # A stop with no CollectionMode, when the analysis gives no default, is an invalid input, as ArcGIS Pro
+        # reports it: measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep). grapy collected both sides (INFERRED).
+        missing = [row for row in stops if row.get("located") is not None and default_mode is None
+                   and number(get(row, "CollectionMode"), None) is None]
+        if missing:
+            raise ExecuteError("".join(
+                "A stop does not have a CollectionMode field value, and the default collection mode is not specified. "
+                f"Class: Stops; ObjectID: {row.get('oid')}.\n" for row in missing) +
+                "ERROR 030092: Solve failed due to invalid inputs.\nInvalid input in the NA classes.")
         # Collection units: the stops on one edge, or on one side of it.
         units, unit_of = [], {}
         for row in stops:
@@ -1413,6 +1428,7 @@ class Waste:
         self.solution = solution
         assigned = {k for units in assignment.values() for k in units}
         self.unassigned = [k for k in range(len(self.units)) if k not in assigned and k not in self.excluded]
+        self.resequenced = True
         return solution
 
 
@@ -1752,7 +1768,10 @@ def waste_outputs(waste, line_shape="ALONG_NETWORK"):
                     "EndTime": clock(plan["end"]),
                     "SHAPE": _merge([x["SHAPE"] for x in line_rows if x["RouteName"] == route["name"]])})
         route_rows.append(out)
-    for unit_index in waste.unassigned:
+    # A stop the solve could not place reports why; one taken off its route by UpdateFleetRoutingAssignments
+    # (NOT_ASSIGNED) reports nothing — measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep), where grapy reported a
+    # capacity violation.
+    for unit_index in ([] if getattr(waste, "resequenced", False) else waste.unassigned):
         for row in waste.units[unit_index]["stops"]:
             stop_out[row["oid"]].update(_violations({UNREACHABLE} if not waste.units[unit_index]["options"]
                                                     else {CAPACITY}))

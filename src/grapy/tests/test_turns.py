@@ -146,7 +146,9 @@ class Turns(unittest.TestCase):
         self.assertTrue(out.replace("\\", "/").endswith("transport/from_table"))
         rows = list(arcpy.da.SearchCursor(out, ["Edge1End", "Edge1FCID", "Edge1FID", "Edge2FID", "MINUTES", "SHAPE@WKT"]))
         # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
-        self.assertEqual(rows, [("Y", 1, OID["WC"], OID["CN"], 0.5, "MULTILINESTRING ((5 10, 10 10, 10 15))")])
+        # A quarter of each edge by the junction, as Pro 3.7 draws it (measured 2026-11-12, Pro sweep): this said
+        # (5 10, 10 10, 10 15), the halves.
+        self.assertEqual(rows, [("Y", 1, OID["WC"], OID["CN"], 0.5, "MULTILINESTRING ((7.5 10, 10 10, 10 12.5))")])
         self.assertNotIn("ANGLE", [f.name for f in arcpy.ListFields(out)])
         with self.assertRaises(arcpy.NotBuiltError):
             na.TurnTableToTurnFeatureClass(table, self.roads, "with_nodes", "nodes.dbf")
