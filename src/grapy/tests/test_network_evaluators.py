@@ -222,7 +222,8 @@ class Network(unittest.TestCase):
         self.assertEqual(q.sourceInfo(wc), (1, OID["WC"]))
         self.assertEqual(q.sourceInfo(c), (2, c.eid))
         self.assertEqual(len(q.edges(c)), 4)                            # WC, CE, CN and CS meet at C
-        self.assertTrue(all(isinstance(e, nax.AdjacentEdge) for e in q.edges(c)))
+        # Edge objects, as Pro answers (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this said AdjacentEdge.
+        self.assertTrue(all(type(e) is nax.Edge for e in q.edges(c)))
         (turn,) = q.turns(c)
         self.assertTrue(turn.isTurn)
         self.assertEqual(q.atJunction(turn), c)
@@ -230,7 +231,8 @@ class Network(unittest.TestCase):
         self.assertEqual(q.sourceInfo(turn), (3, 1))
         self.assertEqual(q.attributeValue(wc, minutes), 1.0)
         self.assertEqual(q.attributeValue(turn, minutes), 0.5)
-        self.assertEqual(q.attributeValue(c, minutes, nax.NetworkTimeUsage.Unused), 0.0)
+        # Pro's NetworkTimeUsage has no Unused member (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)): a time-neutral value takes no time usage.
+        self.assertEqual(q.attributeValue(c, minutes), 0.0)
         self.assertFalse(q.attributeValue(wc, q.attribute("Closed")))
 
     def test_a_persisted_evaluator_and_attribute_parameters(self):

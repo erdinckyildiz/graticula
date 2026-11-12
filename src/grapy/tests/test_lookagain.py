@@ -139,9 +139,10 @@ class Multidimensional(Base):
         table = ia.SummarizeCategoricalRaster(r, os.path.join(self.directory, "lc.csv"))[0]
         with open(table, encoding="utf-8") as f:
             lines = [line.strip().split(",") for line in f]
-        self.assertEqual(lines[0], ["StdTime", "Class_1", "Class_2", "Class_3"])
-        self.assertEqual(lines[1][1:], ["2", "1", "1"])
-        self.assertEqual(lines[2][1:], ["0", "3", "1"])
+        # Pro 3.7's field names, C_<value> and a NoData count (measured 2026-11-08; this test pinned Class_<value>).
+        self.assertEqual(lines[0], ["StdTime", "C_1", "C_2", "C_3", "NoData"])
+        self.assertEqual(lines[1][1:], ["2", "1", "1", "0"])
+        self.assertEqual(lines[2][1:], ["0", "3", "1", "0"])
         # Class names from CF flag_values and flag_meanings; one area of interest over the first two cells.
         named = cube([variable("lc", t, [[1, 1, 2, 3], [2, 2, 2, 3]],
                                attrs={"flag_values": "1 2 3", "flag_meanings": "water forest urban"})],

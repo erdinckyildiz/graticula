@@ -34,7 +34,11 @@ def _bands(in_raster_bands, tool):
 
 
 def write_gsg(path, classes, layers, header=None):
-    """``classes``: dicts of value, count, name, means and (optionally) covariance, written in the printed layout."""
+    """``classes``: dicts of value, count, name, means and (optionally) covariance, written in the printed layout.
+
+    The numbers are written with seven significant digits in exponent form (9.613521e-02), as ArcGIS Pro 3.7 writes
+    them (measured 2026-11-08): grapy wrote six decimals, which left a reflectance covariance of 4.06e-05 two digits
+    and moved 74 of 3600 cells of a maximum likelihood classification read back from the file."""
     out = []
     if header:
         out.append(f"# {header}")
@@ -46,10 +50,10 @@ def write_gsg(path, classes, layers, header=None):
         out += ["# " + "-" * 70, "# Class ID    Number of Cells    Class Name",
                 f"  {c['value']:<11d} {c['count']:<18d} {c.get('name') or ''}".rstrip(),
                 "# Layers " + "".join(f"  {i + 1:<10d}" for i in range(len(layers))).rstrip(), "# Means",
-                "        " + "".join(f"{v:14.6f}" for v in c["means"])]
+                "        " + "".join(f"{v:14.6e}" for v in c["means"])]
         if c.get("covariance"):
             out.append("# Covariance")
-            out += [f"{i + 1:<4d}" + "".join(f"{v:14.6f}" for v in row) for i, row in enumerate(c["covariance"])]
+            out += [f"{i + 1:<4d}" + "".join(f"{v:14.6e}" for v in row) for i, row in enumerate(c["covariance"])]
     path = _path(path)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(out) + "\n")

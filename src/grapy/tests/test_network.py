@@ -214,18 +214,23 @@ class Network(unittest.TestCase):
             cursor.insertRow([(14, 0)])
         with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Destinations, ["SHAPE@XY"]) as cursor:
             cursor.insertRow([(10, 9)])
+        # Pro's Lines (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)): OriginOID and DestinationOID are the loaded features' ObjectIDs (None from an
+        # insertCursor), OriginID and DestinationID the inputs', and the cost is Total_Distance in distanceUnits.
         lines = list(od.solve().searchCursor(nax.OriginDestinationCostMatrixOutputDataType.Lines,
-                                             ["OriginOID", "DestinationOID", "DestinationRank", "Total_Kilometers"]))
+                                             ["OriginID", "DestinationID", "DestinationRank", "Total_Distance",
+                                              "OriginOID"]))
         self.assertEqual(lines[0][:3], (1, 1, 1))
         self.assertAlmostEqual(lines[0][3], (4 + 9 * NS) / 1000)
+        self.assertIsNone(lines[0][4])
         area = nax.ServiceArea(self.network)
+        area.distanceUnits = nax.DistanceUnits.Meters     # cutoffs are in distanceUnits, as Pro reads them (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep))
         area.defaultImpedanceCutoffs = [12]
         area.polygonBufferDistance = 1
         with area.insertCursor(nax.ServiceAreaInputDataType.Facilities, ["Name", "SHAPE@XY"]) as cursor:
             cursor.insertRow(["call", (14, 0)])
         result = area.solve()
         self.assertEqual(list(result.searchCursor(nax.ServiceAreaOutputDataType.Polygons, ["Name", "ToBreak"])),
-                         [("call : 0 - 12", 12.0)])
+                         [("call : 0 - 12", 12.0)])        # Pro writes the breaks as 0 and 12 (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep))
         with self.assertRaises(arcpy.NotBuiltError):
             result.searchCursor(nax.ServiceAreaOutputDataType.Lines, ["FacilityID"])     # polygons were asked for
 
@@ -330,7 +335,8 @@ class Network(unittest.TestCase):
         route = nax.Route(self.network)
         mappings = route.fieldMappings(nax.RouteInputDataType.Stops, False, arcpy.ListFields(self.points))
         self.assertEqual(mappings["Name"].mappedFieldName, "Name")
-        self.assertIsNone(mappings["RouteName"].mappedFieldName)
+        # Every property maps to the field of its own name, whatever the candidates (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this said None.
+        self.assertEqual(mappings["RouteName"].mappedFieldName, "RouteName")
 
     def test_describe_and_the_network_dataset_query_api(self):
         na.BuildNetwork(self.network)
@@ -343,7 +349,8 @@ class Network(unittest.TestCase):
         # The network has no travel mode (CreateNetworkDataset makes none, as Pro's): one for the cost queries below.
         arcpy.graticula.AddNetworkTravelMode(self.network, "Length", "Length")
         network = nax.NetworkDataset(self.network)
-        self.assertEqual((network.edgeCount, network.junctionCount, network.turnCount, network.isBuilt), (6, 7, 0, True))
+        # edgeCount counts each edge once in each direction, as Pro does (measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep)); this said 6.
+        self.assertEqual((network.edgeCount, network.junctionCount, network.turnCount, network.isBuilt), (12, 7, 0, True))
         self.assertIsNotNone(network.buildTimestamp)
         self.assertTrue(network.getDataSourceFromSourceID(1).endswith("transport/roads"))
         # Junctions are numbered as the ends are met: AB gives 1 (0,0) and 2 (10,0); BC 3 (20,0); BD 4 (10,10) …

@@ -492,7 +492,8 @@ class Graph:
 
     def location_fields(self, located, point):
         """The documented network location fields of a located point. INFERRED: SourceID numbers the sources from 1 in
-        the order they were given; SideOfEdge is 1 (right) or 2 (left) of the digitised direction."""
+        the order they were given; SideOfEdge is 1 (right) or 2 (left) of the digitised direction, and 2 for a point on
+        the line, as ArcGIS Pro 3.7 answers (measured 2026-11-12, Pro sweep)."""
         if located is None:
             return {"SourceID": None, "SourceOID": None, "PosAlong": None, "SideOfEdge": None, "SnapX": None,
                     "SnapY": None, "SnapZ": None, "DistanceToNetworkInMeters": None}
@@ -504,7 +505,7 @@ class Graph:
         cross = (ahead.x - behind.x) * (point.y - behind.y) - (ahead.y - behind.y) * (point.x - behind.x)
         per = _per_unit(self.srid) or 1.0
         return {"SourceID": self.sources.index(edge["source"]) + 1, "SourceOID": edge["oid"],
-                "PosAlong": edge["p0"] + (edge["p1"] - edge["p0"]) * t, "SideOfEdge": 2 if cross > 0 else 1,
+                "PosAlong": edge["p0"] + (edge["p1"] - edge["p0"]) * t, "SideOfEdge": 2 if cross > -1e-12 else 1,
                 "SnapX": snapped.x, "SnapY": snapped.y, "SnapZ": 0.0, "DistanceToNetworkInMeters": distance * per,
                 "_edge": i, "_t": t, "_coords": coordinates}
 
