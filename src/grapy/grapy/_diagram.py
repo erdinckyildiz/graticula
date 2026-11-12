@@ -553,6 +553,19 @@ class Builder:
                 wanted.add(holder)
                 holder = self.container_of.get(holder)
         self.add_features(d, wanted)
+        # The containers of the junctions an edge brought in too: measured in ArcGIS Pro 3.7, 2026-11-12, a diagram made
+        # from lines alone holds the vault containing the valve at a line's end.
+        while True:
+            present = {self.gkey(f.key) for f in d.features.values() if f.key and not f.reduction} - {None}
+            more = set()
+            for g in present:
+                holder = self.container_of.get(g)
+                while holder is not None and holder not in present and holder not in more:
+                    more.add(holder)
+                    holder = self.container_of.get(holder)
+            if not more:
+                break
+            self.add_features(d, more)
         self.link_containers(d)
 
     # -- the template --

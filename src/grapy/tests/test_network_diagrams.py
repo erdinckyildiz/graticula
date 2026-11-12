@@ -280,7 +280,8 @@ class Diagrams(unittest.TestCase):
         self.assertEqual([(e[1], e[2]) for e in found["E"] if e[0] == "R"], [("T", "VA")])
         self.assertIn(["L3"], self.aggregated(name).values())
         self.template("Kept")
-        arcpy.nd.AddDiagramFeatureCapabilityByAttributeRule(self.un, "Kept", "ACTIVE", self.vault, "NAME = 'VA'",
+        # Set on the content, as ArcGIS Pro 3.7 reads it (measured 2026-11-12: set on the vault it keeps nothing).
+        arcpy.nd.AddDiagramFeatureCapabilityByAttributeRule(self.un, "Kept", "ACTIVE", self.device, "NAME = 'V2'",
                                                             "PREVENT_TO_COLLAPSE_CONTAINER")
         arcpy.nd.AddCollapseContainerRule(self.un, "Kept")
         self.assertIn("VA", self.content(self.create("Kept"))["C"])
@@ -308,7 +309,10 @@ class Diagrams(unittest.TestCase):
         self.template("Down")
         arcpy.nd.AddSetStartingPointByAttributeRule(self.un, "Down", "ACTIVE", self.junction, "NAME = 'T'")
         arcpy.nd.AddTraceRule(self.un, "Down", "ACTIVE", "DOWNSTREAM", "Water", "Pressure")
-        found = self.content(self.create("Down"))
+        # The trace's result is added to what the diagram holds (measured in ArcGIS Pro 3.7, 2026-11-12), so the
+        # diagram starts from T alone to show what the trace reaches.
+        arcpy.management.MakeFeatureLayer(self.junction, "tee_t", "NAME = 'T'")
+        found = self.content(self.create("Down", features=["tee_t"]))
         self.assertEqual(set(found["J"]), {"T", "V2", "E"})
 
     def test_a_spatial_query_rule_adds_what_meets_the_diagram(self):

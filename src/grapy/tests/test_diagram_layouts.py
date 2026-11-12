@@ -212,11 +212,12 @@ class DiagramLayouts(unittest.TestCase):
         self.assertEqual(self.last_step("Two")["params"]["valences"], [True, True, False, True])
         arcpy.nd.AddReduceJunctionRule(self.un, "Two", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
         self.assertNotIn("V1", self.content(self.create("Two"))["J"])
-        # PREVENT_TO_COLLAPSE_CONTAINER on the vault's category keeps it from a Collapse Container rule.
+        # PREVENT_TO_COLLAPSE_CONTAINER on the category of the valve inside the vault keeps the vault from a Collapse
+        # Container rule: the capability is read off the content (measured in ArcGIS Pro 3.7, 2026-11-12).
         self.chamber()
         self.template("Kept")
         arcpy.nd.AddDiagramFeatureCapabilityByCategoryRule(self.un, "Kept", "ACTIVE", "INCLUDE_CATEGORIES",
-                                                           ["Chamber"], "PREVENT_TO_COLLAPSE_CONTAINER")
+                                                           ["Isolating"], "PREVENT_TO_COLLAPSE_CONTAINER")
         arcpy.nd.AddCollapseContainerRule(self.un, "Kept")
         self.assertIn("VA", self.content(self.create("Kept"))["C"])
 
@@ -460,7 +461,11 @@ class DiagramLayouts(unittest.TestCase):
             arcpy.un.DeleteNetworkCategory(self.un, "Isolating")
         self.assertIn("assigned", str(said.exception))
         self.assertIn("Isolating", self.categories())
-        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard")  # none: unassigned
+        # Naming no category changes nothing (measured in ArcGIS Pro 3.7, 2026-11-12); naming another replaces it.
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard")
+        with self.assertRaises(ExecuteError):
+            arcpy.un.DeleteNetworkCategory(self.un, "Isolating")
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard", ["Spare"])
         arcpy.un.DeleteNetworkCategory(self.un, "Isolating")
         self.assertNotIn("Isolating", self.categories())
         # A system-provided category is refused (INFERRED: the page does not say; Pro's are the network's own).

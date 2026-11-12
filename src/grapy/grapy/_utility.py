@@ -61,7 +61,10 @@ STRUCTURE = "Structure"
 STRUCTURE_CLASSES = (("StructureJunction", "Point", "StructureJunction"), ("StructureLine", "Polyline", "StructureLine"),
                      ("StructureBoundary", "Polygon", "StructureBoundary"),
                      ("StructureJunctionObject", None, "JunctionObject"), ("StructureEdgeObject", None, "EdgeObject"))
-DOMAIN_CLASSES = (("Device", "Point"), ("Line", "Polyline"), ("Junction", "Point"), ("Assembly", "Point"),
+# In the order ArcGIS Pro 3.7 numbers a domain network's sources (measured 2026-11-12: WaterDevice 9, WaterLine 10,
+# WaterAssembly 11, WaterJunction 12, WaterSubnetLine 13, WaterJunctionObject 14, WaterEdgeObject 15, after the
+# structure network's 4 to 8; 1 is the associations and 2 the system junctions).
+DOMAIN_CLASSES = (("Device", "Point"), ("Line", "Polyline"), ("Assembly", "Point"), ("Junction", "Point"),
                   ("SubnetLine", "Polyline"), ("JunctionObject", None), ("EdgeObject", None))
 JUNCTION_ROLES = ("Device", "Junction", "StructureJunction")
 LINE_ROLES = ("Line", "StructureLine")
@@ -380,9 +383,13 @@ def _base_columns(role):
                                                     ("SUBNETWORKCONTROLLERNAME", "String"), ("TIERNAME", "String"),
                                                     ("TIERRANK", "Integer"), ("TERMINALCONFIGURATION", "String"))]
     if role in ("Line",):
-        columns += [_gpkg.Column("FROMDEVICETERMINAL", "Integer"), _gpkg.Column("TODEVICETERMINAL", "Integer")]
+        # short integers, as Pro 3.7 makes them (measured 2026-11-12; grapy made long ones)
+        columns += [_gpkg.Column("FROMDEVICETERMINAL", "SmallInteger"), _gpkg.Column("TODEVICETERMINAL", "SmallInteger")]
     if role in ("Device", "Line", "Junction", "JunctionObject", "EdgeObject"):
         columns += [_gpkg.Column("ISCONNECTED", "SmallInteger")]
+    if role in ("Line", "StructureLine", "EdgeObject"):
+        # the Flow direction network attribute's field, on every line and edge object (Pro 3.7, measured 2026-11-12)
+        columns += [_gpkg.Column("FLOWDIRECTION", "SmallInteger")]
     return columns
 
 
@@ -399,10 +406,10 @@ def create(file, dataset, name, territory, srid, version):
         connection.commit()
     finally:
         connection.close()
-    source = 1
+    source = 4  # the structure network's sources are 4 to 8, as Pro 3.7 numbers them (measured 2026-11-12)
     for class_name, shape, role in STRUCTURE_CLASSES:
-        columns = _base_columns(role) + [_gpkg.Column("SUBNETWORKNAME", "String"),
-                                         _gpkg.Column("SUPPORTEDSUBNETWORKNAME", "String")]
+        # Measured in Pro 3.7, 2026-11-12: the structure network's classes have no SUPPORTEDSUBNETWORKNAME.
+        columns = _base_columns(role) + [_gpkg.Column("SUBNETWORKNAME", "String")]
         table = _create_class(file, dataset, class_name, shape, srid, columns, True, True)
         _register_source(file, name, source, table, STRUCTURE, role)
         source += 1
@@ -425,6 +432,8 @@ def create(file, dataset, name, territory, srid, version):
             connection.close()
     with Network(f"{file}/{dataset}/{name}") as network:
         for category in SYSTEM_CATEGORIES:
+            if category == "Propagator Resetter" and int(version) < 8:
+                continue  # a version 8 category (measured in Pro 3.7, 2026-11-12)
             network.q("insert into grapy_un_category values (?, ?, 1)", name, category)
         for attribute, kind in zip(SYSTEM_ATTRIBUTES, ("SHORT", "SHORT", "SHORT", "DOUBLE", "SHORT", "LONG")):
             network.q("insert into grapy_un_attribute values (?, ?, ?, 0, ?, null, 1, 0, null, 1)", name, attribute, kind,
@@ -462,10 +471,9 @@ def add_domain(path, name, tier_definition, controller_type, alias):
                                                        ("LASTUPDATESUBNETWORK", "Date"),
                                                        ("LASTACKEXPORTSUBNETWORK", "Date"))]
         else:
+            # SUPPORTINGSUBNETWORKNAME and SUPPORTEDSUBNETWORKNAME come with the domain's first tier (add_tier), as
+            # Pro 3.7 adds them (measured 2026-11-12).
             columns = _base_columns(suffix)
-            if suffix != "Assembly":
-                columns += [_gpkg.Column("SUPPORTINGSUBNETWORKNAME", "String")]
-            columns += [_gpkg.Column("SUPPORTEDSUBNETWORKNAME", "String")]
         table = _create_class(file, dataset, f"{name}{suffix}", shape, srid, columns, True, True)
         _register_source(file, un, start + i, table, name, suffix)
 
@@ -521,6 +529,14 @@ def add_tier(path, domain, name, rank, topology_type, tier_group, subnetwork_fie
                 taken = {r[1].lower() for r in network.q(f'pragma table_info("{class_name}")')}
                 if field.lower() not in taken:
                     network.q(f'alter table "{class_name}" add column "{field}" TEXT')
+            for class_name, role in network.q("select class_name, role from grapy_un_source where network = ? and "
+                                              "domain = ? and role in ('Device','Line','Junction','Assembly',"
+                                              "'JunctionObject','EdgeObject')", network.name, row[0]).fetchall():
+                taken = {r[1].lower() for r in network.q(f'pragma table_info("{class_name}")')}
+                for supported in (("SUPPORTEDSUBNETWORKNAME",) if role == "Assembly" else
+                                  ("SUPPORTEDSUBNETWORKNAME", "SUPPORTINGSUBNETWORKNAME")):
+                    if supported.lower() not in taken:
+                        network.q(f'alter table "{class_name}" add column "{supported}" TEXT')
 
 
 # ---- definition rows -----------------------------------------------------------------------------------------------
@@ -537,6 +553,11 @@ def add_rule(network, rule_type, ends, via=None):
     """A rule; ``ends`` is [(class, group, type, terminal)] for from and to, ``via`` the edge-junction-edge junction."""
     network.require_disabled("AddRule")
     (fc, fg, ft, fterm), (tc, tg, tt, tterm) = ends
+    if rule_type == "JUNCTION_JUNCTION_CONNECTIVITY" and network.source_of(tc) < network.source_of(fc):
+        # A junction-junction rule is kept from the end of the lower network source (measured in ArcGIS Pro 3.7,
+        # 2026-11-12: WaterJunction Plug to WaterDevice Valve was exported from WaterDevice; INFERRED from that one
+        # measurement that the order is the sources').
+        (fc, fg, ft, fterm), (tc, tg, tt, tterm) = (tc, tg, tt, tterm), (fc, fg, ft, fterm)
     if rule_type in ("CONTAINMENT", "STRUCTURAL_ATTACHMENT"):
         fterm = tterm = None
     for existing in rules(network):

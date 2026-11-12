@@ -1031,7 +1031,7 @@ def partial_overlapping_edges(view, p, margin):
     (INFERRED) — form a set; a set of k is spread to offsets (i − (k − 1)/2)·offset about its middle, in their present
     order across it (or, OPTIMIZE_EDGES, in the order of their edges' far ends, INFERRED). A shifted segment that
     ends on a junction keeps the junction and gains a vertex; a vertex two shifted segments share takes their mean."""
-    width, offset = float(p["buffer_width"]), float(p["offset"])
+    width, offset = float(p["buffer_width"]), float(p.get("offset", 0.0))
     segs = _segments(view)
     parent = list(range(len(segs)))
 

@@ -281,7 +281,7 @@ class _DescribedWorkspace:
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
     object), a folder, a GeoPackage of several tables (a workspace), a topology, relationship class or network
-    dataset held in a GeoPackage (ADR-225, ADR-226), a TIN or LAS dataset (ADR-229), or a mosaic dataset or mosaic
+    dataset held in a GeoPackage (ADR-225, ADR-226), a utility network (ADR-231), a TIN or LAS dataset (ADR-229), or a mosaic dataset or mosaic
     layer (ADR-230)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
@@ -303,8 +303,8 @@ def Describe(value, datatype=None):
     dataset_srid = _feature_dataset_srid(path)
     if dataset_srid is not None:
         return _DescribedFeatureDataset(path, dataset_srid)
-    from . import _network, _relationships, _topology
-    for model in (_network, _topology, _relationships):
+    from . import _network, _relationships, _topology, _undescribe
+    for model in (_undescribe, _network, _topology, _relationships):  # a utility network (the Pro sweep, 2026-11-12)
         described = model.describe(path)
         if described is not None:
             return described

@@ -428,7 +428,9 @@ def _apply(layout, a, tool):
 
 def _require(layout, params, tool):
     if layout == "PartialOverlappingEdges":
-        for key in ("buffer_width", "offset"):
+        # Measured in ArcGIS Pro 3.7, 2026-11-12: the Apply tool needs both, the Add tool takes a layout with the
+        # buffer width alone (its offset then 0, INFERRED: no edge is spread).
+        for key in ("buffer_width", "offset") if tool.startswith("Apply") else ("buffer_width",):
             if key not in params:
                 raise ExecuteError(f"ERROR 000735: {tool}: {key}_absolute is required.")
 
@@ -944,7 +946,7 @@ def AddTraceRule(in_utility_network, template_name, is_active="ACTIVE", trace_ty
                  filter_scope="BOTH_JUNCTIONS_AND_EDGES", filter_bitset_network_attribute_name=None,
                  filter_nearest="DO_NOT_FILTER", nearest_count=None, nearest_cost_network_attribute=None,
                  nearest_categories=None, nearest_assets=None, propagators=None, description=None,
-                 allow_indeterminate_flow="IGNORE_INDETERMINATE_FLOW", path_direction=None,
+                 allow_indeterminate_flow="TRACE_INDETERMINATE_FLOW", path_direction=None,
                  path_network_weight_name=None, use_trace_config="DO_NOT_USE_TRACE_CONFIGURATION",
                  trace_config_name=None, use_digitized_direction="IGNORE_DIGITIZED_DIRECTION", output_assettypes=None,
                  output_conditions=None, num_paths=None, max_hops=None, infer_connectivity="DO_NOT_INFER_CONNECTIVITY"):
@@ -1000,8 +1002,10 @@ def AddTraceRule(in_utility_network, template_name, is_active="ACTIVE", trace_ty
         "traversability_scope": _word(a["traversability_scope"], "BOTH_JUNCTIONS_AND_EDGES"),
         "filter_scope": _word(a["filter_scope"], "BOTH_JUNCTIONS_AND_EDGES"),
         "include_barriers": _flag(a["include_barriers"], "INCLUDE_BARRIERS", "EXCLUDE_BARRIERS", "INCLUDE_BARRIERS"),
+        # Indeterminate flow is traced by default (measured in ArcGIS Pro 3.7, 2026-11-12: a downstream trace rule
+        # from a tee runs on round the loop beyond it; grapy ignored indeterminate flow by default before).
         "allow_indeterminate_flow": _flag(a["allow_indeterminate_flow"], "TRACE_INDETERMINATE_FLOW",
-                                          "IGNORE_INDETERMINATE_FLOW", "IGNORE_INDETERMINATE_FLOW"),
+                                          "IGNORE_INDETERMINATE_FLOW", "TRACE_INDETERMINATE_FLOW"),
         "shortest_path_attribute": str(a["path_network_weight_name"]) if _given(a["path_network_weight_name"]) else None,
         "num_paths": int(a["num_paths"]) if _given(a["num_paths"]) else None,
         "max_hops": int(a["max_hops"]) if _given(a["max_hops"]) else None,
