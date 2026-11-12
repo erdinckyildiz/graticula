@@ -53,21 +53,10 @@ internal static partial class PortalEndpoints
         string body = await reader.ReadToEndAsync(cancellation).ConfigureAwait(false);
         string? operation = SoapOperation(body);
 
-        if (operation == "GetMessageVersion")
-        {
-            return Soap(
-                "<tns:GetMessageVersionResponse><MessageVersion>esriArcGISVersion108</MessageVersion>"
-                + $"<ProMessageVersion>{ProMessageVersion}</ProMessageVersion></tns:GetMessageVersionResponse>");
-        }
-
-        if (operation == "GetMessageFormats")
-        {
-            return Soap(MessageFormatsAnswer);
-        }
-
         // <b>A measuring tool, dev only</b>: while Pro's calls are recorded, an answer written to
         // <c>{capture}/soap-answers/{Operation}.xml</c> is returned as it stands — so the next call Pro makes can be
         // learned from a real server's answer without rebuilding this one. Nothing reads that directory elsewhere.
+        // It is asked first, so even the two answers below can be varied while 00147 is measured.
         if (RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>())
             && operation is { Length: > 0 }
             && System.IO.Path.Combine(
@@ -78,6 +67,18 @@ internal static partial class PortalEndpoints
         {
             return Results.Text(
                 await File.ReadAllTextAsync(canned, cancellation).ConfigureAwait(false), "text/xml; charset=utf-8");
+        }
+
+        if (operation == "GetMessageVersion")
+        {
+            return Soap(
+                "<tns:GetMessageVersionResponse><MessageVersion>esriArcGISVersion108</MessageVersion>"
+                + $"<ProMessageVersion>{ProMessageVersion}</ProMessageVersion></tns:GetMessageVersionResponse>");
+        }
+
+        if (operation == "GetMessageFormats")
+        {
+            return Soap(MessageFormatsAnswer);
         }
 
         if (RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>()))
