@@ -275,4 +275,129 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token, json: null);
         }
     }
+
+    /// <summary>
+    /// ADR-288 §11a, the owner's change of 2026-11-12: a map whose basemap is a vector tile service of this server gets a tile
+    /// package beside its geodatabase, related by Area2Package; a basemap layer that is not ours is named under skipped and
+    /// has no item. Needs the fixture's vector tile service, <c>GRATICULA_TEST_TILE_SERVICE</c>.
+    /// </summary>
+    [Fact]
+    public async Task A_basemap_of_ours_is_packaged_as_a_vtpk_and_one_that_is_not_ours_is_named_and_has_no_item()
+    {
+        string? tiles = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE");
+        Assert.False(string.IsNullOrWhiteSpace(tiles), "GRATICULA_TEST_TILE_SERVICE is not set, so this FAILS rather than skips.");
+
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string name = "zz_area_" + Guid.NewGuid().ToString("N")[..8];
+
+        (HttpStatusCode defined, JsonElement design) = await JsonAsync(HttpMethod.Post, "/admin/hosted/define", token, new
+        {
+            name,
+            geometryType = "Point",
+            fields = new[] { new { name = "label", type = "text", nullable = true } },
+            sharing = "private",
+        });
+        Assert.True(defined == HttpStatusCode.Created, $"Defining a layer answered {(int)defined}.");
+
+        string[] parts = design.GetProperty("services").GetProperty("feature").GetString()!.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string service = $"/rest/services/{parts[2]}/{parts[3]}/FeatureServer";
+        string tileUrl = $"{root}/rest/services/{tiles}/VectorTileServer";
+        string mapId = string.Empty;
+
+        try
+        {
+            using (HttpRequestMessage enable = new(HttpMethod.Post, $"{root}/rest/admin/services/{parts[2]}/{parts[3]}/FeatureServer/updateDefinition")
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["updateDefinition"] = """{"syncEnabled":true}""", ["f"] = "json" }),
+            })
+            {
+                enable.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage enabled = await Http.SendAsync(enable);
+                Assert.True(enabled.StatusCode == HttpStatusCode.OK, await enabled.Content.ReadAsStringAsync());
+            }
+
+            object document = new
+            {
+                operationalLayers = new[] { new { id = "l0", layerType = "ArcGISFeatureLayer", url = $"{root}{service}/0", title = "Points" } },
+                baseMap = new
+                {
+                    title = "Mixed",
+                    baseMapLayers = new object[]
+                    {
+                        new { id = "ours", layerType = "VectorTileLayer", title = "Ours", url = tileUrl },
+                        new { id = "osm", layerType = "OpenStreetMap", title = "OpenStreetMap" },
+                        new { id = "esri", layerType = "ArcGISTiledMapServiceLayer", title = "Imagery", url = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer" },
+                    },
+                },
+                version = "2.31",
+            };
+            (HttpStatusCode made, JsonElement map) = await JsonAsync(
+                HttpMethod.Post, "/content/webmaps", token, new { title = "Area map " + name, sharing = "private", document });
+            Assert.True(made is HttpStatusCode.Created or HttpStatusCode.OK, $"Saving a map answered {(int)made}.");
+            mapId = map.GetProperty("id").GetString()!;
+
+            object extent = new { xmin = 0, ymin = 0, xmax = 0.002, ymax = 0.002, spatialReference = new { wkid = 4326 } };
+            (HttpStatusCode created, JsonElement area) = await JsonAsync(HttpMethod.Post, $"/admin/maps/{mapId}/areas", token, new { title = "Tiles", extent });
+            Assert.True(created == HttpStatusCode.Created, area.ToString());
+            string areaId = area.GetProperty("id").GetString()!;
+
+            JsonElement[] packages = [.. area.GetProperty("packages").EnumerateArray()];
+            Assert.Equal(2, packages.Length);
+            JsonElement vtpk = Assert.Single(packages, p => p.GetProperty("format").GetString() == "vtpk");
+            Assert.Single(packages, p => p.GetProperty("format").GetString() == "sqlite");
+            Assert.Equal(JsonValueKind.Null, vtpk.GetProperty("replicaId").ValueKind);
+            Assert.EndsWith(".vtpk", vtpk.GetProperty("fileName").GetString(), StringComparison.Ordinal);
+
+            // What could not be packaged is named, and nothing pretends.
+            string[] skipped = [.. area.GetProperty("skipped").EnumerateArray().Select(s => s.GetProperty("service").GetString()!)];
+            Assert.Contains("OpenStreetMap", skipped);
+            Assert.Contains("Imagery", skipped);
+            Assert.DoesNotContain("Ours", skipped);
+
+            string vtpkId = vtpk.GetProperty("id").GetString()!;
+            (_, JsonElement item) = await JsonAsync(HttpMethod.Get, $"{Items}{vtpkId}?f=json", token);
+            Assert.Equal("Vector Tile Package", item.GetProperty("type").GetString());
+            string[] keywords = [.. item.GetProperty("typeKeywords").EnumerateArray().Select(k => k.GetString()!)];
+            Assert.Contains("MapAreaPackage", keywords);
+            Assert.Contains("Package", keywords);
+            Assert.Contains("ReferenceURL#" + tileUrl, keywords);
+            Assert.EndsWith(".vtpk", item.GetProperty("name").GetString(), StringComparison.Ordinal);
+
+            // Related by Area2Package with the geodatabase, and streamed: a VTPK is a zip.
+            List<string> related = await RelatedAsync(areaId, "Area2Package", "forward", token);
+            Assert.Equal(2, related.Count);
+            Assert.Contains(vtpkId, related);
+
+            (HttpStatusCode downloaded, byte[] file, HttpResponseMessage headers) = await BytesAsync($"{Items}{vtpkId}/data", token);
+            headers.Dispose();
+            Assert.Equal(HttpStatusCode.OK, downloaded);
+            Assert.Equal(vtpk.GetProperty("size").GetInt64(), file.Length);
+            Assert.Equal("PK"u8.ToArray(), file[..2]);
+            Assert.Equal(vtpk.GetProperty("sha256").GetString(), Convert.ToHexStringLower(SHA256.HashData(file)));
+
+            // A refresh writes both again and keeps both items.
+            await Task.Delay(1100);
+            (HttpStatusCode refreshed, JsonElement again) = await JsonAsync(HttpMethod.Post, $"/admin/maps/{mapId}/areas/{areaId}/refresh", token);
+            Assert.True(refreshed == HttpStatusCode.OK, again.ToString());
+            Assert.Equal(2, again.GetProperty("packages").GetArrayLength());
+            Assert.Contains(again.GetProperty("packages").EnumerateArray(), p => p.GetProperty("id").GetString() == vtpkId);
+
+            // Deleting the area takes the tile package's item and file with the rest.
+            Assert.Equal(HttpStatusCode.OK, (await JsonAsync(HttpMethod.Delete, $"/admin/maps/{mapId}/areas/{areaId}", token)).Status);
+            Assert.False(Sees((await JsonAsync(HttpMethod.Get, $"{Items}{vtpkId}?f=json", token)).Body, vtpkId));
+            (HttpStatusCode gone, _, HttpResponseMessage goneHeaders) = await BytesAsync($"{Items}{vtpkId}/data", token);
+            goneHeaders.Dispose();
+            Assert.NotEqual(HttpStatusCode.OK, gone);
+        }
+        finally
+        {
+            if (mapId.Length > 0)
+            {
+                await JsonAsync(HttpMethod.Delete, $"/content/webmaps/{mapId}", token);
+            }
+
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token, json: null);
+        }
+    }
 }

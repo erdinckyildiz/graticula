@@ -10,7 +10,7 @@ using NpgsqlTypes;
 namespace Graticula.Platform.Postgres;
 
 /// <summary>
-/// Preplanned map areas and their packages in the platform store — migration 139, ADR-288 §11a.
+/// Preplanned map areas and their packages in the platform store — migrations 139 and 140, ADR-288 §11a.
 /// </summary>
 /// <remarks>
 /// <b>Each is written with its item and its relationship in one transaction</b>, the item taking its owner and sharing from
@@ -25,7 +25,7 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
 
     private const string PackageColumns =
         "p.id, p.area_id, a.map_id, p.service_id, p.replica_id, p.file_name, p.file_path, p.sha256, p.size, p.properties::text, "
-        + "p.created_at, p.refreshed_at";
+        + "p.created_at, p.refreshed_at, p.format";
 
     private readonly NpgsqlDataSource _root;
 
@@ -118,15 +118,16 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         await using (NpgsqlCommand insert = new(
             """
             insert into map_area_package (id, area_id, service_id, replica_id, file_name, file_path, sha256, size, properties,
-                                          created_at, refreshed_at)
-            select @id, @area, @service, @replica, @name, @path, @sha, @size, @properties, @created, @refreshed
+                                          created_at, refreshed_at, format)
+            select @id, @area, @service, @replica, @name, @path, @sha, @size, @properties, @created, @refreshed, @format
              where exists (select 1 from map_area where id = @area)
             """, connection, transaction))
         {
             insert.Parameters.AddWithValue("id", package.Id);
             insert.Parameters.AddWithValue("area", package.AreaId);
             insert.Parameters.AddWithValue("service", package.ServiceId);
-            insert.Parameters.AddWithValue("replica", package.ReplicaId);
+            insert.Parameters.Add(new NpgsqlParameter("replica", NpgsqlDbType.Uuid) { Value = (object?)package.ReplicaId ?? DBNull.Value });
+            insert.Parameters.AddWithValue("format", package.Format);
             insert.Parameters.AddWithValue("name", package.FileName);
             insert.Parameters.AddWithValue("path", package.FilePath);
             insert.Parameters.AddWithValue("sha", package.Sha256);
@@ -179,7 +180,7 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
              where id = @id
             """);
         command.Parameters.AddWithValue("id", package.Id);
-        command.Parameters.AddWithValue("replica", package.ReplicaId);
+        command.Parameters.Add(new NpgsqlParameter("replica", NpgsqlDbType.Uuid) { Value = (object?)package.ReplicaId ?? DBNull.Value });
         command.Parameters.AddWithValue("name", package.FileName);
         command.Parameters.AddWithValue("path", package.FilePath);
         command.Parameters.AddWithValue("sha", package.Sha256);
@@ -333,12 +334,13 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         reader.GetGuid(1),
         reader.GetString(2),
         reader.GetGuid(3),
-        reader.GetGuid(4),
+        reader.IsDBNull(4) ? null : reader.GetGuid(4),
         reader.GetString(5),
         reader.GetString(6),
         reader.GetString(7),
         reader.GetInt64(8),
         reader.GetString(9),
         reader.GetFieldValue<DateTimeOffset>(10),
-        reader.GetFieldValue<DateTimeOffset>(11));
+        reader.GetFieldValue<DateTimeOffset>(11),
+        reader.GetString(12));
 }

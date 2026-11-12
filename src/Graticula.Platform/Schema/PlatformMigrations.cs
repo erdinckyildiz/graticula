@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(139);
+    public static SchemaVersion ComponentSchemaVersion => new(140);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -166,6 +166,7 @@ public static class PlatformMigrations
         AMobileWorkerIsAUserTypeV135,
         AServiceMayBeTakenOfflineV138,
         AMapAreaIsAnItemV139,
+        AMapAreaMayHoldABasemapPackageV140,
     ]);
 
     /// <summary>
@@ -280,6 +281,39 @@ public static class PlatformMigrations
             using (graticula_tenant() is null or tenant_id = graticula_tenant())
             with check (graticula_tenant() is null or tenant_id = graticula_tenant())
         """);
+
+    /// <summary>
+    /// A map area's package may be a vector tile package of the map's basemap, not only a replica of a feature service -
+    /// ADR-288 section 11a (the owner's change of 2026-11-12: an area also packages its basemap).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A sibling kind in the same table, not a second table.</b> A package of either kind is a file on disk with a hash
+    /// and a size, one per (area, service), related to its area by <c>Area2Package</c> and found through the same item; what
+    /// differs is that a feature service's package stands for a registered replica and a basemap's stands for none. So
+    /// <c>replica_id</c> loses its <c>not null</c> and a <c>format</c> says which kind a row is (<c>sqlite</c> or
+    /// <c>vtpk</c>), with a check that a row has a replica exactly when it is a geodatabase.
+    /// </para>
+    /// <para>
+    /// <b>Expand</b>: a column with a default, a constraint every existing row satisfies, and a column that was required
+    /// and now is not. Nothing older writes a row this makes invalid.
+    /// </para>
+    /// </remarks>
+    private static Migration AMapAreaMayHoldABasemapPackageV140 => Migration.Expand(
+        new SchemaVersion(140),
+        "A map area's package may be a vector tile package of its basemap, which has no replica (ADR-288 section 11a).",
+
+        "alter table map_area_package alter column replica_id drop not null",
+
+        "alter table map_area_package add column if not exists format text not null default 'sqlite'",
+
+        "alter table map_area_package drop constraint if exists map_area_package_format_known",
+
+        "alter table map_area_package add constraint map_area_package_format_known check (format in ('sqlite', 'vtpk'))",
+
+        "alter table map_area_package drop constraint if exists map_area_package_replica_iff_sqlite",
+
+        "alter table map_area_package add constraint map_area_package_replica_iff_sqlite check ((format = 'sqlite') = (replica_id is not null))");
 
     /// <summary>
     /// A hosted feature service may be taken offline and synchronised — ADR-288: whether its sync is on, and the

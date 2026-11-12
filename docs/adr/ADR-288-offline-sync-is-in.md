@@ -99,8 +99,20 @@ because they reuse every part of it.
    archiving when sync is enabled for the same reason. A server generation is epoch milliseconds, as ArcGIS's are.
 4. **The first version answers** `createReplica` (`syncModel=perLayer` and `none`, `dataFormat=sqlite`, sync and async),
    `synchronizeReplica` (upload, download, bidirectional; `editsUploadID` from the service's uploads), `unRegisterReplica`,
-   `replicas` and `replicas/{id}`. `perReplica` is refused as Enterprise refuses it; `dataFormat=json` is a later step
-   *(INFERRED — §11.2)*.
+   `replicas` and `replicas/{id}`. `perReplica` is refused as Enterprise refuses it. ~~`dataFormat=json` is a later step
+   *(INFERRED — §11.2)*.~~ **`dataFormat=json` is built, in full** (owner, 2026-11-12, §11a): `createReplica` answers ArcGIS's
+   JSON replica — `replicaName`, `replicaID`, `targetType`, `transportType`, `responseType`, `syncModel`,
+   `layerServerGens` and `layers` of `features` (geometry and attributes as a query answers them, in the layer's
+   reference, Z and M kept, dates epoch milliseconds) and `attachments` — sync and async, `none` and `perLayer`, with and
+   without `returnAttachments`; a `perLayer` one is registered by the same call a mobile geodatabase is, so
+   `synchronizeReplica`, `replicas` and `unRegisterReplica` see no difference. **Two choices, both `INFERRED`:**
+   an attachment's `url` is the layer's own attachment route (`…/FeatureServer/{layer}/{object id}/attachments/{id}`),
+   which serves the bytes to whoever may read the layer, where ArcGIS writes the bytes into its job directory; and
+   `transportType=esriTransportTypeEmbedded` answers the JSON in the response when the request is not `async` and is
+   refused by name when it is. `synchronizeReplica` with `dataFormat=json` is a download of `edits` per layer
+   (`features {adds, updates, deleteIds}`, `attachments` empty — the server's own attachment changes do not travel,
+   in either format, [D-399](../architecture-debt.md)); `deleteIds` are object ids (`INFERRED`). An upload as JSON
+   (`edits` or `editsUploadFormat=json`) is refused by name ([D-409](../architecture-debt.md)).
 5. **Conflicts: the last edit to reach the server wins**, per row, as ArcGIS's hosted services resolve them
    *(INFERRED — §11.3)*. A row deleted on the server and edited offline stays deleted.
 6. **Preplanned map areas** (owner) — map area items related to the web map, packaged on the server as registered
@@ -228,6 +240,20 @@ serves the same shape. None was stated by the owner.
    items take the map's sharing, and deleting the map deletes its areas, their packages and their replicas.
 5. **Item `properties` are emitted for these two kinds only**, in the shape §5a read. No general `properties` store is
    added.
+6. **How the basemap is packaged** *(built the same day; the choices below are `INFERRED`, none stated by the owner)*.
+   Each vector tile service of this server that the web map's `baseMap` names (`baseMapLayers` and `referenceLayers`, by
+   `layerType` `VectorTileLayer` or a `/VectorTileServer` address on this host) and that the caller may read and
+   export is written as a VTPK of the area's extent, by the exporter's walk and package writer (ADR-098), in the
+   request that makes the area; levels are the ones an ArcGIS client's `exportTiles` keeps — those the service has, down
+   to the deepest that fits the service's tile cap. It is a row of `map_area_package` (migration 140: `replica_id`
+   nullable, `format` of `sqlite` or `vtpk`), an item of type `Vector Tile Package` with type keywords `MapAreaPackage`,
+   `Package`, `ReferenceURL#<the layer's address as the map states it>`, `Vector Tile Package` and `vtpk` (the last two are
+   what this server's own VTPK carries; Enterprise's keywords for a *vector* map-area tile package were not read, only a
+   raster `Tile Package`'s, §5a), related by `Area2Package`, whose `/data` is the file. Any other basemap layer — an
+   OpenStreetMap layer, an Esri tiled service, a vector tile service on another host, a service the caller may not read or
+   export — is named under `skipped` in the area's answer and has no item, because an item that pretended would be found
+   out on the device. A package that is ours and fails to write fails the whole area, as a feature package's failure
+   does. Refresh and delete treat it as any other package; refresh rewrites the packages the area has.
 
 ## 12. Conditions
 
@@ -257,6 +283,14 @@ serves the same shape. None was stated by the owner.
    beyond §5a (the Map Area's `/data`, the `status` words, the extent's shape in `properties`) is `INFERRED` where it is not
    in the note ([D-408](../architecture-debt.md)). The packaging GP service, a basemap package, a scheduled refresh, and a
    member other than the packager syncing a shared package are [D-404 to D-407](../architecture-debt.md).
+   **Built the same day on the same branch after the device test (migration 140):** the two things that test found missing.
+   A map's basemap that is a vector tile service of this server is packaged with the area as a VTPK (the levels
+   `exportTiles`' ArcGIS-origin export keeps), an item of type `Vector Tile Package` related by `Area2Package`; a basemap
+   layer that is not ours is named under `skipped` and has no item. And `createReplica` answers `dataFormat=json`
+   (§5.4), which is what Field Maps registers a downloaded package with. **Still not measured on the device:** that Field
+   Maps then completes the download of an area with both; the exact `createReplica` parameters it sends to register a
+   package were never read, so the JSON path is tolerant and every refusal names the parameter and value it refused
+   (Field Maps' log shows them) — [D-410](../architecture-debt.md).
 4. **ArcGIS Pro's Download Map and Sync** work against a Graticula map.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
    **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On

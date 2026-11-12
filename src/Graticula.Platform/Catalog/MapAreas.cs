@@ -38,34 +38,37 @@ public sealed record MapArea(
     string CreatorName);
 
 /// <summary>
-/// A package taken from a map area: one registered replica of one feature service, written once as a mobile geodatabase.
-/// An item of its own (<c>SQLite Geodatabase</c>), related to its area by <c>Area2Package</c>.
+/// A package taken from a map area: either one registered replica of one feature service, written once as a mobile
+/// geodatabase (<c>SQLite Geodatabase</c>), or a vector tile package of the map's basemap (<c>Vector Tile Package</c>).
+/// An item of its own, related to its area by <c>Area2Package</c>.
 /// </summary>
 /// <param name="Id">The package's id, which is its item's, and which a refresh keeps.</param>
 /// <param name="AreaId">The area it belongs to.</param>
 /// <param name="MapId">The area's map.</param>
-/// <param name="ServiceId">The feature service it was taken from.</param>
-/// <param name="ReplicaId">The replica registered when it was written.</param>
-/// <param name="FileName">The file's name as a client is told it, ending in <c>.geodatabase</c>.</param>
+/// <param name="ServiceId">The feature service, or the vector tile service, it was taken from.</param>
+/// <param name="ReplicaId">The replica registered when it was written; null for a vector tile package, which has none.</param>
+/// <param name="FileName">The file's name as a client is told it, ending in <c>.geodatabase</c> or <c>.vtpk</c>.</param>
 /// <param name="FilePath">Where the file is, relative to the server directories.</param>
 /// <param name="Sha256">The file's SHA-256 in lower-case hexadecimal.</param>
 /// <param name="Size">The file's length in bytes.</param>
 /// <param name="Properties">The item's <c>properties</c> as JSON text: what the replica was made of.</param>
 /// <param name="Created">When the package was first written.</param>
 /// <param name="Refreshed">When it was last written.</param>
+/// <param name="Format"><see cref="MapAreas.SqliteFormat"/> or <see cref="MapAreas.VtpkFormat"/>.</param>
 public sealed record MapAreaPackage(
     Guid Id,
     Guid AreaId,
     string MapId,
     Guid ServiceId,
-    Guid ReplicaId,
+    Guid? ReplicaId,
     string FileName,
     string FilePath,
     string Sha256,
     long Size,
     string Properties,
     DateTimeOffset Created,
-    DateTimeOffset Refreshed);
+    DateTimeOffset Refreshed,
+    string Format = MapAreas.SqliteFormat);
 
 /// <summary>The words a map area uses.</summary>
 public static class MapAreas
@@ -81,6 +84,12 @@ public static class MapAreas
 
     /// <summary>ArcGIS's relationship from an area to a package taken from it.</summary>
     public const string Area2Package = "Area2Package";
+
+    /// <summary>A package that is a mobile geodatabase: a replica of a feature service.</summary>
+    public const string SqliteFormat = "sqlite";
+
+    /// <summary>A package that is a vector tile package of a basemap.</summary>
+    public const string VtpkFormat = "vtpk";
 
     /// <summary>The status of an area whose packages are all written. INFERRED: the value is not measured.</summary>
     public const string Complete = "complete";

@@ -37,7 +37,7 @@ internal sealed partial class MapAreaPackageFiles
         _root = serverDirectoryRoot;
     }
 
-    [GeneratedRegex("^[0-9a-f]{32}\\.geodatabase$")]
+    [GeneratedRegex("^[0-9a-f]{32}\\.(geodatabase|vtpk)$")]
     private static partial Regex FileName();
 
     /// <summary>Where the files are.</summary>
@@ -45,10 +45,16 @@ internal sealed partial class MapAreaPackageFiles
 
     /// <summary>A path for a file about to be written, and the name to record for it.</summary>
     /// <returns>The absolute path and the recorded relative name.</returns>
-    public (string Path, string Recorded) Next()
+    /// <param name="extension"><c>.geodatabase</c> for a replica's file, <c>.vtpk</c> for a basemap's.</param>
+    public (string Path, string Recorded) Next(string extension = ".geodatabase")
     {
+        if (extension is not (".geodatabase" or ".vtpk"))
+        {
+            throw new ArgumentException("A package file is a geodatabase or a vtpk.", nameof(extension));
+        }
+
         System.IO.Directory.CreateDirectory(Directory);
-        string name = Guid.NewGuid().ToString("N") + ".geodatabase";
+        string name = Guid.NewGuid().ToString("N") + extension;
         return (System.IO.Path.Combine(Directory, name), $"{Folder}/{name}");
     }
 

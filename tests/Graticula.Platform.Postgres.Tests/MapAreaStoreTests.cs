@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,7 +11,7 @@ using Xunit;
 namespace Graticula.Platform.Postgres.Tests;
 
 /// <summary>
-/// ADR-288 §11a, migration 139: a preplanned map area and its packages are items of their own, related to their map and
+/// ADR-288 §11a, migrations 139 and 140: a preplanned map area and its packages are items of their own, related to their map and
 /// area by <c>Map2Area</c> and <c>Area2Package</c>, and go when the map does.
 /// </summary>
 [Trait("Category", "Integration")]
@@ -175,6 +176,67 @@ public sealed class MapAreaStoreTests : PostgresFixture
         Assert.Equal(package.Created, read.Created);
         Assert.Equal(later, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Refreshed);
         Assert.Equal(1, await CountAsync("select count(*) from item where id = @id", ("id", package.Id)));
+    }
+
+    [Fact]
+    public async Task A_basemaps_tile_package_has_no_replica_is_kept_beside_the_geodatabase_and_is_refreshed_in_place()
+    {
+        // Migration 140, ADR-288 section 11a: a package of either kind, one per (area, service).
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        MapAreaPackage geodatabase = Package(r, area);
+        MapAreaPackage vtpk = new(
+            Guid.NewGuid(), area.Id, area.MapId, tiles, null, "streets.vtpk", "map-area-package-files/0123456789abcdef0123456789abcdef.vtpk",
+            new string('c', 64), 8192, """{"url":"https://h/rest/services/hosted/Streets/VectorTileServer","format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat);
+
+        Assert.True(await r.Areas.AddPackageAsync(geodatabase, "North - Hydrants", CancellationToken.None));
+        Assert.True(await r.Areas.AddPackageAsync(vtpk, "North - Streets", CancellationToken.None));
+
+        IReadOnlyList<MapAreaPackage> held = await r.Areas.PackagesAsync([area.Id], CancellationToken.None);
+        Assert.Equal(2, held.Count);
+
+        MapAreaPackage read = held.Single(p => p.Id == vtpk.Id);
+        Assert.Null(read.ReplicaId);
+        Assert.Equal(MapAreas.VtpkFormat, read.Format);
+        Assert.Equal(MapAreas.SqliteFormat, held.Single(p => p.Id == geodatabase.Id).Format);
+        Assert.Equal(MapAreas.PackageKind, await r.Areas.ItemKindAsync(vtpk.Id, CancellationToken.None));
+
+        // Refreshed in place: the same id and item, a new file.
+        MapAreaPackage again = vtpk with
+        {
+            FilePath = "map-area-package-files/fedcba9876543210fedcba9876543210.vtpk",
+            Size = 9999,
+            Refreshed = area.Created.AddHours(1),
+        };
+        Assert.True(await r.Areas.ReplacePackageAsync(again, again.Refreshed, CancellationToken.None));
+        MapAreaPackage after = (await r.Areas.FindPackageAsync(vtpk.Id, CancellationToken.None))!;
+        Assert.Null(after.ReplicaId);
+        Assert.Equal(again.FilePath, after.FilePath);
+        Assert.Equal(1, await CountAsync("select count(*) from item where id = @id", ("id", vtpk.Id)));
+
+        // Deleting the area takes the tile package and its item as it takes the geodatabase.
+        Assert.True(await r.Areas.DeleteAsync(area.Id, CancellationToken.None));
+        Assert.Null(await r.Areas.FindPackageAsync(vtpk.Id, CancellationToken.None));
+        Assert.Equal(0, await CountAsync("select count(*) from item where id = any(@ids)", ("ids", new[] { area.Id, vtpk.Id, geodatabase.Id })));
+    }
+
+    [Fact]
+    public async Task A_row_has_a_replica_exactly_when_it_is_a_geodatabase()
+    {
+        Ready r = await ReadyAsync();
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+
+        // A geodatabase without a replica, and a tile package with one, are both refused by the table.
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            r.Areas.AddPackageAsync(Package(r, area) with { ReplicaId = null }, "no replica", CancellationToken.None));
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            r.Areas.AddPackageAsync(Package(r, area) with { Format = MapAreas.VtpkFormat }, "a replica for tiles", CancellationToken.None));
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            r.Areas.AddPackageAsync(Package(r, area) with { ReplicaId = null, Format = "pmtiles" }, "unknown kind", CancellationToken.None));
     }
 
     [Fact]

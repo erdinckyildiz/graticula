@@ -562,7 +562,7 @@ public sealed class MapAreaTests : IDisposable
         MapArea area = Area();
         MapAreaPackage held = Package(area, recorded);
         MapAreaPackage lost = Package(area, "map-area-package-files/fedcba9876543210fedcba9876543210.geodatabase");
-        MemoryReplicas replicas = new(held.ReplicaId);
+        MemoryReplicas replicas = new(held.ReplicaId!.Value);
         HttpContext context = Context(Member(Owner, "owner"), new MemoryAreas(), Map(SharingScope.Private), replicas);
 
         await MapAreaPackaging.DiscardAsync(context.RequestServices, [held, lost], CancellationToken.None);
@@ -572,9 +572,9 @@ public sealed class MapAreaTests : IDisposable
     }
 
     [Fact]
-    public void Migration_139_is_the_level_this_build_was_written_against_and_the_map_area_items_are_in_it()
+    public void Migration_139_is_in_the_set_and_the_map_area_items_are_in_it()
     {
-        Assert.Equal(new SchemaVersion(139), PlatformMigrations.ComponentSchemaVersion);
+        Assert.True(PlatformMigrations.ComponentSchemaVersion >= new SchemaVersion(139));
         Assert.Contains(PlatformMigrations.All.All, m => m.Version == new SchemaVersion(139));
     }
 }

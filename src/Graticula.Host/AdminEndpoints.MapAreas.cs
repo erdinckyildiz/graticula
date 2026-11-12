@@ -285,7 +285,7 @@ internal static partial class AdminEndpoints
 
         foreach (MapAreaPackage package in packages)
         {
-            ReplicaRecord? replica = await sync.FindAsync(package.ReplicaId, cancellation).ConfigureAwait(false);
+            ReplicaRecord? replica = package.ReplicaId is { } held ? await sync.FindAsync(held, cancellation).ConfigureAwait(false) : null;
             string service = MapAreaPackaging.ServiceNameOf(MapAreaPackaging.PackageUrlOf(package)) ?? package.ServiceId.ToString("D");
 
             described.Add(new
@@ -295,8 +295,9 @@ internal static partial class AdminEndpoints
                 fileName = package.FileName,
                 size = package.Size,
                 sha256 = package.Sha256,
-                replicaId = OfflineReplicaRequests.Wire(package.ReplicaId),
-                replicaRegistered = replica is not null,
+                format = package.Format,
+                replicaId = package.ReplicaId is { } id ? OfflineReplicaRequests.Wire(id) : null,
+                replicaRegistered = package.ReplicaId is not null ? (bool?)(replica is not null) : null,
                 created = package.Created.ToUnixTimeMilliseconds(),
                 refreshed = package.Refreshed.ToUnixTimeMilliseconds(),
             });

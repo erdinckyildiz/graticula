@@ -10,7 +10,9 @@ using Graticula.Api.ArcGis.Offline;
 using Graticula.Geometries;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Jobs;
 using Graticula.Platform.Postgres;
+using Graticula.Tiles;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,7 +31,9 @@ internal sealed record PackagedArea(MapArea Area, IReadOnlyList<MapAreaPackage> 
 
 /// <summary>
 /// Packaging a preplanned map area — ADR-288 §11a: one registered <c>perLayer</c> replica per sync-enabled feature service
-/// of a map, written once as a mobile geodatabase and kept as an item beside the area's.
+/// of a map, written once as a mobile geodatabase and kept as an item beside the area's; and, since the owner's change of
+/// 2026-11-12, one vector tile package (a VTPK of the area's extent) per vector tile service of this server that the map
+/// uses as a basemap.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -150,7 +154,121 @@ internal static class MapAreaPackaging
     public static string? ServiceNameOf(string address)
     {
         IReadOnlyList<MapService> found = ServicesOf([address]);
-        return found.Count > 0 ? found[0].Name : null;
+        return found.Count > 0 ? found[0].Name : TileServiceNameOf(address);
+    }
+
+    /// <summary>
+    /// The qualified name of the vector tile service an address names (<c>…/rest/services/{name}/VectorTileServer</c>),
+    /// whatever host it is on, or null when it names none.
+    /// </summary>
+    /// <param name="address">A VectorTileServer address.</param>
+    /// <returns>The name.</returns>
+    public static string? TileServiceNameOf(string address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        string url = address;
+        int query = url.IndexOfAny(['?', '#']);
+
+        if (query >= 0)
+        {
+            url = url[..query];
+        }
+
+        int at = url.IndexOf("/rest/services/", StringComparison.OrdinalIgnoreCase);
+        int end = url.IndexOf("/VectorTileServer", StringComparison.OrdinalIgnoreCase);
+
+        return at < 0 || end <= at ? null : url[(at + "/rest/services/".Length)..end];
+    }
+
+    // ------------------------------------------------------------------------------------------------ the basemap
+
+    /// <summary>A layer of a web map's basemap, as its document states it.</summary>
+    /// <param name="Title">Its title, or its id, or its address, whichever the document gives first.</param>
+    /// <param name="Type">Its <c>layerType</c>, or empty.</param>
+    /// <param name="Url">Its address, or null for a layer that has none (OpenStreetMap).</param>
+    internal sealed record BasemapLayer(string Title, string Type, string? Url)
+    {
+        /// <summary>Whether the document calls it a vector tile layer or its address is a VectorTileServer.</summary>
+        public bool IsVectorTile =>
+            Type.Equals("VectorTileLayer", StringComparison.OrdinalIgnoreCase)
+            || (Url?.Contains("/VectorTileServer", StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    /// <summary>The layers of a web map document's basemap: <c>baseMap.baseMapLayers</c> and <c>baseMap.referenceLayers</c>.</summary>
+    /// <param name="document">The web map document, or null.</param>
+    /// <returns>The layers, in the order the document gives them.</returns>
+    public static IReadOnlyList<BasemapLayer> BasemapLayersOf(string? document)
+    {
+        List<BasemapLayer> layers = [];
+
+        try
+        {
+            if (JsonNode.Parse(document ?? "{}") is not JsonObject { } root || root["baseMap"] is not JsonObject baseMap)
+            {
+                return layers;
+            }
+
+            foreach (string array in (string[])["baseMapLayers", "referenceLayers"])
+            {
+                if (baseMap[array] is not JsonArray entries)
+                {
+                    continue;
+                }
+
+                foreach (JsonNode? entry in entries)
+                {
+                    if (entry is not JsonObject layer)
+                    {
+                        continue;
+                    }
+
+                    string? url = layer["url"] is JsonValue u && u.TryGetValue(out string? text) && !string.IsNullOrWhiteSpace(text) ? text.Trim() : null;
+                    string type = layer["layerType"] is JsonValue t && t.TryGetValue(out string? kind) ? kind : string.Empty;
+                    string title = (layer["title"] as JsonValue)?.TryGetValue(out string? name) == true && !string.IsNullOrWhiteSpace(name)
+                        ? name
+                        : (layer["id"] as JsonValue)?.TryGetValue(out string? id) == true && !string.IsNullOrWhiteSpace(id) ? id : url ?? type;
+
+                    layers.Add(new BasemapLayer(title, type, url));
+                }
+            }
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            return [];
+        }
+
+        return layers;
+    }
+
+    /// <summary>
+    /// Whether an address is on this server: relative, or on the host the request arrived at (scheme and case ignored).
+    /// </summary>
+    /// <param name="address">The address.</param>
+    /// <param name="origin">This server's origin as the request states it.</param>
+    /// <returns>True when it is.</returns>
+    public static bool IsOnThisServer(string address, string origin)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+        ArgumentNullException.ThrowIfNull(origin);
+
+        if (address.StartsWith('/'))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(address, UriKind.Absolute, out Uri? there)
+            && Uri.TryCreate(origin, UriKind.Absolute, out Uri? here)
+            && string.Equals(there.Authority, here.Authority, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The address a basemap package states: the layer's, without a query or a closing slash.</summary>
+    /// <param name="url">The address as the document gives it.</param>
+    /// <returns>The address.</returns>
+    public static string TileAddressOf(string url)
+    {
+        ArgumentNullException.ThrowIfNull(url);
+        int query = url.IndexOfAny(['?', '#']);
+        return (query >= 0 ? url[..query] : url).TrimEnd('/');
     }
 
     /// <summary>The service address a package states in its properties, or empty.</summary>
@@ -230,6 +348,10 @@ internal static class MapAreaPackaging
             }
         }
 
+        // The basemap's vector tile services of this server, each to be packaged as a VTPK of the area (ADR-288 section 11a).
+        (List<TileTarget> tiles, List<SkippedService> tileSkipped) = await BasemapTargetsAsync(context, map, published, cancellation).ConfigureAwait(false);
+        skipped.AddRange(tileSkipped);
+
         if (named.Count == 0)
         {
             return (null, new PackageRefusal(409, "This map holds no feature layer, so there is nothing to take offline."));
@@ -271,6 +393,22 @@ internal static class MapAreaPackaging
 
                 made.Add(package);
                 await store.AddPackageAsync(package, TitleOf(title, one.Address.Length > 0 ? one.Address : $"/rest/services/{one.Name}/FeatureServer"), cancellation).ConfigureAwait(false);
+            }
+
+            foreach (TileTarget target in tiles)
+            {
+                (MapAreaPackage? package, PackageRefusal? refusal) = await WriteTilesAsync(
+                    context, area, target.Service, target.Address, existing: null, cancellation).ConfigureAwait(false);
+
+                if (package is null)
+                {
+                    await DiscardAsync(services, made, cancellation).ConfigureAwait(false);
+                    await store.DeleteAsync(area.Id, CancellationToken.None).ConfigureAwait(false);
+                    return (null, new PackageRefusal(refusal!.Status, $"{target.Title}: {refusal.Message} Nothing was created."));
+                }
+
+                made.Add(package);
+                await store.AddPackageAsync(package, TitleOf(title, target.Address), cancellation).ConfigureAwait(false);
             }
         }
         catch (Exception e) when (e is not OperationCanceledException || !cancellation.IsCancellationRequested)
@@ -320,6 +458,20 @@ internal static class MapAreaPackaging
             PublishedService? service = published.FirstOrDefault(s => s.Id == old.ServiceId);
             string url = PropertyOf(old.Properties, "url") ?? string.Empty;
             string name = service?.QualifiedName ?? old.ServiceId.ToString("D");
+
+            if (old.Format == MapAreas.VtpkFormat)
+            {
+                MapAreaPackage? tile = await RefreshTilesAsync(context, area, old, service, url, name, skipped, cancellation).ConfigureAwait(false);
+                now.Add(tile ?? old);
+
+                if (tile is not null)
+                {
+                    await store.ReplacePackageAsync(tile, tile.Refreshed, cancellation).ConfigureAwait(false);
+                    await DiscardAsync(services, [old], CancellationToken.None).ConfigureAwait(false);
+                }
+
+                continue;
+            }
 
             if (service is null)
             {
@@ -449,7 +601,10 @@ internal static class MapAreaPackaging
         {
             try
             {
-                await sync.DeleteAsync(package.ReplicaId, cancellation).ConfigureAwait(false);
+                if (package.ReplicaId is { } replica)
+                {
+                    await sync.DeleteAsync(replica, cancellation).ConfigureAwait(false);
+                }
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -459,6 +614,160 @@ internal static class MapAreaPackaging
 
             files.Delete(package.FilePath);
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------ a basemap's package
+
+    /// <summary>A vector tile service of this server that a map uses as a basemap, and the address the map gives it.</summary>
+    /// <param name="Service">The service.</param>
+    /// <param name="Address">The address, as the map states it (the package states the same).</param>
+    /// <param name="Title">The layer's title.</param>
+    internal sealed record TileTarget(PublishedService Service, string Address, string Title);
+
+    /// <summary>
+    /// The basemap layers of a map that can be packaged, and the ones that cannot with why: a layer is packaged when it is
+    /// a vector tile service of this server that the caller may read and that offers exports; every other basemap layer is
+    /// named under <c>skipped</c>, because a device will not have it offline and an item that pretended otherwise would
+    /// be found out in the field.
+    /// </summary>
+    private static async Task<(List<TileTarget> Targets, List<SkippedService> Skipped)> BasemapTargetsAsync(
+        HttpContext context, WebMap map, IReadOnlyList<PublishedService> published, CancellationToken cancellation)
+    {
+        List<TileTarget> targets = [];
+        List<SkippedService> skipped = [];
+        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        string origin = TileFaces.Origin(context);
+
+        foreach (BasemapLayer layer in BasemapLayersOf(map.Document))
+        {
+            if (!layer.IsVectorTile || layer.Url is not { } url)
+            {
+                skipped.Add(new SkippedService(layer.Title, layer.Url is null
+                    ? $"The basemap layer '{layer.Title}' has no address{(layer.Type.Length > 0 ? $" (a {layer.Type})" : string.Empty)}, so no tile package can be made for it and a device will not have it offline."
+                    : $"The basemap layer '{layer.Title}' is a {(layer.Type.Length > 0 ? layer.Type : "tile layer")} at {layer.Url}, not a vector tile service of this server, so no tile package can be made for it and a device will not have it offline."));
+                continue;
+            }
+
+            if (!IsOnThisServer(url, origin) || TileServiceNameOf(url) is not { } name)
+            {
+                skipped.Add(new SkippedService(layer.Title,
+                    $"The basemap layer '{layer.Title}' is a vector tile service at {url}, which is not on this server, so no tile package can be made for it and a device will not have it offline."));
+                continue;
+            }
+
+            PublishedService? service = published.FirstOrDefault(s => string.Equals(s.QualifiedName, name, StringComparison.OrdinalIgnoreCase));
+
+            if (service is null || !LayerAccess.Evaluate(service.Sharing, service.Owner, caller.Principal, caller.Authorization, service.SharedWith).IsAllowed())
+            {
+                skipped.Add(new SkippedService(layer.Title,
+                    $"The basemap layer '{layer.Title}' names the vector tile service '{name}', which is not a service of this server that you can read."));
+                continue;
+            }
+
+            if (!VectorTileExportEndpoints.MayExport(service, caller.Principal.IsAnonymous))
+            {
+                skipped.Add(new SkippedService(layer.Title,
+                    $"The vector tile service '{name}' does not offer exports to you, so no tile package can be made for it and a device will not have it offline."));
+                continue;
+            }
+
+            if (targets.Any(t => t.Service.Id == service.Id))
+            {
+                continue; // the same service twice (a style and its labels): one package serves both
+            }
+
+            targets.Add(new TileTarget(service, TileAddressOf(url), layer.Title));
+        }
+
+        return (targets, skipped);
+    }
+
+    /// <summary>
+    /// Writes a vector tile package of the area's extent for a vector tile service — the levels exportTiles' ArcGIS-origin
+    /// export keeps (those the service has, down to the deepest that fits the tile cap) — and describes it as a package.
+    /// </summary>
+    private static async Task<(MapAreaPackage? Package, PackageRefusal? Refusal)> WriteTilesAsync(
+        HttpContext context, MapArea area, PublishedService service, string address, MapAreaPackage? existing,
+        CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        MapAreaPackageFiles files = services.GetRequiredService<MapAreaPackageFiles>();
+
+        VectorTileExportEndpoints.Ask ask = new(
+            TileExportFormat.Vtpk,
+            null,
+            new AdminEndpoints.SeedExtent(area.XMin, area.YMin, area.XMax, area.YMax, new AdminEndpoints.SeedReference(area.Wkid, null)),
+            "arcgis");
+
+        (VectorTileExportEndpoints.Planned? planned, VectorTileExportEndpoints.Refusal? refusal) = await VectorTileExportEndpoints.PlanAsync(
+            service, ask, services.GetRequiredService<HostSettings>(), services.GetRequiredService<ServiceContexts>(),
+            services.GetRequiredService<IProjector>(), services.GetRequiredService<ITileCache>(),
+            services.GetRequiredService<GeoParquetSources>(), cancellation).ConfigureAwait(false);
+
+        if (planned is null)
+        {
+            return (null, new PackageRefusal(refusal!.Status, refusal.Message));
+        }
+
+        DateTimeOffset generation = Truncated(services.GetRequiredService<TimeProvider>().GetUtcNow());
+        (string path, string recorded) = files.Next(".vtpk");
+
+        try
+        {
+            await services.GetRequiredService<TileExporter>().WriteVtpkAsync(service, planned, path, cancellation).ConfigureAwait(false);
+            (string sha, long size) = await MapAreaPackageFiles.HashAsync(path, cancellation).ConfigureAwait(false);
+
+            string properties = JsonSerializer.Serialize(new
+            {
+                url = address,
+                format = "vtpk",
+                levels = planned.Plan.Levels.Select(l => l.Z),
+                tiles = planned.Plan.Total,
+            });
+
+            return (new MapAreaPackage(
+                existing?.Id ?? Guid.NewGuid(), area.Id, area.MapId, service.Id, null, TileExportPackage.DownloadName(service, TileExportFormat.Vtpk),
+                recorded, sha, size, properties, existing?.Created ?? generation, generation, MapAreas.VtpkFormat), null);
+        }
+        catch
+        {
+            files.Delete(recorded);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes an existing tile package again from the tiles as they are now. Answers the new package, or null after naming
+    /// in <paramref name="skipped"/> why the old one was kept.
+    /// </summary>
+    private static async Task<MapAreaPackage?> RefreshTilesAsync(
+        HttpContext context, MapArea area, MapAreaPackage old, PublishedService? service, string address, string name,
+        List<SkippedService> skipped, CancellationToken cancellation)
+    {
+        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+
+        if (service is null)
+        {
+            skipped.Add(new SkippedService(name, "The vector tile service is no longer published, so its package was kept as it was."));
+            return null;
+        }
+
+        if (!LayerAccess.Evaluate(service.Sharing, service.Owner, caller.Principal, caller.Authorization, service.SharedWith).IsAllowed()
+            || !VectorTileExportEndpoints.MayExport(service, caller.Principal.IsAnonymous))
+        {
+            skipped.Add(new SkippedService(name, "You may no longer export this vector tile service, so its package was kept as it was."));
+            return null;
+        }
+
+        (MapAreaPackage? package, PackageRefusal? refusal) = await WriteTilesAsync(
+            context, area, service, address, old, cancellation).ConfigureAwait(false);
+
+        if (package is null)
+        {
+            skipped.Add(new SkippedService(name, refusal!.Message + " Its package was kept as it was."));
+        }
+
+        return package;
     }
 
     // ------------------------------------------------------------------------------------------------ admission

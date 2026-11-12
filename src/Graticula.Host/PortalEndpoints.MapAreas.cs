@@ -38,6 +38,15 @@ internal static partial class PortalEndpoints
     /// <summary>The type ArcGIS gives a package of a feature service's data taken for offline use.</summary>
     internal const string MapAreaPackageType = "SQLite Geodatabase";
 
+    /// <summary>The type of a package of a basemap's vector tiles (ADR-288 §11a).</summary>
+    internal const string MapAreaTilePackageType = "Vector Tile Package";
+
+    /// <summary>The item type a package is, by its format.</summary>
+    /// <param name="package">The package.</param>
+    /// <returns>The type.</returns>
+    internal static string PackageTypeOf(MapAreaPackage package) =>
+        package.Format == MapAreas.VtpkFormat ? MapAreaTilePackageType : MapAreaPackageType;
+
     /// <summary>The relationship types a map area keeps, in addition to a service's.</summary>
     private static readonly string[] MapAreaRelationships = [MapAreas.Map2Area, MapAreas.Area2Package];
 
@@ -84,9 +93,13 @@ internal static partial class PortalEndpoints
     /// <param name="package">The package.</param>
     /// <returns>The keywords.</returns>
     internal static string[] PackageKeywords(MapAreaPackage package) =>
-    [
-        "Bidirectional", "Data", "MapAreaPackage", "Package", "ReferenceURL#" + PackageUrlOf(package), "Replica", "SQLite Geodatabase", "Syncable",
-    ];
+        package.Format == MapAreas.VtpkFormat
+
+            // INFERRED: the keywords of a map area's tile package were read only for a raster `Tile Package` (research note
+            // §5a: its source as `ReferenceURL#`); a vector tile package takes the same two marks and the keywords this
+            // server's own VTPK carries (`Vector Tile Package`, `vtpk`).
+            ? ["MapAreaPackage", "Package", "ReferenceURL#" + PackageUrlOf(package), "Vector Tile Package", "vtpk"]
+            : ["Bidirectional", "Data", "MapAreaPackage", "Package", "ReferenceURL#" + PackageUrlOf(package), "Replica", "SQLite Geodatabase", "Syncable"];
 
     /// <summary>A map area as a portal item of type <c>Map Area</c>.</summary>
     internal static object MapAreaItem(HttpContext context, WebMap map, MapArea area)
@@ -130,7 +143,7 @@ internal static partial class PortalEndpoints
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         bool mine = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id;
 
-        // What the replica was made of, as it was kept, and the area's extent beside it.
+        // What the replica (or the tile package) was made of, as it was kept, and the area's extent beside it.
         JsonObject properties = JsonNode.Parse(package.Properties) as JsonObject ?? [];
         properties["extent"] = JsonSerializer.SerializeToNode(EnvelopeOf(area));
 
@@ -143,7 +156,7 @@ internal static partial class PortalEndpoints
             isOrgItem = true,
             title,
             name = package.FileName,
-            type = MapAreaPackageType,
+            type = PackageTypeOf(package),
             typeKeywords = PackageKeywords(package),
             description = (string?)null,
             thumbnail = (string?)null,
@@ -266,7 +279,7 @@ internal static partial class PortalEndpoints
 
         return Results.File(
             path,
-            "application/x-sqlite3",
+            package.Format == MapAreas.VtpkFormat ? TileExportPackage.MediaType(Graticula.Platform.Jobs.TileExportFormat.Vtpk) : "application/x-sqlite3",
             package.FileName,
             lastModified: package.Refreshed,
             entityTag: new EntityTagHeaderValue("\"" + package.Sha256 + "\""),
