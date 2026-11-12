@@ -268,6 +268,17 @@ class ProSweepUn(unittest.TestCase):
         self.assertEqual(edges, ["L3", "L4", "L5", "L6", "L7", "L8", "L9"])  # on round the loop beyond V2
 
 
+    def test_the_collapse_capability_is_read_off_the_content(self):
+        collapse = ("AddCollapseContainerRule", ["ACTIVE", "BOTH", "INCLUDE_SOURCE_CLASSES", [self.w.vault]])
+        _, containers, _ = self.diagram("OnVault", [("AddDiagramFeatureCapabilityByAttributeRule",
+                                                     ["ACTIVE", self.w.vault, "NAME = 'VA'",
+                                                      "PREVENT_TO_COLLAPSE_CONTAINER"]), collapse])
+        self.assertEqual(containers, [])  # set on the vault: collapsed all the same
+        _, containers, _ = self.diagram("OnValve", [("AddDiagramFeatureCapabilityByAttributeRule",
+                                                     ["ACTIVE", self.w.device, "NAME = 'V2'",
+                                                      "PREVENT_TO_COLLAPSE_CONTAINER"]), collapse])
+        self.assertEqual(containers, ["VA"])  # set on the valve inside: the vault stays
+
     def test_a_partial_overlapping_edges_layout_is_added_with_its_buffer_width_alone(self):
         arcpy.nd.AddDiagramTemplate(self.un, "Partial")
         arcpy.nd.AddPartialOverlappingEdgesLayout(self.un, "Partial", "ACTIVE", "1 Meters")

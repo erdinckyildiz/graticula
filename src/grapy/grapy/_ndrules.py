@@ -487,10 +487,15 @@ def _descendants(d, fid):
 def _collapse(builder, d, p, ctx):
     kinds = _junction_kinds(p.get("container_type", "BOTH"))
     for f in candidates(builder, d, p["selector"], kinds):
-        if f.id not in d.features or f.flags.get("collapse") is False:
+        if f.id not in d.features:
             continue
         inside = set(_descendants(d, f.id))
         if not inside:
+            continue
+        # The capability is read off the content: measured in ArcGIS Pro 3.7, 2026-11-12, PREVENT_TO_COLLAPSE_CONTAINER
+        # set on the valve inside the vault keeps the vault from collapsing, and set on the vault itself does not
+        # (grapy read it off the container before).
+        if any(d.features[i].flags.get("collapse") is False for i in inside if i in d.features):
             continue
         moved = []
         for e in list(d.edges()):

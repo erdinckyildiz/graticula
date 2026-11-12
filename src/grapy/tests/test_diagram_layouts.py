@@ -212,11 +212,12 @@ class DiagramLayouts(unittest.TestCase):
         self.assertEqual(self.last_step("Two")["params"]["valences"], [True, True, False, True])
         arcpy.nd.AddReduceJunctionRule(self.un, "Two", "ACTIVE", "INCLUDE_SOURCE_CLASSES", [self.device])
         self.assertNotIn("V1", self.content(self.create("Two"))["J"])
-        # PREVENT_TO_COLLAPSE_CONTAINER on the vault's category keeps it from a Collapse Container rule.
+        # PREVENT_TO_COLLAPSE_CONTAINER on the category of the valve inside the vault keeps the vault from a Collapse
+        # Container rule: the capability is read off the content (measured in ArcGIS Pro 3.7, 2026-11-12).
         self.chamber()
         self.template("Kept")
         arcpy.nd.AddDiagramFeatureCapabilityByCategoryRule(self.un, "Kept", "ACTIVE", "INCLUDE_CATEGORIES",
-                                                           ["Chamber"], "PREVENT_TO_COLLAPSE_CONTAINER")
+                                                           ["Isolating"], "PREVENT_TO_COLLAPSE_CONTAINER")
         arcpy.nd.AddCollapseContainerRule(self.un, "Kept")
         self.assertIn("VA", self.content(self.create("Kept"))["C"])
 

@@ -20,6 +20,11 @@ on both sides. A network is built afresh for a case that changes it (``_build``)
 The definition tools' answers are read through ``Describe`` of the network (its documented properties); traces through
 the ELEMENTS JSON, mapped back to feature names; the export tools through the files they write, with global IDs mapped
 to names.
+
+Pro lays out and stores one diagram per process on a file geodatabase, so the cases run in three batches per side
+(``BATCHES``): A the network tools and B the diagram tools, each one process, and L (``LAYOUT_CASES``) one process per
+case — ``run.sh``-style, ``harness.py <side> un <out> <case …>``. The shared network is built once per output folder and
+copied after (``un_seed``); delete the seed when the builder changes.
 """
 import csv
 import json
@@ -1055,6 +1060,15 @@ _rule_case("un.AddDiagramFeatureCapabilityByAttributeRule", [
     ("AddDiagramFeatureCapabilityByAttributeRule", ["ACTIVE", _d("vault"), "NAME = 'VA'",
                                                     "PREVENT_TO_COLLAPSE_CONTAINER"]),
     ("AddCollapseContainerRule", ["ACTIVE", "BOTH", "INCLUDE_SOURCE_CLASSES", _ds("vault")])])
+_on_container = CASES["un.AddDiagramFeatureCapabilityByAttributeRule"]
+_rule_case("un.CapabilityOnContent", [
+    ("AddDiagramFeatureCapabilityByAttributeRule", ["ACTIVE", _d("device"), "NAME = 'V2'",
+                                                    "PREVENT_TO_COLLAPSE_CONTAINER"]),
+    ("AddCollapseContainerRule", ["ACTIVE", "BOTH", "INCLUDE_SOURCE_CLASSES", _ds("vault")])])
+_on_content = CASES.pop("un.CapabilityOnContent")
+# Which feature the capability is set on: the container, and the content inside it.
+CASES["un.AddDiagramFeatureCapabilityByAttributeRule"] = lambda ap, I, O: {"on_container": _on_container(ap, I, O),
+                                                                          "on_content": _on_content(ap, I, O)}
 _rule_case("un.AddSpatialQueryRule", [("AddSpatialQueryRule", ["ACTIVE", _d("vault"), "INTERSECT", _d("device")])],
            features=_ds("device", "line", "junction"))
 

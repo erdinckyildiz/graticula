@@ -1239,7 +1239,7 @@ def AddTraceLocations(in_utility_network, out_feature_class, load_selected_featu
                 if geometry is not None and not geometry.is_empty:
                     # z kept: Pro 3.7 writes the locations as points with z (measured 2026-11-12)
                     geometry = geometry if geometry.has_z else shapely.force_3d(geometry)
-                    shape = geometry if geometry.geom_type == "Point" else (
+                    shape = shapely.Point(shapely.get_coordinates(geometry, include_z=True)[0])                         if geometry.geom_type == "Point" else (
                         shapely.line_merge(geometry) if geometry.geom_type == "MultiLineString" else geometry
                     ).interpolate(max(percent, 0.0), normalized=True)
             if role in _utility.LINE_ROLES or role == "EdgeObject":
