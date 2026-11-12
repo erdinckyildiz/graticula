@@ -53,7 +53,7 @@ internal static partial class PortalEndpoints
     /// <summary>The service address a package states in its properties, or empty.</summary>
     internal static string PackageUrlOf(MapAreaPackage package) => MapAreaPackaging.PackageUrlOf(package);
 
-    /// <summary>An area's extent as ArcGIS's envelope.</summary>
+    /// <summary>An area's extent as ArcGIS's envelope, as it was kept.</summary>
     internal static object EnvelopeOf(MapArea area) => new
     {
         xmin = area.XMin,
@@ -62,6 +62,66 @@ internal static partial class PortalEndpoints
         ymax = area.YMax,
         spatialReference = new { wkid = area.Wkid },
     };
+
+    /// <summary>
+    /// An area's extent as ArcGIS's envelope <b>in its map's spatial reference</b> when the two differ only between
+    /// geographic WGS 84 and Web Mercator, which move by a formula; as it was kept otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured 2026-11-12.</b> Field Maps took a preplanned area of a Web Mercator map whose extent was kept in degrees,
+    /// then refused every location in it — <i>"The location is outside the map area"</i> — because it compared metres with
+    /// degrees. The area Enterprise packaged (research note §5a) stated its extent in its map's reference, 102100.
+    /// </remarks>
+    internal static object EnvelopeOf(MapArea area, WebMap map)
+    {
+        ArgumentNullException.ThrowIfNull(area);
+        ArgumentNullException.ThrowIfNull(map);
+
+        int? mapWkid = MapWkidOf(map.Document);
+        const double radius = 6378137.0;
+        bool areaMercator = area.Wkid is 3857 or 102100 or 102113;
+        bool mapMercator = mapWkid is 3857 or 102100 or 102113;
+
+        if (area.Wkid == 4326 && mapMercator)
+        {
+            static double X(double lon) => lon * Math.PI / 180.0 * radius;
+            static double Y(double lat) => Math.Log(Math.Tan((Math.PI / 4.0) + (Math.Clamp(lat, -85.05112878, 85.05112878) * Math.PI / 360.0))) * radius;
+            return new
+            {
+                xmin = X(area.XMin), ymin = Y(area.YMin), xmax = X(area.XMax), ymax = Y(area.YMax),
+                spatialReference = new { wkid = 102100, latestWkid = 3857 },
+            };
+        }
+
+        if (areaMercator && mapWkid == 4326)
+        {
+            double[][] degrees = DegreesOf(area);
+            return new
+            {
+                xmin = degrees[0][0], ymin = degrees[0][1], xmax = degrees[1][0], ymax = degrees[1][1],
+                spatialReference = new { wkid = 4326 },
+            };
+        }
+
+        return EnvelopeOf(area);
+    }
+
+    /// <summary>The wkid a web map document states for itself, or null.</summary>
+    internal static int? MapWkidOf(string? document)
+    {
+        try
+        {
+            return JsonNode.Parse(document ?? "{}") is JsonObject root
+                && root["spatialReference"] is JsonObject sr
+                && (sr["wkid"] ?? sr["latestWkid"]) is JsonValue v && v.TryGetValue(out int wkid)
+                ? wkid
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// An area's extent as the item's own <c>extent</c>, <c>[[xmin, ymin], [xmax, ymax]]</c> in degrees, or empty when the
@@ -129,7 +189,7 @@ internal static partial class PortalEndpoints
             @protected = false,
             spatialReference = (string?)null,
             extent = DegreesOf(area),
-            properties = new { extent = EnvelopeOf(area), status = area.Status },
+            properties = new { extent = EnvelopeOf(area, map), status = area.Status },
             numViews = 0,
             size = -1,
             created = area.Created.ToUnixTimeMilliseconds(),
@@ -145,7 +205,7 @@ internal static partial class PortalEndpoints
 
         // What the replica (or the tile package) was made of, as it was kept, and the area's extent beside it.
         JsonObject properties = JsonNode.Parse(package.Properties) as JsonObject ?? [];
-        properties["extent"] = JsonSerializer.SerializeToNode(EnvelopeOf(area));
+        properties["extent"] = JsonSerializer.SerializeToNode(EnvelopeOf(area, map));
 
         return new
         {

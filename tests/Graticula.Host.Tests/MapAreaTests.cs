@@ -319,6 +319,27 @@ public sealed class MapAreaTests : IDisposable
     }
 
     [Fact]
+    public void An_area_kept_in_degrees_states_its_extent_in_its_Web_Mercator_maps_reference()
+    {
+        // Measured 2026-11-12: Field Maps refused every location in a preplanned area of a 102100 map whose extent was in
+        // degrees ("The location is outside the map area").
+        MapArea area = new(Guid.NewGuid(), MapId, "Probe", 28.9, 40.95, 29.1, 41.1, 4326, MapAreas.Complete, At, At.AddHours(1), Owner, "owner");
+        WebMap map = new(MapId, "Probe map", null, Owner, "owner", SharingScope.Organization, """{"spatialReference":{"wkid":102100}}""", At, At);
+        HttpContext context = Context(Member(Owner, "owner"), new MemoryAreas { Areas = { area } }, map);
+
+        JsonElement extent = Json(PortalEndpoints.MapAreaItem(context, map, area)).GetProperty("properties").GetProperty("extent");
+
+        Assert.Equal(102100, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        Assert.InRange(extent.GetProperty("xmin").GetDouble(), 3_217_100, 3_217_200); // 28.9 E
+        Assert.InRange(extent.GetProperty("ymin").GetDouble(), 5_004_900, 5_005_000); // 40.95 N
+
+        // A map in degrees with an area in degrees is left as it was kept.
+        WebMap geographic = map with { Document = """{"spatialReference":{"wkid":4326}}""" };
+        Assert.Equal(4326, Json(PortalEndpoints.MapAreaItem(context, geographic, area)).GetProperty("properties").GetProperty("extent")
+            .GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+    }
+
+    [Fact]
     public void A_package_is_an_item_of_type_SQLite_Geodatabase_with_the_keywords_and_properties_Enterprise_gives()
     {
         MapArea area = Area();
