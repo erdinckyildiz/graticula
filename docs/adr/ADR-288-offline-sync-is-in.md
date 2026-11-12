@@ -197,6 +197,8 @@ None recorded. ADR-082's reviewer called offline *"the first question a field or
 
 ### 11a. INFERRED — preplanned map areas, decided the night of 2026-11-12 while the owner slept; asked as [Q-234](../open-questions.md)
 
+> **Answered by the owner the next morning:** *"Beşini de onaylıyorum"* — all five confirmed (Q-234).
+
 What an Enterprise portal does was read in the research note (§5a): a `Map Area` item is related to its web map by
 `Map2Area`, and to one `SQLite Geodatabase` package per feature service by `Area2Package`. Each package is a replica
 registered when the area is packaged, and the item's `properties` describe it. The decisions below are how Graticula
