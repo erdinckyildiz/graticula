@@ -128,7 +128,7 @@ internal static partial class PortalEndpoints
             case "uploads/upload" when RecordingPro(context.RequestServices.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>())
                                       && context.Request.HasFormContentType:
                 IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
-                IFormFile? file = form.Files.FirstOrDefault();
+                IFormFile? file = form.Files.Count > 0 ? form.Files[0] : null;
                 string itemId = "i" + Guid.NewGuid().ToString("N");
                 string itemName = System.IO.Path.GetFileName(file?.FileName ?? "upload.bin");
                 string kept = System.IO.Path.Combine(
