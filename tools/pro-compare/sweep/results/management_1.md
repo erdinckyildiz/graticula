@@ -5,7 +5,7 @@ answer check (below); *now* is after the fixes. `-` in the action column: nothin
 
 | name | first | now | action | note |
 |---|---|---|---|---|
-| AddAttachments | PRO-ERROR | DIFF | recorded | Pro keys an attachment table on REL_OBJECTID when the class has no GlobalID; grapy adds GlobalIDs and keys on REL_GLOBALID (ADR-228 INFERRED). Same files attached; open difference. |
+| AddAttachments | PRO-ERROR | MATCH | fixed | Pro keys an attachment table on REL_OBJECTID when the class has no GlobalID; grapy now does too (ADR-289 §5.4, run again 2026-11-12), and a class with global IDs keeps REL_GLOBALID. `test_subtypes_attachments.ObjectIdKeyedAttachments`. |
 | AddAttributeRule | DIFF | MATCH | fixed | errorNumber and severity never given answer -1 (were '' and None) - _rules.py. |
 | AddCodedValueToDomain | MATCH | MATCH | - |  |
 | AddContingentValue | BOTH-ERROR | MATCH | fixed | case read Pro's ContingentFieldValue wrongly (it has code/name/range/type); ContingentValue.subtype is 0 without subtypes (was None). |
@@ -125,15 +125,15 @@ answer check (below); *now* is after the fixes. `-` in the action column: nothin
 | DisableLastEditTime | PRO-ERROR | MATCH | - | compared on a mobile geodatabase (file geodatabase: ERROR 004038). |
 | Dissolve | DIFF | MATCH | fixed | UNSPLIT_LINES joins lines only at shared ends, each its own feature, without cutting at crossings (grapy unioned them: 3 rows against Pro's 6). |
 | DomainToTable | MATCH | MATCH | - |  |
-| DowngradeAttachments | DIFF | DIFF | recorded | as AddAttachments: REL_OBJECTID against REL_GLOBALID. |
+| DowngradeAttachments | DIFF | MATCH | fixed | as AddAttachments: REL_OBJECTID (ADR-289 §5.4, run again 2026-11-12). |
 | Eliminate | MATCH | MATCH | - |  |
 | EliminatePolygonPart | SCHEMA | MATCH | fixed | ORIG_FID written. |
 | EnableArchiving | DIFF | MATCH | fixed | compared on a mobile geodatabase (file: ERROR 001542); da.Describe isArchived added. |
-| EnableAttachments | DIFF | DIFF | fixed+recorded | as AddAttachments. Exists('<class>__ATTACHREL') answered False in grapy; fixed (relationship classes, topologies and network datasets now exist). |
+| EnableAttachments | DIFF | MATCH | fixed | as AddAttachments: no GlobalID added, REL_OBJECTID Integer, originClassKeys the OID and REL_OBJECTID (ADR-289 §5.4, run again 2026-11-12; `test_subtypes_attachments.ObjectIdKeyedAttachments`). Exists('<class>__ATTACHREL') answered False in grapy; fixed (relationship classes, topologies and network datasets now exist). |
 | EnableAttributeRules | MATCH | MATCH | - |  |
 
 Counts, first run: MATCH 54, DIFF 29, BOTH-ERROR 15, PRO-ERROR 9, GRAPY-ERROR 9, REFUSED 6, SCHEMA 4.
-Now: MATCH 96, DIFF 11, BOTH-ERROR 10, PRO-ERROR 5, SCHEMA 3, GRAPY-ERROR 1. Every name that is not MATCH has a
+Now (attachments run again 2026-11-12): MATCH 99, DIFF 8, BOTH-ERROR 10, PRO-ERROR 5, SCHEMA 3, GRAPY-ERROR 1. Every name that is not MATCH has a
 reason above: 15 are not comparable on this machine (enterprise geodatabase, or a Frame Camera / stereo / RPC imagery
 block this sweep has no fixture for), the rest are recorded differences.
 
@@ -148,10 +148,10 @@ block this sweep has no fixture for), the rest are recorded differences.
 
 ## Open differences worth a debt row
 
-1. **Attachments without GlobalIDs** (AddAttachments, EnableAttachments, DowngradeAttachments): Pro keys the attachment
+1. ~~**Attachments without GlobalIDs** (AddAttachments, EnableAttachments, DowngradeAttachments): Pro keys the attachment
    table on `REL_OBJECTID` (Integer) and adds no GlobalID; grapy adds GlobalIDs and keys on `REL_GLOBALID` (ADR-228
-   INFERRED, now contradicted). Touches `_attachments.py`, AddAttachments/RemoveAttachments/export paths and their
-   tests; about half a day.
+   INFERRED, now contradicted).~~ **Built 2026-11-12 (ADR-289 §5.4)**: grapy keys as Pro does, reads the key from the
+   attachment table's columns, and still reads a GeoPackage written with `REL_GLOBALID` before; the cases match.
 2. **Unregistered tables in a GeoPackage** (CreateUnRegisteredTable, CreateUnRegisteredFeatureclass): Pro writes
    `OBJECTID INTEGER PRIMARY KEY AUTOINCREMENT`, a `Shape` column, a `gpkg_contents` row, and leaves a template's OID
    out. grapy's ADR-240 design (unlisted, unmaintained OBJECTID, `geom`) differs on each point. Needs a decision, since

@@ -548,6 +548,26 @@ class Exports(Fabric):
         self.assertEqual(sorted(r[0] for r in rows(f"{other}/Parcels/Lot", ["GlobalID"])),
                          sorted(r[0] for r in rows(self.lots, ["GlobalID"])))
 
+    def test_copy_parcels_carries_attachments_by_global_id(self):
+        # A fabric class has global IDs, so its attachments key on REL_GLOBALID, as ArcGIS Pro 3.7 keys a class with
+        # them (measured 2026-11-12, ADR-289 §5.4); the copy keeps the key and the GlobalIDs it points at.
+        from grapy import _attachments, _gpkg
+        self.built()
+        arcpy.management.EnableAttachments(self.lots)
+        guid = rows(self.lots, ["GlobalID"], "Name = 'A'")[0][0]
+        connection, table = _gpkg.table_of(self.lots)
+        try:
+            _attachments.add(connection, table, guid, "deed.pdf", b"%PDF")
+            connection.commit()
+        finally:
+            connection.close()
+        other = arcpy.management.CreateFileGDB(self.directory, "copy")[0]
+        arcpy.parcel.CopyParcels(self.fabric, other)
+        attached = f"{other}/{table}__ATTACH"
+        self.assertIn("REL_GLOBALID", [f.name for f in arcpy.ListFields(attached)])
+        self.assertEqual(rows(attached, ["REL_GLOBALID", "ATT_NAME", "DATA_SIZE"]), [[guid, "deed.pdf", 4]])
+        self.assertEqual(rows(f"{other}/Parcels/Lot", ["Name"], f"GlobalID = '{guid}'"), [["A"]])
+
     def test_copy_a_selection(self):
         # A selected: A, its five lines, its five points and its records (R1, and R2 for the shared line).
         self.built()

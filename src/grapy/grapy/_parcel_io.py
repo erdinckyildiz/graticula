@@ -157,31 +157,65 @@ def _relationships_of(file, table):
         connection.close()
 
 
-def _copy_attachments(source_file, source_table, target_file, target_table):
+def _attachment_keys(file, table):
+    """(origin field, attachment-table field, GlobalID field or None) of a class with attachments; None without."""
     from . import _attachments
-    connection = _gpkg.connect(source_file)
+    connection = _gpkg.connect(file)
     try:
-        if not _attachments.enabled(connection, source_table):
-            return
+        if not _attachments.enabled(connection, table):
+            return None
+        return (*_attachments.keys(connection, table), _attachments.global_id_field(connection, table))
     finally:
         connection.close()
+
+
+def _copy_attachments(source_file, source_table, target_file, target_table):
+    from . import _attachments
+    source = _attachment_keys(source_file, source_table)
+    if source is None:
+        return
     connection = _gpkg.connect(target_file)
     try:
         if not _attachments.enabled(connection, target_table):
             _attachments.enable(connection, target_table)
+        connection.commit()
+    finally:
+        connection.close()
+    target = _attachment_keys(target_file, target_table)
+    connection = _gpkg.connect(target_file)
+    try:
         same = os.path.normcase(os.path.abspath(source_file)) == os.path.normcase(os.path.abspath(target_file))
         if not same:
             connection.execute("attach database ? as src", (source_file,))
         schema = "main" if same else "src"
         attached, theirs = _attachments.attach_table(target_table), _attachments.attach_table(source_table)
-        columns = [r[1] for r in connection.execute(f'pragma {schema}.table_info("{theirs}")') if r[1] != "ATTACHMENTID"]
+        # Either side may key on the object id or the GlobalID (ADR-289 §5.4). A row's key is carried through its
+        # GlobalID, which a copied row keeps where its object id may change; without one, the key is copied as it is.
+        to_guid = _key_to_guid(connection, schema, source_table, source)
+        from_guid = {guid: key for key, guid in _key_to_guid(connection, "main", target_table, target).items()}
+        own = {r[1].upper() for r in connection.execute(f'pragma main.table_info("{attached}")')}
+        columns = [r[1] for r in connection.execute(f'pragma {schema}.table_info("{theirs}")')
+                   if r[1].upper() not in ("ATTACHMENTID", source[1]) and r[1].upper() in own]
         listed = ", ".join(f'"{c}"' for c in columns)
-        connection.execute(f'insert into main."{attached}" ({listed}) select {listed} from {schema}."{theirs}"')
+        marks = ", ".join("?" * (len(columns) + 1))
+        for key, *values in connection.execute(f'select "{source[1]}", {listed} from {schema}."{theirs}"').fetchall():
+            guid = to_guid.get(key, key)
+            connection.execute(f'insert into main."{attached}" ("{target[1]}", {listed}) values ({marks})',
+                               (from_guid.get(guid, guid if target[1] == "REL_GLOBALID" else key), *values))
         connection.commit()
         if not same:
             connection.execute("detach database src")
     finally:
         connection.close()
+
+
+def _key_to_guid(connection, schema, table, keys):
+    """{attachment key: GlobalID} of a table's rows, from ``_attachment_keys``; empty when the attachments key on the
+    GlobalID itself or the class has none."""
+    origin, column, guid = keys
+    if column == "REL_GLOBALID" or not guid:
+        return {}
+    return dict(connection.execute(f'select "{origin}", "{guid}" from {schema}."{table}"').fetchall())
 
 
 def _user_columns(source_columns, target_columns):

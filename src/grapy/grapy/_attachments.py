@@ -1,6 +1,6 @@
 """Global IDs and attachments held in the GeoPackage a tool works on — ADR-228.
 
-**Global IDs.** A class given global IDs (management.AddGlobalIDs, or EnableAttachments on a class without them) gains
+**Global IDs.** A class given global IDs (management.AddGlobalIDs) gains
 a text column ``GlobalID`` holding each row's GUID written as ``{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}``, upper case in
 braces, the form arcpy's cursors answer for a GlobalID; ``grapy_global_id`` names the column, and every grapy insert
 path fills it for a new row (``_subtypes.InsertPlan``). INFERRED: the name, the text form and a fresh version-4 UUID per
@@ -8,9 +8,13 @@ row; a column already called GlobalID that grapy did not make leaves the new one
 
 **Attachments.** EnableAttachments makes, beside a class ``<name>``, the table ``<name>__ATTACH`` with the fields
 ArcGIS's attachment tables carry and GDAL's OpenFileGDB driver reads from them — ``ATTACHMENTID`` (its object id),
-``REL_GLOBALID``, ``CONTENT_TYPE``, ``ATT_NAME``, ``DATA_SIZE`` and ``DATA`` — and the relationship class
-``<name>__ATTACHREL``: COMPOSITE, one to many, origin key ``GlobalID``, foreign key ``REL_GLOBALID``, kept by
-``grapy._relationships`` (ADR-225), so deleting a row deletes its attachments through every grapy delete path. Its pairs
+the key, ``CONTENT_TYPE``, ``ATT_NAME``, ``DATA_SIZE`` and ``DATA`` — and the relationship class
+``<name>__ATTACHREL``: COMPOSITE, one to many, kept by ``grapy._relationships`` (ADR-225), so deleting a row deletes its
+attachments through every grapy delete path. The key is the one ArcGIS Pro 3.7 writes (measured 2026-11-12, ADR-289
+§5.4): on a class with global IDs, ``REL_GLOBALID`` (text) related to its GlobalID; on a class without them, none are
+added and ``REL_OBJECTID`` (Integer) is related to its object id. Global IDs added later leave the key as it was, as
+in Pro. Which key a table holds is read from its columns (``keys``), so an attachment table grapy wrote before
+ADR-289 — ``REL_GLOBALID`` on a class that got global IDs only for it — is still read. Its pairs
 are written to the OGC Related Tables Extension as a ``media`` relation, the requirement class OGC 18-000 defines for
 attached files, so another GeoPackage reader sees which rows hold which files. INFERRED (ADR-228 §5.2): the table and
 class names, which are ArcGIS's and GDAL's, kept as they are; ``ATTACHMENTID`` rather than the extension's ``id`` as the
@@ -87,12 +91,28 @@ def is_companion(name, names):
     return lower.endswith("__attachrel_rte")
 
 
+def keys(connection, table):
+    """(origin field, attachment-table field) a class's attachments relate by — ``(<object id>, "REL_OBJECTID")`` or
+    ``(<GlobalID>, "REL_GLOBALID")`` — read from the attachment table's columns; None when it has neither."""
+    columns = {r[1].upper() for r in connection.execute(f'pragma table_info("{attach_table(table)}")')}
+    if "REL_OBJECTID" in columns:
+        return _relationships._oid(connection, table), "REL_OBJECTID"
+    if "REL_GLOBALID" in columns:
+        return global_id_field(connection, table), "REL_GLOBALID"
+    return None
+
+
 def enable(connection, table):
-    """Attachments on a table: its global IDs, the attachment table and the relationship class."""
-    key = add_global_ids(connection, table)
+    """Attachments on a table: the attachment table, keyed on its global IDs when it has them and on its object id
+    otherwise (ArcGIS Pro 3.7, measured 2026-11-12), and the relationship class."""
+    origin = global_id_field(connection, table)
+    if origin:
+        key, kind = "REL_GLOBALID", "TEXT"
+    else:
+        origin, key, kind = _relationships._oid(connection, table), "REL_OBJECTID", "INTEGER"
     attached = attach_table(table)
     connection.execute(f'''create table "{attached}" (ATTACHMENTID integer primary key autoincrement,
-        REL_GLOBALID TEXT not null, CONTENT_TYPE TEXT not null, ATT_NAME TEXT not null, DATA_SIZE INTEGER not null,
+        {key} {kind} not null, CONTENT_TYPE TEXT not null, ATT_NAME TEXT not null, DATA_SIZE INTEGER not null,
         DATA BLOB not null)''')
     connection.execute("insert or ignore into gpkg_contents (table_name, data_type, identifier) values (?, 'attributes', ?)",
                        (attached, attached))
@@ -100,8 +120,8 @@ def enable(connection, table):
     _relationships.ensure(connection)
     connection.execute("insert into grapy_relationship_class (name, origin, destination, relationship_type, forward_label, "
                        "backward_label, message_direction, cardinality, attributed, origin_primary_key, "
-                       "origin_foreign_key) values (?, ?, ?, 'COMPOSITE', ?, ?, 'FORWARD', 'ONE_TO_MANY', 0, ?, "
-                       "'REL_GLOBALID')", (relationship_class(table), table, attached, attached, table, key))
+                       "origin_foreign_key) values (?, ?, ?, 'COMPOSITE', ?, ?, 'FORWARD', 'ONE_TO_MANY', 0, ?, ?)",
+                       (relationship_class(table), table, attached, attached, table, origin, key))
     refresh(connection, table)
 
 
@@ -159,8 +179,10 @@ def content_type(name):
     return mimetypes.guess_type(str(name))[0] or "application/octet-stream"
 
 
-def add(connection, table, global_id, name, data):
-    added = connection.execute(f'insert into "{attach_table(table)}" (REL_GLOBALID, CONTENT_TYPE, ATT_NAME, DATA_SIZE, '
-                               f'DATA) values (?, ?, ?, ?, ?)', (global_id, content_type(name), name, len(data), data))
+def add(connection, table, key, name, data):
+    """One attachment of the row whose key — its object id or GlobalID, as ``keys`` answers — is ``key``."""
+    column = keys(connection, table)[1]
+    added = connection.execute(f'insert into "{attach_table(table)}" ({column}, CONTENT_TYPE, ATT_NAME, DATA_SIZE, '
+                               f'DATA) values (?, ?, ?, ?, ?)', (key, content_type(name), name, len(data), data))
     from . import _behaviours
     _behaviours.stamp_row(connection, attach_table(table), "ATTACHMENTID", added.lastrowid, True)  # ADR-240

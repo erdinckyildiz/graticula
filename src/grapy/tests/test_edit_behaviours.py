@@ -149,7 +149,9 @@ class EditorTracking(_Base):
         arcpy.management.EnableEditorTracking(self.roads, "made_by", add_fields="ADD_FIELDS")
         connection = sqlite3.connect(self.gpkg)
         try:
-            key = _attachments.global_id_field(connection, "roads")
+            # The row's object id or GlobalID, as the attachment table keys on (ADR-289 §5.4: roads has no global
+            # IDs, so the object id, as ArcGIS Pro 3.7 was measured to key them, 2026-11-12).
+            key = _attachments.keys(connection, "roads")[0]
             guid = connection.execute(f'select "{key}" from roads').fetchone()[0]
             with self.edit_as("dave", T1):
                 _attachments.add(connection, "roads", guid, "a.txt", b"hello")
