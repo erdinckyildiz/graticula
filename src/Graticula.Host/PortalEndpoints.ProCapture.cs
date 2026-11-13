@@ -181,9 +181,7 @@ internal static partial class PortalEndpoints
 
         // The root's services and folders, and one folder's services. A name with a dot is a service —
         // `services/{folder}/{name}.{type}` — and its document, status, start and stop are ADR-261's doors.
-        if (what == "services"
-            || (what.StartsWith("services/", StringComparison.Ordinal) && what.Count(c => c == '/') == 1
-                && !what.Contains('.', StringComparison.Ordinal)))
+        if (what == "services" || IsAdminServicesFolderPath(what))
         {
             return await AdminServicesAsync(
                     context, catalog, system, coverages, what == "services" ? null : what["services/".Length..], cancellation)
@@ -226,6 +224,29 @@ internal static partial class PortalEndpoints
     /// <param name="Type">The face: <c>FeatureServer</c>, <c>MapServer</c>, <c>VectorTileServer</c>, <c>ImageServer</c> or a system service's type.</param>
     /// <param name="Description">Its description, or null.</param>
     internal sealed record AdminListedService(string? Folder, string Name, string Type, string? Description);
+
+    /// <summary>
+    /// The names under <c>admin/services/</c> that are the server's own resources, never a folder — ADR-299.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-11-13 <c>services/canCreateService</c> and <c>services/properties</c> were read as folder names and
+    /// answered <c>Folder '…' does not exist.</c> with status 200, so the answers written for them were never reached. Pro
+    /// reads that error body from <c>canCreateService</c> as a refusal and reports it as analyzer 00147, <i>"The ArcGIS
+    /// GIS server role is not licensed"</i>, which nothing in the message points to — measured by serving
+    /// <c>{"status":"success"}</c> there alone, with every other answer at baseline: the draft stages.
+    /// </remarks>
+    internal static readonly System.Collections.Frozen.FrozenSet<string> AdminServicesResources =
+        System.Collections.Frozen.FrozenSet.ToFrozenSet(["canCreateService", "properties", "types"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True when an admin path (trimmed of slashes) names one folder of services: <c>services/{folder}</c>, with no dot
+    /// and not one of <see cref="AdminServicesResources"/>.
+    /// </summary>
+    internal static bool IsAdminServicesFolderPath(string what) =>
+        what.StartsWith("services/", StringComparison.Ordinal)
+        && what.Count(c => c == '/') == 1
+        && !what.Contains('.', StringComparison.Ordinal)
+        && !AdminServicesResources.Contains(what["services/".Length..]);
 
     /// <summary>
     /// The admin API's <c>services</c> resource, for the root (<paramref name="folder"/> null) or one folder: the services
