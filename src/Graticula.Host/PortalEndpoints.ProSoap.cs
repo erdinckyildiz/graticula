@@ -69,11 +69,24 @@ internal static partial class PortalEndpoints
                 await File.ReadAllTextAsync(canned, cancellation).ConfigureAwait(false), "text/xml; charset=utf-8");
         }
 
-        // ADR-299 condition 1: the publishing job, and the polls that follow it.
-        if (context.Request.Path.StartsWithSegments("/services/System/PublishingTools", StringComparison.OrdinalIgnoreCase)
-            && await PublishingToolsAsync(context, operation, body, cancellation).ConfigureAwait(false) is { } answered)
+        // ADR-299 condition 1: the publishing job, and the polls that follow it. While Pro is measured on dev each of
+        // these envelopes is recorded too, so the parameters Pro asks for can be read.
+        bool recording = RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>());
+        if (context.Request.Path.StartsWithSegments("/services/System/PublishingTools", StringComparison.OrdinalIgnoreCase))
         {
-            return answered;
+            if (recording)
+            {
+                await RecordSoapAsync(context, operation, body, cancellation).ConfigureAwait(false);
+            }
+
+            if (await PublishingToolsAsync(context, operation, body, cancellation).ConfigureAwait(false) is { } answered)
+            {
+                return answered;
+            }
+        }
+        else if (recording && operation is not ("GetMessageVersion" or "GetMessageFormats"))
+        {
+            await RecordSoapAsync(context, operation, body, cancellation).ConfigureAwait(false);
         }
 
         if (operation == "GetMessageVersion")
@@ -88,26 +101,27 @@ internal static partial class PortalEndpoints
             return Soap(MessageFormatsAnswer);
         }
 
-        if (RecordingPro(context.RequestServices.GetRequiredService<IConfiguration>()))
-        {
-            string directory = context.RequestServices.GetRequiredService<IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
-                ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture");
-            Directory.CreateDirectory(directory);
-
-            // Never a token or a password into the file; the query is not written at all.
-            string kept = Regex.Replace(body, "(?i)(token|password)>[^<]*<", "$1>*<");
-            await File.WriteAllTextAsync(
-                System.IO.Path.Combine(directory, $"soap-{DateTime.UtcNow:yyyyMMdd'T'HHmmss.fff}-{operation ?? "none"}.xml"),
-                $"Path: {context.Request.Path}\nSOAPAction: {context.Request.Headers["SOAPAction"]}\nContent-Type: {context.Request.ContentType}\n\n{kept}",
-                cancellation).ConfigureAwait(false);
-        }
-
         return Results.Text(
             SoapEnvelopeOpen + "<soap:Fault><faultcode>soap:Client</faultcode><faultstring>"
             + System.Security.SecurityElement.Escape($"'{operation ?? "(none)"}' is not answered by this server.")
             + "</faultstring></soap:Fault>" + SoapEnvelopeClose,
             "text/xml; charset=utf-8",
             statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    /// <summary>Writes one SOAP envelope beside the wire log — a measuring tool, dev only.</summary>
+    private static async Task RecordSoapAsync(HttpContext context, string? operation, string body, CancellationToken cancellation)
+    {
+        string directory = context.RequestServices.GetRequiredService<IConfiguration>()["Graticula:ProPublishCaptureDirectory"]
+            ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture");
+        Directory.CreateDirectory(directory);
+
+        // Never a token or a password into the file; the query is not written at all.
+        string kept = Regex.Replace(body, "(?i)(token|password)>[^<]*<", "$1>*<");
+        await File.WriteAllTextAsync(
+            System.IO.Path.Combine(directory, $"soap-{DateTime.UtcNow:yyyyMMdd'T'HHmmss.fff}-{operation ?? "none"}.xml"),
+            $"Path: {context.Request.Path}\nSOAPAction: {context.Request.Headers["SOAPAction"]}\nContent-Type: {context.Request.ContentType}\n\n{kept}",
+            cancellation).ConfigureAwait(false);
     }
 
     /// <summary>The local name of the first element in a SOAP body, or null.</summary>
