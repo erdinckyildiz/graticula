@@ -125,6 +125,22 @@ change:
   tables have no `GDB_ColumnRegistry` rows, and their row id generators start at 1 whatever they hold. *(measured, two
   downloads)*
 
+### 5.1 Where the client takes a layer's new generation from *(observed 2026-11-13, Field Maps 26.2.2 on the emulator)*
+
+Only from the delta's `GDB_DataChangesDatasets` row for that layer — the feature class's row or its `__ATTACH` table's
+row, either moved it. A delta with no row for a layer leaves the layer's `ReplicaServerGen` in the device's `GPSyncReplica`
+where it was, though the job status that delta came with names the new generation in `layerServerGens`, and the device's
+next `synchronizeReplica` asks again from the old one. Seen on a preplanned area: through a day of syncs with nothing to
+send, every layer stayed at its package's generation; the first sync that carried a changed row moved it, and the next
+asked from exactly the generation that delta named. The on-demand replicas on the same device, whose syncs had carried
+changes, had moved. ArcGIS Server writes no row for an unchanged layer either (§5's second capture had four layers and rows
+for two), so this is the protocol, not a defect of either side; what it means for a server whose own change record
+begins later is [ADR-290](../adr/ADR-290-attachments-keep-their-globalid-and-their-changes-are-recorded.md) §11.4.
+
+For a preplanned area the device also keeps the generation in the area's `p13/mobile_map.marea` (JSON written by the
+client, not by the server): `currentServerGen`, `originalReplicaID` (the package's), `uploadReplicaID` (the one
+`registerExistingData` answered) and `uploadServerGenSyncModelLayer` (`[{id, serverGen}]`).
+
 ## 5b. What Field Maps uploads *(measured 2026-11-10, one upload)*
 
 ArcGIS Field Maps 26.2.2 on Android, after an offline insert, update and delete on a replica this server wrote, uploaded

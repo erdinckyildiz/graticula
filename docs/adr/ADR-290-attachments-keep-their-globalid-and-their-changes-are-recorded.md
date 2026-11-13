@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — the mechanism is tested against PostgreSQL (§4); what Field Maps does with the attachment changes it is sent has not been seen on a device (§12) |
+| **Confidence** | `MEDIUM` — the mechanism is tested against PostgreSQL (§4), and Field Maps 26.2.2 was seen on the emulator taking every attachment change §12.1 (a)–(e) names, both ways (2026-11-13). Not `HIGH`: §11.4's window is narrower than it reads (§12.1, *what the measurement found*), and nothing has run on a real phone |
 | **Decided** | 2026-11-13, by the session that closed [D-399](../architecture-debt.md), on the design the task proposed. **Not an owner decision**; everything in §5 not traced to the code or to ADR-078/ADR-288 is `INFERRED` and listed in §11. |
 | **Supersedes** | — (amends [ADR-288](ADR-288-offline-sync-is-in.md) §5.4: its *"attachments empty — the server's own attachment changes do not travel"* is no longer true of the mobile geodatabase download) |
 | **Superseded by** | — |
@@ -186,13 +186,21 @@ None recorded; the design was proposed in the task and not argued with anyone. T
 
 ## 11. INFERRED — to be confirmed
 
-1. **A feature the replica loses takes its attachments with it**, so no attachment delete is sent for it. Reason: the
-   attachment relationship class of a geodatabase is composite. Not measured on a device.
+1. ~~**A feature the replica loses takes its attachments with it**, so no attachment delete is sent for it. Reason: the
+   attachment relationship class of a geodatabase is composite. Not measured on a device.~~ **Measured 2026-11-13 (§12.1 (e)):
+   a feature deleted on the server went from the phone with its photo, the sync sent no attachment delete (`-0`), and Field
+   Maps reported the sync complete.** No longer an inference.
 2. **A feature the download adds is sent with every attachment it has now**, not only those the record names.
 3. **`attachmentsSyncDirection` is `none`, `upload` or `bidirectional`** (ADR-288's request reading); the download carries
    attachments for `bidirectional`, and `download` is accepted too, as the task named it, though ArcGIS does not define it.
 4. **A window the record cannot vouch for sends nothing**, rather than every attachment of every feature in the replica.
-   The second would be correct and heavy; the first is what the server did and loses nothing new.
+   The second would be correct and heavy; the first is what the server did ~~and loses nothing new~~. **It can lose
+   something new, measured 2026-11-13:** ArcGIS Runtime moves a layer's generation only when a delta carries a
+   `GDB_DataChangesDatasets` row for it, so a device whose layer saw no change keeps asking from the generation its package
+   was written with. For a package older than the record, every window starts before the record began, is not vouched for,
+   sends nothing, and so writes no row — and the device stays there until a *row* of that layer changes. A photo added on the
+   server in that time (`server-added.png`, 11:08 UTC) never reached the phone. Packages written after the record began are
+   not affected; a map area refreshed after upgrading is the way out for one that was. [D-423](../architecture-debt.md).
 5. **Stamping at commit** is this ADR's choice and not ADR-078's.
 
 ## 12. Conditions
@@ -201,7 +209,21 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    the phone on *Sync now*; (b) one replaced on the server arrives changed; (c) one deleted on the server disappears while its
    feature stays; (d) a photo taken on the phone, synced, then replaced and deleted on the phone is applied by the server
    (the case the kept GlobalID exists for); (e) a feature deleted on the server does not make the sync fail on the attachments
-   the phone still holds for it (§11.1); (f) the repeat described in §3 is taken quietly. **Open.**
+   the phone still holds for it (§11.1); (f) the repeat described in §3 is taken quietly. **PARTLY DISCHARGED 2026-11-13** —
+   (a)–(e) on the Field Maps 26.2.2 emulator against dev, on a preplanned area registered with `registerExistingData`, each
+   read back from both sides (the phone's geodatabase pulled with `adb`, the server's table read):
+   - (a) `server-photo-2.png` added on the server arrived on the next *Sync now*, under its feature (`attachments +1`).
+   - (b) replaced on the server, it arrived as `server-photo-2-replaced.png`, 1525 → 1952 bytes, same GlobalID (`~1`).
+   - (c) deleted on the server, it went from the phone and its feature stayed (`-1`).
+   - (d) `phone_d.png` attached on the phone was stored on the server under the phone's GlobalID (`a8358440-…`); renamed on
+     the phone, the server's row was renamed; removed on the phone, the server's row was deleted. Before this ADR the last
+     two were refused.
+   - (e) feature 6 deleted on the server, with `Photo 1.jpg` on the phone: the sync completed and both went (§11.1).
+   - (f) is not measured: a lost answer cannot be made to happen from the emulator. The store's half is tested (§4).
+
+   **What the measurement found besides.** The first attempt showed (a) failing, and the cause was §11.4's window, not this
+   ADR's code: the phone asked from 1794474726446, its package's generation, sync after sync. `synchronizeReplica` now logs
+   each layer's window and what it carried, which is how that was seen.
 2. **Prune the log** with the history's keeping period, or state why not (D-421). **Open.**
 3. **An end-to-end test of `synchronizeReplica` against PostGIS with an attachment**, which needs the host fixture
    and was not written here: the pieces are tested (§4), the glue between them in `OfflineReplicaEndpoints` is not. **Open.**
