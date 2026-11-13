@@ -60,8 +60,8 @@ internal static partial class PortalEndpoints
     /// <summary>A file Pro uploaded to <c>admin/uploads/upload</c>.</summary>
     private sealed record ProUpload(string Path, Guid Owner, DateTimeOffset At);
 
-    /// <summary>A finished <c>PublishingTools</c> job: its outcome, its messages and its one result value.</summary>
-    internal sealed record ProJob(Guid Owner, bool Succeeded, IReadOnlyList<(string Type, string Text)> Messages, string Result, DateTimeOffset At);
+    /// <summary>A finished <c>PublishingTools</c> job: its outcome, its messages and its output values by parameter name.</summary>
+    internal sealed record ProJob(Guid Owner, bool Succeeded, IReadOnlyList<(string Type, string Text)> Messages, IReadOnlyDictionary<string, string> Results, DateTimeOffset At);
 
     /// <summary>Keeps an uploaded file and answers in the admin API's <i>Upload Item</i> shape.</summary>
     private static async Task<IResult> UploadAsync(HttpContext context, CancellationToken cancellation)
@@ -159,12 +159,14 @@ internal static partial class PortalEndpoints
                             $"<JobMessage xsi:type=\"tns:JobMessage\"><MessageType>{m.Type}</MessageType><MessageDesc>{SecurityElement.Escape(m.Text)}</MessageDesc></JobMessage>"))
                         + "</Result></tns:GetJobMessagesResponse>"),
 
-                    // One value for each output parameter asked for; this tool has one result, the published services.
+                    // One value for each parameter named in <ParameterNames>, in that order; a name it does not have is
+                    // answered empty rather than left out, so the positions still line up.
                     _ => Soap(
                         "<tns:GetJobResultResponse><Result xsi:type=\"tns:GPResult\"><Values xsi:type=\"tns:GPValues\">"
-                        + string.Concat(Enumerable.Repeat(
-                            $"<GPValue xsi:type=\"tns:GPString\"><Value>{SecurityElement.Escape(found.Result)}</Value></GPValue>",
-                            Math.Max(1, Regex.Count(envelope, "<(?:\\w+:)?String>"))))
+                        + string.Concat(Regex.Matches(envelope, "<(?:\\w+:)?String>(?<n>[^<]*)</(?:\\w+:)?String>")
+                            .Select(m => found.Results.TryGetValue(m.Groups["n"].Value, out string? value)
+                                ? $"<GPValue xsi:type=\"tns:GPString\"><Value>{SecurityElement.Escape(value)}</Value></GPValue>"
+                                : "<GPValue xsi:type=\"tns:GPString\"></GPValue>"))
                         + "</Values></Result></tns:GetJobResultResponse>"),
                 };
 
@@ -184,7 +186,7 @@ internal static partial class PortalEndpoints
             messages.AddRange(why.Select(w => ("esriJobMessageTypeError", w)));
             messages.Add(("esriJobMessageTypeError", "Failed to execute (Publish Service Definition)."));
             messages.Add(("esriJobMessageTypeInformative", "Failed."));
-            return new ProJob(caller.Principal.Id, false, messages, "{}", DateTimeOffset.UtcNow);
+            return new ProJob(caller.Principal.Id, false, messages, new Dictionary<string, string>(), DateTimeOffset.UtcNow);
         }
 
         if (!caller.Authorization.Allows(Privilege.ContentPublishFeatures))
@@ -253,19 +255,16 @@ internal static partial class PortalEndpoints
 
             await FinishAsync(context, serviceId, qualified, definition, plan, messages, cancellation).ConfigureAwait(false);
 
-            string url = $"{context.Request.Scheme}://{context.Request.Host}/arcgis/rest/services/{qualified}/MapServer";
+            string origin = $"{context.Request.Scheme}://{context.Request.Host}/arcgis";
             messages.Add(("esriJobMessageTypeInformative", $"Published {qualified} by reference to {plan.Sources} registered database{(plan.Sources == 1 ? string.Empty : "s")}."));
             messages.Add(("esriJobMessageTypeInformative", "Succeeded."));
 
-            string result = JsonSerializer.Serialize(new
+            // The two outputs Pro asks for by name (measured 2026-11-13): the service's SOAP and REST addresses.
+            return new ProJob(caller.Principal.Id, true, messages, new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                services = new[]
-                {
-                    new { type = "MapServer", serviceName = definition.ServiceName, folderName = folder ?? string.Empty, serviceurl = url, url },
-                },
-            });
-
-            return new ProJob(caller.Principal.Id, true, messages, result, DateTimeOffset.UtcNow);
+                ["out_soap_svc_url"] = $"{origin}/services/{qualified}/MapServer",
+                ["out_rest_svc_url"] = $"{origin}/rest/services/{qualified}/MapServer",
+            }, DateTimeOffset.UtcNow);
         }
         finally
         {
