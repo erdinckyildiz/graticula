@@ -21,6 +21,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 using Npgsql;
 
@@ -67,7 +68,7 @@ internal sealed record ReplicaFaces(
 /// administrator sees and unregisters every replica.
 /// </para>
 /// </remarks>
-internal static class OfflineReplicaEndpoints
+internal static partial class OfflineReplicaEndpoints
 {
     /// <summary>How many object ids one query of a download names.</summary>
     private const int IdsPerQuery = 1000;
@@ -657,6 +658,7 @@ internal static class OfflineReplicaEndpoints
             service.Name, p.Id, p.Document, wkts[p.Wkid], _ => Empty<OfflineRow>(), _ => Empty<OfflineAttachment>()))];
 
         ReplicaJobs jobs = services.GetRequiredService<ReplicaJobs>();
+        ILogger log = services.GetRequiredService<ILoggerFactory>().CreateLogger("Graticula.Offline.Sync");
         if (jobs.Start(caller.Principal.Id, service.Id,
                 downloading ? "esriReplicaResponseTypeEdits" : "esriReplicaResponseTypeNoEdits") is not { } job)
         {
@@ -712,6 +714,7 @@ internal static class OfflineReplicaEndpoints
                 foreach ((Planned p, OfflineLayer shape) in planned.Zip(shapes))
                 {
                     (ReplicaLayer stored, long from, string direction) = covered.First(c => c.Stored.Id == p.Id);
+                    SyncWindow(log, replica.Id, p.Id, from, stored.ServerGeneration, direction, request.ReturnAttachments);
 
                     if (direction is not ("download" or "bidirectional"))
                     {
@@ -732,6 +735,7 @@ internal static class OfflineReplicaEndpoints
                         ? await AttachmentChangesAsync(connections, p, shape, DateTimeOffset.FromUnixTimeMilliseconds(from), generation, found, uploaded, stopping)
                             .ConfigureAwait(false)
                         : AttachmentDownload.Empty;
+                    SyncAttachments(log, replica.Id, p.Id, attached.Inserts.Count, attached.Updates.Count, attached.Deletes.Count);
 
                     if (found.Inserts.Count + found.Updates.Count + found.Deletes.Count + attached.Count > 0)
                     {
@@ -1662,6 +1666,19 @@ internal static class OfflineReplicaEndpoints
 
     private static bool IsAdministrator(RequestPrincipal caller) =>
         LayerAccess.MayManage(null, caller.Principal, caller.Authorization);
+
+    /// <summary>
+    /// What a download's window was: the generation the device asked from and the one this server stored, which differ
+    /// when the device did not learn the last answer's generation — the record of changes vouches only from the first.
+    /// </summary>
+    [LoggerMessage(EventId = 2620, Level = LogLevel.Information,
+        Message = "synchronizeReplica {Replica} layer {Layer}: from {From} (stored {Stored}), {Direction}, returnAttachments {Attachments}")]
+    private static partial void SyncWindow(ILogger log, Guid replica, int layer, long from, long stored, string direction, bool attachments);
+
+    /// <summary>How many attachment changes a layer's download carried (ADR-290).</summary>
+    [LoggerMessage(EventId = 2621, Level = LogLevel.Information,
+        Message = "synchronizeReplica {Replica} layer {Layer}: attachments +{Inserts} ~{Updates} -{Deletes}")]
+    private static partial void SyncAttachments(ILogger log, Guid replica, int layer, int inserts, int updates, int deletes);
 
     /// <summary>Runs a job: here, answering its result, or behind a status URL.</summary>
     private static async Task RunAsync(
