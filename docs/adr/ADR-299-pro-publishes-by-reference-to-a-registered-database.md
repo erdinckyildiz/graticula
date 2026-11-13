@@ -136,9 +136,11 @@ and only the calls that have been seen asked. Anything else is recorded (dev onl
    leaves the generated appearance with a warning (2026-11-13). Labels are not carried: this server draws none.
 6. **`owningSystemUrl` names `/studio` for ArcGIS Pro only** (2026-11-13), and its `tokenServicesUrl` the portal's
    `generateToken` under it; every other client is answered as before. Chosen by the name Pro gives in every request
-   (`ArcGIS Pro 3.7.0 (…) - ArcGISPro`). **INFERRED** from the owner's *"kalan işleri de tamamla"* ("finish the
-   remaining work too"), given in answer to the question whether to make this change; the Pro-only scope is this
-   ADR's, so that Field Maps and the SDKs, which sign in at the root, see nothing change. Listed for the owner under [Q-228](../open-questions.md), which asks the same question for every client.
+   (`ArcGIS Pro 3.7.0 (…) - ArcGISPro`). ~~**INFERRED** from the owner's *"kalan işleri de tamamla"*~~ **Confirmed by
+   owner decision 2026-11-13**: told that naming `/studio` for every client would likely break the clients that sign in
+   at the root (Field Maps on today's workaround, JavaScript SDK applications, the ArcGIS API for Python), the owner
+   answered *"tamam bırak"* ("fine, leave it") — Pro only, as built. Field Maps and the SDKs see nothing change; whether
+   Field Maps should also work at `/studio` stays [Q-228](../open-questions.md)'s.
 
 ## 6. Consequences
 
@@ -154,7 +156,7 @@ registered data* becomes a service over the registered table, made by the same r
 - ~~00147 is not solved~~ — **passed 2026-11-13** (§4): a routing bug that answered `canCreateService` with a folder
   error. It had blocked every map image layer from Pro to this server, not only a reference one.
 - `/arcgis/rest/info` answers differently by caller (§5.6): a Pro user who added the *root* portal — which cannot
-  publish anyway (Esri 000031246) — is told the server is `/studio`'s. **INFERRED** acceptable; listed for the owner.
+  publish anyway (Esri 000031246) — is told the server is `/studio`'s. Accepted with §5.6 by the owner, 2026-11-13.
 - A map image layer is published here as this server's composition: ~~Pro's map symbology is not carried~~ — **carried
   2026-11-13** (§5.5), each layer's CIM renderer, with losses reported to Pro — but its labels are not, and the only
   map image layer Pro can share is a reference one: a layer Pro copied is refused rather than imported.
@@ -169,9 +171,9 @@ registered data* becomes a service over the registered table, made by the same r
    measuring tools. **DISCHARGED 2026-11-13** — §5.5; measured end to end (§4), tests in
    `ReferenceServiceDefinitionTests`.
 2. **The desktop application reaches the analyzer:** 002901 is removed by an owner decision on `owningSystemUrl`
-   (and `tokenServicesUrl`) for Pro publishing — **INFERRED** that `/studio` is the right value; listed for the owner.
+   (and `tokenServicesUrl`) for Pro publishing — ~~**INFERRED** that `/studio` is the right value~~ confirmed by the owner 2026-11-13 (§5.6).
    **DISCHARGED 2026-11-13** — §5.6, Pro only; the desktop application staged and published (§4). The decision is
-   INFERRED and stays listed for the owner.
+   confirmed by the owner on 2026-11-13, Pro only (§5.6).
 3. **A real publish, end to end, from the desktop application** — Share › Web Layer with *Reference registered data* —
    draws on this server from the registered table, and a second user whose database user differs is refused (§5.1).
    **PARTLY DISCHARGED 2026-11-13:** the desktop application published the reference layer and it draws from the
