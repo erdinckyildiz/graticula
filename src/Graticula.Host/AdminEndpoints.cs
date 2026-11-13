@@ -9292,6 +9292,11 @@ internal static partial class AdminEndpoints
         IReadOnlyList<RegisteredDataSource> sources =
             await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false);
 
+        // ADR-299 condition 4: the address ArcGIS Pro reaches each database at, where it differs, shown and set here.
+        IReadOnlyDictionary<Guid, string> publishers = catalog is PostgresAdminCatalog withAddresses
+            ? await withAddresses.PublisherAddressesAsync(cancellation).ConfigureAwait(false)
+            : new Dictionary<Guid, string>();
+
         // <b>The host and database are in the listing now, and the credential still is not.</b>
         // `ListDataSourcesAsync` leaves `Summary` empty on purpose — it does not hold the protector —
         // with the note that decrypting every credential *to render a list would be a lot of key use
@@ -9358,6 +9363,7 @@ internal static partial class AdminEndpoints
                 source.LayerCount,
                 summary = connection is null ? null : Summarise(connection),
                 sealedWithAnotherKey = connection is null,
+                publisherAddress = publishers.GetValueOrDefault(source.Id),
 
                 // <b>Whether this worker is holding it out of service — ADR-059.</b> A quiesce
                 // is invisible otherwise: the screen that registers a source is where somebody
