@@ -23737,14 +23737,16 @@ function askName(asked) {
     // <b>An empty box is not an error while somebody is still typing into it.</b> It is the state
     // the dialog opens in when a name is being replaced rather than edited. Where empty is an answer — a setting
     // being cleared (`allowEmpty`) — it is accepted.
-    const why = !wanted ? "" : (asked.check ? asked.check(wanted) : null);
+    // Something still being typed (`unfinished`, e.g. an address ending in a dot) is neither accepted nor called wrong.
+    const pending = Boolean(wanted && asked.unfinished && asked.unfinished(wanted));
+    const why = !wanted || pending ? "" : (asked.check ? asked.check(wanted) : null);
 
     // Written only when it changes, so the live region speaks a new sentence, not the same one on every keystroke.
     const next = why || (asked.preview ? asked.preview(wanted) : "");
     if (says.textContent !== next) says.textContent = next;
     says.classList.toggle("bad-inline", Boolean(why));
     box.setAttribute("aria-invalid", why ? "true" : "false");
-    done.disabled = (!wanted && !asked.allowEmpty) || Boolean(why);
+    done.disabled = (!wanted && !asked.allowEmpty) || pending || Boolean(why);
   };
 
   /*
@@ -23771,7 +23773,8 @@ function askName(asked) {
   const accept = () => {
     const wanted = box.value.trim();
 
-    if ((!wanted && !asked.allowEmpty) || (wanted && asked.check && asked.check(wanted))) return;
+    if ((!wanted && !asked.allowEmpty) || (wanted && asked.unfinished && asked.unfinished(wanted))
+      || (wanted && asked.check && asked.check(wanted))) return;
 
     shut();
     asked.then(wanted);
@@ -25843,6 +25846,8 @@ function askPublisherAddress(id, name, summary, current) {
     value: current || "",
     action: "Save",
     allowEmpty: true,
+    // db. and db.example.org, are on their way to an address, not mistakes (a design review, 2026-11-13).
+    unfinished: typed => /[.,]$/.test(typed.trim()),
     check: typed => {
       const m = shape.exec(typed.replace(/\s+/g, ""));
       if (!m || (m[2] && (Number(m[2]) < 1 || Number(m[2]) > 65535))) {
