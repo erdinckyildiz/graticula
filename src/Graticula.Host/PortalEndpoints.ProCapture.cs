@@ -153,7 +153,7 @@ internal static partial class PortalEndpoints
                 fullVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.FullVersion,
                 timezone = new { windowsZoneID = "UTC", olsonZoneID = "Etc/UTC" },
                 loggedInUser = context.Features.Get<RequestPrincipal>()?.Principal.Name,
-                owningSystemUrl = origin,
+                owningSystemUrl = OwningSystemUrl(context),
             });
         }
 

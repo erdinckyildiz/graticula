@@ -2812,15 +2812,17 @@ public static class Program
         // ImageServer layer, asks it once on the way in — it derives its SOAP root from the REST address, and this server
         // has no instance name (`/arcgis`) in front of `/rest`, so it lands at `/services/rest/info` where Esri's own lands
         // at `/arcgis/rest/info` (measured through a recording relay against both). It was the one refused request left.
+        // ADR-299 condition 2: ArcGIS Pro is told the portal it publishes to, `/studio`, and everyone else the root as
+        // before — PortalEndpoints.OwningPortal.cs says why the answer depends on the caller.
         app.MapMethods("/services/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
-                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
-                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
+                PortalEndpoints.TokenServicesUrl(context),
+                PortalEndpoints.OwningSystemUrl(context))));
         // ADR-299: `soapUrl` where publishing from Pro is on, as a federated ArcGIS Server writes it.
         app.MapMethods("/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
-                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
-                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}",
+                PortalEndpoints.TokenServicesUrl(context),
+                PortalEndpoints.OwningSystemUrl(context),
                 PortalEndpoints.PublishingFromPro(context.RequestServices.GetRequiredService<IConfiguration>())
                     ? $"{context.Request.Scheme}://{context.Request.Host}/arcgis/services"
                     : null)));
