@@ -1160,6 +1160,34 @@ public static class Program
                 string line = $"{DateTime.UtcNow:HH:mm:ss.fff} {context.Response.StatusCode} {context.Response.ContentType} | {asked}{answered} | auth={bearer} | {agent}" + Environment.NewLine;
                 lock (gate) { System.IO.File.AppendAllText(wire, line); }
             });
+
+            // <b>Any recorded answer, for any address</b> (dev only, ADR-299 measuring 00147): a file at
+            // <c>{capture}/any-answers/{path with / as _}.json</c> (or <c>.xml</c>) is returned for that path as it was
+            // asked — before this server's own rewrites — so documents outside the admin and SOAP doors (`rest/info`, the
+            // portal's) can be varied on Pro without a rebuild. Nothing else reads that directory, and it is empty
+            // unless someone puts a file there.
+            string anyAnswers = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(wire)!, "any-answers");
+            app.Use(async (context, next) =>
+            {
+                string key = (context.Request.Path.Value ?? string.Empty).Trim('/').Replace('/', '_');
+                if (key.Length > 0 && key.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) < 0 && !key.Contains("..", StringComparison.Ordinal))
+                {
+                    foreach ((string extension, string type) in new[] { (".json", "application/json"), (".xml", "text/xml; charset=utf-8") })
+                    {
+                        string file = System.IO.Path.Combine(anyAnswers, key + extension);
+                        if (System.IO.File.Exists(file))
+                        {
+                            context.Response.ContentType = type;
+                            await context.Response.WriteAsync(
+                                await System.IO.File.ReadAllTextAsync(file, context.RequestAborted).ConfigureAwait(false),
+                                context.RequestAborted).ConfigureAwait(false);
+                            return;
+                        }
+                    }
+                }
+
+                await next(context).ConfigureAwait(false);
+            });
         }
 
         // ADR-101 condition 4: an edit empties only the tiles it reached, in its service's scheme, which the catalogue
@@ -2784,14 +2812,20 @@ public static class Program
         // ImageServer layer, asks it once on the way in — it derives its SOAP root from the REST address, and this server
         // has no instance name (`/arcgis`) in front of `/rest`, so it lands at `/services/rest/info` where Esri's own lands
         // at `/arcgis/rest/info` (measured through a recording relay against both). It was the one refused request left.
+        // ADR-299 condition 2: ArcGIS Pro is told the portal it publishes to, `/studio`, and everyone else the root as
+        // before — PortalEndpoints.OwningPortal.cs says why the answer depends on the caller.
         app.MapMethods("/services/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
-                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
-                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
+                PortalEndpoints.TokenServicesUrl(context),
+                PortalEndpoints.OwningSystemUrl(context))));
+        // ADR-299: `soapUrl` where publishing from Pro is on, as a federated ArcGIS Server writes it.
         app.MapMethods("/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
-                $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
-                $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
+                PortalEndpoints.TokenServicesUrl(context),
+                PortalEndpoints.OwningSystemUrl(context),
+                PortalEndpoints.PublishingFromPro(context.RequestServices.GetRequiredService<IConfiguration>())
+                    ? $"{context.Request.Scheme}://{context.Request.Host}/arcgis/services"
+                    : null)));
 
         // <b>Who the server takes the caller to be, since 2026-11-08</b> (ADR-077 condition 5). ArcGIS Field Maps asks it
         // twice right after it reads a feature layer it might collect into, and with a 404 it never offered Collect.
