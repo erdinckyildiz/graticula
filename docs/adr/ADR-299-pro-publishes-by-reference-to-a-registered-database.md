@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | `REQUIRES PROTOTYPE` |
-| **Confidence** | `LOW` |
-| **Decided** | 2026-11-10, **by owner decision**: *"yap"* ("do it"), after asking whether Pro could publish with *Reference registered data* when Pro and the server use the same database with the same user. **2026-11-12**, by owner decision, the database user must match as well: *"veritabanı kullanıcısı ise çalışmaması lazım"* ("if it is the database user, it must not work [when it differs]"). |
+| **Status** | `ACCEPTED WITH CONDITIONS` |
+| **Confidence** | `MEDIUM` |
+| **Decided** | 2026-11-10, **by owner decision**: *"yap"* ("do it"), after asking whether Pro could publish with *Reference registered data* when Pro and the server use the same database with the same user. **2026-11-12**, by owner decision, the database user must match as well: *"veritabanı kullanıcısı ise çalışmaması lazım"* ("if it is the database user, it must not work [when it differs]"). **2026-11-13**, `REQUIRES PROTOTYPE` → `ACCEPTED WITH CONDITIONS` by this ADR's own first revisit trigger (§9), which named the move in advance: 00147 was passed. Not a new owner decision. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -62,7 +62,8 @@ server. See §5 for what was chosen instead.
   edition and features so that Pro's analyzer accepts the server. This does not give anybody an Esri licence and
   does not license Pro ([ADR-285](ADR-285-graticula-does-not-license-arcgis-pro.md) stands): it describes what this
   server serves. A reader could still see it as a claim to be an Esri product. **INFERRED** — listed for the owner.
-- **It may never finish.** See §4: analyzer error 00147 is not solved.
+- ~~**It may never finish.** See §4: analyzer error 00147 is not solved.~~ **Passed 2026-11-13** (§4): it was this
+  server's own routing bug, not a licence check. What remains is building the publish itself (Conditions).
 
 ## 4. Evidence
 
@@ -94,6 +95,10 @@ read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answe
 | **The licence document's contents are not used.** `edition: svrbasic` with a Basic feature — which Pro must refuse map image layers for, by its own message *"not supported based on the server's license edition"* — gives exactly the same 00147 as Advanced, as `{}` and as an error body | stage results | 2026-11-12 |
 | No managed exception is raised in Pro during the analysis (dotnet-trace, `DotNETRuntime:0x8000`): the decision is native and silent; the Diagnostic Monitor at debug level logs only `AGSServerConnection2::GetDiscoveryRestInfo` and `CDiscoveryClientJSONHelper::GetDataBaseUrl` | trace, `ArcGISProLog-*.xml` | 2026-11-12 |
 | **Disclosure.** On 2026-11-12 strings were searched inside Pro's installed DLLs (names such as `DiscoveryServerLicense`, `svrbasic`, `FedServerNoRequiredLicenseForMapImage`), which a recorded working rule forbids ("do not open Pro's binaries", §5). Nothing was disassembled or decompiled and no code was reproduced; the rows above that rest on it say so. It stopped when noticed | this ADR | 2026-11-12 |
+| **The cause of 00147, 2026-11-13: `admin/services/canCreateService` was read as a folder name.** The admin route took any `services/{name}` without a dot for a folder, so `canCreateService` (and `services/properties`) answered `{"status":"error","messages":["Folder 'canCreateService' does not exist."],"code":404}` with HTTP 200, and the `{"status":"success"}` written for it in the reference-publish answers was never reached. Pro reads that body as the server refusing a MapServer and reports it as 00147. Serving `{"status":"success"}` there **alone**, every other answer at baseline, stages the file-geodatabase layer; after the routing fix (commit `be3ec869`), with **nothing** canned on dev, both the file-geodatabase layer and the by-reference query layer (`copyDataToServer=False`) stage | stage results, wire log | 2026-11-13 |
+| **Correction to the knock-out row above:** knocking `canCreateService` out replaced one error body with another, so it could not show anything; the row's conclusion for that call was wrong. The three gating portal documents (row after it) are the ones without which Pro does not reach the `canCreateService` reading at all | this ADR | 2026-11-13 |
+| **How it was found: a real federated server that accepts the layer.** A production ArcGIS Enterprise 12.1 the owner has access to, read-only, at the owner's instruction that night (*"… üzerinden yap"*, "do it through …"): its admin documents, `rest/info`, SOAP `GetMessageVersion`/`GetMessageFormats`, the `PublishingTools` fonts job and its portal's documents were read, and the same file-geodatabase layer was **staged only** against it (no upload, no service) — it stages. Then each of its answers was served from dev in Pro's place (hosts rewritten, licence identifiers, people's details and the organisation's name removed): with every admin document from it, Pro's draft switches the map service's `provider` from `ArcObjects11` to `DMaps` (the shared-instance pool) but 00147 stays; with every portal document and the real fonts list too, 00147 stays; the remaining difference, the one dev never answered as written, was `canCreateService` | stage results, sddraft diff, wire log | 2026-11-13 |
+| Pro's web requests for sharing are not made through .NET: an EventPipe trace of `System.Net.Http` on the desktop application while it stages carries no request at all, so a managed trace cannot show what Pro asks a server; the wire log on dev remains the instrument | trace | 2026-11-13 |
 | Esri: 00147 is also raised when Pro cannot reach the server's administration URL | [KB 000018287](https://support.esri.com/en-us/knowledge-base/problem-error-00147-when-the-server-role-is-authorized-000018287) | public |
 
 ## 5. Decision
@@ -123,13 +128,26 @@ database is offered to Pro with no password in the listing.
   included. **INFERRED** that this is acceptable; listed for the owner.
 - Not built: reading the reference `.sd`, matching it, creating the service, the upload and publish calls, the
   publisher address in the Studio UI.
-- 00147 is not solved, and since 2026-11-12 it is known to block **every** map image layer from Pro to this
-  server, not only a reference one — so it is the gate for Pro-published map image layers in general, and the next
-  step is a comparison with a real federated server that does accept one (Aecon's was down that night). What decides
-  it is still unknown: every document Pro reads was varied or removed, and the only ways past it are to make Pro
-  skip the check, which no real deployment can do.
+- ~~00147 is not solved~~ — **passed 2026-11-13** (§4): a routing bug that answered `canCreateService` with a folder
+  error. It had blocked every map image layer from Pro to this server, not only a reference one.
+- The desktop application still stops at 002901 before the analyzer (§4): `/arcgis/rest/info` names the root origin
+  as `owningSystemUrl`, while Pro publishes only to the portal added at `/studio` (see the Pro-publishing recipe).
+  Pointing it at `/studio` changes a field every ArcGIS client reads and `PublishFromPro` is on by default, the
+  showcase included, so it is left for the owner (Conditions, 2).
 - Everything after 00147 is now measured (§4) and nothing of it is built: the upload is only kept on dev, and the
   `PublishServiceDefinition` job is not run.
+
+## Conditions
+
+1. **The publish job is built:** `PublishServiceDefinition` on `PublishingTools` reads the uploaded `.sd`, matches
+   every connection in it by §5.1, and creates the map service (and its feature service) over the registered
+   source — or refuses with the analyzer's own words. The upload (`admin/uploads/upload`) is answered outside the dev
+   measuring tools.
+2. **The desktop application reaches the analyzer:** 002901 is removed by an owner decision on `owningSystemUrl`
+   (and `tokenServicesUrl`) for Pro publishing — **INFERRED** that `/studio` is the right value; listed for the owner.
+3. **A real publish, end to end, from the desktop application** — Share › Web Layer with *Reference registered data* —
+   draws on this server from the registered table, and a second user whose database user differs is refused (§5.1).
+4. The publisher address is set in Studio, not only through the admin API.
 
 **State.** In the catalogue: `data_source.publisher_address` (nullable text, migration 136), shared by every node.
 At runtime: nothing kept between requests; the registration check reads the catalogue each time.
@@ -141,7 +159,7 @@ At runtime: nothing kept between requests; the registration check reads the cata
 | ID | Assumption | Status |
 |---|---|---|
 | — | Pro's reference publish does not need the binary SOAP format | UNVERIFIED |
-| — | 00147 has a cause that a documented or observed answer can remove | UNVERIFIED |
+| — | 00147 has a cause that a documented or observed answer can remove | VERIFIED 2026-11-13 — the cause was this server's routing (§4) |
 
 ## 8. Dependencies
 
@@ -153,7 +171,7 @@ At runtime: nothing kept between requests; the registration check reads the cata
 
 ## 9. Revisit triggers
 
-- 00147 is passed: the status moves to `ACCEPTED WITH CONDITIONS`, with the unbuilt parts of §6 as conditions.
+- ~~00147 is passed: the status moves to `ACCEPTED WITH CONDITIONS`, with the unbuilt parts of §6 as conditions.~~ **Fired 2026-11-13.**
 - Pro is seen asking for the binary message format: §3 first point decides it, and this ADR is reopened.
 - A publisher's database name or user differs from the server's in a real deployment: Alternative C.
 
