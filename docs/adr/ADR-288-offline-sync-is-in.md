@@ -302,6 +302,16 @@ serves the same shape. None was stated by the owner.
    `VectorTileServer/tilemap?f=json` with no block, which was a 404 (measured). The root tilemap is now served — Esri's
    *Vector Tilemap* quadtree, bounded at 20,000 entries — and a VTPK carries one at `p12/tilemap/root.json`
    (`VectorTilemapIndex`). Not yet re-measured in Pro, so this condition stays open; [D-404](../architecture-debt.md) is the open row beside it.
+   *(Progress 2026-11-13.)* Two further runs. The first found the feature half failing: Pro asks `createReplica` with
+   `async=true`, and the job resolved services from the request's provider after it was disposed — Pro's
+   `ProReplicaActivityLog.dat` read *"The replica could not be written: Cannot access a disposed object"* (fixed in
+   2f2bdedb: a job runs in its own scope; an async `createReplica` on dev then completed and its file downloaded). The
+   second run, on that fix: Pro asked the root tilemap, then a `tilemap/{z}/{row}/{col}/8/8` block and one tile at each
+   level from 3 to 12, and `createReplica`, all answered 200 — and then asked nothing more, at 1:18,056 (level 15), with
+   *Preparing to take map offline* still open and the replica's file not fetched. The level-12 block names one tile and
+   the level-13 block under it none; whether Pro waits for a level it expected, or for something else, was not seen: the
+   run was stopped because the screen was in use, and Pro closed (owner, 2026-11-13). Next: the same run with nobody at
+   the screen, Pro's own log beside the server's.
 5. **Conflicts** — the same row edited on the server and offline — resolve as §5.5 says, measured on the device.
    **DISCHARGED 2026-11-12**, Field Maps 26.2.2 on the emulator against dev. Both of §5.5's cases were measured. On
    2026-11-10, a row edited on the server and on the phone kept the edit that reached the server last. On 2026-11-12, p2
