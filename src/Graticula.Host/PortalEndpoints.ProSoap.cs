@@ -69,6 +69,13 @@ internal static partial class PortalEndpoints
                 await File.ReadAllTextAsync(canned, cancellation).ConfigureAwait(false), "text/xml; charset=utf-8");
         }
 
+        // ADR-299 condition 1: the publishing job, and the polls that follow it.
+        if (context.Request.Path.StartsWithSegments("/services/System/PublishingTools", StringComparison.OrdinalIgnoreCase)
+            && await PublishingToolsAsync(context, operation, body, cancellation).ConfigureAwait(false) is { } answered)
+        {
+            return answered;
+        }
+
         if (operation == "GetMessageVersion")
         {
             return Soap(
