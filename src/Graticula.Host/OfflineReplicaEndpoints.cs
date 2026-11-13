@@ -368,7 +368,7 @@ internal static class OfflineReplicaEndpoints
         job.ReplicaId = replicaId;
         job.DownloadName = request.Name + (request.IsJson ? ".json" : ".geodatabase");
 
-        async Task WorkAsync(CancellationToken stopping)
+        async Task WorkAsync(IServiceProvider scoped, CancellationToken stopping)
         {
             job.Status = "ExportingData";
             job.Updated = jobs.Now;
@@ -376,9 +376,9 @@ internal static class OfflineReplicaEndpoints
             string file = jobs.FileFor(job, request.IsJson ? ".json" : ".geodatabase");
             IReadOnlyList<ReplicaLayer> generations = request.IsJson
                 ? await OfflinePackager.WriteJsonAsync(
-                    services, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false)
+                    scoped, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false)
                 : await OfflinePackager.WriteAsync(
-                    services, writer!, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false);
+                    scoped, writer!, plan!, replicaId, owner, serviceUrl, generation, file, stopping).ConfigureAwait(false);
             job.File = file;
 
             if (replicaId is not null)
@@ -488,7 +488,7 @@ internal static class OfflineReplicaEndpoints
         job.ReplicaId = created.Id;
         job.DownloadName = created.Name + ".json";
 
-        async Task WorkAsync(CancellationToken stopping)
+        async Task WorkAsync(IServiceProvider scoped, CancellationToken stopping)
         {
             job.Status = "ExportingData";
             job.Updated = jobs.Now;
@@ -698,7 +698,7 @@ internal static class OfflineReplicaEndpoints
         // are left out of it by GlobalID (`uploaded`).
         DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
 
-        async Task WorkAsync(CancellationToken stopping)
+        async Task WorkAsync(IServiceProvider scoped, CancellationToken stopping)
         {
             List<ReplicaLayer> advanced = [];
             List<OfflineLayerChanges> jsonChanges = [];
@@ -1665,16 +1665,16 @@ internal static class OfflineReplicaEndpoints
 
     /// <summary>Runs a job: here, answering its result, or behind a status URL.</summary>
     private static async Task RunAsync(
-        HttpContext context, ReplicaJob job, bool async, Func<CancellationToken, Task> work, CancellationToken cancellation,
+        HttpContext context, ReplicaJob job, bool async, Func<IServiceProvider, CancellationToken, Task> work, CancellationToken cancellation,
         bool embedded = false)
     {
         ReplicaJobs jobs = context.RequestServices.GetRequiredService<ReplicaJobs>();
 
-        async Task GuardedAsync(CancellationToken stopping)
+        async Task GuardedAsync(IServiceProvider scoped, CancellationToken stopping)
         {
             try
             {
-                await work(stopping).ConfigureAwait(false);
+                await work(scoped, stopping).ConfigureAwait(false);
             }
             catch (Exception e) when (e is not OperationCanceledException || !stopping.IsCancellationRequested)
             {
@@ -1692,7 +1692,7 @@ internal static class OfflineReplicaEndpoints
 
         if (!async)
         {
-            await GuardedAsync(cancellation).ConfigureAwait(false);
+            await GuardedAsync(context.RequestServices, cancellation).ConfigureAwait(false);
             int status = job.Status == "Failed" ? 500 : 200;
 
             // esriTransportTypeEmbedded: the JSON replica itself is the answer, as ArcGIS answers it.
@@ -1709,7 +1709,15 @@ internal static class OfflineReplicaEndpoints
         }
 
         CancellationToken stopping = context.RequestServices.GetService<IHostApplicationLifetime>()?.ApplicationStopping ?? CancellationToken.None;
-        _ = Task.Run(() => GuardedAsync(stopping), CancellationToken.None);
+        // The request's own services are disposed the moment its answer is sent, and the job outlives it: a job that
+        // resolved anything from them failed with "Cannot access a disposed object" (measured from ArcGIS Pro's Download
+        // Map, 2026-11-13). The job is given a scope of its own, which lives exactly as long as it does.
+        IServiceScopeFactory scopes = context.RequestServices.GetRequiredService<IServiceScopeFactory>();
+        _ = Task.Run(async () =>
+        {
+            await using AsyncServiceScope scope = scopes.CreateAsyncScope();
+            await GuardedAsync(scope.ServiceProvider, stopping).ConfigureAwait(false);
+        }, CancellationToken.None);
 
         await Results.Json(new { statusUrl = TileFaces.Origin(context) + FeatureServerPath(context) + $"/jobs/{job.Id:D}" })
             .ExecuteAsync(context).ConfigureAwait(false);
