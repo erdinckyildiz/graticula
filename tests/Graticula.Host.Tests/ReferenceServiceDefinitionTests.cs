@@ -78,6 +78,22 @@ public sealed class ReferenceServiceDefinitionTests
     }
 
     [Fact]
+    public void A_layer_Pro_copied_because_its_user_is_not_registered_says_so()
+    {
+        // Measured 2026-11-13: connected as another database user, Pro copied the rows under cd/ and named the copy.
+        using System.Text.Json.JsonDocument layer = System.Text.Json.JsonDocument.Parse(
+            """
+            {"type":"CIMFeatureLayer","name":"cities","featureTable":{"type":"CIMFeatureTable","dataConnection":
+              {"type":"CIMStandardDataConnection","workspaceConnectionString":"DATABASE=..\\cd\\gis_dev.gdb","dataset":"a_cities"}}}
+            """);
+
+        string? refusal = ReferenceServiceDefinition.LayerOf(layer.RootElement).Refusal;
+
+        Assert.Contains("copied into the service definition", refusal, StringComparison.Ordinal);
+        Assert.Contains("registered database user", refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_query_layers_own_dataset_name_is_not_a_table()
     {
         Assert.False(ReferenceServiceDefinition.TryName("gis_dev.gis.%cities", "gis_dev", out _, out _, out string? why));

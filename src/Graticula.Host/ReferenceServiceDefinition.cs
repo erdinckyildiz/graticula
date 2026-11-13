@@ -227,7 +227,16 @@ internal static partial class ReferenceServiceDefinition
         ArcGisConnection? database = ArcGisConnection.Parse(Text(connection, "workspaceConnectionString"));
         if (database is null)
         {
-            return Refused(title, isTable, $"'{title}' is not in a PostgreSQL database, so it cannot be referenced on this server.");
+            string workspace = (Text(connection, "workspaceConnectionString") ?? string.Empty).Replace('\\', '/');
+
+            // Measured 2026-11-13: when Pro finds a layer's database not registered — a different database user is
+            // enough, as Pro compares the user too — it copies the rows into the definition under cd/ even with
+            // copyDataToServer off, and the layer then names that copy.
+            return Refused(title, isTable, workspace.Contains("/cd/", StringComparison.OrdinalIgnoreCase)
+                ? $"'{title}' was copied into the service definition instead of referenced, because Pro found its database "
+                    + "not registered on this server for the user it connects as. Connect as the registered database user, "
+                    + "or share it as a web feature layer to copy the data."
+                : $"'{title}' is not in a PostgreSQL database, so it cannot be referenced on this server.");
         }
 
         switch (Text(connection, "type"))
