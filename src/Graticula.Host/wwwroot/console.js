@@ -23739,17 +23739,34 @@ function askName(asked) {
     // being cleared (`allowEmpty`) — it is accepted.
     const why = !wanted ? "" : (asked.check ? asked.check(wanted) : null);
 
-    says.textContent = why || (asked.preview ? asked.preview(wanted) : "");
+    // Written only when it changes, so the live region speaks a new sentence, not the same one on every keystroke.
+    const next = why || (asked.preview ? asked.preview(wanted) : "");
+    if (says.textContent !== next) says.textContent = next;
     says.classList.toggle("bad-inline", Boolean(why));
+    box.setAttribute("aria-invalid", why ? "true" : "false");
     done.disabled = (!wanted && !asked.allowEmpty) || Boolean(why);
   };
 
-  const shut = () => {
+  /*
+    <b>Every way out runs the same cleanup — a design review, 2026-11-13.</b> Escape closes a <dialog> natively and never
+    reached `shut`, so the listeners stayed on the shared box and button, and the next dialog's Save ran the previous
+    accept as well: a rename cancelled with Escape renamed something with the next dialog's text. The cleanup is the
+    dialog's own close event now, and it puts the focus back where the dialog was opened from — the row's ⋯ when the
+    opener was inside a menu that closed behind it, which otherwise left the focus on the page.
+  */
+  const opener = document.activeElement;
+  const back = asked.back
+    || (() => opener?.closest?.("details")?.querySelector("summary") || opener);
+
+  const cleanup = () => {
     box.removeEventListener("input", judge);
     box.removeEventListener("keydown", onKey);
     done.removeEventListener("click", accept);
-    dialog.close();
+    const target = back();
+    if (target && target.isConnected) target.focus();
   };
+
+  const shut = () => dialog.close();
 
   const accept = () => {
     const wanted = box.value.trim();
@@ -23775,7 +23792,9 @@ function askName(asked) {
 
   $("renameCancel").onclick = shut;
   $("renameClose").onclick = shut;
+  dialog.addEventListener("close", cleanup, { once: true });
 
+  says.textContent = "";
   judge();
   dialog.showModal();
   box.focus();
@@ -25831,8 +25850,9 @@ function askPublisherAddress(id, name, summary, current) {
       }
       return null;
     },
+    // Not echoing what is typed, so the sentence changes only between the two states and is spoken once each.
     preview: typed => typed
-      ? `Pro's layers on ${typed} are matched to this source when the database and the user are the same. This server keeps reading it at ${summary || "its own address"}.`
+      ? `Pro's layers at this address are matched to this source when the database and the user are the same. This server keeps reading it at ${summary || "its own address"}.`
       : `Empty: Pro is matched at this server's own address${summary ? ` (${summary})` : ""}. Set one only when Pro reaches the database somewhere else.`,
     then: async typed => {
       try {
