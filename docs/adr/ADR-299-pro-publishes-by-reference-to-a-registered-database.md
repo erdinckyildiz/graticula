@@ -105,6 +105,7 @@ read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answe
 | A second upload under the same name is refused by Pro itself (001398 *"Service name … already exists"*, from `admin/services/{name}.MapServer`); with `overwriteExistingService` Pro sends the same `PublishServiceDefinition` job, no delete first, so overwriting is the publish route's replacement of the caller's own service | arcpy, wire log | 2026-11-13 |
 | **Pro compares the database user too.** Connected to the same database as another user, Pro finds the database not registered and — with `copyDataToServer` off — copies the rows into the definition under `cd/` and points the layer at that copy; the job refuses it in those words (§5.1 holds on both sides) | staged `.sd`, job messages | 2026-11-13 |
 | **The desktop application publishes.** With `owningSystemUrl` naming `/studio` for Pro (§5.6), ArcGIS Pro 3.7 itself — a notebook in the open project, its active portal `…/studio/` — staged and published the reference layer as `ProRef_Desktop`; 002901 is gone. The *Share › Web Layer* pane was not clicked through: the Windows session was locked, so mouse and keyboard input could not reach Pro (UI Automation could, which is how the notebook was driven) | in-Pro output | 2026-11-13 |
+| **Pro's symbology is carried.** A reference definition has no `servicedescriptions/` (no feature access), so the `drawingInfo` a copied publish reads (ADR-191 §5.7) is not there; each layer's CIM `renderer` in the `.mapx` is. Stored as written and read with `SymbologyConversion.Read`, Pro's default point symbol converts with no loss, and a single symbol set in arcpy to red, 9 pt comes back from `MapServer/0` as `esriSMS` circle `[200,30,30,255]`, size 9, and draws red. Unique-value and class-breaks renderers were not published end to end — the local table has no attribute column to classify on — and rest on the CIM converter's own tests | arcpy, REST answers, export PNG | 2026-11-13 |
 | Esri: 00147 is also raised when Pro cannot reach the server's administration URL | [KB 000018287](https://support.esri.com/en-us/knowledge-base/problem-error-00147-when-the-server-role-is-authorized-000018287) | public |
 
 ## 5. Decision
@@ -130,7 +131,9 @@ and only the calls that have been seen asked. Anything else is recorded (dev onl
    handler in-process — so every privilege, address rule, replacement rule and audit line of a Studio publish applies.
    A query layer is accepted only as a plain `select <columns|*> from [db.]schema.table`; the columns it leaves out are
    hidden through the field-override route. A filter, a join, an expression, a definition query, a raster layer or a
-   layer Pro copied are refused, each in its own words. Group layers are flattened.
+   layer Pro copied are refused, each in its own words. Group layers are flattened. Each layer's CIM `renderer` is
+   stored as its symbology (ADR-052); what the conversion cannot carry is a job warning, and a renderer it cannot read
+   leaves the generated appearance with a warning (2026-11-13). Labels are not carried: this server draws none.
 6. **`owningSystemUrl` names `/studio` for ArcGIS Pro only** (2026-11-13), and its `tokenServicesUrl` the portal's
    `generateToken` under it; every other client is answered as before. Chosen by the name Pro gives in every request
    (`ArcGIS Pro 3.7.0 (…) - ArcGISPro`). **INFERRED** from the owner's *"kalan işleri de tamamla"* ("finish the
@@ -152,9 +155,9 @@ registered data* becomes a service over the registered table, made by the same r
   error. It had blocked every map image layer from Pro to this server, not only a reference one.
 - `/arcgis/rest/info` answers differently by caller (§5.6): a Pro user who added the *root* portal — which cannot
   publish anyway (Esri 000031246) — is told the server is `/studio`'s. **INFERRED** acceptable; listed for the owner.
-- A map image layer is published here as this server's composition, so Pro's map symbology is not carried (the
-  service draws with the generated appearance, as a Studio publish without one does), and the only map image layer
-  Pro can share is a reference one: a layer Pro copied is refused rather than imported.
+- A map image layer is published here as this server's composition: ~~Pro's map symbology is not carried~~ — **carried
+  2026-11-13** (§5.5), each layer's CIM renderer, with losses reported to Pro — but its labels are not, and the only
+  map image layer Pro can share is a reference one: a layer Pro copied is refused rather than imported.
 - Uploads and finished jobs are held in memory on the node that took them (see *State*); a node restarted between
   Pro's upload and its polls loses the job, and Pro reports the publish failed, which it was.
 
