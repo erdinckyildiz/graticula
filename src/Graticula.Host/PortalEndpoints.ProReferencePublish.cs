@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
@@ -299,7 +300,7 @@ internal static partial class PortalEndpoints
     }
 
     /// <summary>One layer of the composition and what Pro's query left out of it.</summary>
-    private sealed record PlannedLayer(PublishRequest Request, string Title, IReadOnlyList<string>? Columns);
+    private sealed record PlannedLayer(PublishRequest Request, string Title, IReadOnlyList<string>? Columns, string? Renderer);
 
     /// <summary>The composition, or why it cannot be made.</summary>
     private sealed record ReferencePlan(IReadOnlyList<PlannedLayer> Layers, IReadOnlyList<string> Refusals, int Sources);
@@ -426,13 +427,16 @@ internal static partial class PortalEndpoints
                     name, found.Source.Id, t.SchemaName, t.TableName, t.GeometryColumn, identity, identity, t.Srid,
                     t.GeometryColumn is null ? null : t.GeometryType, "private"),
                 layer.Title,
-                layer.Columns));
+                layer.Columns,
+                layer.Renderer));
         }
 
         return new ReferencePlan(layers, refusals, layers.Select(l => l.Request.DataSourceId).Distinct().Count());
     }
 
-    /// <summary>Gives each new layer Pro's title and hides the columns Pro's query did not select.</summary>
+    /// <summary>
+    /// Gives each new layer Pro's title and Pro's drawing, and hides the columns Pro's query did not select.
+    /// </summary>
     private static async Task FinishAsync(
         HttpContext context, Guid serviceId, string qualified, ReferenceDefinition definition, ReferencePlan plan,
         List<(string, string)> messages, CancellationToken cancellation)
@@ -440,6 +444,7 @@ internal static partial class PortalEndpoints
         IAdminCatalog catalog = context.RequestServices.GetRequiredService<IAdminCatalog>();
         PostgresLayerCatalog layerCatalog = context.RequestServices.GetRequiredService<PostgresLayerCatalog>();
         ServiceContexts contexts = context.RequestServices.GetRequiredService<ServiceContexts>();
+        ThumbnailWarmer warmer = context.RequestServices.GetRequiredService<ThumbnailWarmer>();
 
         List<PublishedLayer> fresh = [.. (await layerCatalog.ListAsync(cancellation).ConfigureAwait(false)).Where(l => l.ServiceId == serviceId)];
         List<(PublishedLayer, string)> named = [];
@@ -452,6 +457,7 @@ internal static partial class PortalEndpoints
             }
 
             named.Add((layer, planned.Title));
+            await ApplyRendererAsync(layer, planned, catalog, warmer, messages, cancellation).ConfigureAwait(false);
 
             if (planned.Columns is not { } chosen)
             {
@@ -481,6 +487,38 @@ internal static partial class PortalEndpoints
 
         await NameLayersAsync(named, catalog, contexts, cancellation).ConfigureAwait(false);
         await ApplyDetailsAsync(definition.Item, definition.ServiceName, catalog, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stores the CIM renderer Pro drew a layer with as the layer's symbology — the document this server keeps
+    /// (ADR-052), read as a Studio paste is. What the conversion could not carry is told to Pro's user as a warning,
+    /// and a renderer it cannot read leaves the generated appearance with a warning: the data is what was asked for,
+    /// and a layer drawn plainly is not a failed share (as ADR-191 §5.7 decides for a copied one).
+    /// </summary>
+    private static async Task ApplyRendererAsync(
+        PublishedLayer layer, PlannedLayer planned, IAdminCatalog catalog, ThumbnailWarmer warmer,
+        List<(string, string)> messages, CancellationToken cancellation)
+    {
+        if (planned.Renderer is not { } renderer || layer.GeometryType is not { } geometryType)
+        {
+            return;
+        }
+
+        try
+        {
+            SymbologyWrite written = SymbologyConversion.Read(renderer, geometryType);
+            await catalog.SetSymbologyAsync(layer.Id, written.Canonical, cancellation).ConfigureAwait(false);
+            warmer.Redraw(layer.Id);
+
+            foreach (string loss in written.Losses)
+            {
+                messages.Add(("esriJobMessageTypeWarning", $"'{planned.Title}': {loss}"));
+            }
+        }
+        catch (SymbologyException e)
+        {
+            messages.Add(("esriJobMessageTypeWarning", $"'{planned.Title}' is drawn with this server's generated appearance: {e.Message}"));
+        }
     }
 
     /// <summary>The message of an error body the admin routes write, or null.</summary>

@@ -29,9 +29,13 @@ internal sealed record ReferenceDefinition(
 /// <param name="ObjectIdField">The column Pro uses as the object id, or null.</param>
 /// <param name="IsTable">True for a standalone table: rows without a shape.</param>
 /// <param name="Refusal">Why this layer cannot be served from its database, in words for Pro's user; null when it can.</param>
+/// <param name="Renderer">
+/// The layer's CIM renderer as Pro drew it, as JSON text, or null for a table or a layer without one. CIM is what this
+/// server stores (ADR-052), so it is kept as written and read by <c>SymbologyConversion.Read</c> after the publish.
+/// </param>
 internal sealed record ReferenceLayer(
     string Title, ArcGisConnection? Connection, string? Schema, string? Table, IReadOnlyList<string>? Columns,
-    string? ObjectIdField, bool IsTable, string? Refusal);
+    string? ObjectIdField, bool IsTable, string? Refusal, string? Renderer = null);
 
 /// <summary>
 /// Reads the service definition ArcGIS Pro uploads when it shares a map image layer with <i>Reference registered
@@ -248,7 +252,8 @@ internal static partial class ReferenceServiceDefinition
                     return Refused(title, isTable, $"'{title}': {why}", database);
                 }
 
-                return new ReferenceLayer(title, database, schema, name, columns, FirstOf(Text(connection, "oIDFields")), isTable, null);
+                return new ReferenceLayer(
+                    title, database, schema, name, columns, FirstOf(Text(connection, "oIDFields")), isTable, null, RendererOf(layer, isTable));
 
             case "CIMStandardDataConnection" or "CIMFeatureDatasetDataConnection":
                 if (!TryName(Text(connection, "dataset"), database.Database, out schema, out name, out why))
@@ -256,12 +261,21 @@ internal static partial class ReferenceServiceDefinition
                     return Refused(title, isTable, $"'{title}': {why}", database);
                 }
 
-                return new ReferenceLayer(title, database, schema, name, null, null, isTable, null);
+                return new ReferenceLayer(title, database, schema, name, null, null, isTable, null, RendererOf(layer, isTable));
 
             default:
                 return Refused(title, isTable, $"'{title}' reads its data through a {Text(connection, "type")}, which is not published by reference here.", database);
         }
     }
+
+    /// <summary>
+    /// A feature layer's <c>renderer</c> — the CIM object Pro drew it with — as JSON text; null for a table, which
+    /// draws nothing, and for a layer that names no renderer object.
+    /// </summary>
+    internal static string? RendererOf(JsonElement layer, bool isTable) =>
+        !isTable && layer.TryGetProperty("renderer", out JsonElement renderer) && renderer.ValueKind == JsonValueKind.Object
+            ? renderer.GetRawText()
+            : null;
 
     /// <summary>
     /// Reads <c>select col, … from [database.]schema.table</c> — or <c>select *</c> — and nothing more elaborate.
