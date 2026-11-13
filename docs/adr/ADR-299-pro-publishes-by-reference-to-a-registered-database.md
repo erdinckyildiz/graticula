@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-11-10, **by owner decision**: *"yap"* ("do it"), after asking whether Pro could publish with *Reference registered data* when Pro and the server use the same database with the same user. **2026-11-12**, by owner decision, the database user must match as well: *"veritabanı kullanıcısı ise çalışmaması lazım"* ("if it is the database user, it must not work [when it differs]"). **2026-11-13**, `REQUIRES PROTOTYPE` → `ACCEPTED WITH CONDITIONS` by this ADR's own first revisit trigger (§9), which named the move in advance: 00147 was passed. Not a new owner decision. |
+| **Decided** | 2026-11-10, **by owner decision**: *"yap"* ("do it"), after asking whether Pro could publish with *Reference registered data* when Pro and the server use the same database with the same user. **2026-11-12**, by owner decision, the database user must match as well: *"veritabanı kullanıcısı ise çalışmaması lazım"* ("if it is the database user, it must not work [when it differs]"). **2026-11-13**, `REQUIRES PROTOTYPE` → `ACCEPTED WITH CONDITIONS` by this ADR's own first revisit trigger (§9), which named the move in advance: 00147 was passed. Not a new owner decision. **2026-11-13**, the remaining work built (§5.5, §5.6) after the owner's *"kalan işleri de tamamla"*; §5.6 is **INFERRED** from it. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -99,6 +99,12 @@ read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answe
 | **Correction to the knock-out row above:** knocking `canCreateService` out replaced one error body with another, so it could not show anything; the row's conclusion for that call was wrong. The three gating portal documents (row after it) are the ones without which Pro does not reach the `canCreateService` reading at all | this ADR | 2026-11-13 |
 | **How it was found: a real federated server that accepts the layer.** A production ArcGIS Enterprise 12.1 the owner has access to, read-only, at the owner's instruction that night (*"… üzerinden yap"*, "do it through …"): its admin documents, `rest/info`, SOAP `GetMessageVersion`/`GetMessageFormats`, the `PublishingTools` fonts job and its portal's documents were read, and the same file-geodatabase layer was **staged only** against it (no upload, no service) — it stages. Then each of its answers was served from dev in Pro's place (hosts rewritten, licence identifiers, people's details and the organisation's name removed): with every admin document from it, Pro's draft switches the map service's `provider` from `ArcObjects11` to `DMaps` (the shared-instance pool) but 00147 stays; with every portal document and the real fonts list too, 00147 stays; the remaining difference, the one dev never answered as written, was `canCreateService` | stage results, sddraft diff, wire log | 2026-11-13 |
 | Pro's web requests for sharing are not made through .NET: an EventPipe trace of `System.Net.Http` on the desktop application while it stages carries no request at all, so a managed trace cannot show what Pro asks a server; the wire log on dev remains the instrument | trace | 2026-11-13 |
+| **The publish, built and run end to end, 2026-11-13.** With the upload kept and the `PublishServiceDefinition` job answered (§5.5), arcpy's `UploadServiceDefinition` of the by-reference query layer succeeds: the job's own messages say *"Published ProRef_Dev by reference to 1 registered database"*, and the service draws (`export` 200 PNG), queries (20 rows from the registered table on the server, not the publisher's copy) and lists the one column Pro's query selected besides the geometry — the other two are hidden | arcpy messages, REST answers | 2026-11-13 |
+| Pro asks the job's result by name: `GetJobResult` with `ParameterNames` `out_soap_svc_url` and `out_rest_svc_url`. Answered with the service's two addresses, `UploadServiceDefinition` reports them as its first two outputs and fills a third with the layer list (`cities\|0`) it read from the service itself; its item-id outputs stay empty | recorded envelope, arcpy outputs | 2026-11-13 |
+| Before the publish job Pro submits `AvailableFonts` on the same GP service; the SOAP fault it gets is tolerated (the draft stages and the publish runs) | recorded envelope | 2026-11-13 |
+| A second upload under the same name is refused by Pro itself (001398 *"Service name … already exists"*, from `admin/services/{name}.MapServer`); with `overwriteExistingService` Pro sends the same `PublishServiceDefinition` job, no delete first, so overwriting is the publish route's replacement of the caller's own service | arcpy, wire log | 2026-11-13 |
+| **Pro compares the database user too.** Connected to the same database as another user, Pro finds the database not registered and — with `copyDataToServer` off — copies the rows into the definition under `cd/` and points the layer at that copy; the job refuses it in those words (§5.1 holds on both sides) | staged `.sd`, job messages | 2026-11-13 |
+| **The desktop application publishes.** With `owningSystemUrl` naming `/studio` for Pro (§5.6), ArcGIS Pro 3.7 itself — a notebook in the open project, its active portal `…/studio/` — staged and published the reference layer as `ProRef_Desktop`; 002901 is gone. The *Share › Web Layer* pane was not clicked through: the Windows session was locked, so mouse and keyboard input could not reach Pro (UI Automation could, which is how the notebook was driven) | in-Pro output | 2026-11-13 |
 | Esri: 00147 is also raised when Pro cannot reach the server's administration URL | [KB 000018287](https://support.esri.com/en-us/knowledge-base/problem-error-00147-when-the-server-role-is-authorized-000018287) | public |
 
 ## 5. Decision
@@ -117,40 +123,64 @@ and only the calls that have been seen asked. Anything else is recorded (dev onl
 3. **SOAP only.** `GetMessageVersion` and `GetMessageFormats` are answered; the format is SOAP (§3).
 4. **The portal's own answers follow a real portal's**: the server's `adminUrl` is its base, `subscriptionInfo` has
    `orgCapabilities: []`, and the default organisation also answers to the id it had before ADR-216.
+5. **The publish is `POST /admin/publish`, run as the caller** (2026-11-13). `admin/uploads/upload` keeps the `.sd` for
+   an hour on the node that took it, answered only to its uploader. `PublishServiceDefinition` reads the definition's
+   CIM map (the `.mapx`; the binary `.msd` and the manifest's encrypted passwords are never opened), matches every
+   layer by §5.1, finds its table with the source's own probe, and hands the composition to the publish route's own
+   handler in-process — so every privilege, address rule, replacement rule and audit line of a Studio publish applies.
+   A query layer is accepted only as a plain `select <columns|*> from [db.]schema.table`; the columns it leaves out are
+   hidden through the field-override route. A filter, a join, an expression, a definition query, a raster layer or a
+   layer Pro copied are refused, each in its own words. Group layers are flattened.
+6. **`owningSystemUrl` names `/studio` for ArcGIS Pro only** (2026-11-13), and its `tokenServicesUrl` the portal's
+   `generateToken` under it; every other client is answered as before. Chosen by the name Pro gives in every request
+   (`ArcGIS Pro 3.7.0 (…) - ArcGISPro`). **INFERRED** from the owner's *"kalan işleri de tamamla"* ("finish the
+   remaining work too"), given in answer to the question whether to make this change; the Pro-only scope is this
+   ADR's, so that Field Maps and the SDKs, which sign in at the root, see nothing change. Listed for the owner under [Q-228](../open-questions.md), which asks the same question for every client.
 
 ## 6. Consequences
 
 **Positive.** Pro gets through the connection and the registration check (00003 and 00290 are gone); a registered
-database is offered to Pro with no password in the listing.
+database is offered to Pro with no password in the listing; and a map image layer shared from Pro with *Reference
+registered data* becomes a service over the registered table, made by the same route and rules as a Studio publish.
 
 **Negative.**
 - `/arcgis/rest/info` advertises a `soapUrl` whenever publishing from Pro is on, which is the default — the showcase
   included. **INFERRED** that this is acceptable; listed for the owner.
-- Not built: reading the reference `.sd`, matching it, creating the service, the upload and publish calls, the
-  publisher address in the Studio UI.
+- ~~Not built: reading the reference `.sd`, matching it, creating the service, the upload and publish calls, the
+  publisher address in the Studio UI.~~ **Built 2026-11-13** (§5.5, §5.6, Conditions).
 - ~~00147 is not solved~~ — **passed 2026-11-13** (§4): a routing bug that answered `canCreateService` with a folder
   error. It had blocked every map image layer from Pro to this server, not only a reference one.
-- The desktop application still stops at 002901 before the analyzer (§4): `/arcgis/rest/info` names the root origin
-  as `owningSystemUrl`, while Pro publishes only to the portal added at `/studio` (see the Pro-publishing recipe).
-  Pointing it at `/studio` changes a field every ArcGIS client reads and `PublishFromPro` is on by default, the
-  showcase included, so it is left for the owner (Conditions, 2).
-- Everything after 00147 is now measured (§4) and nothing of it is built: the upload is only kept on dev, and the
-  `PublishServiceDefinition` job is not run.
+- `/arcgis/rest/info` answers differently by caller (§5.6): a Pro user who added the *root* portal — which cannot
+  publish anyway (Esri 000031246) — is told the server is `/studio`'s. **INFERRED** acceptable; listed for the owner.
+- A map image layer is published here as this server's composition, so Pro's map symbology is not carried (the
+  service draws with the generated appearance, as a Studio publish without one does), and the only map image layer
+  Pro can share is a reference one: a layer Pro copied is refused rather than imported.
+- Uploads and finished jobs are held in memory on the node that took them (see *State*); a node restarted between
+  Pro's upload and its polls loses the job, and Pro reports the publish failed, which it was.
 
 ## Conditions
 
 1. **The publish job is built:** `PublishServiceDefinition` on `PublishingTools` reads the uploaded `.sd`, matches
    every connection in it by §5.1, and creates the map service (and its feature service) over the registered
    source — or refuses with the analyzer's own words. The upload (`admin/uploads/upload`) is answered outside the dev
-   measuring tools.
+   measuring tools. **DISCHARGED 2026-11-13** — §5.5; measured end to end (§4), tests in
+   `ReferenceServiceDefinitionTests`.
 2. **The desktop application reaches the analyzer:** 002901 is removed by an owner decision on `owningSystemUrl`
    (and `tokenServicesUrl`) for Pro publishing — **INFERRED** that `/studio` is the right value; listed for the owner.
+   **DISCHARGED 2026-11-13** — §5.6, Pro only; the desktop application staged and published (§4). The decision is
+   INFERRED and stays listed for the owner.
 3. **A real publish, end to end, from the desktop application** — Share › Web Layer with *Reference registered data* —
    draws on this server from the registered table, and a second user whose database user differs is refused (§5.1).
-4. The publisher address is set in Studio, not only through the admin API.
+   **PARTLY DISCHARGED 2026-11-13:** the desktop application published the reference layer and it draws from the
+   registered table, and another database user is refused (§4) — but from a notebook inside Pro and from arcpy, not by
+   clicking the *Share › Web Layer* pane, because the session was locked. What remains is that pane, once, by hand.
+4. The publisher address is set in Studio, not only through the admin API. **DISCHARGED 2026-11-13** — Server › Data
+   sources › ⋯ › *Publisher address…*, and the row says where Pro reaches the database.
 
 **State.** In the catalogue: `data_source.publisher_address` (nullable text, migration 136), shared by every node.
-At runtime: nothing kept between requests; the registration check reads the catalogue each time.
+At runtime, per node and for an hour at most: an uploaded `.sd` on the node's temporary disk, and a finished
+publishing job's outcome in memory, each under a random id and answered only to the member who made it. The
+registration check reads the catalogue each time.
 
 **Ports created.** None.
 
@@ -158,7 +188,7 @@ At runtime: nothing kept between requests; the registration check reads the cata
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Pro's reference publish does not need the binary SOAP format | UNVERIFIED |
+| — | Pro's reference publish does not need the binary SOAP format | VERIFIED 2026-11-13 — the upload, the job and its polls ran in SOAP (§4) |
 | — | 00147 has a cause that a documented or observed answer can remove | VERIFIED 2026-11-13 — the cause was this server's routing (§4) |
 
 ## 8. Dependencies
