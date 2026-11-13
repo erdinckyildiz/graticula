@@ -199,6 +199,15 @@ public sealed class AnonymousGrantsAreHeldWhileHeardTests
         Assert.Equal(answers, InvalidToken.Applies(new PathString(path)));
     }
 
+    [Theory]
+    [InlineData("HEAD", false)]
+    [InlineData("GET", true)]
+    [InlineData("POST", true)]
+    public void A_HEAD_with_a_rejected_token_is_not_answered_498_as_Enterprise_does_not(string method, bool answers)
+    {
+        Assert.Equal(answers, InvalidToken.Applies(method, new PathString("/sharing/rest")));
+    }
+
     private static DefaultHttpContext Context()
     {
         Dictionary<string, string?> values = new()
