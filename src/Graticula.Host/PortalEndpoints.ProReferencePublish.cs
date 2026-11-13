@@ -51,7 +51,17 @@ internal static partial class PortalEndpoints
 {
     private static readonly TimeSpan HeldFor = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// The most uploads, and the most finished jobs, a node holds at once. Pro uploads one definition per publish and
+    /// polls its job within seconds, so this is far above any real use; it is what keeps the two dictionaries bounded by
+    /// something other than time (the architecture test's rule, Q-64).
+    /// </summary>
+    internal const int MostHeld = 256;
+
     private static readonly string[] NoFile = ["The upload carried no file."];
+
+    private static readonly string[] TooManyUploads =
+        ["This server is holding as many unpublished uploads as it keeps; publish or wait an hour, then share again."];
 
     private static readonly ConcurrentDictionary<string, ProUpload> ProUploads = new(StringComparer.Ordinal);
 
@@ -77,6 +87,11 @@ internal static partial class PortalEndpoints
         }
 
         Forget();
+        if (ProUploads.Count >= MostHeld)
+        {
+            return Results.Json(new { status = "error", messages = TooManyUploads, code = 503 });
+        }
+
         string itemId = "i" + Guid.NewGuid().ToString("N");
         string itemName = System.IO.Path.GetFileName(file.FileName) is { Length: > 0 } n ? n : "upload.sd";
 
@@ -139,6 +154,13 @@ internal static partial class PortalEndpoints
                 ProJob job = await PublishServiceDefinitionAsync(context, values.Count > 0 ? values[0] : null, cancellation)
                     .ConfigureAwait(false);
                 string id = "j" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16));
+                // The oldest finished job goes first when the node holds as many as it keeps.
+                while (ProJobs.Count >= MostHeld
+                    && ProJobs.MinBy(j => j.Value.At) is { Key: { } oldest })
+                {
+                    ProJobs.TryRemove(oldest, out _);
+                }
+
                 ProJobs[id] = job;
                 return Soap($"<tns:SubmitJobResponse><Result>{id}</Result></tns:SubmitJobResponse>");
 
