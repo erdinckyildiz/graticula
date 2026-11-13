@@ -14,6 +14,10 @@ namespace Graticula.Features;
 /// <param name="DeclaredContentType">What the uploader claimed. Kept, never trusted.</param>
 /// <param name="Size">How many bytes.</param>
 /// <param name="UploadedAt">When.</param>
+/// <param name="GlobalId">
+/// The GlobalID this attachment was stored with — ADR-290 — or null for one that was stored without: a replica calls such
+/// an attachment by a GlobalID derived from the layer and its id. Null for a store that keeps none.
+/// </param>
 public readonly record struct AttachmentInfo(
     int Id,
     long FeatureId,
@@ -21,7 +25,8 @@ public readonly record struct AttachmentInfo(
     string ContentType,
     string? DeclaredContentType,
     long Size,
-    DateTimeOffset UploadedAt);
+    DateTimeOffset UploadedAt,
+    Guid? GlobalId = null);
 
 /// <summary>How much of a layer's attachment quota is gone.</summary>
 /// <param name="Used">Bytes stored.</param>

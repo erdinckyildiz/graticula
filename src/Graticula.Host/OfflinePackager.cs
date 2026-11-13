@@ -129,6 +129,48 @@ internal static class OfflinePackager
             : (new PackagePlan(service, request, serviceDocument, planned, wkts!), null);
     }
 
+    /// <summary>
+    /// Makes each layer's attachment store keep GlobalIDs and a record of changes (ADR-290) — <b>before</b> the generation a
+    /// replica starts from is taken, so the record begins before it and its first sync can be vouched for.
+    /// </summary>
+    /// <param name="services">The services.</param>
+    /// <param name="layers">The layers a replica is taken of.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <b>A store that cannot be prepared does not stop the replica.</b> A role that may not alter the table leaves the
+    /// record unbegun, which the first download says by sending no attachment changes — what it did before ADR-290 — and
+    /// the copy itself is unaffected.
+    /// </remarks>
+    public static async Task PrepareAttachmentsAsync(
+        IServiceProvider services, IEnumerable<PublishedLayer> layers, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(layers);
+
+        LayerConnections connections = services.GetRequiredService<LayerConnections>();
+
+        foreach (PublishedLayer layer in layers)
+        {
+            if (!layer.KeepsAttachments)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (connections.AttachmentsFor(layer) is IAttachmentSync sync)
+                {
+                    await sync.PrepareAsync(cancellation).ConfigureAwait(false);
+                }
+            }
+            catch (Exception e) when (StoreOutage.Is(e) || e is InvalidOperationException or QueryNotSupportedException)
+            {
+                // Said by the first download as the absence of attachment changes; see the remarks.
+            }
+        }
+    }
+
     /// <summary>The WKT of each reference, from the datastore's own definitions; the refusal when one is unknown.</summary>
     /// <param name="services">The services.</param>
     /// <param name="wkids">The references.</param>

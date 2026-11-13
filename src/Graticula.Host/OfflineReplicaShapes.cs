@@ -10,6 +10,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using Graticula.Api.ArcGis;
 using Graticula.Api.ArcGis.Offline;
+using Graticula.Features;
 using Graticula.Geometries;
 using Graticula.Platform.Catalog;
 
@@ -559,6 +560,115 @@ internal static class OfflineReplicaShapes
         bytes[7] = (byte)((bytes[7] & 0x0F) | 0x50);
         bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
         return new Guid(bytes);
+    }
+
+    /// <summary>
+    /// The GlobalID a replica calls an attachment by: the one it was stored with, or — for one stored without — the one
+    /// derived from its id (ADR-290).
+    /// </summary>
+    /// <param name="layerId">The layer's catalogue id.</param>
+    /// <param name="attachmentId">The attachment.</param>
+    /// <param name="kept">The GlobalID it was stored with, or null.</param>
+    /// <returns>The GlobalID.</returns>
+    public static Guid AttachmentGlobalId(Guid layerId, long attachmentId, Guid? kept) =>
+        kept ?? AttachmentGlobalId(layerId, attachmentId);
+
+    /// <summary>
+    /// The attachment a device's update or delete names, or null when none is its own — ADR-290.
+    /// </summary>
+    /// <param name="layerId">The layer's catalogue id.</param>
+    /// <param name="attachmentId">The id the device sent.</param>
+    /// <param name="globalId">The GlobalID the device sent.</param>
+    /// <param name="byKept">The attachments stored under the GlobalIDs the device named, by GlobalID.</param>
+    /// <param name="existing">The attachments stored under the ids the device named: each id, and the GlobalID it was stored with.</param>
+    /// <returns>The attachment's id on this server, or null.</returns>
+    /// <remarks>
+    /// <b>A kept GlobalID names the attachment, whatever id the device holds</b> — an attachment the device made has an id
+    /// of the device's own and another here. <b>One stored without a GlobalID is named only by its derived one together with
+    /// its own id</b>, so a device cannot reach an attachment by counting.
+    /// </remarks>
+    public static int? ResolveAttachment(
+        Guid layerId, long attachmentId, Guid globalId, IReadOnlyDictionary<Guid, int> byKept, IReadOnlyDictionary<int, Guid?> existing)
+    {
+        ArgumentNullException.ThrowIfNull(byKept);
+        ArgumentNullException.ThrowIfNull(existing);
+
+        if (byKept.TryGetValue(globalId, out int id))
+        {
+            return id;
+        }
+
+        return attachmentId is >= 1 and <= int.MaxValue
+            && existing.TryGetValue((int)attachmentId, out Guid? kept)
+            && kept is null
+            && AttachmentGlobalId(layerId, attachmentId) == globalId
+            ? (int)attachmentId
+            : null;
+    }
+
+    /// <summary>Which attachment changes a download sends, split by kind, each with the GlobalID the replica knows it by.</summary>
+    /// <param name="Inserts">Attachments the replica does not hold yet.</param>
+    /// <param name="Updates">Attachments it holds and the server changed.</param>
+    /// <param name="Deletes">Attachments it holds and the server removed.</param>
+    public sealed record AttachmentSelection(
+        IReadOnlyList<(AttachmentChange Change, Guid GlobalId)> Inserts,
+        IReadOnlyList<(AttachmentChange Change, Guid GlobalId)> Updates,
+        IReadOnlyList<(AttachmentChange Change, Guid GlobalId)> Deletes);
+
+    /// <summary>
+    /// The attachment changes of a download — ADR-290: those a change record vouches for, of the features the replica holds
+    /// after the sync, and not the ones the same sync's upload made.
+    /// </summary>
+    /// <param name="layerId">The layer's catalogue id.</param>
+    /// <param name="changes">The net changes between the replica's generation and the download's.</param>
+    /// <param name="inReplica">The features the replica holds once this download is applied, by object id.</param>
+    /// <param name="newToReplica">The features this download adds to the replica, whose attachments are all sent anyway.</param>
+    /// <param name="own">The GlobalIDs the upload named.</param>
+    /// <returns>The changes to send.</returns>
+    /// <remarks>
+    /// <b>A feature the replica loses takes its attachments with it</b> — a geodatabase's attachment relationship is
+    /// composite — so an attachment's delete is sent only where its feature stays; a feature the download adds is sent
+    /// with every attachment it has now, so the log's entries for it are left out rather than sent twice.
+    /// </remarks>
+    public static AttachmentSelection SelectAttachments(
+        Guid layerId,
+        IReadOnlyList<AttachmentChange> changes,
+        IReadOnlySet<long> inReplica,
+        IReadOnlySet<long> newToReplica,
+        IReadOnlySet<Guid> own)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+        ArgumentNullException.ThrowIfNull(inReplica);
+        ArgumentNullException.ThrowIfNull(newToReplica);
+        ArgumentNullException.ThrowIfNull(own);
+
+        List<(AttachmentChange, Guid)> inserts = [];
+        List<(AttachmentChange, Guid)> updates = [];
+        List<(AttachmentChange, Guid)> deletes = [];
+
+        foreach (AttachmentChange change in changes)
+        {
+            if (!inReplica.Contains(change.FeatureId) || newToReplica.Contains(change.FeatureId))
+            {
+                continue;
+            }
+
+            Guid globalId = AttachmentGlobalId(layerId, change.AttachmentId, change.GlobalId);
+
+            if (own.Contains(globalId))
+            {
+                continue;
+            }
+
+            (change.Kind switch
+            {
+                AttachmentChangeKind.Insert => inserts,
+                AttachmentChangeKind.Update => updates,
+                _ => deletes,
+            }).Add((change, globalId));
+        }
+
+        return new AttachmentSelection(inserts, updates, deletes);
     }
 
     private static Guid? GlobalIdOf(OfflineRow row, int at) => row.Values[at] switch

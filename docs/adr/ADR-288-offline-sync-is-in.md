@@ -110,8 +110,8 @@ because they reuse every part of it.
    which serves the bytes to whoever may read the layer, where ArcGIS writes the bytes into its job directory; and
    `transportType=esriTransportTypeEmbedded` answers the JSON in the response when the request is not `async` and is
    refused by name when it is. `synchronizeReplica` with `dataFormat=json` is a download of `edits` per layer
-   (`features {adds, updates, deleteIds}`, `attachments` empty — the server's own attachment changes do not travel,
-   in either format, [D-399](../architecture-debt.md)); `deleteIds` are object ids (`INFERRED`). An upload as JSON
+   (`features {adds, updates, deleteIds}`, `attachments` empty — the server's own attachment changes do not travel in this format,
+   [D-409](../architecture-debt.md); **in the mobile geodatabase download they do, since 2026-11-13: [ADR-290](ADR-290-attachments-keep-their-globalid-and-their-changes-are-recorded.md) — attachment inserts, updates and deletes read from the database's own record of changes, and an attachment keeps the GlobalID a device gave it**); `deleteIds` are object ids (`INFERRED`). An upload as JSON
    (`edits` or `editsUploadFormat=json`) is refused by name ([D-409](../architecture-debt.md)).
 5. **Conflicts: the last edit to reach the server wins**, per row, as ArcGIS's hosted services resolve them
    *(INFERRED — §11.3)*. A row deleted on the server and edited offline stays deleted.
@@ -139,7 +139,7 @@ because they reuse every part of it.
 > as it was at its generation (`historicMoment`); a download is the layer at the old and the new generation compared;
 > an upload goes through the service's own `applyEdits` with `useGlobalIds=true`, the last edit winning and a server
 > delete standing (§5.5). §5.9's refusal of true curves and of several geometry columns is **not** built: nothing here
-> can detect a curve yet. What is left owing is D-399 (attachment changes are not downloaded), D-400 (replica jobs
+> can detect a curve yet. What is left owing is ~~D-399 (attachment changes are not downloaded)~~ (built 2026-11-13, [ADR-290](ADR-290-attachments-keep-their-globalid-and-their-changes-are-recorded.md); its device measurement is owing), D-400 (replica jobs
 > live in one process) and D-401 (a generation is a moment; an upload-only sync is echoed).
 
 ## 6. Consequences
@@ -264,7 +264,7 @@ serves the same shape. None was stated by the owner.
    `synchronizeReplica` → `jobs` → `replicafiles`. The offline point reached the server with its GlobalID and position, and
    a point added on the server meanwhile appeared on the phone with its attributes. **Measured the same afternoon:** a basemap — a Graticula vector tile service, exported to a 7.8 MB VTPK once D-403 was
    repaired — and a photo taken offline, which reached the server as `Photo 1.jpg` (45 KB, `image/jpeg`) on the collected
-   row. **Open:** an attachment added on the server after the area was taken does not reach the phone (D-399); the offline point's Z arrived as 5 because it was collected before the emulator was given an
+   row. **Open:** ~~an attachment added on the server after the area was taken does not reach the phone (D-399)~~ — built 2026-11-13 (ADR-290: attachment inserts, updates and deletes in the download, and a GlobalID the device gave kept); **not yet seen on the emulator** (ADR-290 §12.1); the offline point's Z arrived as 5 because it was collected before the emulator was given an
    altitude; points collected after `geo fix … 15` arrived with Z 15. Two things had to
    change for Field Maps to offer the area at all: the listing it reads carried no `Offline` (D-392, closed), and a map
    item said no `itemControl`; with both, the option appeared after a fresh sign-in.

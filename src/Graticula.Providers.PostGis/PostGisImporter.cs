@@ -681,6 +681,10 @@ public sealed partial class PostGisImporter
             $"drop function if exists {Qualified(tableName + PostGisFeatureHistory.FunctionSuffix)}()", cancellationToken)
             .ConfigureAwait(false);
 
+        // The attachment changes recorded for the table (ADR-290) are in the schema's one record, not in a table of its own.
+        await PostGisAttachmentStore.ForgetChangesAsync(connection, transaction, HostedSchema, attachments, cancellationToken)
+            .ConfigureAwait(false);
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 

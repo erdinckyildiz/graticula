@@ -123,7 +123,7 @@ internal static class OfflineJsonReplica
                         {
                             json.WriteStartObject();
                             json.WriteNumber("attachmentId", info.Id);
-                            json.WriteString("globalId", Braced(OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id)));
+                            json.WriteString("globalId", Braced(OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id, info.GlobalId)));
                             json.WriteString("parentGlobalId", Braced(parent));
                             json.WriteString("contentType", info.ContentType);
                             json.WriteNumber("size", info.Size);

@@ -47,7 +47,7 @@ namespace Graticula.Providers.PostGis;
 /// table, which is a different query however we store ours.
 /// </para>
 /// </remarks>
-public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
+public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables, IAttachmentSync
 {
     /// <summary>
     /// The suffix Esri uses, so a migrated table is found where it already is.
@@ -195,7 +195,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
                content_type   text        not null,
                declared_type  text,
                data_size      bigint      not null,
-               uploaded_at    timestamptz not null default now()
+               uploaded_at    timestamptz not null default now(),
+               globalid       uuid
              )
              """);
 
@@ -213,6 +214,15 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
 
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        // Whether the table was there before this call decides what the change record may vouch for (ADR-290 §5).
+        bool existed;
+
+        await using (NpgsqlCommand there = new("select to_regclass(@name) is not null", connection))
+        {
+            there.Parameters.AddWithValue("name", Qualified);
+            existed = (bool)(await there.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+        }
 
         await using (NpgsqlCommand create = new(sql, connection))
         {
@@ -249,6 +259,9 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
                 + "(ADR-013 §4c); keep this layer's attachments in the datastore instead, or rename that table.");
         }
 
+        // ADR-290: the GlobalID column and the change record, added to a table made before them and a no-op once there.
+        await EvolveAsync(connection, existed, cancellationToken).ConfigureAwait(false);
+
         return true;
     }
 
@@ -259,46 +272,64 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         // <b>Every column except the bytes.</b> Selecting data here would read
         // every attachment of the feature into memory to answer a question about
         // their names.
-        string sql =
-            $"""
-             select attachmentid, rel_objectid, att_name, content_type, declared_type,
-                    data_size, uploaded_at
-             from {Qualified}
-             where rel_objectid = @feature
-             order by attachmentid
-             """;
-
-        List<AttachmentInfo> attachments = [];
-
-        await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
-        command.Parameters.AddWithValue("feature", featureId);
-
-        try
+        // <b>A table made before ADR-290 has no globalid column</b> until something that writes evolves it, and a read
+        // does not run DDL: asked for the column and told it is not there (42703), it asks again without.
+        foreach (bool withGlobalId in (bool[])[true, false])
         {
-            await using NpgsqlDataReader reader =
-                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            string sql =
+                $"""
+                 select attachmentid, rel_objectid, att_name, content_type, declared_type,
+                        data_size, uploaded_at, {GlobalIdColumn(withGlobalId)}
+                 from {Qualified}
+                 where rel_objectid = @feature
+                 order by attachmentid
+                 """;
 
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            List<AttachmentInfo> attachments = [];
+
+            await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+            command.Parameters.AddWithValue("feature", featureId);
+
+            try
             {
-                attachments.Add(new AttachmentInfo(
-                    reader.GetInt32(0),
-                    reader.GetInt64(1),
-                    reader.GetString(2),
-                    reader.GetString(3),
-                    reader.IsDBNull(4) ? null : reader.GetString(4),
-                    reader.GetInt64(5),
-                    reader.GetFieldValue<DateTimeOffset>(6)));
+                await using NpgsqlDataReader reader =
+                    await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    attachments.Add(InfoOf(reader));
+                }
             }
-        }
-        catch (PostgresException e) when (e.SqlState == "42P01")
-        {
-            // No companion table means no attachments, which is the answer
-            // rather than an error — the table is created on first upload.
-            return [];
+            catch (PostgresException e) when (e.SqlState == "42P01")
+            {
+                // No companion table means no attachments, which is the answer
+                // rather than an error — the table is created on first upload.
+                return [];
+            }
+            catch (PostgresException e) when (e.SqlState == "42703" && withGlobalId)
+            {
+                continue;
+            }
+
+            return attachments;
         }
 
-        return attachments;
+        return [];
     }
+
+    /// <summary>The column list's last entry: the GlobalID, or a null of its type for a table that has no such column yet.</summary>
+    private static string GlobalIdColumn(bool present) => present ? "globalid" : "null::uuid";
+
+    private static AttachmentInfo InfoOf(NpgsqlDataReader reader) =>
+        new(
+            reader.GetInt32(0),
+            reader.GetInt64(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.GetInt64(5),
+            reader.GetFieldValue<DateTimeOffset>(6),
+            reader.IsDBNull(7) ? null : reader.GetGuid(7));
 
     /// <inheritdoc/>
     public async Task<OpenAttachment?> OpenAsync(int attachmentId, CancellationToken cancellationToken)
@@ -333,49 +364,67 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
     private async Task<AttachmentInfo?> FindAsync(
         NpgsqlConnection connection, int attachmentId, CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = new(
-            $"""
-             select attachmentid, rel_objectid, att_name, content_type, declared_type,
-                    data_size, uploaded_at
-             from {Qualified}
-             where attachmentid = @id
-             """,
-            connection);
-
-        command.Parameters.AddWithValue("id", attachmentId);
-
-        try
+        foreach (bool withGlobalId in (bool[])[true, false])
         {
-            await using NpgsqlDataReader reader =
-                await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            await using NpgsqlCommand command = new(
+                $"""
+                 select attachmentid, rel_objectid, att_name, content_type, declared_type,
+                        data_size, uploaded_at, {GlobalIdColumn(withGlobalId)}
+                 from {Qualified}
+                 where attachmentid = @id
+                 """,
+                connection);
 
-            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            command.Parameters.AddWithValue("id", attachmentId);
+
+            try
+            {
+                await using NpgsqlDataReader reader =
+                    await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? InfoOf(reader) : null;
+            }
+            catch (PostgresException e) when (e.SqlState == "42P01")
             {
                 return null;
             }
+            catch (PostgresException e) when (e.SqlState == "42703" && withGlobalId)
+            {
+                continue;
+            }
+        }
 
-            return new AttachmentInfo(
-                reader.GetInt32(0),
-                reader.GetInt64(1),
-                reader.GetString(2),
-                reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.GetInt64(5),
-                reader.GetFieldValue<DateTimeOffset>(6));
-        }
-        catch (PostgresException e) when (e.SqlState == "42P01")
-        {
-            return null;
-        }
+        return null;
     }
 
     /// <inheritdoc/>
-    public async Task<int> AddAsync(
+    public Task<int> AddAsync(
         long featureId,
         string name,
         string contentType,
         string? declaredContentType,
         Stream content,
+        CancellationToken cancellationToken) =>
+        AddCoreAsync(featureId, name, contentType, declaredContentType, content, null, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<int> AddAsync(
+        long featureId,
+        string name,
+        string contentType,
+        string? declaredContentType,
+        Stream content,
+        Guid globalId,
+        CancellationToken cancellationToken) =>
+        AddCoreAsync(featureId, name, contentType, declaredContentType, content, globalId, cancellationToken);
+
+    private async Task<int> AddCoreAsync(
+        long featureId,
+        string name,
+        string contentType,
+        string? declaredContentType,
+        Stream content,
+        Guid? globalId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(content);
@@ -397,16 +446,31 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
 
         int id;
 
+        // ADR-290: the same GlobalID stored twice is one attachment — an upload whose answer never arrived is sent again.
+        if (globalId is { } kept)
+        {
+            await using NpgsqlCommand existing = new(
+                $"select attachmentid from {Qualified} where globalid = @global", connection, transaction);
+            existing.Parameters.AddWithValue("global", kept);
+
+            if (await existing.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is int already)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return already;
+            }
+        }
+
         await using (NpgsqlCommand insert = new(
             $"""
              insert into {Qualified}
-               (rel_objectid, att_name, content_type, declared_type, data_size)
-             values (@feature, @name, @type, @declared, 0)
+               (rel_objectid, att_name, content_type, declared_type, data_size, globalid)
+             values (@feature, @name, @type, @declared, 0, @global)
              returning attachmentid
              """,
             connection,
             transaction))
         {
+            insert.Parameters.Add(new NpgsqlParameter("global", NpgsqlDbType.Uuid) { Value = (object?)globalId ?? DBNull.Value });
             insert.Parameters.AddWithValue("feature", featureId);
             insert.Parameters.AddWithValue("name", name);
             insert.Parameters.AddWithValue("type", contentType);
@@ -715,6 +779,8 @@ public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"drop table if exists {QualifiedChunks}; drop table if exists {Qualified}");
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        await ForgetChangesAsync(_dataSource, _schema, _table, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Removes the attachments of these features — for a store with no foreign key to cascade (ADR-207).</summary>

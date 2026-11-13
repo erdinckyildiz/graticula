@@ -539,8 +539,6 @@ internal static class MapAreaPackaging
         IServiceProvider services = context.RequestServices;
         MapAreaPackageFiles files = services.GetRequiredService<MapAreaPackageFiles>();
         RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
-        DateTimeOffset generation = Truncated(services.GetRequiredService<TimeProvider>().GetUtcNow());
-
         // The layers the map uses of the service, or all of them when the map names the service alone.
         IEnumerable<int> wanted = named.Layers.Count > 0 ? named.Layers : service.LayersAndTables.Select(l => l.LayerIndex);
         int[] layers = [.. wanted.Where(id => service.LayerOrTable(id) is not null).Distinct().Order()];
@@ -549,6 +547,11 @@ internal static class MapAreaPackaging
         {
             return (null, new PackageRefusal(409, "None of the layers the map uses is a layer or table of this service."));
         }
+
+        // ADR-290: the attachment tables record their changes from before the generation this package is taken at.
+        await OfflinePackager.PrepareAttachmentsAsync(services, layers.Select(id => service.LayerOrTable(id)!), cancellation).ConfigureAwait(false);
+
+        DateTimeOffset generation = Truncated(services.GetRequiredService<TimeProvider>().GetUtcNow());
 
         Func<string, string?> fields = RequestFields(
             ReplicaNameAt(generation), layers, area, existing is null ? null : PropertyOf(existing.Properties, "layerQueries"));

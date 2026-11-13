@@ -472,6 +472,83 @@ public sealed class OfflineReplicaTests
         Assert.NotEqual(OfflineReplicaShapes.AttachmentGlobalId(layer, 7), OfflineReplicaShapes.AttachmentGlobalId(Guid.NewGuid(), 7));
     }
 
+    [Fact]
+    public void A_kept_GlobalID_is_the_one_a_replica_calls_an_attachment_by_and_a_derived_one_only_when_none_was_kept()
+    {
+        Guid layer = Guid.NewGuid();
+        Guid kept = Guid.NewGuid();
+
+        Assert.Equal(kept, OfflineReplicaShapes.AttachmentGlobalId(layer, 7, kept));
+        Assert.Equal(OfflineReplicaShapes.AttachmentGlobalId(layer, 7), OfflineReplicaShapes.AttachmentGlobalId(layer, 7, null));
+    }
+
+    [Fact]
+    public void A_device_s_update_or_delete_finds_its_attachment_by_the_GlobalID_it_gave_it_whatever_id_it_holds()
+    {
+        Guid layer = Guid.NewGuid();
+        Guid kept = Guid.NewGuid();
+        Dictionary<Guid, int> byKept = new() { [kept] = 57 };
+        Dictionary<int, Guid?> existing = new() { [57] = kept };
+
+        // The device made it and calls it 3; the server stored it as 57.
+        Assert.Equal(57, OfflineReplicaShapes.ResolveAttachment(layer, 3, kept, byKept, existing));
+        Assert.Equal(57, OfflineReplicaShapes.ResolveAttachment(layer, 57, kept, byKept, existing));
+    }
+
+    [Fact]
+    public void An_attachment_stored_without_a_GlobalID_is_named_only_by_its_derived_one_together_with_its_own_id()
+    {
+        Guid layer = Guid.NewGuid();
+        Dictionary<Guid, int> byKept = [];
+        Dictionary<int, Guid?> existing = new() { [4] = null, [5] = null };
+        Guid derived = OfflineReplicaShapes.AttachmentGlobalId(layer, 4);
+
+        Assert.Equal(4, OfflineReplicaShapes.ResolveAttachment(layer, 4, derived, byKept, existing));
+
+        // Another attachment's id with this one's GlobalID, a GlobalID nobody holds, and an id that is not there.
+        Assert.Null(OfflineReplicaShapes.ResolveAttachment(layer, 5, derived, byKept, existing));
+        Assert.Null(OfflineReplicaShapes.ResolveAttachment(layer, 4, Guid.NewGuid(), byKept, existing));
+        Assert.Null(OfflineReplicaShapes.ResolveAttachment(layer, 6, OfflineReplicaShapes.AttachmentGlobalId(layer, 6), byKept, existing));
+        Assert.Null(OfflineReplicaShapes.ResolveAttachment(layer, 0, OfflineReplicaShapes.AttachmentGlobalId(layer, 0), byKept, existing));
+    }
+
+    [Fact]
+    public void An_attachment_with_a_kept_GlobalID_cannot_be_reached_by_the_one_derived_from_its_id()
+    {
+        Guid layer = Guid.NewGuid();
+        Guid kept = Guid.NewGuid();
+        Dictionary<int, Guid?> existing = new() { [9] = kept };
+
+        Assert.Null(OfflineReplicaShapes.ResolveAttachment(
+            layer, 9, OfflineReplicaShapes.AttachmentGlobalId(layer, 9), new Dictionary<Guid, int>(), existing));
+    }
+
+    [Fact]
+    public void A_download_sends_the_attachment_changes_of_features_the_replica_keeps_and_not_the_devices_own()
+    {
+        Guid layer = Guid.NewGuid();
+        Guid keptInsert = Guid.NewGuid();
+        Guid own = Guid.NewGuid();
+
+        AttachmentChange[] changes =
+        [
+            new(AttachmentChangeKind.Insert, 1, 10, keptInsert),     // sent, under the GlobalID it was stored with
+            new(AttachmentChangeKind.Update, 2, 10, null),           // sent, under the derived one
+            new(AttachmentChangeKind.Delete, 3, 10, null),           // sent: the feature stays
+            new(AttachmentChangeKind.Insert, 4, 20, null),           // the feature is not in the replica
+            new(AttachmentChangeKind.Delete, 5, 30, null),           // the feature leaves with its attachments
+            new(AttachmentChangeKind.Insert, 6, 40, null),           // the feature is new to the replica: sent whole instead
+            new(AttachmentChangeKind.Insert, 7, 10, own),            // the device's own upload
+        ];
+
+        OfflineReplicaShapes.AttachmentSelection chosen = OfflineReplicaShapes.SelectAttachments(
+            layer, changes, new HashSet<long> { 10, 40 }, new HashSet<long> { 40 }, new HashSet<Guid> { own });
+
+        Assert.Equal([(1, keptInsert)], chosen.Inserts.Select(c => (c.Change.AttachmentId, c.GlobalId)));
+        Assert.Equal([(2, OfflineReplicaShapes.AttachmentGlobalId(layer, 2))], chosen.Updates.Select(c => (c.Change.AttachmentId, c.GlobalId)));
+        Assert.Equal([(3, OfflineReplicaShapes.AttachmentGlobalId(layer, 3))], chosen.Deletes.Select(c => (c.Change.AttachmentId, c.GlobalId)));
+    }
+
     // ------------------------------------------------------------------------------------------------ fakes
 
     /// <summary>A reader that reads back the delta it was given.</summary>

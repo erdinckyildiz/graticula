@@ -353,6 +353,13 @@ internal static class OfflineReplicaEndpoints
         }
 
         Guid? replicaId = request!.Registered ? Guid.NewGuid() : null;
+
+        // ADR-290: the attachment tables record their changes from before this replica's first generation.
+        if (request.Registered)
+        {
+            await OfflinePackager.PrepareAttachmentsAsync(services, plan!.Layers.Select(l => l.Layer), cancellation).ConfigureAwait(false);
+        }
+
         DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
         string serviceUrl = TileFaces.Origin(context) + FeatureServerPath(context);
         ReplicaOwner owner = new(caller.Principal.Id, caller.Principal.Name);
@@ -717,9 +724,19 @@ internal static class OfflineReplicaEndpoints
                         OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!),
                         uploaded);
 
-                    if (found.Inserts.Count + found.Updates.Count + found.Deletes.Count > 0)
+                    // ADR-290: the attachments the server changed, read from the attachment table's own record of changes, and
+                    // only where the replica takes attachments down.
+                    AttachmentDownload attached = !jsonSync && request.ReturnAttachments && replica.ReturnAttachments
+                        && replica.AttachmentsSyncDirection is "bidirectional" or "download"
+                        && shape.HasAttachments && p.Layer.KeepsAttachments
+                        ? await AttachmentChangesAsync(connections, p, shape, DateTimeOffset.FromUnixTimeMilliseconds(from), generation, found, uploaded, stopping)
+                            .ConfigureAwait(false)
+                        : AttachmentDownload.Empty;
+
+                    if (found.Inserts.Count + found.Updates.Count + found.Deletes.Count + attached.Count > 0)
                     {
-                        changes.Add(new OfflineLayerChanges(shape, found.Inserts, found.Updates, found.Deletes, [], [], []));
+                        changes.Add(new OfflineLayerChanges(
+                            shape, found.Inserts, found.Updates, found.Deletes, attached.Inserts, attached.Updates, attached.Deletes));
                     }
                 }
 
@@ -848,6 +865,11 @@ internal static class OfflineReplicaEndpoints
                 AttachmentDeletes = [],
             });
             uploaded.UnionWith(referenced.Where(id => !changedOrRemoved.Contains(id) || existing.ContainsKey(id)));
+
+            // ADR-290: the attachments the device sent are its own as well. The record of changes names them, with the
+            // GlobalID the device gave, so the download leaves them out instead of sending the device its own photograph.
+            uploaded.UnionWith(changes.AttachmentInserts.Concat(changes.AttachmentUpdates).Select(a => a.GlobalId));
+            uploaded.UnionWith(changes.AttachmentDeletes.Select(k => k.GlobalId));
 
             ReplicaLayerEdits layerEdits = OfflineReplicaShapes.Edits(
                 named, OfflineReplicaShapes.EditableFields(p.Document), existing.Keys.ToHashSet());
@@ -979,28 +1001,61 @@ internal static class OfflineReplicaEndpoints
 
             await using MemoryStream bytes = new(added.Data.ToArray(), writable: false);
             (string sniffed, Stream content) = await ContentSniffer.SniffAsync(bytes, cancellation).ConfigureAwait(false);
-            await store.AddAsync(feature, Path.GetFileName(added.Name), sniffed, added.ContentType, content, cancellation).ConfigureAwait(false);
+
+            // ADR-290: the GlobalID the device gave it is kept, so the device's later update or delete of it is recognised.
+            if (store is IAttachmentSync keeping && added.GlobalId != Guid.Empty)
+            {
+                await keeping.AddAsync(feature, Path.GetFileName(added.Name), sniffed, added.ContentType, content, added.GlobalId, cancellation)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await store.AddAsync(feature, Path.GetFileName(added.Name), sniffed, added.ContentType, content, cancellation).ConfigureAwait(false);
+            }
+        }
+
+        // What an update or a delete names is found by the GlobalID the device sent (ADR-290): a kept one names the
+        // attachment whatever id the device holds, a derived one only with the attachment's own id.
+        IReadOnlyDictionary<Guid, int> byKept = new Dictionary<Guid, int>();
+        IReadOnlyDictionary<int, Guid?> existing = new Dictionary<int, Guid?>();
+        OfflineAttachment[] named = [.. changes.AttachmentUpdates];
+
+        if (store is IAttachmentSync lookup && (named.Length > 0 || changes.AttachmentDeletes.Count > 0))
+        {
+            byKept = await lookup.IdsOfAsync(
+                [.. named.Select(a => a.GlobalId).Concat(changes.AttachmentDeletes.Select(k => k.GlobalId)).Distinct()], cancellation)
+                .ConfigureAwait(false);
+            existing = await lookup.GlobalIdsAsync(
+                [.. named.Select(a => a.AttachmentId).Concat(changes.AttachmentDeletes.Select(k => k.ObjectId))
+                    .Where(i => i is >= 1 and <= int.MaxValue).Select(i => (int)i).Distinct()], cancellation)
+                .ConfigureAwait(false);
+        }
+        else if (named.Length > 0 || changes.AttachmentDeletes.Count > 0)
+        {
+            // A store that keeps no GlobalID: every attachment is called by the one derived from its id, as it always was.
+            // Whether one exists is then the store's to say when the update or delete reaches it.
+            existing = named.Select(a => a.AttachmentId).Concat(changes.AttachmentDeletes.Select(k => k.ObjectId))
+                .Where(i => i is >= 1 and <= int.MaxValue).Select(i => (int)i).Distinct()
+                .ToDictionary(i => i, _ => (Guid?)null);
         }
 
         foreach (OfflineAttachment changed in changes.AttachmentUpdates)
         {
             if (!owners.TryGetValue(changed.ParentGlobalId, out long feature)
-                || changed.AttachmentId is < 1 or > int.MaxValue
-                || OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, changed.AttachmentId) != changed.GlobalId)
+                || OfflineReplicaShapes.ResolveAttachment(p.Layer.Id, changed.AttachmentId, changed.GlobalId, byKept, existing) is not { } id)
             {
                 continue;
             }
 
             await using MemoryStream bytes = new(changed.Data.ToArray(), writable: false);
             (string sniffed, Stream content) = await ContentSniffer.SniffAsync(bytes, cancellation).ConfigureAwait(false);
-            await store.UpdateAsync(feature, (int)changed.AttachmentId, Path.GetFileName(changed.Name), sniffed, changed.ContentType, content, cancellation)
+            await store.UpdateAsync(feature, id, Path.GetFileName(changed.Name), sniffed, changed.ContentType, content, cancellation)
                 .ConfigureAwait(false);
         }
 
-        // An attachment is deleted only when its id is one this server gave and its GlobalID is the one derived from it.
         int[] deletes = [.. changes.AttachmentDeletes
-            .Where(k => k.ObjectId is >= 1 and <= int.MaxValue && OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, k.ObjectId) == k.GlobalId)
-            .Select(k => (int)k.ObjectId)];
+            .Select(k => OfflineReplicaShapes.ResolveAttachment(p.Layer.Id, k.ObjectId, k.GlobalId, byKept, existing))
+            .OfType<int>()];
 
         if (deletes.Length > 0)
         {
@@ -1270,24 +1325,13 @@ internal static class OfflineReplicaEndpoints
         {
             foreach (AttachmentInfo info in await store.ListAsync(objectId, cancellation).ConfigureAwait(false))
             {
-                OpenAttachment? open = await store.OpenAsync(info.Id, cancellation).ConfigureAwait(false);
-
-                if (open is null)
+                // ADR-290: the GlobalID it was stored with, or the one derived from its id when it was stored without.
+                if (await ReadAttachmentAsync(
+                        store, info.Id, parent, OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id, info.GlobalId), cancellation)
+                    .ConfigureAwait(false) is { } read)
                 {
-                    continue;
+                    yield return read;
                 }
-
-                byte[] data;
-
-                await using (open.ConfigureAwait(false))
-                {
-                    using MemoryStream copy = new();
-                    await open.Content.CopyToAsync(copy, cancellation).ConfigureAwait(false);
-                    data = copy.ToArray();
-                }
-
-                yield return new OfflineAttachment(
-                    info.Id, parent, OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id), info.Name, info.ContentType, data);
             }
         }
     }
@@ -1332,6 +1376,133 @@ internal static class OfflineReplicaEndpoints
         Dictionary<long, OfflineRow> now = await AtAsync(to).ConfigureAwait(false);
 
         return OfflineReplicaShapes.Diff(then, now, globalAt);
+    }
+
+    /// <summary>The attachment changes of one layer's download, as the port carries them.</summary>
+    /// <param name="Inserts">Attachments added, bytes included.</param>
+    /// <param name="Updates">Attachments changed, bytes included.</param>
+    /// <param name="Deletes">Attachments removed, by id and GlobalID.</param>
+    internal sealed record AttachmentDownload(
+        IReadOnlyList<OfflineAttachment> Inserts, IReadOnlyList<OfflineAttachment> Updates, IReadOnlyList<OfflineKey> Deletes)
+    {
+        /// <summary>No attachment changes.</summary>
+        public static AttachmentDownload Empty { get; } = new([], [], []);
+
+        /// <summary>How many changes there are.</summary>
+        public int Count => Inserts.Count + Updates.Count + Deletes.Count;
+    }
+
+    /// <summary>
+    /// The attachments a layer's download carries — ADR-290: what its attachment table's own record of changes says
+    /// happened between <paramref name="from"/> and <paramref name="to"/>, of the features the replica holds after the
+    /// download, plus every attachment of a feature the download adds.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nothing is guessed.</b> A store with no record (another provider), a record that begins after the replica's
+    /// generation, or one that saw the table emptied, vouches for nothing in the window and sends none of it; the features
+    /// that are new to the replica still travel with the attachments they have, which needs no record.
+    /// </remarks>
+    internal static async Task<AttachmentDownload> AttachmentChangesAsync(
+        LayerConnections connections, Planned p, OfflineLayer shape, DateTimeOffset from, DateTimeOffset to,
+        ReplicaChanges rows, IReadOnlySet<Guid> own, CancellationToken cancellation)
+    {
+        IAttachmentStore store = connections.AttachmentsFor(p.Layer);
+
+        if (shape.GlobalIdField is not { } globalIdField)
+        {
+            return AttachmentDownload.Empty;
+        }
+
+        int objectIdAt = OfflineReplicaShapes.IndexOf(shape, shape.ObjectIdField);
+        int globalAt = OfflineReplicaShapes.IndexOf(shape, globalIdField);
+
+        // The features the download adds: the device has none of their attachments, whatever the record says.
+        Dictionary<long, Guid> added = [];
+
+        foreach (OfflineRow row in rows.Inserts)
+        {
+            if (row.Values[objectIdAt] is { } oid && row.Values[globalAt] is Guid gid)
+            {
+                added[Convert.ToInt64(oid, System.Globalization.CultureInfo.InvariantCulture)] = gid;
+            }
+        }
+
+        AttachmentChanges log = store is IAttachmentSync sync
+            ? await sync.ChangesAsync(from, to, cancellation).ConfigureAwait(false)
+            : AttachmentChanges.Unvouched;
+
+        Dictionary<long, Guid> parents = [];
+
+        if (log.Vouched && log.Changes.Count > 0)
+        {
+            IReadOnlyList<long> ids = [.. log.Changes.Select(c => c.FeatureId).Distinct().Order()];
+
+            await foreach (OfflineRow row in RowsAsync(p, shape.Fields, to, ids, cancellation).ConfigureAwait(false))
+            {
+                if (row.Values[objectIdAt] is { } oid && row.Values[globalAt] is Guid gid)
+                {
+                    parents[Convert.ToInt64(oid, System.Globalization.CultureInfo.InvariantCulture)] = gid;
+                }
+            }
+        }
+
+        OfflineReplicaShapes.AttachmentSelection selected = OfflineReplicaShapes.SelectAttachments(
+            p.Layer.Id, log.Vouched ? log.Changes : [], parents.Keys.ToHashSet(), added.Keys.ToHashSet(), own);
+
+        List<OfflineAttachment> inserts = [];
+        List<OfflineAttachment> updates = [];
+
+        foreach ((long feature, Guid parent) in added)
+        {
+            foreach (AttachmentInfo info in await store.ListAsync(feature, cancellation).ConfigureAwait(false))
+            {
+                Guid globalId = OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id, info.GlobalId);
+
+                if (!own.Contains(globalId)
+                    && await ReadAttachmentAsync(store, info.Id, parent, globalId, cancellation).ConfigureAwait(false) is { } read)
+                {
+                    inserts.Add(read);
+                }
+            }
+        }
+
+        foreach ((AttachmentChange change, Guid globalId) in selected.Inserts)
+        {
+            if (await ReadAttachmentAsync(store, change.AttachmentId, parents[change.FeatureId], globalId, cancellation).ConfigureAwait(false) is { } read)
+            {
+                inserts.Add(read);
+            }
+        }
+
+        foreach ((AttachmentChange change, Guid globalId) in selected.Updates)
+        {
+            if (await ReadAttachmentAsync(store, change.AttachmentId, parents[change.FeatureId], globalId, cancellation).ConfigureAwait(false) is { } read)
+            {
+                updates.Add(read);
+            }
+        }
+
+        return new AttachmentDownload(
+            inserts, updates, [.. selected.Deletes.Select(d => new OfflineKey(d.Change.AttachmentId, d.GlobalId))]);
+    }
+
+    /// <summary>One attachment read whole, as the port carries it; null when it has gone since it was listed.</summary>
+    private static async Task<OfflineAttachment?> ReadAttachmentAsync(
+        IAttachmentStore store, int id, Guid parent, Guid globalId, CancellationToken cancellation)
+    {
+        OpenAttachment? open = await store.OpenAsync(id, cancellation).ConfigureAwait(false);
+
+        if (open is null)
+        {
+            return null;
+        }
+
+        await using (open.ConfigureAwait(false))
+        {
+            using MemoryStream copy = new();
+            await open.Content.CopyToAsync(copy, cancellation).ConfigureAwait(false);
+            return new OfflineAttachment(id, parent, globalId, open.Info.Name, open.Info.ContentType, copy.ToArray());
+        }
     }
 
     /// <summary>
