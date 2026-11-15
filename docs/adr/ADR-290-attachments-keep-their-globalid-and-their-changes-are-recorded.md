@@ -204,6 +204,20 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    server in that time (`server-added.png`, 11:08 UTC) never reached the phone. Packages written after the record began are
    not affected; a map area refreshed after upgrading is the way out for one that was. [D-423](../architecture-debt.md). **Built 2026-11-15 (§12.5): such a window now sends every attachment as an update and names the layer — awaiting a measurement on a device.**
 5. **Stamping at commit** is this ADR's choice and not ADR-078's.
+6. **No MySQL, Oracle or SQL Server attachment store can reach `IAttachmentSync`, so none is given a change record** (D-420,
+   2026-11-15). Read from the code, not measured: `LayerConnections.AttachmentsFor` returns a `PostGisAttachmentStore` for every hosted
+   layer, and the three other engines' stores (`MySqlAttachmentStore`, `OracleAttachmentStore`, `SqlServerAttachmentStore`) only for a
+   *registered* layer whose attachments an administrator put beside its table (ADR-207, ADR-208); a registered layer whose attachments
+   are in the datastore gets a PostGIS store too, but is just as registered. And sync is refused for any service with a layer that is
+   not hosted — `SyncFlags.Refusal`, which `SwitchAsync` asks before sync is enabled and `AdmitAsync` asks (as `SyncFlags.IsOn`) of
+   every `createReplica`, `synchronizeReplica`, `replicas` and `unRegisterReplica`, before a replica, a layer, its history or its
+   attachment store is resolved. So no path from a replica request reaches another engine's attachment store, and building three
+   providers' triggers, logs and GlobalID columns for it would be work for an unreachable path (CLAUDE.md §6). Proven in
+   `SyncReachesOnlyHostedPostGisAttachmentsTests`: a service with a registered layer that keeps attachments (beside its table, or in
+   the datastore) is refused and `IsOn` is false though its owner switched sync on; and none of the three stores implements
+   `IAttachmentSync`, so the day the refusal is lifted for one engine the test names why it must also be given a record. **Trigger,
+   stated:** sync of any layer that is not hosted PostGIS (a registered MySQL, Oracle or SQL Server layer, or a registered PostGIS layer
+   with attachments in the datastore) — that decision (ADR-288 §5.8) reopens this one.
 
 ## 12. Conditions
 
