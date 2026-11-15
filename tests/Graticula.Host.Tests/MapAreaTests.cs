@@ -134,6 +134,23 @@ public sealed class MapAreaTests : IDisposable
             return Task.FromResult(1);
         }
 
+        public Task<MapAreaPackage?> FindPackageByJobAsync(Guid job, CancellationToken cancellationToken) =>
+            Task.FromResult(Packages.FirstOrDefault(p => p.ExportJobId == job));
+
+        public Task<bool> MarkPackageProcessingAsync(Guid id, Guid job, string properties, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<MapAreaPackage?> CompletePackageAsync(
+            Guid job, string filePath, string sha256, long size, DateTimeOffset when, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> FailPackageAsync(Guid job, string error, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<int> FailStrandedPackagesAsync(CancellationToken cancellationToken) => Task.FromResult(0);
+
+        public Task<string?> SettleStatusAsync(Guid id, DateTimeOffset refreshed, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlySet<string>>(Packages.Select(p => p.FilePath).ToHashSet());
 
@@ -676,6 +693,64 @@ public sealed class MapAreaTests : IDisposable
         await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "document", Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal([(MapId, (Guid?)null), (null, (Guid?)service)], areas.Marked);
+    }
+
+    // ------------------------------------------------------------------------------------------------ D-410
+
+    [Fact]
+    public async Task A_package_whose_job_has_not_finished_says_so_and_its_file_is_not_there_yet()
+    {
+        MapArea area = Area();
+        Guid job = Guid.NewGuid();
+        MapAreaPackage waiting = Package(area, string.Empty) with
+        {
+            Format = MapAreas.VtpkFormat, ReplicaId = null, Status = MapAreas.PackageProcessing, ExportJobId = job, Size = 0, Sha256 = string.Empty,
+        };
+        MemoryAreas areas = new() { Areas = { area }, Packages = { waiting } };
+        HttpContext context = Context(Member(Owner, "owner"), areas, Map(SharingScope.Private));
+
+        JsonElement item = Json(PortalEndpoints.MapAreaPackageItem(context, Map(SharingScope.Private), area, waiting, "North - Streets"));
+        Assert.Equal(-1, item.GetProperty("size").GetInt64());
+
+        IResult data = PortalEndpoints.MapAreaPackageFile(context, waiting);
+        DefaultHttpContext response = new() { RequestServices = context.RequestServices };
+        response.Response.Body = new MemoryStream();
+        await data.ExecuteAsync(response);
+        Assert.Equal(404, response.Response.StatusCode);
+        Assert.Contains("still being written", Encoding.UTF8.GetString(Body(response)), StringComparison.Ordinal);
+
+        // The status is the portal's: processing, with the job; then failed with the reason; a complete package completed.
+        JsonElement processing = await StatusAsync(context, waiting.Id);
+        Assert.Equal("processing", processing.GetProperty("status").GetString());
+        Assert.Equal(job.ToString("N"), processing.GetProperty("jobId").GetString());
+
+        areas.Packages[0] = waiting with { Status = MapAreas.PackageFailed, ExportJobId = null, Error = "no tiles" };
+        JsonElement failed = await StatusAsync(context, waiting.Id);
+        Assert.Equal("failed", failed.GetProperty("status").GetString());
+        Assert.Equal("no tiles", failed.GetProperty("statusMessage").GetString());
+
+        areas.Packages[0] = Package(area, "map-area-package-files/0123456789abcdef0123456789abcdef.geodatabase");
+        Assert.Equal("completed", (await StatusAsync(context, areas.Packages[0].Id)).GetProperty("status").GetString());
+        Assert.Equal("null", (await StatusAsync(context, area.Id)).GetProperty("status").GetString());
+    }
+
+    private static async Task<JsonElement> StatusAsync(HttpContext context, Guid id)
+    {
+        IResult? result = await PortalEndpoints.MapAreaStatusAsync(context, id.ToString("N"), CancellationToken.None);
+        Assert.NotNull(result);
+        DefaultHttpContext response = new() { RequestServices = context.RequestServices };
+        response.Response.Body = new MemoryStream();
+        await result!.ExecuteAsync(response);
+        return JsonDocument.Parse(Body(response)).RootElement.Clone();
+    }
+
+    [Fact]
+    public void An_areas_status_is_one_of_the_portals_three_words()
+    {
+        Assert.Equal("complete", PortalEndpoints.PortalStatusOf(MapAreas.Complete));
+        Assert.Equal("processing", PortalEndpoints.PortalStatusOf(MapAreas.Processing));
+        Assert.Equal("failed", PortalEndpoints.PortalStatusOf(MapAreas.Failed));
+        Assert.Equal("failed", PortalEndpoints.PortalStatusOf(MapAreas.NeedsRefresh));
     }
 
     [Fact]

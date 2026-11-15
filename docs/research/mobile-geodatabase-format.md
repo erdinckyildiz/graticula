@@ -239,6 +239,30 @@ log (*Profile › Troubleshooting › View logs*, verbose) were read:
     full extent. Graticula's package kept the service's, which is the extent of its data (a few kilometres), so a
     location inside the area but outside the data was refused. The same location inside the data was taken.
 
+### 5a.1 What a Map Area item holds *(read 2026-11-15 on an Enterprise 12.1 portal, read only, structure and words only)*
+
+Twelve items of type `Map Area` existed and six were read; no host is named and no value is kept beyond scales and dates.
+
+- **The item.** `typeKeywords` are `["Map", "Map Area"]`. The item's own `extent` is `[]` and its `spatialReference` is null, on
+  every one. Its `properties` keys are `extent`, `packageRefreshSchedule` and `status`, and on some `area`. `extent` is an
+  envelope `{"spatialReference": {"latestWkid": 3857, "wkid": 102100}, "xmin", "ymin", "xmax", "ymax"}`; all six used 102100.
+  `packageRefreshSchedule` is a Quartz cron string (for example `"41 2 15 ? * TUE"`) or null. `status` uses the words
+  `complete`, `processing` and `failed`. `area`, when present, is `{"resource": "areas/geometry-<epoch ms>.json"}`, sometimes
+  with `"itemId"` set to the area's own id. `size` was 160 to 218, the size of the `/data` text.
+- **`/data`.** `{"mapAreas": {"mapAreaTileScale": {"minScale": n, "maxScale": n}, "mapAreaRefreshParams": {...},
+  "mapAreasScheduledUpdatesEnabled": false}}`. With no refresh, `mapAreaRefreshParams` is `{"type": "never"}`; with one it is
+  `{"startDate": "<ISO 8601 UTC>", "type": "weekly", "nthDay": 1, "dayOfWeek": 2}`. The cron `41 2 15 ? * TUE` went with
+  `type weekly, dayOfWeek 2, nthDay 1`, so `dayOfWeek` counts Monday as 1. Scales seen: 147914382 and 20000; 750000 and
+  20000; 4804.879013 and 70.5310735.
+- **`items/{id}/status`** (owner endpoint) answered `{"status": "null", "statusMessage": "Item status doesn't exist", "itemId"}`
+  on items the reader owned and 403 on the others.
+- **Packages.** A `SQLite Geodatabase` item's `properties` hold `url`, `layers`, `extent`, `layerQueries` (`{}` or
+  `{"0": {"where": "..."}}`), `replicaID` (upper-case GUID without braces), `layerServerGens` (`[{"serverGen": n}]`) and
+  optionally `area`. A basemap that is a map service gave a `Tile Package` with type keywords `ArcGlobe, ArcMap, Data,
+  MapAreaPackage, Package, ReferenceURL#<url>, Tile Package, tpk` and properties `url`, `levels` (a string such as
+  `"10,11,12"`), `compressionQuality` (-1), `area` and `extent`. A package's `/status` answered
+  `{"status": "completed", "statusMessage": "completed"}` on newer packages and "Item status doesn't exist" on older ones.
+
 ## 5c. A JSON replica *(measured 2026-11-12, one service)*
 
 `createReplica` with `dataFormat=json`, `syncModel=perLayer`, `async=true` and `returnAttachments=true` on the Aecon

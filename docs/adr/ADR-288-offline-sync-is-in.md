@@ -266,6 +266,19 @@ serves the same shape. None was stated by the owner.
    names, and a restore that failed halfway for either reason must not undo the restore. The word `needs refresh` is ours;
    the portal item presents it as `failed`, the nearest of the three words an Enterprise portal uses (research note §5a.1).
 
+8. **A basemap's package is an export job, and the tolerant `layerQueries` is kept** *(2026-11-15, D-410; `INFERRED`, none stated
+   by the owner)*. Item 6's "in the request that makes the area" is superseded: the VTPK is written by the export job machinery
+   (ADR-098), not beside it. The area's request starts the job and returns with the package `processing`; the job's last step
+   moves the file into `map-area-package-files/` and completes the package, so the file leaves the export directory (where it
+   would expire in a day) and the package row counts against the export budget in its place. A package says `processing`,
+   `failed` or `complete` (on the package's own `items/{id}/status` as `processing`, `failed`, `completed`, the portal's
+   words, and as the area's `properties.status`); a package without a file answers `/data` with 404 and says why; a refresh
+   serves the old file until the new one is written. **Unmeasured:** what an Enterprise portal answers at `/data` for a
+   package still being written, and whether it shows an area as `processing` while a package is. The JSON path's reading of
+   `layerQueries` accepts what the public reference describes and the shape of a registration-only request
+   (`queryOption: none`, `layers` named only there). That tolerance is **kept on purpose** for clients that send it, not owed
+   as debt: Field Maps' own registration is `registerExistingData` and is built (item 3 above).
+
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network

@@ -336,4 +336,108 @@ public sealed class MapAreaStoreTests : PostgresFixture
         command.Parameters.AddWithValue("id", principal);
         return (string)(await command.ExecuteScalarAsync())!;
     }
+
+    [Fact]
+    public async Task A_basemap_package_is_processing_until_its_job_completes_and_the_area_says_so()
+    {
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        Guid job = Guid.NewGuid();
+        MapAreaPackage waiting = new(
+            Guid.NewGuid(), area.Id, area.MapId, tiles, null, "streets.vtpk", string.Empty, string.Empty, 0,
+            """{"url":"https://h/rest/services/hosted/Streets/VectorTileServer","format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat, MapAreas.PackageProcessing, job);
+
+        Assert.True(await r.Areas.AddPackageAsync(waiting, "North - Streets", CancellationToken.None));
+        Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.Equal(waiting.Id, (await r.Areas.FindPackageByJobAsync(job, CancellationToken.None))!.Id);
+
+        // Not counted as held until written; once written it counts against the export budget in the export's place.
+        PostgresTileExportStore exports = new(DataSource);
+        long before = await exports.HeldBytesAsync(CancellationToken.None);
+
+        DateTimeOffset when = area.Created.AddMinutes(5);
+        MapAreaPackage previous = (await r.Areas.CompletePackageAsync(
+            job, "map-area-package-files/0123456789abcdef0123456789abcdef.vtpk", new string('d', 64), 7777, when, CancellationToken.None))!;
+
+        Assert.Equal(string.Empty, previous.FilePath);
+        MapAreaPackage done = (await r.Areas.FindPackageAsync(waiting.Id, CancellationToken.None))!;
+        Assert.Equal((MapAreas.PackageComplete, null, 7777L), (done.Status, done.ExportJobId, done.Size));
+        Assert.Equal(MapAreas.Complete, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.Equal(before + 7777, await exports.HeldBytesAsync(CancellationToken.None));
+        Assert.Null(await r.Areas.FindPackageByJobAsync(job, CancellationToken.None));
+        Assert.Null(await r.Areas.CompletePackageAsync(job, "x", "y", 1, when, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_refresh_keeps_the_old_file_until_the_new_one_is_written_and_a_failed_new_package_fails_its_area()
+    {
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        const string Old = "map-area-package-files/0123456789abcdef0123456789abcdef.vtpk";
+        MapAreaPackage held = new(
+            Guid.NewGuid(), area.Id, area.MapId, tiles, null, "streets.vtpk", Old, new string('c', 64), 8192, """{"format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat);
+        await r.Areas.AddPackageAsync(held, "North - Streets", CancellationToken.None);
+
+        // A refresh: the job is recorded, the old file stays named, the area is processing.
+        Guid refreshJob = Guid.NewGuid();
+        Assert.True(await r.Areas.MarkPackageProcessingAsync(held.Id, refreshJob, """{"format":"vtpk","tiles":5}""", CancellationToken.None));
+        MapAreaPackage during = (await r.Areas.FindPackageAsync(held.Id, CancellationToken.None))!;
+        Assert.Equal((MapAreas.PackageProcessing, Old, refreshJob), (during.Status, during.FilePath, during.ExportJobId));
+        Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+
+        // It fails: the old file is still good, so the package is complete again, with the reason noted.
+        Assert.True(await r.Areas.FailPackageAsync(refreshJob, "a tile could not be built", CancellationToken.None));
+        MapAreaPackage after = (await r.Areas.FindPackageAsync(held.Id, CancellationToken.None))!;
+        Assert.Equal((MapAreas.PackageComplete, Old, "a tile could not be built"), (after.Status, after.FilePath, after.Error));
+        Assert.Equal(MapAreas.Complete, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+
+        // A package that never had a file fails, and its area with it.
+        Guid second = await SeedServiceAsync("Labels_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        Guid newJob = Guid.NewGuid();
+        await r.Areas.AddPackageAsync(held with
+        {
+            Id = Guid.NewGuid(), ServiceId = second, FilePath = string.Empty, Sha256 = string.Empty, Size = 0,
+            Status = MapAreas.PackageProcessing, ExportJobId = newJob,
+        }, "North - Labels", CancellationToken.None);
+        Assert.True(await r.Areas.FailPackageAsync(newJob, "no tiles", CancellationToken.None));
+        Assert.Equal(MapAreas.Failed, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.False(await r.Areas.FailPackageAsync(newJob, "again", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_package_waiting_for_a_job_that_is_gone_is_failed_by_the_sweep_and_one_whose_job_runs_is_not()
+    {
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        Guid gone = Guid.NewGuid(), running = Guid.NewGuid();
+
+        await using (NpgsqlCommand job = DataSource.CreateCommand(
+            "insert into job (id, kind, status, owner_principal_id, subject, detail, protocol) values (@id, 'tile.export', 'running', @owner, 's', '{}', 1)"))
+        {
+            job.Parameters.AddWithValue("id", running);
+            job.Parameters.AddWithValue("owner", r.Owner);
+            await job.ExecuteNonQueryAsync();
+        }
+
+        Guid otherService = await SeedServiceAsync("Labels_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapAreaPackage Waiting(Guid service, Guid job) => new(
+            Guid.NewGuid(), area.Id, area.MapId, service, null, "x.vtpk", string.Empty, string.Empty, 0, """{"format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat, MapAreas.PackageProcessing, job);
+        MapAreaPackage orphan = Waiting(tiles, gone), live = Waiting(otherService, running);
+        await r.Areas.AddPackageAsync(orphan, "North - Streets", CancellationToken.None);
+        await r.Areas.AddPackageAsync(live, "North - Labels", CancellationToken.None);
+
+        Assert.Equal(1, await r.Areas.FailStrandedPackagesAsync(CancellationToken.None));
+        Assert.Equal(MapAreas.PackageFailed, (await r.Areas.FindPackageAsync(orphan.Id, CancellationToken.None))!.Status);
+        Assert.Equal(MapAreas.PackageProcessing, (await r.Areas.FindPackageAsync(live.Id, CancellationToken.None))!.Status);
+        Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+    }
 }

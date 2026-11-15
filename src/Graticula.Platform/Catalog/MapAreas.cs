@@ -55,6 +55,12 @@ public sealed record MapArea(
 /// <param name="Created">When the package was first written.</param>
 /// <param name="Refreshed">When it was last written.</param>
 /// <param name="Format"><see cref="MapAreas.SqliteFormat"/> or <see cref="MapAreas.VtpkFormat"/>.</param>
+/// <param name="Status">
+/// <see cref="MapAreas.PackageComplete"/>, <see cref="MapAreas.PackageProcessing"/> while its export job runs, or
+/// <see cref="MapAreas.PackageFailed"/> when the job ended without a file (D-410).
+/// </param>
+/// <param name="ExportJobId">The export job writing the file (a basemap's package), or null.</param>
+/// <param name="Error">Why the last write failed, or null.</param>
 public sealed record MapAreaPackage(
     Guid Id,
     Guid AreaId,
@@ -68,7 +74,10 @@ public sealed record MapAreaPackage(
     string Properties,
     DateTimeOffset Created,
     DateTimeOffset Refreshed,
-    string Format = MapAreas.SqliteFormat);
+    string Format = MapAreas.SqliteFormat,
+    string Status = MapAreas.PackageComplete,
+    Guid? ExportJobId = null,
+    string? Error = null);
 
 /// <summary>The words a map area uses.</summary>
 public static class MapAreas
@@ -91,8 +100,26 @@ public static class MapAreas
     /// <summary>A package that is a vector tile package of a basemap.</summary>
     public const string VtpkFormat = "vtpk";
 
-    /// <summary>The status of an area whose packages are all written. INFERRED: the value is not measured.</summary>
+    /// <summary>
+    /// The status of an area whose packages are all written - one of the three words an Enterprise portal uses
+    /// (<c>complete</c>, <c>processing</c>, <c>failed</c>; research note section 5a.1).
+    /// </summary>
     public const string Complete = "complete";
+
+    /// <summary>The status of an area while a package of it is still being written by its export job.</summary>
+    public const string Processing = "processing";
+
+    /// <summary>The status of an area one of whose packages could not be written.</summary>
+    public const string Failed = "failed";
+
+    /// <summary>A package whose file is written.</summary>
+    public const string PackageComplete = "complete";
+
+    /// <summary>A package whose export job has not finished. INFERRED: the words follow the area's.</summary>
+    public const string PackageProcessing = "processing";
+
+    /// <summary>A package whose export job ended without a file.</summary>
+    public const string PackageFailed = "failed";
 
     /// <summary>
     /// The status of an area whose packages' files and replicas were put away since they were written - the map or the service
@@ -213,6 +240,66 @@ public interface IMapAreaStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The recorded names.</returns>
     Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken);
+
+    /// <summary>The package a running export job is writing, or null (D-410).</summary>
+    /// <param name="job">The export job.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The package.</returns>
+    Task<MapAreaPackage?> FindPackageByJobAsync(Guid job, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that a package's export job is running again for it: the new job, the properties the job will write, and
+    /// <see cref="MapAreas.PackageProcessing"/> - keeping the old file, which stays what a client downloads until the new one
+    /// is written (D-410).
+    /// </summary>
+    /// <param name="id">The package.</param>
+    /// <param name="job">The export job.</param>
+    /// <param name="properties">The item's <c>properties</c> as JSON text.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>False when there is no such package.</returns>
+    Task<bool> MarkPackageProcessingAsync(Guid id, Guid job, string properties, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records the file an export job wrote for a package: complete, with the file's name, size and hash, and the area's status
+    /// worked out again from its packages (D-410).
+    /// </summary>
+    /// <param name="job">The export job.</param>
+    /// <param name="filePath">The recorded name of the file.</param>
+    /// <param name="sha256">Its hash.</param>
+    /// <param name="size">Its length.</param>
+    /// <param name="written">When it was written.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The package as it was before, whose old file the caller removes; null when no package waits for the job.</returns>
+    Task<MapAreaPackage?> CompletePackageAsync(
+        Guid job, string filePath, string sha256, long size, DateTimeOffset written, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records that a package's export job ended without a file. A package with an older file keeps it and stays complete, with
+    /// the reason noted; one with none is failed (D-410).
+    /// </summary>
+    /// <param name="job">The export job.</param>
+    /// <param name="reason">Why.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether a package was waiting for the job.</returns>
+    Task<bool> FailPackageAsync(Guid job, string reason, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Fails the packages whose export job ended without telling them (a lease lost and a job reclaimed as failed, a job
+    /// removed) - the hourly sweep's pass (D-410).
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many were failed.</returns>
+    Task<int> FailStrandedPackagesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Works an area's status out from its packages - <see cref="MapAreas.Processing"/> while any is, <see cref="MapAreas.Failed"/>
+    /// when one failed, otherwise <see cref="MapAreas.Complete"/> - and notes when its packages were last written.
+    /// </summary>
+    /// <param name="id">The area.</param>
+    /// <param name="refreshed">When.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The status, or null when there is no such area.</returns>
+    Task<string?> SettleStatusAsync(Guid id, DateTimeOffset refreshed, CancellationToken cancellationToken);
 
     /// <summary>Deletes an area, its packages and their items by cascade.</summary>
     /// <param name="id">The area.</param>

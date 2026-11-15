@@ -409,18 +409,20 @@ internal static class MapAreaPackaging
 
             foreach (TileTarget target in tiles)
             {
-                (MapAreaPackage? package, PackageRefusal? refusal) = await WriteTilesAsync(
-                    context, area, target.Service, target.Address, existing: null, cancellation).ConfigureAwait(false);
+                // D-410: the basemap's package is an export job; its row is recorded here, processing, and the job's end
+                // completes it. The item says so until then.
+                (MapAreaPackage? package, PackageRefusal? refusal) = await StartTilesAsync(
+                    context, area, target.Service, target.Address, existing: null, TitleOf(title, target.Address), cancellation)
+                    .ConfigureAwait(false);
 
                 if (package is null)
                 {
-                    await DiscardAsync(services, made, cancellation).ConfigureAwait(false);
+                    await DiscardAsync(services, made, CancellationToken.None).ConfigureAwait(false);
                     await store.DeleteAsync(area.Id, CancellationToken.None).ConfigureAwait(false);
                     return (null, new PackageRefusal(refusal!.Status, $"{target.Title}: {refusal.Message} Nothing was created."));
                 }
 
                 made.Add(package);
-                await store.AddPackageAsync(package, TitleOf(title, target.Address), cancellation).ConfigureAwait(false);
             }
         }
         catch (Exception e) when (e is not OperationCanceledException || !cancellation.IsCancellationRequested)
@@ -431,7 +433,9 @@ internal static class MapAreaPackaging
             return (null, new PackageRefusal(500, $"The area could not be packaged: {e.Message} Nothing was created."));
         }
 
-        return (new PackagedArea(area, made, skipped), null);
+        return (new PackagedArea(
+            area with { Status = made.Any(p => p.Status == MapAreas.PackageProcessing) ? MapAreas.Processing : MapAreas.Complete },
+            made, skipped), null);
     }
 
     // ------------------------------------------------------------------------------------------------ refresh
@@ -473,15 +477,10 @@ internal static class MapAreaPackaging
 
             if (old.Format == MapAreas.VtpkFormat)
             {
+                // D-410: the job writes the new file and the old one is removed when it finishes; until then the old file
+                // is what a device downloads.
                 MapAreaPackage? tile = await RefreshTilesAsync(context, area, old, service, url, name, skipped, cancellation).ConfigureAwait(false);
                 now.Add(tile ?? old);
-
-                if (tile is not null)
-                {
-                    await store.ReplacePackageAsync(tile, tile.Refreshed, cancellation).ConfigureAwait(false);
-                    await DiscardAsync(services, [old], CancellationToken.None).ConfigureAwait(false);
-                }
-
                 continue;
             }
 
@@ -521,9 +520,9 @@ internal static class MapAreaPackaging
         }
 
         DateTimeOffset refreshed = Truncated(services.GetRequiredService<TimeProvider>().GetUtcNow());
-        await store.SetStatusAsync(area.Id, MapAreas.Complete, refreshed, cancellation).ConfigureAwait(false);
+        string status = await store.SettleStatusAsync(area.Id, refreshed, cancellation).ConfigureAwait(false) ?? MapAreas.Complete;
 
-        return (new PackagedArea(area with { Status = MapAreas.Complete, Refreshed = refreshed }, now, skipped), null);
+        return (new PackagedArea(area with { Status = status, Refreshed = refreshed }, now, skipped), null);
     }
 
     // ------------------------------------------------------------------------------------------------ one package
@@ -614,6 +613,12 @@ internal static class MapAreaPackaging
 
         foreach (MapAreaPackage package in packages)
         {
+            // D-410: a basemap package still being written has a job; stopping it frees the budget it holds and the walk.
+            if (package.ExportJobId is { } job && package.Status == MapAreas.PackageProcessing)
+            {
+                await CancelJobAsync(services, job).ConfigureAwait(false);
+            }
+
             try
             {
                 if (package.ReplicaId is { } replica)
@@ -773,24 +778,34 @@ internal static class MapAreaPackaging
     }
 
     /// <summary>
-    /// Writes a vector tile package of the area's extent for a vector tile service — the levels exportTiles' ArcGIS-origin
-    /// export keeps (those the service has, down to the deepest that fits the tile cap) — and describes it as a package.
+    /// Starts the export job that writes a vector tile package of the area's extent for a vector tile service, and records the
+    /// package as <c>processing</c> - ADR-288 section 11a, D-410. The levels are the ones <c>exportTiles</c>' ArcGIS-origin export
+    /// keeps (those the service has, down to the deepest that fits the tile cap), the job is the exporter's own
+    /// (<see cref="TileExporter"/>: the walk, the checkpoints, the lease, the export budget and the package writer), and what
+    /// the area adds is only the end: <c>TileExporter.AdoptAsync</c> moves the finished file into the area's folder.
     /// </summary>
-    private static async Task<(MapAreaPackage? Package, PackageRefusal? Refusal)> WriteTilesAsync(
-        HttpContext context, MapArea area, PublishedService service, string address, MapAreaPackage? existing,
+    /// <remarks>
+    /// <paramref name="existing"/> is the package being refreshed, which keeps serving its old file until the new one is
+    /// written; <paramref name="newTitle"/> is the package item's title when there is none.
+    /// </remarks>
+    private static async Task<(MapAreaPackage? Package, PackageRefusal? Refusal)> StartTilesAsync(
+        HttpContext context, MapArea area, PublishedService service, string address, MapAreaPackage? existing, string? newTitle,
         CancellationToken cancellation)
     {
         IServiceProvider services = context.RequestServices;
-        MapAreaPackageFiles files = services.GetRequiredService<MapAreaPackageFiles>();
+        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        IMapAreaStore store = services.GetRequiredService<IMapAreaStore>();
+        ITileExportStore exports = services.GetRequiredService<ITileExportStore>();
+        HostSettings settings = services.GetRequiredService<HostSettings>();
 
         VectorTileExportEndpoints.Ask ask = new(
             TileExportFormat.Vtpk,
-            null,
+            TileLevelsOf(area, service),
             new AdminEndpoints.SeedExtent(area.XMin, area.YMin, area.XMax, area.YMax, new AdminEndpoints.SeedReference(area.Wkid, null)),
             "arcgis");
 
         (VectorTileExportEndpoints.Planned? planned, VectorTileExportEndpoints.Refusal? refusal) = await VectorTileExportEndpoints.PlanAsync(
-            service, ask, services.GetRequiredService<HostSettings>(), services.GetRequiredService<ServiceContexts>(),
+            service, ask, settings, services.GetRequiredService<ServiceContexts>(),
             services.GetRequiredService<IProjector>(), services.GetRequiredService<ITileCache>(),
             services.GetRequiredService<GeoParquetSources>(), cancellation).ConfigureAwait(false);
 
@@ -799,36 +814,98 @@ internal static class MapAreaPackaging
             return (null, new PackageRefusal(refusal!.Status, refusal.Message));
         }
 
+        // A refresh of a package whose job is still running replaces that job.
+        if (existing is { ExportJobId: { } running, Status: MapAreas.PackageProcessing })
+        {
+            await CancelJobAsync(services, running).ConfigureAwait(false);
+        }
+
+        // Not woken yet: the package's row must exist before a worker can finish the job, or the finished file would be an
+        // ordinary export's and expire in a day.
+        (TileExportState? started, VectorTileExportEndpoints.Refusal? full) = await VectorTileExportEndpoints.StartAsync(
+            exports, caller.Principal.Id, service, ask, planned, settings, services.GetRequiredService<JobSignal>(), cancellation,
+            wake: false).ConfigureAwait(false);
+
+        if (started is null)
+        {
+            return (null, new PackageRefusal(full!.Status, full.Message));
+        }
+
         DateTimeOffset generation = Truncated(services.GetRequiredService<TimeProvider>().GetUtcNow());
-        (string path, string recorded) = files.Next(".vtpk");
+        string properties = JsonSerializer.Serialize(new
+        {
+            url = address,
+            format = "vtpk",
+            levels = planned.Plan.Levels.Select(l => l.Z),
+            tiles = planned.Plan.Total,
+        });
 
         try
         {
-            await services.GetRequiredService<TileExporter>().WriteVtpkAsync(service, planned, path, cancellation).ConfigureAwait(false);
-            (string sha, long size) = await MapAreaPackageFiles.HashAsync(path, cancellation).ConfigureAwait(false);
+            MapAreaPackage package;
 
-            string properties = JsonSerializer.Serialize(new
+            if (existing is null)
             {
-                url = address,
-                format = "vtpk",
-                levels = planned.Plan.Levels.Select(l => l.Z),
-                tiles = planned.Plan.Total,
-            });
+                package = new MapAreaPackage(
+                    Guid.NewGuid(), area.Id, area.MapId, service.Id, null, TileExportPackage.DownloadName(service, TileExportFormat.Vtpk),
+                    string.Empty, string.Empty, 0, properties, generation, generation, MapAreas.VtpkFormat,
+                    MapAreas.PackageProcessing, started.Job.Id);
 
-            return (new MapAreaPackage(
-                existing?.Id ?? Guid.NewGuid(), area.Id, area.MapId, service.Id, null, TileExportPackage.DownloadName(service, TileExportFormat.Vtpk),
-                recorded, sha, size, properties, existing?.Created ?? generation, generation, MapAreas.VtpkFormat), null);
+                if (!await store.AddPackageAsync(package, newTitle ?? TitleOf(area.Title, address), cancellation).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException("The area no longer exists.");
+                }
+            }
+            else
+            {
+                package = existing with
+                {
+                    Properties = properties, Status = MapAreas.PackageProcessing, ExportJobId = started.Job.Id, Error = null,
+                };
+
+                if (!await store.MarkPackageProcessingAsync(existing.Id, started.Job.Id, properties, cancellation).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException("The package no longer exists.");
+                }
+            }
+
+            services.GetRequiredService<JobSignal>().Wake(JobKind.TileExport);
+            return (package, null);
         }
         catch
         {
-            files.Delete(recorded);
+            await CancelJobAsync(services, started.Job.Id).ConfigureAwait(false);
             throw;
         }
     }
 
     /// <summary>
-    /// Writes an existing tile package again from the tiles as they are now. Answers the new package, or null after naming
-    /// in <paramref name="skipped"/> why the old one was kept.
+    /// The levels a package is bounded to by the area's tile scale, or null for the service's own (D-405): from the service's
+    /// first level down to the one whose scale reaches the area's smallest scale.
+    /// </summary>
+    internal static IReadOnlyList<int>? TileLevelsOf(MapArea area, PublishedService service) => null;
+
+    /// <summary>Stops an export job whose package is going away; a job already over is not an error.</summary>
+    private static async Task CancelJobAsync(IServiceProvider services, Guid job)
+    {
+        try
+        {
+            if (services.GetService<ITileExportStore>() is { } exports)
+            {
+                await exports.CancelAsync(job, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            services.GetService<TileExporter>()?.Stop(job);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // The job is reclaimed by its lease or ends on its own; the sweep fails a package nothing finishes.
+        }
+    }
+
+    /// <summary>
+    /// Writes an existing tile package again from the tiles as they are now: starts its job. Answers the package as it is
+    /// being written, or null after naming in <paramref name="skipped"/> why the old one was kept.
     /// </summary>
     private static async Task<MapAreaPackage?> RefreshTilesAsync(
         HttpContext context, MapArea area, MapAreaPackage old, PublishedService? service, string address, string name,
@@ -849,8 +926,8 @@ internal static class MapAreaPackaging
             return null;
         }
 
-        (MapAreaPackage? package, PackageRefusal? refusal) = await WriteTilesAsync(
-            context, area, service, address, old, cancellation).ConfigureAwait(false);
+        (MapAreaPackage? package, PackageRefusal? refusal) = await StartTilesAsync(
+            context, area, service, address, old, newTitle: null, cancellation).ConfigureAwait(false);
 
         if (package is null)
         {

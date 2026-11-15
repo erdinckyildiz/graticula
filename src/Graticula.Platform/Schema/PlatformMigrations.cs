@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(141);
+    public static SchemaVersion ComponentSchemaVersion => new(142);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -168,6 +168,7 @@ public static class PlatformMigrations
         AMapAreaIsAnItemV139,
         AMapAreaMayHoldABasemapPackageV140,
         AMapAreaHoldsOnePackagePerServiceAndKindV141,
+        APackageSaysWhetherItsFileIsWrittenV142,
     ]);
 
     /// <summary>
@@ -339,6 +340,32 @@ public static class PlatformMigrations
         "alter table map_area_package drop constraint if exists map_area_package_one_per_service",
 
         "alter table map_area_package add constraint map_area_package_one_per_service unique (area_id, service_id, format)");
+
+    /// <summary>
+    /// A map area's package says whether its file is written - ADR-288 section 11a, D-410: a basemap's tile package is written by
+    /// an export job, so its row exists before its file does.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand</b>: three nullable or defaulted columns; every row an older build wrote is <c>complete</c> with its file.
+    /// A row whose job is running has <c>file_path</c> empty (a new package) or the previous file's name (a refresh, which
+    /// keeps serving the old file until the new one is written). <c>export_job_id</c> is named, not referenced, as a
+    /// replica is: a job's row is swept on its own schedule.
+    /// </remarks>
+    private static Migration APackageSaysWhetherItsFileIsWrittenV142 => Migration.Expand(
+        new SchemaVersion(142),
+        "A map area package has a status, the export job writing its file, and the reason the last write failed (ADR-288 section 11a, D-410).",
+
+        "alter table map_area_package add column if not exists status text not null default 'complete'",
+
+        "alter table map_area_package add column if not exists export_job_id uuid null",
+
+        "alter table map_area_package add column if not exists error text null",
+
+        "alter table map_area_package drop constraint if exists map_area_package_status_known",
+
+        "alter table map_area_package add constraint map_area_package_status_known check (status in ('complete', 'processing', 'failed'))",
+
+        "create unique index if not exists map_area_package_by_job on map_area_package (export_job_id) where export_job_id is not null");
 
     /// <summary>
     /// A hosted feature service may be taken offline and synchronised — ADR-288: whether its sync is on, and the

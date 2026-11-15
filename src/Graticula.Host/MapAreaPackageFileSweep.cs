@@ -29,6 +29,15 @@ internal sealed partial class MapAreaPackageFileSweep(
                 {
                     IReadOnlySet<string> named = await areas.FilesAsync(stoppingToken).ConfigureAwait(false);
                     int orphans = files.SweepOrphans(named, Grace);
+
+                    // D-410: a package whose export job ended without telling it says so, rather than staying processing.
+                    int stranded = await areas.FailStrandedPackagesAsync(stoppingToken).ConfigureAwait(false);
+
+                    if (stranded > 0)
+                    {
+                        Log.Stranded(logger, stranded);
+                    }
+
                     if (orphans > 0)
                     {
                         Log.Swept(logger, orphans);
@@ -61,6 +70,9 @@ internal sealed partial class MapAreaPackageFileSweep(
     {
         [LoggerMessage(EventId = 1473, Level = LogLevel.Information, Message = "Removed {Orphans} map area package files nothing names.")]
         public static partial void Swept(ILogger logger, int orphans);
+
+        [LoggerMessage(EventId = 1477, Level = LogLevel.Warning, Message = "{Stranded} map area packages were waiting for an export job that ended without them; they are marked failed.")]
+        public static partial void Stranded(ILogger logger, int stranded);
 
         [LoggerMessage(EventId = 1474, Level = LogLevel.Warning, Message = "The map area package file sweep failed; the next hour will try again.")]
         public static partial void Failed(ILogger logger, Exception failed);
