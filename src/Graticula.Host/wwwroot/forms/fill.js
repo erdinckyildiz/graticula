@@ -234,6 +234,12 @@
         "Clear signature": "İmzayı temizle",
         "Signature captured.": "İmza alındı.",
         "Signature cleared.": "İmza temizlendi.",
+        "Calculate": "Hesapla",
+        "Calculated.": "Hesaplandı.",
+        "Clear drawing": "Çizimi temizle",
+        "Drawing captured.": "Çizim alındı.",
+        "Drawing cleared.": "Çizim temizlendi.",
+        "Drawing needs a mouse, a pen or a finger. It cannot be done with the keyboard alone.": "Çizim için fare, kalem ya da parmak gerekir. Yalnızca klavyeyle yapılamaz.",
         "Clear": "Temizle",
         "Remove": "Kaldır",
         "Add my position": "Konumumu ekle",
@@ -334,7 +340,7 @@
         var toggle = document.getElementById('outbox-toggle');
         if (toggle && toggle.firstChild && toggle.firstChild.nodeType === 3) { toggle.firstChild.nodeValue = isTurkish() ? 'Giden kutusu ' : 'Outbox '; }
     }
-    var me = { name: '', email: '' };
+    var me = { name: '', email: '', fullName: '', firstName: '', lastName: '' };
     var root = null;         // the root instance
     var pageIndex = 0;
     var showAll = false;     // after a submit or Next was attempted, every message is shown
@@ -651,8 +657,34 @@
             choices: choiceRows,
             listOf: function (name) { var d = defs[name]; return d ? (d.node.list || d.node.file || null) : null; },
             language: lang,
-            pulldata: pulldata
+            pulldata: pulldata,
+            property: propertyOf
         };
+    }
+
+    // pulldata("@property", name) and property(): what a browser can know (ADR-287 section 5.20). The member comes from the
+    // portal's community/self when signed in; an anonymous form, and any value the portal does not hold, answers empty
+    // (INFERRED: Survey123's page does not say). FormCatalog.Properties is the list; the checker refuses the rest by name.
+    function propertyOf(name) {
+        switch (name) {
+            case 'online': return navigator.onLine !== false;
+            case 'utcOffset': return -new Date().getTimezoneOffset() / 60;
+            case 'timeZone':
+                try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+            case 'deviceId': return deviceId();
+            case 'userAgent': return navigator.userAgent || '';
+            case 'email': return me.email || '';
+            case 'username': return me.name || '';
+            case 'userFullName': return me.fullName || '';
+            case 'userFirstName': return me.firstName || '';
+            case 'userLastName': return me.lastName || '';
+            case 'portalUrl': return me.name ? location.origin + location.pathname.replace(/\/forms(\/.*)?$/i, '') : '';
+            case 'language': return lang || (form && form.defaultLanguage) || '';
+            case 'surveyName': return (form && form.title) || '';
+            case 'mode': return 'new';          // there is no editing of a sent record in this client yet
+            case 'status': return '';           // Survey123: empty for a new response
+        }
+        return '';
     }
 
     function evalBool(expression, inst, q, fallback, current) {
@@ -698,8 +730,9 @@
             var r = relevant && evalBool(n.relevant, inst, n, true);
             if (inst.rel[n.name] !== r) { inst.rel[n.name] = r; changed = true; }
             if (n.kind === 'question') {
-                if (r && n.calculation) {
+                if (r && n.calculation && calculationDue(inst, n)) {
                     var v = evalString(n.calculation, inst, n);
+                    noteCalculated(inst, n, v);
                     if (inst.values[n.name] !== v) { inst.values[n.name] = v; changed = true; }
                 }
             } else if (n.kind === 'group') {
@@ -715,6 +748,74 @@
                 list.forEach(function (child) { walkInstance(child, r); });
             }
         });
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // calculationMode (bind::esri:parameters, ADR-287 section 5.20), as Survey123's documentation words it:
+    //   always     recalculates whenever anything it reads changes, and with dynamic functions such as now()
+    //   auto       (the default) calculates when the question is empty or has not been changed by the person
+    //   manual     only when the question's Calculate button is pressed
+    //   whenEmpty  until it gives a non-empty value, then as manual, even if the value is cleared
+    // INFERRED: "auto" is read as: not changed by the person, and not recalculated by the clock alone. A calculation is
+    // recalculated when what it reads has changed since it last ran, so now() in an auto calculation is taken once; one
+    // that reads a question by a path (../q, /data/q), current() or instance() is judged by every answer in the form.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    function calcState(inst, name) {
+        if (!inst.calc) { inst.calc = {}; }
+        return inst.calc[name] || (inst.calc[name] = { key: null, locked: false, ran: false });
+    }
+
+    function isFilled(inst, name) {
+        var v = inst.values[name];
+        return v !== undefined && v !== null && String(v) !== '';
+    }
+
+    function everyAnswer() {
+        var out = [];
+        (function walk(inst) {
+            out.push(inst.values);
+            Object.keys(inst.repeats).forEach(function (k) { inst.repeats[k].forEach(walk); });
+        })(root);
+        return JSON.stringify(out);
+    }
+
+    function calculationKey(inst, q) {
+        var e = q.calculation;
+        if (/\.\.\/|\/data\/|current\s*\(|instance\s*\(/.test(e)) { return everyAnswer() + '|' + lang; }
+        var names = [];
+        try { names = X.references(e); } catch (err) { return everyAnswer() + '|' + lang; }
+        return JSON.stringify(names.map(function (n) { return valueIn(inst, n); })) + '|' + positionOf(inst) + '|' + lang;
+    }
+
+    function calculationDue(inst, q) {
+        var mode = q.calculationMode || 'auto';
+        var st = calcState(inst, q.name);
+        if (mode === 'always') { return true; }
+        if (mode === 'manual') { return false; }
+        if (mode === 'whenEmpty') {
+            if (st.locked) { return false; }
+            if (isFilled(inst, q.name) && !st.ran) { st.locked = true; return false; }   // an answer already there is kept
+            return true;
+        }
+        if (isFilled(inst, q.name) && inst.touched[q.name]) { return false; }           // the person changed it
+        return !isFilled(inst, q.name) || st.key !== calculationKey(inst, q);
+    }
+
+    function noteCalculated(inst, q, value) {
+        var st = calcState(inst, q.name);
+        st.ran = true;
+        if ((q.calculationMode || 'auto') === 'whenEmpty' && value !== '') { st.locked = true; }
+        if ((q.calculationMode || 'auto') === 'auto') { st.key = calculationKey(inst, q); }
+    }
+
+    /** The Calculate button: runs the calculation now, whatever the mode, and leaves the person's own touch alone. */
+    function calculateNow(inst, q) {
+        var v = evalString(q.calculation, inst, q);
+        noteCalculated(inst, q, v);
+        inst.values[q.name] = v;
+        refresh(false);
+        scheduleDraft();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -1083,6 +1184,16 @@
 
         var widget = buildWidget(inst, q, id, describedBy);
         shell.appendChild(widget.node);
+        if (q.calculation && (q.calculationMode === 'manual' || q.calculationMode === 'whenEmpty') && hasUi(q)) {
+            var calculate = el('button', { type: 'button', class: 'quiet', 'data-focus': 'calculate', 'aria-describedby': id + '-label', text: t('Calculate') });
+            var calculated = el('p', { class: 'hint', 'aria-live': 'polite' });
+            calculate.addEventListener('click', function () {
+                calculateNow(inst, q);
+                calculated.textContent = t('Calculated.');
+            });
+            shell.appendChild(el('div', { class: 'inline' }, [calculate]));
+            shell.appendChild(calculated);
+        }
         wrap.appendChild(error);
         if (q.type === 'note' && labelNode.tagName === 'DIV') { wrap.classList.add('note'); }
         container.appendChild(wrap);
@@ -1153,7 +1264,9 @@
             case 'geopoint': return geopointWidget(inst, q, id);
             case 'geotrace': case 'geoshape': return verticesWidget(inst, q, id);
             case 'image': case 'audio': case 'video': case 'file':
-                return q.type === 'image' && has(q.appearance, 'signature') ? signatureWidget(inst, q, id) : mediaWidget(inst, q, id, describedBy);
+                if (q.type === 'image' && has(q.appearance, 'signature')) { return signatureWidget(inst, q, id, false); }
+                if (q.type === 'image' && has(q.appearance, 'draw')) { return signatureWidget(inst, q, id, true); }
+                return mediaWidget(inst, q, id, describedBy);
             default: return textWidget(inst, q, id, describedBy);
         }
     }
@@ -1831,15 +1944,23 @@
         };
     }
 
-    function signatureWidget(inst, q, id) {
+    // The signature pad, and the `draw` appearance (ADR-287 section 5.20), which is the same pad taller: a blank canvas drawn
+    // on with a pointer and kept as a PNG attachment. A canvas cannot be drawn on from the keyboard, so the drawing says so,
+    // in words, before anyone reaches it, and the canvas is described by that sentence.
+    function signatureWidget(inst, q, id, freehand) {
         var canvas = el('canvas', { tabindex: '0', role: 'img', 'aria-labelledby': id + '-label', 'data-focus': 'pad' });
-        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear signature') });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t(freehand ? 'Clear drawing' : 'Clear signature') });
         var status = el('p', { class: 'hint', 'aria-live': 'polite' });
+        var needsPointer = null;
+        if (freehand) {
+            needsPointer = el('p', { class: 'hint', id: id + '-pointer', text: t('Drawing needs a mouse, a pen or a finger. It cannot be done with the keyboard alone.') });
+            canvas.setAttribute('aria-describedby', id + '-pointer');
+        }
         var drawing = false, dirty = false, last = null, ctx = null;
 
         function setup() {
             var ratio = window.devicePixelRatio || 1;
-            var w = canvas.clientWidth || 320, h = canvas.clientHeight || 180;
+            var w = canvas.clientWidth || 320, h = canvas.clientHeight || (freehand ? 280 : 180);
             canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio);
             ctx = canvas.getContext('2d');
             ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -1871,15 +1992,15 @@
             canvas.toBlob(function (blob) {
                 if (!blob) { return; }
                 setFiles(inst, q, [{ name: q.name + '.png', type: 'image/png', size: blob.size, blob: blob }]);
-                status.textContent = t('Signature captured.');
+                status.textContent = t(freehand ? 'Drawing captured.' : 'Signature captured.');
             }, 'image/png');
         }
         canvas.addEventListener('pointerup', endStroke);
         canvas.addEventListener('pointercancel', endStroke);
-        clear.addEventListener('click', function () { dirty = false; setFiles(inst, q, []); setup(); status.textContent = t('Signature cleared.'); });
+        clear.addEventListener('click', function () { dirty = false; setFiles(inst, q, []); setup(); status.textContent = t(freehand ? 'Drawing cleared.' : 'Signature cleared.'); });
         setTimeout(setup, 0);
         return {
-            node: el('div', { class: 'signature' }, [canvas, el('div', { class: 'inline' }, [clear]), status]),
+            node: el('div', { class: freehand ? 'signature drawing' : 'signature' }, [needsPointer, canvas, el('div', { class: 'inline' }, [clear]), status].filter(Boolean)),
             controls: function () { return [canvas]; },
             sync: function (ro) { canvas.setAttribute('aria-disabled', ro ? 'true' : 'false'); clear.disabled = !!ro; }
         };
@@ -2982,6 +3103,9 @@
                 try {
                     var self = await api('/sharing/rest/community/self?f=json');
                     me.email = (self && self.email) || '';
+                    me.fullName = (self && self.fullName) || '';
+                    me.firstName = (self && self.firstName) || '';
+                    me.lastName = (self && self.lastName) || '';
                 } catch (e) { /* no email */ }
             }
         } catch (e) { /* anonymous or offline */ }

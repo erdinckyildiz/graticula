@@ -387,6 +387,7 @@ public sealed partial class FormDefinition
 
             Dictionary<string, string> parameters = Parameters(columns.Value(row, "parameters"), type, at);
             (string? fieldType, int? length, string? alias) = Esri(row, columns, type, at);
+            string? calculationMode = CalculationMode(row, columns, type, at);
 
             return new FormQuestion(
                 name, type, argument, labels, at,
@@ -411,7 +412,67 @@ public sealed partial class FormDefinition
                 Visible = columns.Value(row, "body::esri:visible"),
                 AccuracyThreshold = columns.Value(row, "body::accuracyThreshold"),
                 Accept = columns.Value(row, "body::accept"),
+                CalculationMode = calculationMode,
             };
+        }
+
+        /// <summary>
+        /// <c>bind::esri:parameters</c>, whose one parameter is <c>calculationMode</c> (§5.20): <c>auto</c>, <c>manual</c>,
+        /// <c>always</c> or <c>whenEmpty</c>, on a question that has a calculation and is one of the types Survey123 allows
+        /// it on. Any other parameter is refused by name.
+        /// </summary>
+        private string? CalculationMode(IReadOnlyList<string> row, Columns columns, string type, int at)
+        {
+            if (columns.Value(row, "bind::esri:parameters") is not { } written)
+            {
+                return null;
+            }
+
+            string? mode = null;
+
+            foreach (string pair in written.Split([' ', ',', ';', '&'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                int equals = pair.IndexOf('=', StringComparison.Ordinal);
+                string key = equals < 0 ? pair : pair[..equals].Trim();
+                string setting = equals < 0 ? string.Empty : pair[(equals + 1)..].Trim();
+
+                if (!key.Equals("calculationMode", StringComparison.OrdinalIgnoreCase))
+                {
+                    Refuse("survey", at, "bind::esri:parameters", $"The parameter '{key}' is refused: calculationMode is the only one Survey123 documents for this column.");
+                    continue;
+                }
+
+                string? canonical = FormCatalog.CalculationModes.FirstOrDefault(m => m.Equals(setting, StringComparison.OrdinalIgnoreCase));
+
+                if (canonical is null)
+                {
+                    Refuse("survey", at, "bind::esri:parameters", $"'{setting}' is not a calculationMode. The documented ones are {string.Join(", ", FormCatalog.CalculationModes.Order(StringComparer.Ordinal))}.");
+                    continue;
+                }
+
+                mode = canonical;
+            }
+
+            if (mode is null)
+            {
+                return null;
+            }
+
+            if (columns.Value(row, "calculation") is null)
+            {
+                Refuse("survey", at, "bind::esri:parameters", "calculationMode says when a calculation runs, and this question has none.");
+            }
+            else if (!FormCatalog.CalculationModeTypes.Contains(type))
+            {
+                Refuse("survey", at, "bind::esri:parameters", $"calculationMode is allowed on {string.Join(", ", FormCatalog.CalculationModeTypes.Order(StringComparer.Ordinal))}, not on '{type}'.");
+            }
+            else if (mode == "manual" && (type is "calculate" or "hidden"
+                || (columns.Value(row, "appearance") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("hidden", StringComparer.OrdinalIgnoreCase)))
+            {
+                Refuse("survey", at, "bind::esri:parameters", "calculationMode=manual is run by a Calculate button on the question, and a question the person does not see has none; it would never be calculated.");
+            }
+
+            return mode;
         }
 
         /// <summary>
@@ -692,7 +753,11 @@ public sealed partial class FormDefinition
             {
                 if (call.Name == "pulldata" && call.FirstLiteral is { } source && source.StartsWith('@'))
                 {
-                    Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: Survey123's pulldata(\"@…\") forms are not in the first version; pulldata from a CSV is.");
+                    PulldataSource(sheet, row, column, call, source);
+                }
+                else if (call.Name == "property")
+                {
+                    OdkProperty(sheet, row, column, call);
                 }
                 else if (call.Name == "instance" && (call.FirstLiteral is null || !lists.ContainsKey(call.FirstLiteral)))
                 {
@@ -714,6 +779,85 @@ public sealed partial class FormDefinition
                 {
                     Refuse(sheet, row, column, $"${{{reference}}} names no question in this form.");
                 }
+            }
+        }
+
+        /// <summary><c>pulldata("@property", name)</c> and <c>pulldata("@geopoint", ${q}, part)</c> are built; the rest are refused (§5.20).</summary>
+        private void PulldataSource(string sheet, int row, string column, FunctionCall call, string source)
+        {
+            if (source == "@property")
+            {
+                if (call.Count != 2)
+                {
+                    Refuse(sheet, row, column, "pulldata(\"@property\", …) takes the name of one property: pulldata(\"@property\", 'username').");
+                }
+                else if (call.Literal(1) is { } name)
+                {
+                    if (FormCatalog.RefusedProperties.TryGetValue(name, out string? why))
+                    {
+                        Refuse(sheet, row, column, $"The property '{name}' is refused: {why}.");
+                    }
+                    else if (!FormCatalog.Properties.Contains(name))
+                    {
+                        Refuse(sheet, row, column, $"'{name}' is not a property Survey123 documents. The ones a browser can answer are {string.Join(", ", FormCatalog.Properties.Order(StringComparer.Ordinal))}.");
+                    }
+                }
+            }
+            else if (source == "@geopoint")
+            {
+                if (call.Count != 3)
+                {
+                    Refuse(sheet, row, column, "pulldata(\"@geopoint\", …) takes a geopoint question and the name of a part: pulldata(\"@geopoint\", ${location}, \"y\").");
+                }
+                else if (call.Literal(2) is { } part)
+                {
+                    if (FormCatalog.RefusedGeopointParts.TryGetValue(part, out string? why))
+                    {
+                        Refuse(sheet, row, column, $"The geopoint part '{part}' is refused: {why}.");
+                    }
+                    else if (!FormCatalog.GeopointParts.Contains(part) && !FormCatalog.GeopointPartsAnsweredEmpty.Contains(part))
+                    {
+                        Refuse(sheet, row, column, $"'{part}' is not a part of a geopoint Survey123 documents.");
+                    }
+                }
+            }
+            else if (FormCatalog.RefusedPulldataSources.TryGetValue(source, out string? why))
+            {
+                Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: {why}.");
+            }
+            else
+            {
+                Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: '{source}' is not a source Survey123 documents.");
+            }
+        }
+
+        /// <summary>
+        /// <c>property('username')</c>: ODK's three a browser can answer, and the SIM's three refused by name; and, as a Survey123
+        /// form in the corpus writes it, any of <c>pulldata("@property")</c>'s names (§5.20, INFERRED).
+        /// </summary>
+        private void OdkProperty(string sheet, int row, string column, FunctionCall call)
+        {
+            if (call.Count != 1)
+            {
+                Refuse(sheet, row, column, "property() takes the name of one property: property('username').");
+                return;
+            }
+
+            if (call.Literal(0) is not { } written)
+            {
+                return;
+            }
+
+            string name = written.StartsWith("uri:", StringComparison.Ordinal) ? written[4..] : written;
+
+            if (FormCatalog.RefusedOdkProperties.TryGetValue(name, out string? why)
+                || FormCatalog.RefusedProperties.TryGetValue(name, out why))
+            {
+                Refuse(sheet, row, column, $"The property '{written}' is refused: {why}.");
+            }
+            else if (!FormCatalog.OdkProperties.ContainsKey(name) && !FormCatalog.Properties.Contains(name))
+            {
+                Refuse(sheet, row, column, $"'{written}' is not a property ODK or Survey123 documents. The ones a browser can answer are {string.Join(", ", FormCatalog.OdkProperties.Keys.Concat(FormCatalog.Properties).Order(StringComparer.Ordinal))}.");
             }
         }
 
@@ -1308,6 +1452,12 @@ public sealed record FormQuestion(
 
     /// <summary><c>body::accept</c>: the file types an attachment question takes.</summary>
     public string? Accept { get; init; }
+
+    /// <summary>
+    /// <c>calculationMode</c> from <c>bind::esri:parameters</c> — <c>auto</c>, <c>manual</c>, <c>always</c> or
+    /// <c>whenEmpty</c> — or null when the question does not say, which is <c>auto</c> (ADR-287 §5.20).
+    /// </summary>
+    public string? CalculationMode { get; init; }
 }
 
 /// <summary>One choice of a list: its name, its labels per language, and the values a choice_filter may read.</summary>

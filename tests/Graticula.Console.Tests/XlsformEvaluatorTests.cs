@@ -75,6 +75,7 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
             now: function () { return new Date('2024-02-29T22:15:30.250Z'); },
             random: function () { return 0.25; },
             choices: function (list) { return lists[list]; },
+            property: function (name) { return { username: 'ada', email: 'ada@example.org', online: true, utcOffset: 3, deviceId: 'dev-1' }[name]; },
             listOf: function (question) { return question === 'fruits' || question === 'fruitsx' ? 'food' : null; },
             pulldata: function (file, column, keyColumn, key) {
               if (file !== 'prices') { return ''; }
@@ -183,6 +184,67 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "uuid(5)", "PPPPP", "{}" },
         { "pulldata('prices', 'price', 'code', 'A1')", "3.5", "{}" },
         { "pulldata('prices', 'price', 'code', 'none')", "", "{}" },
+
+        // ----- pulldata("@property") and property() — ADR-287 section 5.20. What the page knows is the page's: the context
+        // here says ada is signed in, online, three hours east, with the device id dev-1; anything it does not hold is empty.
+        { "pulldata('@property', 'username')", "ada", "{}" },
+        { "pulldata(\"@property\", \"email\")", "ada@example.org", "{}" },
+        { "pulldata('@property', 'online')", "true", "{}" },
+        { "if(pulldata('@property', 'online'), 'yes', 'no')", "yes", "{}" },
+        { "pulldata('@property', 'utcOffset') * 2", "6", "{}" },
+        { "pulldata('@property', 'userFullName')", "", "{}" },
+        { "concat(pulldata('@property', 'username'), '!')", "ada!", "{}" },
+        { "pulldata('@property', 'username')", "", "{property: null}" },
+        { "property('username')", "ada", "{}" },
+        { "property('uri:email')", "ada@example.org", "{}" },
+        { "property('deviceid')", "dev-1", "{}" },
+        { "property('uri:deviceid')", "dev-1", "{}" },
+        { "property('userFullName')", "", "{}" },                // a Survey123 name works in property() too (INFERRED, section 5.20)
+        { "property('online')", "true", "{}" },
+
+        // ----- pulldata("@geopoint") — the point is "latitude longitude altitude accuracy". The documented example's point
+        // is used for the degrees, minutes and seconds (39°57'36.3"N, seconds 36.3 and 4).
+        { "pulldata('@geopoint', ${loc}, 'y')", "41.0082", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'x')", "28.9784", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'z')", "0", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'horizontalAccuracy')", "5", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'accuracy')", "5", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'positionSourceType')", "2", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'verticalAccuracy')", "", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'speed')", "", "{}" },
+        { "pulldata('@geopoint', ${loc}, 'positionSourceInfo.deviceName')", "", "{}" },
+        { "round(pulldata('@geopoint', ${loc}, 'x') + pulldata('@geopoint', ${loc}, 'y'), 4)", "69.9866", "{}" },
+        { "pulldata('@geopoint', '41 29 0 0', 'x')", "29", "{}" },
+        { "pulldata('@geopoint', '41 29 0 0', 'z')", "", "{}" },                   // typed: no altitude was recorded
+        { "pulldata('@geopoint', '41 29 0 0', 'horizontalAccuracy')", "", "{}" },   // ... and no accuracy
+        { "pulldata('@geopoint', '41 29 0 0', 'positionSourceType')", "1", "{}" },  // User
+        { "pulldata('@geopoint', '', 'x')", "", "{}" },
+        { "pulldata('@geopoint', ${a}, 'y')", "", "{}" },
+        { "pulldata('@geopoint', 'north south', 'y')", "", "{}" },
+        { "pulldata('@geopoint', '39.96008 116.45111 800.5 12.3', 'DMS.latitudeText')", "39\u00b057'36.3\"N", "{}" },
+        { "pulldata('@geopoint', '39.96008 116.45111 800.5 12.3', 'DMS.latitudeMinutes')", "57", "{}" },
+        { "pulldata('@geopoint', '39.96008 116.45111 800.5 12.3', 'DMS.latitudeSeconds')", "36.3", "{}" },
+        { "pulldata('@geopoint', '39.96008 116.45111 800.5 12.3', 'DMS.longitudeSeconds')", "4", "{}" },
+        { "pulldata('@geopoint', '39.96008 116.45111 800.5 12.3', 'DMS.longitudeText')", "116\u00b027'4.0\"E", "{}" },
+        { "pulldata('@geopoint', '39.96008 116.45111 800.5 12.3', 'DMS.text')", "39\u00b057'36\"N 116\u00b027'4\"E", "{}" },
+        { "pulldata('@geopoint', '-10.5 -20.25 0 3', 'DMS.latitudeHemisphere')", "S", "{}" },
+        { "pulldata('@geopoint', '-10.5 -20.25 0 3', 'DMS.longitudeHemisphere')", "W", "{}" },
+        { "pulldata('@geopoint', '-10.5 -20.25 0 3', 'DMS.longitudeMinutes')", "15", "{}" },
+        { "pulldata('@geopoint', '10.99999 5 0 3', 'DMS.latitudeMinutes')", "0", "{}" },     // 59.9996 minutes carries into the degree
+        { "pulldata('@geopoint', '10.99999 5 0 3', 'DMS.latitudeDegrees')", "11", "{}" },
+        { "substring(pulldata('@geopoint', ${loc}, 'DMS'), 1, 18)", "{\"latitudeDegrees\"", "{}" },
+
+        // ----- date-time() — ADR-287 section 5.20, INFERRED from "converts a number or string to a date object"
+        { "format-date-time(date-time('2017-05-28T04:39:02+10:00'), '%Y-%m-%d %H:%M')", "2017-05-27 21:39", "{}" },   // Survey123's own example; shown at +03:00
+        { "format-date-time(date-time('2024-03-01'), '%Y-%m-%d %H:%M')", "2024-03-01 00:00", "{}" },                // a date is the device's midnight
+        { "decimal-date-time(date-time(${d}))", "19781.875", "{}" },                                                 // 2024-02-29 00:00 at +03:00
+        { "decimal-date-time(date-time(19000.5))", "19000.5", "{}" },                                                // a number is days since 1970 UTC
+        { "decimal-date-time(date-time('19000.25'))", "19000.25", "{}" },
+        { "string(date-time(0))", "1970-01-01T03:00:00.000+03:00", "{}" },
+        { "date-time('')", "", "{}" },
+        { "date-time(${a})", "", "{}" },
+        { "date-time('not a date')", "", "{}" },
+        { "decimal-date-time(date-time(decimal-date-time(${start}))) = decimal-date-time(${start})", "true", "{}" },
 
         // ----- Boolean
         { "if(${n} > 3, 'big', 'small')", "big", "{}" },
@@ -390,7 +452,25 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "1 2", "Unexpected '2'", 2 },
         { "'abc", "A string is never closed", 0 },
         { "1 # 2", "Unexpected '#'", 2 },
-        { "pulldata('@layer', 'a', 'b', 'c')", "pulldata(\"@layer\") is not supported", 0 },
+        { "pulldata('@layer', 'a', 'b', 'c')", "pulldata(\"@layer\") is not supported: it queries a feature layer", 0 },
+        { "pulldata('@json', 'a')", "pulldata(\"@json\") is not supported: reading a JSON answer", 0 },
+        { "pulldata('@javascript', 'f.js', 'run')", "pulldata(\"@javascript\") is not supported: running a script", 0 },
+        { "pulldata('@exif', ${a}, 'x')", "pulldata(\"@exif\") is not supported: reading the metadata of a photo", 0 },
+        { "pulldata('@mystery', 'a')", "pulldata(\"@mystery\") is not supported: it is not a source Survey123 documents", 0 },
+        { "pulldata('prices', 'price')", "pulldata() takes 4 arguments, not 2", 0 },
+        { "pulldata('@property')", "pulldata() takes 2 to 4 arguments, not 1", 0 },
+        { "pulldata('@property', 'username', 'x')", "pulldata(\"@property\") takes the name of one property", 0 },
+        { "pulldata('@property', 'token')", "pulldata(\"@property\") does not give 'token': an access token is a credential", 0 },
+        { "pulldata('@property', 'deviceModel')", "pulldata(\"@property\") does not give 'deviceModel'", 0 },
+        { "pulldata('@property', 'shoeSize')", "'shoeSize' is not a property Survey123 documents", 0 },
+        { "1 + pulldata('@geopoint', ${loc}, 'UTM.easting')", "pulldata(\"@geopoint\") does not give 'UTM.easting'", 4 },
+        { "pulldata('@geopoint', ${loc}, 'bogus')", "'bogus' is not a part of a geopoint Survey123 documents", 0 },
+        { "pulldata('@geopoint', ${loc})", "pulldata(\"@geopoint\") takes a geopoint question and the name of a part", 0 },
+        { "property('phonenumber')", "property('phonenumber') is not supported: a browser cannot read the device's phone number", 0 },
+        { "property('uri:simserial')", "property('uri:simserial') is not supported", 0 },
+        { "property('shoe')", "'shoe' is not a property ODK or Survey123 documents", 0 },
+        { "property('token')", "property('token') is not supported: an access token is a credential", 0 },
+        { "property()", "property() takes 1 argument, not 0", 0 },
         { "round()", "round() takes 1 to 2 arguments, not 0", 0 },
         { "if(1, 2)", "if() takes 3 arguments, not 2", 0 },
         { "weighted-checklist(1, 2, 'x')", "weighted-checklist() takes min, max and pairs", 0 },
@@ -512,6 +592,44 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
 
         Assert.True(catalog.Length >= 8, $"Only {catalog.Length} refused functions were read from FormCatalog.cs; the parse is wrong.");
         Assert.Equal(catalog, evaluator.OrderBy(x => x, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// ADR-287 section 5.20's lists are the same in the checker and the evaluator, in both directions: a form the server
+    /// lets through never reaches a name the client does not know, and the client does not accept what the server refuses.
+    /// </summary>
+    [Fact]
+    public async Task The_evaluators_property_geopoint_and_mode_lists_are_exactly_FormCatalogs()
+    {
+        string source = File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "Graticula.Host", "Forms", "FormCatalog.cs"));
+
+        string[] Set(string name)
+        {
+            Match block = Regex.Match(source, name + @"\s*=\s*Set\((?<body>.*?)\);", RegexOptions.Singleline);
+            Assert.True(block.Success, $"FormCatalog.cs has no '{name} = Set(...)'; this test reads it by that shape.");
+            return Regex.Matches(Regex.Replace(block.Groups["body"].Value, @"//[^\n]*", string.Empty), "\"([^\"]+)\"")
+                .Select(m => m.Groups[1].Value).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        }
+
+        string[] Keys(string name)
+        {
+            Match block = Regex.Match(source, name + @"\s*=\s*new Dictionary<string, string>\(StringComparer\.Ordinal\)\s*\{(?<body>.*?)\}\.ToFrozenDictionary", RegexOptions.Singleline);
+            Assert.True(block.Success, $"FormCatalog.cs has no '{name}' dictionary; this test reads it by that shape.");
+            return Regex.Matches(block.Groups["body"].Value, @"\[""([^""]+)""\]\s*=").Select(m => m.Groups[1].Value).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        }
+
+        async Task<string[]> Evaluator(string key) =>
+            (await _page.Browser.EvaluateAsync<string[]>($"GraticulaXlsform.catalog.{key}.slice()") ?? []).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(Set("Properties"), await Evaluator("properties"));
+        Assert.Equal(Keys("RefusedProperties"), await Evaluator("refusedProperties"));
+        Assert.Equal(Keys("OdkProperties"), await Evaluator("odkProperties"));
+        Assert.Equal(Keys("RefusedOdkProperties"), await Evaluator("refusedOdkProperties"));
+        Assert.Equal(Set("GeopointParts"), await Evaluator("geopointParts"));
+        Assert.Equal(Set("GeopointPartsAnsweredEmpty"), await Evaluator("geopointPartsAnsweredEmpty"));
+        Assert.Equal(Keys("RefusedGeopointParts"), await Evaluator("refusedGeopointParts"));
+        Assert.Equal(Keys("RefusedPulldataSources"), await Evaluator("refusedPulldataSources"));
+        Assert.Equal(Set("CalculationModes"), await Evaluator("calculationModes"));
     }
 
     /// <summary>Every function on the list is called by at least one case above (condition 4: tested, not just present).</summary>

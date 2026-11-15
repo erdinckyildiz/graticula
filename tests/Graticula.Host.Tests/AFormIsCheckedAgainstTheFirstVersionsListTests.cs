@@ -139,7 +139,9 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
 
     [Theory]
     [InlineData("pulldata('@layer', 'getValue', 'x', 'y')", "@layer")]
-    [InlineData("pulldata(\"@property\", 'username')", "@property")]
+    [InlineData("pulldata('@json', 'a', 'b')", "@json")]
+    [InlineData("pulldata('@javascript', 'f.js', 'run')", "@javascript")]
+    [InlineData("pulldata('@exif', ${ad}, 'GPSLatitude')", "@exif")]
     [InlineData("digest(${ad}, 'SHA-256')", "digest")]
     [InlineData("jr:itext('x')", "label::language")]
     [InlineData("frobnicate(${ad})", "not a function")]
@@ -179,7 +181,8 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     [Fact]
     public void Appearances_are_supported_drawn_the_default_way_or_refused()
     {
-        RefusedAt(Checked(["image", "f", "F", "", "", "", "", "draw"]), 2, "appearance", "drawing");
+        RefusedAt(Checked(["text", "t", "T", "", "", "", "", "draw"]), 2, "appearance", "applies to image");
+        Assert.True(Checked(["image", "f", "F", "", "", "", "", "draw"]).Accepted);
         RefusedAt(Checked(["text", "t", "T", "", "", "", "", "signature"]), 2, "appearance", "applies to image");
         RefusedAt(Checked(["select_one renk", "r", "R", "", "", "", "", "search('x')"]), 2, "appearance", "search()");
         RefusedAt(Checked(["text", "t", "T", "", "", "", "", "sparkly"]), 2, "appearance", "not an appearance");

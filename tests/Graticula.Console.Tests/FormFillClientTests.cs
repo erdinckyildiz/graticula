@@ -332,6 +332,9 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             }
         }
 
+        /// <summary>True when the stand-in server says somebody is signed in (a member called ada, with a portal record).</summary>
+        public bool SignedIn { get; set; }
+
         /// <summary>Where the stand-in server listens, without a trailing slash.</summary>
         public string Address => $"http://127.0.0.1:{_port}";
 
@@ -551,7 +554,15 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
 
                 if (path == "/rest/whoami")
                 {
-                    Send(context, 200, "application/json", """{"authenticated":false}"""u8.ToArray());
+                    Send(context, 200, "application/json", SignedIn
+                        ? """{"authenticated":true,"name":"ada"}"""u8.ToArray()
+                        : """{"authenticated":false}"""u8.ToArray());
+                    return;
+                }
+
+                if (SignedIn && path == "/sharing/rest/community/self")
+                {
+                    Send(context, 200, "application/json", """{"username":"ada","fullName":"Ada Lovelace","firstName":"Ada","lastName":"Lovelace","email":"ada@example.org"}"""u8.ToArray());
                     return;
                 }
 

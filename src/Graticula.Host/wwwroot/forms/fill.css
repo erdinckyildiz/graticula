@@ -189,6 +189,7 @@ button:disabled { opacity: 0.55; cursor: default; }
   display: block; width: 100%; height: 180px; touch-action: none;
   background: #ffffff; border: 1px dashed var(--control-edge); border-radius: 6px;
 }
+.signature.drawing canvas { height: 280px; border-style: solid; }
 
 .repeat-instance {
   margin: 12px 0; padding: 4px 12px 12px;
