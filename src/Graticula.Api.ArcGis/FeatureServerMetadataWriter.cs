@@ -103,8 +103,25 @@ public static class FeatureServerMetadataWriter
     /// in to the portal reads it, and exchanges its portal token for this server's at
     /// <paramref name="tokenServicesUrl"/> instead of asking its user to sign in a second time.
     /// </param>
+    /// <param name="soapUrl">
+    /// The server's services root as ArcGIS names it, or null to leave it out. A federated ArcGIS Server writes it
+    /// (<c>https://host/server/services</c>), and ArcGIS Pro's federated-server connection — the one Share As Web
+    /// Layer uses for a map image layer — reads it (ADR-299). Named only where publishing from Pro is on.
+    /// </param>
     /// <returns>An object ready for JSON serialisation.</returns>
-    public static object ServerInfo(string tokenServicesUrl, string? owningSystemUrl = null) => new
+    public static object ServerInfo(string tokenServicesUrl, string? owningSystemUrl = null, string? soapUrl = null) => soapUrl is null
+        ? ServerInfoWithout(tokenServicesUrl, owningSystemUrl)
+        : new
+        {
+            currentVersion = CurrentVersion,
+            fullVersion = FullVersion,
+            soapUrl,
+            secureSoapUrl = (string?)null,
+            owningSystemUrl,
+            authInfo = new { isTokenBasedSecurity = true, tokenServicesUrl, shortLivedTokenValidity = 60 },
+        };
+
+    private static object ServerInfoWithout(string tokenServicesUrl, string? owningSystemUrl) => new
     {
         currentVersion = CurrentVersion,
         fullVersion = FullVersion,

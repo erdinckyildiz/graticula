@@ -23735,25 +23735,46 @@ function askName(asked) {
     const wanted = box.value.trim();
 
     // <b>An empty box is not an error while somebody is still typing into it.</b> It is the state
-    // the dialog opens in when a name is being replaced rather than edited.
-    const why = !wanted ? "" : (asked.check ? asked.check(wanted) : null);
+    // the dialog opens in when a name is being replaced rather than edited. Where empty is an answer — a setting
+    // being cleared (`allowEmpty`) — it is accepted.
+    // Something still being typed (`unfinished`, e.g. an address ending in a dot) is neither accepted nor called wrong.
+    const pending = Boolean(wanted && asked.unfinished && asked.unfinished(wanted));
+    const why = !wanted || pending ? "" : (asked.check ? asked.check(wanted) : null);
 
-    says.textContent = why || (asked.preview ? asked.preview(wanted) : "");
+    // Written only when it changes, so the live region speaks a new sentence, not the same one on every keystroke.
+    const next = why || (asked.preview ? asked.preview(wanted) : "");
+    if (says.textContent !== next) says.textContent = next;
     says.classList.toggle("bad-inline", Boolean(why));
-    done.disabled = !wanted || Boolean(why);
+    box.setAttribute("aria-invalid", why ? "true" : "false");
+    done.disabled = (!wanted && !asked.allowEmpty) || pending || Boolean(why);
   };
 
-  const shut = () => {
+  /*
+    <b>Every way out runs the same cleanup — a design review, 2026-11-13.</b> Escape closes a <dialog> natively and never
+    reached `shut`, so the listeners stayed on the shared box and button, and the next dialog's Save ran the previous
+    accept as well: a rename cancelled with Escape renamed something with the next dialog's text. The cleanup is the
+    dialog's own close event now, and it puts the focus back where the dialog was opened from — the row's ⋯ when the
+    opener was inside a menu that closed behind it, which otherwise left the focus on the page.
+  */
+  const opener = document.activeElement;
+  const back = asked.back
+    || (() => opener?.closest?.("details")?.querySelector("summary") || opener);
+
+  const cleanup = () => {
     box.removeEventListener("input", judge);
     box.removeEventListener("keydown", onKey);
     done.removeEventListener("click", accept);
-    dialog.close();
+    const target = back();
+    if (target && target.isConnected) target.focus();
   };
+
+  const shut = () => dialog.close();
 
   const accept = () => {
     const wanted = box.value.trim();
 
-    if (!wanted || (asked.check && asked.check(wanted))) return;
+    if ((!wanted && !asked.allowEmpty) || (wanted && asked.unfinished && asked.unfinished(wanted))
+      || (wanted && asked.check && asked.check(wanted))) return;
 
     shut();
     asked.then(wanted);
@@ -23774,7 +23795,9 @@ function askName(asked) {
 
   $("renameCancel").onclick = shut;
   $("renameClose").onclick = shut;
+  dialog.addEventListener("close", cleanup, { once: true });
 
+  says.textContent = "";
   judge();
   dialog.showModal();
   box.focus();
@@ -25673,6 +25696,7 @@ async function loadSources() {
                   title="This server's own hosted store: its connection comes from the Graticula:PlatformStore setting on every start, so it is neither edited here nor removed.">built-in</span>`
             : ""}
           <div class="rowmeta">${sourcePlatformSays(d)}</div>
+          ${d.publisherAddress ? `<div class="rowmeta">ArcGIS Pro reaches it at <code>${h(d.publisherAddress)}</code></div>` : ""}
           ${d.quiesced ? sourceHeldSays(d.quiesced, d.sharesWith) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
@@ -25706,7 +25730,10 @@ async function loadSources() {
                         data-source-platform="${h(d.platform || "")}"
                         data-source-authentication="${h(d.authentication || "")}"
                         data-source-summary="${h(d.summary || "")}"
-                        data-source-layers="${num(d.layerCount)}">Edit…</button>
+                        data-source-layers="${num(d.layerCount)}">Edit…</button>${d.kind === "postgis" && !d.sealedWithAnotherKey ? `
+                      <button type="button" data-source-publisher="${h(d.id)}" data-source-name="${h(d.name)}"
+                        data-source-summary="${h(d.summary || "")}"
+                        data-source-address="${h(d.publisherAddress || "")}">Publisher address…</button>` : ""}
                       <button type="button" class="danger" data-source-remove="${h(d.id)}"
                         data-source-name="${h(d.name)}"
                         data-source-layers="${num(d.layerCount)}">Remove…</button>
@@ -25799,6 +25826,58 @@ function sourceHeldSays(held, shares) {
  * @param {number} layers how many layers depend on it
  * @returns {Promise<void>} when it is held, or refused
  */
+/**
+ * Server › Data sources › ⋯ › Publisher address — ADR-299 condition 4: the address ArcGIS Pro reaches this database at,
+ * when it is not the one this server uses (a container name here, <code>localhost,55499</code> on a publisher's
+ * machine). Pro shares a layer by reference only when its connection names a registered database, so this is the
+ * address it is compared with. Only the address is kept; the database, the user and the password stay the source's.
+ *
+ * @param {string} id the source
+ * @param {string} name its name, for the title
+ * @param {string} summary where this server reaches it, said beside the box
+ * @param {string} current the address set now, or empty
+ */
+function askPublisherAddress(id, name, summary, current) {
+  const shape = /^([A-Za-z0-9](?:[A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?:,(\d{1,5}))?$/;
+
+  askName({
+    title: `Publisher address — ${name}`,
+    label: "Where ArcGIS Pro connects to this database",
+    value: current || "",
+    action: "Save",
+    allowEmpty: true,
+    // db. and db.example.org, are on their way to an address, not mistakes (a design review, 2026-11-13).
+    unfinished: typed => /[.,]$/.test(typed.trim()),
+    check: typed => {
+      const m = shape.exec(typed.replace(/\s+/g, ""));
+      if (!m || (m[2] && (Number(m[2]) < 1 || Number(m[2]) > 65535))) {
+        return "A host, or a host and a port after a comma — db.example.org or db.example.org,5433 — as Pro shows it in the connection's properties.";
+      }
+      return null;
+    },
+    // Not echoing what is typed, so the sentence changes only between the two states and is spoken once each.
+    preview: typed => typed
+      ? `Pro's layers at this address are matched to this source when the database and the user are the same. This server keeps reading it at ${summary || "its own address"}.`
+      : `Empty: Pro is matched at this server's own address${summary ? ` (${summary})` : ""}. Set one only when Pro reaches the database somewhere else.`,
+    then: async typed => {
+      try {
+        const r = await api(`/admin/datasources/${encodeURIComponent(id)}/publisher-address`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: typed || null }),
+        });
+        toast(r.publisherAddress ? `${name}: ArcGIS Pro reaches it at ${r.publisherAddress}.` : `${name}: no publisher address.`, true);
+      } catch (e) {
+        toast(e.message);
+      }
+      await loadSources();
+
+      // The list is drawn again, so the focus goes back to this row's ⋯ rather than to the top of the page.
+      document.querySelector(`[data-source-publisher="${CSS.escape(id)}"]`)?.closest("details")?.querySelector("summary")?.focus();
+    },
+  });
+}
+
 async function quiesceSource(id, name, layers, shares, sharedLayerCount) {
   const dialog = $("quiesce");
   const minutes = $("quiesceMinutes");
@@ -33241,6 +33320,11 @@ async function handleClick(event) {
       layers: Number(d.sourceLayers) || 0,
     });
 
+    return;
+  }
+
+  if (d.sourcePublisher) {
+    askPublisherAddress(d.sourcePublisher, d.sourceName, d.sourceSummary, d.sourceAddress);
     return;
   }
 

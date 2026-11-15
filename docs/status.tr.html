@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>cab3c989</code> · 2026-11-12 12:04</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7bb1176b</code> · 2026-11-13 11:50</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">285</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">690/740</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">286</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">693/744</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">40 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">açık borç</div><div class="kpi-n">331 ödendi · 22 tetiğini bekliyor</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">6152</div><div class="kpi-l">test</div><div class="kpi-n">681 kaynak dosya, 301,874 satır</div></div>
+<div class="kpi good"><div class="kpi-v">6193</div><div class="kpi-l">test</div><div class="kpi-n">688 kaynak dosya, 303,755 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">63 madde</span></div><p><b>39 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">64 madde</span></div><p><b>40 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -161,6 +161,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-284 · Contributor and Mobile Worker, as </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-299 · ArcGIS Pro publishes a map image l</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -464,6 +465,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">285</td><td>Graticula does not provide ArcGIS Pro licences</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">286</td><td>ArcGIS Field Maps tasks are turned on from a map&#x27;s Settings in Studio</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">289</td><td>The owner&#x27;s four answers after the Pro sweep: Pro&#x27;s column names, Pro&#x27;s messages, Pro&#x27;s attachment keys, and the page over Pro</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
+<tr><td class="id">299</td><td>ArcGIS Pro publishes a map image layer by reference to a registered database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -616,19 +618,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1787</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:54.8%"></div></div><div class="bar-n">979</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.4%"></div></div><div class="bar-n">972</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:32.6%"></div></div><div class="bar-n">582</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:28.3%"></div></div><div class="bar-n">505</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:25.2%"></div></div><div class="bar-n">450</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.7%"></div></div><div class="bar-n">244</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.3%"></div></div><div class="bar-n">131</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:6.9%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:5.9%"></div></div><div class="bar-n">106</div></div>
-<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:3.9%"></div></div><div class="bar-n">70</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1828</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:53.6%"></div></div><div class="bar-n">979</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:53.2%"></div></div><div class="bar-n">972</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:31.8%"></div></div><div class="bar-n">582</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:27.6%"></div></div><div class="bar-n">505</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:24.6%"></div></div><div class="bar-n">450</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:13.3%"></div></div><div class="bar-n">244</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:7.2%"></div></div><div class="bar-n">131</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:6.8%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:5.8%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:3.8%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">56</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">50</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.4%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">29</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.3%"></div></div><div class="bar-n">24</div></div>
@@ -678,20 +680,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>cab3c989</code><time>2026-11-12</time><span>grapy writes a GeoPackage&#x27;s object ID as OBJECTID and its geometry as Shape, as Pro does (ADR-289 §5.1)</span></li>
-<li><code>aa0b0e75</code><time>2026-11-12</time><span>grapy finds a GeoPackage&#x27;s object ID and geometry columns from the table (ADR-289 §5.1, first half)</span></li>
-<li><code>c6c695bd</code><time>2026-11-12</time><span>Pro&#x27;s per-tool messages are built (ADR-289 §5.3)</span></li>
-<li><code>9420e96e</code><time>2026-11-12</time><span>Merge branch &#x27;grapy-messages&#x27; into pro-sweep</span></li>
-<li><code>2014ac7b</code><time>2026-11-12</time><span>grapy answers Pro&#x27;s per-tool messages (ADR-289 §5.3)</span></li>
-<li><code>60acc0ee</code><time>2026-11-12</time><span>Attachments keyed by object ID are built (ADR-289 §5.4); the sweep&#x27;s deep learning test is restored</span></li>
-<li><code>05cacf2a</code><time>2026-11-12</time><span>Merge branch &#x27;grapy-attachments-oid&#x27; into pro-sweep</span></li>
-<li><code>92bf2a84</code><time>2026-11-12</time><span>Merge remote-tracking branch &#x27;origin/grapy-test-cleanup&#x27; into pro-sweep</span></li>
-<li><code>a2c94f7c</code><time>2026-11-12</time><span>Sweep tests restore the environments they point at their temporary folders</span></li>
-<li><code>2e5b79be</code><time>2026-11-12</time><span>grapy&#x27;s class-level model folder is removed in tearDownClass, and test_locref restores scratchWorkspace too</span></li>
-<li><code>7df34d41</code><time>2026-11-12</time><span>grapy keys attachments on REL_OBJECTID on a class without global IDs, as ArcGIS Pro does (ADR-289 §5.4)</span></li>
-<li><code>381849f1</code><time>2026-11-12</time><span>Merge remote-tracking branch &#x27;origin/grapy-test-cleanup&#x27; into pro-sweep</span></li>
-<li><code>333b6371</code><time>2026-11-12</time><span>The Pro sweep&#x27;s tests remove the temporary folders they make</span></li>
-<li><code>e6632d1b</code><time>2026-11-12</time><span>grapy&#x27;s tests put arcpy.env&#x27;s workspaces back before their folder is removed</span></li>
+<li><code>7bb1176b</code><time>2026-11-13</time><span>A registered database&#x27;s publisher address is shown and set in Server › Data sources (ADR-299 condition 4)</span></li>
+<li><code>6ab84567</code><time>2026-11-13</time><span>A layer Pro copied into the definition because its database user is not registered is refused in those words (ADR-299, measured)</span></li>
+<li><code>34669c3b</code><time>2026-11-13</time><span>The publishing job answers the two outputs Pro asks for by name, the service&#x27;s SOAP and REST addresses (ADR-299 condition 1, measured)</span></li>
+<li><code>11a31eb8</code><time>2026-11-13</time><span>Dev records Pro&#x27;s PublishingTools envelopes while it is measured, so the job&#x27;s output parameters can be read (ADR-299, dev only)</span></li>
+<li><code>aa66fa72</code><time>2026-11-13</time><span>Pro&#x27;s PublishServiceDefinition job publishes a map image layer by reference to a registered database (ADR-299 condition 1)</span></li>
+<li><code>00a68d82</code><time>2026-11-13</time><span>ArcGIS Pro is told the /studio portal owns the server, and every other client the root as before (ADR-299 condition 2)</span></li>
+<li><code>de6bd41c</code><time>2026-11-13</time><span>ADR-299: 00147 was this server&#x27;s routing, not a licence check; ACCEPTED WITH CONDITIONS by its own revisit trigger</span></li>
+<li><code>676e443b</code><time>2026-11-13</time><span>Admin services/canCreateService and services/properties are resources, not folders: the folder reading was Pro&#x27;s analyzer 00147 (ADR-299)</span></li>
+<li><code>01777aaa</code><time>2026-11-12</time><span>ADR-299: the desktop Pro stops at 002901 on owningSystemUrl, the licence contents are not used, and the string search in Pro&#x27;s DLLs is disclosed (measured)</span></li>
+<li><code>92660e10</code><time>2026-11-12</time><span>ADR-299: what gates 00147 and what does not, and the publish protocol past it (measured)</span></li>
+<li><code>9d1de972</code><time>2026-11-12</time><span>Read the uploaded file by index (CA1826)</span></li>
+<li><code>c92ffb62</code><time>2026-11-12</time><span>Dev keeps the service definition Pro uploads and acknowledges it, so the next publishing call can be seen (ADR-299, dev only)</span></li>
+<li><code>162cff3d</code><time>2026-11-12</time><span>Dev answers any address from a recorded file while Pro is measured, rest/info and the portal&#x27;s documents included (ADR-299, dev only)</span></li>
+<li><code>9c4e57f5</code><time>2026-11-12</time><span>ADR-299: 00147 blocks every map image layer from Pro, not only a reference one, and the licence document&#x27;s contents do not decide it (measured)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

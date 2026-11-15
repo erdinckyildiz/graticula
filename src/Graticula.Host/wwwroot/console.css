@@ -1270,6 +1270,7 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
            margin-top: 3px; }
 .rowmeta .sep { color: var(--faint); margin: 0 7px; }
 .rowmeta .count { font-variant-numeric: tabular-nums; }
+.rowmeta code { overflow-wrap: anywhere; }
 
 /* --------------------------------------------------------------------- the map */
 

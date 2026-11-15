@@ -95,6 +95,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ConnectionBudget._waiting"] = "one counter per data source",
         ["FileSystemTileCache._index"] = "byte budget with least-recently-used eviction",
 
+        // ADR-299: what ArcGIS Pro uploaded for a publish, and the finished publishing job it polls.
+        ["PortalEndpoints.ProReferencePublish.ProUploads"] = "at most MostHeld (256), each dropped after an hour or when its job runs; a further upload is refused",
+        ["PortalEndpoints.ProReferencePublish.ProJobs"] = "at most MostHeld (256), each dropped after an hour; the oldest goes first when full",
+
         // ADR-010 §3, 2026-09-29: the per-layer counters a service's quota is summed from, and what each quota evicted.
         ["FileSystemTileCache._layerBytes"] = "one per layer with a tile in the cache, so the catalogue bounds it; removed when the layer is purged",
         ["FileSystemTileCache._purgedAt"] = "one per layer whose last purge could not move its directory aside, so the catalogue bounds it; removed when a later purge of that layer succeeds",
