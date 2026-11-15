@@ -13,6 +13,7 @@ aggregation tools whose procedures are described only in outline.
 """
 from __future__ import annotations
 
+import math
 import os
 
 from . import _gpkg, da
@@ -193,7 +194,8 @@ def SimplifyLine(in_features, out_feature_class, algorithm="POINT_REMOVE", toler
     recomputed after each removal. BEND_SIMPLIFY and WEIGHTED_AREA are refused, as are barriers. Each part of a
     multipart line is simplified on its own; endpoints are kept.
 
-    The output has the input's fields, then InLine_FID, SimLnFlag, MinSimpTol and MaxSimpTol (both the tolerance). A
+    The output has the input's fields, then InLine_FID, SimLnFlag (only with ``error_option="FLAG_ERRORS"``: Pro
+    writes none under the default, measured 2026-11-08), MinSimpTol and MaxSimpTol (both the tolerance). A
     line simplified to zero length is left out, and with KEEP_COLLAPSED_POINTS its endpoint is written to the
     ``_Pnt`` feature class beside the output. Outputs, in order: the output, the ``_Pnt`` feature class (or empty).
 
@@ -243,8 +245,10 @@ def SimplifyLine(in_features, out_feature_class, algorithm="POINT_REMOVE", toler
         _refuse("SimplifyLine", "tolerance", tolerance, "at this tolerance the simplified lines would meet differently "
                 "or cross themselves, and the tool's topology-keeping procedure is not specified")
     out = _out(out_feature_class)
-    extra = [_gpkg.Column("InLine_FID", "Integer"), _gpkg.Column("SimLnFlag", "SmallInteger"),
-             _gpkg.Column("MinSimpTol", "Double"), _gpkg.Column("MaxSimpTol", "Double")]
+    # SimLnFlag only with FLAG_ERRORS: Pro writes none under the default NO_CHECK (measured 2026-11-08).
+    flagged = str(error_option).upper() == "FLAG_ERRORS"
+    extra = [_gpkg.Column("InLine_FID", "Integer"), *([_gpkg.Column("SimLnFlag", "SmallInteger")] if flagged else []),
+             _gpkg.Column("MaxSimpTol", "Double"), _gpkg.Column("MinSimpTol", "Double")]  # Pro 3.7's order
     _gpkg.create(out, "Polyline", srid, [*columns, *extra])
     collapsed = []
     with da.InsertCursor(out, [*names, *[c.name for c in extra], "SHAPE@"]) as written:
@@ -255,7 +259,7 @@ def SimplifyLine(in_features, out_feature_class, algorithm="POINT_REMOVE", toler
                 ends.add(tuple(last[:2]))
                 collapsed.extend((oid, point) for point in sorted(ends))
                 continue
-            written.insertRow((*values, oid, flag, limit, limit, simplified))
+            written.insertRow((*values, oid, *([flag] if flagged else []), limit, limit, simplified))
     points = ""
     if str(collapsed_point_option).upper() in ("KEEP_COLLAPSED_POINTS", "TRUE"):
         points = _beside(out, "_Pnt")
@@ -277,13 +281,15 @@ def SimplifyPolygon(in_features, out_feature_class, algorithm="POINT_REMOVE", to
     EFFECTIVE_AREA Visvalingam and Whyatt (1992) — the ring opened at its first stored vertex, which is kept. Where a
     ring's simplification starts is not documented, and the answer depends on it: that is what makes this an
     equivalent. "Multipart polygons are simplified as individual parts." A hole simplified to less than a triangle is
-    dropped; a polygon whose outer ring is, or whose area falls below minimum_area, is removed, and with
+    dropped. An outer ring simplified to less than a triangle keeps three vertices instead, chosen as edit.Generalize
+    chooses them — measured in ArcGIS Pro 3.7, 2026-11-08: a 4 m square at a 3 m tolerance became a triangle of three
+    of its corners; until then grapy removed it. A polygon whose area falls below minimum_area is removed, and with
     KEEP_COLLAPSED_POINTS its centroid goes to the ``_Pnt`` feature class with InPoly_FID. INFERRED: the minimum area
     applies to each polygon on its own — polygons that share edges are refused below, so no group of adjacent polygons
     reaches the rule that applies the area to the group.
 
-    The output has the input's fields, InPoly_FID, SimPgnFlag (1 for an input polygon that is not valid), MinSimpTol
-    and MaxSimpTol. As SimplifyLine, a run that would change how outlines meet — polygons that share an edge or touch,
+    The output has the input's fields, InPoly_FID, MinSimpTol and MaxSimpTol, and with ``FLAG_ERRORS`` SimPgnFlag (1
+    for an input polygon that is not valid) — Pro writes no SimPgnFlag under the default NO_CHECK (measured 2026-11-08). As SimplifyLine, a run that would change how outlines meet — polygons that share an edge or touch,
     whose simplified outlines would no longer coincide — or make one cross itself is refused, since Esri's
     topology-keeping procedure is not specified. Refused: BEND_SIMPLIFY, WEIGHTED_AREA, barriers, RESOLVE_ERRORS on an
     input with errors.
@@ -311,15 +317,19 @@ def SimplifyPolygon(in_features, out_feature_class, algorithm="POINT_REMOVE", to
         _refuse(tool, "error_option", "RESOLVE_ERRORS", "the input has topological errors, and how they are resolved is "
                 "not documented")
 
-    def ring(coordinates):
+    def ring(coordinates, outer=False):
         kept = simplify([tuple(c[:2]) for c in coordinates], limit)
+        if (len(kept) < 4 or Polygon(kept).area <= 0) and outer and len(coordinates) >= 4:
+            from .edit import _generalized_ring
+            from shapely.geometry import LinearRing
+            kept = _generalized_ring(LinearRing([tuple(c[:2]) for c in coordinates]), math.inf)
         return kept if len(kept) >= 4 and Polygon(kept).area > 0 else None
 
     after = []
     for _, _, shape in features:
         parts = []
         for part in getattr(shape, "geoms", [shape]):
-            outer = ring(part.exterior.coords)
+            outer = ring(part.exterior.coords, outer=True)
             if outer is None:
                 continue
             holes = [h for h in (ring(r.coords) for r in part.interiors) if h is not None]
@@ -335,8 +345,9 @@ def SimplifyPolygon(in_features, out_feature_class, algorithm="POINT_REMOVE", to
         _refuse(tool, "tolerance", tolerance, "at this tolerance the simplified outlines would meet differently or cross "
                 "themselves, and the tool's topology-keeping procedure is not specified")
     out = _out(out_feature_class)
-    extra = [_gpkg.Column("InPoly_FID", "Integer"), _gpkg.Column("SimPgnFlag", "SmallInteger"),
-             _gpkg.Column("MinSimpTol", "Double"), _gpkg.Column("MaxSimpTol", "Double")]
+    flagged = str(error_option).upper() == "FLAG_ERRORS"
+    extra = [_gpkg.Column("InPoly_FID", "Integer"), *([_gpkg.Column("SimPgnFlag", "SmallInteger")] if flagged else []),
+             _gpkg.Column("MaxSimpTol", "Double"), _gpkg.Column("MinSimpTol", "Double")]  # Pro 3.7's order
     _gpkg.create(out, "Polygon", srid, [*columns, *extra])
     collapsed = []
     with da.InsertCursor(out, [*names, *[c.name for c in extra], "SHAPE@"]) as written:
@@ -344,7 +355,7 @@ def SimplifyPolygon(in_features, out_feature_class, algorithm="POINT_REMOVE", to
             if simplified is None:
                 collapsed.append((oid, shape.centroid))
                 continue
-            written.insertRow((*values, oid, flag, limit, limit, simplified))
+            written.insertRow((*values, oid, *([flag] if flagged else []), limit, limit, simplified))
     points = ""
     if str(collapsed_point_option).upper() in ("KEEP_COLLAPSED_POINTS", "TRUE"):
         points = _beside(out, "_Pnt")
@@ -452,6 +463,11 @@ def SimplifyBuilding(in_features, out_feature_class, simplification_tolerance, m
     removes no vertex (5) — the codes the page documents. Buildings smaller than minimum_area afterwards are removed,
     their centroids to ``_Pnt`` with KEEP_COLLAPSED_POINTS. CHECK_CONFLICTS adds SimBldFlag, 1 where a simplified
     building overlaps or touches another. Refused: barriers.
+
+    Measured in ArcGIS Pro 3.7, 2026-11-08, and aligned: each output building carries InBld_FID, the input's ObjectID,
+    before BLD_STATUS; a building that is already a rectangle is unchanged (5), not replaced by itself (2); and the
+    second output is the ``_Pnt`` path even under NO_KEEP, when it is not created. Until then grapy wrote no InBld_FID,
+    gave a rectangle 2, and answered an empty second output.
     """
     import shapely
     from shapely.geometry import MultiPolygon, Polygon
@@ -474,7 +490,10 @@ def SimplifyBuilding(in_features, out_feature_class, simplification_tolerance, m
         parts, statuses = [], []
         for part in getattr(shape, "geoms", [shape]):
             rectangle = shapely.minimum_rotated_rectangle(part)
-            if part.area < tolerance * tolerance:
+            if part.area >= tolerance * tolerance and                     part.symmetric_difference(rectangle).area <= 1e-9 * max(part.area, 1.0):
+                parts.append(part)     # already a rectangle: unchanged (5), as Pro 3.7 answers (measured 2026-11-08)
+                statuses.append(5)
+            elif part.area < tolerance * tolerance:
                 parts.append(rectangle)
                 statuses.append(3)
             elif part.hausdorff_distance(rectangle) <= tolerance:
@@ -500,18 +519,17 @@ def SimplifyBuilding(in_features, out_feature_class, simplification_tolerance, m
         tree = STRtree(shapes)
         for i, shape in enumerate(shapes):
             flags[kept[i][0]] = int(any(int(j) != i for j in tree.query(shape, predicate="intersects")))
-    extra = [_gpkg.Column("BLD_STATUS", "SmallInteger")] + ([_gpkg.Column("SimBldFlag", "SmallInteger")] if check else [])
-    plain = [c for c in columns if c.name.upper() not in ("BLD_STATUS", "SIMBLDFLAG")]
+    extra = [_gpkg.Column("InBld_FID", "Integer"), _gpkg.Column("BLD_STATUS", "SmallInteger")] +         ([_gpkg.Column("SimBldFlag", "SmallInteger")] if check else [])
+    plain = [c for c in columns if c.name.upper() not in ("INBLD_FID", "BLD_STATUS", "SIMBLDFLAG")]
     out = _out(out_feature_class)
     _gpkg.create(out, "Polygon", srid, [*plain, *extra])
     keep_index = [names.index(c.name) for c in plain]
     with da.InsertCursor(out, [*[c.name for c in plain], *[c.name for c in extra], "SHAPE@"]) as written:
         for oid, values, shape, status, _ in kept:
-            row = [values[i] for i in keep_index] + [status] + ([flags[oid]] if check else [])
+            row = [values[i] for i in keep_index] + [oid, status] + ([flags[oid]] if check else [])
             written.insertRow((*row, shape if shape.geom_type == "MultiPolygon" else MultiPolygon([shape])))
-    points = ""
+    points = _beside(out, "_Pnt")
     if str(collapsed_point_option or "NO_KEEP").upper() in ("KEEP_COLLAPSED_POINTS", "TRUE"):
-        points = _beside(out, "_Pnt")
         _gpkg.create(points, "Point", srid, [_gpkg.Column("InBld_FID", "Integer")])
         with da.InsertCursor(points, ["InBld_FID", "SHAPE@"]) as written:
             for oid, _, shape, _, original in results:
@@ -531,7 +549,10 @@ def CollapseDualLinesToCenterline(in_features, out_feature_class, maximum_width,
     minimum_width or farther than maximum_width apart are dropped. The pieces are merged into the centerline, oriented
     as the first casing runs, with LnType 1 and the casings' ids in LeftLn_FID and RightLn_FID (left of the
     centerline's direction). Lines left unpaired, and closed lines, are copied with LnType 2 and ids 0, as the page
-    says for "broken or unpaired lines". LnType 3 (unclear intersections) is not produced.
+    says for "broken or unpaired lines" — but a line with no other line within maximum_width is not written: ArcGIS
+    Pro 3.7 left such a line out in both runs measured (2026-11-08). LnType 3 (unclear intersections) is not
+    produced. Measured too, and not followed: Pro's centerline does not always run as the first casing does, and of
+    a pair of unequal length it wrote only the shorter casing, reversed, as LnType 2 — neither has a stated rule.
     """
     import numpy as np
     import shapely
@@ -592,12 +613,25 @@ def CollapseDualLinesToCenterline(in_features, out_feature_class, maximum_width,
                 start, end = a.project(shapely.Point(line.coords[0])), a.project(shapely.Point(line.coords[-1]))
                 if end < start:
                     line = shapely.reverse(line)
-                (x0, y0), (x1, y1) = line.coords[0][:2], line.coords[-1][:2]
+                # The pair's closing ends: the centerline reaches the middle of each, as ArcGIS Pro 3.7's does
+                # (measured 2026-11-08); the Voronoi edges stop short of them.
+                coords = [tuple(c[:2]) for c in line.coords]
+                for k, (pa, pb) in ((0, (a.coords[0], other.coords[0])), (-1, (a.coords[-1], other.coords[-1]))):
+                    middle = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+                    if 0 < math.dist(coords[k], middle) <= widest:
+                        coords.insert(0, middle) if k == 0 else coords.append(middle)
+                line = LineString(coords)
+                # Left of the centerline where it passes the other casing's middle, not of its chord: a bent road's
+                # chord can cross its own casing (found by the Pro sweep, 2026-11-08).
                 mid = b.interpolate(0.5, normalized=True)
+                at = line.project(mid)
+                p0 = line.interpolate(max(0.0, at - step))
+                p1 = line.interpolate(min(line.length, at + step))
+                x0, y0, x1, y1 = p0.x, p0.y, p1.x, p1.y
                 left_is_b = (x1 - x0) * (mid.y - y0) - (y1 - y0) * (mid.x - x0) > 0
                 written.insertRow((1, b_oid if left_is_b else a_oid, a_oid if left_is_b else b_oid, line))
         for oid, shape in lines:
-            if oid not in used:
+            if oid not in used and any(o != oid and shape.distance(other) <= widest for o, other in lines):
                 written.insertRow((2, 0, 0, shape))
     return Result(out)
 

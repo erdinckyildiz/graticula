@@ -1,6 +1,7 @@
 """A raster's attribute table through the field tools, ListFields, Describe and the raster–feature conversions."""
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -14,6 +15,8 @@ import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 class RatWiring(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)
         # 1 1      cells of 10 m, the lower-left corner at (0, 0)
@@ -55,7 +58,7 @@ class RatWiring(unittest.TestCase):
         self.assertEqual(sorted(self.rows(polygons, ["gridcode", "label", "SHAPE@AREA"])),
                          [(1, "v1", 200.0), (2, "v2", 100.0), (3, "v3", 100.0)])
         points = arcpy.conversion.RasterToPoint(self.raster, os.path.join(self.directory, "pt.gpkg"), "label")[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(points)][1:-1], ["pointid", "label"])
+        self.assertEqual([f.name for f in arcpy.ListFields(points)][2:], ["pointid", "label"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         self.assertEqual(self.rows(points, ["label", "SHAPE@XY"]),
                          [("v1", (5.0, 15.0)), ("v1", (15.0, 15.0)), ("v2", (5.0, 5.0)), ("v3", (15.0, 5.0))])
 

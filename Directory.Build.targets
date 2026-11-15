@@ -142,4 +142,46 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!--
+    <b>The offline reader, the third sibling — ADR-288 condition 7.</b> What ArcGIS Field Maps or Pro uploads to
+    synchronizeReplica is a mobile geodatabase a client chose, parsed with the native e_sqlite3, so it is read in this
+    child rather than in the server (ADR-009 §2.2, owner decision 2026-11-10). Opt in with
+    <CopyOfflineReader>true</CopyOfflineReader>; it lands in `offline/` beside the opting project, at build and at
+    publish, the same two halves as the siblings above and for D-235's reason that a publish needs its own.
+
+    <b>Small, and that is part of why it is not a mode of the import reader:</b> SQLite and nothing else, where the import
+    reader carries GDAL. The other siblings' directories are excluded from the copy for the reason the overlay worker's
+    note gives.
+  -->
+  <Target Name="CopyOfflineReader"
+          AfterTargets="Build"
+          Condition="'$(CopyOfflineReader)' == 'true'">
+    <ItemGroup>
+      <OfflineReaderFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*;$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\offline\**\*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(OfflineReaderFiles)"
+          DestinationFolder="$(OutDir)offline\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PublishOfflineReader"
+          AfterTargets="Publish"
+          Condition="'$(CopyOfflineReader)' == 'true'">
+    <ItemGroup>
+      <PublishedOfflineReaderFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*;$(MSBuildThisFileDirectory)src\Graticula.Offline.Reader\bin\$(Configuration)\$(TargetFramework)\**\offline\**\*" />
+    </ItemGroup>
+
+    <Error Condition="'@(PublishedOfflineReaderFiles)' == ''"
+           Text="The offline reader's build output is empty, so this publish would produce an image that cannot read what Field Maps or Pro uploads to synchronizeReplica. That is ADR-288 condition 7 and D-235's shape." />
+
+    <Copy SourceFiles="@(PublishedOfflineReaderFiles)"
+          DestinationFolder="$(PublishDir)offline\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

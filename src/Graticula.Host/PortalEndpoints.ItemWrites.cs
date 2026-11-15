@@ -798,7 +798,10 @@ internal static partial class PortalEndpoints
     {
         // <b>A service definition Pro uploaded is its own item</b>: deleting it forgets the upload, never the service it
         // was published to — which is what Pro deletes after a publish it misread.
-        if (Staged.TryGetValue(id, out StagedDefinition? staged) && staged.Owner == current.Principal.Id)
+        // A data file committed in parts is a document under the same id (ADR-269 condition 2), and deleting it deletes the
+        // document, below; only an upload that never became one is forgotten here.
+        if (Staged.TryGetValue(id, out StagedDefinition? staged) && staged.Owner == current.Principal.Id
+            && staged.DocumentId is null)
         {
             Staged.TryRemove(id, out _);
             return (true, null, 200);

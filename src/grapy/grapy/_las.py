@@ -554,9 +554,11 @@ def _grid(found, dataset, sampling_type, sampling_value):
 
 
 def _cells(found, grid):
-    """The row and column of each point; a point on the grid's right or top edge falls in the last cell (INFERRED)."""
+    """The row and column of each point: a cell holds its left and bottom edges, so a point on the line between two
+    rows falls in the row above it — measured in ArcGIS Pro 3.7, 2026-11-08, over 900 binned cells (grapy put it in
+    the row below until then). A point on the grid's right or top edge falls in the last cell (INFERRED)."""
     columns = np.clip(np.floor((found["x"] - grid.left) / grid.width).astype(np.int64), 0, grid.columns - 1)
-    rows = np.clip(np.floor((grid.top - found["y"]) / grid.height).astype(np.int64), 0, grid.rows - 1)
+    rows = np.clip(np.ceil((grid.top - found["y"]) / grid.height).astype(np.int64) - 1, 0, grid.rows - 1)
     return rows, columns
 
 
@@ -801,9 +803,11 @@ def LASToMultipoint(input, out_feature_class, average_point_spacing, class_code=
                     (a["return_number"] == int(r))
             keep &= chosen
         if keep.any():
-            rows.append((shapely.MultiPoint(np.column_stack([a["x"][keep], a["y"][keep], a["z"][keep] * zf])),))
+            rows.append((int(keep.sum()),
+                         shapely.MultiPoint(np.column_stack([a["x"][keep], a["y"][keep], a["z"][keep] * zf]))))
     from ._tintools import _write
-    return Result(_write(out_feature_class, "Multipoint", srid, [], True, rows))
+    # PointCount, each multipoint's points, as ArcGIS Pro 3.7 writes it (measured 2026-11-08).
+    return Result(_write(out_feature_class, "Multipoint", srid, [_gpkg.Column("PointCount", "Integer")], True, rows))
 
 
 def PointFileInformation(input, out_feature_class, in_file_type="LAS", file_suffix="las", input_coordinate_system=None,
@@ -882,7 +886,8 @@ def LasPointStatsByArea(in_las_dataset, in_features, out_property):
     gets a count of 0 and nulls."""
     from . import da
     from ._tintools import _ensure_fields
-    names = {"Z_MIN": "Z_MIN", "Z_MAX": "Z_MAX", "Z_MEAN": "Z_MEAN", "POINT_COUNT": "POINT_COUNT",
+    # The field names ArcGIS Pro 3.7 writes (measured 2026-11-08); STD_DEV's was not measured.
+    names = {"Z_MIN": "Z_Min", "Z_MAX": "Z_Max", "Z_MEAN": "Z_Mean", "POINT_COUNT": "PointCount",
              "STANDARD_DEVIATION": "STD_DEV"}
     wanted = []
     for p in _list(out_property):
@@ -890,9 +895,9 @@ def LasPointStatsByArea(in_las_dataset, in_features, out_property):
             _refuse("ddd", "LasPointStatsByArea", "out_property", p)
         wanted.append(names[str(p).upper()])
     found, _ = points(in_las_dataset, "LasPointStatsByArea")
-    _ensure_fields(in_features, [w for w in wanted if w != "POINT_COUNT"])
-    if "POINT_COUNT" in wanted:
-        _ensure_fields(in_features, ["POINT_COUNT"], "Integer")
+    _ensure_fields(in_features, [w for w in wanted if w != "PointCount"])
+    if "PointCount" in wanted:
+        _ensure_fields(in_features, ["PointCount"], "Integer")
     tree_points = shapely.points(found["x"], found["y"])
     with da.UpdateCursor(in_features, [*wanted, "SHAPE@"]) as rows:
         for row in rows:
@@ -901,8 +906,8 @@ def LasPointStatsByArea(in_las_dataset, in_features, out_property):
             area = shapely.force_2d(row[-1]._shape)
             inside = shapely.covers(area, tree_points)
             z = found["z"][inside]
-            stat = {"Z_MIN": float(z.min()) if len(z) else None, "Z_MAX": float(z.max()) if len(z) else None,
-                    "Z_MEAN": float(z.mean()) if len(z) else None, "POINT_COUNT": int(len(z)),
+            stat = {"Z_Min": float(z.min()) if len(z) else None, "Z_Max": float(z.max()) if len(z) else None,
+                    "Z_Mean": float(z.mean()) if len(z) else None, "PointCount": int(len(z)),
                     "STD_DEV": float(z.std()) if len(z) else None}
             rows.updateRow([*(stat[w] for w in wanted), row[-1]])
     return Result(str(in_features))
@@ -1307,7 +1312,9 @@ def ClassifyLasGround(in_las_dataset, method="STANDARD", reuse_ground="RECLASSIF
 class Described:
     """What Describe answers for a LAS dataset: dataType ``LasDataset`` and the documented properties — constraintCount,
     fileCount, hasStatistics, needsUpdateStatistics, pointCount, usesRelativePath — with the Dataset group's extent and
-    spatial reference. INFERRED: pointCount is 0 until statistics are computed; the extent is the files' headers'."""
+    spatial reference. pointCount is the files' headers' point counts, statistics or none: measured in ArcGIS Pro 3.7,
+    2026-11-08, a dataset of 25 and 16 points made without COMPUTE_STATS answers 41 (this was INFERRED as 0 until
+    statistics are computed). INFERRED: the extent is the files' headers'."""
 
     def __init__(self, path, dataset):
         import laspy
@@ -1322,14 +1329,15 @@ class Described:
         stats = dataset.stats()
         self.hasStatistics = bool(stats) and all(s for _, s in stats)
         self.needsUpdateStatistics = any(_stale(s, p) for p, s in stats)
-        self.pointCount = sum(s["pointCount"] for _, s in stats if s)
         self.usesRelativePath = dataset.relative
         self.spatialReference = SpatialReference(dataset.srid) if dataset.srid > 0 else None
-        boxes = []
+        boxes, points = [], 0
         for p in dataset.file_paths():
             if os.path.exists(p) and p.lower().endswith((".las", ".laz")):
                 with laspy.open(p) as reader:
                     boxes.append((*reader.header.mins[:2], *reader.header.maxs[:2]))
+                    points += int(reader.header.point_count)
+        self.pointCount = points
         self.extent = (Extent(min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes),
                               max(b[3] for b in boxes), self.spatialReference) if boxes else None)
 

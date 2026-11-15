@@ -3,6 +3,7 @@ OGC Related Tables Extension, against hand-worked answers."""
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -15,6 +16,8 @@ from grapy import _gpkg, _relationships  # noqa: E402
 class Relationships(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "grid")[0]
         self.poles = arcpy.management.CreateFeatureclass(self.gpkg, "poles", "POINT", spatial_reference=3857)[0]
@@ -49,7 +52,8 @@ class Relationships(unittest.TestCase):
                           described.backwardPathLabel, described.notification),
                          ("RelationshipClass", "OneToMany", True, False, ["poles"], ["transformers"], "Holds",
                           "Is mounted on", "None"))
-        self.assertEqual(described.originClassKeys, [("pole_id", "OriginPrimary"), ("pole", "OriginForeign")])
+        # (field, role, "") triples, as Pro answers them (measured in ArcGIS Pro 3.7, 2026-11-08); pairs before.
+        self.assertEqual(described.originClassKeys, [("pole_id", "OriginPrimary", ""), ("pole", "OriginForeign", "")])
 
     def test_search_related_records_both_ways(self):
         rc = self.composite()
@@ -111,7 +115,7 @@ class Relationships(unittest.TestCase):
             for row in ((1, "P1", 0.5), (2, "P1", 0.5), (2, "P3", 1.0)):
                 written.insertRow(row)
         rc = arcpy.management.TableToRelationshipClass(owners, self.poles, self.gpkg + "/Owns", "SIMPLE", "owns",
-                                                       "owned by", "NONE", "MANY_TO_MANY", deeds, ["share"], "fid",
+                                                       "owned by", "NONE", "MANY_TO_MANY", deeds, ["share"], "OBJECTID",
                                                        "owner_id", "pole_id", "pole_ref")[0]
         self.assertEqual(sorted(arcpy.da.SearchRelatedRecords(rc, "*", "name", "pole_id")),
                          [(("Ada",), ("P1",)), (("Bo",), ("P1",)), (("Bo",), ("P3",))])
@@ -130,7 +134,7 @@ class Relationships(unittest.TestCase):
             written.insertRow((None, "P2"))
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.management.TableToRelationshipClass(owners, self.poles, self.gpkg + "/Owns2", "SIMPLE", "a", "b", "NONE",
-                                                      "MANY_TO_MANY", deeds, None, "fid", "owner_id", "pole_id", "pole_ref")
+                                                      "MANY_TO_MANY", deeds, None, "OBJECTID", "owner_id", "pole_id", "pole_ref")
 
     def test_rules_are_kept_and_removed(self):
         rc = self.composite()
@@ -147,7 +151,7 @@ class Relationships(unittest.TestCase):
             arcpy.management.AddRuleToRelationshipClass(rc, "Residential", 0, 1)
         with self.assertRaises(arcpy.NotBuiltError):
             arcpy.management.CreateRelationshipClass(self.poles, self.transformers, self.gpkg + "/Bad", "COMPOSITE", "a",
-                                                     "b", "NONE", "MANY_TO_MANY", "NONE", "pole_id", "pole_ref", "fid", "x")
+                                                     "b", "NONE", "MANY_TO_MANY", "NONE", "pole_id", "pole_ref", "OBJECTID", "x")
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.management.MigrateRelationshipClass(rc)
         self.assertIn("GlobalID", str(raised.exception))

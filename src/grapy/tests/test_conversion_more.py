@@ -5,6 +5,7 @@ Every expected text, value and coordinate below is written out by hand; none is 
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -23,6 +24,8 @@ def box(x0, y0, x1, y1):
 class ConversionMore(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE")],
@@ -57,9 +60,9 @@ class ConversionMore(unittest.TestCase):
 
     def test_export_table_writes_delimited_text_and_tables(self):
         csv = arcpy.conversion.ExportTable(self.parcels, self.out("p.csv"))[0]
-        self.assertEqual(self.text(csv), "fid,name,kind,value\n1,p0,a,1.0\n2,p1,a,2.5\n3,p2,b,\n")
+        self.assertEqual(self.text(csv), "OBJECTID,name,kind,value\n1,p0,a,1.0\n2,p1,a,2.5\n3,p2,b,\n")
         tsv = arcpy.conversion.ExportTable(self.parcels, self.out("p.tsv"), "kind = 'a'", sort_field=[["value", "DESCENDING"]])[0]
-        self.assertEqual(self.text(tsv), "fid\tname\tkind\tvalue\n2\tp1\ta\t2.5\n1\tp0\ta\t1.0\n")
+        self.assertEqual(self.text(tsv), "OBJECTID\tname\tkind\tvalue\n2\tp1\ta\t2.5\n1\tp0\ta\t1.0\n")
         table = arcpy.conversion.ExportTable(self.parcels, self.out("t.gpkg"))[0]
         self.assertEqual(self.rows(table, ["name", "SHAPE@"]), [("p0", None), ("p1", None), ("p2", None)])
         gpkg = arcpy.management.CreateFileGDB(self.directory, "store.gdb")[0]
@@ -79,7 +82,7 @@ class ConversionMore(unittest.TestCase):
             sheet = ElementTree.fromstring(package.read("xl/worksheets/sheet1.xml"))
         self.assertEqual(sheets, ["parcels"])
         cells = {c.get("r"): "".join(c.itertext()) for c in sheet.iter(main + "c")}
-        self.assertEqual((cells["A1"], cells["B1"], cells["D1"], cells["B2"], cells["D3"]), ("fid", "name", "value", "p0", "2.5"))
+        self.assertEqual((cells["A1"], cells["B1"], cells["D1"], cells["B2"], cells["D3"]), ("OBJECTID", "name", "value", "p0", "2.5"))  # Pro's names, measured (ADR-289 §5.1)
         self.assertNotIn("D4", cells)                                         # p2's null value is an empty cell
         with self.assertRaises(arcpy.NotBuiltError):
             arcpy.conversion.TableToExcel(self.parcels, self.out("p.xls"))

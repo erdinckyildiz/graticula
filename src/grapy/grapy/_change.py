@@ -56,7 +56,19 @@ def _class_names(raster, field, tool):
 
 
 def _categorical(first, second, from_classes, to_classes, filter_method, colours_by, from_field, to_field, other,
-                 by_name, tool):
+                 by_name, tool, listed_only=True):
+    """Pro 3.7's encoding, measured 2026-11-08 (three filters, a subset, the tool and the function). The from and to
+    classes are each raster's values, ascending. A cell holds Value: under ALL the pair's index in the from × to grid
+    (from index · number of to classes + to index), under CHANGED_PIXELS_ONLY the index among the pairs whose classes
+    differ, under UNCHANGED_PIXELS_ONLY the class's index among the classes both rasters hold. Classvalue is the class
+    value itself for an unchanged class, and for a transition its index among the differing pairs after an offset of
+    the largest class value of either raster plus one. The rest is one class after them: "No Change" (Same → Same)
+    under CHANGED_PIXELS_ONLY, "Changed" (Any → Any) under UNCHANGED_PIXELS_ONLY, "Other" for cells outside the
+    classes chosen. A transition is named "from->to". The tool lists the classes present, with Count and Area; the
+    function lists every class it encodes.
+
+    INFERRED: with chosen classes and a filter other than ALL, a cell outside the chosen classes goes to "Other";
+    Red, Green and Blue are written only when both rasters have colours (Pro draws its own)."""
     from ._raster import Raster, _align, _Rat
     if not (first.isInteger and second.isInteger):
         raise ValueError(f"{tool}: CATEGORICAL_DIFFERENCE needs two integer (categorical) rasters.")
@@ -78,43 +90,78 @@ def _categorical(first, second, from_classes, to_classes, filter_method, colours
             return {back.get(str(i).lower(), int(i) if str(i).lstrip("-").isdigit() else None) for i in items}
         return {int(i) for i in items}
 
+    every1 = sorted(int(v) for v in np.unique(a[~masks[0]]))
+    every2 = sorted(int(v) for v in np.unique(b[~masks[1]]))
+    offset = max(every1 + every2 + [0]) + 1
     keep1, keep2 = wanted(from_classes, names1), wanted(to_classes, names2)
-    if keep1 is not None:
-        mask = mask | ~np.isin(a, list(keep1))
-    if keep2 is not None:
-        mask = mask | ~np.isin(b, list(keep2))
+    from_values = [v for v in every1 if keep1 is None or v in keep1]
+    to_values = [v for v in every2 if keep2 is None or v in keep2]
+    chosen = ~mask & np.isin(a, from_values) & np.isin(b, to_values)
+    outside = ~mask & ~chosen
     kind = _upper(filter_method, "ALL")
-    if kind not in ("ALL", "CHANGED_PIXELS_ONLY", "UNCHANGED_PIXELS_ONLY", "CHANGE_PIXELS_ONLY"):
+    if kind == "CHANGE_PIXELS_ONLY":
+        kind = "CHANGED_PIXELS_ONLY"
+    if kind not in ("ALL", "CHANGED_PIXELS_ONLY", "UNCHANGED_PIXELS_ONLY"):
         raise ValueError(f"{tool}: filter_method must be ALL, CHANGED_PIXELS_ONLY or UNCHANGED_PIXELS_ONLY.")
     colour_rule = _upper(colours_by, "AVERAGE")
     if colour_rule not in ("AVERAGE", "FROM_COLOR", "TO_COLOR"):
         raise ValueError(f"{tool}: define_transition_colors must be AVERAGE, FROM_COLOR or TO_COLOR.")
-    changed = a != b
-    classified = ~mask & (changed if kind.startswith("CHANGE") else (~changed if kind == "UNCHANGED_PIXELS_ONLY"
-                                                                     else np.ones_like(changed)))
-    pairs = sorted({(int(x), int(y)) for x, y in zip(a[classified], b[classified])})
+    differing = [(x, y) for x in from_values for y in to_values if x != y]
+    transition = {pair: offset + k for k, pair in enumerate(differing)}
+    # (value, classvalue, name, from, to, pair or None) for each class encoded
+    classes = []
+    if kind == "ALL":
+        for i, x in enumerate(from_values):
+            for j, y in enumerate(to_values):
+                classes.append((i * len(to_values) + j, x if x == y else transition[(x, y)], (x, y)))
+        rest_value, rest_class = len(from_values) * len(to_values), offset + len(differing)
+    elif kind == "CHANGED_PIXELS_ONLY":
+        classes = [(k, offset + k, pair) for k, pair in enumerate(differing)]
+        rest_value, rest_class = len(differing), offset + len(differing)
+    else:
+        both = [v for v in from_values if v in to_values]
+        classes = [(k, v, (v, v)) for k, v in enumerate(both)]
+        rest_value, rest_class = len(both), offset
     out = np.zeros(a.shape, np.int32)
     area = abs(grid.width * grid.height)
     has_colour = bool(colours1) and bool(colours2)
-    fields = [("Value", "Integer", 5), ("ClassName", "String", 0), ("Class_From", "String", 0),
-              ("Class_To", "String", 0), ("Count", "Integer", 1), ("Area", "Double", 0)]
+    fields = [("Value", "Integer", 5), ("Classvalue", "Integer", 0), ("Class_name", "String", 0),
+              ("Class_From", "String", 0), ("Class_To", "String", 0)]
     if has_colour:
         fields += [("Red", "Integer", 0), ("Green", "Integer", 0), ("Blue", "Integer", 0)]
+    if listed_only:
+        fields += [("Count", "Integer", 1), ("Area", "Double", 0)]
     rows = []
-    for number, (x, y) in enumerate(pairs, 1):
-        here = classified & (a == x) & (b == y)
-        out[here] = number
+    classified = np.zeros(a.shape, bool)
+    for value, class_value, (x, y) in classes:
+        here = chosen & (a == x) & (b == y)
+        classified |= here
+        out[here] = value
+        if listed_only and not here.any():
+            continue
         n1, n2 = names1.get(x, str(x)), names2.get(y, str(y))
-        row = [number, n1 if x == y and n1 == n2 else f"{n1}>{n2}", n1, n2, int(here.sum()), float(here.sum() * area)]
+        row = [value, class_value, n1 if x == y else f"{n1}->{n2}", n1, n2]
         if has_colour:
             c1, c2 = colours1.get(x, (0, 0, 0)), colours2.get(y, (0, 0, 0))
             c = {"AVERAGE": tuple((p + q) / 2 for p, q in zip(c1, c2)), "FROM_COLOR": c1, "TO_COLOR": c2}[colour_rule]
             row += [int(round(v)) for v in c]
+        if listed_only:
+            row += [int(here.sum()), float(here.sum() * area)]
         rows.append(row)
     rest = ~mask & ~classified
-    if rest.any():
-        row = [0, other, "", "", int(rest.sum()), float(rest.sum() * area)] + ([0, 0, 0] if has_colour else [])
-        rows.insert(0, row)
+    if rest.any() or not listed_only:
+        if outside.any() or kind == "ALL":
+            label, side = "Other", "Other"
+        elif kind == "CHANGED_PIXELS_ONLY":
+            label, side = "No Change", "Same"
+        else:
+            label, side = "Changed", "Any"
+        out[rest] = rest_value
+        row = [rest_value, rest_class, label, side, side] + ([255, 255, 255] if has_colour else [])
+        if listed_only:
+            row += [int(rest.sum()), float(rest.sum() * area)]
+        if rest.any() or kind != "ALL":
+            rows.append(row)
     result = Raster._of(out, mask, grid)
     result._rat = _Rat(fields, rows)
     return result
@@ -172,25 +219,23 @@ def ComputeChange(raster1, raster2, method="DIFFERENCE", from_class_values=None,
                   cellsize_type="MaxOf"):
     """The change from ``raster1`` (earlier) to ``raster2`` (later): DIFFERENCE, ``raster2 − raster1``;
     RELATIVE_DIFFERENCE, that divided by the larger of the two (the formulas of the Compute Change Raster page); or
-    CATEGORICAL_DIFFERENCE, a class per transition (``Forest>Urban``) and, under ALL, the class name for an unchanged
-    pixel, with the pixels not classified in ``Other``, as documented. Class names and colours come from the rasters'
+    CATEGORICAL_DIFFERENCE, a class per transition (``Forest->Urban``) and, under ALL, the class name for an unchanged
+    pixel, encoded as Pro 3.7 encodes them (``_categorical``; measured 2026-11-08 — until then grapy numbered the
+    classes present from 1 with ``Other`` 0, an INFERRED rule Pro contradicts). Class names and colours come from the rasters'
     attribute tables (CLASS_NAME or CLASSNAME; Red, Green and Blue), and a transition's colour is their average or the
     from or to class's (``define_transition_colors``).
 
     Refused: an extent other than the inputs' intersection where their extents differ, and differing cell sizes —
     resampling is not built.
 
-    INFERRED (ADR-236 §5.7): transitions are numbered from 1 in order of (from value, to value), and ``Other`` is 0;
-    a pixel of a class not listed in ``from_class_values`` or ``to_class_values`` is NoData; the attribute table's
-    fields are Value, ClassName, Class_From, Class_To, Count, Area and, when both inputs have colours, Red, Green and
-    Blue; an integer difference stays integer."""
+    INFERRED (ADR-236 §5.7): an integer difference stays integer."""
     tool = "ComputeChange"
     first, second = _open(raster1, tool), _open(raster2, tool)
     _extent(first, second, extent_type, cellsize_type, tool)
     kind = _upper(method, "DIFFERENCE")
     if kind == "CATEGORICAL_DIFFERENCE":
         return _categorical(first, second, from_class_values, to_class_values, filter_method,
-                            define_transition_colors, None, None, "Other", False, tool)
+                            define_transition_colors, None, None, "Other", False, tool, listed_only=False)
     if kind not in ("DIFFERENCE", "RELATIVE_DIFFERENCE"):
         raise ValueError(f"{tool}: method must be DIFFERENCE, RELATIVE_DIFFERENCE or CATEGORICAL_DIFFERENCE.")
     return _continuous(first, second, kind, tool)
@@ -208,13 +253,13 @@ def _extent(first, second, extent_type, cellsize_type, tool):
 
 
 def ComputeChangeRaster(from_raster, to_raster, compute_change_method="DIFFERENCE", from_classes=None, to_classes=None,
-                        filter_method="ALL", define_transition_colors="AVERAGE", from_classname_field=None,
+                        filter_method="CHANGED_PIXELS_ONLY", define_transition_colors="AVERAGE", from_classname_field=None,
                         to_classname_field=None):
     """The tool's form of ComputeChange, with the multiband methods its page adds: SPECTRAL_EUCLIDEAN_DISTANCE, the
     Euclidean distance between the two pixel vectors; SPECTRAL_ANGLE_DIFFERENCE, the angle between them in radians,
     ``arccos(a·b / (|a||b|))`` (Kruse et al. 1993, Remote Sensing of Environment 44); and BAND_WITH_MOST_CHANGE.
-    ``from_classes`` and ``to_classes`` are class names (or values); unclassified pixels go to ``No Change``, as the
-    tool's page names it.
+    ``from_classes`` and ``to_classes`` are class names (or values). Its filter defaults to CHANGED_PIXELS_ONLY, as
+    Pro 3.7's does (measured 2026-11-08: a call without it wrote the transitions and "No Change"; grapy's was ALL).
 
     INFERRED (ADR-236 §5.7): as ComputeChange; BAND_WITH_MOST_CHANGE is the one-based band whose absolute difference
     is largest, the first on a tie."""

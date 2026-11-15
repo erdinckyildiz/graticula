@@ -64,6 +64,7 @@ def joined(layer, connection, table, oid, geometry):
     clause = f'"{table}"'
     attached = []
     by_name = {c.name.lower(): c for c in own}
+    by_name.setdefault(oid.lower(), _gpkg.Column(oid, "Integer"))   # a join on the object ID, whatever its name
     for i, join in enumerate(layer.joins):
         file, _ = _gpkg.split(join.path)
         schema = f"grapy_join{i}"
@@ -77,6 +78,7 @@ def joined(layer, connection, table, oid, geometry):
             their_connection.close()
         alias = join.name
         theirs = {c.name.lower(): c for c in columns}
+        theirs.setdefault(their_oid.lower(), _gpkg.Column(their_oid, "Integer"))
         mine, match = by_name[join.in_field.lower()], theirs[join.join_field.lower()]
         collate = " collate nocase" if mine.type == "String" and match.type == "String" else ""
         first = (f'(select min(x."{their_oid}") from {schema}."{their_table}" as x where x."{match.name}"{collate} = '

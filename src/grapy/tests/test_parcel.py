@@ -20,6 +20,7 @@ same three parcels on 2026-10-31 (ADR-250 condition 2, tools/pro-compare/adr250-
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -51,6 +52,8 @@ class Fabric(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "parcels")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "Parcels", 3857)[0]
@@ -63,7 +66,7 @@ class Fabric(unittest.TestCase):
     def record(self, name, date=None):
         with arcpy.da.InsertCursor(self.records, ["Name", "RecordedDate", "SHAPE@"]) as cursor:
             oid = cursor.insertRow([name, date, None])
-        return rows(self.records, ["GlobalID"], f"fid = {oid}")[0][0]
+        return rows(self.records, ["GlobalID"], f"OBJECTID = {oid}")[0][0]
 
     def three_parcels(self):
         r1, r2, r3 = self.record("R1", "2020-01-01"), self.record("R2", "2021-01-01"), self.record("R3")
@@ -204,7 +207,9 @@ class Model(Fabric):
             cursor.insertRow([1, None, "POINT(0 0)"])
             cursor.insertRow([0, 5.0, "POINT(5 0)"])
             cursor.insertRow([0, None, "POINT(9 0)"])
-        self.assertEqual([r[0] for r in rows(self.points, ["Preserve"])], [1, 1, None])
+        # The third is No (0), not null: Pro 3.7 writes 0 on a new point (measured 2026-11-08 by the Pro sweep; this
+        # test expected null until then).
+        self.assertEqual([r[0] for r in rows(self.points, ["Preserve"])], [1, 1, 0])
         with self.assertRaises(Exception):
             with arcpy.da.UpdateCursor(self.points, ["SHAPE@"], "IsFixed = 1") as cursor:
                 for _ in cursor:
@@ -245,9 +250,15 @@ class Links(Fabric):
         self.assertEqual(rows(links, ["OID@"]), [])
         self.assertEqual(sorted(r[0].firstPoint.X for r in rows(anchors, ["SHAPE@"])), [0.0, 10.0])
 
-    def test_links_need_the_points_history(self):
-        with self.assertRaises(ExecuteError):
-            arcpy.parcel.GenerateParcelFabricLinks(self.fabric, f"{self.gpkg}/l", f"{self.gpkg}/a", "2026-01-01")
+    def test_links_without_the_points_history_are_empty(self):
+        # Pro 3.7 writes both outputs empty for a fabric whose points keep no history (a file geodatabase's; measured
+        # 2026-11-08 by the Pro sweep). This test expected ERROR 000800 until then.
+        links, anchors = arcpy.parcel.GenerateParcelFabricLinks(self.fabric, f"{self.gpkg}/l", f"{self.gpkg}/a",
+                                                                "2026-01-01")
+        self.assertEqual(rows(links, ["OID@"]), [])
+        self.assertEqual(rows(anchors, ["OID@"]), [])
+        self.assertEqual([f.name for f in arcpy.ListFields(anchors) if f.type not in ("OID", "Geometry")],
+                         ["SOURCE_GUID"])
 
 
 class Build(Fabric):
@@ -539,6 +550,26 @@ class Exports(Fabric):
         self.assertIn("Zoning", {f.name for f in arcpy.ListFields(f"{other}/Parcels/Lot")})
         self.assertEqual(sorted(r[0] for r in rows(f"{other}/Parcels/Lot", ["GlobalID"])),
                          sorted(r[0] for r in rows(self.lots, ["GlobalID"])))
+
+    def test_copy_parcels_carries_attachments_by_global_id(self):
+        # A fabric class has global IDs, so its attachments key on REL_GLOBALID, as ArcGIS Pro 3.7 keys a class with
+        # them (measured 2026-11-12, ADR-289 §5.4); the copy keeps the key and the GlobalIDs it points at.
+        from grapy import _attachments, _gpkg
+        self.built()
+        arcpy.management.EnableAttachments(self.lots)
+        guid = rows(self.lots, ["GlobalID"], "Name = 'A'")[0][0]
+        connection, table = _gpkg.table_of(self.lots)
+        try:
+            _attachments.add(connection, table, guid, "deed.pdf", b"%PDF")
+            connection.commit()
+        finally:
+            connection.close()
+        other = arcpy.management.CreateFileGDB(self.directory, "copy")[0]
+        arcpy.parcel.CopyParcels(self.fabric, other)
+        attached = f"{other}/{table}__ATTACH"
+        self.assertIn("REL_GLOBALID", [f.name for f in arcpy.ListFields(attached)])
+        self.assertEqual(rows(attached, ["REL_GLOBALID", "ATT_NAME", "DATA_SIZE"]), [[guid, "deed.pdf", 4]])
+        self.assertEqual(rows(f"{other}/Parcels/Lot", ["Name"], f"GlobalID = '{guid}'"), [["A"]])
 
     def test_copy_a_selection(self):
         # A selected: A, its five lines, its five points and its records (R1, and R2 for the shared line).

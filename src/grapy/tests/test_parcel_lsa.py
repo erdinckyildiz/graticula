@@ -19,6 +19,7 @@ adjusted coordinates are (100,100) and (0,100), every correction is 0 and both p
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -45,6 +46,7 @@ class Square(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "lsa")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "Parcels", self.SRID)[0]
         self.fabric = arcpy.parcel.CreateParcelFabric(self.fds, "Fab")[0]

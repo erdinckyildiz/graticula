@@ -182,7 +182,9 @@ def UpgradeGDB(input_workspace, input_prerequisite_check="PREREQUISITE_CHECK", i
     an attributes table, the core tables with GeoPackage 1.4 Annex C's constraints, WKT 1 definitions and the version
     10400 — rows kept, a copy of the file kept first as ``<file>.before-upgrade``. The page's two switches, at least one
     of which must be on: PREREQUISITE_CHECK verifies the file can be written and lists in the messages what is in the
-    old form; UPGRADE repairs it. A file already in the current form is left as it is, which the messages say.
+    old form; UPGRADE repairs it. A file already in the current form is refused with ERROR 001046, the check alone too —
+as ArcGIS Pro 3.7 refuses a file geodatabase already at the current release (measured 2026-11-08; until then grapy
+left it as it was with a message).
 
     INFERRED (D-340, Q-223 (e)): a GeoPackage's "release" is the form grapy writes it in; the prerequisite check is that the file
     exists, is a GeoPackage and is not read-only, the file-geodatabase checks of the page that a file has (no other
@@ -212,8 +214,8 @@ def UpgradeGDB(input_workspace, input_prerequisite_check="PREREQUISITE_CHECK", i
         for kind, table, detail in found:
             AddMessage(f"Old form ({kind}){' in ' + table if table else ''}: {detail}.")
     if not found:
-        AddMessage(f"{file} is already in the form grapy writes; nothing to upgrade.")
-    elif act:
+        raise ExecuteError("ERROR 001046: The geodatabase is already at the current release and cannot be upgraded.")
+    if act:
         upgrade(file)
         AddMessage(f"{file} upgraded: {len(found)} repairs; the file as it was is kept beside it.")
     return Result(file)

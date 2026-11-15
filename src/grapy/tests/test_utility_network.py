@@ -18,6 +18,7 @@ import json
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,8 @@ class WaterNetwork(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "water")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "utility", 3857)[0]
@@ -234,7 +237,8 @@ class WaterNetwork(unittest.TestCase):
         self.assertEqual(rows[0]["RULETYPE"], "Junction Edge Connectivity")
         self.assertEqual((rows[0]["FROMFEATURECLASS"], rows[0]["FROMASSETGROUP"], rows[0]["FROMTERMINAL"]),
                          ("WaterDevice", "Source", "Load"))
-        self.assertEqual(rows[1]["FROMTERMINAL"], "Single Terminal")
+        # An asset type without terminals writes no terminal, as ArcGIS Pro 3.7 was measured doing (2026-11-12).
+        self.assertEqual(rows[1]["FROMTERMINAL"], "")
         arcpy.un.DisableNetworkTopology(self.un)
         arcpy.un.DeleteRule(self.un, "JUNCTION_EDGE_CONNECTIVITY",
                             ["2: From[WaterDevice.Valve.Standard] To[WaterLine.Main.Ductile]"])
@@ -328,7 +332,12 @@ class WaterNetwork(unittest.TestCase):
         self.assertEqual([(s, c, g) for s, c, g in self.dirty()], [(1, 0, self.devices["V1"])])
         with self.assertRaises(ExecuteError):
             self.trace("CONNECTED", [("L4", None, 0.5)], validate_consistency="VALIDATE_CONSISTENCY")
-        arcpy.un.ValidateNetworkTopology(self.un, "50 50 60 60")  # the edit lies outside: still dirty
+        # An extent with no network feature in it is refused, as ArcGIS Pro 3.7 was measured doing (ERROR 160521,
+        # 2026-11-12); one with features but not the edit validates them and leaves the edit dirty.
+        with self.assertRaises(ExecuteError) as said:
+            arcpy.un.ValidateNetworkTopology(self.un, "50 50 60 60")
+        self.assertIn("160521", str(said.exception))
+        arcpy.un.ValidateNetworkTopology(self.un, "35 -5 45 5")  # T2 and L4, not V1: still dirty
         self.assertEqual(len(self.dirty()), 1)
         out = arcpy.un.ValidateNetworkTopology(self.un)
         self.assertEqual(self.dirty(), [])
@@ -485,7 +494,7 @@ class WaterNetwork(unittest.TestCase):
             return json.load(read)
 
     def names_of(self, globalids):
-        everything = {**self.ids(self.device), **self.ids(self.line), **self.ids(self.junction)}
+        everything = {**self.ids(self.device), **self.ids(self.line), **self.ids(self.junction), **self.ids(self.vault)}
         back = {g.upper(): n for n, g in everything.items()}
         return {back.get(str(g).upper()) for g in globalids if g}
 
@@ -678,7 +687,9 @@ class WaterNetwork(unittest.TestCase):
         arcpy.un.AddTraceLocations(self.un, barriers, clear_trace_locations="CLEAR_LOCATIONS",
                                    trace_locations=[["WaterDevice", self.devices["S"], "Load", None]])
         with arcpy.da.SearchCursor(barriers, ["TERMINALID", "PERCENTALONG"]) as read:
-            self.assertEqual(list(read), [(3, None)])  # Load: Source is 2, the Single Terminal 1
+            # Load: Source is 2, the Single Terminal 1; a junction's percent along is -1, as ArcGIS Pro 3.7 writes it
+            # (measured 2026-11-12).
+            self.assertEqual(list(read), [(3, -1.0)])
 
     def test_trace_configurations_are_kept_used_exported_and_imported(self):
         arcpy.un.AddTraceConfiguration(self.un, "Leak", "ISOLATION", "Valves to close", ["water", "leak"], "Water",
@@ -749,15 +760,20 @@ class WaterNetwork(unittest.TestCase):
         arcpy.un.ExportSubnetwork(self.un, "Water", "Pressure", "Zone1", "ACKNOWLEDGE", out, result_types=["FEATURES"])
         with open(out, encoding="utf-8") as read:
             document = json.load(read)
-        self.assertEqual([c["subnetworkControllerName"] for c in document["controllers"]], ["Plant"])
-        self.assertEqual(self.names_of(f["globalId"] for f in document["traceResults"]["featureElements"]),
-                         ALL | {"L10"})
+        # The layout ArcGIS Pro 3.7 writes (measured 2026-11-12): results at the top level, controllers without names.
+        self.assertEqual(sorted(document), ["controllers", "featureElements", "resultTypes", "sourceMapping",
+                                            "spatialReference"])
+        self.assertEqual(self.names_of(c["globalId"] for c in document["controllers"]), {"S"})
+        self.assertEqual(document["resultTypes"][0]["type"], "features")
+        # Containers are in a subnetwork by default (Pro 3.7, 2026-11-12): the vault holding V2 is exported with it.
+        self.assertEqual(self.names_of(f["globalId"] for f in document["featureElements"]), ALL | {"L10", "VA"})
         with arcpy.da.SearchCursor(f"{self.fds}/WaterSubnetLine", ["LASTACKEXPORTSUBNETWORK"]) as read:
             self.assertIsNotNone(next(read)[0])
         # Its controller gone, the subnetwork is deleted: names cleared, its SubnetLine removed.
         arcpy.un.UtilityNetwork(self.un).DisableSubnetworkController("WaterDevice", self.devices["S"], "Load")
         arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
-        self.assertEqual(set(self.names_written().values()), {("Unknown", 0)})
+        # Is connected Unknown is 2 in Pro 3.7's IsConnected domain (measured 2026-11-12).
+        self.assertEqual(set(self.names_written().values()), {("Unknown", 2)})
         self.assertEqual(self.subnet_rows(), [])
 
     def test_a_subnetwork_definition_shapes_the_update(self):
@@ -791,7 +807,8 @@ class WaterNetwork(unittest.TestCase):
         self.assertEqual(self.subnet_rows()[0][1], 2)
         arcpy.un.DisableNetworkTopology(self.un)
         with self.assertRaises(ExecuteError) as said:
-            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Basic"])
+            # "Nothing", not "Basic": a new network has Pro's Basic template (measured in Pro 3.7, 2026-11-12)
+            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Nothing"])
         self.assertIn("not a diagram template", str(said.exception))
 
     def test_update_is_connected(self):
@@ -800,7 +817,8 @@ class WaterNetwork(unittest.TestCase):
         arcpy.un.EnableNetworkTopology(self.un)
         arcpy.un.UpdateIsConnected(self.un)
         written = self.names_written()
-        self.assertEqual((written["L1"][1], written["L8"][1], written["L10"][1]), (1, 1, 2))
+        # Not connected is 0 (False) in Pro 3.7's IsConnected domain; measured 2026-11-12, an isolated junction got 0.
+        self.assertEqual((written["L1"][1], written["L8"][1], written["L10"][1]), (1, 1, 0))
 
     # -- asset type settings and maintenance --------------------------------------------------------------------------
 
@@ -876,6 +894,8 @@ class MeshNetwork(unittest.TestCase):
     def setUp(self):
         _layers.LAYERS.clear()
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         gpkg = arcpy.management.CreateFileGDB(self.directory, "mesh")[0]
         fds = arcpy.management.CreateFeatureDataset(gpkg, "utility", 3857)[0]

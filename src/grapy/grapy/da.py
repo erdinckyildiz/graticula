@@ -31,10 +31,17 @@ def _columns(fields, described, oid):
         return ["OID@", *names, "SHAPE@"]
     if isinstance(fields, str):
         fields = [f.strip() for f in fields.split(";")]
+    # A field is named in any case, as arcpy's cursors take it ("MATCHID" for MatchID — found by the Pro sweep,
+    # 2026-11-08); it is read under its own name.
+    own = {n.lower(): n for n in names}
+    out = []
     for f in fields:
-        if not f.upper().startswith(("OID@", "SHAPE@")) and f.upper() not in _MODEL_TOKENS and f not in names and f != oid:
-            raise RuntimeError(f"Cannot find field '{f}'")
-    return list(fields)
+        if not f.upper().startswith(("OID@", "SHAPE@")) and f.upper() not in _MODEL_TOKENS and f != oid:
+            if f not in names and f.lower() not in own:
+                raise RuntimeError(f"Cannot find field '{f}'")
+            f = f if f in names else own[f.lower()]
+        out.append(f)
+    return out
 
 
 _MODEL_TOKENS = ("SUBTYPE@", "GLOBALID@")
@@ -95,7 +102,8 @@ def _shape_token(token, shape, reference):
             return float(shapely.get_m(shape)) if shapely.has_m(shape) else None
         return (shape.x, shape.y, z)
     if token == "SHAPE@WKT":
-        return shapely.to_wkt(shape)
+        from ._geometry import esri_wkt
+        return esri_wkt(shape)  # the form Geometry.WKT writes, as ArcGIS Pro's SHAPE@WKT does (measured 2026-11-08)
     if token == "SHAPE@WKB":
         return shapely.to_wkb(shape)
     if token == "SHAPE@JSON":
@@ -170,21 +178,35 @@ class _Cursor:
             self._joined = _layers.joined(layer, self._connection, self._table, self._oid, self._geometry)
             self._described = [_gpkg.Column(name, kind) for name, _, kind, _ in self._joined.fields]
             try:
-                self.fields = tuple(_columns(field_names, self._described, None))
+                self._fields = tuple(_columns(field_names, self._described, None))
             except RuntimeError as error:
                 raise RuntimeError(f"{error}: on a joined layer a field is named <table>.<field>, such as "
                                    f"{self._joined.names[0] if self._joined.names else 'table.field'}.") from None
         else:
-            self.fields = tuple(_columns(field_names, self._described, self._oid))
+            self._fields = tuple(_columns(field_names, self._described, self._oid))
             if field_names in ("*", ["*"]) and self._geometry not in [r[1] for r in self._connection.execute(
                     f'pragma table_info("{self._table}")')]:
-                self.fields = tuple(f for f in self.fields if f != "SHAPE@")  # a table or view with no shape (ADR-240)
-        self._tokens = _model_tokens(self._connection, self._table, self.fields)
+                self._fields = tuple(f for f in self._fields if f != "SHAPE@")  # a table or view with no shape (ADR-240)
+            if field_names in ("*", ["*"]):
+                # "*" names the table's own fields, in the table's order — ArcGIS Pro 3.7 answers ('OBJECTID',
+                # 'Shape', 'val') for a GeoPackage's (measured 2026-11-08) — while the cursor reads them by token.
+                order = [r[1].lower() for r in self._connection.execute(f'pragma table_info("{self._table}")')]
+                named = {"OID@": self._oid, "SHAPE@": self._geometry}
+                paired = [(named.get(f, f), f) for f in self._fields]
+                paired.sort(key=lambda p: order.index(p[0].lower()) if p[0].lower() in order else len(order))
+                self._fields = tuple(t for _, t in paired)
+                self._display = tuple(d for d, _ in paired)
+        self._tokens = _model_tokens(self._connection, self._table, self._fields)
         if self._tokens and self._joined is not None:
             raise NotBuiltError("arcpy.da: SUBTYPE@ and GLOBALID@ on a joined layer are not built in grapy.")
         self._versioned = self._version_of(layer)
         if self._versioned is not None and self._joined is not None:
             raise NotBuiltError("arcpy.da: a cursor on a joined layer of a versioned class is not built in grapy.")
+
+    @property
+    def fields(self):
+        """The cursor's fields: the names and tokens asked, or with "*" the table's own field names."""
+        return getattr(self, "_display", None) or self._fields
 
     def _version_of(self, layer):
         """(branch, base moment, until moment) when this cursor reads a named version or a historical moment of a
@@ -217,7 +239,7 @@ class _Cursor:
     def _row_values(self, row):
         """{column: value} of the fields a write names, the geometry encoded under its column name."""
         out = {}
-        for field, value in zip(self.fields, row):
+        for field, value in zip(self._fields, row):
             upper = field.upper()
             if upper in ("OID@", "GLOBALID@"):
                 continue
@@ -275,7 +297,7 @@ class _Cursor:
 
     def _select(self):
         out = []
-        for f in self.fields:
+        for f in self._fields:
             upper = f.upper()
             if self._joined is not None:
                 out.append(self._joined.oid_sql if upper == "OID@" else self._joined.geometry_sql
@@ -321,6 +343,11 @@ class _Cursor:
 
     def _close(self):
         if self._connection is not None:
+            # A search left before its last row holds a statement open, and SQLite keeps a connection with an open
+            # statement alive past close(), with the file's lock: the statement is finalized first.
+            rows = getattr(self, "_rows", None)
+            if hasattr(rows, "close"):
+                rows.close()
             if getattr(self, "_written_bounds", None) is not None:
                 _gpkg.grow_extent(self._connection, self._table, self._written_bounds)
                 self._written_bounds = None
@@ -455,6 +482,9 @@ class SearchCursor(_Cursor):
         if explode_to_points:
             raise NotBuiltError("arcpy.da.SearchCursor: explode_to_points=True is not built in grapy.")
         super().__init__(in_table, field_names)
+        # With "*" the shape is read as an (x, y) tuple, "equivalent to the SHAPE@XY token", as documented.
+        if field_names in ("*", ["*"]) and not isinstance(self, UpdateCursor):
+            self._fields = tuple("SHAPE@XY" if f == "SHAPE@" else f for f in self._fields)
         where_clause = self._where(in_table, where_clause)
         self._where_sql = where_clause
         prefix, postfix = sql_clause or (None, None)
@@ -464,7 +494,8 @@ class SearchCursor(_Cursor):
         if postfix:
             sql += f" {postfix}"
         self._rows = self._connection.execute(sql)
-        self._target = spatial_reference
+        from ._reference import reference_of
+        self._target = reference_of(spatial_reference) if spatial_reference not in (None, "") else None
 
     def __iter__(self):
         return self
@@ -473,10 +504,19 @@ class SearchCursor(_Cursor):
         row = self._rows.fetchone()
         if row is None:
             raise StopIteration
-        values = [self._value(f, v) for f, v in zip(self.fields, row)]
-        if self._target is not None:
-            values = [v.projectAs(self._target) if isinstance(v, Geometry) else v for v in values]
-        return tuple(values)
+        return tuple(self._value(f, v) for f, v in zip(self._fields, row))
+
+    def _value(self, field, raw):
+        """A shape token read in ``spatial_reference`` when one is given: the shape is projected first, so SHAPE@XY,
+        SHAPE@WKT and the rest answer in it, as ArcGIS Pro 3.7 does (measured 2026-11-08); only SHAPE@ was projected
+        before."""
+        target = getattr(self, "_target", None)
+        if target is not None and field.upper().startswith("SHAPE@") and self._reference is not None:
+            shape = _gpkg.decode(raw)
+            if shape is not None:
+                moved = wrap(shape, self._reference).projectAs(target)
+                return _shape_token(field, moved._shape, moved.spatialReference)
+        return super()._value(field, raw)
 
     def next(self):
         return self.__next__()
@@ -492,8 +532,8 @@ class InsertCursor(_Cursor):
     def insertRow(self, row):
         if self._joined is not None:
             raise NotBuiltError("arcpy.da.InsertCursor on a joined layer is not built in grapy; insert into its table.")
-        if len(row) != len(self.fields):
-            raise RuntimeError(f"insertRow takes {len(self.fields)} values, one per field; {len(row)} were given.")
+        if len(row) != len(self._fields):
+            raise RuntimeError(f"insertRow takes {len(self._fields)} values, one per field; {len(row)} were given.")
         if self._versioned is not None:
             from . import _versions
             branch, _ = self._writable_version()
@@ -537,7 +577,7 @@ class UpdateCursor(SearchCursor):
         if self._at >= len(self._rows):
             raise StopIteration
         row = self._rows[self._at]
-        return [self._value(f, v) for f, v in zip(self.fields, row[1:])]
+        return [self._value(f, v) for f, v in zip(self._fields, row[1:])]
 
     def updateRow(self, row):
         oid = self._rows[self._at][0]
@@ -554,7 +594,7 @@ class UpdateCursor(SearchCursor):
             _versions.write(self._connection, self._table, branch, oid, current)
             return
         names, values = [], []
-        for i, (field, value) in enumerate(zip(self.fields, row)):
+        for i, (field, value) in enumerate(zip(self._fields, row)):
             upper = field.upper()
             if upper in ("OID@", "GLOBALID@"):
                 continue
@@ -643,14 +683,33 @@ def Walk(workspace, topdown=True, onerror=None, followlinks=False, datatype=None
             return False
         return True
 
+    def tables(file, dataset):
+        """A GeoPackage's tables kept by the filters: those of a feature dataset (``<dataset>/<class>``) by their own
+        names, or the others; and the feature datasets it holds."""
+        names, datasets = [], set()
+        for table, kind, shape in _contents(file):
+            if kind not in ("features", "table", "raster"):
+                continue
+            head, _, tail = table.rpartition("/")
+            if head:
+                datasets.add(head)
+            if head != (dataset or ""):
+                continue
+            label = {"features": "FeatureClass", "table": "Table", "raster": "RasterDataset"}[kind]
+            if keep(label, shape if kind == "features" else None):
+                names.append(tail)
+        return names, datasets
+
     def listing(path):
+        # A feature dataset is a workspace inside its GeoPackage: it is among the GeoPackage's dirnames and its
+        # classes are its own filenames, as ArcGIS Pro 3.7 walks a geodatabase's feature dataset (measured
+        # 2026-11-08) — where grapy listed them as "<dataset>/<class>" among the GeoPackage's filenames.
+        parent, leaf = os.path.split(path)
+        if parent.lower().endswith(".gpkg") and os.path.isfile(parent):
+            return [], tables(parent, leaf)[0]
         if path.lower().endswith(".gpkg"):
-            names = []
-            for table, kind, shape in _contents(path):
-                label = {"features": "FeatureClass", "table": "Table", "raster": "RasterDataset"}[kind]
-                if keep(label, shape if kind == "features" else None):
-                    names.append(table)
-            return [], names
+            names, datasets = tables(path, None)
+            return sorted(datasets), names
         try:
             entries = sorted(os.listdir(path))
         except OSError as error:
@@ -1010,7 +1069,8 @@ class Domain:
     def __init__(self, name, description, domainType, type, codedValues=None, range=None, splitPolicy="DefaultValue",
                  mergePolicy="DefaultValue", owner=""):
         self.name, self.description, self.domainType, self.type = name, description, domainType, type
-        self.codedValues = dict(codedValues or {})
+        # A range domain's codedValues is None, as ArcGIS Pro 3.7 answers it (measured 2026-11-08).
+        self.codedValues = dict(codedValues) if codedValues is not None else (None if domainType == "Range" else {})
         self.range = range
         self.splitPolicy, self.mergePolicy, self.owner = splitPolicy, mergePolicy, owner
 
@@ -1047,9 +1107,11 @@ def ListDomains(workspace):
             else:
                 row = connection.execute("select min, max from gpkg_data_column_constraints where constraint_name = ? "
                                          "and constraint_type = 'range'", (name,)).fetchone()
-                span = (row[0], row[1]) if row else None
+                # A range domain given no range yet answers 0 to 0 (measured in ArcGIS Pro 3.7, 2026-11-08).
+                span = (row[0], row[1]) if row else (0, 0)
             out.append(Domain(name, description or "", "CodedValue" if domain_type.upper() == "CODED" else "Range",
-                              _DOMAIN_FIELD_TYPES.get(field_type, field_type), coded, span,
+                              _DOMAIN_FIELD_TYPES.get(field_type, field_type),
+                              coded if domain_type.upper() == "CODED" else None, span,
                               _POLICIES.get((split or "DEFAULT").upper(), split), _POLICIES.get((merge or "DEFAULT").upper(), merge)))
         return out
     finally:

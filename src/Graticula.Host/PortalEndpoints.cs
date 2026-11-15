@@ -337,6 +337,13 @@ internal static partial class PortalEndpoints
             if (current.Authorization.Allows(Privilege.ContentPublishFeatures))
             {
                 held.Add("portal:publisher:publishFeatures");
+
+                // ADR-299: a map image layer that references registered data is published to the federated server,
+                // and Pro's Share › Web Layer pane keeps Analyze and Publish disabled for an account that does not
+                // say it may publish server services — measured 2026-11-15: every field filled, no exception in Pro,
+                // both buttons disabled, while arcpy published the same layer, because arcpy does not ask. The job
+                // behind it (PublishServiceDefinition) admits exactly this privilege, so the list says what it does.
+                held.Add("portal:publisher:publishServerServices");
             }
 
             // ADR-257: whoever may create content may add an item, publisher or not.
@@ -668,6 +675,7 @@ internal static partial class PortalEndpoints
         // anonymous principal without touching the directory.
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+        long storageUsage = signedIn ? await StorageUsageAsync(context, cancellation).ConfigureAwait(false) : 0;
 
         // <b>The geometry service is offered only to a caller it would answer — 2026-09-15.</b> This
         // named it for everybody, and on a deployment where it is not shared with everyone an
@@ -804,7 +812,7 @@ internal static partial class PortalEndpoints
             contentCategorySetsGroupQuery = string.Empty,
             featuredItemsGroupQuery = string.Empty,
             analysisLayersGroupQuery = string.Empty,
-            user = signedIn ? Self(context, current, groups) : null,
+            user = signedIn ? Self(context, current, groups, storageUsage) : null,
 
             // <b>Pro asks where the geometry service is rather than assuming.</b>
             // We have one (ADR-022) and it is at the address every ArcGIS client
@@ -850,6 +858,11 @@ internal static partial class PortalEndpoints
         // ADR-265: the print service, which Map Viewer, Experience Builder's Print widget, the Maps SDK and the ArcGIS API
         // for Python find here.
         helpers["printTask"] = new { url = PrintEndpoints.TaskUrl(Origin(context)) };
+
+        // ADR-288 section 11a, D-404: the offline packaging service, where a client looks for the tasks that make map areas.
+        // INFERRED: the key. An Enterprise portal's own self document was not read for a packaging entry; `packaging` is the
+        // name its sibling entries (`geometry`, `printTask`, `analysis`) suggest.
+        helpers["packaging"] = new { url = OfflinePackagingEndpoints.Url(Origin(context)) };
 
         if (Geocoding.GeocodeServerEndpoints.PortalLocator(
                 context.RequestServices.GetService<Geocoding.GeocoderSettings>(), current, Origin(context)) is { } locator)
@@ -918,17 +931,18 @@ internal static partial class PortalEndpoints
 
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+        long storageUsage = await StorageUsageAsync(context, cancellation).ConfigureAwait(false);
 
         // <b>`userLicensedItems` only when asked for</b>, as a real portal answers (measured 2026-11-08): ArcGIS Field Maps
         // asks with `returnUserLicensedItems=true` after signing in, and offered no Collect while it was missing.
         if (string.Equals(context.Request.Query["returnUserLicensedItems"], "true", StringComparison.OrdinalIgnoreCase))
         {
-            System.Text.Json.Nodes.JsonObject self = System.Text.Json.JsonSerializer.SerializeToNode(Self(context, current, groups))!.AsObject();
+            System.Text.Json.Nodes.JsonObject self = System.Text.Json.JsonSerializer.SerializeToNode(Self(context, current, groups, storageUsage))!.AsObject();
             self["userLicensedItems"] = System.Text.Json.JsonSerializer.SerializeToNode(LicensedItems());
             return Results.Text(self.ToJsonString(), "application/json; charset=utf-8");
         }
 
-        return Results.Ok(Self(context, current, groups));
+        return Results.Ok(Self(context, current, groups, storageUsage));
     }
 
     /// <summary>One user's profile.</summary>
@@ -970,8 +984,45 @@ internal static partial class PortalEndpoints
 
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+        long storageUsage = await StorageUsageAsync(context, cancellation).ConfigureAwait(false);
 
-        return Results.Ok(Self(context, current, groups));
+        return Results.Ok(Self(context, current, groups, storageUsage));
+    }
+
+    /// <summary>
+    /// The quota a member is told: 2 TB, the storage an ArcGIS Enterprise portal gives each member unless its administrator
+    /// sets another.
+    /// </summary>
+    /// <remarks>
+    /// <b>Told, not enforced, and that is the decision rather than an oversight.</b> This server has no storage quota: a
+    /// document is bounded by its size limit and a scene package by <c>ScenePackageMaxMB</c>, not by what its owner already
+    /// has. But ArcGIS Pro reads <c>storageQuota</c> less <c>storageUsage</c> from the member's own profile before it
+    /// uploads a package, and with neither field present it refused a 4.6 kB scene layer package with
+    /// <i>ERROR 001147: There is not enough space in your online account</i> before sending a byte (2026-11-09, Pro 3.7
+    /// Share Package against dev). Enterprise's default was chosen by owner decision the same day over the free space of the
+    /// server directories, which a site of several nodes cannot answer as one number.
+    /// </remarks>
+    internal const long StorageQuotaBytes = 2L * 1024 * 1024 * 1024 * 1024;
+
+    /// <summary>What a member's own documents take, in bytes: the <c>storageUsage</c> of their profile.</summary>
+    /// <remarks>
+    /// Documents are the items this server keeps bytes for — files, packages, web scenes' and apps' JSON; a hosted layer's
+    /// rows live in its table and are not counted, as no ArcGIS client is told a table's size here either.
+    /// </remarks>
+    /// <param name="context">The request, for the store and the caller.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The sum of the sizes of the documents the caller owns.</returns>
+    private static async Task<long> StorageUsageAsync(HttpContext context, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        if (current.Principal == Principal.Anonymous
+            || context.RequestServices.GetService<IDocumentStore>() is not { } documents)
+        {
+            return 0;
+        }
+
+        IReadOnlyList<Document> all = await documents.ListAsync(cancellation).ConfigureAwait(false);
+        return all.Where(d => d.Owner == current.Principal.Id).Sum(d => Math.Max(0, d.Size));
     }
 
     /// <summary>The signed-in caller, as a portal describes one.</summary>
@@ -996,8 +1047,9 @@ internal static partial class PortalEndpoints
     /// <param name="context">The request, for the organisation's id.</param>
     /// <param name="current">Who is asking.</param>
     /// <param name="groups">Their groups, from <see cref="MineAsync"/>.</param>
+    /// <param name="storageUsage">What their documents take, from <see cref="StorageUsageAsync"/>.</param>
     /// <returns>The user document.</returns>
-    private static object Self(HttpContext context, RequestPrincipal current, IReadOnlyList<object> groups)
+    private static object Self(HttpContext context, RequestPrincipal current, IReadOnlyList<object> groups, long storageUsage)
     {
         bool administrator = current.Authorization.Allows(Privilege.AdminManageServer);
 
@@ -1041,6 +1093,9 @@ internal static partial class PortalEndpoints
             userLicenseTypeId = LicenseTypeIdOf(current.Authorization.UserType),
             level = "2",
             disabled = false,
+            // ADR-269 condition 2: Pro's Share Package reads these before it uploads (see StorageQuotaBytes).
+            storageUsage,
+            storageQuota = StorageQuotaBytes,
             units = "metric",
             culture = "en",
             region = string.Empty,
@@ -1087,6 +1142,10 @@ internal static partial class PortalEndpoints
                 state = "active",
                 expDate = -1,
                 maxUsersPerLevel = new { },
+
+                // What an Enterprise portal answers (Aecon's QA Enterprise 12.0, 2026-11-12): no organisation
+                // capabilities. ADR-299.
+                orgCapabilities = Array.Empty<string>(),
             })
             : Unknown("Organization");
 
@@ -1119,7 +1178,9 @@ internal static partial class PortalEndpoints
                             id = PortalId(context),
                             name = context.Request.Host.Value,
                             url = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
-                            adminUrl = $"{context.Request.Scheme}://{context.Request.Host}/arcgis/admin",
+                            // The server's base, as a real portal lists it (Aecon's QA Enterprise 12.0, 2026-11-12): Pro
+                            // appends /admin itself. ADR-299.
+                            adminUrl = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
                             isHosted = true,
                             serverType = "ArcGIS",
                             serverRole = "HOSTING_SERVER",
@@ -1411,6 +1472,7 @@ internal static partial class PortalEndpoints
                 .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId),
         ];
         IReadOnlySet<Guid> tasked = await TaskedMapsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
+        (IReadOnlySet<Guid> editableMaps, IReadOnlySet<Guid> offlineMaps) = await MapFactsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
 
         List<(object Item, Guid? Id)> owned =
         [
@@ -1421,7 +1483,10 @@ internal static partial class PortalEndpoints
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
-            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
+            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id)), editable: editableMaps.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
+
+            // And the map areas of those maps, beside them — ADR-288 §11a.
+            .. (await MapAreaItemsAsync(context, ownMaps, cancellation).ConfigureAwait(false)).Select(a => (a.Item, (Guid?)a.Id)),
 
             // And their documents — ADR-188.
             .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
@@ -1846,11 +1911,18 @@ internal static partial class PortalEndpoints
         // ADR-286: Field Maps' Tasks filter reads the search result's keywords, so which maps have tasks is asked here,
         // once for every map the search could list.
         IReadOnlySet<Guid> withTasks = await TaskedMapsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
+        (IReadOnlySet<Guid> editableMaps, IReadOnlySet<Guid> offlineMaps) = await MapFactsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
 
         foreach (WebMap map in readableMaps)
         {
-            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
+            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id)), editable: editableMaps.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
                 item => new PortalListed(map.Id, item, Map: map)));
+        }
+
+        // ADR-288 §11a: the map areas of the maps this caller may open, and their packages, under the same query.
+        foreach ((object areaItem, Guid areaId) in await MapAreaItemsAsync(context, [.. readableMaps], cancellation).ConfigureAwait(false))
+        {
+            candidates.Add((areaItem, areaId, null, item => new PortalListed(areaId.ToString("N"), item)));
         }
 
         // Documents, under the same query and the same rule as maps (ADR-188).
@@ -2091,8 +2163,15 @@ internal static partial class PortalEndpoints
             return Results.Ok(await WithCommentsAndMetadataAsync(
                 context,
                 MapItem(context, map, MapExtent(map.Document),
-                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0),
+                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0,
+                    offline: (await MapFactsAsync(context, [map], cancellation).ConfigureAwait(false)).Offline.Count > 0),
                 Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
+        }
+
+        // ADR-288 §11a: a preplanned map area, or a package taken from one, seen exactly when its map is.
+        if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaItem)
+        {
+            return Results.Ok(await WithCommentsAndMetadataAsync(context, areaItem.Item, areaItem.Id, cancellation).ConfigureAwait(false));
         }
 
         // A document, as a map: it needs no catalogue either (ADR-188).
@@ -2308,6 +2387,16 @@ internal static partial class PortalEndpoints
         if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
         {
             return Results.Content(map.Document ?? "{}", "application/json; charset=utf-8");
+        }
+
+        // ADR-288 §11a: a package's data is its file, streamed with ranges. A Map Area's data is the `mapAreas` object read on an
+        // Enterprise 12.1 portal (research note section 5a.1, D-408): its tile scale, refresh parameters and whether its
+        // scheduled updates are on.
+        if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaData)
+        {
+            return areaData.Package is { } package
+                ? MapAreaPackageFile(context, package)
+                : Results.Content(MapAreaDataText(areaData.Area), "application/json; charset=utf-8");
         }
 
         // <b>A document's data is its file</b> (ADR-188), and it leaves as every document does: a download, never a
@@ -2540,6 +2629,10 @@ internal static partial class PortalEndpoints
     /// </remarks>
     /// <summary>The type keywords for a web map whose document is at hand: <c>Collector</c> and <c>Data Editing</c> beside
     /// <see cref="WebMapKeywords"/> when it holds a feature layer or table.</summary>
+    /// <summary>A map's keywords from its document, or from what the database said of it when a listing carries none (D-392).</summary>
+    private static string[] KeywordsOf(WebMap map, bool? editable) =>
+        map.Document is not null || editable is null ? WebMapKeywordsOf(map.Document) : editable.Value ? EditableWebMapKeywords : WebMapKeywords;
+
     internal static string[] WebMapKeywordsOf(string? document) =>
         HoldsFeatureLayer(document) ? EditableWebMapKeywords : WebMapKeywords;
 
@@ -2623,6 +2716,65 @@ internal static partial class PortalEndpoints
             : await resources.ItemsHoldingAsync(ids, FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// For these maps: which hold a feature layer (so carry <c>Collector</c> and <c>Data Editing</c>, D-392) and which
+    /// Field Maps may take offline — ADR-288: every feature layer they hold is a service on this server with sync on.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read from the database, not from the documents</b>, which a listing does not carry (D-392): the store answers
+    /// each map's FeatureServer addresses. <b><c>Offline</c> is INFERRED</b> (Q-233): ArcGIS keeps it as a switch its
+    /// owner turns in Map Viewer; here it follows the services, so there is nothing to store and nothing to fall out of
+    /// step.
+    /// </remarks>
+    private static async Task<(IReadOnlySet<Guid> Editable, IReadOnlySet<Guid> Offline)> MapFactsAsync(
+        HttpContext context, IEnumerable<WebMap> maps, CancellationToken cancellation)
+    {
+        HashSet<Guid> editable = [];
+        HashSet<Guid> offline = [];
+        WebMap[] all = [.. maps];
+        if (all.Length == 0 || context.RequestServices.GetService<IWebMapStore>() is not { } store)
+        {
+            return (editable, offline);
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<string>> urls =
+            await store.FeatureServiceUrlsAsync([.. all.Select(m => m.Id)], cancellation).ConfigureAwait(false);
+
+        HashSet<string>? synced = null;
+        foreach (WebMap map in all)
+        {
+            if (!Guid.TryParse(map.Id, out Guid id) || !urls.TryGetValue(map.Id, out IReadOnlyList<string>? addresses)
+                || addresses.Count == 0)
+            {
+                continue;
+            }
+
+            editable.Add(id);
+            if (synced is null)
+            {
+                IReadOnlyList<PublishedService> services =
+                    context.RequestServices.GetService<Graticula.Platform.Postgres.CatalogFallback>() is { } published
+                        ? (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services ?? []
+                        : [];
+                synced = new(services.Where(s => s.SyncEnabled).Select(s => s.QualifiedName), StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (addresses.Select(ServiceOf).All(name => name is not null && synced.Contains(name)))
+            {
+                offline.Add(id);
+            }
+        }
+
+        return (editable, offline);
+
+        static string? ServiceOf(string url)
+        {
+            int at = url.IndexOf("/rest/services/", StringComparison.OrdinalIgnoreCase);
+            int end = url.IndexOf("/FeatureServer", StringComparison.OrdinalIgnoreCase);
+            return at >= 0 && end > at ? url[(at + "/rest/services/".Length)..end] : null;
+        }
+    }
+
     /// <summary>A saved web map as a portal item of type <c>Web Map</c> — ADR-079 §5.3.</summary>
     /// <remarks>
     /// <b>The owner is named by the same rule as a service's</b> (<see cref="Item"/>, Q-127): the
@@ -2630,7 +2782,7 @@ internal static partial class PortalEndpoints
     /// publish its author's account name to whoever opens it anonymously. <b>No <c>url</c></b>: a web map
     /// is not a service, and its content is at <c>items/{id}/data</c>.
     /// </remarks>
-    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false)
+    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false, bool offline = false, bool? editable = null)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -2645,6 +2797,11 @@ internal static partial class PortalEndpoints
                 : "graticula",
 
             // ADR-114: the owner's folder it is in, said only to its owner.
+            // ADR-288: what the caller may do with the item, as Portal says it. On 2026-11-10 the same map offered *Add
+            // offline area* in Field Maps on an Enterprise portal, which answers `admin` here to its owner, and not on
+            // this server, where the field was absent — the first difference between the two items that was tried.
+            itemControl = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id ? "admin" : null,
+            isOrgItem = true,
             ownerFolder = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id && map.ContentFolder is { } inFolder
                 ? inFolder.ToString("N")
                 : null,
@@ -2652,7 +2809,10 @@ internal static partial class PortalEndpoints
             name = (string?)null,
             type = "Web Map",
             // ADR-286: `Tasks` beside the rest when the map carries Field Maps tasks.
-            typeKeywords = FieldMapsTasks.WithTasks(WebMapKeywordsOf(map.Document), tasks),
+            // ADR-288: and `Offline` when every feature layer it holds is sync-enabled.
+            typeKeywords = offline
+                ? [.. FieldMapsTasks.WithTasks(KeywordsOf(map, editable), tasks), "Offline"]
+                : FieldMapsTasks.WithTasks(KeywordsOf(map, editable), tasks),
             // ADR-119: the description when there is one, the summary as before when not; and the picture.
             description = map.Description ?? map.Snippet,
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
@@ -3204,9 +3364,22 @@ internal static partial class PortalEndpoints
     /// own organisation. <c>portals/self/categorySchema</c> answered 400 while the same route under the id answered
     /// (veteran review V-86, 2026-10-17).
     /// </summary>
+    /// <remarks>
+    /// <b>The id this portal had before it was kept</b> is still this portal (ADR-299, measured 2026-11-12). Before
+    /// ADR-216 the id was the origin's hash; ArcGIS Pro remembers the id of a portal it has signed in to, and a Pro that
+    /// signed in then still asks <c>portals/{old id}/subscriptionInfo</c> — and was told the organisation does not
+    /// exist. Only the default organisation had that id, so only it answers to it.
+    /// </remarks>
     private static bool IsThisPortal(HttpContext context, string id) =>
         string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
-        || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase);
+        || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+        || (context.Features.Get<TenantFeature>() is not { Tenant.IsDefault: false }
+            && string.Equals(id, OriginPortalId(context), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The id derived from the origin: what <see cref="PortalId"/> was before ADR-216, and its fallback.</summary>
+    private static string OriginPortalId(HttpContext context) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(Origin(context))))[..16].ToUpperInvariant();
 
     /// <summary>
     /// A portal id that is the same for every request to one deployment, at every address it answers.
@@ -3230,9 +3403,6 @@ internal static partial class PortalEndpoints
             return kept;
         }
 
-        byte[] hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(Origin(context)));
-
-        return Convert.ToHexString(hash)[..16].ToUpperInvariant();
+        return OriginPortalId(context);
     }
 }

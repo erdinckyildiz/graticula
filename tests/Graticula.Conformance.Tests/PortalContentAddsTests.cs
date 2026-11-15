@@ -432,8 +432,26 @@ public sealed class PortalContentAddsTests : ArcGisClient
             Assert.Equal("completed", status.GetProperty("status").GetString());
             document = status.GetProperty("itemId").GetString();
 
+            // ADR-269 condition 2: the item is the id addItem gave, as a portal's is. ArcGIS Pro asks for it, updates it
+            // and publishes it by that id after commit, and could do none of it while the document had another.
+            Assert.Equal(id, document);
+            Assert.Equal(id, committed.GetProperty("itemId").GetString());
+            JsonElement item = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/users/{User}/items/{id}?f=json");
+            Assert.Equal(id, item.GetProperty("item").GetProperty("id").GetString());
+            JsonElement updated = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{id}/update",
+                Form(new() { ["snippet"] = $"zz updated {tag}", ["f"] = "json" }));
+            Assert.True(updated.GetProperty("success").GetBoolean(), updated.GetRawText());
+            JsonElement shared = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/shareItems", Form(new()
+            {
+                ["items"] = id, ["everyone"] = "false", ["account"] = "true", ["groups"] = "", ["f"] = "json",
+            }));
+            Assert.True(shared.GetProperty("results")[0].GetProperty("success").GetBoolean(), shared.GetRawText());
+            JsonElement reread = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/users/{User}/items/{id}?f=json");
+            Assert.Equal("org", reread.GetProperty("sharing").GetProperty("access").GetString());
+
             JsonElement studio = await SendAsync(HttpMethod.Get, $"/content/documents/{document}");
             Assert.Equal($"zz parts {tag}", studio.GetProperty("title").GetString());
+            Assert.Equal($"zz updated {tag}", studio.GetProperty("snippet").GetString());
             Assert.Equal(Encoding.UTF8.GetByteCount(Places), studio.GetProperty("size").GetInt64());
         }
         finally

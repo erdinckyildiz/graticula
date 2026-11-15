@@ -733,6 +733,18 @@ internal static partial class Log
     public static partial void ExportFailed(ILogger logger, System.Guid job, string why, System.Exception? exception);
 
     [LoggerMessage(
+        EventId = 1475,
+        Level = LogLevel.Information,
+        Message = "Export {Job} was kept as a package of map area {Area}: its file is the area's now, and no longer an export's.")]
+    public static partial void PackageAdopted(ILogger logger, System.Guid job, System.Guid area);
+
+    [LoggerMessage(
+        EventId = 1476,
+        Level = LogLevel.Warning,
+        Message = "Export {Job}'s package could not be kept for its map area: {Why}")]
+    public static partial void PackageNotAdopted(ILogger logger, System.Guid job, string why, System.Exception? exception);
+
+    [LoggerMessage(
         EventId = 1085,
         Level = LogLevel.Information,
         Message = "Export {Job} stopped: it was cancelled, or its job was taken back by another worker. Its partial "

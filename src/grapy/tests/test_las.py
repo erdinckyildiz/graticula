@@ -6,6 +6,7 @@ returns, with a first return above it at z 6.5. One point at (0.5, 0.5) is withh
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -76,6 +77,8 @@ def rows(path, fields):
 class LasDataset(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.folder = os.path.join(self.directory, "lidar")
         os.makedirs(self.folder)
@@ -190,7 +193,9 @@ class LasDataset(unittest.TestCase):
                                                 (shapely.MultiPolygon([shapely.box(0, 10, 2, 12)]),)])
         arcpy.ddd.LasPointStatsByArea(self.lasd, polygons, ["Z_MIN", "Z_MAX", "Z_MEAN", "POINT_COUNT",
                                                             "STANDARD_DEVIATION"])
-        roof, ground = rows(polygons, ["Z_MIN", "Z_MAX", "Z_MEAN", "POINT_COUNT", "STD_DEV"])
+        # The fields are named as ArcGIS Pro 3.7 names them (measured 2026-11-08; this test read Z_MIN ... POINT_COUNT,
+        # grapy's names, until then).
+        roof, ground = rows(polygons, ["Z_Min", "Z_Max", "Z_Mean", "PointCount", "STD_DEV"])
         self.assertEqual(roof[:2], (6.0, 6.5))
         self.assertAlmostEqual(roof[2], 6.25, 9)
         self.assertEqual(roof[3], 2 * ROOF)
@@ -242,9 +247,11 @@ class LasDataset(unittest.TestCase):
 
     def test_classify_las_ground_is_an_equivalent_that_finds_the_ground_under_a_roof(self):
         arcpy.ddd.ChangeLasClassCodes(self.lasd, [[-1, 1, "NO_CHANGE", "NO_CHANGE", "NO_CHANGE", "NO_CHANGE"]])
-        before = len(arcpy.GetMessages())
         arcpy.ddd.ClassifyLasGround(self.lasd, "STANDARD")
-        self.assertIn("progressive morphological filter", arcpy.GetMessages()[before:] or arcpy.GetMessages())
+        # The run's list (ADR-223), where the once-per-run warning stays: since ADR-289 §5.3 GetMessages answers only
+        # the last tool's messages, as ArcGIS Pro 3.7 (measured 2026-11-12).
+        self.assertIn("progressive morphological filter",
+                      "\n".join(m["description"] for m in arcpy._runtime.MESSAGES))
         a = _las.arrays(_las.read_file(self.las))
         ground = a["classification"] == 2
         self.assertEqual(int(ground.sum()), GROUND - 1)   # the withheld ground point is not evaluated, as documented
@@ -290,6 +297,8 @@ class Laz(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.las = scene(os.path.join(self.directory, "tile.las"))
 

@@ -248,8 +248,6 @@ def SpatiallyConstrainedMultivariateClustering(in_features, output_features, ana
     import numpy as np
     s = _s()
     tool = "SpatiallyConstrainedMultivariateClustering"
-    if not s._given(output_table):
-        raise ValueError(f"arcpy.stats.{tool}: output_table is required.")
     fields = [f for f in s._list(analysis_fields) if s._given(f)]
     size_kind = s._keyword(size_constraints) if s._given(size_constraints) else "NONE"
     if size_kind not in ("NONE", "NUM_FEATURES", "ATTRIBUTE_VALUE"):
@@ -367,8 +365,9 @@ def SpatiallyConstrainedMultivariateClustering(in_features, output_features, ana
         for i, f in enumerate(features):
             extra_values = [float(probability[i])] if probability is not None else []
             written.insertRow((*[f[1][c.name.lower()] for c in keep], int(label[i]), *extra_values, f[4]))
+    # output_table is optional, as in ArcGIS Pro 3.7 (measured 2026-11-08: it ran without one; grapy refused until then).
     table = s._write_table(output_table, [_gpkg.Column("NUM_CLUSTERS", "Integer"), _gpkg.Column("PSEUDO_F", "Double")],
-                           table_rows) if table_rows else ""
+                           table_rows) if table_rows and s._given(output_table) else ""
     return Result(out, table)
 
 

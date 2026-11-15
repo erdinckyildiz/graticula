@@ -8,6 +8,7 @@ import datetime as dt
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -47,6 +48,8 @@ def plane(gx, gy, size=15, cell=10.0):
 class _Quiet(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 

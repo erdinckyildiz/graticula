@@ -381,7 +381,9 @@ def ColorizeLas(in_las_dataset, in_image, bands, target_folder, name_suffix=None
             cells[np.asarray(band._mask)[r, c]] = 0
             values[inside] = cells
             out[name] = np.clip(np.rint(values), 0, 65535).astype(np.uint16)
-        target = _out_name(folder, path, suffix=name_suffix if _given(name_suffix) else "")
+        # With no suffix the name gains _colorized, as ArcGIS Pro 3.7 names it (measured 2026-11-08: a.las is
+        # a_colorized.las).
+        target = _out_name(folder, path, suffix=name_suffix if _given(name_suffix) else "_colorized")
         out.write(target)
         written.append(target)
     _dataset_of(written, out_las_dataset, _upper(compute_stats, "COMPUTE_STATS") == "COMPUTE_STATS" or
@@ -530,7 +532,8 @@ def ThinLas(in_las_dataset, target_folder, thinning_dimension="3D", xy_resolutio
         out.points = las.points[np.nonzero(keep)[0]]
         if _upper(remove_vlr, "MAINTAIN_VLR") == "REMOVE_VLR":
             out.header.vlrs = laspy.VLRList([v for v in las.header.vlrs if getattr(v, "user_id", "") == "LASF_Projection"])
-        target = _out_name(folder, path, suffix=name_suffix if _given(name_suffix) else "")
+        # With no suffix the name gains _thinned, as ArcGIS Pro 3.7 names it (measured 2026-11-08).
+        target = _out_name(folder, path, suffix=name_suffix if _given(name_suffix) else "_thinned")
         out.write(target)
         written.append(target)
     _dataset_of(written, out_las_dataset, _upper(compute_stats, "COMPUTE_STATS") == "COMPUTE_STATS", dataset.srid)
@@ -541,8 +544,9 @@ def ThinLas(in_las_dataset, target_folder, thinning_dimension="3D", xy_resolutio
 
 
 def _coordinate(value):
-    value = round(float(value), 6)
-    return str(int(value)) if value == int(value) else f"{value:f}".rstrip("0").rstrip(".")
+    """A tile corner in a XY_COORDS name: its whole part, as ArcGIS Pro 3.7 names tiles (measured 2026-11-08: the
+    corner 500102.5 is ``500102``)."""
+    return str(int(math.floor(float(value) + 1e-6)))
 
 
 def TileLas(in_las_dataset, target_folder, base_name=None, out_las_dataset=None, compute_stats="COMPUTE_STATS",
@@ -995,8 +999,10 @@ def LocateOutliers(in_surface, out_feature_class, apply_hard_limit="NO_APPLY_HAR
     reason = np.where(hard & compared, 1, np.where(hard, 0, 2))
     flagged = np.nonzero(hard | compared)[0]
     cap = int(outlier_cap) if _given(outlier_cap) else 2500
-    rows = [(int(reason[k]), shapely.Point(*nodes[k])) for k in flagged[:cap]]
-    return Result(_write(out_feature_class, "Point", surface.srid, [_gpkg.Column("REASON", "Integer")], True, rows))
+    # A Z field before REASON, as ArcGIS Pro 3.7 writes it (measured 2026-11-08).
+    rows = [(float(nodes[k][2]), int(reason[k]), shapely.Point(*nodes[k])) for k in flagged[:cap]]
+    return Result(_write(out_feature_class, "Point", surface.srid, [_gpkg.Column("Z", "Double"),
+                                                                     _gpkg.Column("REASON", "Integer")], True, rows))
 
 
 # ---- management.InterpolateFromPointCloud
@@ -1024,8 +1030,8 @@ def InterpolateFromPointCloud(in_container, out_raster, cell_size, interpolation
     that classifies its ground itself (ReuseGround 0) — that classifier is ClassifyLasGround's undescribed one, so run
     ClassifyLasGround (an equivalent) and pass ``ReuseGround 1``; a solution point table, Esri's block-adjustment output.
 
-    INFERRED, the page giving no defaults: TRIANGULATION, NONE and DSM; the withheld points are left out; the grid starts
-    at the points' lower-left corner and holds whole cells; a cell outside the triangulation is NoData; the DEM is read
+    The grid has a cell centred on the points' lower-left corner (measured in ArcGIS Pro 3.7, 2026-11-08). INFERRED,
+    the page giving no defaults: TRIANGULATION, NONE and DSM; the withheld points are left out; a cell outside the triangulation is NoData; the DEM is read
     at the cell centre, unresampled."""
     from . import _tin
     from ._raster import Raster, as_raster
@@ -1071,8 +1077,10 @@ def InterpolateFromPointCloud(in_container, out_raster, cell_size, interpolation
     x, y, z = a["x"][keep], a["y"][keep], a["z"][keep]
     if len(x) < 3:
         raise ExecuteError("ERROR: InterpolateFromPointCloud needs at least three points.")
+    # A cell centred on the points' lower-left corner, as ArcGIS Pro 3.7 lays the grid (measured 2026-11-08: points
+    # from 10 to 590 at 20 m cells give a raster from 0 to 600).
     grid = _grid_for((float(x.min()), float(y.min()), float(x.max()), float(y.max())), "CELLSIZE", cell_size, srid,
-                     centred=False)
+                     centred=True)
     surface = _tin.triangulate(list(zip(x, y, z)), [], srid=srid)
     xs, ys = grid.centres()
     gx, gy = np.meshgrid(xs, ys)

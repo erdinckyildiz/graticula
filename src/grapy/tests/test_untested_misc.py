@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 import warnings
@@ -36,7 +37,9 @@ def square(left, bottom, size):
 class _Folder(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         _runtime.MESSAGES.clear()
 
@@ -65,13 +68,17 @@ class _Folder(unittest.TestCase):
 
 class Runtime(_Folder):
     def test_add_id_message_takes_its_severity_from_the_type(self):
-        arcpy.AddIDMessage("ERROR", 12, "roads")
-        arcpy.AddIDMessage("WARNING", 345)
-        arcpy.AddIDMessage("INFORMATIVE", 7, "a", "b")
-        # GetMessages(2) answers errors only, (1) warnings and errors, (0) all, as documented.
-        self.assertEqual(arcpy.GetMessages(2), "12 roads")
-        self.assertEqual(arcpy.GetMessages(1), "12 roads\n345")
-        self.assertEqual(arcpy.GetMessages(0).splitlines()[-1], "7 a b")
+        # Read from the run's list, which the server's job answers: outside a tool, ArcGIS Pro 3.7 prints these and
+        # GetMessages does not answer them (measured 2026-11-12, ADR-289 §5.3); this test read them with GetMessages.
+        # GetMessages' severities inside a tool are pinned in test_messages.py.
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):   # printed, as Pro prints them
+            arcpy.AddIDMessage("ERROR", 12, "roads")
+            arcpy.AddIDMessage("WARNING", 345)
+            arcpy.AddIDMessage("INFORMATIVE", 7, "a", "b")
+        self.assertEqual([(m["type"][len("esriJobMessageType"):], m["description"]) for m in _runtime.MESSAGES],
+                         [("Error", "12 roads"), ("Warning", "345"), ("Informative", "7 a b")])
 
     def test_licences_are_always_there_on_the_server(self):
         # A toolbox written for Pro checks out an extension before using it; on this server every tool grapy builds is
@@ -88,13 +95,15 @@ class Runtime(_Folder):
         open(os.path.join(self.directory, "out0.gpkg"), "w").close()
         self.assertEqual(arcpy.CreateUniqueName("out.gpkg"), os.path.join(self.directory, "out1.gpkg"))
         other = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other, True)
         self.assertEqual(arcpy.CreateUniqueName("out.gpkg", other), os.path.join(other, "out.gpkg"))
 
     def test_validate_field_name_replaces_invalid_characters_with_an_underscore(self):
         self.assertEqual(arcpy.ValidateFieldName("land use%"), "land_use_")
         self.assertEqual(arcpy.ValidateFieldName("ok_name"), "ok_name")
-        # A name may not begin with a digit.
-        self.assertEqual(arcpy.ValidateFieldName("2020pop"), "_2020pop")
+        # A name may not begin with a digit: in a folder workspace ArcGIS Pro 3.7 puts "a" before it, in a
+        # GeoPackage "F" (measured 2026-11-08, the Pro sweep); this test said "_2020pop" before.
+        self.assertEqual(arcpy.ValidateFieldName("2020pop"), "a2020pop")
 
     def test_parameters_by_index_as_value_and_as_text(self):
         first = arcpy.Parameter(name="distance", datatype="GPDouble", parameterType="Required", direction="Input")
@@ -118,7 +127,9 @@ class Runtime(_Folder):
         self.assertIsNone(arcpy.SetProgressorLabel("half way"))
         self.assertIsNone(arcpy.SetProgressorPosition(5))
         self.assertIsNone(arcpy.ResetProgressor())
-        self.assertEqual(arcpy.GetMessageCount(), 0)
+        # The run's list: GetMessageCount answers the last tool's count since ADR-289 §5.3 (ArcGIS Pro 3.7, measured
+        # 2026-11-12), which an earlier test's tool sets.
+        self.assertEqual(len(_runtime.MESSAGES), 0)
 
     def test_result_answers_its_outputs(self):
         result = arcpy.Result("a.gpkg", 3)
@@ -156,7 +167,9 @@ class ContingentAndSequences(test_attribute_rules._Workspace):
         found = arcpy.da.ListContingentValues(self.parcels)
         self.assertTrue(all(isinstance(c, arcpy.da.ContingentValue) for c in found))
         first, second = found
-        self.assertEqual((first.fieldGroupName, first.subtype, first.isRetired), ("use", None, False))
+        # Subtype 0 for a table without subtypes, as ArcGIS Pro 3.7 answers (measured 2026-11-08, the Pro sweep);
+        # this test said None before.
+        self.assertEqual((first.fieldGroupName, first.subtype, first.isRetired), ("use", 0, False))
         kind, value = first.values
         self.assertIsInstance(kind, arcpy.da.ContingentFieldValue)
         self.assertEqual((kind.name, kind.type, kind.code), ("kind", "CODED_VALUE", 1))
@@ -258,7 +271,8 @@ class ClusterTolerance(unittest.TestCase):
         self.assertEqual(self.tolerance("snap"), 0.5)
         arcpy.management.ValidateTopology(topo)
         with arcpy.da.SearchCursor(near, ["SHAPE@WKT"]) as rows:
-            self.assertEqual(next(rows)[0], "LINESTRING (10 0, 10.3 5)")
+            # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+            self.assertEqual(next(rows)[0], "MULTILINESTRING ((10 0, 10.3 5))")
         # 0 gives the default back, as documented.
         arcpy.management.SetClusterTolerance(topo, 0)
         self.assertGreater(self.tolerance("snap"), 0)

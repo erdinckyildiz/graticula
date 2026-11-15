@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -99,7 +100,18 @@ internal static partial class PortalEndpoints
             .ConfigureAwait(false);
 
         int next = start - 1 + page.Members.Count < page.Total ? start + page.Members.Count : -1;
-        object[] users = [.. page.Members.Select(m => PortalUser(context, m, full))];
+        // What each member's documents take, read once for the page and only for whoever manages members: the profile's
+        // own storageUsage (PortalEndpoints.StorageUsageAsync), so a member's row and their own profile say one number.
+        Dictionary<Guid, long> usage = [];
+        if (full && context.RequestServices.GetService<IDocumentStore>() is { } documents)
+        {
+            foreach (Document d in await documents.ListAsync(cancellation).ConfigureAwait(false))
+            {
+                usage[d.Owner] = usage.GetValueOrDefault(d.Owner) + Math.Max(0, d.Size);
+            }
+        }
+
+        object[] users = [.. page.Members.Select(m => PortalUser(context, m, full, usage.GetValueOrDefault(m.Member.Id)))];
 
         return Results.Ok(new Dictionary<string, object?>
         {
@@ -128,7 +140,7 @@ internal static partial class PortalEndpoints
     }
 
     /// <summary>A member as a portal user: the public profile, or all of it for whoever manages members.</summary>
-    private static object PortalUser(HttpContext context, MemberListing listing, bool full)
+    private static object PortalUser(HttpContext context, MemberListing listing, bool full, long storageUsage)
     {
         Member member = listing.Member;
         long created = member.CreatedAt.ToUnixTimeMilliseconds();
@@ -168,6 +180,8 @@ internal static partial class PortalEndpoints
             disabled = member.IsDisabled,
             access = "org",
             level = "2",
+            storageUsage,
+            storageQuota = StorageQuotaBytes,
         };
     }
 

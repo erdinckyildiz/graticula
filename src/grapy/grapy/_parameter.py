@@ -3,9 +3,41 @@ from __future__ import annotations
 
 
 class Filter:
+    """A parameter's filter: a ValueList with an empty list until it is set, as ArcGIS Pro 3.7 answers a new
+    parameter's (measured 2026-11-08)."""
+
     def __init__(self):
-        self.type = None
+        self.type = "ValueList"
         self.list = []
+
+
+# The data types of a parameter, by the keyword a Python toolbox gives and the name arcpy answers as ``datatype``
+# (ArcGIS Pro 3.7 answers "Linear Unit" for GPLinearUnit and "String" for GPString, measured 2026-11-08). The names
+# are those of the page "Defining parameter data types in a Python toolbox". A keyword not listed is answered as given.
+DATATYPE_NAMES = {
+    "GPString": "String", "GPLong": "Long", "GPDouble": "Double", "GPBoolean": "Boolean", "GPDate": "Date",
+    "GPLinearUnit": "Linear Unit", "GPArealUnit": "Areal Unit", "GPFeatureLayer": "Feature Layer",
+    "GPRasterLayer": "Raster Layer", "GPTableView": "Table View", "GPLayer": "Layer", "GPValueTable": "Value Table",
+    "GPExtent": "Extent", "GPSpatialReference": "Spatial Reference", "GPCoordinateSystem": "Coordinate System",
+    "GPSQLExpression": "SQL Expression", "GPVariant": "Variant", "GPFeatureRecordSetLayer": "Feature Set",
+    "GPRecordSet": "Record Set", "GPPoint": "Point", "GPCellSize": "Cell Size", "GPEnvelope": "Envelope",
+    "GPFieldMapping": "Field Mappings", "GPMultiValue": "Multiple Value", "GPType": "Data Type",
+    "GPSAGeoData": "Raster Dataset Layer", "GPRasterDataLayer": "Raster Data Layer", "GPSACellSize": "Cell Size XY",
+    "GPEncryptedString": "Encrypted String", "GPGroupLayer": "Group Layer", "GPMap": "Map", "GPLayout": "Layout",
+    "GPInternetTiledLayer": "Internet Tiled Layer", "GPMosaicLayer": "Mosaic Layer", "GPTimeUnit": "Time Unit",
+    "GPStringHidden": "String Hidden", "GPCalculatorExpression": "Calculator Expression",
+    "GPSpatialReferenceType": "Spatial Reference", "GPDataFile": "Data File", "GPLasDatasetLayer": "LAS Dataset Layer",
+    "GPNetworkDatasetLayer": "Network Dataset Layer", "GPTinLayer": "TIN Layer", "GPTerrainLayer": "Terrain Layer",
+    "GPRasterCalculatorExpression": "Raster Calculator Expression", "GPRasterBuilder": "Raster Builder",
+    "DEFeatureClass": "Feature Class", "DETable": "Table", "DEFolder": "Folder", "DEWorkspace": "Workspace",
+    "DEFile": "File", "DERasterDataset": "Raster Dataset", "DEFeatureDataset": "Feature Dataset",
+    "DEDatasetType": "Dataset", "DEType": "Data Element", "DELayer": "Layer File", "DEMosaicDataset": "Mosaic Dataset",
+    "DETextfile": "Text File", "DERasterCatalog": "Raster Catalog", "DERelationshipClass": "Relationship Class",
+    "DEShapefile": "Shapefile", "DEPrjFile": "Prj File", "DETin": "TIN", "DELasDataset": "LAS Dataset",
+    "DENetworkDataset": "Network Dataset", "DETopology": "Topology", "DEToolbox": "Toolbox", "DEMapDocument": "ArcMap Document",
+    "DEServerConnection": "Server Connection", "DECadDrawingDataset": "CAD Drawing Dataset", "Field": "Field",
+    "GPSAGeoDataDomain": "Geodataset", "AnalysisCellSize": "Analysis Cell Size",
+}
 
 
 class Parameter:
@@ -16,7 +48,7 @@ class Parameter:
         self.name = name
         self.displayName = displayName or name
         self.direction = direction
-        self.datatype = datatype
+        self._datatype = datatype
         self.parameterType = parameterType
         self.enabled = enabled
         self.category = category
@@ -29,6 +61,19 @@ class Parameter:
         self.message = ""
         self.altered = False
         self.hasBeenValidated = False
+
+    @property
+    def datatype(self):
+        """The data type's name, as arcpy answers it ("Linear Unit" for "GPLinearUnit"); the keyword given is kept in
+        ``_datatype`` for grapy's runner, and a list of keywords answers a list of names."""
+        kind = self._datatype
+        if isinstance(kind, (list, tuple)):
+            return [DATATYPE_NAMES.get(k, k) for k in kind]
+        return DATATYPE_NAMES.get(kind, kind)
+
+    @datatype.setter
+    def datatype(self, value):
+        self._datatype = value
 
     @property
     def valueAsText(self):
@@ -57,7 +102,7 @@ class Parameter:
     def describe(self) -> dict:
         """The parameter as this server's task resource lists it."""
         return {"name": self.name, "displayName": self.displayName, "direction": self.direction,
-                "datatype": _datatype(self.datatype), "parameterType": self.parameterType, "multiValue": self.multiValue,
+                "datatype": _datatype(self._datatype), "parameterType": self.parameterType, "multiValue": self.multiValue,
                 "choiceList": list(self.filter.list) if self.filter.type == "ValueList" else None,
                 "defaultValue": self.value if isinstance(self.value, (str, int, float, bool)) else None}
 
@@ -76,7 +121,10 @@ _LENGTHS = {"OID": 4, "SmallInteger": 2, "Integer": 4, "BigInteger": 8, "Single"
 class Field:
     """A field as Describe and ListFields answer it."""
 
-    def __init__(self, name="", type="String", nullable=True, length=None, aliasName=None):
+    def __init__(self, name="", type="", nullable=True, length=None, aliasName=None):
+        # A blank Field() — arcpy.Field() in a script — has no type and length 0, as ArcGIS Pro 3.7 answers (measured
+        # 2026-11-08); the fields Describe and ListFields answer are always made with a type. Its scale stays 0: Pro
+        # answered -1 in one run and 6881395 in the next, an unset value, which is not copied.
         self.name = name
         self.aliasName = aliasName or name
         self.baseName = name
@@ -99,8 +147,10 @@ class Index:
     ascending. INFERRED: SQLite indexes are ascending unless a column is declared DESC; grapy reads the declaration."""
 
     def __init__(self, name="", fields=None, isUnique=False, isAscending=True):
+        # fields are Field objects, as ArcGIS Pro 3.7 answers an index's (measured 2026-11-08); names given are
+        # made Fields.
         self.name = name
-        self.fields = list(fields or [])
+        self.fields = [f if isinstance(f, Field) else Field(str(f)) for f in (fields or [])]
         self.isUnique = bool(isUnique)
         self.isAscending = bool(isAscending)
 
@@ -109,8 +159,13 @@ class Index:
 
 
 def _tokens(text):
+    """A value table row's cells: split on spaces, quotes keeping a cell together. Backslashes are characters, not
+    escapes: Pro reads a Windows path in a row (``<gdb path> Shape.Z Mass_Points``) as given (measured in ArcGIS Pro
+    3.7, 2026-11-08, by the ddd sweep: CreateTin's in_features), where shlex's POSIX mode dropped every backslash."""
     import shlex
-    return shlex.split(str(text), posix=True)
+    lexer = shlex.shlex(str(text), posix=True)
+    lexer.whitespace_split, lexer.escape = True, ""
+    return list(lexer)
 
 
 def _quoted(value):
@@ -161,8 +216,9 @@ class ValueTable:
         del self._rows[int(row)]
 
     def getRow(self, row):
-        """The row's values as a space-delimited string."""
-        return " ".join(_quoted(v) for v in self._rows[int(row)])
+        """The row's values as a space-delimited string, each in single quotes: ArcGIS Pro 3.7 answers "'a' '1'" for the
+        row "a 1" (measured 2026-11-08)."""
+        return " ".join("'" + ("" if v is None else str(v)) + "'" for v in self._rows[int(row)])
 
     def getTrueRow(self, row):
         return [self.getTrueValue(row, c) for c in range(self.columnCount)]

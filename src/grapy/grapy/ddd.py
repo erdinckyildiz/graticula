@@ -127,20 +127,26 @@ def Divide(in_raster_or_constant1, in_raster_or_constant2, out_raster):
     point — the rule of arcpy.sa.Divide's page too, and not that of the ``/`` operator, whose output is always floating
     point.
 
-    INFERRED: the integer division truncates toward zero (−3 / 2 is −1); the page's only example is positive.
+    Measured in ArcGIS Pro 3.7 (2026-11-08): the integer division rounds down, as Python's ``//`` does (−1 / 2 is −1,
+    −3 / 2 is −2), where grapy had inferred truncation toward zero; and a constant whose value is a whole number counts
+    as an integer (an integer raster divided by 2.0 is the integer division, by 2.5 floating point).
     """
     _refuse_environment("arcpy.ddd.Divide")
     values = [as_raster(v, "Divide") if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
 
     def integer(v):
-        return v.isInteger if isinstance(v, Raster) else isinstance(v, (int, np.integer)) and not isinstance(v, bool)
+        if isinstance(v, Raster):
+            return v.isInteger
+        if isinstance(v, bool):
+            return False
+        return isinstance(v, (int, np.integer)) or isinstance(v, (float, np.floating)) and float(v).is_integer()
 
     if all(integer(v) for v in values):
         def operation(x, y):
             y = np.asarray(y)
             zero = y == 0
             safe = np.where(zero, 1, y)
-            return (np.trunc(np.asarray(x, float) / safe)).astype(np.int32), zero
+            return (np.floor(np.asarray(x, float) / safe)).astype(np.int32), zero
         return _saved(_combine(values, operation, keep_integer=True, tool="Divide"), out_raster)
     return _saved(sa.Divide(*values), out_raster)
 
@@ -419,6 +425,10 @@ def FeatureTo3DByAttribute(in_features, out_feature_class, height_field, to_heig
 
 
 _SLOPES = ("MIN_SLOPE", "MAX_SLOPE", "AVG_SLOPE")
+# The fields Pro writes for each property, measured in ArcGIS Pro 3.7 (2026-11-08) on a 3D line class; the properties
+# not measured there keep their keyword as the name (INFERRED).
+_Z_FIELDS = {"Z_MIN": "Z_Min", "Z_MAX": "Z_Max", "Z_MEAN": "Z_Mean", "LENGTH_3D": "Length3D", "MIN_SLOPE": "Min_Slope",
+             "MAX_SLOPE": "Max_Slope", "AVG_SLOPE": "Avg_Slope", "VERTEX_COUNT": "Vertex_Cnt"}
 
 
 def AddZInformation(in_feature_class, out_property, noise_filtering=None):
@@ -432,7 +442,8 @@ def AddZInformation(in_feature_class, out_property, noise_filtering=None):
     — 0 for one that is not closed, as Esri's knowledge base says Add Z Information gives (INFERRED, the tool page being
     silent). Refused: SURFACE_AREA and VOLUME on a class that is not a multipatch; a 2D feature class.
 
-    INFERRED: each field is named as its property and is a double (POINT_COUNT and VERTEX_COUNT integers); a multipoint's
+    The fields are named as Pro names them (``_Z_FIELDS``, measured). INFERRED: the unmeasured properties' fields are
+    named as the property; each is a double (POINT_COUNT and VERTEX_COUNT integers); a multipoint's
     Z_MEAN is the plain mean of its points; slopes are magnitudes, so the one closest to 0 is the least steep; noise
     filtering applies to the slopes and Z_MEAN, the parts the page describes it for; a polygon's VERTEX_COUNT counts each
     ring's closing vertex."""
@@ -451,11 +462,12 @@ def AddZInformation(in_feature_class, out_property, noise_filtering=None):
             _refuse("AddZInformation", "out_property", p)
     noise = float(noise_filtering) if noise_filtering not in (None, "", "#", "NO_FILTER") else 0.0
     existing = {c.name.lower() for c in columns}
-    for p in wanted:
-        if p.lower() not in existing:
-            _gpkg.add_column(in_feature_class, _gpkg.Column(p, "Integer" if p in ("POINT_COUNT", "VERTEX_COUNT")
+    names = [_Z_FIELDS.get(p, p) for p in wanted]
+    for p, name in zip(wanted, names):
+        if name.lower() not in existing:
+            _gpkg.add_column(in_feature_class, _gpkg.Column(name, "Integer" if p in ("POINT_COUNT", "VERTEX_COUNT")
                                                             else "Double"))
-    with da.UpdateCursor(in_feature_class, [*wanted, "SHAPE@"]) as rows:
+    with da.UpdateCursor(in_feature_class, [*names, "SHAPE@"]) as rows:
         for row in rows:
             shape = row[-1]._shape if row[-1] is not None else None
             if shape is None:
@@ -591,10 +603,57 @@ def Near3D(in_features, near_features, search_radius=None, location="NO_LOCATION
 
 
 def _densified(shape, step):
-    """Each segment divided into the fewest equal pieces no longer than ``step``, as grapy's Densify divides them."""
+    """Each segment divided into floor(length / step) + 1 equal pieces — always shorter than ``step``, so a 600 m
+    segment at 10 m becomes 61 pieces of 9.84 m: ArcGIS Pro 3.7's InterpolateShape writes exactly those vertices on
+    every line of the sweep (measured 2026-11-08; grapy divided into the fewest pieces no longer than the step, 60)."""
     if step is None or shape.geom_type in ("Point", "MultiPoint"):
         return shape
-    return _shapely.segmentize(_shapely.force_2d(shape), step)
+    step = float(step)
+    flat = _shapely.force_2d(shape)
+
+    def ring(coords):
+        points = np.asarray(coords, dtype=float)[:, :2]
+        out = [points[0]]
+        for p0, p1 in zip(points[:-1], points[1:]):
+            n = int(_math.floor(float(np.hypot(*(p1 - p0))) / step + 1e-12)) + 1
+            out.extend(p0 + (p1 - p0) * (k / n) for k in range(1, n + 1))
+        return np.array(out)
+    from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
+    if flat.geom_type == "LineString":
+        return LineString(ring(flat.coords))
+    if flat.geom_type == "MultiLineString":
+        return MultiLineString([ring(g.coords) for g in flat.geoms])
+    if flat.geom_type == "Polygon":
+        return Polygon(ring(flat.exterior.coords), [ring(i.coords) for i in flat.interiors])
+    if flat.geom_type == "MultiPolygon":
+        return MultiPolygon([Polygon(ring(g.exterior.coords), [ring(i.coords) for i in g.interiors]) for g in flat.geoms])
+    return _shapely.segmentize(flat, step)
+
+
+def _surface_z(raster, x, y, bilinear=True):
+    """A raster surface's height at (x, y) for InterpolateShape and UpdateFeatureZ: bilinear over the four nearest cell
+    centres, and between the outermost centres and the raster's edge the edge cells' values carried out to it (the
+    position clamped to the centres) — measured in ArcGIS Pro 3.7 (2026-11-08): a line from x = 0 to x = 600 over a
+    10 m raster from 0 to 600 is kept, its end heights the bilinear values at x = 5 and x = 595. None off the raster
+    or over NoData. ``bilinear=False`` is the cell's own value (arcpy.sa's sampling)."""
+    if not bilinear:
+        return sa._sample(raster, x, y, False)
+    g = raster._grid
+    right, bottom = g.left + g.columns * g.width, g.top - g.rows * g.height
+    if not (g.left <= x <= right and bottom <= y <= g.top):
+        return None
+    fx = min(max((x - g.left) / g.width - 0.5, 0.0), g.columns - 1.0)
+    fy = min(max((g.top - y) / g.height - 0.5, 0.0), g.rows - 1.0)
+    c0, r0 = min(int(fx), max(g.columns - 2, 0)), min(int(fy), max(g.rows - 2, 0))
+    block = raster._array[r0:r0 + 2, c0:c0 + 2].astype(float)
+    if raster._mask[r0:r0 + 2, c0:c0 + 2].any():
+        return None
+    if block.shape != (2, 2):
+        return float(block.flat[0])
+    tx, ty = fx - c0, fy - r0
+    top = block[0, 0] * (1 - tx) + block[0, 1] * tx
+    low = block[1, 0] * (1 - tx) + block[1, 1] * tx
+    return float(top * (1 - ty) + low * ty)
 
 
 def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_distance=None, z_factor=1, method="BILINEAR",
@@ -616,8 +675,10 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
     Refused: the methods other than BILINEAR and NEAREST on a raster and LINEAR on a TIN
     (natural neighbours and conflation, ADR-229 §5.4); ``interpolate_m_value``.
 
-    INFERRED: densification divides each segment into the fewest equal pieces no longer than the sample distance; under
-    PRESERVE a vertex off the data takes z 0; m-values are not carried."""
+    Measured in ArcGIS Pro 3.7 (2026-11-08): densification divides each segment into the fewest equal pieces shorter
+    than the sample distance, and the surface reaches the raster's edge (``_surface_z``).
+
+    INFERRED: under PRESERVE a vertex off the data takes z 0; m-values are not carried."""
     from . import _gpkg, _tintools, da
     from .analysis import _out
     if _tintools.is_surface(in_surface):
@@ -653,7 +714,7 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
             def heights(z, xy):
                 out_z = []
                 for x, y in xy:
-                    value = sa._sample(raster, x, y, kind_of == "BILINEAR")
+                    value = _surface_z(raster, x, y, kind_of == "BILINEAR")
                     if value is None:
                         missing[0] = True
                         value = 0.0
@@ -675,7 +736,8 @@ def UpdateFeatureZ(in_features, in_surface, method="BILINEAR", status_field=None
     Refused: terrain surfaces (ADR-229 §5.6); methods other than BILINEAR on a raster (the page names BILINEAR as
     the raster's) and LINEAR on a TIN; a 2D feature class.
 
-    INFERRED: "entirely on the surface" means every vertex has a value under bilinear interpolation."""
+    INFERRED: "entirely on the surface" means every vertex has a value under bilinear interpolation, which reaches the
+    raster's edge as InterpolateShape's does (``_surface_z``, measured there, not here)."""
     from . import _gpkg, _tintools, da
     tin = _tintools.surface_of(in_surface, "UpdateFeatureZ") if _tintools.is_surface(in_surface) else None
     if tin is None and isinstance(in_surface, str) and not in_surface.lower().endswith((".tif", ".tiff")):
@@ -696,12 +758,12 @@ def UpdateFeatureZ(in_features, in_surface, method="BILINEAR", status_field=None
             if row[0] is None:
                 continue
             shape = row[0]._shape
-            samples = [sa._sample(raster, x, y, True) for x, y in _shapely.get_coordinates(shape)]
+            samples = [_surface_z(raster, x, y) for x, y in _shapely.get_coordinates(shape)]
             if any(s is None for s in samples):
                 rows.updateRow([row[0], *([0] if len(fields) > 1 else [])])
                 continue
             built = _gpkg.rebuild(shape, True, has_m, None,
-                                  lambda z, xy: np.array([sa._sample(raster, x, y, True) for x, y in xy], dtype=np.float64))
+                                  lambda z, xy: np.array([_surface_z(raster, x, y) for x, y in xy], dtype=np.float64))
             rows.updateRow([built, *([1] if len(fields) > 1 else [])])
     return Result(in_features)
 
@@ -773,7 +835,8 @@ def _dp3(points, tolerance):
 
 def Simplify3DLine(in_features, out_feature_class, tolerance):
     """3D lines simplified by the Douglas-Peucker algorithm the page names, the tolerance being the 3D distance the
-    simplified line must stay within, as documented. Fields are copied.
+    simplified line must stay within, as documented. Fields are copied, and ``ORIG_OID`` holds the input's ObjectID,
+    as ArcGIS Pro 3.7 writes it (measured 2026-11-08).
 
     INFERRED: the distance is to the segment between kept vertices (not its infinite line), and a vertex exactly at the
     tolerance goes; each part is simplified on its own; m-values are dropped."""
@@ -783,10 +846,11 @@ def Simplify3DLine(in_features, out_feature_class, tolerance):
     if kind != "Polyline" or not has_z:
         _refuse("Simplify3DLine", "in_features", in_features, "it takes 3D lines")
     step = float(str(tolerance).split()[0])
-    names = [c.name for c in columns]
+    names = [c.name for c in columns if c.name.upper() != "ORIG_OID"]
     out = _out(out_feature_class)
-    _gpkg.create(out, "Polyline", srid, columns, True, False)
-    with da.SearchCursor(in_features, [*names, "SHAPE@"]) as rows, da.InsertCursor(out, [*names, "SHAPE@"]) as written:
+    _gpkg.create(out, "Polyline", srid, [*[c for c in columns if c.name.upper() != "ORIG_OID"],
+                                         _gpkg.Column("ORIG_OID", "Integer")], True, False)
+    with da.SearchCursor(in_features, [*names, "OID@", "SHAPE@"]) as rows,             da.InsertCursor(out, [*names, "ORIG_OID", "SHAPE@"]) as written:
         for row in rows:
             if row[-1] is None:
                 continue
@@ -1018,7 +1082,7 @@ def ConstructSightLines(in_observer_points, in_target_features, out_line_feature
                         target_height_field=None, join_field=None, sample_distance=None,
                         output_the_direction="NOT_OUTPUT_THE_DIRECTION", sampling_method="2D_DISTANCE"):
     """A sight line from each observer point to each target point — only to targets sharing its ``join_field`` value
-    when one is given — with ``OID_OBSERV``, ``OID_TARGET`` and ``DIST_ALONG``, and under ``OUTPUT_THE_DIRECTION``
+    when one is given — with ``OID_OBSERV`` and ``OID_TARGET``, and under ``OUTPUT_THE_DIRECTION``
     ``AZIMUTH`` and ``VERT_ANGLE``, as documented. Heights come from the field named, by default the first of
     Shape.Z, Spot, Z, Z_Value, Height, Elev, Elevation and Contour present (Shape.Z being the shapes' own z); ``<None>``
     gives none. With heights on both sides the lines are 3D.
@@ -1026,7 +1090,9 @@ def ConstructSightLines(in_observer_points, in_target_features, out_line_feature
     Refused: line and polygon targets, whose sampling along the perimeter the page does not fix (where it starts, and
     whether the end is sampled).
 
-    INFERRED: DIST_ALONG is 0 for a point target; AZIMUTH is in degrees clockwise from north and VERT_ANGLE in degrees
+    Measured in ArcGIS Pro 3.7 (2026-11-08): point targets give no ``DIST_ALONG`` field (grapy wrote one, 0).
+
+    INFERRED: AZIMUTH is in degrees clockwise from north and VERT_ANGLE in degrees
     above the horizontal from observer to target; a null height leaves the line out."""
     from . import _gpkg, da
     from .analysis import _out
@@ -1073,7 +1139,7 @@ def ConstructSightLines(in_observer_points, in_target_features, out_line_feature
     observers = read(in_observer_points, o_height, o_columns)
     targets = read(in_target_features, t_height, t_columns)
     direction = str(output_the_direction or "").upper() == "OUTPUT_THE_DIRECTION"
-    fields = [_gpkg.Column("OID_OBSERV", "Integer"), _gpkg.Column("OID_TARGET", "Integer"), _gpkg.Column("DIST_ALONG", "Double")]
+    fields = [_gpkg.Column("OID_OBSERV", "Integer"), _gpkg.Column("OID_TARGET", "Integer")]
     if direction:
         fields += [_gpkg.Column("AZIMUTH", "Double"), _gpkg.Column("VERT_ANGLE", "Double")]
     out = _out(out_line_feature_class)
@@ -1085,7 +1151,7 @@ def ConstructSightLines(in_observer_points, in_target_features, out_line_feature
                     continue
                 if three_d and (oz is None or tz is None):
                     continue
-                values = [o_oid, t_oid, 0.0]
+                values = [o_oid, t_oid]
                 if direction:
                     azimuth = _math.degrees(_math.atan2(tx - ox, ty - oy)) % 360
                     flat = _math.hypot(tx - ox, ty - oy)

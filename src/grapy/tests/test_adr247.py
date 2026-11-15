@@ -3,6 +3,7 @@ random number generators, and toolboxes in a session."""
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -28,6 +29,8 @@ def _fts5():
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "store")[0]
 
@@ -48,7 +51,7 @@ class _Workspace(unittest.TestCase):
 @unittest.skipUnless(_fts5(), "this SQLite has no FTS5")
 class FullTextIndex(_Workspace):
     def matching(self, fc, term):
-        where = f'fid in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'{term}\')'
+        where = f'OBJECTID in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'{term}\')'
         with arcpy.da.SearchCursor(fc, ["OID@"], where) as rows:
             return sorted(r[0] for r in rows)
 
@@ -57,12 +60,12 @@ class FullTextIndex(_Workspace):
                                ("Mill", "", (5, 6))])
         self.assertEqual(str(arcpy.management.AddFullTextIndex(fc, "name;note")), fc)
         self.assertEqual(self.matching(fc, "river"), [1, 2])   # in either field
-        with arcpy.da.UpdateCursor(fc, ["name"], "fid = 3") as rows:
+        with arcpy.da.UpdateCursor(fc, ["name"], "OBJECTID = 3") as rows:
             for _ in rows:
                 rows.updateRow(["Hill farm"])
         with arcpy.da.InsertCursor(fc, ["name", "SHAPE@XY"]) as written:
             written.insertRow(["Hill", (0, 0)])
-        with arcpy.da.UpdateCursor(fc, ["name"], "fid = 2") as rows:
+        with arcpy.da.UpdateCursor(fc, ["name"], "OBJECTID = 2") as rows:
             for _ in rows:
                 rows.deleteRow()
         self.assertEqual(self.matching(fc, "hill"), [3, 4])
@@ -81,7 +84,7 @@ class FullTextIndex(_Workspace):
         arcpy.management.Delete(fc)
         fc = self.points(rows=[("Old mill", "", (0, 0))])
         arcpy.management.AddFullTextIndex(fc, ["name"])
-        where = 'fid in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'mill\')'
+        where = 'OBJECTID in (select rowid from "grapy_fts_pts" where "grapy_fts_pts" match \'mill\')'
         with arcpy.da.SearchCursor(fc, ["OID@"], where) as rows:
             self.assertEqual([r[0] for r in rows], [1])
 
@@ -110,7 +113,7 @@ class Migrations(_Workspace):
         connection = sqlite3.connect(self.gpkg)
         from grapy import _gpkg
         _gpkg.functions(connection)  # a writer of a file with Annex F.3's index has its functions (D-340)
-        connection.execute("insert into pts (fid, name) values (?, 'big')", (2 ** 40 + 7,))
+        connection.execute("insert into pts (OBJECTID, name) values (?, 'big')", (2 ** 40 + 7,))
         connection.commit()
         connection.close()
         with arcpy.da.SearchCursor(fc, ["OID@"], "name = 'big'") as rows:
@@ -262,12 +265,19 @@ TOOLBOX = textwrap.dedent('''
 class Toolboxes(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         self.pyt = os.path.join(self.directory, "Sums.pyt")
         with open(self.pyt, "w", encoding="utf-8") as written:
             written.write(TOOLBOX)
+        # A toolbox's messages are printed as ArcGIS Pro 3.7 prints them (ADR-289 §5.3); kept out of the test output.
+        import contextlib
+        import io
+        self.quiet = contextlib.redirect_stdout(io.StringIO())
+        self.quiet.__enter__()
 
     def tearDown(self):
         from grapy import _toolboxes
+        self.quiet.__exit__(None, None, None)
         _toolboxes._SESSION.clear()
 
     def test_a_python_toolbox_is_imported_and_its_tools_run_both_ways(self):
@@ -309,12 +319,18 @@ class Toolboxes(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "data type and direction"):
             arcpy.GetParameterInfo("Buffer_analysis")
 
-    def test_command_answers_messages_or_only_the_errors(self):
+    def test_command_answers_all_the_tools_messages(self):
+        # ArcGIS Pro 3.7 answers every message of the tool, its start and end lines included, whether it succeeds or
+        # fails (measured 2026-11-12, ADR-289 §5.3); this test expected only the tool's own message, and only the
+        # errors of a failure, which was grapy's reading of the page.
         arcpy.ImportToolbox(self.pyt)
-        self.assertEqual(arcpy.Command("Double_sums 4 #"), "['value', 'factor', 'out'] -> 8.0")
-        said = arcpy.Command("Fail_sums")
-        self.assertIn("no luck", said)
-        self.assertNotIn("starting", said)
+        said = arcpy.Command("Double_sums 4 #").splitlines()
+        self.assertEqual(said[1:-1], ["['value', 'factor', 'out'] -> 8.0"])
+        self.assertTrue(said[0].startswith("Start Time: ") and said[-1].startswith("Succeeded at "))
+        said = arcpy.Command("Fail_sums").splitlines()
+        self.assertEqual(said[1:3], ["starting", "ValueError: no luck"])
+        self.assertEqual(said[-2], "Failed to execute (Fail).")
+        self.assertTrue(said[-1].startswith("Failed at "))
 
     def test_what_stays_refused(self):
         for path, said in (("c:/tools/My_Analysis_Tools.atbx", "not published"), ("old.tbx", "not published"),

@@ -42,7 +42,7 @@ internal static partial class ArcGisAdminEndpoints
     {
         "capabilities", "serviceDescription", "description", "copyrightText", "maxRecordCount",
         "hasStaticData", "allowGeometryUpdates", "syncEnabled", "name", "editorTrackingInfo",
-        "ownershipBasedAccessControlForFeatures",
+        "ownershipBasedAccessControlForFeatures", "syncCapabilities",
     };
 
     /// <summary>Maps the service document and updateDefinition, at the root and under a folder.</summary>
@@ -84,7 +84,10 @@ internal static partial class ArcGisAdminEndpoints
             currentVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
             serviceDescription = service.Description ?? string.Empty,
             copyrightText = service.CopyrightText ?? string.Empty,
-            capabilities = Capabilities(stewardship),
+            capabilities = Capabilities(stewardship) + (SyncFlags.IsOn(service) ? ",Sync" : string.Empty),
+
+            // ADR-288: whether its owner turned offline sync on.
+            syncEnabled = SyncFlags.IsOn(service),
             maxRecordCount = limits?.Cost.MaximumRecordCount,
 
             // The portal item this service is, as the REST document names it — the ArcGIS API for Python's create_view
@@ -164,7 +167,7 @@ internal static partial class ArcGisAdminEndpoints
     /// <para>
     /// <b>A derived key is accepted when it says what the rest of the definition implies, and refused with the reason
     /// when it contradicts it</b> — <c>hasStaticData</c> (no edit offered), <c>allowGeometryUpdates</c> (Update offered;
-    /// this server has no attribute-only update), <c>syncEnabled</c> false, <c>name</c> as it is. Agreeing with the server
+    /// this server has no attribute-only update), <c>name</c> as it is. <c>syncEnabled</c> is kept since ADR-288. Agreeing with the server
     /// changes nothing and is not an error; contradicting it would be a setting this server cannot hold, and saying
     /// <c>success</c> to it is the silent half-application ADR-008 §2 forbids.
     /// </para>
@@ -220,6 +223,11 @@ internal static partial class ArcGisAdminEndpoints
         // ---- everything is checked before anything is written ----
         ServiceStewardship? now = await catalog.FindStewardshipAsync(service.Name, folder, cancellation).ConfigureAwait(false);
         string[]? offered = null;
+
+        // ADR-288: `Sync` in capabilities asks for sync, as ArcGIS's updateDefinition takes it; its absence leaves sync as
+        // it is, because turning it off unregisters every replica and a capabilities string written for editing alone
+        // must not do that by omission. `syncEnabled` says it outright either way.
+        bool? syncAsked = null;
         if (definition.TryGetProperty("capabilities", out JsonElement capabilities))
         {
             HashSet<string> asked = new(
@@ -235,12 +243,18 @@ internal static partial class ArcGisAdminEndpoints
             }
 
             asked.Remove("Query");
+
+            if (asked.Remove("Sync"))
+            {
+                syncAsked = true;
+            }
+
             string[] other = [.. asked.Where(op => !AdminEndpoints.OwnerOperations.Contains(op, StringComparer.OrdinalIgnoreCase))];
             if (other.Length > 0)
             {
                 await RefuseAsync(context, 400,
-                    $"{string.Join(", ", other)}: not offered here — Sync and ChangeTracking need offline replicas, which this "
-                    + "server does not serve (ADR-082). Nothing was changed.").ConfigureAwait(false);
+                    $"{string.Join(", ", other)}: not offered here — ChangeTracking (extractChanges) is not served; Sync is, through "
+                    + "syncEnabled or Sync in capabilities (ADR-288). Nothing was changed.").ConfigureAwait(false);
                 return;
             }
 
@@ -277,10 +291,38 @@ internal static partial class ArcGisAdminEndpoints
             return;
         }
 
-        if (Derived(definition, "syncEnabled", false) is { } syncWrong)
+        if (definition.TryGetProperty("syncEnabled", out JsonElement syncFlag))
         {
-            await RefuseAsync(context, 400, syncWrong
-                + " Offline sync (createReplica) is not served here (ADR-082). Nothing was changed.").ConfigureAwait(false);
+            if (Flag(syncFlag) is not { } sync)
+            {
+                await RefuseAsync(context, 400, "'syncEnabled' is true or false. Nothing was changed.").ConfigureAwait(false);
+                return;
+            }
+
+            if (syncAsked is true && !sync)
+            {
+                await RefuseAsync(context, 400,
+                    "'syncEnabled' false contradicts Sync in capabilities. Nothing was changed.").ConfigureAwait(false);
+                return;
+            }
+
+            syncAsked = sync;
+        }
+
+        if (definition.TryGetProperty("syncCapabilities", out JsonElement syncCapabilities)
+            && syncCapabilities.ValueKind == JsonValueKind.Object
+            && syncCapabilities.TryGetProperty("supportsPerReplicaSync", out JsonElement perReplica)
+            && Flag(perReplica) is true)
+        {
+            await RefuseAsync(context, 400,
+                "syncCapabilities.supportsPerReplicaSync true is not offered: " + OfflineReplicaRequests.PerReplicaRefusal
+                + " Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (syncAsked is true && service.SyncEnabled is false && SyncFlags.Refusal(service) is { } syncRefused)
+        {
+            await RefuseAsync(context, 409, syncRefused + " Nothing was changed.").ConfigureAwait(false);
             return;
         }
 
@@ -372,6 +414,21 @@ internal static partial class ArcGisAdminEndpoints
         string? description = Text("serviceDescription") ?? Text("description");
 
         // ---- and written ----
+
+        // Sync first: turning it on makes each layer's history, which can be refused, and a refusal here leaves nothing
+        // else of the definition written.
+        if (syncAsked is { } syncTo && syncTo != service.SyncEnabled)
+        {
+            (int syncStatus, object syncAnswer) = await OfflineReplicaEndpoints
+                .SwitchAsync(context, service, folder, syncTo, cancellation).ConfigureAwait(false);
+
+            if (syncStatus != StatusCodes.Status200OK)
+            {
+                await Results.Json(syncAnswer, statusCode: syncStatus).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+        }
+
         if (offered is not null)
         {
             await catalog.SetEditingOfferedAsync(service.Name, folder, offered, cancellation).ConfigureAwait(false);
@@ -468,13 +525,13 @@ internal static partial class ArcGisAdminEndpoints
     /// <summary>What the refusals name as accepted.</summary>
     private const string Accepted =
         "This server's updateDefinition changes capabilities, serviceDescription, copyrightText, maxRecordCount and "
-        + "editorTrackingInfo, and accepts hasStaticData, allowGeometryUpdates, syncEnabled, name and "
-        + "ownershipBasedAccessControlForFeatures where they agree with the rest. Nothing was changed.";
+        + "editorTrackingInfo and syncEnabled (with Sync in capabilities, ADR-288), and accepts hasStaticData, "
+        + "allowGeometryUpdates, syncCapabilities, name and ownershipBasedAccessControlForFeatures where they agree with the "
+        + "rest. Nothing was changed.";
 
     /// <summary>The documented keys this server does not keep, each with why.</summary>
     private static readonly Dictionary<string, string> NotKept = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["syncCapabilities"] = "offline sync is not served here (ADR-082).",
         ["xssPreventionInfo"] = "not a setting here — attribute values are stored as sent and every face writes them escaped "
             + "for its format.",
         ["initialExtent"] = "not a setting here — a service's extent is computed from its data.",

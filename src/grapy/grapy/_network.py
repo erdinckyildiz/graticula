@@ -12,8 +12,9 @@ grapy's own tables, registered in ``gpkg_extensions`` as the ``grapy_network`` e
 - ``grapy_network_travel_mode``: travel modes: an impedance, time and distance attributes, the restrictions used.
 - ``grapy_network_edge`` and ``grapy_network_junction``: what BuildNetwork writes.
 
-INFERRED defaults, CreateNetworkDataset's page giving none: each line source connects at its end points; a cost
-attribute ``Length`` reads each edge's length in the data's linear unit, and a travel mode ``Length`` uses it.
+Defaults, CreateNetworkDataset's page giving none: each line source connects at its end points (INFERRED); a cost
+attribute ``Length`` reads each edge's length on the ellipsoid in the data's linear unit, and no travel mode is made,
+as ArcGIS Pro 3.7's does (measured 2026-11-12, Pro sweep).
 Connectivity, attributes and travel modes are changed with ``set_connectivity``, ``add_attribute`` and
 ``add_travel_mode`` (ArcGIS Pro sets them in a dialog, not with a documented tool).
 
@@ -68,6 +69,10 @@ def ensure(connection):
         connection.execute("alter table grapy_network add column built_at text")
     if "u_turns" not in [r[1] for r in connection.execute("pragma table_info(grapy_network_travel_mode)")]:
         connection.execute("alter table grapy_network_travel_mode add column u_turns text")   # ADR-239
+    columns = [r[1] for r in connection.execute("pragma table_info(grapy_network_travel_mode)")]
+    for column in ("mode_type", "description"):             # a travel mode keeps them, as Pro's does (Pro sweep)
+        if column not in columns:
+            connection.execute(f"alter table grapy_network_travel_mode add column {column} text")
     register(connection, TABLES, EXTENSION, DEFINITION)
 
 
@@ -122,8 +127,8 @@ def create(file, dataset, name, sources, elevation_model, srid):
             connection.execute("insert into grapy_network_evaluator values (?, 'Length', ?, 'BOTH', 'LENGTH', null)",
                                (name, table))
         connection.execute("insert into grapy_network_attribute values (?, 'Length', 'Cost', ?, 0)", (name, _units_name(srid)))
-        connection.execute("insert into grapy_network_travel_mode values (?, 'Length', 'Length', null, 'Length', '[]', null)",
-                           (name,))
+        # No travel mode: ArcGIS Pro's CreateNetworkDataset makes none (measured in ArcGIS Pro 3.7, 2026-11-12, Pro
+        # sweep); a solve with no travel mode uses the network's default (``default_mode``).
         connection.commit()
     finally:
         connection.close()
@@ -217,8 +222,10 @@ def _turn_evaluator(connection, name, dataset, source, kind, usage, units, value
 
 
 def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=None, distance_attribute=None,
-                    u_turns=None):
-    """A travel mode: the cost attribute minimised, the restrictions honoured and its U-turn policy (ADR-239)."""
+                    u_turns=None, mode_type=None, description=None):
+    """A travel mode: the cost attribute minimised, the restrictions honoured and its U-turn policy (ADR-239), and its
+    type and description, which Pro keeps (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep: a mode replaced as
+    AUTOMOBILE is read back AUTOMOBILE; grapy answered OTHER and no description)."""
     connection, _, _, name = open_network(network)
     try:
         attributes = {r[0]: r[1] for r in connection.execute("select name, usage from grapy_network_attribute where "
@@ -228,22 +235,39 @@ def add_travel_mode(network, mode, impedance, restrictions=(), time_attribute=No
                                "restriction attributes of the network.")
         from ._turns import policy
         policy(u_turns)
-        connection.execute("insert or replace into grapy_network_travel_mode values (?, ?, ?, ?, ?, ?, ?)",
+        connection.execute("insert or replace into grapy_network_travel_mode (network, name, impedance, "
+                           "time_attribute, distance_attribute, restrictions, u_turns, mode_type, description) "
+                           "values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                            (name, mode, impedance, time_attribute, distance_attribute, json.dumps(list(restrictions)),
-                            u_turns))
+                            u_turns, mode_type, description))
         connection.commit()
     finally:
         connection.close()
 
 
+def default_mode(attributes):
+    """The travel mode a solve uses on a network that has none: ArcGIS Pro answers a "<Custom>" mode whose impedance
+    and distance attribute are Length, with no time attribute (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep, on
+    CreateNetworkDataset's network). INFERRED: on a network with other cost attributes, the first distance cost (else
+    the first cost) is the impedance, and the first time cost the time attribute."""
+    costs = [(n, str(u or "").upper()) for n, (usage, u) in attributes.items() if usage == "Cost"]
+    distances = [n for n, u in costs if u.replace(" ", "") in _LINEAR]
+    times = [n for n, u in costs if u in _TIME]
+    impedance = (distances or [n for n, _ in costs] or [None])[0]
+    return {"name": "<Custom>", "impedance": impedance, "timeAttributeName": times[0] if times else None,
+            "distanceAttributeName": distances[0] if distances else None, "restrictions": [], "uTurns": None}
+
+
 def travel_modes(network):
     connection, _, _, name = open_network(network)
     try:
+        ensure(connection)
         return {r[0]: {"name": r[0], "impedance": r[1], "timeAttributeName": r[2], "distanceAttributeName": r[3],
-                       "restrictions": json.loads(r[4]), "uTurns": r[5] or "ALLOW_UTURNS"}
+                       "restrictions": json.loads(r[4]), "uTurns": r[5] or "ALLOW_UTURNS",
+                       **({"type": r[6]} if r[6] else {}), **({"description": r[7]} if r[7] is not None else {})}
                 for r in connection.execute("select name, impedance, time_attribute, distance_attribute, restrictions, "
-                                            "u_turns from grapy_network_travel_mode where network = ? order by rowid",
-                                            (name,))}
+                                            "u_turns, mode_type, description from grapy_network_travel_mode where "
+                                            "network = ? order by rowid", (name,))}
     finally:
         connection.close()
 
@@ -365,7 +389,7 @@ class Graph:
         self.srid = _source_srid(file, self.sources[0]) if self.sources else 0
         modes = travel_modes(network)
         if travel_mode is None or travel_mode == "":
-            mode = next(iter(modes.values()))
+            mode = next(iter(modes.values())) if modes else default_mode(self.attributes)
         elif isinstance(travel_mode, dict):
             mode = travel_mode
         elif hasattr(travel_mode, "impedance"):
@@ -376,6 +400,13 @@ class Graph:
                     "attributeParameters": dict(getattr(travel_mode, "attributeParameters", None) or {})}
         elif str(travel_mode).strip().startswith("{"):
             mode = json.loads(str(travel_mode))
+            if "impedance" not in mode:                  # a travel mode's JSON, as str(TravelMode) writes it
+                from .na import TravelMode
+                parsed = TravelMode(mode)
+                mode = {"name": parsed.name, "impedance": parsed.impedance, "restrictions": list(parsed.restrictions),
+                        "timeAttributeName": parsed.timeAttributeName,
+                        "distanceAttributeName": parsed.distanceAttributeName, "uTurns": parsed.uTurns,
+                        "attributeParameters": dict(parsed.attributeParameters)}
         elif str(travel_mode) in modes:
             mode = modes[str(travel_mode)]
         else:
@@ -397,6 +428,8 @@ class Graph:
                 for oid, length in rows:
                     lengths[(table, oid)] = length
         per = _per_unit(self.srid)
+        geodesic = _geodesic_lengths([edge["shape"] for edge in self.edges], self.srid) if any(
+            kind == "LENGTH" for _, _, _, kind, _ in evaluators) else None
         self.costs = {}       # (attribute, edge index, forward) -> cost
         self.blocked = set()  # (edge index, forward)
         self.restriction_values = {}  # (attribute, edge index, forward) -> bool
@@ -413,7 +446,8 @@ class Graph:
                         if per is None:
                             raise NotBuiltError("A LENGTH evaluator on data with a geographic or unknown reference is not "
                                                 "built in grapy; project the sources first.")
-                        amount = edge["shape"].length * per / _LINEAR[str(units).upper().replace(" ", "")]
+                        metres = geodesic[i] if geodesic is not None else edge["shape"].length * per
+                        amount = metres / _LINEAR[str(units).upper().replace(" ", "")]
                     elif kind == "CONSTANT":
                         amount = _value(value)
                     else:
@@ -468,10 +502,11 @@ class Graph:
 
     def location_fields(self, located, point):
         """The documented network location fields of a located point. INFERRED: SourceID numbers the sources from 1 in
-        the order they were given; SideOfEdge is 1 (right) or 2 (left) of the digitised direction."""
+        the order they were given; SideOfEdge is 1 (right) or 2 (left) of the digitised direction, and 2 for a point on
+        the line, as ArcGIS Pro 3.7 answers (measured 2026-11-12, Pro sweep)."""
         if located is None:
             return {"SourceID": None, "SourceOID": None, "PosAlong": None, "SideOfEdge": None, "SnapX": None,
-                    "SnapY": None, "DistanceToNetworkInMeters": None}
+                    "SnapY": None, "SnapZ": None, "DistanceToNetworkInMeters": None}
         i, t, snapped, distance = located
         edge = self.edges[i]
         coordinates = list(edge["shape"].coords)
@@ -480,8 +515,8 @@ class Graph:
         cross = (ahead.x - behind.x) * (point.y - behind.y) - (ahead.y - behind.y) * (point.x - behind.x)
         per = _per_unit(self.srid) or 1.0
         return {"SourceID": self.sources.index(edge["source"]) + 1, "SourceOID": edge["oid"],
-                "PosAlong": edge["p0"] + (edge["p1"] - edge["p0"]) * t, "SideOfEdge": 2 if cross > 0 else 1,
-                "SnapX": snapped.x, "SnapY": snapped.y, "DistanceToNetworkInMeters": distance * per,
+                "PosAlong": edge["p0"] + (edge["p1"] - edge["p0"]) * t, "SideOfEdge": 2 if cross > -1e-12 else 1,
+                "SnapX": snapped.x, "SnapY": snapped.y, "SnapZ": 0.0, "DistanceToNetworkInMeters": distance * per,
                 "_edge": i, "_t": t, "_coords": coordinates}
 
     # ---- solving
@@ -510,6 +545,39 @@ def _truthy(value):
     if isinstance(value, str):
         return value.strip().lower() not in ("", "0", "false", "no", "n", "f")
     return bool(value)
+
+
+def _geodesic_lengths(shapes, srid):
+    """Each line's length on the ellipsoid of its projected reference, in metres, or None where the reference is not
+    a projected EPSG system (planar lengths are kept there). A LENGTH evaluator measures this, as ArcGIS Pro's Length
+    attribute does: measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep) — a route of 410 m on the UTM 35N grid near its
+    central meridian costs 410.164 m, 410 / 0.9996, the grid's scale factor undone."""
+    if srid <= 0:
+        return None
+    try:
+        from pyproj import CRS, Transformer
+        crs = CRS.from_epsg(srid)
+    except Exception:  # noqa: BLE001 — a reference pyproj cannot read keeps planar lengths
+        return None
+    if not crs.is_projected:
+        return None
+    geographic = crs.geodetic_crs
+    to_degrees = Transformer.from_crs(crs, geographic, always_xy=True)
+    geod = geographic.get_geod()
+    out = []
+    for shape in shapes:
+        coordinates = numpy.asarray(shape.coords)[:, :2]
+        lon, lat = to_degrees.transform(coordinates[:, 0], coordinates[:, 1])
+        out.append(float(geod.line_length(lon, lat)))
+    return out
+
+
+def _break(value):
+    """A cutoff as a service area polygon's name writes it: a whole number without its decimals, "f1 : 0 - 200"
+    (measured in ArcGIS Pro 3.7, 2026-11-12, Pro sweep; grapy wrote "0.0 - 200.0"). INFERRED: another number as
+    Python's shortest form, 2.5."""
+    value = float(value)
+    return str(int(value)) if value.is_integer() else repr(value)
 
 
 def _per_unit(srid):
@@ -648,6 +716,17 @@ def _line(solver, arcs, points, line_shape):
     return solver.shape(arcs)
 
 
+def _curb(graph, item, arc):
+    """The side of the vehicle a location is on as the vehicle leaves or reaches it along ``arc`` (edge index, t0, t1):
+    1 right, 2 left — the location's side of the edge when travelling the edge's digitised way, the other side against
+    it. Measured in ArcGIS Pro 3.7, 2026-11-12 (Pro sweep): a stop left of its edge (SideOfEdge 2) reached along the edge
+    and left after a U-turn has ArriveCurbApproach 2 and DepartCurbApproach 1."""
+    if arc is None or item.get("located") is None or item.get("point") is None:
+        return None
+    side = graph.location_fields(item["located"], item["point"])["SideOfEdge"]
+    return side if arc[2] > arc[1] else 3 - side
+
+
 def solve_route(graph, stops, accumulate, line_shape, sequence="USE_CURRENT_ORDER", return_to_start=False):
     """Routes through stops in sequence: a route per ``RouteName`` (case-insensitive, as documented), or one through
     all when no stop has one; stops in ``Sequence`` order, then object id. INFERRED: stops without a route name, when
@@ -690,6 +769,9 @@ def solve_route(graph, stops, accumulate, line_shape, sequence="USE_CURRENT_ORDE
                 break
             cumulative += solver.total(arcs, impedance)
             all_arcs.extend(arcs)
+            if arcs:
+                results[a["key"]]["DepartCurbApproach"] = _curb(graph, a, arcs[0])
+                results[b["key"]]["ArriveCurbApproach"] = _curb(graph, b, arcs[-1])
             kept.append((a, b, arcs))                           # what the leg traversed (ADR-246)
             if b is not members[0]:
                 results[b["key"]][f"Cumul_{impedance}"] = cumulative
@@ -813,6 +895,10 @@ def solve_closest_facility(graph, facilities, incidents, direction, cutoff, coun
             row["_totals"] = {a: solver.total(arcs, a) for a, (usage, _) in graph.attributes.items() if usage == "Cost"}
             first, second = (facility, incident) if away else (incident, facility)
             row["_legs"], row["_solver"] = [(first, second, arcs)], solver          # what it traversed (ADR-246)
+            if arcs:
+                ends = {"start": _curb(graph, first, arcs[0]), "end": _curb(graph, second, arcs[-1])}
+                row["IncidentCurbApproach"] = ends["end" if away else "start"]
+                row["FacilityCurbApproach"] = ends["start" if away else "end"]
             routes.append(row)
     return routes
 
@@ -936,7 +1022,7 @@ def solve_service_area(graph, facilities, breaks, direction, rings, trim):
         for k, cutoff in enumerate(breaks):
             disk = shapely.union_all([*(s.buffer(trim) for b, s in mine if b <= k), facility["point"].buffer(trim)])
             low = breaks[k - 1] if (k and rings) else 0.0
-            polygons.append({"Name": f"{facility['name']} : {float(low)} - {float(cutoff)}", "FacilityID": facility["oid"],
+            polygons.append({"Name": f"{facility['name']} : {_break(low)} - {_break(cutoff)}", "FacilityID": facility["oid"],
                              "FromBreak": float(low), "ToBreak": float(cutoff),
                              "SHAPE": disk.difference(previous) if rings and previous is not None else disk})
             previous = disk

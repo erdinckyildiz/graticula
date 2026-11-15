@@ -655,7 +655,7 @@ def Import3DFiles(in_files, out_featureClass, root_per_feature="ONE_FILE_ONE_FEA
                     face = _transform_face(face, _translation(move))
                 shapes.append(face)
             if shapes:
-                rows.append(([name or os.path.splitext(os.path.basename(path))[0]], M.from_faces(shapes)))
+                rows.append(([name or os.path.basename(path)], M.from_faces(shapes)))
     if not srid:
         srid = place_srid
     path = M.write(out_featureClass, srid, [Column("Name", "String")], rows)

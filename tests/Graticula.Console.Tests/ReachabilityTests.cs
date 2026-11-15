@@ -67,8 +67,8 @@ public sealed class ReachabilityTests : ConsoleTest
                 }
 
                 // ADR-265: the print service has no catalogue row and nothing an operator sets, so the console lists it
-                // nowhere — the same reason as an image service above.
-                if (service == "Utilities/PrintingTools")
+                // nowhere — the same reason as an image service above. The offline packaging service (ADR-288 §11a) is the same.
+                if (service is "Utilities/PrintingTools" or "Utilities/OfflinePackaging")
                 {
                     continue;
                 }

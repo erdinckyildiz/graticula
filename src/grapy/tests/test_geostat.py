@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,6 +31,8 @@ def spherical(h, a=100.0, c=1.0):
 class Geostat(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 
@@ -172,7 +175,9 @@ class Geostat(unittest.TestCase):
                          f"{fitted['nugget']!r};{fitted['partialSill']!r}")
         self.assertEqual(ga.GAGetModelParameter(layer, nugget + "/@auto").getOutput(0), "true")
         changed = ga.GASetModelParameter(layer, nugget, "1", self.out("changed.json")).getOutput(0)
-        self.assertEqual(ga.GAGetModelParameter(changed, nugget).getOutput(0), "1.0")
+        # A whole number is answered without ".0", as Pro 3.7 answers an IDW power (measured 2026-11-08 by the Pro
+        # sweep; this test pinned "1.0" until then).
+        self.assertEqual(ga.GAGetModelParameter(changed, nugget).getOutput(0), "1")
         self.assertEqual(ga.GAGetModelParameter(changed, nugget + "/@auto").getOutput(0), "false")
         # A held nugget stays when the model makes a layer again; the auto range and sill are fitted again.
         again = ga.GACreateGeostatisticalLayer(changed, ga.GeostatisticalDatasets(layer), "again").getOutput(0)
@@ -202,14 +207,15 @@ class Geostat(unittest.TestCase):
         self.assertEqual((datasets.dataset1, datasets.dataset1Field, datasets.dataset1WeightField), (data, "z", ""))
 
     def test_block_averaging_takes_the_mean_of_each_cells_predictions(self):
-        # Second order through z = x² on 0, 10, 20: the cell centred at x = 5 is 25 with one prediction, and
-        # (2.5² + 7.5²) / 2 = 31.25 with two across.
+        # Second order through z = x² on 0, 10, 20: the cell centred at x = 10 is 100 with one prediction, and
+        # (7.5² + 12.5²) / 2 = 106.25 with two across. (Cells are centred on 0, 10, 20 — Pro 3.7's grid, measured
+        # 2026-11-08 by the Pro sweep; this test read the cell at x = 5 of grapy's old grid until then.)
         square = self.points("square", [(x, y, x * x) for x in (0, 10, 20) for y in (0, 10, 20)])
         ga.GlobalPolynomialInterpolation(square, "z", "gpi", "", None, 2)
         one = cells(ga.GALayerToGrid("gpi", self.out("one.tif"), 10).getOutput(0))
         two = cells(ga.GALayerToGrid("gpi", self.out("two.tif"), 10, 2, 1).getOutput(0))
-        self.assertAlmostEqual(one[1][0], 25.0, places=3)
-        self.assertAlmostEqual(two[1][0], 31.25, places=3)
+        self.assertAlmostEqual(one[1][1], 100.0, places=3)
+        self.assertAlmostEqual(two[1][1], 106.25, places=3)
 
     def test_local_polynomial_and_radial_basis_functions(self):
         plane = self.points("plane", [(x, y, 2 * x + 3 * y + 1) for x in (0, 10, 20, 30) for y in (0, 10, 20, 30)])
@@ -265,28 +271,33 @@ class Geostat(unittest.TestCase):
                                     [self.out("q.tif"), "QUANTILE", 0.5],
                                     [self.out("p.tif"), "PROBABILITY", 3]])
         written = made.getOutput(1).split(";")
-        prediction, error = _geostat.open_layer(layer, "t").predict(25, 75)
-        self.assertAlmostEqual(cells(made.getOutput(0))[0][0], round(prediction, 4), places=3)
-        self.assertAlmostEqual(cells(written[0])[0][0], round(error, 4), places=3)
+        # The top row's middle cell is centred on (50, 100): Pro 3.7's grid puts the first centre on the points'
+        # lower-left corner (measured 2026-11-08 by the Pro sweep; this test read (25, 75) of grapy's old grid).
+        centre, centre_error = _geostat.open_layer(layer, "t").predict(50, 100)
+        self.assertAlmostEqual(cells(made.getOutput(0))[0][1], round(centre, 4), places=3)
+        self.assertAlmostEqual(cells(written[0])[0][1], round(centre_error, 4), places=3)
         self.assertEqual(cells(written[1]), cells(made.getOutput(0)))
         from scipy.stats import norm
-        self.assertAlmostEqual(cells(written[2])[0][0], norm.sf((3 - prediction) / error), places=3)
+        self.assertAlmostEqual(cells(written[2])[0][1], norm.sf((3 - centre) / centre_error), places=3)
+        prediction, error = _geostat.open_layer(layer, "t").predict(25, 75)
         with self.assertRaisesRegex(arcpy.NotBuiltError, "block kriging"):
             ga.GALayerToRasters(layer, self.out("b.tif"), "PREDICTION_STANDARD_ERROR", None, 50, 2, 2)
         # At points: the prediction, its error, and against a field the error predicted − measured.
         locations = self.points("at", [(0, 0, 0.5), (25, 75, 9.0)])
         points = ga.GALayerToPoints(layer, locations, "z", self.out("at_out")).getOutput(0)
-        with arcpy.da.SearchCursor(points, ["Source_ID", "Included", "Predicted", "StdError", "Error", "z"]) as found:
+        # ALL writes no Source_ID, as Pro 3.7 does (measured 2026-11-08 by the Pro sweep).
+        with arcpy.da.SearchCursor(points, ["Included", "Predicted", "StdError", "Error", "z"]) as found:
             got = list(found)
-        self.assertEqual(got[0][:3], (1, "Yes", 1.0))
-        self.assertAlmostEqual(got[0][4], 0.5, places=8)
-        self.assertAlmostEqual(got[1][2], prediction, places=8)
-        self.assertAlmostEqual(got[1][4], prediction - 9.0, places=8)
+        self.assertEqual(got[0][:2], ("Yes", 1.0))
+        self.assertAlmostEqual(got[0][3], 0.5, places=8)
+        self.assertAlmostEqual(got[1][1], prediction, places=8)
+        self.assertAlmostEqual(got[1][3], prediction - 9.0, places=8)
         # Contours of a plane z = x by global polynomial: one line at 50, every vertex at x = 50.
         line = self.points("line", [(x, y, float(x)) for x in (0, 50, 100) for y in (0, 100)])
         ga.GlobalPolynomialInterpolation(line, "z", "gx", "", None, 1)
         contours = ga.GALayerToContour("gx", "CONTOUR", self.out("contours"), "DRAFT", "MANUAL", None, [50]).getOutput(0)
-        with arcpy.da.SearchCursor(contours, ["Contour", "SHAPE@"]) as found:
+        # One feature per value, its value in Value (Pro 3.7's field, measured 2026-11-08; grapy wrote Contour).
+        with arcpy.da.SearchCursor(contours, ["Value", "SHAPE@"]) as found:
             got = list(found)
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0][0], 50.0)
@@ -327,14 +338,15 @@ class Geostat(unittest.TestCase):
         rmse = {p: ga.CrossValidation(f"p{p}").rootMeanSquare for p in (1, 2, 3)}
         expected = sorted(rmse, key=rmse.get)
         result = ga.CompareGeostatisticalLayers("p1;p2;p3", self.out("cmp"), "best")
-        with arcpy.da.SearchCursor(result.getOutput(0), ["Layer", "RANK", "Included", "RMSE"]) as found:
+        # Pro 3.7's field names (measured 2026-11-08 by the Pro sweep; grapy wrote Layer and Included until then).
+        with arcpy.da.SearchCursor(result.getOutput(0), ["GA_LYR", "RANK", "INCLUDED", "RMSE"]) as found:
             ranks = {r[0]: r[1] for r in found}
         self.assertEqual([ranks[f"p{p}"] for p in expected], [1, 2, 3])
         self.assertEqual(result.getOutput(1), "best")
         # Excluding the best by MAX_RMSE leaves two, ranked 1 and 2.
         excluded = ga.CompareGeostatisticalLayers("p1;p2;p3", self.out("cmp2"), "", "SINGLE", "ACCURACY", None, None,
                                                   [["MAX_RMSE", (rmse[expected[0]] + rmse[expected[1]]) / 2]])
-        with arcpy.da.SearchCursor(excluded.getOutput(0), ["Layer", "RANK", "Included"]) as found:
+        with arcpy.da.SearchCursor(excluded.getOutput(0), ["GA_LYR", "RANK", "INCLUDED"]) as found:
             rows = {r[0]: (r[1], r[2]) for r in found}
         self.assertEqual(rows[f"p{expected[0]}"], (1, "Yes"))
         self.assertEqual(rows[f"p{expected[2]}"], (None, "No"))

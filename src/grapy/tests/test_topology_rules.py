@@ -2,6 +2,7 @@
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -21,6 +22,7 @@ _SHAPES = {"area": "POLYGON", "line": "POLYLINE", "point": "POINT"}
 class Rules(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "rules")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "fds", 3857)[0]
         self.count = 0

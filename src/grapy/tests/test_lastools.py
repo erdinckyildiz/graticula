@@ -7,6 +7,7 @@ z 6. The point at (0.5, 0.5) is withheld. 384 ground points and 32 roof points, 
 import os
 import re
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -57,6 +58,8 @@ def rows(path, fields):
 class Base(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.folder = os.path.join(self.directory, "lidar")
         os.makedirs(self.folder)
@@ -137,7 +140,9 @@ class Colour(Base):
 class Thinning(Base):
     def test_thinlas_keeps_the_highest_point_of_each_2_m_square(self):
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin"), "2D", "2 Meters", None, "Z_MAX")[0]
-        out = read(os.path.join(folder, "tile.las"))
+        # With no name suffix the file is <name>_thinned.las, as ArcGIS Pro 3.7 names it (measured 2026-11-08; these
+        # tests read tile.las until then).
+        out = read(os.path.join(folder, "tile_thinned.las"))
         z = np.asarray(out.z)
         # 100 squares; the four over the roof keep a first return at 6.5, the others a ground point.
         self.assertEqual(len(z), 100)
@@ -146,7 +151,7 @@ class Thinning(Base):
 
     def test_thinlas_preserves_and_excludes_by_class_code(self):
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin"), "2D", 2, None, "Z_MIN", preserved_class_codes=[1])[0]
-        out = read(os.path.join(folder, "tile.las"))
+        out = read(os.path.join(folder, "tile_thinned.las"))
         self.assertEqual(len(out.points), 96 + ROOF)
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin2"), "2D", 2, None, "CLOSEST_TO_CENTER",
                                    excluded_class_codes=[1], name_suffix="_x")[0]
@@ -155,7 +160,7 @@ class Thinning(Base):
 
     def test_thinlas_3d_keeps_one_point_per_height_band(self):
         folder = arcpy.ddd.ThinLas(self.lasd, self.out("thin3"), "3D", 2, 0.25, "Z_AVERAGE")[0]
-        out = read(os.path.join(folder, "tile.las"))
+        out = read(os.path.join(folder, "tile_thinned.las"))
         # z bands of 0.25 m from z 0: 6 is band 24 and 6.5 band 26, so each roof square keeps two.
         self.assertEqual(len(out.points), 96 + 8)
 
@@ -306,12 +311,13 @@ class Interpolation(Base):
     def test_interpolatefrompointcloud_triangulates_a_dsm_and_a_dtm(self):
         out = arcpy.management.InterpolateFromPointCloud(self.lasd, self.out("dsm.tif"), 1)[0]
         raster = arcpy.Raster(out)
-        # Cells start at the lowest point (0.5, 0.5): the centre (10, 10) lies among roof points whose last-written
-        # height is 6, and (2, 2) on the ground.
-        self.assertEqual((raster.width, raster.height), (19, 19))
+        # A cell is centred on the lowest point (0.5, 0.5), as Pro 3.7 lays the grid (measured 2026-11-08; this pinned
+        # 19 cells starting at that point): 20 cells from 0 to 20. The centre (9.5, 9.5) lies among roof points whose
+        # last-written height is 6, and (1.5, 1.5) on the ground.
+        self.assertEqual((raster.width, raster.height), (20, 20))
         array = arcpy.RasterToNumPyArray(raster)
-        self.assertAlmostEqual(float(array[18 - 9, 9]), 6.0)
-        self.assertAlmostEqual(float(array[18 - 1, 1]), 0.0)
+        self.assertAlmostEqual(float(array[19 - 9, 9]), 6.0)
+        self.assertAlmostEqual(float(array[19 - 1, 1]), 0.0)
         with self.assertRaisesRegex(NotBuiltError, "ReuseGround 1"):
             arcpy.management.InterpolateFromPointCloud(self.lasd, self.out("dtm.tif"), 1, surface_type="DTM")
         out = arcpy.management.InterpolateFromPointCloud(self.lasd, self.out("dtm.tif"), 1, surface_type="DTM",

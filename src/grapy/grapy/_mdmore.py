@@ -134,7 +134,11 @@ def Subset(in_raster, variables=None, dimension_definitions=None):
 
 # Raster function argument names (Raster function objects, as the Foreach page's sample passes them) that are not the
 # Python parameter of grapy's function of the same name.
-_ALIASES = {"ndvi": {"visiblebandid": "red_band_id", "infraredbandid": "nir_band_id"}}
+_ALIASES = {"ndvi": {"visiblebandid": "red_band_id", "infraredbandid": "nir_band_id"},
+            "arithmetic": {"operation": "operation_type"}}
+# The Arithmetic raster function's operation codes, as its argument takes them: ArcGIS Pro 3.7's Foreach with
+# {"Raster2": 2, "Operation": 3} doubles every slice (measured 2026-11-08).
+_OPERATIONS = {1: "Plus", 2: "Minus", 3: "Multiply", 4: "Divide", 5: "Power", 6: "Mode"}
 
 
 def _norm(name):
@@ -168,8 +172,13 @@ def _call(name, function, slice_raster, arguments):
         if k in ("raster", "inraster", "raster1") and params:
             continue
         if k == "raster2" and len(params) > 1:
+            # A Raster2 given — a constant or a raster — is the second operand: Pro multiplies each slice by the 2 of
+            # {"Raster2": 2} (measured 2026-11-08); grapy put the slice there too.
+            kwargs[params[1].name] = value
             continue
         target = by_norm.get(k) or aliases.get(k)
+        if _norm(name) == "arithmetic" and target == "operation_type" and isinstance(value, (int, float)):
+            value = _OPERATIONS.get(int(value), value)
         if target is None and not takes_any:
             raise ValueError(f"Foreach: '{key}' is not an argument of {name}; its arguments are "
                              f"{', '.join(p.name for p in params[1:])}.")
@@ -258,9 +267,14 @@ def SummarizeCategoricalRaster(in_raster, out_table, dimension=None, aoi=None, a
 
     INFERRED (Q-209 (c)), the page giving no layout: one row per area and slice (or dimension value), with the area's
     ID (``aoi_id_field``, else its object ID, in ``AOI_ID``), a field per dimension (time as ISO 8601 text) and a field
-    per class holding its pixel count, named by its class name (CF ``flag_meanings``) or ``Class_<value>``; with
-    ``dimension``, a row's counts are summed over the other dimensions' slices; a pixel is in an area when its centre
-    is; the first variable is summarised. A .csv or .txt path writes text, any other a table."""
+    per class holding its pixel count, named by its class name (CF ``flag_meanings``) or ``C_<value>``, then
+    ``NoData``, the count of NoData pixels; with ``dimension``, a row's counts are summed over the other dimensions'
+    slices; a pixel is in an area when its centre is; the first variable is summarised. A .csv or .txt path writes
+    text, any other a table.
+
+    The field names C_<value> and NoData are Pro 3.7's (measured 2026-11-08 on three yearly slices of classes 1-4, a
+    CSV of StdTime, C_1 ... C_4, NoData); grapy named them Class_<value> without a NoData field until then. Pro wrote
+    that header with no rows, which is not copied."""
     import shapely
     from ._mdimtools import _write_table
     tool = "SummarizeCategoricalRaster"
@@ -304,8 +318,8 @@ def SummarizeCategoricalRaster(in_raster, out_table, dimension=None, aoi=None, a
         columns.append((_field("AOI_ID" if not _given(aoi_id_field) else aoi_id_field, taken), id_kind))
     for d in dims:
         columns.append((_field(d, taken), "String" if d == _mdim.TIME else "Double"))
-    class_fields = [_field(names.get(c, f"Class_{c}" if c >= 0 else f"Class_m{-c}"), taken) for c in classes]
-    columns += [(f, "Integer") for f in class_fields]
+    class_fields = [_field(names.get(c, f"C_{c}" if c >= 0 else f"C_m{-c}"), taken) for c in classes]
+    columns += [(f, "Integer") for f in class_fields] + [(_field("NoData", taken), "Integer")]
     rows = []
     for key, inside in areas:
         for coord, indexes in groups:
@@ -315,6 +329,7 @@ def SummarizeCategoricalRaster(in_raster, out_table, dimension=None, aoi=None, a
             picked = np.round(stack_values[stack_valid]).astype(np.int64)
             for c in classes:
                 counts.append(int(np.sum(picked == c)))
+            counts.append(int((~stack_valid).sum()))
             row = [key] if id_kind else []
             row += [_mdim.shown(d, coord[d]) if d == _mdim.TIME else float(coord[d]) for d in dims]
             rows.append(row + counts)
@@ -426,14 +441,17 @@ class NetCDFFileProperties:
             raise ValueError(f"NetCDFFileProperties: the file has no variable '{name}'.")
         return self._variables[name]
 
+    # The coordinate variables (a dimension's own variable, as lat, lon or time) are variables too: ArcGIS Pro 3.7
+    # lists them in getVariables and getVariablesByDimension (measured 2026-11-08).
+
     def getVariables(self):
-        return [n for n in self._variables if n not in self._dimensions]
+        return list(self._variables)
 
     def getDimensions(self):
         return list(self._dimensions)
 
     def getVariablesByDimension(self, dimension_name):
-        return [n for n, v in self._variables.items() if dimension_name in v["dims"] and n not in self._dimensions]
+        return [n for n, v in self._variables.items() if dimension_name in v["dims"]]
 
     def getDimensionsByVariable(self, variable_name):
         return list(self._variable(variable_name)["dims"])
@@ -467,6 +485,10 @@ class NetCDFFileProperties:
             if name in self._dimensions:
                 return "Integer"
             raise ValueError(f"NetCDFFileProperties: the file has no variable or dimension '{name}'.")
+        if "since" in str(v["attrs"].get("units", "")).lower() and v["type"] not in ("c",):
+            # A CF time variable ("days since 2000-01-01") is a Date, as ArcGIS Pro 3.7 types one (measured
+            # 2026-11-08).
+            return "Date"
         return _FIELD_TYPES.get(v["type"], "Double")
 
     def getAttributeNames(self, variable_name=None):

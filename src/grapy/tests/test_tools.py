@@ -6,6 +6,7 @@ and none is read back from the code under test.
 import json
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -22,6 +23,8 @@ def square(x, y, side=50):
 class Tools(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE")],
                                  [("p0", "a", 1.0, square(0, 0)), ("p1", "a", 2.0, square(100, 0)),
@@ -80,7 +83,8 @@ class Tools(unittest.TestCase):
         points = arcpy.management.FeatureToPoint(self.parcels, self.out("pts")).getOutput(0)
         self.assertEqual(self.rows(points, ["name", "SHAPE@XY", "ORIG_FID"])[1], ("p1", (125.0, 25.0), 2))
         corners = arcpy.management.FeatureVerticesToPoints(self.parcels, self.out("v")).getOutput(0)
-        self.assertEqual(arcpy.management.GetCount(corners)[0], "12")
+        # Each square's closing vertex is a point too: measured in ArcGIS Pro 3.7, 2026-11-08 (was 12, four a square).
+        self.assertEqual(arcpy.management.GetCount(corners)[0], "15")
         ends = arcpy.management.FeatureVerticesToPoints(self.parcels, self.out("e"), "START").getOutput(0)
         self.assertEqual(self.rows(ends, ["SHAPE@XY"])[0], ((0.0, 0.0),))
 
@@ -88,9 +92,9 @@ class Tools(unittest.TestCase):
         arcpy.management.AddFields(self.parcels, [["a", "LONG"], ["b", "TEXT"]])
         arcpy.management.AlterField(self.parcels, "a", "count")
         arcpy.management.DeleteField(self.parcels, ["b", "kind"])
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1], ["name", "value", "count"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:], ["name", "value", "count"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         arcpy.management.DeleteField(self.parcels, "name", "KEEP_FIELDS")
-        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][1:-1], ["name"])
+        self.assertEqual([f.name for f in arcpy.ListFields(self.parcels)][2:], ["name"])
 
     def test_geometry_attributes_and_xy_are_written_in_the_unit_asked(self):
         arcpy.management.CalculateGeometryAttributes(self.parcels, [["area", "AREA"], ["len", "PERIMETER_LENGTH"],

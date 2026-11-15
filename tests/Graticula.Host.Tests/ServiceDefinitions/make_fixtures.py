@@ -74,6 +74,54 @@ def renamed(source, target, old, new):
     open(target, "wb").write(data)
 
 
+def reference_tree(root):
+    """ADR-299: what Pro writes for a map image layer that references registered data — a map (.mapx, the published
+    CIM) whose layers name their database connection and query, beside a binary .msd that is never opened."""
+    conn = ("SERVER=db.example,5433;INSTANCE=sde:postgresql:db.example,5433;DBCLIENT=postgresql;"
+            "DB_CONNECTION_PROPERTIES=db.example,5433;DATABASE=gis;USER=pub;AUTHENTICATION_MODE=DBMS")
+    mapx = {
+        "type": "CIMMapDocument",
+        "mapDefinition": {"type": "CIMMap", "name": "Map",
+                          "layers": ["CIMPATH=map/roads.json", "CIMPATH=map/group.json", "CIMPATH=map/local.json"],
+                          "standaloneTables": ["CIMPATH=map/owners.json"]},
+        "layerDefinitions": [
+            {"type": "CIMFeatureLayer", "name": "Roads", "uRI": "CIMPATH=map/roads.json",
+             "featureTable": {"type": "CIMFeatureTable", "dataConnection": {
+                 "type": "CIMSqlQueryDataConnection", "workspaceConnectionString": conn, "workspaceFactory": "SDE",
+                 "dataset": "gis.pub.%roads", "sqlQuery": "select gid, name, geom from gis.transport.roads",
+                 "oIDFields": "gid", "geometryType": "esriGeometryPolyline", "srid": "4326"}}},
+            {"type": "CIMGroupLayer", "name": "Group", "uRI": "CIMPATH=map/group.json",
+             "layers": ["CIMPATH=map/parcels.json"]},
+            {"type": "CIMFeatureLayer", "name": "Parcels", "uRI": "CIMPATH=map/parcels.json",
+             "featureTable": {"type": "CIMFeatureTable", "dataConnection": {
+                 "type": "CIMStandardDataConnection", "workspaceConnectionString": conn, "workspaceFactory": "SDE",
+                 "dataset": "gis.cadastre.parcels", "datasetType": "esriDTFeatureClass"}}},
+            {"type": "CIMFeatureLayer", "name": "Local", "uRI": "CIMPATH=map/local.json",
+             "featureTable": {"type": "CIMFeatureTable", "dataConnection": {
+                 "type": "CIMStandardDataConnection", "workspaceConnectionString": "DATABASE=C:/data/local.gdb",
+                 "workspaceFactory": "FileGDB", "dataset": "local"}}},
+        ],
+        "tableDefinitions": [
+            {"type": "CIMStandaloneTable", "name": "Owners", "uRI": "CIMPATH=map/owners.json",
+             "dataConnection": {"type": "CIMSqlQueryDataConnection", "workspaceConnectionString": conn,
+                                "sqlQuery": "select * from cadastre.owners", "oIDFields": "id"}},
+        ],
+    }
+    files = {
+        "serviceconfiguration.json": json.dumps({"folderName": "", "service": {"serviceName": "Reference_Fixture",
+                                                                              "type": "MapServer"}}),
+        "p30/map.mapx": json.dumps(mapx),
+        "p30/map.msd": "binary, never opened",
+        "esriinfo/iteminfo.xml": "<ESRI_ItemInformation><summary>Referenced</summary><tags>x</tags></ESRI_ItemInformation>",
+        "manifest.xml": "<SVCManifest>ENCRYPTED_PASSWORD=never-read</SVCManifest>",
+    }
+    for name, text in files.items():
+        path = os.path.join(root, *name.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as out:
+            out.write(text)
+
+
 def main():
     work = tempfile.mkdtemp()
     try:
@@ -82,6 +130,12 @@ def main():
         seven(work, valid)
         renamed(valid, os.path.join(HERE, "climbs-out.sd"), "zz/evl", "../evl")
         renamed(valid, os.path.join(HERE, "absolute.sd"), "zz/evl", "C:/evl")
+    finally:
+        shutil.rmtree(work)
+    work = tempfile.mkdtemp()
+    try:
+        reference_tree(work)
+        seven(work, os.path.join(HERE, "reference.sd"))
     finally:
         shutil.rmtree(work)
     return 0

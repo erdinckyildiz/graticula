@@ -23,3 +23,4 @@ Planned:
 | `worker-isolation/` | What does process isolation actually cost per worker? | ADR-007, A-007 |
 | `affinity-routing/` | Does warmth-aware routing beat blind routing, and where does it break under skew? | ADR-007, ADR-010, A-014 |
 | `mesh-editing/` | **Run 2026-11-07.** What does Maps SDK 5.2 ask of a server to add, move and delete a 3D object (mesh)? A stub in front of a Graticula server, faking only the multipatch layer | ADR-280 condition 1 |
+| `mobile-geodatabase/` | **Run 2026-11-10.** Can a server write the mobile geodatabase Field Maps and Pro take offline, without Esri's library? Geometry blob decoded and re-encoded byte for byte; a whole file written from a service's REST description, read and edited by ArcGIS Pro | ADR-288 §4 |

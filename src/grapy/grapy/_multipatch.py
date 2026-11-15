@@ -54,7 +54,7 @@ def register(path):
             extension_name text not null, definition text not null, scope text not null,
             constraint ge_tce unique (table_name, column_name, extension_name))""")
         connection.execute("insert or ignore into gpkg_extensions values (?, ?, ?, ?, 'read-write')",
-                           (table, _gpkg.GEOMETRY, EXTENSION, DEFINITION))
+                           (table, _gpkg.geometry_column(connection, table) or _gpkg.GEOMETRY, EXTENSION, DEFINITION))
         connection.commit()
     finally:
         connection.close()

@@ -7,6 +7,7 @@ import os
 import sqlite3
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -26,6 +27,8 @@ def wkb_type(blob):
 class ZM(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
 
     def make(self, name, kind, has_z="DISABLED", has_m="DISABLED"):
@@ -36,7 +39,7 @@ class ZM(unittest.TestCase):
     def blob(self, path):
         connection = sqlite3.connect(path)
         try:
-            row = connection.execute(f'select geom from "{os.path.splitext(os.path.basename(path))[0]}"').fetchone()
+            row = connection.execute(f'select Shape from "{os.path.splitext(os.path.basename(path))[0]}"').fetchone()
             flags = connection.execute("select z, m from gpkg_geometry_columns").fetchone()
         finally:
             connection.close()
@@ -176,8 +179,10 @@ class ZTools(unittest.TestCase):
         path = self.lines("z", [(self.zline((0, 0, 0), (3, 4, 12), (6, 8, 12)),)])
         arcpy.ddd.AddZInformation(path, ["Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "MIN_SLOPE", "MAX_SLOPE",
                                          "AVG_SLOPE"])
-        with arcpy.da.SearchCursor(path, ["Z_MIN", "Z_MAX", "Z_MEAN", "LENGTH_3D", "VERTEX_COUNT", "MIN_SLOPE",
-                                          "MAX_SLOPE", "AVG_SLOPE"]) as rows:
+        # The fields are named as ArcGIS Pro 3.7 names them (measured 2026-11-08): Length3D and Vertex_Cnt, not the
+        # keywords this test read until then.
+        with arcpy.da.SearchCursor(path, ["Z_Min", "Z_Max", "Z_Mean", "Length3D", "Vertex_Cnt", "Min_Slope",
+                                          "Max_Slope", "Avg_Slope"]) as rows:
             got = next(rows)
         # Segments: run 5 rise 12 (3D 13, grade 240 %, mid z 6) and run 5 rise 0 (3D 5, grade 0, mid z 12).
         self.assertEqual(got[:2], (0.0, 12.0))
@@ -220,9 +225,12 @@ class ZTools(unittest.TestCase):
                                     (arcpy.Polyline(arcpy.Array([arcpy.Point(5, 10), arcpy.Point(100, 10)]), 3857),)],
                           "DISABLED")
         out = arcpy.ddd.InterpolateShape(surface, flat, os.path.join(self.directory, "draped.gpkg"), 5).getOutput(0)
-        # Densified every 5: x = 5, 10, 15 between the centres valued 0 and 10. The second line leaves the raster and
-        # is left out.
-        self.assertEqual(self.zcoords(out), [[(5.0, 10.0, 0.0), (10.0, 10.0, 5.0), (15.0, 10.0, 10.0)]])
+        # Densified at 5: 10 units into floor(10 / 5) + 1 = 3 equal pieces, as ArcGIS Pro 3.7 densifies (measured
+        # 2026-11-08; grapy cut 2), between the centres valued 0 and 10. The second line leaves the raster and is left
+        # out.
+        got = [[tuple(round(v, 9) for v in p) for p in part] for part in self.zcoords(out)]
+        self.assertEqual(got, [[(5.0, 10.0, 0.0), (8.333333333, 10.0, 3.333333333), (11.666666667, 10.0, 6.666666667),
+                                (15.0, 10.0, 10.0)]])
         lifted = self.lines("lifted", [(0, self.zline((5, 10, 99), (10, 10, 99))), (0, self.zline((5, 10, 99), (100, 10, 99)))],
                             fields=[("ok", "LONG")])
         arcpy.ddd.UpdateFeatureZ(lifted, surface, status_field="ok")
@@ -241,8 +249,9 @@ class ZTools(unittest.TestCase):
             self.assertEqual(next(rows)[0], (1.0, 2.0, 2.0))
         arcpy.management.Adjust3DZ(out, "REVERSE", 1, "METERS", "FEET")
         with arcpy.da.SearchCursor(out, ["SHAPE@Z"]) as rows:
-            # −2 + 1 = −1 m, which is −3937/1200 ft: Adjust3DZ's FEET is the US survey foot, as Pro measures it (D-323).
-            self.assertAlmostEqual(next(rows)[0], -3937 / 1200)
+            # −(2 + 1) = −3 m, which is −3 × 3937/1200 ft: the shift is added before the sign is reversed (measured in
+            # ArcGIS Pro 3.7, 2026-11-08; this pinned −2 + 1 before), and FEET is the US survey foot (D-323).
+            self.assertAlmostEqual(next(rows)[0], -3 * 3937 / 1200)
 
 
     def test_simplify_and_points_along_3d_lines(self):

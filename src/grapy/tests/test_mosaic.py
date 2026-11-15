@@ -52,6 +52,8 @@ def rows_of(path, fields, where=None):
 class Mosaic(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.images = os.path.join(self.directory, "images")
         self.a = write_tif(os.path.join(self.images, "a.tif"), 0, 4, np.full((4, 4), 10))
@@ -112,14 +114,17 @@ class Mosaic(unittest.TestCase):
         self.assertEqual(arcpy.da.Describe(self.md)["dataType"], "MosaicDataset")
 
     def test_a_mosaic_dataset_is_listed_as_a_dataset_and_not_as_a_feature_class(self):
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.gpkg
         self.assertEqual(arcpy.ListDatasets(feature_type="Mosaic"), ["md"])
         self.assertIn("md", arcpy.ListDatasets())
         self.assertEqual(arcpy.ListFeatureClasses(), [])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.assertEqual(arcpy.ListDatasets("*", "Mosaic"), ["data.gpkg/md"])
 
     def test_a_mosaic_dataset_is_named_by_its_name_inside_a_geopackage_workspace(self):
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.gpkg
         self.assertEqual(cells("md")[0], [10, 10, 10, 10, 20, 20])
 
@@ -412,7 +417,9 @@ class Mosaic(unittest.TestCase):
     def test_paths_are_exported_and_repaired(self):
         table = os.path.join(self.gpkg, "paths")
         arcpy.management.ExportMosaicDatasetPaths(self.md, table)
-        self.assertEqual(rows_of(table, ["SourceOID", "Type"]), [(1, "RASTER"), (2, "RASTER")])
+        # SourceOID and Path only: Pro 3.7 writes no Type field (measured 2026-11-08; this pinned grapy's Type).
+        self.assertEqual([f.name for f in arcpy.ListFields(table)][1:], ["SourceOID", "Path"])
+        self.assertEqual(rows_of(table, ["SourceOID"]), [(1,), (2,)])
         moved = os.path.join(self.directory, "moved")
         shutil.move(self.images, moved)
         arcpy.management.ExportMosaicDatasetPaths(self.md, table, export_mode="BROKEN")
@@ -443,13 +450,14 @@ class Mosaic(unittest.TestCase):
         out = os.path.join(self.directory, "out")
         os.makedirs(out)
         arcpy.management.ExportMosaicDatasetItems(self.md, out, "img")
-        self.assertEqual(sorted(os.listdir(out)), ["img1.tif", "img2.tif"])
-        self.assertEqual(arcpy.RasterToNumPyArray(os.path.join(out, "img2.tif")).tolist(), [[20] * 4] * 4)
+        # ".TIF" in capitals, as Pro 3.7 writes it (measured 2026-11-08; this pinned ".tif").
+        self.assertEqual(sorted(os.listdir(out)), ["img1.TIF", "img2.TIF"])
+        self.assertEqual(arcpy.RasterToNumPyArray(os.path.join(out, "img2.TIF")).tolist(), [[20] * 4] * 4)
         clipped = os.path.join(self.directory, "clipped")
         os.makedirs(clipped)
         arcpy.management.ExportMosaicDatasetItems(self.md, clipped, where_clause="Name = 'a'", clip_type="EXTENT",
                                                   template_dataset="0 0 2 2")
-        raster = arcpy.Raster(os.path.join(clipped, "a.tif"))
+        raster = arcpy.Raster(os.path.join(clipped, "a.TIF"))
         self.assertEqual((raster.width, raster.height, raster.extent.XMin, raster.extent.YMax), (2, 2, 0.0, 2.0))
 
     def test_geometry_is_exported_as_footprints_and_levels(self):

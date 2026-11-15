@@ -1,10 +1,11 @@
 """IDW3D and NearestNeighbor3D: interpolation on 3D points to a netCDF grid of voxels — ADR-238.
 
 Both tools write a netCDF file of a 3D grid. grapy writes it with scipy's netCDF reader-writer (``scipy.io``, the
-classic netCDF-3 format of Unidata's specification, 64-bit offsets), which GDAL, xarray and ArcGIS read. The pages do
-not name the file's dimensions or variables; grapy's are INFERRED (ADR-238 §5.2): dimensions ``elevation``, ``y``
-and ``x`` with coordinate variables of the same names holding the voxel centres, and one variable per interpolated
-field named after it. The file is written by ``_mdim.netcdf3``, grapy's one netCDF writer, which the multidimensional
+classic netCDF-3 format of Unidata's specification, 64-bit offsets), which GDAL, xarray and ArcGIS read. The pages
+do not name the file's dimensions or variables; grapy's are ArcGIS Pro 3.7's (measured 2026-11-08 by the Pro sweep;
+ADR-238 §5.2 had INFERRED ``elevation`` for ``z``): dimensions ``z``, ``y`` and ``x`` with coordinate variables of the
+same names holding the voxel centres, and one variable per interpolated field named after it. The file is written by
+``_mdim.netcdf3``, grapy's one netCDF writer, which the multidimensional
 raster (ADR-236) writes through too; the two layouts differ (a voxel grid is ascending in y, and keeps integer
 categories with −1 as fill), the writer does not. A voxel with no prediction holds the variable's ``_FillValue`` (NaN for IDW3D, −1 for a
 category). The coordinate system is the global attribute ``crs_wkt``.
@@ -103,15 +104,15 @@ def _mask(axes, area, min_elev_raster, max_elev_raster, tool):
 
 def _write(path, axes, variables, srid, fills):
     """The voxels through grapy's one netCDF writer, ``_mdim.netcdf3`` (ADR-236): the layout of this module's
-    docstring, with CF's ``axis`` on the three coordinates and ``positive = "up"`` on ``elevation`` so that a CF reader
+    docstring, with CF's ``axis`` on the three coordinates and ``positive = "up"`` on ``z`` so that a CF reader
     — and ``Raster(path, True)``, which calls it ``StdZ`` — knows it is the vertical one."""
     from . import _mdim
     xs, ys, zs = axes
-    dimensions = [("elevation", zs, {"axis": "Z", "positive": "up"}), ("y", ys, {"axis": "Y"}), ("x", xs, {"axis": "X"})]
+    dimensions = [("z", zs, {"axis": "Z", "positive": "up"}), ("y", ys, {"axis": "Y"}), ("x", xs, {"axis": "X"})]
     out = []
     for name, (data, extra) in variables.items():
         kind = "d" if data.dtype.kind == "f" else "i"
-        out.append((name, ("elevation", "y", "x"), data.astype(np.float64 if kind == "d" else np.int32),
+        out.append((name, ("z", "y", "x"), data.astype(np.float64 if kind == "d" else np.int32),
                     {"_FillValue": fills[kind], **extra}))
     attributes = {}
     if srid:
@@ -207,7 +208,8 @@ def IDW3D(in_features, value_field, out_netcdf_file, power=2, elev_inflation_fac
     Refused: an omitted ``search_neighborhood`` or radius, nbrMax or nbrMin (derived from the data by an unstated
     rule), sectors other than ONE_SECTOR (ADR-233). INFERRED: the netCDF layout (module docstring); the factor's
     search (``_estimate_factor``); the cross-validation fields ``Measured``, ``Predicted`` and ``Error``
-    (predicted − measured), whose names the page does not give."""
+    (predicted − measured), ``Source_ID`` and ``Included``, whose names the page does not give — Pro 3.7's
+    (measured 2026-11-08)."""
     from scipy.spatial import cKDTree
     from ._gpkg import Column
     tool = "IDW3D"
@@ -243,10 +245,13 @@ def IDW3D(in_features, value_field, out_netcdf_file, power=2, elev_inflation_fac
     AddMessage(f"Count {count}, mean error {mean_error:.6g}, root mean square {rms:.6g}")
     cv = ""
     if M.given(out_cv_features):
-        rows = [([float(values[i]), float(predicted[i]), float(predicted[i] - values[i])],
+        # Source_ID (the point's position from 1) and Included after the three values, as ArcGIS Pro 3.7 writes them
+        # (measured 2026-11-08 by the Pro sweep; grapy wrote the three alone).
+        rows = [([float(values[i]), float(predicted[i]), float(predicted[i] - values[i]), int(i) + 1, "Yes"],
                  shapely.Point(*xyz[i])) for i in np.nonzero(ok)[0]]
         cv = M.write(out_cv_features, srid, [Column("Measured", "Double"), Column("Predicted", "Double"),
-                                             Column("Error", "Double")], rows, kind="Point", has_z=True)
+                                             Column("Error", "Double"), Column("Source_ID", "Integer"),
+                                             Column("Included", "String")], rows, kind="Point", has_z=True)
     return Result(out_netcdf_file, cv, count, mean_error, rms, "")
 
 

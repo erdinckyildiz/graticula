@@ -12,6 +12,7 @@ the cheapest way is out to the dead end at S, a U-turn there and back up (30 m) 
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,6 +31,8 @@ OID = {name: n for n, (name, _) in enumerate(ROADS, start=1)}
 class Turns(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
         self.fds = arcpy.management.CreateFeatureDataset(self.gpkg, "transport", 3857)[0]
@@ -82,7 +85,7 @@ class Turns(unittest.TestCase):
 
     def test_turn_feature_class_schema_and_maximum_edges(self):
         names = [f.name for f in arcpy.ListFields(self.turns)]
-        self.assertEqual(names[1:11], ["Edge1End", "Edge1FCID", "Edge1FID", "Edge1Pos", "Edge2FCID", "Edge2FID",
+        self.assertEqual(names[2:12], ["Edge1End", "Edge1FCID", "Edge1FID", "Edge1Pos", "Edge2FCID", "Edge2FID",
                                        "Edge2Pos", "Edge3FCID", "Edge3FID", "Edge3Pos"])
         na.IncreaseMaximumEdges(self.turns, 5)
         names = [f.name for f in arcpy.ListFields(self.turns)]
@@ -145,7 +148,10 @@ class Turns(unittest.TestCase):
         out = na.TurnTableToTurnFeatureClass(table, self.roads, "from_table", maximum_edges=2)[0]
         self.assertTrue(out.replace("\\", "/").endswith("transport/from_table"))
         rows = list(arcpy.da.SearchCursor(out, ["Edge1End", "Edge1FCID", "Edge1FID", "Edge2FID", "MINUTES", "SHAPE@WKT"]))
-        self.assertEqual(rows, [("Y", 1, OID["WC"], OID["CN"], 0.5, "LINESTRING (5 10, 10 10, 10 15)")])
+        # Pro 3.7 writes a polyline as MULTILINESTRING (measured 2026-11-08, Pro sweep); this said LINESTRING.
+        # A quarter of each edge by the junction, as Pro 3.7 draws it (measured 2026-11-12, Pro sweep): this said
+        # (5 10, 10 10, 10 15), the halves.
+        self.assertEqual(rows, [("Y", 1, OID["WC"], OID["CN"], 0.5, "MULTILINESTRING ((7.5 10, 10 10, 10 12.5))")])
         self.assertNotIn("ANGLE", [f.name for f in arcpy.ListFields(out)])
         with self.assertRaises(arcpy.NotBuiltError):
             na.TurnTableToTurnFeatureClass(table, self.roads, "with_nodes", "nodes.dbf")

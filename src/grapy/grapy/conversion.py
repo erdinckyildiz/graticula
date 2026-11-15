@@ -35,6 +35,21 @@ def ExportFeatures(in_features, out_features, where_clause=None, use_field_alias
     order = ", ".join(f'"{f}" {"DESC" if (d[0] if d else "").upper().startswith("DESC") else "ASC"}'
                       for f, *d in _pairs(sort_field))
     out = _out(out_features)
+    from .management import _mappings
+    mappings = _mappings("ExportFeatures", field_mapping)
+    if mappings is not None:
+        # The field mapping decides the output's fields, as ExportTable's does: ArcGIS Pro 3.7 leaves out a field
+        # whose map was removed (measured 2026-11-08), where grapy copied every field.
+        source = str(in_features)
+        maps = list(mappings.fieldMappings)
+        _gpkg.create(out, shape, srid, [_gpkg.Column(m._output.name, m._output.type) for m in maps])
+        with da.SearchCursor(in_features, [*names, "SHAPE@"], where_clause,
+                             sql_clause=(None, f"order by {order}" if order else None)) as rows, \
+                da.InsertCursor(out, [*[m._output.name for m in maps], "SHAPE@"]) as written:
+            for row in rows:
+                values = dict(zip((n.lower() for n in names), row[:-1]))
+                written.insertRow([*[m._value(source, values) for m in maps], row[-1]])
+        return Result(out)
     _gpkg.create(out, shape, srid, columns)
     with da.SearchCursor(in_features, [*names, "SHAPE@"], where_clause, sql_clause=(None, f"order by {order}" if order else None)) as rows, \
             da.InsertCursor(out, [*names, "SHAPE@"]) as written:
@@ -260,14 +275,58 @@ def RasterToPoint(in_raster, out_point_features, raster_field="Value"):
     return Result(out)
 
 
+def _conversion_grid(features, cell):
+    """The grid a features-to-raster tool writes, as Pro 3.7 lays it out by the features' shape type (measured
+    2026-11-08, with extents that are and are not whole multiples of the cell):
+
+    - polygons: the lower-left corner at the extent's, as many cells as cover the extent (95 m at 10 m is 10 cells,
+      100 m is 10);
+    - lines: the lower-left corner at the extent's, one cell more than fit whole (95 m is 10 cells, 100 m is 11);
+    - points: the extent widened by half a cell on every side, so a point at its edge is a cell's centre, and as many
+      cells as cover that (100 m is 11 cells, 95 m is 11).
+
+    grapy anchored every grid at the extent's top-left corner with as many cells as cover it until then."""
+    import math
+    import shapely
+    from . import da
+    from ._raster import _Grid
+    from .analysis import _schema
+    _, kind, srid, _ = _schema(features)
+    with da.SearchCursor(features, ["SHAPE@"]) as rows:
+        shapes = [r[0]._shape for r in rows if r[0] is not None]
+    left, bottom, right, top = shapely.GeometryCollection(shapes).bounds
+    width, height = right - left, top - bottom
+    if kind in ("Point", "Multipoint"):
+        left, bottom = left - cell / 2, bottom - cell / 2
+        columns, rows_ = math.ceil((width + cell) / cell - 1e-9), math.ceil((height + cell) / cell - 1e-9)
+    elif kind == "Polyline":
+        columns, rows_ = math.floor(width / cell + 1e-9) + 1, math.floor(height / cell + 1e-9) + 1
+    else:
+        columns, rows_ = math.ceil(width / cell - 1e-9), math.ceil(height / cell - 1e-9)
+    columns, rows_ = max(1, int(columns)), max(1, int(rows_))
+    return _Grid(left, bottom + rows_ * cell, cell, cell, rows_, columns, srid)
+
+
+def _edge_cell(grid, x, y):
+    """The row and column a point is burnt into: a point on the line between two columns falls in the left one, and
+    on the line between two rows in the upper one; at the grid's own edges, in the edge cell — measured in ArcGIS Pro
+    3.7, 2026-11-08, with PointToRaster and PolylineToRaster (lines lying on cell edges at the grid's edges and inside
+    it). None outside the grid."""
+    import math
+    column = max(0, math.ceil((x - grid.left) / grid.width - 1e-9) - 1)
+    row = max(0, math.ceil((grid.top - y) / grid.height - 1e-9) - 1)
+    if row < grid.rows and column < grid.columns:
+        return row, column
+    return None
+
+
 def _feature_grid(in_features, cellsize, tool):
     from ._runtime import NotBuiltError
-    from .sa import _grid_over
     if not _is_given(cellsize):
         raise NotBuiltError(f"{tool}: the default cell size (the extent's shorter side over 250) is not built in grapy yet; pass cellsize.")
     if hasattr(cellsize, "meanCellWidth"):
         cellsize = cellsize.meanCellWidth
-    return _grid_over(in_features, float(cellsize))
+    return _conversion_grid(in_features, float(cellsize))
 
 
 def _value_raster(in_features, value_field, grid, assignment, tool):
@@ -293,8 +352,11 @@ def _value_raster(in_features, value_field, grid, assignment, tool):
         pairs = [(s, code[str(v)]) for s, v in pairs]
     integer = all(isinstance(v, int) for _, v in pairs)
     if rule == "CELL_CENTER":
-        # Later features are drawn over earlier ones (INFERRED: arcpy documents no order without a priority field).
-        burnt = rasterize([(s, float(v)) for s, v in pairs], out_shape=shape, transform=grid.transform(), fill=0, dtype="float64")
+        # Where features overlap, the first one's value is kept: rasterize draws in order, so they are drawn last to
+        # first (measured in ArcGIS Pro 3.7, 2026-11-08, with the overlap's values both ways round; grapy kept the last
+        # one's until then).
+        burnt = rasterize([(s, float(v)) for s, v in reversed(pairs)], out_shape=shape, transform=grid.transform(), fill=0,
+                          dtype="float64")
         covered = rasterize([(s, 1) for s, _ in pairs], out_shape=shape, transform=grid.transform(), fill=0, dtype="uint8") > 0
         array, mask = burnt, ~covered
     else:
@@ -303,8 +365,7 @@ def _value_raster(in_features, value_field, grid, assignment, tool):
             for point in getattr(s, "geoms", [s]):
                 if point.geom_type != "Point":
                     raise NotBuiltError(f"{tool}: cell_assignment '{assignment}' is built for points only in grapy yet.")
-                # INFERRED: a point on the grid's eastern or southern edge belongs to the last cell, not outside it.
-                cell = grid.cell_of(min(point.x, grid.right - grid.width * 1e-9), max(point.y, grid.bottom + grid.height * 1e-9))
+                cell = _edge_cell(grid, point.x, point.y)
                 if cell is not None:
                     values.setdefault(cell, []).append(v)
         array = np.zeros(shape)
@@ -898,7 +959,7 @@ def _kml_shapes(geometry, namespace):
     if tag == "Point":
         return [("Points", ShapelyPoint(_kml_coordinates(geometry, namespace)[0]))]
     if tag in ("LineString", "LinearRing"):
-        return [("Lines", LineString(_kml_coordinates(geometry, namespace)))]
+        return [("Polylines", LineString(_kml_coordinates(geometry, namespace)))]
     if tag == "Polygon":
         outer = geometry.find(f"{{{namespace}}}outerBoundaryIs/{{{namespace}}}LinearRing")
         inner = geometry.findall(f"{{{namespace}}}innerBoundaryIs/{{{namespace}}}LinearRing")
@@ -910,12 +971,13 @@ def _kml_shapes(geometry, namespace):
 
 
 def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverlay="NO_GROUNDOVERLAY", out_suffix=None):
-    """A KML 2.2 or KMZ file's placemarks as feature classes in WGS 1984 — ``Points``, ``Lines`` and ``Polygons`` in a
-    feature dataset ``Placemarks`` of a workspace named ``output_data`` (the file's name when none is given), as
-    documented. INFERRED: the workspace is a GeoPackage (see CreateFileGDB) and the dataset a name prefix (see
+    """A KML 2.2 or KMZ file's placemarks as feature classes in WGS 1984 — ``Points``, ``Polylines`` and ``Polygons``
+    in a feature dataset ``Placemarks`` of a workspace named ``output_data`` (the file's name when none is given), as
+    documented and as Pro 3.7 names them (measured 2026-11-08: ``Polylines``, which grapy called ``Lines`` until then). INFERRED: the workspace is a GeoPackage (see CreateFileGDB) and the dataset a name prefix (see
     CreateFeatureDataset); the fields are ``Name`` (the placemark's name), ``FolderPath`` (the names of its document
     and folders, joined with ``/``) and ``PopupInfo`` (its description) — the page names only ``PopupInfo``, and the other
-    fields arcpy writes are not documented, so they are not written; a MultiGeometry's parts of one kind make one
+    fields arcpy writes — ``SymbolID``, ``AltMode``, ``Base``, ``Snippet``, ``HasLabel``, ``LabelID``, ``Clamped`` and
+    ``Extruded``, measured in Pro 3.7 on 2026-11-08 — are not documented, so they are not written; a MultiGeometry's parts of one kind make one
     multipart feature; altitude is dropped, grapy's shapes being 2D. The layer file, ground overlays, models and
     ``out_suffix`` are not built."""
     import shapely
@@ -928,7 +990,7 @@ def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverl
                             "joins the names.")
     root = _kml_document(str(in_kml_file))
     namespace = root.tag[1:root.tag.index("}")] if root.tag.startswith("{") else ""
-    found = {"Points": [], "Lines": [], "Polygons": []}
+    found = {"Points": [], "Polylines": [], "Polygons": []}
 
     def walk(element, folders):
         for child in element:
@@ -960,7 +1022,7 @@ def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverl
     if _feature_dataset_of(f"{dataset}/x") is None:
         CreateFeatureDataset(target, "Placemarks", 4326)
     columns = [_gpkg.Column("Name", "String"), _gpkg.Column("FolderPath", "String"), _gpkg.Column("PopupInfo", "String")]
-    shapes = {"Points": "Multipoint", "Lines": "Polyline", "Polygons": "Polygon"}
+    shapes = {"Points": "Multipoint", "Polylines": "Polyline", "Polygons": "Polygon"}
     for kind, rows in found.items():
         if not rows:
             continue
@@ -981,10 +1043,11 @@ def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverl
 # GTFS coordinates are WGS 1984, as the specification says. INFERRED, the pages naming no fields: each column of the
 # file becomes a field of the same name, as the pages' note on shortened shapefile names implies; columns the
 # specification types as latitude, longitude, float or non-negative float are doubles, its enums and integers short
-# or long integers, the rest text.
+# or long integers, the rest text — except a stop's ``location_type`` and ``wheelchair_boarding``, which Pro 3.7 writes
+# as text (measured 2026-11-08; grapy wrote them as short integers until then).
 
 _GTFS_DOUBLES = {"stop_lat", "stop_lon", "shape_pt_lat", "shape_pt_lon", "shape_dist_traveled"}
-_GTFS_INTEGERS = {"location_type": "SmallInteger", "wheelchair_boarding": "SmallInteger", "route_type": "SmallInteger",
+_GTFS_INTEGERS = {"route_type": "SmallInteger",
                   "route_sort_order": "Integer", "continuous_pickup": "SmallInteger", "continuous_drop_off": "SmallInteger",
                   "shape_pt_sequence": "Integer"}
 
@@ -1106,14 +1169,15 @@ def _dbf_names(names):
 
 
 def _dbf_layout(columns, rows):
-    """Each field's dBASE type, width and decimals. Text is as wide as its longest value (1 to 254); whole numbers are
-    N(10,0) for 32-bit, N(5,0) for 16-bit, N(19,0) for 64-bit; reals N(19,11); dates D(8)."""
+    """Each field's dBASE type, width and decimals. Text is C(254) — the field's length, 255 as grapy reports every text
+    field's, cut to dBASE's 254 — and reals F(19,11), as Pro 3.7 writes them (measured 2026-11-08; grapy wrote text as
+    wide as its longest value and reals as N(19,11) until then); whole numbers are N(10,0) for 32-bit, N(5,0) for
+    16-bit, N(19,0) for 64-bit; dates D(8)."""
     layout = []
     for i, column in enumerate(columns):
         kind = column.type
         if kind == "String":
-            longest = max([len(str(r[i]).encode("utf-8")) for r in rows if r[i] is not None] or [1])
-            layout.append(("C", min(254, max(1, longest)), 0))
+            layout.append(("C", 254, 0))
         elif kind == "SmallInteger":
             layout.append(("N", 5, 0))
         elif kind in ("Integer",):
@@ -1123,7 +1187,7 @@ def _dbf_layout(columns, rows):
         elif kind == "Date":
             layout.append(("D", 8, 0))
         else:
-            layout.append(("N", 19, 11))
+            layout.append(("F", 19, 11))
     return layout
 
 
@@ -1193,7 +1257,7 @@ def _write_shapefile(stem, kind, records, srid):
     import shapely
     contents = [_shape_record(s, kind) for s in records]
     present = [s for s in records if s is not None and not s.is_empty]
-    bounds = shapely.union_all(present).bounds if present else (0.0, 0.0, 0.0, 0.0)
+    bounds = tuple(float(v) for v in shapely.total_bounds(present)) if present else (0.0, 0.0, 0.0, 0.0)
 
     def header(length_words):
         return struct.pack(">7i", 9994, 0, 0, 0, 0, 0, length_words) + struct.pack("<2i4d4d", 1000, kind, *bounds, 0, 0, 0, 0)
@@ -1274,12 +1338,12 @@ def PolylineToRaster(in_features, value_field, out_rasterdataset, cell_assignmen
     """Lines onto a grid over their extent: each cell takes the value of the line with the greatest length inside it
     (``MAXIMUM_LENGTH``), or of the value whose lines' lengths inside it sum greatest (``MAXIMUM_COMBINED_LENGTH``); with
     a priority field, the line of largest positive priority, as documented. With no cell size, the extent's shorter side
-    over 250, as documented. INFERRED: a line takes a cell when some length of it lies inside; ties go to the lower
+    over 250, as documented. A line lying on a cell's edge belongs to the cell left of it or above it (measured in
+    ArcGIS Pro 3.7, 2026-11-08). INFERRED: a line takes a cell when some length of it lies inside; ties go to the lower
     object id, or the lower value; a text value field is numbered as PolygonToRaster numbers one."""
     import numpy as np
     import shapely
     from ._raster import Raster, _Rat, _value_count
-    from .sa import _grid_over
     from .management import _features, _schema, _source
     rule = str(cell_assignment or "MAXIMUM_LENGTH").upper()
     if rule not in ("MAXIMUM_LENGTH", "MAXIMUM_COMBINED_LENGTH"):
@@ -1303,14 +1367,20 @@ def PolylineToRaster(in_features, value_field, out_rasterdataset, cell_assignmen
     if not _is_given(cellsize):
         x0, y0, x1, y1 = shapely.union_all([s for _, _, _, s in lines]).bounds
         cellsize = min(x1 - x0, y1 - y0) / 250 or max(x1 - x0, y1 - y0) / 250
-    grid = _grid_over(path, float(cellsize))
+    grid = _conversion_grid(path, float(cellsize))
     array, mask = np.zeros((grid.rows, grid.columns)), np.ones((grid.rows, grid.columns), bool)
     for r in range(grid.rows):
         for c in range(grid.columns):
             left, top = grid.left + c * grid.width, grid.top - r * grid.height
             cell = shapely.box(left, top - grid.height, left + grid.width, top)
-            inside = [(oid, value, priority, shape.intersection(cell).length) for oid, value, priority, shape in lines
-                      if shape.intersects(cell)]
+            # A line lying on a cell's left edge belongs to the cell to its left, and one on its top edge to the cell
+            # above, as _edge_cell places points (measured in ArcGIS Pro 3.7, 2026-11-08); at the grid's edges the
+            # edge cell keeps it.
+            edges = ([shapely.LineString([(left, top - grid.height), (left, top)])] if c > 0 else []) + \
+                ([shapely.LineString([(left, top), (left + grid.width, top)])] if r > 0 else [])
+            inside = [(oid, value, priority,
+                       shape.intersection(cell).length - sum(shape.intersection(e).length for e in edges))
+                      for oid, value, priority, shape in lines if shape.intersects(cell)]
             inside = [i for i in inside if i[3] > 0]
             if not inside:
                 continue

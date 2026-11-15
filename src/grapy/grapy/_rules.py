@@ -87,14 +87,14 @@ class Rule:
                                        ("DELETE", self._on_delete)) if on]
         self.triggeringEvents = ["esriARTE" + e.title() for e in self.events]
         self.errorNumber = int(self._error_number) if str(self._error_number or "").lstrip("-").isdigit() else \
-            (self._error_number or "")
+            (self._error_number or -1)   # -1 when never given, as Pro answers it (measured 2026-11-08)
         self.errorMessage = self._error_message or ""
         self.description = self._description or ""
         self.subtypeCodes = json.loads(self._subtypes)
         self.subtypeCode = self.subtypeCodes[0] if len(self.subtypeCodes) == 1 else -1
         self.excludeFromClientEvaluation = bool(self._exclude_client)
         self.batch = bool(self._batch)
-        self.severity = self._severity
+        self.severity = self._severity if self._severity is not None else -1   # likewise
         self.tags = self._tags or ""
         self.triggeringFields = json.loads(self._triggering_fields)
         self.isEnabled = bool(self._enabled)
@@ -367,7 +367,7 @@ class Engine:
         return value
 
     def _refuse(self, rule, event, message=None):
-        number = f"{rule.errorNumber}: " if rule.errorNumber not in ("", None) else ""
+        number = f"{rule.errorNumber}: " if rule.errorNumber not in ("", None, -1) else ""
         raise RuleError(f"The attribute rule '{rule.name}' of '{self.table}' refused the {event.lower()}: "
                         f"{number}{message if message is not None else rule.errorMessage}")
 

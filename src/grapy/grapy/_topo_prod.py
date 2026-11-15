@@ -229,11 +229,14 @@ def create(path, shape, srid, columns, has_z=False):
 
 def create_with_objectid(path, shape, srid, columns):
     """A new feature class whose object ID column is ``OBJECTID``, for an output whose page names a field ``FID``:
-    SQLite compares column names without case, so a field ``FID`` cannot sit beside grapy's usual ``fid`` key."""
+    SQLite compares column names without case, so a field ``FID`` cannot sit beside a ``fid`` key, which grapy wrote
+    before 2026-11-12 (ADR-289 §5.1) and which ``OBJECTID`` now is anyway."""
     _gpkg.create(path, shape, srid, [], False)
     connection, table = _gpkg.table_of(path)
     try:
-        connection.execute(f'alter table "{table}" rename column "{_gpkg.OID}" to "OBJECTID"')
+        oid = _gpkg.oid_column(connection, table)
+        if oid != "OBJECTID":
+            connection.execute(f'alter table "{table}" rename column "{oid}" to "OBJECTID"')
         for name, kind in columns:
             connection.execute(f'alter table "{table}" add column "{name}" {_gpkg._TYPES.get(kind.upper(), "TEXT")}')
         connection.commit()

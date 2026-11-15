@@ -365,6 +365,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.Title)] = "shown by the OGC faces' documents, never in a query's answer (ADR-179)",
             [nameof(PublishedLayer.DisplayName)] = "derived from Title and Definition.Name; the ArcGIS documents' name, never in a query's answer (ADR-191 §5.7)",
             [nameof(PublishedLayer.ServiceCopyrightText)] = "the documents' copyrightText, never in a query's answer",
+            [nameof(PublishedLayer.ServiceSyncEnabled)] = "the documents' syncEnabled and Sync capability, never in a query's answer (ADR-288)",
             [nameof(PublishedLayer.DataChangedAt)] = "the layer document's editingInfo, never in a query's answer; the rows are the validator's",
             [nameof(PublishedLayer.SchemaChangedAt)] = "the layer document's editingInfo, never in a query's answer",
             [nameof(PublishedLayer.ConnectionString)] = "a secret; the data source name and definition identify the data",

@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 from collections import defaultdict, deque
 
 import shapely
@@ -39,6 +38,7 @@ from shapely.geometry import LineString, Point as ShapelyPoint, box
 from shapely.ops import substring, unary_union
 
 from . import _gpkg
+from ._parameter import _tokens  # a Windows path in a value table keeps its backslashes
 from ._runtime import ExecuteError, NotBuiltError
 from ._topology import register
 
@@ -61,7 +61,10 @@ STRUCTURE = "Structure"
 STRUCTURE_CLASSES = (("StructureJunction", "Point", "StructureJunction"), ("StructureLine", "Polyline", "StructureLine"),
                      ("StructureBoundary", "Polygon", "StructureBoundary"),
                      ("StructureJunctionObject", None, "JunctionObject"), ("StructureEdgeObject", None, "EdgeObject"))
-DOMAIN_CLASSES = (("Device", "Point"), ("Line", "Polyline"), ("Junction", "Point"), ("Assembly", "Point"),
+# In the order ArcGIS Pro 3.7 numbers a domain network's sources (measured 2026-11-12: WaterDevice 9, WaterLine 10,
+# WaterAssembly 11, WaterJunction 12, WaterSubnetLine 13, WaterJunctionObject 14, WaterEdgeObject 15, after the
+# structure network's 4 to 8; 1 is the associations and 2 the system junctions).
+DOMAIN_CLASSES = (("Device", "Point"), ("Line", "Polyline"), ("Assembly", "Point"), ("Junction", "Point"),
                   ("SubnetLine", "Polyline"), ("JunctionObject", None), ("EdgeObject", None))
 JUNCTION_ROLES = ("Device", "Junction", "StructureJunction")
 LINE_ROLES = ("Line", "StructureLine")
@@ -309,6 +312,10 @@ class Network:
     def oid(self, class_name):
         return _gpkg.oid_column(self.connection, class_name)
 
+    def shape(self, class_name):
+        """A class's geometry column, quoted for SQL, as its own registration names it (ADR-289 §5.1)."""
+        return _gpkg.shape_sql(self.connection, class_name)
+
     def feature_by_globalid(self, class_name, globalid):
         row = self.q(f'select "{self.oid(class_name)}", ASSETGROUP, ASSETTYPE from "{class_name}" where '
                      'upper(GLOBALID) = upper(?)', str(globalid)).fetchone()
@@ -362,14 +369,36 @@ def _create_class(file, dataset, name, shape, srid, columns, z, m):
     return f"{dataset}/{name}"
 
 
+# The aliases ArcGIS Pro 3.7 gives a network class's system fields: the attribute names ExportDiagramContent wrote for
+# the nd sweep's features (measured 2026-11-12) — a diagram feature's attributes are keyed by alias.
+SYSTEM_ALIASES = {"ASSETGROUP": "Asset group", "ASSETTYPE": "Asset type", "ASSOCIATIONSTATUS": "Association status",
+                  "GLOBALID": "Global ID", "ISCONNECTED": "Is connected",
+                  "ISSUBNETWORKCONTROLLER": "Is subnetwork controller",
+                  "SUBNETWORKCONTROLLERNAME": "Subnetwork controller name", "SUBNETWORKNAME": "Subnetwork name",
+                  "SUPPORTEDSUBNETWORKNAME": "Supported subnetwork name",
+                  "SUPPORTINGSUBNETWORKNAME": "Supporting subnetwork name", "TERMINALCONFIGURATION": "Terminal path",
+                  "TIERNAME": "Tier name", "TIERRANK": "Tier rank", "FROMDEVICETERMINAL": "From device terminal",
+                  "TODEVICETERMINAL": "To device terminal"}
+
+
 def _prepare_class(connection, table, alias_group=True):
-    """ASSETGROUP as the subtype field with its 0 Unknown subtype, and global IDs (ADR-228)."""
+    """ASSETGROUP as the subtype field with its 0 Unknown subtype, global IDs (ADR-228), and Pro's aliases of the
+    system fields."""
     from . import _attachments, _subtypes
+    from .management import _domain_tables
     _subtypes.ensure(connection)
     if alias_group:
         connection.execute("insert into grapy_subtype_field values (?, 'ASSETGROUP', 0)", (table,))
         connection.execute("insert into grapy_subtype values (?, 0, 'Unknown')", (table,))
     _attachments.add_global_ids(connection, table)
+    _domain_tables(connection)
+    oid = _gpkg.oid_column(connection, table)
+    for (column,) in [(r[1],) for r in connection.execute(f'pragma table_info("{table}")')]:
+        alias = "Object ID" if column == oid else SYSTEM_ALIASES.get(column.upper())
+        if alias:
+            connection.execute("insert into gpkg_data_columns (table_name, column_name, name, title) values (?, ?, ?, ?) "
+                                "on conflict (table_name, column_name) do update set title = excluded.title",
+                                (table, column, column, alias))
 
 
 def _base_columns(role):
@@ -380,9 +409,13 @@ def _base_columns(role):
                                                     ("SUBNETWORKCONTROLLERNAME", "String"), ("TIERNAME", "String"),
                                                     ("TIERRANK", "Integer"), ("TERMINALCONFIGURATION", "String"))]
     if role in ("Line",):
-        columns += [_gpkg.Column("FROMDEVICETERMINAL", "Integer"), _gpkg.Column("TODEVICETERMINAL", "Integer")]
+        # short integers, as Pro 3.7 makes them (measured 2026-11-12; grapy made long ones)
+        columns += [_gpkg.Column("FROMDEVICETERMINAL", "SmallInteger"), _gpkg.Column("TODEVICETERMINAL", "SmallInteger")]
     if role in ("Device", "Line", "Junction", "JunctionObject", "EdgeObject"):
         columns += [_gpkg.Column("ISCONNECTED", "SmallInteger")]
+    if role in ("Line", "StructureLine", "EdgeObject"):
+        # the Flow direction network attribute's field, on every line and edge object (Pro 3.7, measured 2026-11-12)
+        columns += [_gpkg.Column("FLOWDIRECTION", "SmallInteger")]
     return columns
 
 
@@ -399,10 +432,10 @@ def create(file, dataset, name, territory, srid, version):
         connection.commit()
     finally:
         connection.close()
-    source = 1
+    source = 4  # the structure network's sources are 4 to 8, as Pro 3.7 numbers them (measured 2026-11-12)
     for class_name, shape, role in STRUCTURE_CLASSES:
-        columns = _base_columns(role) + [_gpkg.Column("SUBNETWORKNAME", "String"),
-                                         _gpkg.Column("SUPPORTEDSUBNETWORKNAME", "String")]
+        # Measured in Pro 3.7, 2026-11-12: the structure network's classes have no SUPPORTEDSUBNETWORKNAME.
+        columns = _base_columns(role) + [_gpkg.Column("SUBNETWORKNAME", "String")]
         table = _create_class(file, dataset, class_name, shape, srid, columns, True, True)
         _register_source(file, name, source, table, STRUCTURE, role)
         source += 1
@@ -425,6 +458,8 @@ def create(file, dataset, name, territory, srid, version):
             connection.close()
     with Network(f"{file}/{dataset}/{name}") as network:
         for category in SYSTEM_CATEGORIES:
+            if category == "Propagator Resetter" and int(version) < 8:
+                continue  # a version 8 category (measured in Pro 3.7, 2026-11-12)
             network.q("insert into grapy_un_category values (?, ?, 1)", name, category)
         for attribute, kind in zip(SYSTEM_ATTRIBUTES, ("SHORT", "SHORT", "SHORT", "DOUBLE", "SHORT", "LONG")):
             network.q("insert into grapy_un_attribute values (?, ?, ?, 0, ?, null, 1, 0, null, 1)", name, attribute, kind,
@@ -462,10 +497,9 @@ def add_domain(path, name, tier_definition, controller_type, alias):
                                                        ("LASTUPDATESUBNETWORK", "Date"),
                                                        ("LASTACKEXPORTSUBNETWORK", "Date"))]
         else:
+            # SUPPORTINGSUBNETWORKNAME and SUPPORTEDSUBNETWORKNAME come with the domain's first tier (add_tier), as
+            # Pro 3.7 adds them (measured 2026-11-12).
             columns = _base_columns(suffix)
-            if suffix != "Assembly":
-                columns += [_gpkg.Column("SUPPORTINGSUBNETWORKNAME", "String")]
-            columns += [_gpkg.Column("SUPPORTEDSUBNETWORKNAME", "String")]
         table = _create_class(file, dataset, f"{name}{suffix}", shape, srid, columns, True, True)
         _register_source(file, un, start + i, table, name, suffix)
 
@@ -521,6 +555,25 @@ def add_tier(path, domain, name, rank, topology_type, tier_group, subnetwork_fie
                 taken = {r[1].lower() for r in network.q(f'pragma table_info("{class_name}")')}
                 if field.lower() not in taken:
                     network.q(f'alter table "{class_name}" add column "{field}" TEXT')
+                    if field.upper() in SYSTEM_ALIASES:
+                        from .management import _domain_tables
+                        _domain_tables(network.connection)
+                        network.q("insert into gpkg_data_columns (table_name, column_name, name, title) values "
+                                  "(?, ?, ?, ?) on conflict (table_name, column_name) do update set title = "
+                                  "excluded.title", class_name, field, field, SYSTEM_ALIASES[field.upper()])
+            for class_name, role in network.q("select class_name, role from grapy_un_source where network = ? and "
+                                              "domain = ? and role in ('Device','Line','Junction','Assembly',"
+                                              "'JunctionObject','EdgeObject')", network.name, row[0]).fetchall():
+                taken = {r[1].lower() for r in network.q(f'pragma table_info("{class_name}")')}
+                for supported in (("SUPPORTEDSUBNETWORKNAME",) if role == "Assembly" else
+                                  ("SUPPORTEDSUBNETWORKNAME", "SUPPORTINGSUBNETWORKNAME")):
+                    if supported.lower() not in taken:
+                        network.q(f'alter table "{class_name}" add column "{supported}" TEXT')
+                        from .management import _domain_tables
+                        _domain_tables(network.connection)
+                        network.q("insert into gpkg_data_columns (table_name, column_name, name, title) values "
+                                  "(?, ?, ?, ?) on conflict (table_name, column_name) do update set title = "
+                                  "excluded.title", class_name, supported, supported, SYSTEM_ALIASES[supported])
 
 
 # ---- definition rows -----------------------------------------------------------------------------------------------
@@ -537,6 +590,11 @@ def add_rule(network, rule_type, ends, via=None):
     """A rule; ``ends`` is [(class, group, type, terminal)] for from and to, ``via`` the edge-junction-edge junction."""
     network.require_disabled("AddRule")
     (fc, fg, ft, fterm), (tc, tg, tt, tterm) = ends
+    if rule_type == "JUNCTION_JUNCTION_CONNECTIVITY" and network.source_of(tc) < network.source_of(fc):
+        # A junction-junction rule is kept from the end of the lower network source (measured in ArcGIS Pro 3.7,
+        # 2026-11-12: WaterJunction Plug to WaterDevice Valve was exported from WaterDevice; INFERRED from that one
+        # measurement that the order is the sources').
+        (fc, fg, ft, fterm), (tc, tg, tt, tterm) = (tc, tg, tt, tterm), (fc, fg, ft, fterm)
     if rule_type in ("CONTAINMENT", "STRUCTURAL_ATTACHMENT"):
         fterm = tterm = None
     for existing in rules(network):
@@ -654,9 +712,9 @@ def association_rows(network):
     table = associations_table(network)
     return [dict(zip(("oid", "from_source", "from_globalid", "from_terminal", "to_source", "to_globalid", "to_terminal",
                       "type", "visible", "percent", "globalid"), r))
-            for r in network.q(f'select fid, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, '
+            for r in network.q(f'select {_gpkg.oid_sql(network.connection, table)}, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, '
                                f'TOGLOBALID, TOTERMINALID, ASSOCIATIONTYPE, ISCONTENTVISIBLE, PERCENTALONG, GlobalID '
-                               f'from "{table}" order by fid')]
+                               f'from "{table}" order by {_gpkg.oid_sql(network.connection, table)}')]
 
 
 def _association_status(network):
@@ -697,9 +755,9 @@ def _current(network):
         wanted = ["ASSETGROUP", "ASSETTYPE"] + [e for e, low in extra if low in columns] + \
             sorted({f for f in fields.values() if f.lower() in columns})
         oid = network.oid(class_name)
-        geometry = "geom" if role not in OBJECT_ROLES else None
+        geometry = network.shape(class_name) if role not in OBJECT_ROLES else None
         select = ", ".join(f'"{w}"' for w in wanted)
-        sql = f'select "{oid}", GLOBALID, {"geom" if geometry else "null"}, {select} from "{class_name}"'
+        sql = f'select "{oid}", GLOBALID, {geometry or "null"}, {select} from "{class_name}"'
         for row in network.q(sql).fetchall():
             shape = _gpkg.decode(row[2]) if geometry else None
             shape = shapely.force_2d(shape) if shape is not None else None
@@ -813,7 +871,7 @@ def write_dirty_areas(network):
         rows.append((area, bits | error_bit, codes[0][0] if codes else 0, "; ".join(c[1] for c in codes) or None,
                      key[0], globalid))
     for shape, status, code, message, source, globalid in rows:
-        network.q(f'insert into "{table}" (geom, STATUS, ERRORCODE, ERRORMESSAGE, NETWORKSOURCEID, FEATUREGLOBALID) '
+        network.q(f'insert into "{table}" ({network.shape(table)}, STATUS, ERRORCODE, ERRORMESSAGE, NETWORKSOURCEID, FEATUREGLOBALID) '
                   'values (?, ?, ?, ?, ?, ?)', _gpkg.encode(shapely.MultiPolygon([shape]) if shape.geom_type == "Polygon"
                                                             else shape, srid), status, code, message, source, globalid)
 
@@ -822,11 +880,12 @@ def _territory_extent(network):
     file, table = _gpkg.split(network.territory)
     connection = _gpkg.connect(file)
     try:
-        shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select geom from "{table}"')]
+        shapes = [_gpkg.decode(r[0]) for r in connection.execute(
+            f'select {_gpkg.shape_sql(connection, table)} from "{table}"')]
     finally:
         connection.close()
     shapes = [s for s in shapes if s is not None and not s.is_empty]
-    return unary_union(shapes).bounds if shapes else None
+    return tuple(float(v) for v in shapely.total_bounds(shapes)) if shapes else None
 
 
 def dirty_meets(network, keys, graph):
@@ -1384,7 +1443,7 @@ def value_table(value, columns):
     rows = value if isinstance(value, (list, tuple)) else [r for r in str(value).split(";") if r.strip()]
     out = []
     for row in rows:
-        cells = list(row) if isinstance(row, (list, tuple)) else shlex.split(str(row))
+        cells = list(row) if isinstance(row, (list, tuple)) else _tokens(str(row))
         cells = [None if c is None or str(c).strip() in ("", "#") else c for c in cells]
         out.append(cells + [None] * (columns - len(cells)))
     return out

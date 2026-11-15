@@ -135,6 +135,33 @@ def templates(network):
     return [r[0] for r in network.q("select name from grapy_nd_template where network = ? order by rowid", network.name)]
 
 
+def _rule_step(rule, params=None):
+    return {"kind": "rule", "rule": rule, "active": True, "params": params or {}}
+
+
+def default_templates(network):
+    """The three templates a new utility network has, as ArcGIS Pro 3.7 makes them (measured 2026-11-12, the nd sweep:
+    GetDiagramTemplateNames on a new file geodatabase network answers ``Basic``, ``CollapseContainers`` and
+    ``ExpandContainers``). Each keeps line vertices and draws connectivity associations and structural attachments as
+    edges; CollapseContainers collapses every container first, ExpandContainers expands every one, both with their
+    tools' defaults — what Pro's diagrams from them held on the sweep's network. INFERRED: Basic is the default
+    template, and the rules run in that order (the measured diagrams do not tell the orders apart)."""
+    ensure(network.connection)
+    associations = [_rule_step("ConnectivityAssociations"), _rule_step("StructuralAttachments")]
+    every = {"by": "source", "include": False, "sources": []}
+    for name, first, is_default in (
+            ("Basic", [], True),
+            ("CollapseContainers", [_rule_step("CollapseContainer", {"selector": every, "container_type": "BOTH",
+                                                                      "aggregate": True})], False),
+            ("ExpandContainers", [_rule_step("ExpandContainer", {"selector": every, "container_type": "BOTH",
+                                                                  "hide": False})], False)):
+        if template(network, name, must=False):
+            continue
+        found = dict(TEMPLATE_DEFAULTS, name=name, is_default=is_default, keep_vertices=True,
+                     steps=first + associations)
+        save_template(network, found, revise=False)
+
+
 def save_template(network, found, revise=True):
     data = {k: v for k, v in found.items() if k != "name"}
     if revise:
@@ -300,12 +327,14 @@ def save(network, d, rename_from=None):
         common = (d.name, f.id, f.source, f.globalid, f.container, int(f.root),
                   int(f.reduction), f.rotation)
         if f.kind == "E":
-            network.q(f'insert into "{class_path(network, "DiagramEdges")}" (geom, DIAGRAMNAME, DIAGRAMFEATUREID, '
+            network.q(f'insert into "{class_path(network, "DiagramEdges")}" '
+                      f'({network.shape(class_path(network, "DiagramEdges"))}, DIAGRAMNAME, DIAGRAMFEATUREID, '
                       'ASSOCSOURCEID, ASSOCGLOBALID, CONTAINERID, ISROOT, ISREDUCTION, ROTATION, FROMID, TOID) values '
                       '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', _gpkg.encode(f.shape, srid), *common, f.from_id, f.to_id)
         else:
             suffix = "DiagramContainers" if f.shape.geom_type == "Polygon" else "DiagramJunctions"
-            network.q(f'insert into "{class_path(network, suffix)}" (geom, DIAGRAMNAME, DIAGRAMFEATUREID, ASSOCSOURCEID, '
+            network.q(f'insert into "{class_path(network, suffix)}" ({network.shape(class_path(network, suffix))}, '
+                      f'DIAGRAMNAME, DIAGRAMFEATUREID, ASSOCSOURCEID, '
                       'ASSOCGLOBALID, CONTAINERID, ISROOT, ISREDUCTION, ROTATION) values (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                       _gpkg.encode(f.shape, srid), *common)
 
@@ -553,6 +582,19 @@ class Builder:
                 wanted.add(holder)
                 holder = self.container_of.get(holder)
         self.add_features(d, wanted)
+        # The containers of the junctions an edge brought in too: measured in ArcGIS Pro 3.7, 2026-11-12, a diagram made
+        # from lines alone holds the vault containing the valve at a line's end.
+        while True:
+            present = {self.gkey(f.key) for f in d.features.values() if f.key and not f.reduction} - {None}
+            more = set()
+            for g in present:
+                holder = self.container_of.get(g)
+                while holder is not None and holder not in present and holder not in more:
+                    more.add(holder)
+                    holder = self.container_of.get(holder)
+            if not more:
+                break
+            self.add_features(d, more)
         self.link_containers(d)
 
     # -- the template --

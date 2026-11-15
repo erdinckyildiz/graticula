@@ -645,6 +645,7 @@ internal static partial class AdminEndpoints
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         MapAttachments(app);     // ADR-207 — AdminEndpoints.Attachments.cs
+        MapPublisherAddress(app); // ADR-299 — AdminEndpoints.PublisherAddress.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         MapPinning(app);         // ADR-218 — AdminEndpoints.Pinning.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
@@ -1319,7 +1320,7 @@ internal static partial class AdminEndpoints
                 // ADR-106 §5.5: whether this caller may export its data — Studio's *Export data*: its owner and
                 // administrators always, another signed-in reader where the owner chose Extract. Said here since
                 // 2026-11-03 rather than as `Extract` in the ArcGIS capabilities, which ArcGIS clients read as
-                // createReplica's, an operation this server does not have (ADR-082; the ArcGIS veteran's review).
+                // createReplica's, which this server answers only to editors of a sync-enabled hosted service (ADR-288; the ArcGIS veteran's review).
                 exportsData = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization)
                     || (!current.Principal.IsAnonymous
                         && service.LayersAndTables.Any(l => l.CapabilityCeiling?.Contains("Extract") == true)),
@@ -7148,13 +7149,21 @@ internal static partial class AdminEndpoints
             && string.IsNullOrWhiteSpace(context.Request.Query["username"].ToString())
             && PresentedToken(context) is { Length: > 0 } admitted)
         {
-            // `expires` as a string, which is how the ArcGIS Server admin API writes it; Pro's server connection reads
-            // this answer and went no further with the number (2026-10-17, being measured).
+            // <b>Not a token: what the server's transport is — measured 2026-11-10 (ADR-299).</b> A federated ArcGIS
+            // Server 12.0 (Aecon's QA Enterprise, the owner's test Enterprise) answers this exact request — the portal
+            // token in X-Esri-Authorization, no username, GET — with <c>{"ssl":{"supportsSSL":true,"sslPort":443}}</c>
+            // and nothing else; the request is Pro's server connection asking how to reach the admin API, not asking
+            // for a token. Answered with a token until then, Share As Web Layer's hosted path went on regardless and
+            // its map image path stopped at analyzer 00290 with no further request on the wire.
+            _ = admitted;
+            bool https = string.Equals(context.Request.Scheme, "https", StringComparison.OrdinalIgnoreCase);
             await Results.Json(new
             {
-                token = admitted,
-                expires = DateTimeOffset.UtcNow.AddMinutes(60).ToUnixTimeMilliseconds()
-                    .ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ssl = new
+                {
+                    supportsSSL = https,
+                    sslPort = context.Request.Host.Port ?? (https ? 443 : 80),
+                },
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -9283,6 +9292,11 @@ internal static partial class AdminEndpoints
         IReadOnlyList<RegisteredDataSource> sources =
             await catalog.ListDataSourcesAsync(cancellation).ConfigureAwait(false);
 
+        // ADR-299 condition 4: the address ArcGIS Pro reaches each database at, where it differs, shown and set here.
+        IReadOnlyDictionary<Guid, string> publishers = catalog is PostgresAdminCatalog withAddresses
+            ? await withAddresses.PublisherAddressesAsync(cancellation).ConfigureAwait(false)
+            : new Dictionary<Guid, string>();
+
         // <b>The host and database are in the listing now, and the credential still is not.</b>
         // `ListDataSourcesAsync` leaves `Summary` empty on purpose — it does not hold the protector —
         // with the note that decrypting every credential *to render a list would be a lot of key use
@@ -9349,6 +9363,7 @@ internal static partial class AdminEndpoints
                 source.LayerCount,
                 summary = connection is null ? null : Summarise(connection),
                 sealedWithAnotherKey = connection is null,
+                publisherAddress = publishers.GetValueOrDefault(source.Id),
 
                 // <b>Whether this worker is holding it out of service — ADR-059.</b> A quiesce
                 // is invisible otherwise: the screen that registers a source is where somebody
@@ -11608,6 +11623,15 @@ internal static partial class AdminEndpoints
         int unpublished = 0;
         List<string> uncheckedLayers = [];
 
+        // D-407: their web maps go with them by SQL, and a map's areas and packages by cascade as rows. What each package
+        // stood for - a registered replica and a file - is read now and put away once the removal has gone through. A
+        // transfer moves the maps, so there is nothing to put away.
+        IReadOnlyList<MapAreaPackage> theirPackages = transferTo is { Length: > 0 }
+            ? []
+            : context.RequestServices.GetService<IMapAreaStore>() is { } areaStore
+                ? await areaStore.PackagesOfOwnerAsync(name, cancellation).ConfigureAwait(false)
+                : [];
+
         if (transferTo is { Length: > 0 } receiver)
         {
             if (string.Equals(name, receiver, StringComparison.OrdinalIgnoreCase))
@@ -11756,6 +11780,11 @@ internal static partial class AdminEndpoints
 
             await Refuse(context, code, why).ConfigureAwait(false);
             return;
+        }
+
+        if (theirPackages.Count > 0)
+        {
+            await MapAreaPackaging.DiscardAsync(context.RequestServices, theirPackages, CancellationToken.None).ConfigureAwait(false);
         }
 
         await AuditAsync(

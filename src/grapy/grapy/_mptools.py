@@ -209,9 +209,10 @@ def closed_between(polygon, upper, lower):
 
 
 def IsClosed3D(in_feature_class):
-    """Adds ``IsClosed`` to a multipatch class: 1 where the feature encloses a volume, 0 where it does not. INFERRED:
-    the field's type and values (SHORT, 1 and 0), which the page does not give; and the test — every edge of the
-    welded, triangulated faces used exactly twice, once in each direction (ADR-238 §5.2)."""
+    """Adds ``IsClosed`` to a multipatch class: ``Yes`` where the feature encloses a volume, ``No`` where it does not —
+    a text field, as ArcGIS Pro 3.7 writes it (measured 2026-11-08; grapy had inferred SHORT 1 and 0). INFERRED: the
+    ``No`` spelling, Pro's answer being measured only on closed boxes; and the test — every edge of the welded,
+    triangulated faces used exactly twice, once in each direction (ADR-238 §5.2)."""
     from . import da
     M.require(in_feature_class, "ddd", "IsClosed3D", "in_feature_class")
     connection, table = _gpkg.table_of(in_feature_class)
@@ -220,13 +221,13 @@ def IsClosed3D(in_feature_class):
     finally:
         connection.close()
     if "isclosed" not in names:
-        _gpkg.add_column(in_feature_class, _gpkg.Column("IsClosed", "Short"))
+        _gpkg.add_column(in_feature_class, _gpkg.Column("IsClosed", "String"))
     closed = 0
     with da.UpdateCursor(in_feature_class, ["SHAPE@", "IsClosed"]) as rows:
         for shape, _ in rows:
-            value = 1 if shape is not None and M.is_closed(shape._shape) else 0
-            closed += value
-            rows.updateRow([shape, value])
+            value = shape is not None and M.is_closed(shape._shape)
+            closed += int(value)
+            rows.updateRow([shape, "Yes" if value else "No"])
     AddMessage(f"{closed} closed multipatch feature(s).")
     return Result(in_feature_class)
 
@@ -738,7 +739,11 @@ def Intersect3D(in_feature_class_1, out_feature_class, in_feature_class_2=None, 
     else:
         cols2, two = cols1, one
         pairs = [(one[i], one[j]) for i in range(len(one)) for j in range(i + 1, len(one))]
-    columns = _joined_columns(cols1, cols2)
+    # SourceID_1 and SourceID_2, each input feature's ObjectID before its fields, as ArcGIS Pro 3.7 writes them
+    # (measured 2026-11-08).
+    joined = _joined_columns(cols1, cols2)
+    columns = [_gpkg.Column("SourceID_1", "Integer"), *joined[:len(cols1)], _gpkg.Column("SourceID_2", "Integer"),
+               *joined[len(cols1):]]
     out = []
     for a, b in pairs:
         if not _overlap(a[3], b[3]):
@@ -746,7 +751,8 @@ def Intersect3D(in_feature_class_1, out_feature_class, in_feature_class_2=None, 
         common = a[2] & b[2]
         if common.empty():
             continue
-        out.append(([*(a[1][c.name] for c in cols1), *(b[1][c.name] for c in cols2)], common.shape()))
+        out.append(([int(a[0]), *(a[1][c.name] for c in cols1), int(b[0]), *(b[1][c.name] for c in cols2)],
+                    common.shape()))
     path = M.write(out_feature_class, srid, columns, out)
     return Result(path)
 

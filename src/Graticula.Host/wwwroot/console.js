@@ -6499,6 +6499,13 @@ async function showWebMapItem(id) {
       <p class="hint" id="mapTasksSays" role="status" aria-live="polite"></p>
       <div id="mapTasksBody"><p class="hint">Reading this map's tasks…</p></div>
     </section>
+    <section id="mapAreas" aria-labelledby="mapAreasHead">
+      <h4 id="mapAreasHead" tabindex="-1">Offline areas</h4>
+      <p class="hint">An area is a part of the map packaged once for ArcGIS Field Maps to download: one file for each of the
+        map's feature services that has sync turned on. Every device that downloads it shares that file.</p>
+      <p class="hint" id="mapAreasSays" role="status" aria-live="polite"></p>
+      <div id="mapAreasBody"><p class="hint">Reading this map's areas…</p></div>
+    </section>
     <h4>Deleting</h4>
     <label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
       Protect from deletion</label>
@@ -6511,6 +6518,7 @@ async function showWebMapItem(id) {
   drawMapTabs();
   paintPreviews();
   if (map.manages) loadMapTasks(map);
+  if (map.manages) loadMapAreas(map);
 }
 
 /** The web map item's tab strip, and which tab's panel shows. */
@@ -6536,6 +6544,184 @@ function drawMapTabs() {
   const path = `#/item/${encodeURIComponent(map.id)}${mapTab === "settings" ? "?tab=settings" : ""}`;
   if (surfaceOfPath() === "studio" && routeHash() !== path) history.replaceState(null, "", pathOf(path));
 }
+
+/**
+ * Offline areas of this map — ADR-288 §11a. The list is drawn into `#mapAreasList` and redrawn after each act; the form
+ * beside it is drawn once and never replaced, so nothing being typed is lost. The act's outcome is said in `#mapAreasSays`,
+ * which is a live region outside both and is never redrawn.
+ */
+let mapAreasState = null;
+
+function sayMapAreas(text) {
+  const says = $("mapAreasSays");
+  if (says) says.textContent = text;
+}
+
+async function loadMapAreas(map) {
+  try {
+    const listing = await api(`/admin/maps/${encodeURIComponent(map.id)}/areas`);
+    if (mapOpen !== map) return;
+    mapAreasState = { map, areas: listing.areas || [], busy: false };
+    $("mapAreasBody").innerHTML = `
+      <div id="mapAreasList" tabindex="-1"></div>
+      <form id="mapAreaForm" novalidate>
+        <h5>Add an area</h5>
+        <p><label for="mapAreaTitle">Name</label>
+          <input type="text" id="mapAreaTitle" maxlength="250" autocomplete="off" required aria-describedby="mapAreaHelp"></p>
+        <fieldset>
+          <legend>Extent</legend>
+          <p class="hint" id="mapAreaHelp">The corners of the area in the reference below. Only what lies inside it is packaged.</p>
+          <p><label for="mapAreaXmin">West (xmin)</label> <input type="text" inputmode="decimal" id="mapAreaXmin" autocomplete="off">
+            <label for="mapAreaYmin">South (ymin)</label> <input type="text" inputmode="decimal" id="mapAreaYmin" autocomplete="off"></p>
+          <p><label for="mapAreaXmax">East (xmax)</label> <input type="text" inputmode="decimal" id="mapAreaXmax" autocomplete="off">
+            <label for="mapAreaYmax">North (ymax)</label> <input type="text" inputmode="decimal" id="mapAreaYmax" autocomplete="off"></p>
+          <p><label for="mapAreaWkid">Reference (WKID)</label> <input type="text" inputmode="numeric" id="mapAreaWkid" value="4326" autocomplete="off"></p>
+          <p><button type="button" id="mapAreaUseView">Use the map's opening extent</button></p>
+        </fieldset>
+        <p><button type="submit" class="btn primary" id="mapAreaAdd">Create and package</button></p>
+      </form>`;
+    drawMapAreasList();
+  } catch (e) {
+    if (mapOpen !== map) return;
+    $("mapAreasBody").innerHTML = "";
+    sayMapAreas(`This map's areas could not be read: ${e.message || e}`);
+  }
+}
+
+/** The extent as the map document states it when it opens, or null. */
+function mapAreasOpeningExtent() {
+  const doc = typeof mapOpen?.document === "string" ? JSON.parse(mapOpen.document) : (mapOpen?.document || {});
+  const box = doc?.initialState?.viewpoint?.targetGeometry;
+  const wkid = box?.spatialReference?.latestWkid || box?.spatialReference?.wkid;
+  return box && [box.xmin, box.ymin, box.xmax, box.ymax].every(Number.isFinite) && wkid ? { box, wkid } : null;
+}
+
+function drawMapAreasList() {
+  const state = mapAreasState;
+  const list = $("mapAreasList");
+  if (!state || !list) return;
+
+  const size = bytes => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
+  list.innerHTML = state.areas.length === 0
+    ? `<p class="hint">This map has no offline areas yet.</p>`
+    : `<ul class="maplayers">${state.areas.map(a => `<li>
+        <b>${h(a.title)}</b>
+        <span class="rowmeta">${h(a.status)} · packaged ${h(day(a.refreshed))} · ${num((a.packages || []).length)} package${(a.packages || []).length === 1 ? "" : "s"}
+          (${h((a.packages || []).map(p => `${p.service.split("/").pop()}, ${size(p.size)}${p.replicaRegistered ? "" : ", its replica is gone"}`).join("; ") || "none")})</span>
+        <button type="button" class="tiny" data-area-refresh="${h(a.id)}" aria-label="Refresh the area ${h(a.title)}">Refresh</button>
+        <button type="button" class="tiny danger" data-area-delete="${h(a.id)}" aria-label="Delete the area ${h(a.title)}">Delete</button>
+      </li>`).join("")}</ul>`;
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapAreasState) return;
+
+  if (t.id === "mapAreaUseView") {
+    const opening = mapAreasOpeningExtent();
+    if (!opening) {
+      sayMapAreas("This map does not state where it opens. Type the corners instead, or open it in the Map Viewer and save it.");
+      return;
+    }
+    $("mapAreaXmin").value = opening.box.xmin;
+    $("mapAreaYmin").value = opening.box.ymin;
+    $("mapAreaXmax").value = opening.box.xmax;
+    $("mapAreaYmax").value = opening.box.ymax;
+    $("mapAreaWkid").value = opening.wkid;
+    sayMapAreas("The map's opening extent is filled in.");
+    return;
+  }
+
+  const refresh = t.closest("[data-area-refresh]");
+  const remove = t.closest("[data-area-delete]");
+  if (!refresh && !remove) return;
+
+  const state = mapAreasState;
+  const id = (refresh || remove).dataset.areaRefresh || (refresh || remove).dataset.areaDelete;
+  const area = state.areas.find(a => a.id === id);
+  if (!area || state.busy) return;
+
+  const path = `/admin/maps/${encodeURIComponent(state.map.id)}/areas/${encodeURIComponent(id)}`;
+
+  if (remove) {
+    if (!await askServerConfirm({
+      title: `Delete the area ${area.title}?`,
+      body: "Its packages are deleted and their replicas unregistered. A device that downloaded it keeps its copy and cannot sync it again.",
+      action: "Delete this area",
+    })) return;
+  }
+
+  state.busy = true;
+  sayMapAreas(refresh ? `Packaging ${area.title} again…` : `Deleting ${area.title}…`);
+  try {
+    if (refresh) {
+      const done = await api(`${path}/refresh`, { method: "POST" });
+      state.areas = state.areas.map(a => a.id === id ? done : a);
+      sayMapAreas(`${area.title} is packaged again.${(done.skipped || []).length
+        ? " Kept as they were: " + done.skipped.map(s => `${s.service} (${s.reason})`).join("; ") : ""}`);
+    } else {
+      await api(path, { method: "DELETE" });
+      state.areas = state.areas.filter(a => a.id !== id);
+      sayMapAreas(`${area.title} is deleted.`);
+    }
+  } catch (e) {
+    sayMapAreas(e.message || String(e));
+  }
+  state.busy = false;
+  drawMapAreasList();
+  $("mapAreasHead")?.focus();
+});
+
+document.addEventListener("submit", async event => {
+  const form = event.target instanceof Element ? event.target.closest("#mapAreaForm") : null;
+  if (!form || !mapAreasState) return;
+  event.preventDefault();
+
+  const state = mapAreasState;
+  if (state.busy) return;
+
+  const title = $("mapAreaTitle").value.trim();
+  const corners = ["Xmin", "Ymin", "Xmax", "Ymax"].map(k => Number($("mapArea" + k).value.trim() || NaN));
+  const wkid = Number($("mapAreaWkid").value.trim());
+
+  if (!title) {
+    sayMapAreas("Give the area a name.");
+    $("mapAreaTitle").focus();
+    return;
+  }
+  if (corners.some(n => !Number.isFinite(n)) || !(wkid > 0)) {
+    sayMapAreas("Type all four corners and the reference as numbers, or use the map's opening extent.");
+    return;
+  }
+  if (corners[0] >= corners[2] || corners[1] >= corners[3]) {
+    sayMapAreas("West must be less than east, and south less than north.");
+    return;
+  }
+
+  const add = $("mapAreaAdd");
+  state.busy = true;
+  add.disabled = true;
+  sayMapAreas(`Packaging ${title}. This can take a while for a large area…`);
+  try {
+    const made = await api(`/admin/maps/${encodeURIComponent(state.map.id)}/areas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        extent: { xmin: corners[0], ymin: corners[1], xmax: corners[2], ymax: corners[3], spatialReference: { wkid } },
+      }),
+    });
+    state.areas = [...state.areas, made];
+    $("mapAreaTitle").value = "";
+    sayMapAreas(`${title} is packaged.${(made.skipped || []).length
+      ? " Left out: " + made.skipped.map(s => `${s.service} (${s.reason})`).join("; ") : ""}`);
+  } catch (e) {
+    sayMapAreas(e.message || String(e));
+  }
+  state.busy = false;
+  add.disabled = false;
+  drawMapAreasList();
+});
 
 /**
  * ArcGIS Field Maps tasks for this map — ADR-286. Drawn in two parts so nothing a person is typing in is replaced:
@@ -23754,25 +23940,46 @@ function askName(asked) {
     const wanted = box.value.trim();
 
     // <b>An empty box is not an error while somebody is still typing into it.</b> It is the state
-    // the dialog opens in when a name is being replaced rather than edited.
-    const why = !wanted ? "" : (asked.check ? asked.check(wanted) : null);
+    // the dialog opens in when a name is being replaced rather than edited. Where empty is an answer — a setting
+    // being cleared (`allowEmpty`) — it is accepted.
+    // Something still being typed (`unfinished`, e.g. an address ending in a dot) is neither accepted nor called wrong.
+    const pending = Boolean(wanted && asked.unfinished && asked.unfinished(wanted));
+    const why = !wanted || pending ? "" : (asked.check ? asked.check(wanted) : null);
 
-    says.textContent = why || (asked.preview ? asked.preview(wanted) : "");
+    // Written only when it changes, so the live region speaks a new sentence, not the same one on every keystroke.
+    const next = why || (asked.preview ? asked.preview(wanted) : "");
+    if (says.textContent !== next) says.textContent = next;
     says.classList.toggle("bad-inline", Boolean(why));
-    done.disabled = !wanted || Boolean(why);
+    box.setAttribute("aria-invalid", why ? "true" : "false");
+    done.disabled = (!wanted && !asked.allowEmpty) || pending || Boolean(why);
   };
 
-  const shut = () => {
+  /*
+    <b>Every way out runs the same cleanup — a design review, 2026-11-13.</b> Escape closes a <dialog> natively and never
+    reached `shut`, so the listeners stayed on the shared box and button, and the next dialog's Save ran the previous
+    accept as well: a rename cancelled with Escape renamed something with the next dialog's text. The cleanup is the
+    dialog's own close event now, and it puts the focus back where the dialog was opened from — the row's ⋯ when the
+    opener was inside a menu that closed behind it, which otherwise left the focus on the page.
+  */
+  const opener = document.activeElement;
+  const back = asked.back
+    || (() => opener?.closest?.("details")?.querySelector("summary") || opener);
+
+  const cleanup = () => {
     box.removeEventListener("input", judge);
     box.removeEventListener("keydown", onKey);
     done.removeEventListener("click", accept);
-    dialog.close();
+    const target = back();
+    if (target && target.isConnected) target.focus();
   };
+
+  const shut = () => dialog.close();
 
   const accept = () => {
     const wanted = box.value.trim();
 
-    if (!wanted || (asked.check && asked.check(wanted))) return;
+    if ((!wanted && !asked.allowEmpty) || (wanted && asked.unfinished && asked.unfinished(wanted))
+      || (wanted && asked.check && asked.check(wanted))) return;
 
     shut();
     asked.then(wanted);
@@ -23793,7 +24000,9 @@ function askName(asked) {
 
   $("renameCancel").onclick = shut;
   $("renameClose").onclick = shut;
+  dialog.addEventListener("close", cleanup, { once: true });
 
+  says.textContent = "";
   judge();
   dialog.showModal();
   box.focus();
@@ -25692,6 +25901,7 @@ async function loadSources() {
                   title="This server's own hosted store: its connection comes from the Graticula:PlatformStore setting on every start, so it is neither edited here nor removed.">built-in</span>`
             : ""}
           <div class="rowmeta">${sourcePlatformSays(d)}</div>
+          ${d.publisherAddress ? `<div class="rowmeta">ArcGIS Pro reaches it at <code>${h(d.publisherAddress)}</code></div>` : ""}
           ${d.quiesced ? sourceHeldSays(d.quiesced, d.sharesWith) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
@@ -25725,7 +25935,10 @@ async function loadSources() {
                         data-source-platform="${h(d.platform || "")}"
                         data-source-authentication="${h(d.authentication || "")}"
                         data-source-summary="${h(d.summary || "")}"
-                        data-source-layers="${num(d.layerCount)}">Edit…</button>
+                        data-source-layers="${num(d.layerCount)}">Edit…</button>${d.kind === "postgis" && !d.sealedWithAnotherKey ? `
+                      <button type="button" data-source-publisher="${h(d.id)}" data-source-name="${h(d.name)}"
+                        data-source-summary="${h(d.summary || "")}"
+                        data-source-address="${h(d.publisherAddress || "")}">Publisher address…</button>` : ""}
                       <button type="button" class="danger" data-source-remove="${h(d.id)}"
                         data-source-name="${h(d.name)}"
                         data-source-layers="${num(d.layerCount)}">Remove…</button>
@@ -25818,6 +26031,58 @@ function sourceHeldSays(held, shares) {
  * @param {number} layers how many layers depend on it
  * @returns {Promise<void>} when it is held, or refused
  */
+/**
+ * Server › Data sources › ⋯ › Publisher address — ADR-299 condition 4: the address ArcGIS Pro reaches this database at,
+ * when it is not the one this server uses (a container name here, <code>localhost,55499</code> on a publisher's
+ * machine). Pro shares a layer by reference only when its connection names a registered database, so this is the
+ * address it is compared with. Only the address is kept; the database, the user and the password stay the source's.
+ *
+ * @param {string} id the source
+ * @param {string} name its name, for the title
+ * @param {string} summary where this server reaches it, said beside the box
+ * @param {string} current the address set now, or empty
+ */
+function askPublisherAddress(id, name, summary, current) {
+  const shape = /^([A-Za-z0-9](?:[A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?:,(\d{1,5}))?$/;
+
+  askName({
+    title: `Publisher address — ${name}`,
+    label: "Where ArcGIS Pro connects to this database",
+    value: current || "",
+    action: "Save",
+    allowEmpty: true,
+    // db. and db.example.org, are on their way to an address, not mistakes (a design review, 2026-11-13).
+    unfinished: typed => /[.,]$/.test(typed.trim()),
+    check: typed => {
+      const m = shape.exec(typed.replace(/\s+/g, ""));
+      if (!m || (m[2] && (Number(m[2]) < 1 || Number(m[2]) > 65535))) {
+        return "A host, or a host and a port after a comma — db.example.org or db.example.org,5433 — as Pro shows it in the connection's properties.";
+      }
+      return null;
+    },
+    // Not echoing what is typed, so the sentence changes only between the two states and is spoken once each.
+    preview: typed => typed
+      ? `Pro's layers at this address are matched to this source when the database and the user are the same. This server keeps reading it at ${summary || "its own address"}.`
+      : `Empty: Pro is matched at this server's own address${summary ? ` (${summary})` : ""}. Set one only when Pro reaches the database somewhere else.`,
+    then: async typed => {
+      try {
+        const r = await api(`/admin/datasources/${encodeURIComponent(id)}/publisher-address`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: typed || null }),
+        });
+        toast(r.publisherAddress ? `${name}: ArcGIS Pro reaches it at ${r.publisherAddress}.` : `${name}: no publisher address.`, true);
+      } catch (e) {
+        toast(e.message);
+      }
+      await loadSources();
+
+      // The list is drawn again, so the focus goes back to this row's ⋯ rather than to the top of the page.
+      document.querySelector(`[data-source-publisher="${CSS.escape(id)}"]`)?.closest("details")?.querySelector("summary")?.focus();
+    },
+  });
+}
+
 async function quiesceSource(id, name, layers, shares, sharedLayerCount) {
   const dialog = $("quiesce");
   const minutes = $("quiesceMinutes");
@@ -33266,6 +33531,11 @@ async function handleClick(event) {
       layers: Number(d.sourceLayers) || 0,
     });
 
+    return;
+  }
+
+  if (d.sourcePublisher) {
+    askPublisherAddress(d.sourcePublisher, d.sourceName, d.sourceSummary, d.sourceAddress);
     return;
   }
 

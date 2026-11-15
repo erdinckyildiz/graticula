@@ -113,14 +113,15 @@ def SurfaceLength(in_surface, in_feature_class, out_length_field=None, sample_di
     as the default) and every ``sample_distance`` when given, as AddSurfaceInformation's SURFACE_LENGTH is.
     ``z_factor`` multiplies the heights before the length is measured.
 
-    INFERRED (ADR-245 §5.6): the page names no default field, so it is ``SURFACE_LENGTH``, AddSurfaceInformation's
-    name for the same property; the field is a double, written over when it exists; a feature any part of which is off
-    the surface or over NoData gets an empty value on a raster, and is measured where it is on the data area of a
-    triangulated surface, as AddSurfaceInformation does."""
+    The default field is ``SLength``, as ArcGIS Pro 3.7 names it (measured 2026-11-08; grapy had inferred
+    ``SURFACE_LENGTH``). INFERRED (ADR-245 §5.6): the field is a double, written over when it exists; a feature any
+    part of which is off the surface or over NoData gets an empty value on a raster (Pro measures such a line, over
+    its part on the data — recorded by the ddd sweep, rule not derived), and is measured where it is on the data area
+    of a triangulated surface, as AddSurfaceInformation does."""
     from . import da, _tintools
     tool = "SurfaceLength"
     kind, surface = _surface(in_surface, tool, method, pyramid_level_resolution)
-    field, shape_type = _field(in_feature_class, out_length_field if _given(out_length_field) else "SURFACE_LENGTH")
+    field, shape_type = _field(in_feature_class, out_length_field if _given(out_length_field) else "SLength")
     if shape_type not in ("Polyline", "Polygon"):
         raise ExecuteError(f"{tool}: only polyline and polygon feature classes are valid inputs, as the page says.")
     zf = float(z_factor) if _given(z_factor) else 1.0

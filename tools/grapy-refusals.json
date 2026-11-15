@@ -807,7 +807,6 @@
    "EditSignatures": "merged signatures by the pooled mean and covariance of their classes' cells (Chan, Golub and LeVeque 1979, Updating formulae and a pairwise algorithm for computing sample variances, Stanford CS-79-773; How Dendrogram works (pooled statistics of a merged class))",
    "ElevationVoidFill": "inverse distance weighting (power 2) from the cells bordering each void (Shepard, Proc. 23rd ACM National Conference, 1968)",
    "Expand": "zone growth by morphological dilation, or by Euclidean distance (Serra 1982, Image Analysis and Mathematical Morphology, ch. 2; Danielsson 1980, Computer Graphics and Image Processing 14)",
-   "Filter": "3 × 3 low-pass (mean) and high-pass (Laplacian, centre 8) filters (Gonzalez and Woods, Digital Image Processing, 3rd ed., §3.5–3.6)",
    "FuzzyMembership": "the fuzzy membership functions in the forms of Esri's transformation-function formulas (Esri, Formulas for the transformation functions (Spatial Analyst reference), which give the same shapes as text; hedges after Zadeh 1972, A fuzzy-set-theoretic interpretation of linguistic hedges)",
    "InspectTrainingSamples": "each training sample's share of cells the classifier definition classifies as its class (the accuracy score of Inspect Training Samples' page (correct cells over the sample's cells), with the classifier definition's own rule)",
    "KernelDensity": "the quartic (biweight) kernel density estimate with Silverman's rule-of-thumb bandwidth (Silverman 1986, Density Estimation for Statistics and Data Analysis, eq. 4.5 and §3.4.2)",

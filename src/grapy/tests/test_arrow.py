@@ -5,6 +5,7 @@ import json
 import os
 import struct
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -24,6 +25,7 @@ except ImportError:  # pragma: no cover — CI's grapy jobs and the image instal
 class TableToArrowTable(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
         self.fc = os.path.join(self.directory, "parcels.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "parcels.gpkg", "POLYGON", spatial_reference=4326)
@@ -47,13 +49,13 @@ class TableToArrowTable(unittest.TestCase):
     def test_field_types_and_metadata_follow_the_page(self):
         schema = arcpy.da.TableToArrowTable(self.fc).schema
         types = {f.name: f.type for f in schema}
-        self.assertEqual(types["fid"], pa.int64())
-        self.assertEqual(schema.field("fid").metadata, {b"esri.oid": b"esri.int64"})
+        self.assertEqual(types["OBJECTID"], pa.int64())  # Pro's names, measured (ADR-289 §5.1)
+        self.assertEqual(schema.field("OBJECTID").metadata, {b"esri.oid": b"esri.int64"})
         self.assertEqual((types["code"], types["area"], types["name"]), (pa.int16(), pa.float64(), pa.string()))
         self.assertEqual(types["seen"], pa.timestamp("ms"))
         self.assertEqual(types["doc"], pa.binary())
         self.assertEqual(schema.field("doc").metadata, {b"esri.interop.type": b"esri.blob"})
-        shape = schema.field("geom")
+        shape = schema.field("Shape")
         self.assertEqual(shape.type, pa.binary())
         self.assertEqual(shape.metadata[b"esri.encoding"], b"EsriShape")
         self.assertIn(b"GCS_WGS_1984", shape.metadata[b"esri.sr_wkt"])
@@ -66,7 +68,7 @@ class TableToArrowTable(unittest.TestCase):
         self.assertEqual(table.column("seen")[0].as_py(), datetime.datetime(2026, 10, 31, 12, 30))
 
     def test_esri_shape_is_the_technical_descriptions_polygon_record(self):
-        record = arcpy.da.TableToArrowTable(self.fc, ["geom"]).column("geom").to_pylist()
+        record = arcpy.da.TableToArrowTable(self.fc, ["Shape"]).column("Shape").to_pylist()
         # Polygon (5), box, one part, five points, part 0 at 0, the ring clockwise from (0, 0).
         ring = [(0, 0), (0, 1), (1, 1), (1, 0), (0, 0)]
         expected = struct.pack("<i4dii", 5, 0, 0, 1, 1, 1, 5) + struct.pack("<i", 0) + b"".join(
@@ -80,14 +82,14 @@ class TableToArrowTable(unittest.TestCase):
                                             spatial_reference=4326)
         with arcpy.da.InsertCursor(fc, ["SHAPE@"]) as rows:
             rows.insertRow((arcpy.PointGeometry(arcpy.Point(3, 4, 5), 4326, True),))
-        shape = arcpy.da.TableToArrowTable(fc).column("geom")[0].as_py()
+        shape = arcpy.da.TableToArrowTable(fc).column("Shape")[0].as_py()
         self.assertEqual(shape, struct.pack("<idddd", 11, 3, 4, 5, -1e39))
         wkt = arcpy.da.TableToArrowTable(fc, geometry_encoding="WKT")
-        self.assertEqual(wkt.schema.field("geom").type, pa.string())
-        self.assertEqual(wkt.column("geom")[0].as_py(), "POINT Z (3 4 5)")
-        self.assertEqual(json.loads(arcpy.da.TableToArrowTable(fc, geometry_encoding="GEOJSON").column("geom")[0]
+        self.assertEqual(wkt.schema.field("Shape").type, pa.string())
+        self.assertEqual(wkt.column("Shape")[0].as_py(), "POINT Z (3 4 5)")
+        self.assertEqual(json.loads(arcpy.da.TableToArrowTable(fc, geometry_encoding="GEOJSON").column("Shape")[0]
                                     .as_py())["coordinates"], [3.0, 4.0, 5.0])
-        self.assertEqual(json.loads(arcpy.da.TableToArrowTable(fc, geometry_encoding="ESRIJSON").column("geom")[0]
+        self.assertEqual(json.loads(arcpy.da.TableToArrowTable(fc, geometry_encoding="ESRIJSON").column("Shape")[0]
                                     .as_py())["x"], 3.0)
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.da.TableToArrowTable(fc, geometry_encoding="KML")
@@ -101,12 +103,12 @@ class TableToArrowTable(unittest.TestCase):
         arcpy.conversion.ExportToParquet(self.fc, out)
         read = pq.read_table(out)
         geo = json.loads(read.schema.metadata[b"geo"])
-        self.assertEqual((geo["version"], geo["primary_column"]), ("1.1.0", "geom"))
-        self.assertEqual(geo["columns"]["geom"]["encoding"], "WKB")
-        self.assertEqual(geo["columns"]["geom"]["bbox"], [0.0, 0.0, 1.0, 1.0])
-        self.assertEqual(geo["columns"]["geom"]["crs"]["id"]["code"], 4326)
+        self.assertEqual((geo["version"], geo["primary_column"]), ("1.1.0", "Shape"))  # Pro's names, measured (ADR-289 §5.1)
+        self.assertEqual(geo["columns"]["Shape"]["encoding"], "WKB")
+        self.assertEqual(geo["columns"]["Shape"]["bbox"], [0.0, 0.0, 1.0, 1.0])
+        self.assertEqual(geo["columns"]["Shape"]["crs"]["id"]["code"], 4326)
         import shapely
-        self.assertEqual(shapely.from_wkb(read.column("geom")[0].as_py()).area, 1.0)
+        self.assertEqual(shapely.from_wkb(read.column("Shape")[0].as_py()).area, 1.0)
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.conversion.ExportToParquet(self.fc, os.path.join(self.directory, "parcels.txt"))
 

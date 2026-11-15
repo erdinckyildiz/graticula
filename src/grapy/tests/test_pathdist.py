@@ -7,6 +7,7 @@ row r and column k has its centre at (5 + 10k, rows·10 − 5 − 10r).
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -52,6 +53,8 @@ def one(value, shape):
 class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 

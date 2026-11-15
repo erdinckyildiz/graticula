@@ -6,7 +6,7 @@
 | **Confidence** | `HIGH` |
 | **Decided** | 2026-09-23, by the owner, asked after the third ArcGIS review (V-61): *"Şimdilik yok, kayda geç"* — not for now, put it on record. |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-288](ADR-288-offline-sync-is-in.md), 2026-11-10, by owner decision: *"Çevrimdışını açalım"* |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -73,6 +73,10 @@ is better than advertising a surface that fails on a device in a place with no s
 - V-29 (second review) and V-61 (third review), both measuring the same absence.
 
 ## 5. Decision
+
+> **Superseded 2026-11-10 by [ADR-288](ADR-288-offline-sync-is-in.md), owner decision: offline sync is in.** Both
+> revisit triggers in §9 had fired — a device with Field Maps exists (ADR-077 condition 5) and the owner asked. What
+> follows is the decision as it stood, kept so the reversal can be read against it.
 
 > **Amended 2026-09-29 by [ADR-098](ADR-098-vector-tiles-can-be-exported-as-a-package.md), owner decision: offline *tiles* are in, offline *sync* is
 > not.** A vector tile service may now offer ArcGIS's `exportTiles` — off for every service until its owner turns it

@@ -6,6 +6,7 @@ test.
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -24,6 +25,8 @@ def box(x0, y0, x1, y1):
 class Round2(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.outputCoordinateSystem = None
         self.parcels = self.make("parcels", "POLYGON", [("name", "TEXT"), ("kind", "TEXT"), ("value", "DOUBLE"),
@@ -93,7 +96,7 @@ class Round2(unittest.TestCase):
         total.mergeRule = "Sum"
         mappings.replaceFieldMap(mappings.findFieldMapIndex("extra"), total)
         merged = arcpy.management.Merge([self.parcels, others], self.out("m.gpkg"), mappings)[0]
-        self.assertEqual([f.name for f in arcpy.ListFields(merged)][1:-1], ["label", "value", "extra"])
+        self.assertEqual([f.name for f in arcpy.ListFields(merged)][2:], ["label", "value", "extra"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
         # extra is extra + value of each parcel, nulls left out; the other input has no extra and no value input there.
         self.assertEqual(self.rows(merged, ["label", "value", "extra"]),
                          [("p0", 1.0, 11.0), ("p1", 2.0, 2.0), ("p2", 4.0, 34.0), ("x", 9.0, None)])
@@ -208,8 +211,9 @@ class Round2(unittest.TestCase):
         self.assertEqual(self.rows(out, ["name", "year", "count"]),
                          [("A", "2020", "1"), ("A", "2021", "2"), ("B", "2020", "3"), ("B", "2021", None)])
         shaped = arcpy.management.TransposeFields(self.parcels, "value;extra", self.out("ts.gpkg"), "f", "v", "Shape;name")[0]
-        self.assertEqual(self.rows(shaped, ["name", "f", "v", "SHAPE@AREA"])[:2], [("p0", "value", "1.0", 2500.0),
-                                                                              ("p0", "extra", "10.0", 2500.0)])
+        # A whole double is written without ".0": measured in ArcGIS Pro 3.7, 2026-11-08 (10.0 -> "10"; was "10.0").
+        self.assertEqual(self.rows(shaped, ["name", "f", "v", "SHAPE@AREA"])[:2], [("p0", "value", "1", 2500.0),
+                                                                              ("p0", "extra", "10", 2500.0)])
 
     # ---- random points
 
@@ -254,10 +258,11 @@ class Round2(unittest.TestCase):
                                            "BOTTOM", "CELLSIZEX", "COLUMNCOUNT", "ROWCOUNT", "BANDCOUNT", "ANYNODATA",
                                            "ALLNODATA")],
                          ["1", "11", "6", "11", "30", "0", "40", "0", "10", "4", "3", "1", "1", "0"])
-        # 1..11: mean 6, squares summing to 110, so the population variance is 10.
-        self.assertAlmostEqual(float(ask("STD")), 10 ** 0.5)
-        with self.assertRaises(arcpy.NotBuiltError):
-            ask("CLOUDCOVER")
+        # 1..11: mean 6, squares summing to 110, so the sample variance is 110 / 10 = 11 — Pro's STD is the sample one
+        # (n - 1), measured in ArcGIS Pro 3.7, 2026-11-08 (this pinned the population form, 10).
+        self.assertAlmostEqual(float(ask("STD")), 11 ** 0.5)
+        # A raster with no sensor metadata: Pro answers UNKNOWN (measured 2026-11-08; this pinned a refusal).
+        self.assertEqual(ask("CLOUDCOVER"), "UNKNOWN")
 
     def test_clip_keeps_the_cells_where_they_lie(self):
         path = self.grid()
@@ -279,8 +284,10 @@ class Round2(unittest.TestCase):
             self.assertEqual((read.dtypes[0], read.nodata), ("int16", 5.0))
         self.assertEqual(self.cells(copied)[1], [None, 6, 7, 8])
         big = self.raster([[1, 300]], name="big.tif")
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.management.CopyRaster(big, self.out("small.tif"), pixel_type="8_BIT_UNSIGNED")
+        # 300 is clamped to 255, a valid value, as Pro writes it (measured in ArcGIS Pro 3.7, 2026-11-08); this was
+        # refused as not built before.
+        small = arcpy.management.CopyRaster(big, self.out("small.tif"), pixel_type="8_BIT_UNSIGNED")[0]
+        self.assertEqual(self.cells(small), [[1, 255]])
         self.assertEqual(self.cells(arcpy.management.Flip(path, self.out("f.tif"))[0])[0], [9, 10, 11, None])
         self.assertEqual(self.cells(arcpy.management.Mirror(path, self.out("mi.tif"))[0])[0], [4, 3, 2, 1])
         moved = arcpy.Raster(arcpy.management.Shift(path, self.out("s.tif"), 5, -10)[0])

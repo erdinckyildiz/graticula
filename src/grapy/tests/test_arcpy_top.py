@@ -5,6 +5,7 @@ import math
 import os
 import sqlite3
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -30,8 +31,11 @@ class _Folder(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
         _runtime.env._reset()
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
+        self.addCleanup(setattr, arcpy.env, "scratchWorkspace", arcpy.env.scratchWorkspace)
         arcpy.env.scratchWorkspace = self.directory
         self.pts = os.path.join(self.directory, "pts.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "pts.gpkg", "POINT", spatial_reference=3857)
@@ -68,17 +72,40 @@ class Workspace(_Folder):
         self.assertEqual(arcpy.ListWorkspaces(), [os.path.join(d, n) for n in ("multi.gpkg", "pts.gpkg", "sub", "t.gpkg")])
         self.assertEqual(arcpy.ListWorkspaces("*", "Folder"), [os.path.join(d, "sub")])
         self.assertEqual(arcpy.ListFiles("*.csv"), ["x.csv"])
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = os.path.join(d, "multi.gpkg")
         self.assertEqual(arcpy.ListFeatureClasses(), ["parcels", "roads"])
         self.assertEqual(arcpy.ListFiles(), [])
+
+    def test_list_feature_classes_inside_and_outside_a_feature_dataset(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-12, in a file geodatabase: the root lists only "top"; feature_dataset
+        # "ds" lists ["inner", "inpt"]; with feature_type Point ["inpt"]; a dataset that does not exist answers [].
+        # grapy listed "ds/inner" and "ds/inpt" at the root and nothing for "ds".
+        gdb = arcpy.management.CreateFileGDB(self.directory, "fd")[0]
+        arcpy.management.CreateFeatureDataset(gdb, "ds", 32635)
+        arcpy.management.CreateFeatureclass(gdb, "top", "POINT", spatial_reference=32635)
+        arcpy.management.CreateFeatureclass(os.path.join(gdb, "ds"), "inner", "POLYLINE", spatial_reference=32635)
+        arcpy.management.CreateFeatureclass(os.path.join(gdb, "ds"), "inpt", "POINT", spatial_reference=32635)
+        arcpy.env.workspace = gdb
+        self.assertEqual(arcpy.ListFeatureClasses(), ["top"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_dataset=""), ["top"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_dataset="ds"), ["inner", "inpt"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_type="Point", feature_dataset="ds"), ["inpt"])
+        self.assertEqual(arcpy.ListFeatureClasses("inn*", feature_dataset="ds"), ["inner"])
+        self.assertEqual(arcpy.ListFeatureClasses(feature_dataset="nope"), [])
 
     def test_list_indexes_and_field_domains(self):
         connection = sqlite3.connect(self.pts)
         connection.execute('create unique index ix_name on pts ("name")')
         connection.commit()
         connection.close()
-        (index,) = arcpy.ListIndexes(self.pts)
-        self.assertEqual((index.name, index.fields, index.isUnique, index.isAscending), ("ix_name", ["name"], True, True))
+        # The user's index first, then the spatial index and the object ID's, as Pro lists them (ADR-289 §5.1).
+        index, *system = arcpy.ListIndexes(self.pts)
+        self.assertEqual([i.name for i in system], ["rtree_pts_Shape", "FDO_OBJECTID"])
+        # An index's fields are Field objects, as ArcGIS Pro 3.7 answers (measured 2026-11-08, the Pro sweep); this
+        # test compared names before.
+        self.assertEqual((index.name, [f.name for f in index.fields], index.isUnique, index.isAscending),
+                         ("ix_name", ["name"], True, True))
         self.assertEqual(arcpy.ListIndexes(self.pts, "zz*"), [])
         arcpy.management.CreateDomain(self.pts, "kinds", "Kinds", "TEXT", "CODED")
         arcpy.management.AddCodedValueToDomain(self.pts, "kinds", "a", "Apple")
@@ -188,8 +215,11 @@ class Values(unittest.TestCase):
         utm = arcpy.FromCoordString("31N 500000 0", "UTM")
         self.assertAlmostEqual(utm.firstPoint.X, 3.0)
         self.assertAlmostEqual(utm.firstPoint.Y, 0.0)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "MGRS"):
-            arcpy.FromCoordString("11SMT8186968515", "MGRS")
+        # MGRS is built since the Pro sweep (ArcGIS Pro 3.7 measured 2026-11-08); this test pinned its refusal before.
+        # The page's MGRS for the same place, to the metre its digits hold.
+        mgrs = arcpy.FromCoordString("11SMT8186968515", "MGRS")
+        self.assertAlmostEqual(mgrs.firstPoint.Y, 34.0571957, places=4)
+        self.assertAlmostEqual(mgrs.firstPoint.X, -117.1964702, places=4)
 
     def test_environments(self):
         self.assertEqual(arcpy.ListEnvironments("work*"), ["workspace"])
@@ -212,18 +242,31 @@ class Values(unittest.TestCase):
         self.assertEqual(arcpy.GetSystemEnvironment("TEMP"), os.environ.get("TEMP") or os.environ.get("TMP"))
 
     def test_messages_read_back(self):
-        arcpy.AddMessage("a")
-        arcpy.AddWarning("b")
-        arcpy.AddError("c")
-        self.assertEqual((arcpy.GetMessage(1), arcpy.GetSeverity(2), arcpy.GetMaxSeverity()), ("b", 2, 2))
-        self.assertEqual((arcpy.GetReturnCode(0), arcpy.GetReturnCode(2)), (0, -2147467259))
-        self.assertEqual(arcpy.GetAllMessages(), [[0, 0, "a"], [50, 0, "b"], [100, -2147467259, "c"]])
-        arcpy.AddReturnMessage(1)
-        self.assertEqual((arcpy.GetMessageCount(), arcpy.GetSeverity(3), arcpy.GetMessage(3)), (4, 1, "b"))
+        # Since ADR-289 §5.3 the messages read back are the last tool's, as in ArcGIS Pro 3.7 (measured 2026-11-12):
+        # this test read a script's own AddMessage, AddWarning and AddError back, which Pro prints and does not keep.
+        # The tool's own messages and return codes are pinned in test_messages.py.
+        folder = tempfile.mkdtemp()
+        arcpy.management.CreateFeatureclass(folder, "p.gpkg", "POINT", spatial_reference=3857)
+        arcpy.management.GetCount(os.path.join(folder, "p.gpkg"))
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):   # printed, as Pro prints them
+            arcpy.AddMessage("a")
+            arcpy.AddWarning("b")
+            arcpy.AddError("c")
+            self.assertEqual([m[0] for m in arcpy.GetAllMessages()], [2, 3])
+            self.assertEqual((arcpy.GetSeverity(1), arcpy.GetMaxSeverity(), arcpy.GetReturnCode(1)), (0, 0, 0))
+            arcpy.AddReturnMessage(1)
+        self.assertEqual(arcpy.GetMessageCount(), 2)
         self.assertEqual(arcpy.GetSeverityLevel(), 2)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "severity_level 0"):
-            arcpy.SetSeverityLevel(0)
-        self.assertEqual(arcpy.GetArgumentCount(), len(_runtime.PARAMETERS))
+        # Levels 0 and 1 are built since ADR-289 §5.3 (test_messages.py); this test expected 0 to be refused.
+        with arcpy.SeverityLevel(0):
+            self.assertEqual(arcpy.GetSeverityLevel(), 0)
+        self.assertEqual(arcpy.GetSeverityLevel(), 2)
+        # Outside a tool run the arguments are the script's, as ArcGIS Pro 3.7 counts them (measured 2026-11-08, the
+        # Pro sweep); this test compared with the empty parameter list before.
+        import sys
+        self.assertEqual(arcpy.GetArgumentCount(), len(_runtime.PARAMETERS) or len(sys.argv) - 1)
 
     def test_value_table_and_field_info(self):
         table = arcpy.ValueTable(2)
@@ -234,7 +277,9 @@ class Values(unittest.TestCase):
         self.assertEqual(table.exportToString(), "'c:/temp/land use.shp' 2;roads 5")
         again = arcpy.ValueTable()
         again.loadFromString(table.exportToString())
-        self.assertEqual(again.getRow(0), "'c:/temp/land use.shp' 2")
+        # Every value quoted, as ArcGIS Pro 3.7's getRow answers (measured 2026-11-08, the Pro sweep); this test said
+        # "'c:/temp/land use.shp' 2" before Pro was measured.
+        self.assertEqual(again.getRow(0), "'c:/temp/land use.shp' '2'")
         typed = arcpy.ValueTable(["GPString", "GPLong"])
         typed.addRow("a 7")
         self.assertEqual(typed.getTrueRow(0), ["a", 7])
@@ -377,8 +422,10 @@ class LegacyAndScriptTools(_Folder):
             arcpy.CreateObject("ArcSDESQLExecute")
         with arcpy.SeverityLevel(2):
             self.assertEqual(arcpy.GetSeverityLevel(), 2)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "severity_level 1"):
-            arcpy.SeverityLevel(1)
+        # Level 1 is built since ADR-289 §5.3, measured in ArcGIS Pro 3.7 (2026-11-12); this expected a refusal.
+        with arcpy.SeverityLevel(1):
+            self.assertEqual(arcpy.GetSeverityLevel(), 1)
+        self.assertEqual(arcpy.GetSeverityLevel(), 2)
         self.assertTrue(arcpy.IsSynchronous("Buffer"))
         self.assertTrue(arcpy.Value("").isEmpty)
         self.assertIs(arcpy.SearchNeighborhoodStandardCircular, arcpy.ga.SearchNeighborhoodStandardCircular)

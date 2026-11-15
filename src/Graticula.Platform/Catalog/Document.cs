@@ -486,6 +486,9 @@ public interface IDocumentStore
     /// <param name="kind">What it is, already decided.</param>
     /// <param name="content">Its bytes.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="given">
+    /// The id the server already gave the item — a portal multipart upload's, from <c>addItem</c> — or null for a fresh one.
+    /// </param>
     /// <returns>The document as stored.</returns>
     Task<Document> CreateAsync(
         string title,
@@ -495,7 +498,8 @@ public interface IDocumentStore
         string fileName,
         DocumentKind kind,
         byte[] content,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Guid? given = null);
 
     /// <summary>
     /// Keeps a new document whose bytes are a file in the server directories rather than in the store — a scene layer
@@ -511,7 +515,8 @@ public interface IDocumentStore
         long size,
         string contentFile,
         string sha256,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Guid? given = null);
 
     /// <summary>
     /// Every file the store's rows name (ADR-274), relative to the server directories, for the sweep — every

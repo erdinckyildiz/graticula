@@ -4,6 +4,7 @@ Everything is on EPSG:3857, so a distance of "N Meters" is N data units and ever
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -32,6 +33,8 @@ def line(*points):
 class Analysis(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
 
@@ -127,11 +130,13 @@ class Analysis(unittest.TestCase):
         points = self.make("pts", "POINT", [("name", "TEXT")],
                            [("a", point(0, 0)), ("b", point(100, 0)), ("c", point(0, 100)), ("d", point(100, 100))])
         out = arcpy.analysis.CreateThiessenPolygons(points, self.out("t"), "ALL").getOutput(0)
-        # The frame is (−10, −10)–(110, 110); the bisectors x = 50 and y = 50 leave each point a 60 × 60 cell.
+        # The frame is the extent a tenth larger, 5 on each side: (−5, −5)–(105, 105); the bisectors x = 50 and y = 50
+        # leave each point a 55 × 55 cell. (This test pinned 10 on each side, 60 × 60, until Pro 3.7 was measured on
+        # 2026-11-08 and its frame was 1.0999 times the points' extent.)
         self.assertEqual(sorted(self.rows(out, ["Input_FID", "name", "SHAPE@AREA"])),
-                         [(1, "a", 3600.0), (2, "b", 3600.0), (3, "c", 3600.0), (4, "d", 3600.0)])
+                         [(1, "a", 3025.0), (2, "b", 3025.0), (3, "c", 3025.0), (4, "d", 3025.0)])
         only = arcpy.analysis.CreateThiessenPolygons(points, self.out("o")).getOutput(0)
-        self.assertEqual([f.name for f in arcpy.ListFields(only)][1:-1], ["Input_FID"])
+        self.assertEqual([f.name for f in arcpy.ListFields(only)][2:], ["Input_FID"])  # the table's own order, as Pro answers it (ADR-289 §5.1)
 
     # ---- overlay
 
@@ -145,8 +150,9 @@ class Analysis(unittest.TestCase):
                          [(1, 1, 1250.0), (1, 1, 1250.0), (2, 1, 1250.0)])
         result = arcpy.analysis.CountOverlappingFeatures([left, right], self.out("c2"), 2, self.out("t"))
         self.assertEqual(self.rows(result.getOutput(0), ["COUNT_", "COUNT_FC", "SHAPE@AREA"]), [(2, 2, 1250.0)])
+        # ORIG_NAME is the input's path, as Pro 3.7 writes it (measured 2026-11-08; this test pinned the bare name).
         self.assertEqual(self.rows(result.getOutput(1), ["OVERLAP_OID", "ORIG_OID", "ORIG_NAME"]),
-                         [(1, 1, "left"), (1, 1, "right")])
+                         [(1, 1, left), (1, 1, right)])
         points = self.make("pts", "POINT", [], [(point(0, 0),), (point(0, 0),), (point(5, 5),)])
         counted = arcpy.analysis.CountOverlappingFeatures(points, self.out("cp"), 2).getOutput(0)
         self.assertEqual(self.rows(counted, ["COUNT_", "SHAPE@XY"]), [(2, (0.0, 0.0))])
@@ -158,7 +164,9 @@ class Analysis(unittest.TestCase):
         base = self.make("base", "POLYGON", [("name", "TEXT"), ("kind", "TEXT")], [("in", "k", square(0, 0, 100))])
         update = self.make("upd", "POLYGON", [("name", "TEXT")], [("up", square(50, 0, 100))])
         out = arcpy.analysis.Update(base, update, self.out("u")).getOutput(0)
-        self.assertEqual(self.rows(out, ["name", "kind", "SHAPE@AREA"]), [("in", "k", 5000.0), ("up", None, 10000.0)])
+        # A field the update polygons lack is '' (0 in a number), not null, as Pro 3.7 writes it (measured 2026-11-08;
+        # this test pinned None).
+        self.assertEqual(self.rows(out, ["name", "kind", "SHAPE@AREA"]), [("in", "k", 5000.0), ("up", "", 10000.0)])
         with self.assertRaises(arcpy.NotBuiltError):
             arcpy.analysis.Update(base, update, self.out("nb"), "NO_BORDERS")
 

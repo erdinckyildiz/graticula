@@ -56,14 +56,21 @@ def _current_year():
 class _Time:
     _fields = ()
 
+    _keyword = ""
+
     def __repr__(self):
         return f"{type(self).__name__}({', '.join(repr(getattr(self, f)) for f in self._fields)})"
 
-    __str__ = __repr__
+    def __str__(self):
+        # The string form ArcGIS Pro 3.7 answers (measured 2026-11-08): "WITHINDAY 172 8 16", "MULTIDAYS 2026 100 130",
+        # "SPECIALDAYS", "WHOLEYEAR 2026".
+        return " ".join([self._keyword] + ["%g" % getattr(self, f) for f in self._fields])
 
 
 class TimeWithinDay(_Time):
     """arcpy.sa.TimeWithinDay: a period within one day, in solar time (decimal hours, 0–24)."""
+
+    _keyword = "WITHINDAY"
 
     _fields = ("day", "startTime", "endTime")
 
@@ -75,6 +82,8 @@ class TimeMultipleDays(_Time):
     """arcpy.sa.TimeMultipleDays: the days from ``startDay`` 0:00 to ``endDay`` 0:00, into the next year when
     ``endDay`` is the smaller, as the class page's examples read ([1, 2] is January 1)."""
 
+    _keyword = "MULTIDAYS"
+
     _fields = ("year", "startDay", "endDay")
 
     def __init__(self, year=None, startDay=5, endDay=160):
@@ -85,9 +94,13 @@ class TimeMultipleDays(_Time):
 class TimeSpecialDays(_Time):
     """arcpy.sa.TimeSpecialDays: the summer solstice, the equinox and the winter solstice."""
 
+    _keyword = "SPECIALDAYS"
+
 
 class TimeWholeYear(_Time):
     """arcpy.sa.TimeWholeYear: a year in calendar months."""
+
+    _keyword = "WHOLEYEAR"
 
     _fields = ("year",)
 

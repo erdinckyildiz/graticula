@@ -94,18 +94,26 @@ internal static partial class PortalEndpoints
 
         List<object> related = [];
 
-        if (await RelatableAsync(context, catalog, id, cancellation).ConfigureAwait(false) is { } item)
+        // ADR-288 §11a: a web map, a map area or a package can be an end of a relationship, which a service or a document
+        // never is; an id names one item, so the first read that finds it is the one that answers.
+        Guid? origin = await RelatableAsync(context, catalog, id, cancellation).ConfigureAwait(false) is { } item
+            ? item.Item
+            : await MapAreaRelatableAsync(context, id, cancellation).ConfigureAwait(false);
+
+        if (origin is { } from)
         {
             IReadOnlyList<PublishedService> visible =
                 await VisibleAsync(context, catalog, cancellation).ConfigureAwait(false) ?? [];
 
             foreach (string type in First(form, context, "relationshipType")
                          .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                         .Where(KeptRelationships.Contains)
-                         .Select(t => KeptRelationships.First(k => k.Equals(t, StringComparison.OrdinalIgnoreCase)))
+                         .Select(t => KeptRelationships.FirstOrDefault(k => k.Equals(t, StringComparison.OrdinalIgnoreCase))
+                             ?? MapAreaRelationshipNamed(t))
+                         .Where(t => t is not null)
+                         .Select(t => t!)
                          .Distinct(StringComparer.Ordinal))
             {
-                foreach (Guid other in await annotations.RelatedAsync(item.Item, type, direction != "reverse", cancellation)
+                foreach (Guid other in await annotations.RelatedAsync(from, type, direction != "reverse", cancellation)
                              .ConfigureAwait(false))
                 {
                     if (visible.FirstOrDefault(s => s.Id == other) is { } service)
@@ -115,6 +123,10 @@ internal static partial class PortalEndpoints
                     else if (await ReadableDocumentAsync(context, other.ToString("N"), cancellation).ConfigureAwait(false) is { } document)
                     {
                         related.Add(DocumentItem(context, document));
+                    }
+                    else if (await MapAreaRelatedItemAsync(context, other, cancellation).ConfigureAwait(false) is { } areaRelated)
+                    {
+                        related.Add(areaRelated);
                     }
                 }
             }

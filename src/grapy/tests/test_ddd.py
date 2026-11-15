@@ -6,6 +6,7 @@ arithmetic on the numbers in the test.
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -34,6 +35,8 @@ def point(x, y):
 class Ddd(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         # z = x: a plane rising 10 per 10-unit cell to the east — 45° of slope facing west.
@@ -62,7 +65,7 @@ class Ddd(unittest.TestCase):
         self.assertAlmostEqual(cells(slope)[1][1], 45.0, places=4)
         self.assertAlmostEqual(cells(ddd.Slope(self.plane, self.out("pr.tif"), "PERCENT_RISE").getOutput(0))[1][1], 100.0, places=3)
         self.assertAlmostEqual(cells(ddd.Aspect(self.plane, self.out("aspect.tif")).getOutput(0))[1][1], 270.0, places=4)
-        self.assertEqual(cells(ddd.HillShade(self.plane, self.out("hs.tif")).getOutput(0))[1][1], 218)
+        self.assertEqual(cells(ddd.HillShade(self.plane, self.out("hs.tif")).getOutput(0))[1][1], 217)  # truncated: Pro 3.7, 2026-11-08
 
     def test_mathematics_and_integer_division(self):
         a = grid([[3, -3], [4, 1]])
@@ -71,12 +74,25 @@ class Ddd(unittest.TestCase):
         self.assertEqual(cells(ddd.Minus(a, 1, self.out("m.tif")).getOutput(0)), [[2, -4], [3, 0]])
         self.assertEqual(cells(ddd.Times(a, b, self.out("t.tif")).getOutput(0)), [[6, -6], [0, 1]])
         divided = arcpy.Raster(ddd.Divide(a, b, self.out("d.tif")).getOutput(0))
-        # Two integers: 3/2 is 1, −3/2 is −1 (toward zero), 4/0 is NoData.
+        # Two integers: 3/2 is 1, −3/2 is −2 (rounded down), 4/0 is NoData. Until 2026-11-08 this test pinned −1
+        # (toward zero), grapy's inference; measured in ArcGIS Pro 3.7, 2026-11-08: (zones − 3) / 2 gives −1 for −1.
         self.assertTrue(divided.isInteger)
-        self.assertEqual(cells(divided, nodata=99), [[1, -1], [99, 1]])
+        self.assertEqual(cells(divided, nodata=99), [[1, -2], [99, 1]])
         self.assertEqual(cells(ddd.Divide(ddd.Float(a, self.out("f.tif")).getOutput(0), b, self.out("df.tif")).getOutput(0),
                                nodata=99), [[1.5, -1.5], [99, 1.0]])
         self.assertEqual(cells(ddd.Int(grid([[1.7, -1.7]]), self.out("i.tif")).getOutput(0)), [[1, -1]])
+
+    def test_divide_by_a_whole_float_constant_is_integer_division(self):
+        # Measured in ArcGIS Pro 3.7, 2026-11-08: an integer raster divided by 2.0 is the integer division (1, 2, 3, 4
+        # give 0, 1, 1, 2 on an integer raster); by 2.5 it is floating point (0.4, 0.8, 1.2, 1.6); −1 / 2 is −1.
+        values = grid([[1, 2], [3, 4]])
+        whole = arcpy.Raster(ddd.Divide(values, 2.0, self.out("w.tif")).getOutput(0))
+        self.assertTrue(whole.isInteger)
+        self.assertEqual(cells(whole), [[0, 1], [1, 2]])
+        frac = arcpy.Raster(ddd.Divide(values, 2.5, self.out("f25.tif")).getOutput(0))
+        self.assertFalse(frac.isInteger)
+        np.testing.assert_allclose(cells(frac), [[0.4, 0.8], [1.2, 1.6]])
+        self.assertEqual(cells(ddd.Divide(grid([[-1, 1]]), 2, self.out("n.tif")).getOutput(0)), [[-1, 0]])
 
     def test_reclassify_slice_and_reclass_by_table(self):
         values = grid([[1, 2], [3, 4]])

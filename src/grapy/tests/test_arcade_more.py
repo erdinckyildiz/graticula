@@ -4,6 +4,7 @@ import csv
 import math
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -180,6 +181,8 @@ class FeatureSets(_Case):
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         _runtime.MESSAGES.clear()
         self.gpkg = arcpy.management.CreateFileGDB(self.directory, "city")[0]
@@ -230,14 +233,16 @@ class ModelReads(_Workspace):
         self.insert(poles, ["pole_id", "SHAPE@"], [("P1", "POINT(0 0)"), ("P3", "POINT(1 1)")])
         self.assertEqual(self.rows(poles, ["pole_id", "checks"]), [("P1", 2), ("P3", 0)])
         self.insert(inspections, ["pole_id", "comments"], [("P3", "new"), ("P9", "orphan")])
-        self.assertEqual(self.rows(inspections, ["comments"], "fid > 3"), [("P3:new",), ("orphan",)])
+        self.assertEqual(self.rows(inspections, ["comments"], "OBJECTID > 3"), [("P3:new",), ("orphan",)])
 
     def test_attachments_of_a_feature(self):
         from grapy import _attachments
         parcels = self.feature_class("parcels", "POLYGON", [("photos", "LONG")])
         arcpy.management.EnableAttachments(parcels)
         self.insert(parcels, ["SHAPE@"], [(poly(0, 0, 1, 1),), (poly(2, 2, 3, 3),)])
-        guid = self.rows(parcels, ["GLOBALID@"], "fid = 1")[0][0]
+        # parcels has no global IDs, so its attachments key on the object id (REL_OBJECTID), as ArcGIS Pro 3.7 was
+        # measured to key them, 2026-11-12 (ADR-289 §5.4); this test read GLOBALID@ before.
+        guid = self.rows(parcels, ["OID@"], "OBJECTID = 1")[0][0]
         from grapy import _gpkg
         connection = _gpkg.connect(self.gpkg)
         _attachments.add(connection, "parcels", guid, "front.jpg", b"x" * 10)
@@ -315,7 +320,7 @@ class Generators(_Workspace):
         with open(result[0], encoding="utf-8", newline="") as read:
             row = next(csv.DictReader(read))
         self.assertEqual((row["NAME"], row["TRIGGERINSERT"], row["TRIGGERUPDATE"], row["TRIGGERINGFIELDS"][:9]),
-                         ("Calculate geometry fields", "True", "True", '["geom", '))
+                         ("Calculate geometry fields", "True", "True", '["Shape",'))  # Pro's names, measured (ADR-289 §5.1)
         self.assertTrue(any("equivalent" in m["description"] for m in _runtime.MESSAGES))
         arcpy.management.ImportAttributeRules(parcels, result[0])
         # A 200 m square with a 100 m square hole: 30,000 m², 3 ha; perimeter 800 + 400; 10 points; one hole.
@@ -381,12 +386,13 @@ class Generators(_Workspace):
         # At (5, 5) both mains meet; MIN takes size 4, running south-east: arithmetic -45°, so 315.
         self.insert(valves, ["SHAPE@"], [("POINT(5 5)",), ("POINT(2 2)",), ("POINT(50 50)",)])
         self.assertEqual(self.rows(valves, ["rot"]), [(315.0,), (45.0,), (None,)])
-        arcpy.management.DeleteAttributeRule(valves, "Symbol rotation rot")
+        # The rule is named "SymbolRotation", as Pro 3.7 names it (measured 2026-11-08; was "Symbol rotation rot").
+        arcpy.management.DeleteAttributeRule(valves, "SymbolRotation")
         geographic = arcpy.management.GenerateSymbolRotationAttributeRule(
             valves, self.directory, "rot", [[mains, "size"]], rotation_options=[[None, "GEOGRAPHIC", "MAX", 10]])
         arcpy.management.ImportAttributeRules(valves, geographic[0])
         self.insert(valves, ["SHAPE@"], [("POINT(5 5)",)])
-        self.assertEqual(self.rows(valves, ["rot"], "fid = 4"), [(55.0,)])  # size 8 runs north-east: 45 + 10
+        self.assertEqual(self.rows(valves, ["rot"], "OBJECTID = 4"), [(55.0,)])  # size 8 runs north-east: 45 + 10
 
     def test_update_related(self):
         parcels = self.feature_class("parcels", "POLYGON", [("owner", "TEXT"), ("flags", "LONG")])
@@ -404,7 +410,13 @@ class Generators(_Workspace):
         with open(result[0], encoding="utf-8", newline="") as read:
             self.assertEqual(next(csv.DictReader(read))["EXCLUDECLIENTEVALUATION"], "True")
         arcpy.management.ImportAttributeRules(parcels, result[0])
-        self.insert(parcels, ["parcel", "owner", "flags", "SHAPE@"], [(1, "Ann", 6, poly(0, 0, 10, 10))])
+        # The rule runs on update only, as Pro 3.7 writes it (measured 2026-11-08; this test inserted the parcel):
+        # an insert leaves the related rows, the update reaches them.
+        self.insert(parcels, ["parcel", "owner", "flags", "SHAPE@"], [(1, "Zed", 6, poly(0, 0, 10, 10))])
+        self.assertEqual(self.rows(bills, ["parcel", "owner"]), [(1, None), (1, "old"), (2, None)])
+        with arcpy.da.UpdateCursor(parcels, ["owner"]) as rows:
+            for _ in rows:
+                rows.updateRow(["Ann"])
         self.assertEqual(self.rows(bills, ["parcel", "owner"]), [(1, "Ann"), (1, "Ann"), (2, None)])
         self.assertEqual(self.rows(signs, ["note", "flags"]), [("n-Ann", 7), (None, 0)])
         with self.assertRaisesRegex(ExecuteError, "no relationship class"):

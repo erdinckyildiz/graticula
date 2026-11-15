@@ -5,6 +5,7 @@ Two points, (0,0) holding 0 and (100,100) holding 100, on a 50-unit grid over th
 """
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 
@@ -21,6 +22,8 @@ def cells(path, nodata=-1):
 class Ga(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, True)
+        self.addCleanup(setattr, arcpy.env, "workspace", arcpy.env.workspace)
         arcpy.env.workspace = self.directory
         arcpy.env.extent = None
         self.two = self.points("two", [(0, 0, 0.0), (100, 100, 100.0)])
@@ -41,25 +44,28 @@ class Ga(unittest.TestCase):
         return os.path.join(self.directory, name)
 
     def test_idw_to_a_raster_with_a_circular_neighbourhood(self):
-        # Radius 200 reaches both points from every centre. Power 2: at (25,25), d² = 1250 to (0,0) and 11250 to
-        # (100,100): 100·(1/11250) / (1/1250 + 1/11250) = 10; (75,75) mirrors it at 90; the other two are
-        # equidistant, 50.
+        # The grid as ArcGIS Pro 3.7 lays it (measured 2026-11-08 by the Pro sweep; this test pinned grapy's old 2 × 2
+        # grid over the extent until then): the first centre on the points' lower-left corner, round(100 / 50) + 1 = 3
+        # columns and rows, centres at 0, 50 and 100. Radius 200 reaches both points from every centre. Power 2: at
+        # (50,0), d² = 2500 to (0,0) and 12500 to (100,100): 100·(1/12500) / (1/2500 + 1/12500) = 16.6667; (50,100)
+        # mirrors it at 83.3333; the points' own centres are exact; the other diagonal is equidistant, 50.
         circle = ga.SearchNeighborhoodStandardCircular(200, 0, 2, 1, "ONE_SECTOR")
         result = ga.IDW(self.two, "z", "", self.out("idw.tif"), 50, 2, circle)
         self.assertEqual(result.getOutput(0), "")
-        self.assertEqual(cells(result.getOutput(1)), [[50.0, 90.0], [10.0, 50.0]])
-        # One neighbour at most: (75,75) takes (100,100) alone and (25,25) takes (0,0) alone.
+        self.assertEqual(cells(result.getOutput(1)), [[50.0, 83.3333, 100.0], [16.6667, 50.0, 83.3333],
+                                                      [0.0, 16.6667, 50.0]])
+        # One neighbour at most: (50,100) takes (100,100) alone and (0,50) takes (0,0) alone.
         one = ga.IDW(self.two, "z", "", self.out("one.tif"), 50, 2, ga.SearchNeighborhoodStandard(200, 200, 0, 1, 1))
         got = cells(one.getOutput(1))
         self.assertEqual((got[0][1], got[1][0]), (100.0, 0.0))
 
     def test_idw_refuses_what_it_cannot_answer_as_documented(self):
         circle = ga.SearchNeighborhoodStandardCircular(200, 0, 2, 1, "ONE_SECTOR")
-        # Radius 40, nbrMin 2: (25,25) holds (0,0) alone inside the circle and takes the nearest outside, (100,100),
-        # as GA Neighborhood Selection documents — so the answer is the radius-200 one; (25,75) and (75,25) find none
-        # inside and take both.
+        # Radius 40, nbrMin 2: no centre but the points' own holds a point inside the circle, so each takes the
+        # nearest outside, as GA Neighborhood Selection documents — the answer is the radius-200 one.
         near = ga.IDW(self.two, "z", "", self.out("r.tif"), 50, 2, ga.SearchNeighborhoodStandardCircular(40, 0, 2, 2))
-        self.assertEqual(cells(near.getOutput(1)), [[50.0, 90.0], [10.0, 50.0]])
+        self.assertEqual(cells(near.getOutput(1)), [[50.0, 83.3333, 100.0], [16.6667, 50.0, 83.3333],
+                                                    [0.0, 16.6667, 50.0]])
         with self.assertRaisesRegex(ValueError, "out_ga_layer, out_raster"):
             ga.IDW(self.two, "z", "", "", 50, 2, circle)
         refusals = [
@@ -76,14 +82,15 @@ class Ga(unittest.TestCase):
                 ga.IDW(self.two, "z", **arguments)
 
     def test_global_polynomial_fits_by_least_squares(self):
-        # Four corners of z = 2x + 3y + 1 at 0 and 20; 10-unit cells, centres (5,15) (15,15) / (5,5) (15,5).
+        # Four corners of z = 2x + 3y + 1 at 0 and 20; 10-unit cells centred at 0, 10 and 20 both ways (Pro 3.7's grid,
+        # measured 2026-11-08; until then this test pinned grapy's old 2 × 2 grid with centres at 5 and 15).
         plane = self.points("plane", [(x, y, 2 * x + 3 * y + 1) for x in (0, 20) for y in (0, 20)])
         result = ga.GlobalPolynomialInterpolation(plane, "z", "", self.out("gpi.tif"), 10, 1)
-        self.assertEqual(cells(result.getOutput(1)), [[56.0, 76.0], [26.0, 46.0]])
-        # Second order through z = x² sampled at 0, 10, 20 both ways: the cell centred at x = 5 is 25.
+        self.assertEqual(cells(result.getOutput(1)), [[61.0, 81.0, 101.0], [31.0, 51.0, 71.0], [1.0, 21.0, 41.0]])
+        # Second order through z = x² sampled at 0, 10, 20 both ways: the cell centred at x = 10 is 100.
         square = self.points("square", [(x, y, x * x) for x in (0, 10, 20) for y in (0, 10, 20)])
         second = ga.GlobalPolynomialInterpolation(square, "z", "", self.out("gpi2.tif"), 10, 2)
-        self.assertAlmostEqual(cells(second.getOutput(1))[1][0], 25.0, places=3)
+        self.assertAlmostEqual(cells(second.getOutput(1))[1][1], 100.0, places=3)
         with self.assertRaisesRegex(arcpy.NotBuiltError, "weight_field"):
             ga.GlobalPolynomialInterpolation(plane, "z", "", self.out("w.tif"), 10, 1, "z")
 

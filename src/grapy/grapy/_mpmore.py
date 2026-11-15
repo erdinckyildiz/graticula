@@ -313,8 +313,10 @@ def MultipatchToRaster(in_multipatch_features, out_raster, cell_size=None, cell_
     The cell size is the parameter's, else the Cell Size environment's, else the Snap Raster's, else the extent's
     shorter side divided by 250, as documented.
 
-    INFERRED (Q-209 (g)): the grid's top-left corner is the features' extent's, or the snap raster's cell corner at or
-    beyond it; a centre on a face's edge meets it."""
+    Without a snap raster the grid is the features' extent widened by half a cell on every side, laid from its
+    lower-left corner — measured in ArcGIS Pro 3.7, 2026-11-08 (it was the extent's own top-left corner, INFERRED in
+    Q-209 (g), until then). INFERRED: with a snap raster, the snap raster's cell corner at or beyond the extent's
+    top-left; a centre on a face's edge meets it."""
     from ._raster import Raster, _Grid, as_raster
     from ._runtime import env
     tool = "MultipatchToRaster"
@@ -344,8 +346,15 @@ def MultipatchToRaster(in_multipatch_features, out_raster, cell_size=None, cell_
         g = snap._grid
         left = g.left + math.floor((left - g.left) / size + 1e-9) * size
         top = g.top - math.floor((g.top - top) / size + 1e-9) * size
+    if snap is None:
+        # The features' extent widened by half a cell on every side and laid from its lower-left corner, as Pro 3.7
+        # lays it (measured 2026-11-08: a 40 m box at 10 m cells is 5 cells, from 5 m outside it), as its point rasters
+        # are laid (conversion._conversion_grid).
+        left, bottom, right, top = left - size / 2, bottom - size / 2, right + size / 2, top + size / 2
     columns = max(1, int(math.ceil((right - left) / size - 1e-9)))
     count = max(1, int(math.ceil((top - bottom) / size - 1e-9)))
+    if snap is None:
+        top = bottom + count * size
     grid = _Grid(left, top, size, size, count, columns, srid)
     xs, ys = grid.centres()
     high, low = _heights(tris, xs, ys)
@@ -458,9 +467,12 @@ def SkylineBarrier(in_observer_point_features, in_features, out_feature_class, m
     Refused by value: silhouettes (multipatch input) — its page says a silhouette makes the volume of the shadow cast
     from the observer but not which of the silhouette's edges bound it, and the Skyline tool that writes them is
     refused. INFERRED (Q-209 (h)): a line with an ``OBSV_PT_ID`` field pairs with that observer, any other with every
-    observer; ``ORIGFTR_ID`` is the line's own field of that name when it has one, else null; the near end of the
+    observer; ``ORIGFTR_ID`` is the line's own field of that name when it has one; the near end of the
     edges is ``min_radius`` along each ray (the fan's apex at the observer when 0), and a far end nearer than it is
-    moved out to it; the planes of PROJECT_TO_PLANE are square to the skyline's mean direction from the observer."""
+    moved out to it; the planes of PROJECT_TO_PLANE are square to the skyline's mean direction from the observer.
+
+    Measured in ArcGIS Pro 3.7 (2026-11-08): a line without ``ORIGFTR_ID`` gives −1 (grapy wrote null), and a third
+    field ``SKYLINE_ID`` holds the skyline line's ObjectID."""
     from . import _gpkg
     from .analysis import _schema
     tool = "SkylineBarrier"
@@ -516,10 +528,11 @@ def SkylineBarrier(in_observer_point_features, in_features, out_feature_class, m
                 if len(t):
                     parts.append(t)
             if parts:
-                out.append(([int(observer_oid), None if original is None else int(original)],
+                out.append(([int(observer_oid), -1 if original is None else int(original), int(oid)],
                             M.from_triangles(np.concatenate(parts))))
     path = M.write(out_feature_class, srid or observers_srid,
-                   [_gpkg.Column("OBSV_PT_ID", "Integer"), _gpkg.Column("ORIGFTR_ID", "Integer")], out)
+                   [_gpkg.Column("OBSV_PT_ID", "Integer"), _gpkg.Column("ORIGFTR_ID", "Integer"),
+                    _gpkg.Column("SKYLINE_ID", "Integer")], out)
     return Result(path)
 
 
