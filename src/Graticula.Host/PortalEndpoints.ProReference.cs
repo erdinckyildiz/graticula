@@ -17,7 +17,7 @@ namespace Graticula.Host;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Each answer is the shape a federated ArcGIS Server 12.0 gave to the same request</b> (esriqa.aecon.com, the owner's
+/// <b>Each answer is the shape a federated ArcGIS Server 12.0 gave to the same request</b> (Aecon's QA Enterprise, the owner's
 /// test Enterprise, 2026-11-10), trimmed to what is true here. The list of requests is not guessed either: it is what Pro
 /// 3.7 asked dev.graticula.com, in order, once the SOAP door answered — the root, the directories, the service
 /// properties, the MapServer type and its extensions, the machines, the licences, the data config, four data-item

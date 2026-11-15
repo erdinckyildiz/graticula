@@ -1143,7 +1143,7 @@ internal static partial class PortalEndpoints
                 expDate = -1,
                 maxUsersPerLevel = new { },
 
-                // What an Enterprise portal answers (esriqa.aecon.com 12.0, 2026-11-12): no organisation
+                // What an Enterprise portal answers (Aecon's QA Enterprise 12.0, 2026-11-12): no organisation
                 // capabilities. ADR-299.
                 orgCapabilities = Array.Empty<string>(),
             })
@@ -1178,7 +1178,7 @@ internal static partial class PortalEndpoints
                             id = PortalId(context),
                             name = context.Request.Host.Value,
                             url = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
-                            // The server's base, as a real portal lists it (esriqa.aecon.com 12.0, 2026-11-12): Pro
+                            // The server's base, as a real portal lists it (Aecon's QA Enterprise 12.0, 2026-11-12): Pro
                             // appends /admin itself. ADR-299.
                             adminUrl = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
                             isHosted = true,

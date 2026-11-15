@@ -67,7 +67,7 @@ server. See §5 for what was chosen instead.
 
 ## 4. Evidence
 
-Measured with arcpy (Pro 3.7) against dev.graticula.com, and against two real ArcGIS Servers (esriqa.aecon.com 12.0,
+Measured with arcpy (Pro 3.7) against dev.graticula.com, and against two real ArcGIS Servers (Aecon's QA Enterprise 12.0,
 read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answers.
 
 | Claim | Evidence | Source |
@@ -75,17 +75,17 @@ read and write allowed; gis.blm.gov 11.5, read only) for the shapes of the answe
 | Pro asks `GET /arcgis/admin/generateToken` with the portal token in a header, and a real server answers `{"ssl":{…}}`, not a token | wire log; real answer | 2026-11-10 |
 | Without a SOAP `GetMessageVersion` answer, the analyzer stops at 00290 | four POSTs, nothing after them | 2026-11-10 |
 | Pro then reads: admin root, `system/directories`, `services/properties`, the MapServer type document, `services/types/extensions`, `machines`, `system/licenses`, `data/config`, `data/findItems` (four kinds), `services/canCreateService`; and SOAP `PublishingTools` (`GetExecutionType`, `SubmitJob` AvailableFonts, status, messages, result) | wire log | 2026-11-10, 2026-11-12 |
-| `data/findItems?parentPath=/enterpriseDatabases` is the registration check | real answer lists the registered egdb with its connection string | esriqa.aecon.com |
+| `data/findItems?parentPath=/enterpriseDatabases` is the registration check | real answer lists the registered egdb with its connection string | Aecon's QA Enterprise |
 | The `.sd` carries the connection (`SERVER`, `DATABASE`, `USER`) and the layer's SQL | `manifest.xml`, the map's CIM | staged drafts |
 | A PostGIS table in a database that is not a geodatabase is always a query layer | Pro behaviour | 2026-11-10 |
 | Analyzer 00147 "GIS server role is not licensed" stays on the query layer after licences, machines and the MapServer type were answered with copies of a real server's answers, and with the registration removed | stage results | 2026-11-10 |
 | Pro asks `portals/{id}/subscriptionInfo` with the origin-hash id from before ADR-216 and got 400 | wire log; hash of `https://dev.graticula.com/studio` | 2026-11-12 |
-| A real portal lists its server's `adminUrl` as the server base, and answers `subscriptionInfo` with `orgCapabilities: []` | real answers | esriqa.aecon.com, 2026-11-12 |
+| A real portal lists its server's `adminUrl` as the server base, and answers `subscriptionInfo` with `orgCapabilities: []` | real answers | Aecon's QA Enterprise, 2026-11-12 |
 | **00147 is not about references and not about query layers.** It stays when the same query layer is staged with `copyDataToServer=True`, and a file-geodatabase point layer staged as a map image layer (data copied) gets it too: Pro does not accept this server for any map image layer | stage results | 2026-11-12 |
 | 00147 stays with every call answered 200 (the `PublishingTools` fonts job included), with the portal fixes of 2026-11-12, with the machine's `platform` as `Windows`, with eight GIS/Image Server feature names in `system/licenses` — **and with `system/licenses` answered `{}`.** The licence document's contents do not decide it | stage results, wire log | 2026-11-12 |
 | Offered `…SoapOrBin`, Pro speaks the binary format (`application/octet-stream`) to `PublishingTools` and nothing else changes; 00147 stays | wire log, recorded call | 2026-11-12 |
 | Pro's binaries do not contain `isServerLicensed`; the licence is read only through `system/licenses` (string search, not disassembly) | Pro 3.7 install | 2026-11-12 |
-| Aecon's real 12.0 server answers `canCreateService` for MapServer with "not supported with your current ArcGIS Server license" (403), so the licence answers copied from it may be an unlicensed server's | real answer | esriqa.aecon.com, 2026-11-10 |
+| Aecon's real 12.0 server answers `canCreateService` for MapServer with "not supported with your current ArcGIS Server license" (403), so the licence answers copied from it may be an unlicensed server's | real answer | Aecon's QA Enterprise, 2026-11-10 |
 | **Knock-out sweep** (each answer replaced in turn by an ArcGIS error body, dev's recorded-answer tools): of the admin documents only the root matters, and it turns 00147 into 00290; `system/directories`, `services/properties`, the MapServer type and its extensions, `services/types/extensions`, `machines` and the machine, `system/licenses`, `data/config`, `data/findItems`, `canCreateService`, `subscriptionInfo`, `sharing/rest/info` and `PublishingTools` leave 00147 standing | stage results | 2026-11-12 |
 | **00147 is not raised at all** — the draft stages — when any one of three portal documents is unreadable: `portals/self/servers`, `/sharing/rest` (only when it has no `currentVersion`: any value from 7.1 to 2026.1 keeps 00147), or `community/users/{me}`. So the check runs only for a known portal, a listed server and a known user; these three gate it, they do not decide it | stage results | 2026-11-12 |
 | Variants that keep 00147: the server entry's `serverRole` (HOSTING, FEDERATED, restricted), `serverFunction` (absent, `""`, `GISServer`, `GeneralPurposeServer`), `isHosted`, `name` case; `rest/info` naming the portal as `owningSystemUrl` and its `generateToken`; the user with `portal:publisher:publishServerServices`, with every privilege a real 12.0 administrator has, and as `GISProfessionalAdvUT`; licence `version` 12.0/11.5/11.0 and `canExpire` true | stage results | 2026-11-12 |

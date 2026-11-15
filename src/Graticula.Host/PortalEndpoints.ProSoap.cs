@@ -22,7 +22,7 @@ namespace Graticula.Host;
 /// </para>
 /// <para>
 /// <b>Only what has been seen asked is answered.</b> The answer below is the one two real ArcGIS Servers give to the
-/// same envelope (gis.blm.gov 11.5 and esriqa.aecon.com 12.0, 2026-11-10): the server's message version and the Pro
+/// same envelope (gis.blm.gov 11.5 and Aecon's QA Enterprise 12.0, 2026-11-10): the server's message version and the Pro
 /// release it is paired with. Anything else is recorded where Pro's publishing calls are recorded, and refused.
 /// </para>
 /// </remarks>
