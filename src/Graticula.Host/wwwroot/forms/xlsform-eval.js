@@ -49,7 +49,7 @@
         // String
         'string': [0, 1], 'concat': [0, MANY], 'join': [1, MANY], 'substr': [2, 3], 'substring-before': [2, 2],
         'substring-after': [2, 2], 'translate': [3, 3], 'string-length': [1, 1], 'normalize-space': [0, 1],
-        'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [4, 4],
+        'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [2, 4], 'property': [1, 1],
         'substring': [2, 3],
         // Boolean
         'if': [3, 3], 'coalesce': [2, 2], 'once': [1, 1], 'true': [0, 0], 'false': [0, 0], 'boolean': [1, 1],
@@ -65,7 +65,7 @@
         'instance': [1, 1], 'last': [0, 0],
         // Date and time
         'today': [0, 0], 'now': [0, 0], 'format-date': [2, 2], 'format-date-time': [2, 2], 'date': [1, 1],
-        'decimal-date-time': [1, 1], 'decimal-time': [1, 1],
+        'decimal-date-time': [1, 1], 'decimal-time': [1, 1], 'date-time': [1, 1],
         // Select
         'selected': [2, 2], 'selected-at': [2, 2], 'count-selected': [1, 1], 'jr:choice-name': [2, 2],
         // Repeat
@@ -85,6 +85,54 @@
         'namespace-uri': 'namespaces are not in the first version; a question is named by ${name}',
         'name': 'node names are not in the first version; a question is named by ${name}'
     };
+
+    // ADR-287 §5.20 — pulldata("@property"), property() and pulldata("@geopoint"). These lists are FormCatalog's
+    // (Properties, RefusedProperties, OdkProperties, RefusedOdkProperties, GeopointParts, GeopointPartsAnsweredEmpty,
+    // RefusedGeopointParts, RefusedPulldataSources, CalculationModes); XlsformEvaluatorTests holds each pair equal.
+    var PROPERTIES = ['online', 'utcOffset', 'timeZone', 'deviceId', 'userAgent', 'email', 'username', 'userFullName',
+        'userFirstName', 'userLastName', 'portalUrl', 'language', 'surveyName', 'mode', 'status'];
+    var REFUSED_PROPERTIES = {
+        'deviceModel': 'a browser does not tell a page the model of the device',
+        'OS': 'a browser does not tell a page the operating system\'s name',
+        'appVersion': 'this client has no build number to give',
+        'portalInfo': 'the whole portal description is a JSON object, which no question in a form can hold',
+        'token': 'an access token is a credential, and a form\'s answers are stored and shown',
+        'submissionUrl': 'it exists to point pulldata("@layer") and search() at the layer, and neither is in the first version',
+        'locale': 'Survey123 offers it only to pulldata("@javascript"), which is refused',
+        'localeInfo': 'Survey123 offers it only to pulldata("@javascript"), which is refused'
+    };
+    var ODK_PROPERTIES = { 'deviceid': 'deviceId', 'username': 'username', 'email': 'email' };
+    var REFUSED_ODK_PROPERTIES = {
+        'subscriberid': 'a browser cannot read the SIM\'s subscriber id',
+        'simserial': 'a browser cannot read the SIM\'s serial number',
+        'phonenumber': 'a browser cannot read the device\'s phone number'
+    };
+    var GEOPOINT_PARTS = ['x', 'y', 'z', 'horizontalAccuracy', 'accuracy', 'positionSourceType', 'DMS',
+        'DMS.latitudeDegrees', 'DMS.latitudeMinutes', 'DMS.latitudeSeconds', 'DMS.latitudeHemisphere', 'DMS.latitudeText',
+        'DMS.longitudeDegrees', 'DMS.longitudeMinutes', 'DMS.longitudeSeconds', 'DMS.longitudeHemisphere', 'DMS.longitudeText',
+        'DMS.text'];
+    var GEOPOINT_PARTS_EMPTY = ['verticalAccuracy', 'speed', 'verticalSpeed', 'direction', 'magneticVariation', 'fixType',
+        'positionSourceInfo', 'positionSourceInfo.antennaHeight', 'positionSourceInfo.altitudeType',
+        'positionSourceInfo.pluginName', 'positionSourceInfo.deviceAddress', 'positionSourceInfo.deviceName',
+        'positionSourceInfo.deviceType', 'positionSourceInfo.networkName', 'positionSourceInfo.networkAddress',
+        'positionSourceInfo.networkPort', 'positionSourceInfo.geoidSeparationCustom', 'geoidSeparation', 'accuracyType',
+        'positionAccuracy', 'latitudeError', 'longitudeError', 'altitudeError', 'hdop', 'vdop', 'pdop', 'differentialAge',
+        'referenceStationId', 'satellitesVisible', 'satellitesInUse'];
+    var REFUSED_GEOPOINT_PARTS = {
+        'UTM': 'converting to UTM is not built', 'UTM.easting': 'converting to UTM is not built',
+        'UTM.northing': 'converting to UTM is not built', 'UTM.zone': 'converting to UTM is not built',
+        'UTM.hemisphere': 'converting to UTM is not built', 'MGRS': 'converting to MGRS is not built'
+    };
+    var REFUSED_PULLDATA_SOURCES = {
+        '@layer': 'it queries a feature layer, and an offline client would need a copy of that layer on the device',
+        '@json': 'reading a JSON answer is not in the first version',
+        '@javascript': 'running a script a form carries is not in the first version',
+        '@exif': 'reading the metadata of a photo is not in the first version'
+    };
+    var CALCULATION_MODES = ['auto', 'manual', 'always', 'whenEmpty'];
+
+    function listHas(list, item) { return list.indexOf(item) >= 0; }
+    function hasKey(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
 
     // The XPath 1.0 axes: the only words that may stand before '::' (XPath 1.0 §2.2).
     var AXES = ['ancestor', 'ancestor-or-self', 'attribute', 'child', 'descendant', 'descendant-or-self', 'following',
@@ -399,8 +447,35 @@
             if (name === 'indexed-repeat' && args.length % 2 === 0) {
                 fail('indexed-repeat() takes a question and pairs of repeat and index', t.at);
             }
-            if (name === 'pulldata' && args[0].type === 'str' && args[0].value.charAt(0) === '@') {
-                fail('pulldata("' + args[0].value + '") is not supported: only the CSV form is in the first version', t.at);
+            if (name === 'pulldata') {
+                var source = args[0].type === 'str' ? args[0].value : '';
+                if (source === '@property') {
+                    if (args.length !== 2) { fail('pulldata("@property") takes the name of one property', t.at); }
+                    if (args[1].type === 'str') {
+                        var property = args[1].value;
+                        if (hasKey(REFUSED_PROPERTIES, property)) { fail('pulldata("@property") does not give \'' + property + '\': ' + REFUSED_PROPERTIES[property], t.at); }
+                        if (!listHas(PROPERTIES, property)) { fail('\'' + property + '\' is not a property Survey123 documents', t.at); }
+                    }
+                } else if (source === '@geopoint') {
+                    if (args.length !== 3) { fail('pulldata("@geopoint") takes a geopoint question and the name of a part', t.at); }
+                    if (args[2].type === 'str') {
+                        var part = args[2].value;
+                        if (hasKey(REFUSED_GEOPOINT_PARTS, part)) { fail('pulldata("@geopoint") does not give \'' + part + '\': ' + REFUSED_GEOPOINT_PARTS[part], t.at); }
+                        if (!listHas(GEOPOINT_PARTS, part) && !listHas(GEOPOINT_PARTS_EMPTY, part)) { fail('\'' + part + '\' is not a part of a geopoint Survey123 documents', t.at); }
+                    }
+                } else if (source.charAt(0) === '@') {
+                    fail('pulldata("' + source + '") is not supported: ' + (hasKey(REFUSED_PULLDATA_SOURCES, source)
+                        ? REFUSED_PULLDATA_SOURCES[source] : 'it is not a source Survey123 documents'), t.at);
+                } else if (args.length !== 4) {
+                    fail('pulldata() takes 4 arguments, not ' + args.length, t.at);
+                }
+            }
+            if (name === 'property' && args[0].type === 'str') {
+                var written = args[0].value;
+                var odk = written.indexOf('uri:') === 0 ? written.substring(4) : written;
+                if (hasKey(REFUSED_ODK_PROPERTIES, odk)) { fail('property(\'' + written + '\') is not supported: ' + REFUSED_ODK_PROPERTIES[odk], t.at); }
+                if (hasKey(REFUSED_PROPERTIES, odk)) { fail('property(\'' + written + '\') is not supported: ' + REFUSED_PROPERTIES[odk], t.at); }
+                if (!hasKey(ODK_PROPERTIES, odk) && !listHas(PROPERTIES, odk)) { fail('\'' + written + '\' is not a property ODK or Survey123 documents', t.at); }
             }
             return { type: 'call', name: name, args: args, at: t.at };
         }
@@ -1128,6 +1203,70 @@
         return '';
     }
 
+    // pulldata("@property", name) and property(): the answer comes from the page (ctx.property), which knows who is signed in
+    // and what the device says; an anonymous form or an unavailable value is '' (INFERRED, section 5.20). A boolean stays a
+    // boolean, so if(pulldata("@property", 'online'), ...) means what it says.
+    function propertyValue(name, ctx) {
+        if (!listHas(PROPERTIES, name)) { return fail('\'' + name + '\' is not a property this client can give'); }
+        if (typeof ctx.property !== 'function') { return ''; }
+        var got = ctx.property(name);
+        return got === null || got === undefined ? '' : got;
+    }
+
+    // pulldata("@geopoint", point, part). A point is "latitude longitude altitude accuracy", as the client keeps it. What it
+    // did not record answers '': a position typed or placed by hand has no accuracy and no altitude (INFERRED, section
+    // 5.20: the documentation does not say what a missing value answers).
+    function geopointPart(point, part) {
+        var tokens = point.trim().split(/\s+/).filter(Boolean);
+        if (tokens.length < 2) { return ''; }
+        var lat = Number(tokens[0]), lon = Number(tokens[1]);
+        if (isNaN(lat) || isNaN(lon)) { return ''; }
+        var altitude = tokens.length > 2 ? Number(tokens[2]) : NaN;
+        var accuracy = tokens.length > 3 ? Number(tokens[3]) : NaN;
+        var recorded = accuracy > 0;      // a device reading; a typed or placed point is stored with accuracy 0
+        switch (part) {
+            case 'x': return lon;
+            case 'y': return lat;
+            case 'z': return recorded && !isNaN(altitude) ? altitude : '';
+            case 'horizontalAccuracy':
+            case 'accuracy': return recorded ? accuracy : '';
+            case 'positionSourceType': return recorded ? 2 : 1;   // System Location (2), User (1)
+        }
+        if (part === 'DMS' || part.indexOf('DMS.') === 0) {
+            var la = dms(lat, 'N', 'S'), lo = dms(lon, 'E', 'W');
+            var parts = {
+                latitudeDegrees: la.d, latitudeHemisphere: la.h, latitudeMinutes: la.m, latitudeSeconds: la.s, latitudeText: la.text,
+                longitudeDegrees: lo.d, longitudeHemisphere: lo.h, longitudeMinutes: lo.m, longitudeSeconds: lo.s, longitudeText: lo.text,
+                text: la.whole + ' ' + lo.whole
+            };
+            if (part === 'DMS') { return JSON.stringify(parts); }
+            var key = part.substring(4);
+            return hasKey(parts, key) ? parts[key] : '';
+        }
+        return '';
+    }
+
+    // Degrees, minutes and seconds of one coordinate. Seconds are rounded to a tenth for the parts, as the documented example
+    // shows (36.3, 4), and to a whole second for the whole-point text; a rounding that reaches 60 carries.
+    function dms(value, positive, negative) {
+        var h = value < 0 ? negative : positive;
+        function split(places) {
+            var unit = Math.pow(10, places);
+            var total = Math.round(Math.abs(value) * 3600 * unit);
+            var d = Math.floor(total / (3600 * unit));
+            var rest = total - d * 3600 * unit;
+            var m = Math.floor(rest / (60 * unit));
+            var s = (rest - m * 60 * unit) / unit;
+            return { d: d, m: m, s: s };
+        }
+        var tenth = split(1), whole = split(0);
+        return {
+            d: tenth.d, m: tenth.m, s: tenth.s, h: h,
+            text: tenth.d + '\u00b0' + tenth.m + '\'' + tenth.s.toFixed(1) + '"' + h,
+            whole: whole.d + '\u00b0' + whole.m + '\'' + whole.s + '"' + h
+        };
+    }
+
     function evalCall(ast, env) {
         var args = ast.args;
         var ctx = env.ctx;
@@ -1195,10 +1334,24 @@
             case 'uuid': return args.length ? uuid(env, Math.max(0, Math.floor(num(0)))) : uuid(env);
             case 'pulldata': {
                 var file = str(0);
-                if (file.charAt(0) === '@') { fail('pulldata("' + file + '") is not supported: only the CSV form is in the first version', ast.at); }
+                if (file === '@property') { return propertyValue(str(1), ctx); }
+                if (file === '@geopoint') { return geopointPart(str(1), str(2)); }
+                if (file.charAt(0) === '@') {
+                    fail('pulldata("' + file + '") is not supported: ' + (hasKey(REFUSED_PULLDATA_SOURCES, file)
+                        ? REFUSED_PULLDATA_SOURCES[file] : 'it is not a source Survey123 documents'), ast.at);
+                }
+                if (args.length !== 4) { fail('pulldata() takes 4 arguments, not ' + args.length, ast.at); }
                 if (typeof ctx.pulldata !== 'function') { return ''; }
                 var got = ctx.pulldata(file, str(1), str(2), str(3));
                 return got === null || got === undefined ? '' : String(got);
+            }
+
+            case 'property': {
+                var written = str(0);
+                var odk = written.indexOf('uri:') === 0 ? written.substring(4) : written;
+                if (hasKey(ODK_PROPERTIES, odk)) { return propertyValue(ODK_PROPERTIES[odk], ctx); }
+                if (!listHas(PROPERTIES, odk)) { return fail('property(\'' + written + '\') is not supported', ast.at); }
+                return propertyValue(odk, ctx);
             }
 
             // ----- Boolean
@@ -1335,6 +1488,18 @@
                 if (d.kind === 'date') { return d; }
                 var f = wallFields(d);
                 return makeDate(f.y, f.m, f.d);
+            }
+            case 'date-time': {
+                // INFERRED (ADR-287 section 5.20): Survey123 says only "converts a number or string to a date object". A
+                // number is days since 1970-01-01 UTC, so date-time(decimal-date-time(x)) is x; a date alone is the
+                // device's midnight.
+                var raw = arg(0);
+                var asNumber = typeof raw === 'number' ? raw : (typeof raw === 'string' && /^-?(\d+(\.\d*)?|\.\d+)$/.test(raw.trim()) ? parseFloat(raw) : null);
+                if (asNumber !== null) { return isNaN(asNumber) || !isFinite(asNumber) ? '' : dateFromInstant(asNumber * DAY); }
+                var made = toDateValue(raw);
+                if (!made) { return ''; }
+                if (made.kind === 'date') { return dateFromInstant(Date.UTC(made.y, made.m - 1, made.d) - envOffset * 60000); }
+                return made;
             }
             case 'decimal-date-time': {
                 var dt = toDateValue(arg(0));
@@ -1497,6 +1662,18 @@
             return withOffset(context, function () { return booleanValue(evaluate(expression, context)); });
         },
         refused: Object.freeze(Object.keys(REFUSED).sort()),
+        /** The lists ADR-287 section 5.20 adds, which XlsformEvaluatorTests compares with FormCatalog's. */
+        catalog: Object.freeze({
+            properties: PROPERTIES.slice().sort(),
+            refusedProperties: Object.keys(REFUSED_PROPERTIES).sort(),
+            odkProperties: Object.keys(ODK_PROPERTIES).sort(),
+            refusedOdkProperties: Object.keys(REFUSED_ODK_PROPERTIES).sort(),
+            geopointParts: GEOPOINT_PARTS.slice().sort(),
+            geopointPartsAnsweredEmpty: GEOPOINT_PARTS_EMPTY.slice().sort(),
+            refusedGeopointParts: Object.keys(REFUSED_GEOPOINT_PARTS).sort(),
+            refusedPulldataSources: Object.keys(REFUSED_PULLDATA_SOURCES).sort(),
+            calculationModes: CALCULATION_MODES.slice().sort()
+        }),
         references: references,
         toString: stringValue,
         toNumber: numberValue,

@@ -54,6 +54,7 @@ const FD_TYPES = [
   { key: "geoshape", word: "Map area", type: "geoshape", shelf: "Location and media", family: "place" },
   { key: "image", word: "Image", type: "image", shelf: "Location and media", family: "media" },
   { key: "signature", word: "Signature", type: "image", appearance: "signature", shelf: "Location and media", family: "media" },
+  { key: "draw", word: "Drawing", type: "image", appearance: "draw", shelf: "Location and media", family: "media" },
   { key: "file", word: "File", type: "file", shelf: "Location and media", family: "media" },
   { key: "audio", word: "Audio", type: "audio", shelf: "Location and media", family: "media" },
   { key: "hidden", word: "Hidden", type: "hidden", shelf: "Behind the scenes" },
@@ -86,7 +87,7 @@ function fdChangeType(row, spec) {
 
 /** What an appearance is called on screen, its XLSForm word after it. */
 const FD_APPEARANCE_WORDS = {
-  multiline: "Several lines", signature: "Signature", "month-year": "Month and year", year: "Year only",
+  multiline: "Several lines", signature: "Signature", draw: "Drawing", "month-year": "Month and year", year: "Year only",
   minimal: "Dropdown", likert: "Likert scale", rating: "Stars", "field-list": "All on one page", "table-list": "As a table",
 };
 
@@ -101,7 +102,7 @@ const fdTypeWord = (base, appearance) => {
 
 /** The appearances this server honours, by the types they go on — FormCatalog.SupportedAppearances. */
 const FD_APPEARANCES = {
-  multiline: ["text"], signature: ["image"], "month-year": ["date"], year: ["date"],
+  multiline: ["text"], signature: ["image"], draw: ["image"], "month-year": ["date"], year: ["date"],
   minimal: ["select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file"],
   likert: ["select_one", "select_one_from_file"], rating: ["range"],
   "field-list": ["begin group", "begin repeat"], "table-list": ["begin group", "begin repeat"],

@@ -97,6 +97,7 @@ public static class FormCompiled
         ["visible"] = q.Visible,
         ["accuracyThreshold"] = q.AccuracyThreshold,
         ["accept"] = q.Accept,
+        ["calculationMode"] = q.CalculationMode,
     };
 
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode?)JsonValue.Create(i))]);

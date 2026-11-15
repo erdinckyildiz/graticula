@@ -350,10 +350,10 @@ measurable question. The two device claims are, so they are conditions and not a
 
     **Appearances.** Supported because they change what is captured: `multiline` (on `text`; on `image` and `file`,
     several attachments), `signature` (on `image`), `month-year` and `year` (on `date`), `minimal`, `likert`, `rating`
-    (on `range`), `hidden`. Drawn the default way: `horizontal`, `horizontal-compact`, `compact`, `quick`,
+    (on `range`), `hidden`, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**). Drawn the default way: `horizontal`, `horizontal-compact`, `compact`, `quick`,
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
-    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`. Refused because they capture something this client cannot: `draw`, `annotate`, `map` and
+    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`. Refused because they capture something this client cannot: `annotate`, `map` and
     `quick map`, `search()`, `autocomplete`, `geocode`, `distress`, `spike` and its variants, `rangefinder`,
     `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
 
@@ -363,8 +363,8 @@ measurable question. The two device claims are, so they are conditions and not a
 
     | | Functions |
     |---|---|
-    | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's. **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
-    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **every Esri `pulldata("@…")` form**: `@layer`, `@property`, `@json`, `@exif`, `@geopoint`, `@javascript`. `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
+    | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form), **and `pulldata("@property", name)` and `pulldata("@geopoint", ${q}, part)`** (§5.20); `property(name)` (ODK's, §5.20). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's, and `date-time` (Survey123's, §5.20; the specification's table has no other date function this list lacks). **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: `@layer`, `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
 
     **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
     `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
@@ -372,8 +372,8 @@ measurable question. The two device claims are, so they are conditions and not a
     `TimeOnly` and `TimestampOffset` are refused, because this server has no such field and storing them as something
     else would change the value. `bind::esri:fieldLength`, `bind::esri:fieldAlias`, `body::esri:visible` (hidden but
     still stored), `body::accuracyThreshold` and `body::accept` are supported. `body::esri:style` and
-    `bind::saveIncomplete` are drawn the default way (the client always keeps drafts — built 2026-11-15, §5.16 (a)). Refused: `bind::esri:parameters`
-    (its `calculationMode` changes stored values), `bind::esri:warning` and `bind::esri:warning_message`,
+    `bind::saveIncomplete` are drawn the default way (the client always keeps drafts — built 2026-11-15, §5.16 (a)). `bind::esri:parameters` is supported
+    for its `calculationMode` (`auto`, `manual`, `always`, `whenEmpty`) and for nothing else, which is refused by name (§5.20). Refused: `bind::esri:warning` and `bind::esri:warning_message`,
     `body::esri:inputMask`, `bind::esri:workflow`.
 
     **What a question becomes in the layer** (follows Survey123's table where one exists, for §5.9 (d)):
@@ -732,6 +732,111 @@ measurable question. The two device claims are, so they are conditions and not a
       `search()`, `autocomplete` or `annotate`. Whether that is the right first version is the owner's question.
     - The service worker's shell cache was bumped to `graticula-forms-shell-v4` on this work's branch, because the evaluator
       changed; merged beside the design review's v5, the shell cache is v5.
+
+20. **Survey123's device and user properties, a geopoint's parts, the calculation modes, `date-time()` and drawing on a blank
+    canvas — built 2026-11-15, by owner decision** (*"increase compatibility with real Survey123 forms"*). The corpus of
+    §5.18 said which Survey123 features block the most forms; this item takes five. Built from Survey123's public pages
+    (`doc.esri.com/en/arcgis-survey123/latest/create/main/`: *xlsformformulas*, *prepopulateanswers* for the device, user
+    and survey properties and the calculation mode, *geopoints* for a geopoint's parts), read 2026-11-15, and from the
+    ODK XForms specification's function table; nothing from Survey123's code. **Every choice below that those pages do
+    not settle is this session's and INFERRED, for the owner to confirm.** What is measured is the corpus count, the
+    server's checker (`AFormReadsSurvey123PropertiesAndCalculationModesTests`) and the client in a real Chrome against a
+    stand-in server (`XlsformEvaluatorTests`, `FormFillClientCompatibilityTests`). **Nothing here was measured on a phone.**
+    - **The count, from the corpus, run before and after on this branch.** Survey123-authored forms that import
+      unedited: **17 of 61 (28%) before, 24 of 61 (39%) after.** All readable workbooks: 31 of 108 before, 38 of 108
+      after. Survey123-authored forms each reason held back before this item, as `corpus_blockers.py` counts them:
+      `pulldata("@property")` 6, `pulldata("@geopoint")` 6, `draw` 5, `bind::esri:parameters` 2, `date-time()` 2,
+      `property()` 2. The counts overlap, and a form imports only when nothing else holds it, so seven came in and the rest
+      are held by something else as well (the list in (f)). The expressions of condition 4 were run again with these
+      functions accepted: every one the server accepts parses and runs in the client.
+    - **(a) `pulldata("@property", name)` and `property(name)`.** Supported, because a browser knows them: `online`,
+      `utcOffset` (hours), `timeZone` (the browser's IANA name), `deviceId` (the random id the installed client keeps,
+      the same as the `deviceid` metadata question, §5.10), `userAgent`, `email`, `username`, `userFullName`,
+      `userFirstName`, `userLastName`, `portalUrl`, `language`, `surveyName`, `mode`, `status`. The signed-in member's
+      names come from the portal's `community/self`, the same call that already fills `email`; this server's own record
+      holds the account name and no separate first or last name, so `userFullName` and `userFirstName` are the account
+      name and `userLastName` is empty. **Refused at upload by name, each with its reason:** `deviceModel` and `OS`
+      (a browser does not tell a page; Survey123's web app does not either), `appVersion`, `portalInfo` (a JSON object no
+      question holds), `token` (a credential that would be written into the layer), `submissionUrl`, `locale` and
+      `localeInfo` (the last three exist for `@layer`, `search()` and `@javascript`, which are refused). A name that is not
+      on Survey123's list is refused as unknown; a name worked out at run time cannot be checked at upload, and the
+      client then refuses it when it runs. **INFERRED:** (1) an anonymous form, and any value the portal does not hold,
+      answers an empty string, since Survey123's page says nothing; (2) `online` is a true boolean, `utcOffset` a number,
+      so `if(pulldata("@property", 'online'), …)` means what it says; (3) `mode` is always `new` and `status` always empty,
+      the value Survey123 gives for a new response, because this client does not yet edit a sent record; (4) `language` is
+      the active language's name as the form writes it, `surveyName` the form's title, `portalUrl` this server's address
+      for a signed-in member and empty otherwise; (5) **`property(name)` takes the three names ODK documents, `deviceid`,
+      `username` and `email`, with or without the `uri:` prefix ODK's own forms write, and also every name
+      `pulldata("@property")` takes**, because a Survey123 form in the corpus writes `property('userFullName')`
+      and I could not find `property()` on Survey123's pages to say otherwise; `subscriberid`, `simserial` and
+      `phonenumber` are refused by name (a browser cannot read a SIM or a phone number). The `uri:deviceid` that three of
+      pyxform's own test forms write as a question *type* is a different thing and is still refused.
+    - **(b) `pulldata("@geopoint", ${q}, part)`.** A geopoint answer is kept as latitude, longitude, altitude and accuracy,
+      so the client answers: `x` (longitude), `y` (latitude), `z`, `horizontalAccuracy`, `positionSourceType`, and the
+      point in degrees, minutes and seconds (`DMS` as the documented JSON object, and each `DMS.…` part, checked against the
+      documented example 39°57'36.3"N). The parts Survey123 documents and a browser does not record (`verticalAccuracy`,
+      `speed`, `verticalSpeed`, `direction`, `magneticVariation`, `fixType`, every `positionSourceInfo.…`, the GNSS errors
+      and dilutions, `satellitesVisible` and `satellitesInUse`) are accepted and answer **empty**. **Refused by name:**
+      `UTM`, its parts, and `MGRS` (the conversions are not built; `x` and `y` are in degrees), a fourth argument
+      (precision, which only those use), and any name Survey123 does not document. **INFERRED:** (1) empty for a part not
+      recorded, because Survey123's page says only that availability depends on the hardware; (2) a point typed or placed
+      on the map is stored with accuracy 0, and the client reads that as *no sensor reading*: `z`, `horizontalAccuracy`
+      answer empty and `positionSourceType` is 1 (*User*), where a device's reading is 2 (*System Location*); (3) a device
+      that reports no altitude is stored as 0, so `z` is `0` there, which the stored form cannot tell from a real sea-level
+      reading; (4) `accuracy`, which two Survey123 forms in the corpus use and the page does not list, is
+      `horizontalAccuracy`; (5) the seconds are rounded to a tenth for the parts and to a whole second in `DMS.text`,
+      as the documented example shows, and a rounding that reaches 60 carries into the minute.
+    - **(c) `bind::esri:parameters` takes `calculationMode`: `auto`, `manual`, `always`, `whenEmpty`** (case ignored), on a
+      question that has a calculation and is one of the types Survey123 lists (text, decimal, integer, note, date, time,
+      dateTime, select_one, select_multiple, geopoint, calculate, hidden). Any other parameter is refused by name; one form
+      in the corpus carries watermark parameters for a photo there (`topLeftWatermark`, `color`, `size`) and stays refused.
+      The client: *always* recalculates whenever anything changes, whatever the person typed; *auto*, the default,
+      calculates while the question is empty and recalculates when a value it reads has changed, and leaves what the person
+      typed; *manual* calculates only when its **Calculate** button is pressed; *whenEmpty* calculates until it gives a value,
+      then waits for the button, even if the value is cleared. The button is a button, named by its question, with a polite
+      status saying *Calculated.* **INFERRED:** (1) **a calculation with no mode is now `auto`, which is a change:** until
+      this item every calculation was recalculated on every change, which is what `always` means, and a calculation the
+      person edited (a `read_only` of `no`) was overwritten; now such a calculation keeps the person's answer, and one that
+      reads only `now()` or `today()` is taken once and not again as the clock moves; (2) "when a value it reads has changed"
+      is the answers named by `${…}` in the calculation, its repeat position and the language, and a calculation that reads
+      by a path (`../q`, `/data/q`), `current()` or `instance()` is judged by every answer in the form; (3) `manual` on a
+      question the person does not see (`calculate`, `hidden`, or the `hidden` appearance) is refused, since the button is on
+      the question and the value would never be calculated, though Survey123's page lists `calculate` and `hidden` among
+      the types; (4) whether the calculation has run, and whether `whenEmpty` is waiting, are not kept in a draft: a draft
+      reopened takes an answer that is there as the person's and calculates the rest again; (5) a `whenEmpty` question that
+      already has a default is taken as having its value.
+    - **(d) `date-time()`**, Survey123's (its table: *converts a number or string to a date object*, example
+      `date-time('2017-05-28T04:39:02+10:00')`). A number is days since 1970-01-01 UTC, so it undoes `decimal-date-time()`;
+      a date and time is itself; **INFERRED:** a date alone is midnight on the device's clock. **ODK's function table was
+      read for other date functions and none is missing:** `today`, `now`, `format-date`, `format-date-time`, `date`,
+      `decimal-date-time` and `decimal-time` are all here, and `date-time` is not on that table, only on Survey123's. XForms
+      1.0's own `local-date()`, `days-from-date()` and the rest are not ODK's and are not added.
+    - **(e) The `draw` appearance** on an `image`: a blank canvas drawn on with a mouse, a pen or a finger, kept as one PNG
+      attachment named after the question, as the signature pad is, because it is the signature pad's code made taller and
+      with its own words (*Clear drawing*, *Drawing captured.*). It is held in the draft as a `Blob` and travels the
+      outbox as a photo does, so it works in a draft and offline by the same path; the draft was tested, **an offline
+      send of a drawing was not run**. **Accessibility:** a canvas cannot be drawn on from a keyboard, so the question says
+      so in words before the canvas, *Drawing needs a mouse, a pen or a finger. It cannot be done with the keyboard alone.*,
+      and the canvas is described by that sentence; it is not a promise of an alternative. **A required drawing therefore
+      cannot be completed by a person who uses only a keyboard**, and the publisher should not make one required where such
+      people fill the form in. `annotate` (drawing over a photo) stays refused. The designer lists *Drawing* beside
+      *Signature*. The signature pad itself has no such statement and is unchanged. **INFERRED:** the canvas is 280
+      pixels tall against the signature's 180, which Survey123's page does not say.
+    - **(f) What still keeps a Survey123 form out.** The sole blockers after this item, from the same run: `or_other` (3
+      forms), `autocomplete` (2) and one each of `esri:inputMask`, `spinner`, duplicate choices, a row with no name, an audio
+      media column, the `grid` appearance, `pulldata("@javascript")`, a parameter on a question that takes none, and
+      `annotate`, and one row that holds cells and no question type. Some of those are another branch's tonight, the others are left. **`pulldata("@layer")`, `@json` and `@javascript` stay refused**,
+      each with its reason in the upload (`FormCatalog.RefusedPulldataSources`); `@exif` too. *How `@layer` could be
+      built, written down and not built:* `pulldata("@layer", property, layerUrl, field, value)` is a query on a feature
+      layer, `where field = value`, `outFields property`. Online, the client could send exactly that to the layer through
+      `/rest/services/…/query`, as it already sends `applyEdits`, with the member's token, and a layer the form's audience
+      may not read would refuse as it should. Offline is the whole difficulty: the answer has to be on the device already,
+      so the form would name the layers it reads, and *Download for offline use* would keep the rows of each, bounded by a
+      limit the publisher sets (the Inbox's rule, §5.9 (k)), as a CSV is kept today for the CSV form of `pulldata`, and an
+      offline lookup would read that copy. That makes `@layer` a CSV `pulldata` fed from a layer, which is a smaller
+      piece than the Inbox, and the one decision it needs from the owner is the row limit.
+    - The service worker's shell cache is `graticula-forms-shell-v7`, because `fill.js`, `fill.css` and `xlsform-eval.js`
+      changed; the other forms branch took v6.
 
 ## 6. Consequences
 
