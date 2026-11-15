@@ -65,6 +65,18 @@ public sealed class ARevokedTokenIs498Tests : ArcGisClient
             Assert.Equal(498, JsonDocument.Parse(body).RootElement.GetProperty("error").GetProperty("code").GetInt32());
         }
 
+        // A HEAD is not told: ArcGIS Enterprise answers it 200 (measured 2026-11-13), and ArcGIS Field
+        // Maps, which probes its portal with exactly this request after a 498, read a 498 here as
+        // "No portal connection" and never refreshed its token (D-424). Through the whole pipeline,
+        // because a unit test of the rule passed while the HEAD rewrite in front of it hid the method.
+        using (HttpRequestMessage probe = new(HttpMethod.Head, new Uri($"{root}/sharing/rest?f=json")))
+        {
+            probe.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage probed = await http.SendAsync(probe);
+
+            Assert.True(probed.StatusCode == HttpStatusCode.OK, $"A HEAD with a revoked token answered {(int)probed.StatusCode}.");
+        }
+
         using HttpResponseMessage anonymous = await http.GetAsync(new Uri($"{root}/rest/services?f=json"));
 
         Assert.Equal(HttpStatusCode.OK, anonymous.StatusCode);

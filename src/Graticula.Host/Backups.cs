@@ -56,6 +56,10 @@ internal sealed class Backups
 
     /// <summary>Scene layer packages kept as files (ADR-274): beside the imagery, in the server directories.</summary>
     private string PackageFilesDirectory => Path.Combine(Path.GetDirectoryName(_imageryDirectory)!, ScenePackageFiles.Folder);
+
+    /// <summary>Map area package files (ADR-288 §11a, D-407): geodatabases and VTPKs, in the same directories.</summary>
+    private string MapAreaFilesDirectory => Path.Combine(Path.GetDirectoryName(_imageryDirectory)!, MapAreaPackageFiles.Folder);
+
     private readonly string? _toolDirectory;
     private readonly NpgsqlConnectionStringBuilder? _maintenance;
 
@@ -206,10 +210,14 @@ internal sealed class Backups
             // ADR-274: scene layer packages kept as files sit beside the imagery in the server directories.
             string packages = PackageFilesDirectory;
             string copiedPackages = Path.Combine(partial, "state", ScenePackageFiles.Folder);
+            // ADR-288 §11a, D-407: a backup without them restores package rows whose files are not there.
+            string areaFiles = MapAreaFilesDirectory;
+            string copiedAreaFiles = Path.Combine(partial, "state", MapAreaPackageFiles.Folder);
 
             log.WriteLine("Copying the state files (first pass)…");
             CopyNew(imagery, copiedImagery);
             CopyNew(packages, copiedPackages);
+            CopyNew(areaFiles, copiedAreaFiles);
 
             // <b>Through the maintenance connection when there is one — D-315.</b> The whole database is dumped, and a
             // serving role row-level security binds may not read every schema in it: on the showcase pg_dump stopped
@@ -236,6 +244,7 @@ internal sealed class Backups
             log.WriteLine("Copying the state files (second pass)…");
             CopyNew(imagery, copiedImagery);
             CopyNew(packages, copiedPackages);
+            CopyNew(areaFiles, copiedAreaFiles);
 
             string certificate = Path.Combine(_stateDirectory, Certificate);
             if (File.Exists(certificate))
@@ -432,6 +441,9 @@ internal sealed class Backups
 
         // ADR-274: package files are named by their hash, so one already here is the same file; only the missing are copied.
         CopyNew(Path.Combine(folder, "state", ScenePackageFiles.Folder), PackageFilesDirectory);
+
+        // D-407: a package file is named by a fresh id, so one already here is the same file; only the missing are copied.
+        CopyNew(Path.Combine(folder, "state", MapAreaPackageFiles.Folder), MapAreaFilesDirectory);
 
         string certificate = Path.Combine(_stateDirectory, Certificate);
         string savedCertificate = Path.Combine(folder, "state", Certificate);

@@ -72,6 +72,9 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["AdminEndpoints.Meshes.MeshLocks"] = "one lock per 3D object layer this node has edited — a count of layers (ADR-280 §5.4; between nodes, ADR-283 §5.1)",
         ["ArcGisAdminEndpoints.Service.NotKept"] = "fixed: the documented updateDefinition keys this server does not keep (ADR-257 §13)",
         ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: one (ADR-204)",
+        ["OfflinePackagingEndpoints.Jobs"] = "at most MaximumJobs (1,024) finished packaging jobs, each kept ten minutes, oldest forgotten first (ADR-288 section 11a)",
+        ["MapAreaRefreshScheduler._attempted"] = "one per scheduled map area whose refresh failed — a count of areas — and each forgotten ten minutes after the failure (D-405)",
+        ["ReplicaJobs._jobs"] = "at most ReplicaJobs.MaximumJobs (512) replica jobs, each dropped a day after it finishes; past it a replica request is refused (ADR-288, D-400)",
         ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
         ["ScenePackages._open"] = "one per version of a scene layer package this node has served, each a document in the store (ADR-269)",
         ["WebhookedServices._known"] = "one per published service an edit has reached, at most MaximumEntries (10,000), forgotten whole when a webhook is written (ADR-266 condition 5)",
@@ -94,6 +97,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ConnectionBudget._sources"] = "one semaphore per data source",
         ["ConnectionBudget._waiting"] = "one counter per data source",
         ["FileSystemTileCache._index"] = "byte budget with least-recently-used eviction",
+
+        // ADR-299: what ArcGIS Pro uploaded for a publish, and the finished publishing job it polls.
+        ["PortalEndpoints.ProReferencePublish.ProUploads"] = "at most MostHeld (256), each dropped after an hour or when its job runs; a further upload is refused",
+        ["PortalEndpoints.ProReferencePublish.ProJobs"] = "at most MostHeld (256), each dropped after an hour; the oldest goes first when full",
 
         // ADR-010 §3, 2026-09-29: the per-layer counters a service's quota is summed from, and what each quota evicted.
         ["FileSystemTileCache._layerBytes"] = "one per layer with a tile in the cache, so the catalogue bounds it; removed when the layer is purged",

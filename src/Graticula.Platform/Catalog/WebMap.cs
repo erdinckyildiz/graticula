@@ -117,6 +117,16 @@ public interface IWebMapStore
     /// <returns>The maps.</returns>
     Task<IReadOnlyList<WebMap>> ListAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The FeatureServer addresses each of these maps' operational layers and tables point at — ADR-288, D-392 — read
+    /// out of the documents by the database, so a listing can say which maps hold feature layers without moving them.
+    /// </summary>
+    /// <param name="ids">The maps.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each map's addresses, empty for a map without any; a map that does not exist is absent.</returns>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> FeatureServiceUrlsAsync(
+        IReadOnlyCollection<string> ids, CancellationToken cancellationToken);
+
     /// <summary>One map with its document, or null.</summary>
     /// <param name="id">Its id.</param>
     /// <param name="cancellationToken">Cancellation.</param>

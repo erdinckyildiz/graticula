@@ -312,6 +312,17 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
             {
                 pruned.Add(($"{schema}.{table}", gone));
             }
+
+            // ADR-290 §12.2: the attachment change record beside it is kept for the same period, by this same job.
+            // A history table is named for its layer's table, and so is the attachment table, so the one names the other.
+            string attachTable = table[..^Suffix.Length] + PostGisAttachmentStore.Suffix;
+            long attachmentEntries = await PostGisAttachmentStore.PruneChangesAsync(dataSource, schema, attachTable, days, cancellationToken)
+                .ConfigureAwait(false);
+
+            if (attachmentEntries > 0)
+            {
+                pruned.Add(($"{schema}.{attachTable} (change record)", attachmentEntries));
+            }
         }
 
         return pruned;

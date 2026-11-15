@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(135);
+    public static SchemaVersion ComponentSchemaVersion => new(143);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -164,7 +164,320 @@ public static class PlatformMigrations
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
         AScenePackageAboveTheDocumentLimitIsAFileV134,
         AMobileWorkerIsAUserTypeV135,
+        ARegisteredDatabaseKnowsThePublishersAddressV137,
+        AServiceMayBeTakenOfflineV138,
+        AMapAreaIsAnItemV139,
+        AMapAreaMayHoldABasemapPackageV140,
+        AMapAreaHoldsOnePackagePerServiceAndKindV141,
+        APackageSaysWhetherItsFileIsWrittenV142,
+        AMapAreaKeepsItsRefreshScheduleAndTileScaleV143,
     ]);
+
+    /// <summary>
+    /// A registered database may name the address its publishers reach it at, beside the one this server uses — ADR-299,
+    /// ArcGIS's <i>publisher database connection</i>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Why a second address, measured rather than supposed.</b> ArcGIS Pro shares a layer by reference only when the
+    /// database its layer was added through is one the server lists as registered, compared by the connection Pro itself
+    /// holds (ADR-299 §3). A desktop reaches a database as <c>db.example.org,5432</c> while the server, in a container
+    /// beside it, reaches the same one as <c>datastore:5432</c>; the database is one, the addresses are two, and without
+    /// the publisher's the two never match. Text — <c>host</c> or <c>host,port</c>, as ArcGIS writes
+    /// DB_CONNECTION_PROPERTIES — and no credential, so it is not sealed. <b>Expand</b>: a node older than this never reads the column.
+    /// </remarks>
+    private static Migration ARegisteredDatabaseKnowsThePublishersAddressV137 => Migration.Expand(
+        new SchemaVersion(137),
+        "A registered database may name the address its publishers reach it at (ADR-299).",
+
+        "alter table data_source add column if not exists publisher_address text");
+
+
+    /// <summary>
+    /// A preplanned map area is an item, and so is each package taken from it — ADR-288 §11a: the area, its packages, and
+    /// the two relationship types ArcGIS names them by.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The item refers to the area, as a web map's item refers to its map</b> (<c>item.web_map_id</c>, migration 87):
+    /// <c>item.map_area_id</c> and <c>item.map_area_package_id</c> cascade, so deleting a map takes its areas, their
+    /// packages and their items with it, and the recycle bin, which follows foreign keys outward from the map, finds every
+    /// one. The item's id is the area's or the package's own.
+    /// </para>
+    /// <para>
+    /// <b>A package's replica is named, not referenced</b>, as a comment's author is (migration 131): unregistering a
+    /// replica, or turning a service's sync off, must not delete the package item a device holds; the code that unregisters
+    /// the replica of a package removes the file. <b>The file is on disk</b>, its path relative to the server directories,
+    /// with its SHA-256 and size. <b>Floored</b>, as every organisation table is (ADR-204). <b>Expand</b>: two item kinds
+    /// nothing older writes, two relationship types nothing older asks for, and tables nothing older reads.
+    /// </para>
+    /// </remarks>
+    private static Migration AMapAreaIsAnItemV139 => Migration.Expand(
+        new SchemaVersion(139),
+        "A preplanned map area and its packages are items, related to their map by Map2Area and Area2Package (ADR-288 §11a).",
+
+        "alter table item drop constraint item_kind_known",
+
+        "alter table item add constraint item_kind_known check (kind in ('service', 'web map', 'document', 'toolbox', 'map area', 'map area package'))",
+
+        "alter table item_relationship drop constraint if exists item_relationship_type_known",
+
+        "alter table item_relationship add constraint item_relationship_type_known check (relationship_type in ('Service2Data', 'Service2Service', 'Map2Area', 'Area2Package'))",
+
+        """
+        create table if not exists map_area (
+            id                   uuid             not null primary key,
+            map_id               text             not null references web_map (id) on delete cascade,
+            title                text             not null,
+            x_min                double precision not null,
+            y_min                double precision not null,
+            x_max                double precision not null,
+            y_max                double precision not null,
+            wkid                 integer          not null,
+            status               text             not null,
+            created_at           timestamptz      not null default now(),
+            refreshed_at         timestamptz      not null default now(),
+            creator_principal_id uuid             not null,
+            creator_name         text             not null,
+            tenant_id            uuid             not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint map_area_title_present check (length(btrim(title)) > 0),
+            constraint map_area_extent_ordered check (x_min <= x_max and y_min <= y_max)
+        )
+        """,
+
+        "create index if not exists map_area_by_map on map_area (map_id, created_at)",
+
+        "create index if not exists map_area_tenant on map_area (tenant_id)",
+
+        """
+        create table if not exists map_area_package (
+            id           uuid        not null primary key,
+            area_id      uuid        not null references map_area (id) on delete cascade,
+            service_id   uuid        not null references service (id) on delete cascade,
+            replica_id   uuid        not null,
+            file_name    text        not null,
+            file_path    text        not null,
+            sha256       text        not null,
+            size         bigint      not null,
+            properties   jsonb       not null,
+            created_at   timestamptz not null default now(),
+            refreshed_at timestamptz not null default now(),
+            tenant_id    uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint map_area_package_one_per_service unique (area_id, service_id)
+        )
+        """,
+
+        "create index if not exists map_area_package_tenant on map_area_package (tenant_id)",
+
+        "alter table item add column if not exists map_area_id uuid null unique references map_area (id) on delete cascade",
+
+        "alter table item add column if not exists map_area_package_id uuid null unique references map_area_package (id) on delete cascade",
+
+        "alter table item add constraint item_is_its_map_area check (map_area_id is null or map_area_id = id)",
+
+        "alter table item add constraint item_is_its_map_area_package check (map_area_package_id is null or map_area_package_id = id)",
+
+        """
+        alter table item add constraint item_kind_matches_map_area check (
+            (kind = 'map area') = (map_area_id is not null) and (kind = 'map area package') = (map_area_package_id is not null))
+        """,
+
+        "alter table map_area enable row level security",
+
+        "alter table map_area force row level security",
+
+        "drop policy if exists tenant_floor on map_area",
+
+        """
+        create policy tenant_floor on map_area
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        "alter table map_area_package enable row level security",
+
+        "alter table map_area_package force row level security",
+
+        "drop policy if exists tenant_floor on map_area_package",
+
+        """
+        create policy tenant_floor on map_area_package
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
+    /// <summary>
+    /// A map area's package may be a vector tile package of the map's basemap, not only a replica of a feature service -
+    /// ADR-288 section 11a (the owner's change of 2026-11-12: an area also packages its basemap).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A sibling kind in the same table, not a second table.</b> A package of either kind is a file on disk with a hash
+    /// and a size, one per (area, service), related to its area by <c>Area2Package</c> and found through the same item; what
+    /// differs is that a feature service's package stands for a registered replica and a basemap's stands for none. So
+    /// <c>replica_id</c> loses its <c>not null</c> and a <c>format</c> says which kind a row is (<c>sqlite</c> or
+    /// <c>vtpk</c>), with a check that a row has a replica exactly when it is a geodatabase.
+    /// </para>
+    /// <para>
+    /// <b>Expand</b>: a column with a default, a constraint every existing row satisfies, and a column that was required
+    /// and now is not. Nothing older writes a row this makes invalid.
+    /// </para>
+    /// </remarks>
+    private static Migration AMapAreaMayHoldABasemapPackageV140 => Migration.Expand(
+        new SchemaVersion(140),
+        "A map area's package may be a vector tile package of its basemap, which has no replica (ADR-288 section 11a).",
+
+        "alter table map_area_package alter column replica_id drop not null",
+
+        "alter table map_area_package add column if not exists format text not null default 'sqlite'",
+
+        "alter table map_area_package drop constraint if exists map_area_package_format_known",
+
+        "alter table map_area_package add constraint map_area_package_format_known check (format in ('sqlite', 'vtpk'))",
+
+        "alter table map_area_package drop constraint if exists map_area_package_replica_iff_sqlite",
+
+        "alter table map_area_package add constraint map_area_package_replica_iff_sqlite check ((format = 'sqlite') = (replica_id is not null))");
+
+    /// <summary>
+    /// A map area holds one package per service <i>and kind</i> — ADR-288 section 11a.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured, not supposed.</b> A hosted service here can carry a FeatureServer and a VectorTileServer under one
+    /// name, and a map can use one face for its data and the other for its basemap. On dev on 2026-11-12 such a map's area
+    /// failed with <c>map_area_package_one_per_service</c>: the geodatabase and the tile package were two packages of
+    /// one service. Migration 139's rule, one per (area, service), was written before an area packaged basemaps; the
+    /// rule is now one per (area, service, format).
+    /// </para>
+    /// <para>
+    /// <b>Expand</b>: a uniqueness that every row satisfying the old one also satisfies. Nothing older writes a row it
+    /// rejects.
+    /// </para>
+    /// </remarks>
+    private static Migration AMapAreaHoldsOnePackagePerServiceAndKindV141 => Migration.Expand(
+        new SchemaVersion(141),
+        "A map area holds one package per service and kind, so one service may give a geodatabase and a tile package (ADR-288 section 11a).",
+
+        "alter table map_area_package drop constraint if exists map_area_package_one_per_service",
+
+        "alter table map_area_package add constraint map_area_package_one_per_service unique (area_id, service_id, format)");
+
+    /// <summary>
+    /// A map area keeps the schedule it is refreshed on and the scales its tiles cover - ADR-288 section 11a, D-405, D-408.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand</b>: six nullable or defaulted columns. They are ArcGIS's own properties of a Map Area item, as read on an
+    /// Enterprise 12.1 portal (research note section 5a.1): <c>packageRefreshSchedule</c> (a Quartz cron or null),
+    /// <c>mapAreaRefreshParams</c>, <c>mapAreasScheduledUpdatesEnabled</c> and <c>mapAreaTileScale</c>. <c>origin</c> is ours: the
+    /// address the area was last reached at, which a refresh with no request writes its documents from.
+    /// </remarks>
+    private static Migration AMapAreaKeepsItsRefreshScheduleAndTileScaleV143 => Migration.Expand(
+        new SchemaVersion(143),
+        "A map area keeps its package refresh schedule, refresh parameters, tile scale and the address it was reached at (ADR-288 section 11a, D-405).",
+
+        "alter table map_area add column if not exists package_refresh_schedule text null",
+
+        "alter table map_area add column if not exists refresh_params jsonb null",
+
+        "alter table map_area add column if not exists scheduled_updates boolean not null default false",
+
+        "alter table map_area add column if not exists tile_scale_min double precision null",
+
+        "alter table map_area add column if not exists tile_scale_max double precision null",
+
+        "alter table map_area add column if not exists origin text null",
+
+        "alter table map_area drop constraint if exists map_area_tile_scale_ordered",
+
+        "alter table map_area add constraint map_area_tile_scale_ordered check (tile_scale_min is null or tile_scale_max is null or tile_scale_min >= tile_scale_max)");
+
+    /// <summary>
+    /// A map area's package says whether its file is written - ADR-288 section 11a, D-427: a basemap's tile package is written by
+    /// an export job, so its row exists before its file does.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand</b>: three nullable or defaulted columns; every row an older build wrote is <c>complete</c> with its file.
+    /// A row whose job is running has <c>file_path</c> empty (a new package) or the previous file's name (a refresh, which
+    /// keeps serving the old file until the new one is written). <c>export_job_id</c> is named, not referenced, as a
+    /// replica is: a job's row is swept on its own schedule.
+    /// </remarks>
+    private static Migration APackageSaysWhetherItsFileIsWrittenV142 => Migration.Expand(
+        new SchemaVersion(142),
+        "A map area package has a status, the export job writing its file, and the reason the last write failed (ADR-288 section 11a, D-427).",
+
+        "alter table map_area_package add column if not exists status text not null default 'complete'",
+
+        "alter table map_area_package add column if not exists export_job_id uuid null",
+
+        "alter table map_area_package add column if not exists error text null",
+
+        "alter table map_area_package drop constraint if exists map_area_package_status_known",
+
+        "alter table map_area_package add constraint map_area_package_status_known check (status in ('complete', 'processing', 'failed'))",
+
+        "create unique index if not exists map_area_package_by_job on map_area_package (export_job_id) where export_job_id is not null");
+
+    /// <summary>
+    /// A hosted feature service may be taken offline and synchronised — ADR-288: whether its sync is on, and the
+    /// replicas <c>createReplica</c> registers against it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>138, not 136</b>: two branches (<c>survey-forms</c>, <c>pro-reference-registered</c>) each took 136 for a
+    /// different migration while this was written, and dev.graticula.com runs both with the second renumbered to 137,
+    /// so this took the next number after them rather than a third 136 or a second 137 — a version-level stamp
+    /// would have read a database at 137 as having run it. The set only asks that versions ascend.
+    /// </para>
+    /// <para>
+    /// <b>A replica's layers and their server generations are one <c>jsonb</c> array</b>, read and advanced together.
+    /// <b>Its owner is named, not referenced</b>, as a comment's author is (migration 131): a replica outlives nothing, but
+    /// a key to <c>principal</c> would make removing a member fail on the devices they left behind. <b>Floored</b>, as every
+    /// organisation table is (ADR-204). <b>Expand</b>: a column with a default and a table nothing older reads.
+    /// </para>
+    /// </remarks>
+    private static Migration AServiceMayBeTakenOfflineV138 => Migration.Expand(
+        new SchemaVersion(138),
+        "A hosted feature service may be taken offline: its sync switch and its replicas (ADR-288).",
+
+        "alter table service add column if not exists sync_enabled boolean not null default false",
+
+        """
+        create table if not exists replica (
+            id                         uuid        not null primary key,
+            name                       text        not null,
+            service_id                 uuid        not null references service (id) on delete cascade,
+            owner_principal_id         uuid        not null,
+            owner_name                 text        not null,
+            sync_model                 text        not null,
+            layers                     jsonb       not null,
+            return_attachments         boolean     not null,
+            attachments_sync_direction text        not null,
+            geometry                   jsonb       null,
+            wkid                       integer     null,
+            created_at                 timestamptz not null default now(),
+            last_synced_at             timestamptz not null default now(),
+            tenant_id                  uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            constraint replica_sync_model_known check (sync_model in ('perLayer')),
+            constraint replica_name_is_a_word check (name ~ '^[A-Za-z0-9_]+$'),
+            constraint replica_direction_known check (attachments_sync_direction in ('none', 'upload', 'bidirectional'))
+        )
+        """,
+
+        "create index if not exists replica_by_service on replica (service_id, created_at)",
+
+        "create index if not exists replica_tenant on replica (tenant_id)",
+
+        "alter table replica enable row level security",
+
+        "alter table replica force row level security",
+
+        "drop policy if exists tenant_floor on replica",
+
+        """
+        create policy tenant_floor on replica
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
 
     /// <summary>
     /// A fifth user type, <c>fieldworker</c> — ArcGIS's Mobile Worker, beside the <c>editor</c> that is ArcGIS's
