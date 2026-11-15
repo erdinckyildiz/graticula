@@ -148,9 +148,9 @@ working; and the record also answers a question the REST attachment endpoints co
 
 **Negative.** Every hosted layer with attachments gets a column, an index, a log row per attachment write, a trigger and a
 function, and a role without DDL rights cannot give them (§3). The log is not pruned (D-421). A replica older than the
-record gets nothing for attachments on its first sync after the upgrade. REST's `attachmentInfos` still answer
-`globalId: null` while a replica says otherwise — a disagreement between two interfaces about one attachment that this
-ADR leaves (D-422).
+record gets nothing for attachments on its first sync after the upgrade. REST's `attachmentInfos` answered
+`globalId: null` while a replica said otherwise — a disagreement between two interfaces about one attachment that this
+ADR left (D-422). **Closed 2026-11-15, see §12.4.**
 
 **State.** In the layer's own database, shared by every node and not in the catalogue: a `globalid` column and index on each
 `<table>__attach` (and `layer_<id>__attach` in the datastore), one `graticula_attachment_log` table and one
@@ -253,3 +253,15 @@ None recorded; the design was proposed in the task and not argued with anyone. T
      the feature named, and the download that answers the same sync does not send it back to its maker.
    Not covered: the replace and delete of a device-made attachment through this path (`PostGisAttachmentSyncTests` and
    `OfflineReplicaTests` cover the store's and the resolver's halves) and anything on a device.
+4. **REST names an attachment as a replica does** (D-422). **DISCHARGED 2026-11-15** — `queryAttachments` and
+   `…/{objectId}/attachments` answer `globalId` (the one the attachment was stored with, else the one derived from the layer and its
+   id — `OfflineReplicaShapes.AttachmentGlobalId`, the function a replica uses) and `parentGlobalId` (the feature's GlobalID), braced
+   and upper case as every other GlobalID in an answer is. **Where:** a hosted layer whose store implements `IAttachmentSync`, which is
+   PostGIS; anywhere else both stay `null`, because a registered layer's attachments (ADR-207, ADR-208) are kept by stores that keep
+   no GlobalID and are never named by a replica (ADR-288 §5.8, D-420), so there is nothing for REST to agree with. `queryAttachments`
+   also accepts `globalIds` — the features' GlobalIDs, turned into object ids through the layer's GlobalID column and **added to
+   `objectIds`** (`INFERRED`: the public reference does not say how the two combine; `definitionExpression` still narrows both). Tested
+   against PostgreSQL through a real server (`AnAttachmentIsNamedTheSameByRestAndByAReplicaTests`): REST's GlobalID for an attachment the
+   server added, one it replaced, and one a device made equals what the delta geodatabase carries for it, the group's `parentGlobalId`
+   is the feature's, and `globalIds` finds and misses. The attachment conformance tests were read, not run (they need the seeded
+   fixture): none asserts a null `globalId` or the old refusal of `globalIds`.

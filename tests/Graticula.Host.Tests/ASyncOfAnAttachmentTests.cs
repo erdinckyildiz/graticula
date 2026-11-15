@@ -36,6 +36,15 @@ public sealed class OneStartedNode : IAsyncLifetime
 }
 
 /// <summary>
+/// One server for every test of replicas against a real one: the classes run one after another on it, because each node holds
+/// connection pools of its own and several at once exhaust the database's <c>max_connections</c> (seen: PostgreSQL `53300`).
+/// </summary>
+[CollectionDefinition("one sync node")]
+public sealed class OneSyncNode : ICollectionFixture<OneStartedNode>
+{
+}
+
+/// <summary>
 /// <c>synchronizeReplica</c> with an attachment, end to end against PostGIS — ADR-290 §12.3: the glue in
 /// <c>OfflineReplicaEndpoints</c> between the change record, the attachment store and the delta geodatabase, which the pieces'
 /// own tests (<c>PostGisAttachmentSyncTests</c>, <c>OfflineReplicaTests</c>) do not reach.
@@ -46,7 +55,8 @@ public sealed class OneStartedNode : IAsyncLifetime
 /// suite writes with the same writer. Nothing is mocked between the HTTP request and the PostGIS table.
 /// </remarks>
 [Trait("Needs", "TwoNodes")]
-public sealed class ASyncOfAnAttachmentTests(OneStartedNode started) : IClassFixture<OneStartedNode>
+[Collection("one sync node")]
+public sealed class ASyncOfAnAttachmentTests(OneStartedNode started)
 {
     private static readonly byte[] Png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3];
 
