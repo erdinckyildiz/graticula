@@ -1884,7 +1884,7 @@ public static class Program
             current = judged;
             context.Features.Set(current);
 
-            if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Path))
+            if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Method, context.Request.Path))
             {
                 await InvalidToken.WriteAsync(context).ConfigureAwait(false);
                 return;
