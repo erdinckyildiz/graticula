@@ -236,6 +236,8 @@
         "Signature cleared.": "İmza temizlendi.",
         "Calculate": "Hesapla",
         "Calculated.": "Hesaplandı.",
+        "Choose an answer above first.": "Önce yukarıdaki soruyu cevaplayın.",
+        "Nothing to calculate yet: answer the questions it uses first.": "Henüz hesaplanacak bir şey yok: önce kullandığı soruları cevaplayın.",
         "Clear drawing": "Çizimi temizle",
         "Drawing captured.": "Çizim alındı.",
         "Drawing cleared.": "Çizim temizlendi.",
@@ -327,8 +329,8 @@
     // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
     Object.assign(TR, {
         "Enter a year and a week number that exists.": "Var olan bir yıl ve hafta numarası girin.",
-        "Fill in the whole pattern: ": "Kalıbın tamamını doldurun: ",
-        "Format: ": "Biçim: ",
+        "Use the pattern ": "Şu kalıbı kullanın: ",
+        "For example: ": "Örnek: ",
         "Increase": "Artır",
         "Decrease": "Azalt",
         "Year": "Yıl",
@@ -749,7 +751,7 @@
             if (inst.rel[n.name] !== r) { inst.rel[n.name] = r; changed = true; }
             if (n.kind === 'question') {
                 if (r && n.calculation && calculationDue(inst, n)) {
-                    var v = evalString(n.calculation, inst, n);
+                    var v = asCalculated(n, evalString(n.calculation, inst, n));
                     noteCalculated(inst, n, v);
                     if (inst.values[n.name] !== v) { inst.values[n.name] = v; changed = true; }
                 }
@@ -827,13 +829,21 @@
         if ((q.calculationMode || 'auto') === 'auto') { st.key = calculationKey(inst, q); }
     }
 
+    // A number calculated from an empty answer is NaN (XPath 1.0 section 4.4). A number question cannot hold it: shown, it
+    // read "NaN" in a read-only box, locked a whenEmpty calculation as answered, and blocked Submit with "Enter a whole
+    // number" that the person had no way to act on (UX review 2026-11-16). It is the empty answer.
+    function asCalculated(q, v) {
+        if ((q.type === 'integer' || q.type === 'decimal' || q.type === 'range') && !isFinite(Number(v))) { return ''; }
+        return v;
+    }
+
     /** The Calculate button: runs the calculation now, whatever the mode, and leaves the person's own touch alone. */
     function calculateNow(inst, q) {
-        var v = evalString(q.calculation, inst, q);
+        var v = asCalculated(q, evalString(q.calculation, inst, q));
         noteCalculated(inst, q, v);
         inst.values[q.name] = v;
         refresh(false);
-        scheduleDraft();
+        scheduleDraft();    return v;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -886,7 +896,7 @@
             return t('Enter a year and a week number that exists.');
         }
         if (q.type === 'text' && q.inputMask && parseMask(q.inputMask) && !maskAccepts(parseMask(q.inputMask), v)) {
-            return t('Fill in the whole pattern: ') + maskSkeleton(parseMask(q.inputMask));
+            return t('Use the pattern ') + maskExample(parseMask(q.inputMask)) + '.';
         }
         if (q.constraint && !evalBool(q.constraint, inst, q, true, v)) {
             return text(q.constraintMessages) || t('This answer is not allowed.');
@@ -1276,8 +1286,10 @@
             var calculate = el('button', { type: 'button', class: 'quiet', 'data-focus': 'calculate', 'aria-describedby': id + '-label', text: t('Calculate') });
             var calculated = el('p', { class: 'hint', 'aria-live': 'polite' });
             calculate.addEventListener('click', function () {
-                calculateNow(inst, q);
-                calculated.textContent = t('Calculated.');
+                var v = calculateNow(inst, q);
+                // Emptied first, so a second press is announced again; an empty result is said, not called a calculation.
+                calculated.textContent = '';
+                setTimeout(function () { calculated.textContent = t(v === '' ? 'Nothing to calculate yet: answer the questions it uses first.' : 'Calculated.'); }, 50);
             });
             shell.appendChild(el('div', { class: 'inline' }, [calculate]));
             shell.appendChild(calculated);
@@ -1646,7 +1658,13 @@
             if (input.value.trim() === '' && current(inst, q) !== '') { setValue(inst, q, ''); }
             draw(true);
         });
-        input.addEventListener('click', function () { if (list.hidden && !input.readOnly) { draw(false); } });
+        // A filter that leaves no choices says so once, when the person reaches for the list (UX review 2026-11-16).
+        var saidEmpty = false;
+        function sayEmpty() {
+            if (rows.length === 0 && !input.readOnly && !saidEmpty) { saidEmpty = true; status.textContent = t('Choose an answer above first.'); }
+        }
+        input.addEventListener('click', function () { if (list.hidden && !input.readOnly) { draw(false); } sayEmpty(); });
+        input.addEventListener('focus', sayEmpty);
         input.addEventListener('keydown', function (e) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
@@ -1683,10 +1701,11 @@
                     return;
                 }
                 unavailable.hidden = true;
+                if (available.length > 0 && saidEmpty) { saidEmpty = false; if (status.textContent === t('Choose an answer above first.')) { status.textContent = ''; } }
                 rows = available;
                 var names = rows.map(function (r) { return String(r.name); });
                 // An answer the filter no longer offers is cleared, as the other selects clear theirs.
-                if (current(inst, q) !== '' && names.indexOf(current(inst, q)) < 0) { inst.values[q.name] = ''; input.value = ''; typed = false; setTimeout(function () { refresh(false); }, 0); }
+                if (current(inst, q) !== '' && names.indexOf(current(inst, q)) < 0) { inst.values[q.name] = ''; input.value = ''; typed = false; status.textContent = ''; setTimeout(function () { refresh(false); }, 0); }
                 if (document.activeElement !== input && !typed) { input.value = current(inst, q) === '' ? '' : labelOfValue(current(inst, q)); }
                 input.readOnly = !!ro;
                 input.disabled = false;
@@ -1787,6 +1806,21 @@
         return (value === whole.text || value === trimmed.text) && trimmed.count >= mask.required;
     }
 
+    // The pattern said as an answer that fits it, for the hint and the message: "12 ABC 345" reads aloud and on a phone,
+    // where "__ ___ ___" read as a row of underscores (UX review 2026-11-16). Every place is filled, optional ones too.
+    // The placeholder keeps the skeleton, because it is a picture of the box rather than a sentence.
+    function maskExample(mask) {
+        var digit = 0, letter = 0, bit = 0;
+        return mask.parts.map(function (p) {
+            if (p.kind === null) { return p.lit; }
+            if (p.kind === 'B') { return String(1 - (bit++ % 2)); }
+            if (p.kind === 'D') { return String(digit++ % 9 + 1); }
+            if (p.kind === '9' || p.kind === '0' || p.kind === '#' || p.kind === 'H') { return String((digit++ + 1) % 10); }
+            var c = 'ABCDEFGHJKLMNPRSTUVYZ'.charAt(letter++ % 21);
+            return p.letterCase === '<' ? c.toLowerCase() : c;
+        }).join('');
+    }
+
     function maskSkeleton(mask) {
         var blank = mask.placeholder === ' ' ? '_' : mask.placeholder;
         return mask.parts.map(function (p) { return p.kind === null ? p.lit : blank; }).join('');
@@ -1795,7 +1829,7 @@
     function maskedTextWidget(inst, q, id, describedBy) {
         var mask = parseMask(q.inputMask);
         var digits = mask.parts.every(function (p) { return p.kind === null || '90D#'.indexOf(p.kind) >= 0; });
-        var format = el('p', { class: 'hint', id: id + '-format', text: t('Format: ') + maskSkeleton(mask) });
+        var format = el('p', { class: 'hint', id: id + '-format', text: t('For example: ') + maskExample(mask) });
         var input = el('input', {
             type: 'text', id: id, 'aria-describedby': describedBy + ' ' + id + '-format', 'data-focus': 'input', autocomplete: 'off',
             autocapitalize: 'off', spellcheck: 'false', inputmode: digits ? 'numeric' : null, placeholder: maskSkeleton(mask), maxlength: String(mask.parts.length + 8)

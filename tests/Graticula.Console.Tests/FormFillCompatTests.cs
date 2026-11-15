@@ -349,7 +349,8 @@ public sealed class FormFillCompatTests : IClassFixture<FormFillClientTests.Site
         const string input = "[data-name=tel] input";
 
         Assert.Equal("(___) ___-____", await _site.EvalAsync<string>($"document.querySelector('{input}').getAttribute('placeholder')"));
-        Assert.Contains("(___) ___-____", await _site.EvalAsync<string>("document.querySelector('[data-name=tel] .hint').textContent") ?? "");
+        // The hint says the pattern as an answer that fits it, not as underscores a screen reader reads one by one.
+        Assert.Contains("For example: (123) 456-7890", await _site.EvalAsync<string>("document.querySelector('[data-name=tel] .hint').textContent") ?? "");
         Assert.Contains("-format", await _site.EvalAsync<string>($"document.querySelector('{input}').getAttribute('aria-describedby')") ?? "");
 
         await TypeAsync(input, "5");
@@ -384,7 +385,7 @@ public sealed class FormFillCompatTests : IClassFixture<FormFillClientTests.Site
         await TypeAsync(input, "12");
         await _site.EvalAsync<bool>("document.getElementById('submit').click(); true");
         await _site.WaitAsync("!document.getElementById('summary').hidden", "the summary");
-        Assert.Contains("Fill in the whole pattern: ___-__", await _site.EvalAsync<string>("document.querySelector('[data-name=tel] .error').textContent") ?? "");
+        Assert.Contains("Use the pattern 123-45.",await _site.EvalAsync<string>("document.querySelector('[data-name=tel] .error').textContent") ?? "");
         Assert.Equal("true", await _site.EvalAsync<string>($"document.querySelector('{input}').getAttribute('aria-invalid')"));
         Assert.True(await _site.EvalAsync<bool>("document.getElementById('done').hidden"), "An unfinished answer was sent.");
 

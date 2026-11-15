@@ -230,6 +230,7 @@ public sealed class FormFillClientCompatibilityTests : IClassFixture<FormFillCli
         await _site.EvalAsync<bool>("document.querySelector('[data-name=total] [data-focus=calculate]').click(); true");
         Assert.Equal("10", await ValueAsync("total"));
         Assert.Equal("polite", await _site.EvalAsync<string>("document.querySelector('[data-name=total] p[aria-live]').getAttribute('aria-live')"));
+        await Task.Delay(200); // the status is emptied and then written, so a second press is announced again
         Assert.Equal("Calculated.", await _site.EvalAsync<string>("document.querySelector('[data-name=total] p[aria-live]').textContent"));
 
         await TypeAsync("n", "6");
@@ -258,6 +259,38 @@ public sealed class FormFillClientCompatibilityTests : IClassFixture<FormFillCli
 
         await _site.EvalAsync<bool>("document.querySelector('[data-name=first] [data-focus=calculate]').click(); true");
         Assert.Equal("3", await ValueAsync("first"));
+    }
+
+    // A number calculated from an empty answer is NaN, which a number question cannot hold. It was shown as "NaN", it
+    // locked whenEmpty as answered, and it blocked Submit with "Enter a whole number" on a box nobody could type in (UX
+    // review 2026-11-16). It is the empty answer, in every mode.
+    [Theory]
+    [InlineData("whenEmpty")]
+    [InlineData(null)]
+    public async Task A_number_calculated_from_an_empty_answer_is_empty_and_does_not_block_submit(string? mode)
+    {
+        string id = Publish(
+            Question("n", "integer", "n"),
+            Question("twice", "integer", "twice", "${n} * 2", mode));
+        await _site.OpenAsync(id);
+
+        Assert.Equal("", await ValueAsync("twice"));
+
+        await _site.EvalAsync<bool>("document.getElementById('submit').click(); true");
+        await _site.WaitAsync("!document.getElementById('done').hidden", "the confirmation");
+        Assert.True(await _site.EvalAsync<bool>("document.getElementById('summary').hidden"), "Submit listed a calculation the person cannot answer.");
+    }
+
+    [Fact]
+    public async Task WhenEmpty_over_an_empty_number_still_calculates_once_the_number_is_answered()
+    {
+        string id = Publish(
+            Question("n", "integer", "n"),
+            Question("twice", "integer", "twice", "${n} * 2", "whenEmpty"));
+        await _site.OpenAsync(id);
+
+        await TypeAsync("n", "4");
+        Assert.Equal("8", await ValueAsync("twice"));   // the empty answer did not lock it
     }
 
     // ------------------------------------------------------------------------------------------------- draw
