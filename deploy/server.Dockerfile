@@ -74,7 +74,13 @@ RUN set -eu; read -r tag commit < /usd2glb-src/TINYUSDZ; \
 # below is portable (`UseAppHost=false`, no runtime identifier), so its output runs on amd64
 # and arm64 alike and there is nothing to gain from running the SDK under emulation. Only the
 # runtime stage is architecture-specific, and all it does there is install curl and add a user.
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:9.0-noble AS build
+#
+# <b>The SDK is 10 and the target is still net9.0 — owner, 2026-11-15.</b> v1.0.516's image did
+# not build: this stage compiled with SDK 9 while every other build (the developer machines,
+# and CI, which takes the runner's newest SDK) compiled with 10, and SDK 9 reports CS1998 where
+# 10 does not, so an error no other build could see stopped only this one. global.json now pins
+# SDK 10 everywhere. Only the compiler moved: the runtime stage below is still aspnet:9.0.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0-noble AS build
 WORKDIR /src
 
 # <b>The release's number, into the binary and not only onto the image.</b> It reached

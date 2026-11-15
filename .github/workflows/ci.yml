@@ -38,7 +38,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: restore
         run: dotnet restore graticula.sln
@@ -76,7 +78,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: build
         run: dotnet build graticula.sln -c Release
@@ -207,7 +211,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - uses: actions/setup-python@v5
         with:
@@ -255,7 +261,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: build
         run: dotnet build tests/Graticula.Providers.MySql.Tests -c Release
@@ -299,7 +307,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: build
         run: dotnet build tests/Graticula.Providers.MySql.Tests -c Release
@@ -337,7 +347,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: database
         run: |
@@ -381,7 +393,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - name: build
         run: dotnet build graticula.sln -c Release
@@ -566,7 +580,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            10.0.x
+            9.0.x
 
       - uses: actions/setup-python@v5
         with:
