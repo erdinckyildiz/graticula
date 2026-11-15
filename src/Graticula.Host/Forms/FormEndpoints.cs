@@ -41,7 +41,7 @@ namespace Graticula.Host.Forms;
 /// publisher just made is part of making them (INFERRED, ADR-287 Q-230).
 /// </para>
 /// </remarks>
-public static class FormEndpoints
+public static partial class FormEndpoints
 {
     /// <summary>The item resource that records what publishing made.</summary>
     public const string PublicationResource = "graticula/publication.json";
@@ -301,6 +301,12 @@ public static class FormEndpoints
         if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
         {
             return Refusal(missing, check.Notices, "The form was not published.");
+        }
+
+        // ADR-287 §5.17: a form that names a layer writes to it and makes none.
+        if (check.Definition!.Settings.SubmissionUrl is not null)
+        {
+            return await PublishToExistingAsync(context, document, model, check, plan, cancellation).ConfigureAwait(false);
         }
 
         Publisher publisher = new(context, plan, cancellation);
@@ -670,6 +676,11 @@ public static class FormEndpoints
             return Refusal(missing, check.Notices, "The form was not published again.");
         }
 
+        if (await RepublishToExistingAsync(context, document, model, check, plan, publication, cancellation).ConfigureAwait(false) is { } handled)
+        {
+            return handled;
+        }
+
         string service = (string?)publication["service"] ?? string.Empty;
         List<FormIssue> refused = [];
 
@@ -1000,7 +1011,11 @@ public static class FormEndpoints
         IServiceProvider services = context.RequestServices;
         string word = scope.ToString().ToLowerInvariant();
         string service = (string?)publication["service"] ?? string.Empty;
-        string view = (string?)publication["submitService"] ?? $"{service}_submit";
+        string view = (string?)publication["submitService"] ?? ViewNameFor(service);
+
+        // A form that writes to a layer it did not make opens its answers over the layers it writes to, not over every
+        // layer of a service somebody else designed (§5.17). A form that made its service uses every hosted layer of it.
+        int[]? only = IsExisting(publication) ? LayerNumbers(publication) : null;
         bool exists = publication["submitService"] is not null;
         (int status, string? message) = (200, null);
 
@@ -1012,7 +1027,7 @@ public static class FormEndpoints
             // its point, to anyone who asked for a tile. Query off now turns tiles off anyway (ADR-031 §2a); this is the
             // second lock, set before the view is shared so there is no moment when it is open with them on. Written to the catalogue directly: the publisher made this view as a step of
             // publishing, and the capabilities endpoint asks for server administration.
-            AdminEndpoints.ViewRequest asked = new(view, null, null, ["Create"], "private");
+            AdminEndpoints.ViewRequest asked = new(view, only, null, ["Create"], "private");
             (status, message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
                 context, service, FeatureServerMetadataWriter.HostedFolder, asked,
                 services.GetRequiredService<IAdminCatalog>(), services.GetRequiredService<PostgresLayerCatalog>(),
@@ -1084,6 +1099,7 @@ public static class FormEndpoints
     /// <param name="service">The service's name in the hosted folder; its address does not change.</param>
     /// <param name="title">The item title it is given: the form's title, or the form's title and <c>_form</c> for the view.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="touchService">False when the service is somebody else's and only the form item is filed (§5.17).</param>
     /// <remarks>
     /// <para>
     /// <b>The folder is <c>Survey-</c> and the form's title, the owner's</b>, found by title when it exists and made when it
@@ -1101,7 +1117,8 @@ public static class FormEndpoints
     /// form's items were before this.
     /// </para>
     /// </remarks>
-    private static async Task FileAsync(HttpContext context, Document document, string service, string title, CancellationToken cancellation)
+    private static async Task FileAsync(
+        HttpContext context, Document document, string service, string title, CancellationToken cancellation, bool touchService = true)
     {
         IServiceProvider services = context.RequestServices;
         IContentFolderStore folders = services.GetRequiredService<IContentFolderStore>();
@@ -1109,8 +1126,11 @@ public static class FormEndpoints
         string folderTitle = "Survey-" + document.Title.Trim();
         folderTitle = folderTitle.Length > FolderTitleLength ? folderTitle[..FolderTitleLength] : folderTitle;
 
-        PublishedService? made = await services.GetRequiredService<PostgresLayerCatalog>()
-            .FindServiceAsync(FeatureServerMetadataWriter.HostedFolder, service, cancellation).ConfigureAwait(false);
+        // A service the form only writes to (§5.17) is not retitled or moved: it was somebody's before the form.
+        PublishedService? made = touchService
+            ? await services.GetRequiredService<PostgresLayerCatalog>()
+                .FindServiceAsync(FeatureServerMetadataWriter.HostedFolder, service, cancellation).ConfigureAwait(false)
+            : null;
 
         if (made is not null)
         {

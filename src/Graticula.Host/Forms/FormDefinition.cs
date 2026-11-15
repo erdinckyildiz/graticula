@@ -847,6 +847,14 @@ public sealed partial class FormDefinition
                 thanks = null;
             }
 
+            // ADR-287 §5.17: an address that is not a feature service's is refused wherever the form is checked; whether
+            // it is this server's, and whether the layer fits the form, can only be known when it is published.
+            if (columns.Value(row, "submission_url") is { } submission
+                && !SubmissionTarget.TryParse(submission, out _, out string? notAnAddress))
+            {
+                Refuse("settings", 2, "submission_url", notAnAddress!);
+            }
+
             return new FormSettings(
                 columns.Value(row, "form_title"),
                 columns.Value(row, "form_id"),
