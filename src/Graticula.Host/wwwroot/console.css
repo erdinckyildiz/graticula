@@ -7990,7 +7990,7 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .fdshelf:first-of-type { margin-top: 4px; }
 .fdtocard { display: none; margin-bottom: 6px; }
 .fdinvalid { margin: 4px 0 0; font-size: 12px; }
-.fdfield textarea#fdLabel { font: inherit; }
+.fdfield textarea#fdLabel, .fdfield textarea#fdSetThanks { font: inherit; }
 .fdicon { min-width: 30px; min-height: 30px; padding: 4px 6px; font-size: 14px; }
 .fdchildren { padding: 4px 10px 6px 18px; border-top: 1px dashed var(--rule); }
 .fdgroup > .fdchildren { border-left: 3px solid var(--rule-strong); margin-left: 8px; }
@@ -8006,7 +8006,7 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .fdedithead { margin: 0 0 8px; font-size: 15px; }
 .fdfield { margin-bottom: 10px; }
 label.check.fdfield { display: flex; gap: 8px; align-items: center; }
-.fdfield textarea, .fdfield input[type=text], .fdfield select { width: 100%; box-sizing: border-box; }
+.fdfield textarea, .fdfield input[type=text], .fdfield input[type=url], .fdfield select { width: 100%; box-sizing: border-box; }
 .fdchoices, .fdrules, .fdlimits, .fdrange { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
 .fdchoices legend, .fdrules legend, .fdlimits legend, .fdrange legend { font-weight: 600; padding: 0 4px; }
 .fdchoicelist, .fdrulelist { list-style: none; margin: 0 0 8px; padding: 0; }

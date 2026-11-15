@@ -53,11 +53,7 @@
   </section>
 
   <main id="form-main" tabindex="-1">
-    <p id="draft-status" class="draft-status" role="status" aria-live="polite"></p>
-    <div id="draft-bar" class="draft-bar" hidden>
-      <button type="button" id="draft-new" class="quiet">Start a new form</button>
-      <button type="button" id="draft-discard" class="quiet">Discard this draft</button>
-    </div>
+    <p id="draft-reopened" class="draft-status" role="status" aria-live="polite"></p>
     <div id="link-notices" class="note-warn" role="status" aria-live="polite" hidden>
       <p id="link-notices-title"><strong>Some settings in this link were not used</strong></p>
       <ul id="link-notices-list"></ul>
@@ -75,11 +71,19 @@
         <button type="button" id="next" hidden>Next</button>
         <button type="submit" id="submit">Submit</button>
       </div>
+      <div class="draft-foot">
+        <p id="draft-status" class="draft-status" role="status" aria-live="polite"></p>
+        <div id="draft-bar" class="draft-bar" hidden>
+          <button type="button" id="draft-new" class="quiet">Start a new form</button>
+          <button type="button" id="draft-discard" class="quiet">Discard this draft</button>
+        </div>
+      </div>
     </form>
     <section id="done" class="done" tabindex="-1" hidden>
       <h2 id="done-heading">Submitted</h2>
       <p id="done-text" role="status" aria-live="polite"></p>
       <p id="redirect-text" role="status" aria-live="polite"></p>
+      <p id="redirect-count" aria-hidden="true"></p>
       <div id="redirect" class="inline" hidden>
         <a id="redirect-go" class="button-link" href="#">Go now</a>
         <button type="button" id="redirect-stay" class="quiet">Stay on this page</button>

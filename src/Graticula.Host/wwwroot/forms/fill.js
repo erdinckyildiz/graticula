@@ -313,6 +313,8 @@
         "Use yes or no.": "Evet ya da hayır kullanın.",
         "A link cannot fill this kind of question.": "Bağlantı bu tür bir soruyu dolduramaz.",
         "You stayed on this page.": "Bu sayfada kaldınız.",
+        "There is no map to tap here. Type the latitude and longitude below, or use your location.": "Burada dokunulacak bir harita yok. Enlem ve boylamı aşağıya yazın ya da konumunuzu kullanın.",
+        "There is no map to tap here. Type each point below, or add your position.": "Burada dokunulacak bir harita yok. Her noktayı aşağıya yazın ya da konumunuzu ekleyin.",
         "Picture not available: ": "Resim bulunamadı: "
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
@@ -964,7 +966,8 @@
                     }
                 });
                 controls.push(input);
-                tr.appendChild(el('td', null, [input]));
+                // The whole cell answers, as a .choice row does elsewhere: a 22 px radio alone is too small a target on a phone.
+                tr.appendChild(el('td', null, [el('label', { class: 'cell-hit' }, [input])]));
             });
             bodyNode.appendChild(tr);
             views.push({
@@ -1119,7 +1122,7 @@
         if (!words) { return null; }
         var open = !!guidanceOpen[key];
         var button = el('button', { type: 'button', class: 'quiet guidance-toggle', id: id + '-more', 'data-focus': 'guidance',
-            'aria-expanded': open ? 'true' : 'false', 'aria-controls': id + '-guidance', text: t('More help') });
+            'aria-expanded': open ? 'true' : 'false', 'aria-controls': id + '-guidance', 'aria-describedby': id + '-label', text: t('More help') });
         var panel = el('div', { class: 'guidance', id: id + '-guidance', hidden: open ? null : true }, [el('p', { text: words })]);
         button.addEventListener('click', function () {
             guidanceOpen[key] = panel.hidden;
@@ -1443,8 +1446,10 @@
         });
 
         var map = placeMap('geopoint', function () {
-            var p = parts();
-            return p.length >= 2 && !isNaN(Number(p[0])) && !isNaN(Number(p[1])) ? [[Number(p[0]), Number(p[1])]] : [];
+            // Unfiltered: with one box still empty the value is "41.01  0 0", and parts() would read its altitude as the
+            // longitude and draw the point at 0 degrees east.
+            var p = current(inst, q).split(' ');
+            return p.length >= 2 && p[0] !== '' && p[1] !== '' && !isNaN(Number(p[0])) && !isNaN(Number(p[1])) ? [[Number(p[0]), Number(p[1])]] : [];
         }, function (la, lo) {
             setValue(inst, q, la + ' ' + lo + ' 0 0');
             status.textContent = isTurkish() ? 'Nokta haritadan yerleştirildi.' : 'Point placed on the map.';
@@ -1533,7 +1538,13 @@
         // the keyboard's way to answer.
         var box = el('div', { class: 'qmap', role: 'region', 'aria-label': kind === 'geopoint'
             ? t('Map of the point. Use the boxes below to type it.') : t('Map of the points. Use the boxes below to type them.') });
-        var hint = el('p', { class: 'hint', text: kind === 'geopoint'
+        // graticula:basemap none: a point tapped on a blank ground is a place nobody could see, so the map only shows
+        // what was typed or found, and the hint says how to answer (decision 2026-11-15).
+        var plain = groundKind() === 'none';
+        var hint = el('p', { class: 'hint', text: plain
+            ? (kind === 'geopoint' ? t('There is no map to tap here. Type the latitude and longitude below, or use your location.')
+                : t('There is no map to tap here. Type each point below, or add your position.'))
+            : kind === 'geopoint'
             ? t('Zoom in close and tap the map to place the point; tap again to move it. Two fingers move the map.')
             : t('Zoom in close and tap the map to add each point in turn. Two fingers move the map.') });
         var map = null, source = null, fitted = false, readOnly = false;
@@ -1550,6 +1561,10 @@
             if (!fitted) {
                 fitted = true;
                 map.getView().fit(source.getExtent(), { padding: [40, 40, 40, 40], maxZoom: 17 });
+            } else if (pts.length === 1 && map.getSize()) {
+                // A point typed into the boxes moves as it is typed; the map follows it rather than keep the view of the
+                // first half-typed value, where the real point is off the edge (UX review 2026-11-15).
+                if (!ol.extent.containsCoordinate(map.getView().calculateExtent(map.getSize()), pts[0])) { map.getView().setCenter(pts[0]); }
             }
         }
 
@@ -1589,7 +1604,7 @@
                 // One finger scrolls the form and a tap places a point; two fingers move the map.
                 map.getViewport().style.touchAction = 'pan-x pan-y';
                 map.on('singleclick', function (event) {
-                    if (readOnly) { return; }
+                    if (readOnly || plain) { return; }
                     // A tap at country scale is tens of kilometres wide: it zooms in on the place instead of answering,
                     // so one careless touch cannot answer a required question (the UX review of 2026-11-09).
                     if (map.getView().getZoom() < PLACE_ZOOM) {
@@ -2424,6 +2439,9 @@
 
     function sayDraft(message) { var n = $('draft-status'); if (n) { n.textContent = message; } }
 
+    // Above the form, written once when the page opens on a draft and cleared only by a button press, never by typing.
+    function sayReopened(message) { var n = $('draft-reopened'); if (n) { n.textContent = message; } }
+
     function drawDraftBar() {
         var bar = $('draft-bar');
         if (bar) { bar.hidden = !draftId; }
@@ -2532,6 +2550,7 @@
         var d = await dbGet('drafts', id).catch(function () { return null; });
         if (!d || d.formId !== itemId) { sayDraft(t('That draft is no longer on this device.')); await drawDrafts(); return; }
         restoreFrom(d);
+        sayReopened('');
         $('drafts').hidden = true;
         $('drafts-toggle').setAttribute('aria-expanded', 'false');
         sayDraft(t('Draft resumed.') + (d.formVersion !== (form.version || '') ? ' ' + t('It was started in an earlier version of the form; answers to questions that no longer exist were left out.') : ''));
@@ -2572,7 +2591,7 @@
         if (mine.length && !prefillRequested()) {
             restoreFrom(mine[0]);
             var stamp = new Date(mine[0].updated).toLocaleString();
-            sayDraft(isTurkish() ? stamp + ' tarihli taslak yeniden açıldı.' : 'Draft from ' + stamp + ' reopened.');
+            sayReopened(isTurkish() ? stamp + ' tarihli taslak yeniden açıldı.' : 'Draft from ' + stamp + ' reopened.');
             return;
         }
         startBlank();
@@ -2798,10 +2817,16 @@
     }
 
     function clearRedirect() {
-        clearTimeout(redirectTimer);
+        clearInterval(redirectTimer);
         redirectTimer = null;
         var box = $('redirect');
-        if (box) { box.hidden = true; $('redirect-text').textContent = ''; }
+        if (box) {
+            box.hidden = true;
+            $('redirect-text').textContent = '';
+            $('redirect-text').classList.remove('sr-only');
+            $('redirect-count').textContent = '';
+            $('new-form').classList.remove('quiet');
+        }
     }
 
     // The screen after an answer was sent: the publisher's thank-you in place of the page's own sentence, and, when the
@@ -2814,19 +2839,37 @@
         $('form').hidden = true;
         $('summary').hidden = true;
         var thanks = sent && form && form.thankYou ? form.thankYou : '';
-        $('done-heading').textContent = queued ? t('Saved on this device') : 'Submitted';
+        $('done-heading').textContent = queued ? t('Saved on this device') : STATIC_TEXT['done-heading'][isTurkish() ? 1 : 0];
         $('done-text').textContent = thanks || message;
+        // The draft this answer came from is gone (it was queued or sent): its "saved" line would now say the opposite.
+        sayDraft('');
         $('done').hidden = false;
         $('done').focus();
         var target = sent && !previewing ? safeRedirect(form && form.redirect) : null;
         if (!target) { return; }
-        var seconds = 5;
+        // Ten seconds, counted down on screen. A screen reader hears the sentence once, from the live region, which is
+        // kept off screen while the visible count (hidden from assistive technology) ticks (decision 2026-11-15).
+        var seconds = 10;
         var host = new URL(target).host;
         $('redirect-text').textContent = isTurkish() ? host + ' adresine ' + seconds + ' saniye içinde yönlendirileceksiniz.'
             : 'You will be taken to ' + host + ' in ' + seconds + ' seconds.';
+        $('redirect-text').classList.add('sr-only');
+        function tick() {
+            $('redirect-count').textContent = isTurkish() ? host + ' adresine ' + seconds + ' saniye içinde yönlendiriliyorsunuz.'
+                : 'Taking you to ' + host + ' in ' + seconds + (seconds === 1 ? ' second.' : ' seconds.');
+        }
+        tick();
         $('redirect-go').href = target;
         $('redirect').hidden = false;
-        redirectTimer = setTimeout(function () { location.assign(target); }, seconds * 1000);
+        // One thing leads: while the redirect waits, Go now is the primary action and a new form the quiet one.
+        $('new-form').classList.add('quiet');
+        redirectTimer = setInterval(function () {
+            seconds -= 1;
+            if (seconds > 0) { tick(); return; }
+            clearInterval(redirectTimer);
+            redirectTimer = null;
+            location.assign(target);
+        }, 1000);
     }
 
     function startBlank(quiet) {
@@ -2835,6 +2878,7 @@
         showAll = false;
         pageIndex = 0;
         draftId = null;
+        sayReopened('');
         drawDraftBar();
         root = newInstance(form.root, null);
         clearRedirect();
@@ -2973,9 +3017,12 @@
         wireDrafts();
         $('link-notices-dismiss').addEventListener('click', function () { $('link-notices').hidden = true; $('form-main').focus(); });
         $('redirect-stay').addEventListener('click', function () {
-            clearTimeout(redirectTimer);
+            clearInterval(redirectTimer);
             redirectTimer = null;
             $('redirect').hidden = true;
+            $('redirect-count').textContent = '';
+            $('new-form').classList.remove('quiet');
+            $('redirect-text').classList.remove('sr-only');
             $('redirect-text').textContent = t('You stayed on this page.');
             $('new-form').focus();
         });

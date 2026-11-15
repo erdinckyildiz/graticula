@@ -289,7 +289,7 @@ public sealed class FormFillClientScreensTests : IClassFixture<FormFillClientTes
         Assert.Equal("1", await _site.EvalAsync<string>("document.getElementById('drafts-count').textContent"));
 
         await _site.OpenAsync(id);
-        await _site.WaitAsync("document.getElementById('draft-status').textContent.indexOf('reopened') > 0", "the draft to reopen");
+        await _site.WaitAsync("document.getElementById('draft-reopened').textContent.indexOf('reopened') > 0", "the draft to reopen");
         Assert.Equal("Eski", await _site.EvalAsync<string>("document.querySelector('[data-name=ad] input').value"));
     }
 
@@ -372,7 +372,7 @@ public sealed class FormFillClientScreensTests : IClassFixture<FormFillClientTes
         await _site.OpenAsync(id);
         await _site.SetAsync("ad", "Ali");
         await _site.EvalAsync<bool>("document.getElementById('submit').click(); true");
-        await _site.WaitAsync($"location.pathname === '/forms/{other}'", "the redirect", seconds: 15);
+        await _site.WaitAsync($"location.pathname === '/forms/{other}'", "the redirect", seconds: 20);
     }
 
     [Fact]

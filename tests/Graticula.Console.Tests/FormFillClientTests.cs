@@ -51,7 +51,7 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
         Assert.Contains("saved", await _site.EvalAsync<string>("document.getElementById('draft-status').textContent"));
 
         await _site.OpenAsync(id);
-        await _site.WaitAsync("document.getElementById('draft-status').textContent.indexOf('reopened') > 0", "the draft to be reopened");
+        await _site.WaitAsync("document.getElementById('draft-reopened').textContent.indexOf('reopened') > 0", "the draft to be reopened");
         Assert.Equal("Ayşe", await _site.EvalAsync<string>("document.querySelector('[data-name=ad] input').value"));
         Assert.Equal("41", await _site.EvalAsync<string>("document.querySelector('[data-name=yas] input').value"));
         Assert.False(await _site.EvalAsync<bool>("document.getElementById('draft-bar').hidden"), "The draft's controls are not shown.");
@@ -163,7 +163,7 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
         try
         {
             await _site.OpenAsync(id, expectServer: false);
-            await _site.WaitAsync("document.getElementById('draft-status').textContent.indexOf('reopened') > 0", "the draft to be reopened with no server", seconds: 20);
+            await _site.WaitAsync("document.getElementById('draft-reopened').textContent.indexOf('reopened') > 0", "the draft to be reopened with no server", seconds: 20);
             Assert.Equal("Sahada", await _site.EvalAsync<string>("document.querySelector('[data-name=ad] input').value"));
         }
         finally
