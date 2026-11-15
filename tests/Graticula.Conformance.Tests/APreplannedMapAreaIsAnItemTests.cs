@@ -196,10 +196,14 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
             Assert.Equal([packageId], await RelatedAsync(areaId, "Area2Package", "forward", token));
             Assert.Equal([areaId], await RelatedAsync(packageId, "Area2Package", "reverse", token));
 
-            // The Map Area's data is an empty object (D-408); the package's is its file, whole and by range.
+            // The Map Area's data is the `mapAreas` object an Enterprise portal's has (D-408, read 2026-11-15): its tile
+            // scale, its refresh parameters and whether scheduled updates are on; the package's is its file, whole and by range.
             (_, JsonElement areaData) = await JsonAsync(HttpMethod.Get, $"{Items}{areaId}/data?f=json", token);
             Assert.Equal(JsonValueKind.Object, areaData.ValueKind);
-            Assert.Empty(areaData.EnumerateObject());
+            JsonElement mapAreas = areaData.GetProperty("mapAreas");
+            Assert.True(mapAreas.GetProperty("mapAreaTileScale").TryGetProperty("minScale", out _), areaData.ToString());
+            Assert.Equal("never", mapAreas.GetProperty("mapAreaRefreshParams").GetProperty("type").GetString());
+            Assert.False(mapAreas.GetProperty("mapAreasScheduledUpdatesEnabled").GetBoolean());
 
             (HttpStatusCode whole, byte[] file, HttpResponseMessage headers) = await BytesAsync($"{Items}{packageId}/data", token);
             Assert.Equal(HttpStatusCode.OK, whole);
@@ -323,6 +327,18 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
         string tileUrl = $"{root}/rest/services/{tiles}/VectorTileServer";
         string mapId = string.Empty;
 
+        // A basemap package is an export of the tile service (D-427), so the service must offer exports, as an administrator
+        // turns them on in ArcGIS; the fixture's does not by default. Turned on here and put back, as the export test does.
+        string qualified = tiles!.Trim('/');
+        string exports = $"/admin/services/{Uri.EscapeDataString(qualified[(qualified.LastIndexOf('/') + 1)..])}/exports";
+        (int read, string readBody) = await AdminAsync(HttpMethod.Get, $"{exports}{FolderQuery(qualified)}");
+        Assert.True(read == 200, $"Reading the export policy answered {read}: {readBody}");
+        JsonElement policy = JsonDocument.Parse(readBody).RootElement.GetProperty("policy").Clone();
+        (int allowed, string allowedBody) = await AdminAsync(
+            HttpMethod.Put, $"{exports}/policy{FolderQuery(qualified)}",
+            JsonSerializer.Serialize(new { allowed = true, anonymous = false, maxExportTilesCount = (int?)null }));
+        Assert.True(allowed == 200, $"Turning exports on answered {allowed}: {allowedBody}");
+
         try
         {
             using (HttpRequestMessage enable = new(HttpMethod.Post, $"{root}/rest/admin/services/{parts[2]}/{parts[3]}/FeatureServer/updateDefinition")
@@ -361,7 +377,7 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
             string areaId = area.GetProperty("id").GetString()!;
 
             JsonElement[] packages = [.. area.GetProperty("packages").EnumerateArray()];
-            Assert.Equal(2, packages.Length);
+            Assert.True(packages.Length == 2, area.ToString());
             JsonElement vtpk = Assert.Single(packages, p => p.GetProperty("format").GetString() == "vtpk");
             Assert.Single(packages, p => p.GetProperty("format").GetString() == "sqlite");
             Assert.Equal(JsonValueKind.Null, vtpk.GetProperty("replicaId").ValueKind);
@@ -422,6 +438,18 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
             }
 
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token, json: null);
+
+            await AdminAsync(
+                HttpMethod.Put,
+                $"{exports}/policy{FolderQuery(qualified)}",
+                JsonSerializer.Serialize(new
+                {
+                    allowed = policy.GetProperty("allowed").GetBoolean(),
+                    anonymous = policy.GetProperty("anonymous").GetBoolean(),
+                    maxExportTilesCount = policy.GetProperty("maxExportTilesCount").ValueKind == JsonValueKind.Number
+                        ? policy.GetProperty("maxExportTilesCount").GetInt32()
+                        : (int?)null,
+                }));
         }
     }
 }
