@@ -33,10 +33,20 @@ public readonly record struct AttachmentChange(AttachmentChangeKind Kind, int At
 /// then sends no attachment changes rather than invent some.
 /// </param>
 /// <param name="Changes">The net changes, one per attachment.</param>
-public sealed record AttachmentChanges(bool Vouched, IReadOnlyList<AttachmentChange> Changes)
+/// <param name="Unrecorded">
+/// True when the store keeps no record at all (no trigger, or no store that keeps one): the window cannot be vouched for
+/// and nothing can be done about it by sending more, so a caller does not resend everything on every sync (D-423).
+/// </param>
+public sealed record AttachmentChanges(bool Vouched, IReadOnlyList<AttachmentChange> Changes, bool Unrecorded = false)
 {
-    /// <summary>A record that cannot vouch for the window.</summary>
+    /// <summary>
+    /// A record that cannot vouch for this window — it begins after the window did, or the table was emptied in it — though
+    /// it records from now on. A caller that must not leave the device behind may send what exists (D-423).
+    /// </summary>
     public static AttachmentChanges Unvouched { get; } = new(false, []);
+
+    /// <summary>No record is kept: nothing is vouched for, now or later.</summary>
+    public static AttachmentChanges NotRecorded { get; } = new(false, [], true);
 
     /// <summary>A record that vouches for the window and holds nothing in it.</summary>
     public static AttachmentChanges None { get; } = new(true, []);

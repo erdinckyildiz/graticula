@@ -69,7 +69,8 @@ internal static partial class DeltaFile
                 ChangeTable(file, dataset, 3, SqliteMobileGeodatabaseWriter.DeleteFields, "OID", "globalid", null, changes.Deletes.Select(Key), ref deltas);
             }
 
-            if (changes.AttachmentInserts.Count + changes.AttachmentUpdates.Count + changes.AttachmentDeletes.Count > 0)
+            if (changes.AttachmentInserts.Count + changes.AttachmentUpdates.Count + changes.AttachmentDeletes.Count > 0
+                || changes.AdvanceAttachments)
             {
                 int dataset = ++datasets;
                 Dataset(file, dataset, table + "__ATTACH", 7, layer.Id, generation);

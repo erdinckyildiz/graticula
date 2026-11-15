@@ -166,6 +166,11 @@ public sealed record OfflineDelta(Guid ReplicaId, long ServerGeneration, IReadOn
 /// <param name="AttachmentInserts">Attachments added.</param>
 /// <param name="AttachmentUpdates">Attachments changed.</param>
 /// <param name="AttachmentDeletes">Attachments removed, by attachment id and global id.</param>
+/// <param name="AdvanceAttachments">
+/// True to write the layer's attachment dataset row even when it carries no attachment change: ArcGIS Runtime moves a
+/// layer's generation only when a delta names the layer (ADR-290 §11.4, D-423), and a download that re-sent every attachment
+/// because the record could not vouch for the window must name it even when there were none.
+/// </param>
 public sealed record OfflineLayerChanges(
     OfflineLayer Layer,
     IReadOnlyList<OfflineRow> Inserts,
@@ -173,7 +178,8 @@ public sealed record OfflineLayerChanges(
     IReadOnlyList<OfflineKey> Deletes,
     IReadOnlyList<OfflineAttachment> AttachmentInserts,
     IReadOnlyList<OfflineAttachment> AttachmentUpdates,
-    IReadOnlyList<OfflineKey> AttachmentDeletes);
+    IReadOnlyList<OfflineKey> AttachmentDeletes,
+    bool AdvanceAttachments = false);
 
 /// <summary>A row's identity in a delete.</summary>
 /// <param name="ObjectId">The object id.</param>

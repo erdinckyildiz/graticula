@@ -737,10 +737,16 @@ internal static partial class OfflineReplicaEndpoints
                         : AttachmentDownload.Empty;
                     SyncAttachments(log, replica.Id, p.Id, attached.Inserts.Count, attached.Updates.Count, attached.Deletes.Count);
 
-                    if (found.Inserts.Count + found.Updates.Count + found.Deletes.Count + attached.Count > 0)
+                    if (attached.FullResend)
+                    {
+                        FullResend(log, replica.Id, p.Id, attached.Updates.Count);
+                    }
+
+                    if (found.Inserts.Count + found.Updates.Count + found.Deletes.Count + attached.Count > 0 || attached.FullResend)
                     {
                         changes.Add(new OfflineLayerChanges(
-                            shape, found.Inserts, found.Updates, found.Deletes, attached.Inserts, attached.Updates, attached.Deletes));
+                            shape, found.Inserts, found.Updates, found.Deletes, attached.Inserts, attached.Updates, attached.Deletes,
+                            AdvanceAttachments: attached.FullResend));
                     }
                 }
 
@@ -1392,6 +1398,12 @@ internal static partial class OfflineReplicaEndpoints
         /// <summary>No attachment changes.</summary>
         public static AttachmentDownload Empty { get; } = new([], [], []);
 
+        /// <summary>
+        /// True when the record could not vouch for the window and every attachment of the replica's features was sent as an
+        /// update instead (D-423): the layer must be named in the delta even if there were none, so the device moves on.
+        /// </summary>
+        public bool FullResend { get; init; }
+
         /// <summary>How many changes there are.</summary>
         public int Count => Inserts.Count + Updates.Count + Deletes.Count;
     }
@@ -1433,7 +1445,7 @@ internal static partial class OfflineReplicaEndpoints
 
         AttachmentChanges log = store is IAttachmentSync sync
             ? await sync.ChangesAsync(from, to, cancellation).ConfigureAwait(false)
-            : AttachmentChanges.Unvouched;
+            : AttachmentChanges.NotRecorded;
 
         Dictionary<long, Guid> parents = [];
 
@@ -1484,6 +1496,46 @@ internal static partial class OfflineReplicaEndpoints
             {
                 updates.Add(read);
             }
+        }
+
+        // <b>D-423, ADR-290 §11.4 — a window the record cannot vouch for.</b> ArcGIS Runtime moves a layer's generation only
+        // when a delta names the layer, so sending nothing left a device asking from the same moment for ever. The record
+        // does record from now on (it was merely not there for the window's start, or the table was emptied in it), so what
+        // can be said is what exists: every attachment of the replica's features, as updates (`INFERRED`: updates and not
+        // inserts, because the device may hold some of them and an insert of a GlobalID it holds is the likelier refusal —
+        // not measured), and the layer's dataset row so the generation advances. What was deleted before the record cannot
+        // be known and is the residue. A store that keeps no record at all (`NotRecorded`) is not resent on every sync.
+        if (!log.Vouched && !log.Unrecorded && store is IAttachmentSync)
+        {
+            HashSet<long> done = [.. added.Keys];
+
+            await foreach (OfflineRow row in RowsAsync(p, shape.Fields, to, null, cancellation).ConfigureAwait(false))
+            {
+                if (row.Values[objectIdAt] is not { } oid || row.Values[globalAt] is not Guid parent)
+                {
+                    continue;
+                }
+
+                long feature = Convert.ToInt64(oid, System.Globalization.CultureInfo.InvariantCulture);
+
+                if (!done.Add(feature))
+                {
+                    continue;
+                }
+
+                foreach (AttachmentInfo info in await store.ListAsync(feature, cancellation).ConfigureAwait(false))
+                {
+                    Guid globalId = OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id, info.GlobalId);
+
+                    if (!own.Contains(globalId)
+                        && await ReadAttachmentAsync(store, info.Id, parent, globalId, cancellation).ConfigureAwait(false) is { } read)
+                    {
+                        updates.Add(read);
+                    }
+                }
+            }
+
+            return new AttachmentDownload(inserts, updates, []) { FullResend = true };
         }
 
         return new AttachmentDownload(
@@ -1679,6 +1731,15 @@ internal static partial class OfflineReplicaEndpoints
     [LoggerMessage(EventId = 2621, Level = LogLevel.Information,
         Message = "synchronizeReplica {Replica} layer {Layer}: attachments +{Inserts} ~{Updates} -{Deletes}")]
     private static partial void SyncAttachments(ILogger log, Guid replica, int layer, int inserts, int updates, int deletes);
+
+    /// <summary>
+    /// A layer's download re-sent every attachment its features have, as updates, because the change record could not vouch
+    /// for the window (ADR-290 §11.4, D-423). Logged on its own, and at warning level, so that the one measurement this
+    /// design is waiting for — how Field Maps takes an update of a GlobalID it holds — can be found in a log.
+    /// </summary>
+    [LoggerMessage(EventId = 2622, Level = LogLevel.Warning,
+        Message = "synchronizeReplica {Replica} layer {Layer}: FULL RESEND of attachments — the record cannot vouch for the window, so {Updates} attachments are sent as updates (deletes from before the record cannot be known)")]
+    private static partial void FullResend(ILogger log, Guid replica, int layer, int updates);
 
     /// <summary>Runs a job: here, answering its result, or behind a status URL.</summary>
     private static async Task RunAsync(

@@ -122,7 +122,9 @@ replica the fix is invisible until its second sync.
 6. **A window the record cannot vouch for is not guessed.** A table that held attachments before the record began says
    where the record begins (a `begin` entry written when it is evolved); a window starting earlier, a window containing a
    truncate (which names no attachment), or a table with no trigger answers `Unvouched`, and the download sends no attachment
-   changes for it — what it sent before. A layer with no attachment table is vouched for and empty.
+   changes for it — what it sent before. **Since 2026-11-15 an `Unvouched` window is not left empty: §12.5.** A table with no record at all
+   (`NotRecorded`: no trigger, or a store that keeps none) is still sent nothing, so a table that cannot be recorded is not resent in
+   full on every sync. A layer with no attachment table is vouched for and empty.
 7. **The download.** For a layer with attachments, a replica whose `attachmentsSyncDirection` is `bidirectional` (or
    `download`) and a request with `returnAttachments`, `ChangesAsync` also sends: the attachment inserts, updates and
    deletes the record vouches for in `(generation, now]`, **of features the replica holds after the sync**; every
@@ -200,7 +202,7 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    was written with. For a package older than the record, every window starts before the record began, is not vouched for,
    sends nothing, and so writes no row — and the device stays there until a *row* of that layer changes. A photo added on the
    server in that time (`server-added.png`, 11:08 UTC) never reached the phone. Packages written after the record began are
-   not affected; a map area refreshed after upgrading is the way out for one that was. [D-423](../architecture-debt.md).
+   not affected; a map area refreshed after upgrading is the way out for one that was. [D-423](../architecture-debt.md). **Built 2026-11-15 (§12.5): such a window now sends every attachment as an update and names the layer — awaiting a measurement on a device.**
 5. **Stamping at commit** is this ADR's choice and not ADR-078's.
 
 ## 12. Conditions
@@ -265,3 +267,28 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    server added, one it replaced, and one a device made equals what the delta geodatabase carries for it, the group's `parentGlobalId`
    is the feature's, and `globalIds` finds and misses. The attachment conformance tests were read, not run (they need the seeded
    fixture): none asserts a null `globalId` or the old refusal of `globalIds`.
+5. **A window the record cannot vouch for sends what exists** (§11.4, D-423). **Built 2026-11-15; awaiting a measurement on a device. Not
+   discharged.** The fact it rests on, measured 2026-11-13: ArcGIS Runtime moves a layer's generation only when a delta has a
+   `GDB_DataChangesDatasets` row for that layer (its feature class row or its `__ATTACH` row), so a window that sent nothing left a
+   device asking from the same moment for ever. Now, when `IAttachmentSync.ChangesAsync` answers `Unvouched` (the record begins after
+   the window did, or the table was emptied in it — and, since §12.2, when the record was pruned past it),
+   `OfflineReplicaEndpoints.AttachmentChangesAsync` sends **every current attachment of the replica's features in that layer as an
+   update** (`__ATTACH` updates, carrying their kept or derived GlobalIDs; features the download adds still travel with theirs as
+   inserts), and `OfflineLayerChanges.AdvanceAttachments` makes the writer write the layer's `__ATTACH` dataset row even when there
+   were no attachments to send, so the generation advances. `NotRecorded` is not resent (above). The next window starts at the new
+   generation, which the record vouches for, and sends only what changed. Logged at warning level, event 2622, `FULL RESEND of
+   attachments`, with the layer and the count, so that a measurement can find it.
+   - **`INFERRED`: updates, not inserts.** A device may already hold some of these attachments (that is why the window is unvouched,
+     not empty), and an insert of a GlobalID it holds is the likelier refusal; an update of one it does not hold may be refused or
+     ignored instead. Neither was measured. **The main session measures how Field Maps takes it** (an area packaged before the
+     record, or `INSERT` of a `begin` marker as the test does); if it refuses updates for GlobalIDs it does not hold, the fallback is
+     inserts, or the device's map area is refreshed.
+   - **Residue: deletes from before the record cannot be known**, and are not sent. An attachment deleted on the server before the
+     record began, or inside a pruned or truncated span, stays on a device that held it until its map area is refreshed.
+   - **Cost:** every attachment's bytes of the replica's features, once, in memory (the same read `createReplica`'s JSON and the
+     features a download adds already make). A replica with gigabytes of photographs resends them once after an upgrade or a prune
+     longer than its generation; that is the price of not guessing, and D-423 keeps it visible.
+   - Tested against PostgreSQL through a real server (`AnUnvouchedWindowSendsEveryAttachmentTests`): with a `begin` marker after the
+     replica's generation, the delta holds every attachment of both features as an update and no insert or delete, the node logged the
+     resend, and the next window holds nothing; and in `DeltaTests` the writer names the attachment dataset with no change table when
+     asked to.

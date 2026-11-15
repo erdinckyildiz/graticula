@@ -100,6 +100,37 @@ public sealed class DeltaTests
         Assert.Equal(3L, OfflineFixture.Scalar(db, "select count(*) from GDB_Layers where table_name like 'T\\_%' escape '\\'"));
     }
 
+    /// <summary>
+    /// D-423: ArcGIS Runtime moves a layer's generation only when a delta has a <c>GDB_DataChangesDatasets</c> row for the layer, so a
+    /// download that re-sent every attachment (or had none to send) because the record could not vouch for the window names the
+    /// layer's attachment table even when no change table follows.
+    /// </summary>
+    [Fact]
+    public async Task A_layers_attachment_dataset_is_written_when_asked_even_with_no_change_in_it()
+    {
+        string path = OfflineFixture.NewPath("advance.geodatabase");
+        OfflineDelta delta = new(
+            OfflineFixture.ReplicaId,
+            1794288415192,
+            [
+                new OfflineLayerChanges(OfflineFixture.PointsLayer, [], [], [], [], [], [], AdvanceAttachments: true),
+                new OfflineLayerChanges(OfflineFixture.AreasLayer, [], [], [], [], [], []),
+            ],
+            OfflineFixture.Service);
+
+        await new SqliteMobileGeodatabaseWriter().WriteDeltaAsync(delta, path, CancellationToken.None);
+
+        using SqliteConnection db = OfflineFixture.Open(path);
+        Assert.Equal(
+            ["1|graticula_test_offline_points__ATTACH|7|0"],
+            OfflineFixture.Query(db, "select ID, Name, Type, LayerId from GDB_DataChangesDatasets order by ID").Select(static r => string.Join("|", r)));
+        Assert.Equal(0L, OfflineFixture.Scalar(db, "select count(*) from GDB_DataChangesDeltas"));
+
+        // And the same file reads back as no change: the dataset row names the layer and carries nothing.
+        OfflineDelta read = await new SqliteOfflineDeltaReader().ReadDeltaAsync(path, OfflineFixture.Layers, CancellationToken.None);
+        Assert.All(read.Layers, l => Assert.Empty(l.AttachmentInserts.Concat(l.AttachmentUpdates)));
+    }
+
     [Fact]
     public async Task A_delta_reads_back_to_the_changes_it_was_written_from()
     {

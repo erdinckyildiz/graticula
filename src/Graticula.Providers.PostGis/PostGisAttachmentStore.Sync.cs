@@ -322,7 +322,7 @@ public sealed partial class PostGisAttachmentStore
 
         if (!recorded)
         {
-            return AttachmentChanges.Unvouched;
+            return AttachmentChanges.NotRecorded;
         }
 
         DateTime start = after.UtcDateTime;
