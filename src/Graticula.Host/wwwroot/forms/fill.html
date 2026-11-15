@@ -21,6 +21,7 @@
         <span>Language</span>
         <select id="language"></select>
       </label>
+      <button type="button" id="drafts-toggle" class="quiet" aria-controls="drafts" aria-expanded="false" hidden>Drafts <span id="drafts-count" class="count">0</span></button>
       <button type="button" id="outbox-toggle" class="quiet" aria-controls="outbox" aria-expanded="false">Outbox <span id="outbox-count" class="count">0</span></button>
     </div>
   </header>
@@ -37,6 +38,14 @@
     <ul id="outbox-list" class="outbox-list"></ul>
   </section>
 
+  <section id="drafts" class="outbox" hidden aria-labelledby="drafts-heading">
+    <div class="outbox-head">
+      <h2 id="drafts-heading">Drafts</h2>
+    </div>
+    <p class="hint" id="drafts-hint">Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.</p>
+    <ul id="drafts-list" class="outbox-list"></ul>
+  </section>
+
   <section id="offline-panel" class="offline-panel" hidden>
     <button type="button" id="download-offline" class="quiet">Download for offline use</button>
     <p id="offline-status" class="hint" role="status" aria-live="polite"></p>
@@ -44,6 +53,16 @@
   </section>
 
   <main id="form-main" tabindex="-1">
+    <p id="draft-status" class="draft-status" role="status" aria-live="polite"></p>
+    <div id="draft-bar" class="draft-bar" hidden>
+      <button type="button" id="draft-new" class="quiet">Start a new form</button>
+      <button type="button" id="draft-discard" class="quiet">Discard this draft</button>
+    </div>
+    <div id="link-notices" class="note-warn" role="status" aria-live="polite" hidden>
+      <p id="link-notices-title"><strong>Some settings in this link were not used</strong></p>
+      <ul id="link-notices-list"></ul>
+      <button type="button" id="link-notices-dismiss" class="quiet">Dismiss</button>
+    </div>
     <p id="unpublished" class="note-warn" role="status" hidden></p>
     <p id="loading" class="hint" role="status" aria-live="polite">Loading the form…</p>
     <div id="device-forms" hidden></div>
@@ -60,6 +79,11 @@
     <section id="done" class="done" tabindex="-1" hidden>
       <h2 id="done-heading">Submitted</h2>
       <p id="done-text" role="status" aria-live="polite"></p>
+      <p id="redirect-text" role="status" aria-live="polite"></p>
+      <div id="redirect" class="inline" hidden>
+        <a id="redirect-go" class="button-link" href="#">Go now</a>
+        <button type="button" id="redirect-stay" class="quiet">Stay on this page</button>
+      </div>
       <button type="button" id="new-form">Fill in a new form</button>
     </section>
   </main>

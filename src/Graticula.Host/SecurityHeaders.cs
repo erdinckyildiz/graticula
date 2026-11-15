@@ -229,7 +229,10 @@ internal static class SecurityHeaders
 
         // <b>OpenStreetMap's tiles, since 2026-11-09 — ADR-287 §5.15.</b> A location question draws its map over the
         // same ground Studio's previews use; a tile is an image and nothing else is admitted from there.
-        + "img-src 'self' data: blob: https://tile.openstreetmap.org; "
+        // <b>And OpenTopoMap's, since 2026-11-15</b>, because the publisher chooses the ground (§5.15): the second of
+        // the three a form can name (osm, topo, none). A policy that names origins cannot take a publisher's own address,
+        // which is why there are three.
+        + "img-src 'self' data: blob: https://tile.openstreetmap.org https://tile.opentopomap.org; "
         + "media-src 'self' blob:; "
         + "connect-src 'self'; "
         + "worker-src 'self'; "

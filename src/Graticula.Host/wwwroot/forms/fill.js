@@ -150,8 +150,9 @@
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // The device's storage: IndexedDB, two stores. 'forms' holds a downloaded form; 'outbox' holds records waiting to
-    // be sent, each with its files as Blobs. Nothing is removed from the outbox until the server accepted all of it.
+    // The device's storage: IndexedDB, three stores. 'forms' holds a downloaded form; 'outbox' holds records waiting to
+    // be sent, each with its files as Blobs; 'drafts' holds forms being filled in (§5.10, ADR-287: the client always
+    // keeps drafts), their files as Blobs too. Nothing is removed from the outbox until the server accepted all of it.
     // ---------------------------------------------------------------------------------------------------------------
 
     var dbPromise = null;
@@ -161,13 +162,18 @@
         dbPromise = new Promise(function (resolve) {
             try {
                 if (!window.indexedDB) { resolve(null); return; }
-                var request = indexedDB.open('graticula-forms', 1);
+                var request = indexedDB.open('graticula-forms', 2);
                 request.onupgradeneeded = function () {
                     var db = request.result;
                     if (!db.objectStoreNames.contains('forms')) { db.createObjectStore('forms', { keyPath: 'id' }); }
                     if (!db.objectStoreNames.contains('outbox')) { db.createObjectStore('outbox', { keyPath: 'key', autoIncrement: true }); }
+                    if (!db.objectStoreNames.contains('drafts')) { db.createObjectStore('drafts', { keyPath: 'id' }); }
                 };
-                request.onsuccess = function () { resolve(request.result); };
+                request.onsuccess = function () {
+                    // A tab still open on an older version must not hold up this one's upgrade, nor this one's the next.
+                    request.result.onversionchange = function () { request.result.close(); dbPromise = null; };
+                    resolve(request.result);
+                };
                 request.onerror = function () { resolve(null); };
                 request.onblocked = function () { resolve(null); };
             } catch (e) {
@@ -273,9 +279,43 @@
         "The map could not be loaded; use the boxes below.": "Harita yüklenemedi; aşağıdaki kutuları kullanın.",
         "Opened from this device; the server could not be reached.": "Bu cihazdan açıldı; sunucuya ulaşılamadı.",
         "The form could not be loaded: you are offline and it has not been downloaded to this device.": "Form yüklenemedi: çevrimdışısınız ve form bu cihaza indirilmemiş.",
-        "Discard this record? It has not been accepted by the server and cannot be recovered.": "Bu kayıt silinsin mi? Sunucu henüz kabul etmedi ve geri getirilemez."
+        "Discard this record? It has not been accepted by the server and cannot be recovered.": "Bu kayıt silinsin mi? Sunucu henüz kabul etmedi ve geri getirilemez.",
+        "Untitled draft": "Adsız taslak",
+        "Draft saved on this device.": "Taslak bu cihaza kaydedildi.",
+        "This browser could not keep the draft: ": "Bu tarayıcı taslağı saklayamadı: ",
+        "No drafts for this form.": "Bu form için taslak yok.",
+        "Open now": "Şu an açık",
+        "(started in an earlier version of the form)": "(formun önceki bir sürümünde başlandı)",
+        "Resume": "Devam et",
+        "Discard this draft? It cannot be recovered.": "Bu taslak silinsin mi? Geri getirilemez.",
+        "Draft discarded.": "Taslak silindi.",
+        "That draft is no longer on this device.": "Bu taslak artık bu cihazda yok.",
+        "Draft resumed.": "Taslağa devam ediliyor.",
+        "It was started in an earlier version of the form; answers to questions that no longer exist were left out.": "Formun önceki bir sürümünde başlanmıştı; artık olmayan sorulara verilen cevaplar dışarıda bırakıldı.",
+        "New form started. The earlier draft is kept under Drafts.": "Yeni form başlatıldı. Önceki taslak Taslaklar'da duruyor.",
+        "More help": "Daha fazla yardım",
+        "Question": "Soru",
+        "A field parameter needs a question name after field:.": "field: parametresinden sonra bir soru adı gerekir.",
+        "Not a part of the page that can be hidden: ": "Gizlenebilen bir sayfa parçası değil: ",
+        "Write it as latitude,longitude: a latitude between -90 and 90, then a longitude between -180 and 180.": "enlem,boylam olarak yazın: -90 ile 90 arasında bir enlem, sonra -180 ile 180 arasında bir boylam.",
+        "Where people are sent after submitting is set in the form by its publisher, not by a link.": "Gönderdikten sonra kişilerin nereye yönlendirileceğini bağlantı değil, yayımlayan formda belirler.",
+        "This form has no question with that name.": "Bu formda bu adda bir soru yok.",
+        "That is a group or a repeat, not a question.": "Bu bir grup ya da tekrar, soru değil.",
+        "That question sits in a repeat, which a link cannot fill.": "Bu soru bir tekrarın içinde; bağlantı onu dolduramaz.",
+        "That answer is worked out from others, so a link cannot set it.": "Bu cevap diğerlerinden hesaplanıyor; bağlantı onu belirleyemez.",
+        "Outside the range this question allows.": "Bu sorunun izin verdiği aralığın dışında.",
+        "The choices of this question are not available.": "Bu sorunun seçenekleri kullanılamıyor.",
+        "Not one of this question’s choices: ": "Bu sorunun seçeneklerinden biri değil: ",
+        "Write the date as YYYY-MM-DD.": "Tarihi YYYY-AA-GG olarak yazın.",
+        "Write the time as HH:MM.": "Saati SS:DD olarak yazın.",
+        "Write the date and time as YYYY-MM-DDTHH:MM.": "Tarih ve saati YYYY-AA-GGTSS:DD olarak yazın.",
+        "Write the place as latitude,longitude.": "Yeri enlem,boylam olarak yazın.",
+        "Use yes or no.": "Evet ya da hayır kullanın.",
+        "A link cannot fill this kind of question.": "Bağlantı bu tür bir soruyu dolduramaz.",
+        "You stayed on this page.": "Bu sayfada kaldınız.",
+        "Picture not available: ": "Resim bulunamadı: "
     };
-    var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
+    var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
     function isTurkish() { return /\(tr\)|türkçe|turkish/i.test(lang || ''); }
     function t(s) { return isTurkish() && Object.prototype.hasOwnProperty.call(TR, s) ? TR[s] : s; }
     function applyStaticText() {
@@ -287,6 +327,8 @@
         if (skip) { skip.textContent = isTurkish() ? 'Forma geç' : 'Skip to the form'; }
         var languageLabel = document.querySelector('label[for=language] > span, .language > span');
         if (languageLabel) { languageLabel.textContent = isTurkish() ? 'Dil' : 'Language'; }
+        var draftsToggle = document.getElementById('drafts-toggle');
+        if (draftsToggle && draftsToggle.firstChild && draftsToggle.firstChild.nodeType === 3) { draftsToggle.firstChild.nodeValue = isTurkish() ? 'Taslaklar ' : 'Drafts '; }
         var toggle = document.getElementById('outbox-toggle');
         if (toggle && toggle.firstChild && toggle.firstChild.nodeType === 3) { toggle.firstChild.nodeValue = isTurkish() ? 'Giden kutusu ' : 'Outbox '; }
     }
@@ -323,12 +365,21 @@
             return form.choices[listName].map(function (c) {
                 var row = { name: c.name };
                 Object.keys(c.labels || {}).forEach(function (k) { row[k === '' ? 'label' : 'label::' + k] = c.labels[k]; });
+                Object.keys(c.images || {}).forEach(function (k) { row[k === '' ? 'image' : 'image::' + k] = c.images[k]; });
                 Object.keys(c.filters || {}).forEach(function (k) { row[k] = c.filters[k]; });
                 return row;
             });
         }
         if (files[listName]) { return files[listName].rows; }
         return null;
+    }
+
+    function choicePicture(row) {
+        if (lang && row['image::' + lang]) { return String(row['image::' + lang]); }
+        if (row.image) { return String(row.image); }
+        var keys = Object.keys(row);
+        for (var i = 0; i < keys.length; i++) { if (keys[i].indexOf('image::') === 0 && row[keys[i]]) { return String(row[keys[i]]); } }
+        return '';
     }
 
     function choiceLabel(row) {
@@ -411,6 +462,81 @@
             if (String(f.rows[i][keyColumn]) === String(key)) { return f.rows[i][column] === undefined ? '' : f.rows[i][column]; }
         }
         return '';
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Pictures (ADR-287 §5.10, 2026-11-15): a label or a choice may show a picture, a file uploaded with the form. It is
+    // an item resource, kept under media/ as Survey123 keeps it, read like a CSV list and kept on the device with the
+    // form so an offline reload still shows it. A picture that cannot be found says so; it is never a broken image.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var mediaBlobs = {};     // file name -> Blob, once found (here or on the device)
+    var mediaPending = {};   // file name -> the promise of the search
+    var mediaUrls = {};      // file name -> its blob: address
+
+    function mediaTypeOf(name) {
+        var m = /\.([a-z0-9]+)$/i.exec(name || '');
+        var ext = m ? m[1].toLowerCase() : '';
+        return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' }[ext] || 'application/octet-stream';
+    }
+
+    function loadMedia(name) {
+        if (Object.prototype.hasOwnProperty.call(mediaBlobs, name)) { return Promise.resolve(mediaBlobs[name]); }
+        if (!mediaPending[name]) {
+            mediaPending[name] = (async function () {
+                var found = null;
+                var candidates = ['media/' + name, name];
+                for (var i = 0; i < candidates.length && !found; i++) {
+                    try {
+                        var headers = {};
+                        var held = token();
+                        if (held) { headers.Authorization = 'Bearer ' + held; }
+                        var response = await fetch('/sharing/rest/content/items/' + itemId + '/resources/' + encodeURI(candidates[i]),
+                            { headers: headers, credentials: 'same-origin' });
+                        if (!response.ok || /json/i.test(response.headers.get('content-type') || '')) { continue; }
+                        found = new Blob([await response.arrayBuffer()], { type: mediaTypeOf(name) });
+                    } catch (e) {
+                        break;
+                    }
+                }
+                if (!found) {
+                    // Not reachable now — offline, the service worker answers form.json from its copy and nothing else —
+                    // so the copy kept on the device with the form is looked in.
+                    var kept = await dbGet('forms', itemId).catch(function () { return null; });
+                    if (kept && kept.media && kept.media[name]) { found = kept.media[name]; }
+                }
+                if (found) { mediaBlobs[name] = found; }
+                delete mediaPending[name];
+                return found;
+            })();
+        }
+        return mediaPending[name];
+    }
+
+    function mediaNamesOf(formIn) {
+        var names = [];
+        function add(map) { Object.keys(map || {}).forEach(function (k) { if (map[k] && names.indexOf(map[k]) < 0) { names.push(map[k]); } }); }
+        (function walk(node) {
+            (node.body || []).forEach(function (n) { if (n.kind === 'question') { add(n.images); } else { walk(n); } });
+        })(formIn.root);
+        Object.keys(formIn.choices || {}).forEach(function (l) { formIn.choices[l].forEach(function (c) { add(c.images); }); });
+        return names;
+    }
+
+    function pictureName(map) { return text(map, ''); }
+
+    /** The picture as an element: an image once found, and in its place a sentence when it cannot be. */
+    function pictureNode(tag, name, cls) {
+        var holder = el(tag, { class: 'picture' + (cls ? ' ' + cls : '') });
+        loadMedia(name).then(function (blob) {
+            if (!blob) {
+                holder.appendChild(el('span', { class: 'picture-missing', text: t('Picture not available: ') + name }));
+                return;
+            }
+            if (!mediaUrls[name]) { mediaUrls[name] = URL.createObjectURL(blob); }
+            holder.appendChild(el('img', { src: mediaUrls[name], alt: '' }));
+        });
+        return holder;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -673,10 +799,30 @@
     var views = [];
     var seq = 0;
 
+    // field-list (ADR-287 §5.10): a group shown as one page. Under the pages style a top-level group already is a page, so
+    // what field-list adds is for a group inside one: it is lifted out to a page of its own, with its parent's heading
+    // above it for context, and what lies around it in the parent keeps pages of its own on either side. Without the
+    // pages style the whole form is one page and field-list has nothing to separate; the upload says so (a notice).
+    var pieceCache = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+    function pagePieces(g) {
+        if (pieceCache && pieceCache.has(g)) { return pieceCache.get(g); }
+        var out = [], loose = [], lifted = false;
+        function piece(nodes) { return { kind: 'group', name: g.name, labels: g.labels, relevant: g.relevant, appearance: g.appearance, body: nodes }; }
+        function flush() { if (loose.length) { out.push(piece(loose)); loose = []; } }
+        (g.body || []).forEach(function (child) {
+            if (child.kind === 'group' && has(child.appearance, 'field-list')) { flush(); out.push(piece([child])); lifted = true; } else { loose.push(child); }
+        });
+        flush();
+        var result = lifted ? out : [g];
+        if (pieceCache) { pieceCache.set(g, result); }
+        return result;
+    }
+
     function pages() {
         var out = [], loose = null;
         (root.node.body || []).forEach(function (n) {
-            if (n.kind === 'group') { loose = null; out.push([n]); return; }
+            if (n.kind === 'group') { loose = null; pagePieces(n).forEach(function (p) { out.push([p]); }); return; }
             if (!loose) { loose = []; out.push(loose); }
             loose.push(n);
         });
@@ -761,8 +907,89 @@
         var box = el('section', { class: 'group', 'data-key': keyOf(inst, g.name) });
         if (label) { box.appendChild(heading(level, label, { class: form.pages && !inst.parent ? 'page-title' : null })); }
         container.appendChild(box);
-        renderBody(inst, g.body || [], box, level + 1);
+        if (has(g.appearance, 'table-list')) { renderTable(inst, g, box); } else { renderBody(inst, g.body || [], box, level + 1); }
         views.push({ update: function () { box.hidden = inst.rel[g.name] === false; } });
+    }
+
+    // table-list (§5.10): a group of select questions over one list drawn as a table, a question to a row and a choice
+    // to a column. The server refuses any other group with the appearance, so every child here is a select over the same
+    // list. A radio or a checkbox in a cell is named by its row and its column together.
+    function renderTable(inst, g, box) {
+        var questions = (g.body || []).filter(function (n) { return n.kind === 'question'; });
+        if (!questions.length) { return; }
+        var listName = questions[0].list;
+        var rows = choiceRows(listName);
+        if (!rows) {
+            box.appendChild(el('p', { class: 'note-warn', text: 'The list "' + listName + '" is not available yet: it was not uploaded with the form, or could not be read.' }));
+            return;
+        }
+        var tid = 't' + (++seq);
+        var table = el('table', { class: 'matrix' });
+        table.appendChild(el('caption', { class: 'sr-only', text: text(g.labels, g.name) }));
+        var headRow = el('tr', null, [el('th', { scope: 'col' }, [el('span', { class: 'sr-only', text: t('Question') })])]);
+        rows.forEach(function (row, c) {
+            var shown = choicePicture(row);
+            headRow.appendChild(el('th', { scope: 'col', id: tid + '-c' + c }, [shown ? pictureNode('span', shown, 'choice-picture') : null, el('span', { text: choiceLabel(row) })]));
+        });
+        table.appendChild(el('thead', null, [headRow]));
+        var bodyNode = el('tbody');
+        table.appendChild(bodyNode);
+        box.appendChild(el('div', { class: 'matrix-scroll', role: 'region', tabindex: '0', 'aria-label': text(g.labels, g.name) }, [table]));
+
+        questions.forEach(function (q, r) {
+            var key = keyOf(inst, q.name);
+            var multiple = q.type === 'select_multiple';
+            var rid = tid + '-r' + r;
+            var labelTemplate = text(q.labels, q.name);
+            var labelText = el('span', { text: interpolate(labelTemplate, inst) });
+            var star = el('span', { class: 'required-mark', 'aria-hidden': 'true', text: '*', hidden: true });
+            var error = el('p', { class: 'error', id: rid + '-error' });
+            var th = el('th', { scope: 'row', id: rid + '-label' }, [labelText, star, error]);
+            var tr = el('tr', { 'data-key': key, 'data-name': q.name, class: 'matrix-row type-' + q.type }, [th]);
+            var controls = [];
+            function values() { return current(inst, q).split(',').filter(Boolean); }
+            rows.forEach(function (row, c) {
+                var value = String(row.name);
+                var input = el('input', { type: multiple ? 'checkbox' : 'radio', name: rid, value: value, 'data-focus': 'opt-' + value,
+                    'aria-labelledby': rid + '-label ' + tid + '-c' + c, 'aria-describedby': rid + '-error' });
+                input.addEventListener('change', function () {
+                    if (multiple) {
+                        var now = values().filter(function (v) { return v !== value; });
+                        if (input.checked) { now.push(value); }
+                        var order = rows.map(function (rw) { return String(rw.name); });
+                        now.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+                        setValue(inst, q, now.join(','));
+                    } else {
+                        setValue(inst, q, value);
+                    }
+                });
+                controls.push(input);
+                tr.appendChild(el('td', null, [input]));
+            });
+            bodyNode.appendChild(tr);
+            views.push({
+                inst: inst, q: q, key: key, node: tr,
+                update: function () {
+                    var relevant = inst.relevant !== false && inst.rel[q.name] !== false;
+                    tr.hidden = !(relevant && evalBool(q.visible, inst, q, true));
+                    if (!relevant) { return; }
+                    if (labelTemplate.indexOf('${') >= 0) { labelText.textContent = interpolate(labelTemplate, inst); }
+                    var required = evalBool(q.required, inst, q, false);
+                    star.hidden = !required;
+                    var readOnly = evalBool(q.readOnly, inst, q, false);
+                    var set = values();
+                    var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
+                    error.textContent = message;
+                    tr.classList.toggle('invalid', !!message);
+                    controls.forEach(function (c) {
+                        c.checked = set.indexOf(c.value) >= 0;
+                        c.disabled = !!readOnly;
+                        if (message) { c.setAttribute('aria-invalid', 'true'); } else { c.removeAttribute('aria-invalid'); }
+                        if (required) { c.setAttribute('aria-required', 'true'); } else { c.removeAttribute('aria-required'); }
+                    });
+                }
+            });
+        });
     }
 
     function renderRepeat(inst, r, container, level) {
@@ -786,6 +1013,7 @@
                     var at = list.indexOf(child);
                     if (at >= 0) { list.splice(at, 1); }
                     refresh(true);
+                    scheduleDraft();
                     var add = document.querySelector('[data-key="' + cssEscape(keyOf(inst, r.name)) + '"] [data-focus="add"]');
                     if (add) { add.focus(); }
                 });
@@ -800,6 +1028,7 @@
             add.addEventListener('click', function () {
                 list.push(newInstance(r, inst));
                 refresh(true);
+                scheduleDraft();
                 var items = document.querySelectorAll('[data-key="' + cssEscape(keyOf(inst, r.name)) + '"] > .repeat-instance');
                 var last = items[items.length - 1];
                 var first = last && last.querySelector('input, select, textarea');
@@ -814,6 +1043,7 @@
         inst.values[q.name] = value;
         inst.touched[q.name] = true;
         refresh(structural);
+        scheduleDraft();
     }
 
     function renderQuestion(inst, q, container) {
@@ -834,6 +1064,9 @@
             ? el(useFieldset ? 'legend' : 'div', { class: 'label', id: id + '-label' }, [labelText, star])
             : el('label', { for: id, id: id + '-label' }, [labelText, star]);
         var hint = hintText ? el('p', { class: 'hint', id: id + '-hint', text: hintText }) : null;
+        var picture = pictureName(q.images);
+        var pictureBlock = picture ? pictureNode('div', picture, 'question-picture') : null;
+        var guidance = guidanceNodes(q, id, key);
         // No live region per question: the summary is the one alert, and two announcements per error was noise (UX review).
         var error = el('p', { class: 'error', id: id + '-error' });
         var describedBy = (hint ? id + '-hint ' : '') + id + '-error';
@@ -841,7 +1074,9 @@
         var shell = useFieldset ? el('fieldset', { 'aria-describedby': describedBy }) : wrap;
         if (useFieldset) { wrap.appendChild(shell); }
         shell.appendChild(labelNode);
+        if (pictureBlock) { shell.appendChild(pictureBlock); }
         if (hint) { shell.appendChild(hint); }
+        if (guidance) { shell.appendChild(guidance.button); shell.appendChild(guidance.panel); }
 
         var widget = buildWidget(inst, q, id, describedBy);
         shell.appendChild(widget.node);
@@ -872,6 +1107,26 @@
                 }
             }
         });
+    }
+
+    // guidance_hint: longer help, hidden until it is asked for, as Survey123 shows it (its documentation: "hidden until the
+    // respondent taps a button next to the hint"). INFERRED: it is offered even where the question has no hint, which
+    // Survey123 does not do, because a column that is accepted and then shows nothing is the thing §5.10 forbids.
+    var guidanceOpen = {};
+
+    function guidanceNodes(q, id, key) {
+        var words = text(q.guidanceHints);
+        if (!words) { return null; }
+        var open = !!guidanceOpen[key];
+        var button = el('button', { type: 'button', class: 'quiet guidance-toggle', id: id + '-more', 'data-focus': 'guidance',
+            'aria-expanded': open ? 'true' : 'false', 'aria-controls': id + '-guidance', text: t('More help') });
+        var panel = el('div', { class: 'guidance', id: id + '-guidance', hidden: open ? null : true }, [el('p', { text: words })]);
+        button.addEventListener('click', function () {
+            guidanceOpen[key] = panel.hidden;
+            panel.hidden = !panel.hidden;
+            button.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+        });
+        return { button: button, panel: panel };
     }
 
     function current(inst, q) { var v = inst.values[q.name]; return v === undefined || v === null ? '' : String(v); }
@@ -1046,7 +1301,8 @@
                     }
                 });
                 controls.push(input);
-                box.appendChild(el('label', { class: 'choice', for: id + '-' + i }, [input, el('span', { text: choiceLabel(row) })]));
+                var shown = choicePicture(row);
+                box.appendChild(el('label', { class: 'choice', for: id + '-' + i }, [input, shown ? pictureNode('span', shown, 'choice-picture') : null, el('span', { text: choiceLabel(row) })]));
                 if (focusedValue === value) { setTimeout(function () { input.focus(); }, 0); }
             });
             holder.appendChild(box);
@@ -1240,6 +1496,32 @@
         return mapLibrary;
     }
 
+    var liveMaps = [];
+
+    /**
+     * The ground under every location map is the publisher's choice (§5.15, reversed by the owner 2026-11-09; settled
+     * 2026-11-15): <c>osm</c>, the default, <c>topo</c> or <c>none</c>, a plain ground for a place with no street
+     * map worth drawing. The server refuses any other value when the form is saved, so an unknown one here is the
+     * default rather than a blank map. INFERRED: three grounds and no address of the publisher's own, because the page's
+     * policy admits tiles from named origins only and a form must not widen it.
+     */
+    function groundKind() {
+        var kind = form && form.basemap;
+        return kind === 'topo' || kind === 'none' ? kind : 'osm';
+    }
+
+    function groundLayers() {
+        var kind = groundKind();
+        if (kind === 'none') { return []; }
+        if (kind === 'topo') {
+            return [new ol.layer.Tile({ source: new ol.source.XYZ({
+                url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png', maxZoom: 17,
+                attributions: '© OpenStreetMap contributors, SRTM | © OpenTopoMap (CC-BY-SA)'
+            }) })];
+        }
+        return [new ol.layer.Tile({ source: new ol.source.OSM() })];
+    }
+
     /**
      * A map that shows a question's points and takes a tap as a new one. It is the pointer's way to answer; the boxes
      * beside it stay the keyboard's and the screen reader's, so the map itself is hidden from assistive technology.
@@ -1285,15 +1567,17 @@
                 var tint = /^#[0-9a-f]{6}$/i.test(accent) ? accent + '33' : accent;
                 map = new ol.Map({
                     target: box,
-                    layers: [new ol.layer.Tile({ source: new ol.source.OSM() }), new ol.layer.Vector({
+                    layers: groundLayers().concat([new ol.layer.Vector({
                         source: source,
                         style: new ol.style.Style({
                             image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: accent }), stroke: new ol.style.Stroke({ color: ring, width: 2 }) }),
                             stroke: new ol.style.Stroke({ color: accent, width: 3 }),
                             fill: new ol.style.Fill({ color: tint })
                         })
-                    })],
-                    view: new ol.View({ center: ol.proj.fromLonLat([35, 39]), zoom: 5 }),
+                    })]),
+                    view: link.center
+                        ? new ol.View({ center: ol.proj.fromLonLat([link.center[1], link.center[0]]), zoom: PLACE_ZOOM + 1 })
+                        : new ol.View({ center: ol.proj.fromLonLat([35, 39]), zoom: 5 }),
                     interactions: interactions(),
                     controls: [new ol.control.Zoom({ zoomInTipLabel: t('Zoom in'), zoomOutTipLabel: t('Zoom out') }),
                         new ol.control.Attribution({ collapsible: false })]
@@ -1317,9 +1601,12 @@
                     onTap(Number(ll[1].toFixed(7)), Number(ll[0].toFixed(7)));
                 });
                 draw();
+                box.setAttribute('data-ground', groundKind());
+                liveMaps.push({ box: box, map: map });
                 // With the device's position already allowed, the map opens on it, as Survey123's field app does; it never
-                // asks for it on its own — that question belongs to a button the person pressed.
-                if (!readPoints().length && navigator.permissions && navigator.permissions.query) {
+                // asks for it on its own — that question belongs to a button the person pressed. A link's center= is a
+                // place somebody chose, and wins.
+                if (!readPoints().length && !link.center && navigator.permissions && navigator.permissions.query) {
                     navigator.permissions.query({ name: 'geolocation' }).then(function (p) {
                         if (p.state !== 'granted') { return; }
                         return locate().then(function (pos) {
@@ -1456,6 +1743,7 @@
         inst.values[q.name] = list.map(function (f) { return f.name; }).join(' ');
         inst.touched[q.name] = true;
         refresh(false);
+        scheduleDraft();
     }
 
     async function shrink(file, maxPixels) {
@@ -1648,6 +1936,7 @@
     function goToPage(i) {
         pageIndex = i;
         render();
+        scheduleDraft();
         $('summary').hidden = true;
         var first = $('body').querySelector('h2, h3, input, select, textarea');
         if (first) {
@@ -2069,6 +2358,353 @@
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+    // Drafts — ADR-287 §5.10 says the client always keeps them. A form being filled in is written to the 'drafts' store
+    // a moment after the last change, files as Blobs, so a reload, a closed tab or a lost signal costs nothing. The most
+    // recent draft of a form is opened again when the form is; the Drafts panel lists the rest to resume or discard.
+    // A draft leaves when its record is queued in the outbox, and not before.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var draftId = null;        // the key the form on screen is kept under: its root's GlobalID, once something was entered
+    var draftTimer = null;
+    var draftChain = Promise.resolve();
+    var draftSavedOnce = false;
+    var DRAFT_DELAY = 700;
+
+    function draftsOn() { return !previewing && !!form && !!itemId; }
+
+    function snapshot(inst) {
+        var out = { id: inst.id, values: {}, touched: {}, files: {}, repeats: {} };
+        Object.keys(inst.values).forEach(function (k) { out.values[k] = inst.values[k]; });
+        Object.keys(inst.touched).forEach(function (k) { if (inst.touched[k]) { out.touched[k] = true; } });
+        Object.keys(inst.files).forEach(function (k) {
+            out.files[k] = (inst.files[k] || []).map(function (f) { return { name: f.name, type: f.type, size: f.size, blob: f.blob }; });
+        });
+        Object.keys(inst.repeats).forEach(function (k) { out.repeats[k] = (inst.repeats[k] || []).map(snapshot); });
+        return out;
+    }
+
+    // A draft is read back onto the form as it is now: an answer to a question the form no longer has is dropped, a
+    // question it gained starts with its default, and the items of a repeat keep the GlobalIDs they were made with.
+    function restoreInstance(node, parent, snap) {
+        var inst = { id: snap.id || guid(), node: node, parent: parent, values: {}, files: {}, repeats: {}, rel: {}, touched: {}, relevant: true };
+        initBody(inst, node.body || []);
+        var questions = {}, repeats = {};
+        (function walk(body) {
+            body.forEach(function (n) {
+                if (n.kind === 'group') { walk(n.body || []); } else if (n.kind === 'repeat') { repeats[n.name] = n; } else if (n.kind === 'question') { questions[n.name] = n; }
+            });
+        })(node.body || []);
+        Object.keys(snap.values || {}).forEach(function (k) { if (questions[k]) { inst.values[k] = snap.values[k]; } });
+        Object.keys(snap.touched || {}).forEach(function (k) { if (questions[k]) { inst.touched[k] = true; } });
+        Object.keys(snap.files || {}).forEach(function (k) { if (questions[k] && isMedia(questions[k])) { inst.files[k] = snap.files[k]; } });
+        Object.keys(repeats).forEach(function (k) {
+            if (snap.repeats && Array.isArray(snap.repeats[k])) { inst.repeats[k] = snap.repeats[k].map(function (s) { return restoreInstance(repeats[k], inst, s); }); }
+        });
+        return inst;
+    }
+
+    function draftTitle() {
+        var named = '';
+        if (form.instanceName) { try { named = X.evaluateString(form.instanceName, contextFor(root, null)); } catch (e) { named = ''; } }
+        if (named && String(named).trim()) { return String(named).trim().slice(0, 80); }
+        var first = '';
+        (function walk(body) {
+            body.forEach(function (n) {
+                if (first) { return; }
+                if (n.kind === 'group') { walk(n.body || []); return; }
+                if (n.kind !== 'question' || !root.touched[n.name]) { return; }
+                var v = root.values[n.name];
+                if (v !== undefined && v !== null && String(v).trim() && !isMedia(n) && n.type !== 'geopoint' && n.type !== 'geotrace' && n.type !== 'geoshape') {
+                    first = String(v).trim().slice(0, 60);
+                }
+            });
+        })(root.node.body || []);
+        return first || t('Untitled draft');
+    }
+
+    function sayDraft(message) { var n = $('draft-status'); if (n) { n.textContent = message; } }
+
+    function drawDraftBar() {
+        var bar = $('draft-bar');
+        if (bar) { bar.hidden = !draftId; }
+    }
+
+    function scheduleDraft() {
+        if (!draftsOn() || !root) { return; }
+        clearTimeout(draftTimer);
+        draftTimer = setTimeout(function () { saveDraft(); }, DRAFT_DELAY);
+    }
+
+    // Written at once when the page is being left, because a phone may not give a timer the next second.
+    function flushDraft() {
+        if (draftTimer === null) { return draftChain; }
+        clearTimeout(draftTimer);
+        draftTimer = null;
+        return saveDraft();
+    }
+
+    function saveDraft() {
+        draftTimer = null;
+        if (!draftsOn() || !root) { return draftChain; }
+        var target = root;
+        draftChain = draftChain.then(async function () {
+            if (target !== root) { return; }
+            if (!answered(target)) {
+                // Everything was taken out again: there is nothing to keep.
+                if (draftId) { await dbDelete('drafts', draftId).catch(function () { /* none */ }); draftId = null; drawDraftBar(); await drawDrafts(); }
+                return;
+            }
+            try {
+                var existing = await dbGet('drafts', target.id).catch(function () { return null; });
+                await dbPut('drafts', {
+                    id: target.id, formId: itemId, formVersion: form.version || '', title: draftTitle(),
+                    created: (existing && existing.created) || Date.now(), updated: Date.now(),
+                    lang: lang, pageIndex: pageIndex, tree: snapshot(target)
+                });
+                var first = !draftId;
+                draftId = target.id;
+                drawDraftBar();
+                if (first || !draftSavedOnce) { sayDraft(t('Draft saved on this device.')); draftSavedOnce = true; }
+                await drawDrafts();
+                if (first) { storeFormCopy().catch(function () { /* the service worker's copy still stands */ }); }
+            } catch (e) {
+                sayDraft(t('This browser could not keep the draft: ') + (e && e.message ? e.message : ''));
+            }
+        });
+        return draftChain;
+    }
+
+    async function discardDraftRecord(id) {
+        clearTimeout(draftTimer);
+        draftTimer = null;
+        draftChain = draftChain.then(function () { return dbDelete('drafts', id).catch(function () { /* none */ }); });
+        await draftChain;
+        if (draftId === id) { draftId = null; drawDraftBar(); }
+        await drawDrafts();
+    }
+
+    async function listDrafts() {
+        var all = await dbAll('drafts');
+        return all.filter(function (d) { return d.formId === itemId; }).sort(function (a, b) { return b.updated - a.updated; });
+    }
+
+    async function drawDrafts() {
+        var toggle = $('drafts-toggle');
+        if (!toggle) { return; }
+        var list = $('drafts-list');
+        var mine = draftsOn() ? await listDrafts() : [];
+        $('drafts-count').textContent = String(mine.length);
+        toggle.setAttribute('aria-label', isTurkish() ? 'Taslaklar, ' + mine.length : 'Drafts, ' + mine.length + (mine.length === 1 ? ' draft' : ' drafts'));
+        var keep = document.activeElement && list.contains(document.activeElement) ? document.activeElement.getAttribute('data-focus') : null;
+        list.textContent = '';
+        if (!mine.length) { list.appendChild(el('li', { class: 'state', text: t('No drafts for this form.') })); return; }
+        mine.forEach(function (d) {
+            var current = d.id === draftId;
+            var item = el('li', { 'data-key': d.id }, [
+                el('strong', { text: d.title }),
+                el('span', { class: 'state', text: (current ? t('Open now') + ' — ' : '') + new Date(d.updated).toLocaleString()
+                    + (d.formVersion !== (form.version || '') ? ' ' + t('(started in an earlier version of the form)') : '') })
+            ]);
+            var resume = el('button', { type: 'button', class: 'quiet', 'data-focus': 'resume-' + d.id, text: t('Resume'), 'aria-label': t('Resume') + ': ' + d.title });
+            var discard = el('button', { type: 'button', class: 'danger', 'data-focus': 'discard-' + d.id, text: t('Discard'), 'aria-label': t('Discard') + ': ' + d.title });
+            if (current) { resume.disabled = true; }
+            resume.addEventListener('click', function () { resumeDraft(d.id); });
+            discard.addEventListener('click', function () { discardFromList(d); });
+            item.appendChild(el('div', { class: 'row-actions' }, [resume, discard]));
+            list.appendChild(item);
+        });
+        if (keep) { var again = list.querySelector('[data-focus="' + cssEscape(keep) + '"]'); if (again && !again.disabled) { again.focus(); } }
+    }
+
+    async function discardFromList(d) {
+        if (!window.confirm(t('Discard this draft? It cannot be recovered.'))) { return; }
+        var wasCurrent = d.id === draftId;
+        await discardDraftRecord(d.id);
+        if (wasCurrent) { startBlank(true); }
+        await drawDrafts();
+        sayDraft(t('Draft discarded.'));
+        var next = $('drafts-list').querySelector('button:not(:disabled)');
+        (next || $('drafts-toggle')).focus();
+    }
+
+    async function resumeDraft(id) {
+        await flushDraft();
+        var d = await dbGet('drafts', id).catch(function () { return null; });
+        if (!d || d.formId !== itemId) { sayDraft(t('That draft is no longer on this device.')); await drawDrafts(); return; }
+        restoreFrom(d);
+        $('drafts').hidden = true;
+        $('drafts-toggle').setAttribute('aria-expanded', 'false');
+        sayDraft(t('Draft resumed.') + (d.formVersion !== (form.version || '') ? ' ' + t('It was started in an earlier version of the form; answers to questions that no longer exist were left out.') : ''));
+        focusFormTop();
+    }
+
+    function restoreFrom(d) {
+        showAll = false;
+        root = restoreInstance(form.root, null, d.tree);
+        draftId = d.id;
+        pageIndex = Number(d.pageIndex) || 0;
+        if (d.lang !== undefined && d.lang !== lang && (form.languages || []).indexOf(d.lang) >= 0) {
+            lang = d.lang;
+            $('language').value = lang;
+            applyStaticText();
+        }
+        $('done').hidden = true;
+        $('summary').hidden = true;
+        $('form').hidden = false;
+        drawDraftBar();
+        refresh(true);
+        drawDrafts();
+    }
+
+    function focusFormTop() {
+        var first = $('body').querySelector('h2, h3, input, select, textarea, button');
+        if (first) {
+            if (!/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(first.tagName)) { first.setAttribute('tabindex', '-1'); }
+            first.focus();
+        }
+    }
+
+    // The form is opened on its most recent draft, when it has one: a reload brings back what was being filled in.
+    // INFERRED: Survey123 opens a blank form and keeps drafts in its Drafts folder; the ADR asks for drafts to survive
+    // a reload, so the latest is reopened, said aloud, with Start a new form beside it.
+    async function openInitial() {
+        var mine = draftsOn() ? await listDrafts() : [];
+        if (mine.length && !prefillRequested()) {
+            restoreFrom(mine[0]);
+            var stamp = new Date(mine[0].updated).toLocaleString();
+            sayDraft(isTurkish() ? stamp + ' tarihli taslak yeniden açıldı.' : 'Draft from ' + stamp + ' reopened.');
+            return;
+        }
+        startBlank();
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Link parameters, as Survey123's web app reads them (ADR-287 §5.10, 2026-11-15): field:<question>=<answer> fills a
+    // new form in, hide=<part>,<part> takes parts of the page away, center=<lat>,<lon> opens the location maps there.
+    // Each value is checked against what it is for. One that does not fit is left out and SAID, in a panel above the
+    // form, never dropped quietly. INFERRED: the set hide accepts is header (the title, kept for screen readers),
+    // navbar (the language picker and the Drafts and Outbox buttons) and offline (the panel to keep the form on the
+    // device); Survey123's own list is longer and names parts this page does not have.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var HIDE_PARTS = ['header', 'navbar', 'offline'];
+    var link = { fields: {}, hide: [], center: null, notices: [], prefillNotices: [] };
+
+    function parseLink(search) {
+        var out = { fields: {}, hide: [], center: null, notices: [], prefillNotices: [] };
+        new URLSearchParams(search).forEach(function (value, key) {
+            if (key.indexOf('field:') === 0) {
+                if (key.length === 6) { out.notices.push('field: — ' + t('A field parameter needs a question name after field:.')); return; }
+                out.fields[key.slice(6)] = value;
+            } else if (key === 'hide') {
+                value.split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (part) {
+                    var p = part.toLowerCase();
+                    if (HIDE_PARTS.indexOf(p) >= 0) { if (out.hide.indexOf(p) < 0) { out.hide.push(p); } }
+                    else { out.notices.push('hide=' + part + ' — ' + t('Not a part of the page that can be hidden: ') + HIDE_PARTS.join(', ') + '.'); }
+                });
+            } else if (key === 'center') {
+                var m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(value);
+                var la = m ? Number(m[1]) : NaN, lo = m ? Number(m[2]) : NaN;
+                if (!m || Math.abs(la) > 90 || Math.abs(lo) > 180) { out.notices.push('center=' + value + ' — ' + t('Write it as latitude,longitude: a latitude between -90 and 90, then a longitude between -180 and 180.')); }
+                else { out.center = [la, lo]; }
+            } else if (key === 'redirect') {
+                out.notices.push('redirect=' + value + ' — ' + t('Where people are sent after submitting is set in the form by its publisher, not by a link.'));
+            }
+        });
+        return out;
+    }
+
+    function shorten(v) { v = String(v); return v.length > 40 ? v.slice(0, 40) + '…' : v; }
+
+    function drawLinkNotices() {
+        var box = $('link-notices');
+        if (!box) { return; }
+        var all = link.notices.concat(link.prefillNotices);
+        var ul = $('link-notices-list');
+        ul.textContent = '';
+        all.forEach(function (n) { ul.appendChild(el('li', { text: n })); });
+        box.hidden = all.length === 0;
+    }
+
+    function prefillRequested() { return Object.keys(link.fields).length > 0; }
+
+    // The stored text a link's answer becomes, or the reason it cannot.
+    function prefillValue(name, raw) {
+        var def = defs[name];
+        if (!def) { return { error: t('This form has no question with that name.') }; }
+        var q = def.node;
+        if (q.kind !== 'question') { return { error: t('That is a group or a repeat, not a question.') }; }
+        if (def.repeats.length) { return { error: t('That question sits in a repeat, which a link cannot fill.') }; }
+        if (q.calculation || q.type === 'calculate') { return { error: t('That answer is worked out from others, so a link cannot set it.') }; }
+        var v = String(raw);
+        var m;
+        switch (q.type) {
+            case 'text': case 'hidden': return { value: v };
+            case 'integer': return /^-?\d+$/.test(v.trim()) ? { value: v.trim() } : { error: t('Enter a whole number.') };
+            case 'decimal': {
+                var d = v.trim().replace(',', '.');
+                return d !== '' && isFinite(Number(d)) ? { value: d } : { error: t('Enter a number.') };
+            }
+            case 'range': {
+                var r = rangeParams(q), n = v.trim().replace(',', '.');
+                if (n === '' || !isFinite(Number(n))) { return { error: t('Enter a number.') }; }
+                return Number(n) >= Math.min(r.start, r.end) && Number(n) <= Math.max(r.start, r.end) ? { value: n }
+                    : { error: t('Outside the range this question allows.') };
+            }
+            case 'select_one': case 'select_one_from_file': case 'select_multiple': case 'select_multiple_from_file': {
+                var rows = choiceRows(q.list || q.file);
+                if (!rows) { return { error: t('The choices of this question are not available.') }; }
+                var names = rows.map(function (row) { return String(row.name); });
+                var multiple = q.type.indexOf('select_multiple') === 0;
+                var wanted = multiple ? v.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : [v.trim()];
+                if (!wanted.length || wanted.some(function (w) { return names.indexOf(w) < 0; })) { return { error: t('Not one of this question’s choices: ') + names.join(', ') + '.' }; }
+                wanted.sort(function (a, b) { return names.indexOf(a) - names.indexOf(b); });
+                return { value: wanted.filter(function (w, i) { return wanted.indexOf(w) === i; }).join(',') };
+            }
+            case 'date': {
+                var text = v.trim();
+                if (has(q.appearance, 'year') && /^\d{4}$/.test(text)) { text += '-01-01'; }
+                else if (has(q.appearance, 'month-year') && /^\d{4}-\d{2}$/.test(text)) { text += '-01'; }
+                m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+                var day = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+                return day && day.getMonth() === Number(m[2]) - 1 ? { value: text } : { error: t('Write the date as YYYY-MM-DD.') };
+            }
+            case 'time': {
+                m = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(v.trim());
+                return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? { value: m[1] + ':' + m[2] + ':00.000' + offsetText(new Date()) } : { error: t('Write the time as HH:MM.') };
+            }
+            case 'dateTime': {
+                var ms = Date.parse(v.trim());
+                return isNaN(ms) ? { error: t('Write the date and time as YYYY-MM-DDTHH:MM.') } : { value: localDateTime(new Date(ms)) };
+            }
+            case 'geopoint': {
+                m = /^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(v);
+                return m && Math.abs(Number(m[1])) <= 90 && Math.abs(Number(m[2])) <= 180 ? { value: m[1] + ' ' + m[2] + ' 0 0' }
+                    : { error: t('Write the place as latitude,longitude.') };
+            }
+            case 'acknowledge':
+                if (isYes(v)) { return { value: t('OK') }; }
+                return isNo(v) ? { value: '' } : { error: t('Use yes or no.') };
+            default:
+                return { error: t('A link cannot fill this kind of question.') };
+        }
+    }
+
+    function applyPrefill() {
+        link.prefillNotices = [];
+        Object.keys(link.fields).forEach(function (name) {
+            var result = prefillValue(name, link.fields[name]);
+            if (result.error) { link.prefillNotices.push('field:' + name + '=' + shorten(link.fields[name]) + ' — ' + result.error); }
+            else if (result.value !== '') { root.values[name] = result.value; }
+        });
+        drawLinkNotices();
+    }
+
+    function applyHide() {
+        link.hide.forEach(function (part) { document.documentElement.classList.add('hide-' + part); });
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
     // Submitting.
     // ---------------------------------------------------------------------------------------------------------------
 
@@ -2100,13 +2736,15 @@
                 // No storage on this device (a private window): send directly, and say so if it fails.
                 try {
                     await sendRecord(record, function () { return Promise.resolve(); });
-                    finish('Your answers were sent.');
+                    finish('Your answers were sent.', false, true);
                 } catch (err) {
                     showMessage(err.network ? t('The server could not be reached, and this browser cannot keep the record for later. Try again when you are online.') : 'The server refused the answers: ' + err.message);
                 }
                 return;
             }
             record.key = key;
+            // Queued: the record is in the outbox, so the draft has done its work (ADR-287 §5.10).
+            await discardDraftRecord(root.id);
             if (!navigator.onLine) {
                 finish('Saved on this device. It will be sent when you are back online.', true);
                 await drawOutbox();
@@ -2115,7 +2753,7 @@
             var outcome = await sendOne(record);
             await drawOutbox();
             if (outcome === 'sent') {
-                finish('Your answers were sent.');
+                finish('Your answers were sent.', false, true);
             } else if (outcome === 'offline') {
                 finish('The server could not be reached. Your answers are saved on this device and will be sent when the connection returns.', true);
             } else if (outcome === 'sign-in') {
@@ -2126,6 +2764,8 @@
                 await dbDelete('outbox', record.key);
                 await drawOutbox();
                 showMessage('The server refused the answers: ' + record.message);
+                // The form stays on screen filled in, so it is kept as a draft again rather than lost with the record.
+                saveDraft();
             } else {
                 finish('Part of the record was refused by the server and it is kept in the Outbox: ' + record.message, true);
             }
@@ -2143,29 +2783,73 @@
         summary.focus();
     }
 
-    function finish(message, queued) {
-        $('form').hidden = true;
-        $('summary').hidden = true;
-        $('done-heading').textContent = queued ? t('Saved on this device') : 'Submitted';
-        $('done-text').textContent = message;
-        $('done').hidden = false;
-        $('done').focus();
+    var redirectTimer = null;
+
+    // Only an http or https address is a place to send somebody on to: the server refuses anything else when the form
+    // is saved, and this checks again, because the address is read from the form and then navigated to.
+    function safeRedirect(value) {
+        if (!value) { return null; }
+        try {
+            var u = new URL(String(value));
+            return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password ? u.href : null;
+        } catch (e) {
+            return null;
+        }
     }
 
-    function startBlank() {
+    function clearRedirect() {
+        clearTimeout(redirectTimer);
+        redirectTimer = null;
+        var box = $('redirect');
+        if (box) { box.hidden = true; $('redirect-text').textContent = ''; }
+    }
+
+    // The screen after an answer was sent: the publisher's thank-you in place of the page's own sentence, and, when the
+    // publisher named one, the address the person is taken on to after five seconds. A redirect nobody can stop would
+    // take the screen away before it is read, so it says where it goes, offers to go now and to stay, and says it once.
+    // INFERRED: neither is an XLSForm column and neither is in the ADR; they are the form's own settings
+    // (graticula:thank_you, graticula:redirect), and a link cannot set a redirect, which would make every form an open
+    // redirect for anyone able to write a URL.
+    function finish(message, queued, sent) {
+        $('form').hidden = true;
+        $('summary').hidden = true;
+        var thanks = sent && form && form.thankYou ? form.thankYou : '';
+        $('done-heading').textContent = queued ? t('Saved on this device') : 'Submitted';
+        $('done-text').textContent = thanks || message;
+        $('done').hidden = false;
+        $('done').focus();
+        var target = sent && !previewing ? safeRedirect(form && form.redirect) : null;
+        if (!target) { return; }
+        var seconds = 5;
+        var host = new URL(target).host;
+        $('redirect-text').textContent = isTurkish() ? host + ' adresine ' + seconds + ' saniye içinde yönlendirileceksiniz.'
+            : 'You will be taken to ' + host + ' in ' + seconds + ' seconds.';
+        $('redirect-go').href = target;
+        $('redirect').hidden = false;
+        redirectTimer = setTimeout(function () { location.assign(target); }, seconds * 1000);
+    }
+
+    function startBlank(quiet) {
+        clearTimeout(draftTimer);
+        draftTimer = null;
         showAll = false;
         pageIndex = 0;
+        draftId = null;
+        drawDraftBar();
         root = newInstance(form.root, null);
+        clearRedirect();
+        applyPrefill();
         $('done').hidden = true;
         $('summary').hidden = true;
         $('form').hidden = false;
         refresh(true);
         // Not in the designer's preview: focus there belongs to the designer, and a field taking it trapped the keyboard
         // inside the frame (the UX review of 2026-11-09).
-        var first = previewing ? null : $('body').querySelector('input, select, textarea');
+        var first = previewing || quiet === true ? null : $('body').querySelector('input, select, textarea');
         // A place's first box is a coordinate nobody types first; focus stays at the top of the page then.
         if (first && first.closest('.type-geopoint, .type-geotrace, .type-geoshape')) { first = null; }
         if (first) { first.focus(); }
+        drawDrafts();
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -2177,13 +2861,24 @@
             : t('You are offline. Records you submit are kept on this device and sent when the connection returns.');
     }
 
+    // The form, its CSV lists and, with item 2, its pictures, kept in the 'forms' store: what a reload with no signal opens.
+    async function storeFormCopy() {
+        var csv = {};
+        Object.keys(files).forEach(function (k) { csv[k] = files[k].text; });
+        var media = {};
+        var wanted = mediaNamesOf(form);
+        for (var i = 0; i < wanted.length; i++) {
+            var blob = await loadMedia(wanted[i]);
+            if (blob) { media[wanted[i]] = blob; }
+        }
+        await dbPut('forms', { id: itemId, doc: doc, files: csv, media: media, saved: Date.now() });
+    }
+
     async function downloadForOffline() {
         var status = $('offline-status');
         status.textContent = t('Saving the form on this device…');
         try {
-            var csv = {};
-            Object.keys(files).forEach(function (k) { csv[k] = files[k].text; });
-            await dbPut('forms', { id: itemId, doc: doc, files: csv, saved: Date.now() });
+            await storeFormCopy();
             var persisted = false;
             if (navigator.storage && navigator.storage.persist) { try { persisted = await navigator.storage.persist(); } catch (e) { persisted = false; } }
             status.textContent = t('Saved for offline use') + (persisted ? '.' : '. This browser may still clear it if the device runs short of space.');
@@ -2228,6 +2923,7 @@
             var kept = await dbGet('forms', itemId).catch(function () { return null; });
             if (kept && kept.doc) {
                 Object.keys(kept.files || {}).forEach(function (k) { files[k] = { text: kept.files[k], rows: parseCsv(kept.files[k]) }; });
+                Object.keys(kept.media || {}).forEach(function (k) { mediaBlobs[k] = kept.media[k]; });
                 return { doc: kept.doc, from: 'device' };
             }
             throw e;
@@ -2261,6 +2957,8 @@
             return;
         }
 
+        link = parseLink(location.search);
+        applyHide();
         registerWorker();
         drawConnection();
         window.addEventListener('online', function () { drawConnection(); exchanged = false; sendOutbox(); });
@@ -2272,6 +2970,15 @@
             if (!box.hidden) { $('outbox-heading').setAttribute('tabindex', '-1'); $('outbox-heading').focus(); }
         });
         $('send-now').addEventListener('click', function () { exchanged = false; sendOutbox(); });
+        wireDrafts();
+        $('link-notices-dismiss').addEventListener('click', function () { $('link-notices').hidden = true; $('form-main').focus(); });
+        $('redirect-stay').addEventListener('click', function () {
+            clearTimeout(redirectTimer);
+            redirectTimer = null;
+            $('redirect').hidden = true;
+            $('redirect-text').textContent = t('You stayed on this page.');
+            $('new-form').focus();
+        });
         $('download-offline').addEventListener('click', downloadForOffline);
         wireForm();
         if (isIos()) { $('ios-note').hidden = false; }
@@ -2299,10 +3006,34 @@
         readyResolve();
     }
 
+    function wireDrafts() {
+        $('drafts-toggle').addEventListener('click', function () {
+            var box = $('drafts');
+            box.hidden = !box.hidden;
+            $('drafts-toggle').setAttribute('aria-expanded', String(!box.hidden));
+            if (!box.hidden) { drawDrafts(); $('drafts-heading').setAttribute('tabindex', '-1'); $('drafts-heading').focus(); }
+        });
+        $('draft-new').addEventListener('click', async function () {
+            await flushDraft();
+            startBlank(true);
+            sayDraft(t('New form started. The earlier draft is kept under Drafts.'));
+            focusFormTop();
+        });
+        $('draft-discard').addEventListener('click', async function () {
+            if (!draftId || !window.confirm(t('Discard this draft? It cannot be recovered.'))) { return; }
+            await discardDraftRecord(draftId);
+            startBlank(true);
+            sayDraft(t('Draft discarded.'));
+            focusFormTop();
+        });
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { flushDraft(); } });
+        window.addEventListener('pagehide', function () { flushDraft(); });
+    }
+
     /** The page's own controls — Next, Back, Submit, the language — wired once, whatever form they then serve. */
     function wireForm() {
         $('form').addEventListener('submit', submit);
-        $('new-form').addEventListener('click', startBlank);
+        $('new-form').addEventListener('click', function () { startBlank(); });
         $('next').addEventListener('click', function () {
             showAll = false;
             var found = pageProblems();
@@ -2342,8 +3073,14 @@
         for (var i = 0; i < csvNames.length; i++) {
             if (files[csvNames[i]]) { continue; }
             var body = loaded.from !== 'device' && itemId ? await fetchCsv(csvNames[i]) : null;
+            if (body === null && loaded.from !== 'preview' && itemId) {
+                var copy = await dbGet('forms', itemId).catch(function () { return null; });
+                if (copy && copy.files && copy.files[csvNames[i]] !== undefined) { body = copy.files[csvNames[i]]; }
+            }
             if (body === null) { missingFiles.push(csvNames[i]); } else { files[csvNames[i]] = { text: body, rows: parseCsv(body) }; }
         }
+
+        mediaNamesOf(form).forEach(function (n) { loadMedia(n); });
 
         var languages = Array.isArray(form.languages) ? form.languages.filter(function (l) { return l !== null && l !== undefined; }) : [];
         var keep = languages.indexOf(lang) >= 0 && loaded.from === 'preview';
@@ -2363,6 +3100,7 @@
         document.title = title;
         $('form-title').textContent = title;
         $('loading').hidden = true;
+        if (loaded.from !== 'preview') { $('drafts-toggle').hidden = false; }
         if (loaded.from === 'device') {
             $('offline-panel').hidden = false;
             $('offline-status').textContent = t('Opened from this device; the server could not be reached.');
@@ -2384,7 +3122,8 @@
             $('submit').setAttribute('aria-describedby', 'unpublished');
         }
 
-        startBlank();
+        await openInitial();
+        drawLinkNotices();
     }
 
     /**
@@ -2393,7 +3132,7 @@
      */
     function startPreview() {
         document.documentElement.classList.add('previewing');
-        ['outbox-toggle', 'connection', 'offline-panel'].forEach(function (id) { var n = $(id); if (n) { n.hidden = true; } });
+        ['outbox-toggle', 'drafts-toggle', 'draft-bar', 'connection', 'offline-panel'].forEach(function (id) { var n = $(id); if (n) { n.hidden = true; } });
         wireForm();
         var drawing = Promise.resolve();
         window.addEventListener('message', function (event) {
@@ -2428,6 +3167,13 @@
         outbox: function () { return dbAll('outbox').then(function (r) { return r.sort(function (a, b) { return a.key - b.key; }).map(function (x) { return { key: x.key, status: x.status, message: x.message, done: x.progress && x.progress.done }; }); }); },
         /** Sends what is waiting now. */
         sendNow: function () { exchanged = false; return sendOutbox(); },
+        /** The maps drawn now: the ground each stands on and where its view is, as [longitude, latitude, zoom]. */
+        maps: function () {
+            return liveMaps.filter(function (m) { return document.body.contains(m.box); }).map(function (m) {
+                var c = ol.proj.toLonLat(m.map.getView().getCenter());
+                return { ground: m.box.getAttribute('data-ground'), view: [c[0], c[1], m.map.getView().getZoom()] };
+            });
+        },
         /** The CSV lists the form names that the item does not hold. */
         missingFiles: function () { return missingFiles.slice(); }
     });

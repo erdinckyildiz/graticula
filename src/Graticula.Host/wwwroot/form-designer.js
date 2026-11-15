@@ -965,7 +965,15 @@ function fdDrawSettings() {
     <label class="check fdfield"><input type="checkbox" id="fdSetPages"${/(^|\s)pages(\s|$)/.test(get("style")) ? " checked" : ""}${ro}>
       <span>Show each group as its own page</span></label>
     ${fdField("fdSetInstance", "Record name", `<input type="text" id="fdSetInstance" data-fd-setting="instance_name" value="${h(get("instance_name"))}" spellcheck="false"${ro}>`,
-      "XLSForm's <code>instance_name</code>: an expression naming each record in the outbox, such as <code>concat(${building}, ' ', ${floor})</code>.")}`;
+      "XLSForm's <code>instance_name</code>: an expression naming each record in the outbox, such as <code>concat(${building}, ' ', ${floor})</code>.")}
+    ${fdField("fdSetBasemap", "Map ground", `<select id="fdSetBasemap" data-fd-setting-select="graticula:basemap"${ro}>${
+      [["", "OpenStreetMap (default)"], ["topo", "OpenTopoMap, with contours"], ["none", "No ground, just the points"]]
+        .map(([value, words]) => `<option value="${value}"${value === get("graticula:basemap").toLowerCase() ? " selected" : ""}>${h(words)}</option>`).join("")}</select>`,
+      "What lies under the map of a location question. Stored as <code>graticula:basemap</code>.")}
+    ${fdField("fdSetThanks", "Thank-you message", `<textarea id="fdSetThanks" data-fd-setting="graticula:thank_you" rows="3"${ro}>${h(get("graticula:thank_you"))}</textarea>`,
+      "Shown after an answer was sent, instead of the page's own sentence. Stored as <code>graticula:thank_you</code>.")}
+    ${fdField("fdSetRedirect", "After submitting, go to", `<input type="url" id="fdSetRedirect" data-fd-setting="graticula:redirect" value="${h(get("graticula:redirect"))}" spellcheck="false" placeholder="https://"${ro}>`,
+      "An <code>https://</code> or <code>http://</code> address. The person is told first, and may stay. Stored as <code>graticula:redirect</code>.")}`;
 }
 
 // ------------------------------------------------------------------------------------------------- check and preview

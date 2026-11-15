@@ -372,7 +372,7 @@ measurable question. The two device claims are, so they are conditions and not a
     `TimeOnly` and `TimestampOffset` are refused, because this server has no such field and storing them as something
     else would change the value. `bind::esri:fieldLength`, `bind::esri:fieldAlias`, `body::esri:visible` (hidden but
     still stored), `body::accuracyThreshold` and `body::accept` are supported. `body::esri:style` and
-    `bind::saveIncomplete` are drawn the default way (the client always keeps drafts). Refused: `bind::esri:parameters`
+    `bind::saveIncomplete` are drawn the default way (the client always keeps drafts — built 2026-11-15, §5.16 (a)). Refused: `bind::esri:parameters`
     (its `calculationMode` changes stored values), `bind::esri:warning` and `bind::esri:warning_message`,
     `body::esri:inputMask`, `bind::esri:workflow`.
 
@@ -513,6 +513,96 @@ measurable question. The two device claims are, so they are conditions and not a
     question; with the device's position already allowed the map opens on it; the map is a named region whose zoom
     buttons are heard, not a hidden box with focusable controls; a line's or area's points are numbered, each with its
     own Remove, and the area says when it is closed.
+
+16. **What §5.10 listed as supported and the code accepted without doing — built 2026-11-15, overnight, while the owner
+    slept (*"Survey123 konusunda eksik ne kaldı, onlara bak"*).** A gap review found six places where §5.10 said *supported*
+    and the client did nothing, which is the one thing §5.10's own rule forbids. Each is built below. **Every choice in
+    this list was this session's and is INFERRED, for the owner to confirm**; nothing in it is the owner's, and it is
+    not yet a question in [open-questions.md](../open-questions.md). Evidence is the tests named in each point, run in a
+    real Chrome against a stand-in server (`FormFillClientTests`, `FormFillClientScreensTests`) and, for what the server
+    sends and refuses, `AFormTellsItsClientWhatItShowsTests`. **Nothing here was measured on a phone.**
+    - (a) **Drafts** — §5.10's *"the client always keeps drafts"*, which had no code. A third IndexedDB store, `drafts`
+      (database version 2), holds a form being filled in: the answers as the instance tree, each repeat item with the
+      GlobalID it was made with, and every attachment as the `Blob` the person chose, so a draft takes the same room
+      in storage as the record it becomes. It is written 700 ms after the last change, at once when the page is hidden,
+      and a draft nobody entered anything in is not kept — a prefilled link or a defaulted form is not yet a draft. The
+      form opens on its most recent draft after a reload, and an offline reload does too: the first draft also
+      keeps a copy of the form on the device (the *Download for offline use* copy), because the service worker's own copy
+      of `form.json` exists only from the second load. **Drafts** in the header lists them, each with **Resume** and
+      **Discard** (confirmed); **Start a new form** and **Discard this draft** sit above the form while one is open. A draft
+      is removed when its record is **queued in the outbox**, and returns if the server refuses the record before
+      accepting any part of it and the form stays filled in (§5.11 (m)). One polite live region says *saved* once per
+      draft, *resumed*, *discarded* and *reopened*; after a discard, focus goes to the next button in the list or to the
+      Drafts button, and after a resume to the form. A draft started on an older version of the form is read back onto
+      the form as it is: answers to questions that no longer exist are left out, and it says so.
+      **INFERRED:** (1) Survey123 opens a blank form and keeps drafts in its Drafts folder; here the latest draft is
+      reopened, because §5.10 asks for drafts to survive a reload and a form that forgets on reload has no drafts to
+      list. A link with `field:` answers in it starts a new form instead, and the draft stays in the list. (2) Several
+      drafts of one form may exist; the device holds as many as the person starts. (3) Drafts are never sent without
+      the person pressing Submit. (4) A draft is kept with no credential, as the outbox is (§5.11 (m)).
+    - (b) **`guidance_hint`** is sent per language (`guidanceHints`) and drawn behind a **More help** button
+      (`aria-expanded`, `aria-controls`; the panel is the question's own, and stays open when the page is drawn again).
+      Survey123's documentation says the guidance is hidden until a button next to the hint is tapped, so that is the
+      choice, not the XLSForm specification's print layout. **INFERRED:** it is offered even where the question has no
+      `hint`, which Survey123 does not do (*"can only be used if there is already a hint"*), because accepting a
+      column and showing nothing is what §5.10 forbids. A guidance hint on a group or repeat is refused at its row.
+    - (c) **Pictures** (`media::image`, and its older spelling `image`, per language) on a question and on a choice. A
+      picture is a file **uploaded with the form as an item resource at `media/<name>`** — the folder Survey123 keeps
+      them in, and where §5.5 already reads a form's CSV — and the model stores only its name. A name is a plain file name
+      ending `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` or `.svg`: a folder, a web address or another extension is refused at
+      upload with its row and column, and a **publish is refused for every picture the item does not hold**, listed by
+      sheet, row and column (an upload comes before the item and its files, so the upload cannot ask). The client reads
+      them like a CSV, draws them as images, keeps them on the device with the form, and says *Picture not available:
+      name* where one cannot be read; it never draws a broken image. A picture is decoration beside text that says the
+      same, so its `alt` is empty. **INFERRED:** a picture on a group or repeat is refused rather than drawn, because a
+      heading has nowhere to put it; `minimal` over choices with pictures is refused, because a drop-down cannot show
+      them; and `audio` and `video` stay refused (§5.10). Not tested against a real Survey123 project folder.
+    - (d) **`field-list` and `table-list`.** *`table-list`*: a group of `select_one` / `select_multiple` questions over
+      one choice list, drawn as a table — a question to a row, a choice to a column, each cell named by its row and its
+      column, the table a keyboard-reachable scrolling region on a narrow screen. The server refuses any other group with
+      the appearance at its row: a child that is not a select, a second list, a `choice_filter`, no questions; and
+      `table-list` on a `begin repeat` is refused by the appearance's own type rule (it was *supported* for repeats in
+      the list above, which was a claim without a meaning). *`field-list`*: this client **has pages**, but only as the
+      `pages` style, where a top-level group already is a page. What `field-list` adds is for a group *inside* a group:
+      it is lifted out to a page of its own, its parent's heading above it, and what lies around it keeps pages on either
+      side. **Without the pages style the whole form is one page, so `field-list` changes nothing there, and the upload
+      says so with a notice** — said, not silent, and not refused, because refusing it would refuse a Survey123 form that is
+      right. **INFERRED:** this meaning of `field-list` for a form that has pages but not one question per screen.
+    - (e) **Link parameters**, read from the page's address: `field:<question>=<answer>`, `hide=header,navbar,offline`
+      and `center=<lat>,<lon>`. Each value is checked against its question: whole number, number, a date that exists
+      (`YYYY-MM-DD`; `YYYY-MM` for `month-year`, `YYYY` for `year`), a time, a date and time, a place as `lat,lon`, a
+      choice or several that are on the list, `yes`/`no` for an acknowledgement, a number within a range. A value that
+      does not fit, a question that does not exist, one inside a repeat, a calculation, a group, a type a link cannot
+      fill (photos, lines, areas, metadata), an unknown `hide` part and a `center` out of range are **left out and listed
+      by parameter in a region above the form** that is announced and can be dismissed; a prefilled answer is not
+      "touched", so a required question is not scolded before anyone reached it. `center` opens every location map
+      there at zoom 16, close enough for one tap to place a point, and keeps the device's position from moving it.
+      **INFERRED:** (1) `hide` parts: `header` hides the title visually and keeps it for screen readers, `navbar` the
+      language picker and the Drafts and Outbox buttons, `offline` the keep-on-device panel; Survey123's list is longer
+      and names parts this page does not have. (2) `center` is latitude first, as the owner's brief wrote it. (3) A
+      `redirect=` link parameter is **not** honoured and is listed as ignored: it would make every form an open
+      redirect for anyone able to write a URL, and §5.16 (f) gives the publisher the setting instead. I could not read
+      Survey123's own page for its link parameters (its documentation moved and the new address answered 404), so
+      this list is from memory of the product and from the owner's brief, not from a citation. Not measured on a phone.
+    - (f) **The thank-you screen and the redirect** are two settings of the form, `graticula:thank_you` (up to 2,000
+      characters, shown instead of the page's own sentence) and `graticula:redirect` (an **absolute http or https address
+      with no credentials**; anything else is refused at its settings cell, and the client checks again before
+      navigating). Neither is an XLSForm column and the ADR named none; they follow §5.1's rule for things of our own, and
+      the designer's Settings tab has a field for each. After an answer was **sent** — not queued, not part-refused — the
+      page says where it is taking the person and in how many seconds (five), once, in a live region, and offers **Go now**
+      and **Stay on this page**; staying moves focus to *Fill in a new form*. A redirect nobody can stop would take the
+      screen away before it is read. **INFERRED:** all of the above, including the five seconds and the absence of a
+      redirect for a queued record, which is sent later by a page nobody is looking at.
+    - (g) **The map's ground is the publisher's** — §5.15 (a)'s reversal, which had no code. A settings column
+      `graticula:basemap` takes **`osm`** (the default, and what any unknown value draws — the server refuses unknown values
+      at save, so this is a floor and not a feature), **`topo`** (OpenTopoMap) or **`none`** (the points alone, on a plain
+      ground). The designer's Settings tab offers the three; the form's policy admits `https://tile.opentopomap.org` for
+      images and nothing else new. **INFERRED:** three grounds and not a publisher's own tile address, because the
+      page's content-security policy names origins, and a form that could name one would widen the policy for every
+      form on the server; Survey123's settings offer a list of ArcGIS basemaps, which this server cannot draw.
+      OpenTopoMap's tile terms were not read tonight; if it is to stay, someone should.
+    - (h) **The service worker's cache is `graticula-forms-shell-v3`**, so installed clients take all of this; no new file
+      was added to the shell.
 
 ## 6. Consequences
 
