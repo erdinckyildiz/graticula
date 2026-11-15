@@ -318,7 +318,13 @@ serves the same shape. None was stated by the owner.
    was edited on the phone with the network off and deleted on the server meanwhile. After *Sync now*, p2 stayed
    deleted on the server and was gone from the phone. Before commit 3cf9ab74, the phone kept such a row, because the
    download left out the client's own edit even though that edit was dropped.
-6. **The writer's test vectors are this project's geometries**, and no file Esri wrote is committed.
+6. **The writer's test vectors are this project's geometries**, and no file Esri wrote is committed. **DISCHARGED
+   2026-11-15**, by reading the tree. `git ls-files` lists no `.geodatabase`, `.vtpk`, `.tpk`, `.mmpk` or `.mspk`, and the
+   only binary test inputs are three `.sd` files of an earlier ADR, which are made by hand for the import reader's escapes.
+   `MobileGeodatabaseGeometryTests` pairs each geometry this project chose with the blob ArcGIS Pro wrote for it, a hex
+   string recorded as the measurement (research note §2). The writer's and reader's tests in `Graticula.Offline.Sqlite.Tests`
+   and `Graticula.Host.Tests` build every geodatabase they read from those geometries at test time (`OfflineFixture`). The
+   captures that the format was derived from stay outside the repository.
 7. **A client's upload is parsed behind the reader process, not in the host** — owner decision 2026-11-10 (*"Ayrı sürece
    taşı"*), ADR-009's line for untrusted files. Until then offline sync stays off main (D-402). **DISCHARGED
    2026-11-12**: `Graticula.Offline.Reader` is a child process the host starts once per upload, with the import
