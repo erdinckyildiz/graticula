@@ -30,12 +30,16 @@ public static class FormCompiled
             ["languages"] = Strings(definition.Languages),
             ["pages"] = definition.Settings.Pages,
             ["instanceName"] = definition.Settings.InstanceName,
+            ["basemap"] = definition.Settings.Basemap,
+            ["thankYou"] = definition.Settings.ThankYou,
+            ["redirect"] = definition.Settings.Redirect,
             ["root"] = Table(definition.Root),
             ["choices"] = new JsonObject([.. definition.ChoiceLists.Select(list => KeyValuePair.Create(list.Key, (JsonNode?)new JsonArray(
                 [.. list.Value.Select(c => (JsonNode)new JsonObject
                 {
                     ["name"] = c.Name,
                     ["labels"] = Texts(c.Labels),
+                    ["images"] = Texts(c.Images),
                     ["filters"] = Texts(c.Filters),
                 })])))]),
         };
@@ -77,6 +81,8 @@ public static class FormCompiled
         ["file"] = q.Type.EndsWith("_from_file", StringComparison.Ordinal) ? q.Argument : null,
         ["labels"] = Texts(q.Labels),
         ["hints"] = Texts(q.Hints),
+        ["guidanceHints"] = Texts(q.GuidanceHints),
+        ["images"] = Texts(q.Images),
         ["requiredMessages"] = Texts(q.RequiredMessages),
         ["constraintMessages"] = Texts(q.ConstraintMessages),
         ["required"] = q.Required,

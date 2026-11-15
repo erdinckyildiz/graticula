@@ -298,6 +298,11 @@ public static class FormEndpoints
             return Refusal(plan.Refusals, check.Notices, "The form was not published.");
         }
 
+        if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
+        {
+            return Refusal(missing, check.Notices, "The form was not published.");
+        }
+
         Publisher publisher = new(context, plan, cancellation);
         (int status, string? message) = await publisher.RunAsync().ConfigureAwait(false);
 
@@ -579,6 +584,29 @@ public static class FormEndpoints
         }
     }
 
+    /// <summary>
+    /// The pictures the form names that are not among the item's files — found when the form is published, because an
+    /// upload comes before the item and its files exist (ADR-287 §5.10). A form never goes out with a picture that
+    /// cannot be shown; each is listed with its sheet, row and column. A picture is looked for at <c>media/name</c>,
+    /// the folder Survey123 keeps them in, and at <c>name</c>.
+    /// </summary>
+    private static async Task<List<FormIssue>> MissingPicturesAsync(HttpContext context, string id, FormDefinition definition, CancellationToken cancellation)
+    {
+        List<(string Sheet, int Row, string Column, string Name)> named = [.. definition.MediaReferences()];
+
+        if (named.Count == 0)
+        {
+            return [];
+        }
+
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        (IReadOnlyList<ItemResource> page, _) = await resources.ListAsync(Guid.Parse(id), 0, 10_000, cancellation).ConfigureAwait(false);
+        HashSet<string> paths = new(page.Select(r => r.Path), StringComparer.Ordinal);
+
+        return [.. named.Where(n => !paths.Contains("media/" + n.Name) && !paths.Contains(n.Name)).Select(n => new FormIssue(n.Sheet, n.Row, n.Column,
+            $"The picture '{n.Name}' is not among this form's files. Add it to the item's files as media/{n.Name}."))];
+    }
+
     private static async Task<FormModel?> PublishedModelAsync(HttpContext context, string id, CancellationToken cancellation)
     {
         IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
@@ -635,6 +663,11 @@ public static class FormEndpoints
         if (!plan.Accepted)
         {
             return Refusal(plan.Refusals, check.Notices, "The form was not published again.");
+        }
+
+        if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
+        {
+            return Refusal(missing, check.Notices, "The form was not published again.");
         }
 
         string service = (string?)publication["service"] ?? string.Empty;

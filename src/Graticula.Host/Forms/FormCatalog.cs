@@ -81,7 +81,10 @@ public static class FormCatalog
     /// <summary>Settings columns supported.</summary>
     public static readonly FrozenSet<string> SettingsColumns = Columns(
         "form_title", "form_id", "version", "instance_name", "default_language", "style", "allow_choice_duplicates",
-        "clean_text_values", "name", "submission_url");
+        "clean_text_values", "name", "submission_url", "graticula:basemap", "graticula:thank_you", "graticula:redirect");
+
+    /// <summary>The grounds a publisher may put under a location question's map (§5.15, 2026-11-15).</summary>
+    public static readonly FrozenSet<string> Basemaps = Set("osm", "topo", "none");
 
     /// <summary>Settings columns accepted with no effect, which the upload says.</summary>
     public static readonly FrozenSet<string> InertSettingsColumns = Columns("namespaces");
@@ -104,7 +107,7 @@ public static class FormCatalog
         ["rating"] = Set("range"),
         ["hidden"] = Set("*"),
         ["field-list"] = Set("begin group", "begin repeat"),
-        ["table-list"] = Set("begin group", "begin repeat"),
+        ["table-list"] = Set("begin group"),
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Appearances that change only how a question looks; drawn the default way, with a notice.</summary>

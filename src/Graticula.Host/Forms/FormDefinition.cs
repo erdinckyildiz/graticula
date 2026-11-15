@@ -75,6 +75,7 @@ public sealed partial class FormDefinition
         private readonly List<FormIssue> notices = [];
         private readonly Dictionary<string, FormQuestion> names = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Sheet, int Row, string Column, string Expression)> expressions = [];
+        private bool pagesStyle;
 
         public FormCheck Run()
         {
@@ -89,6 +90,7 @@ public sealed partial class FormDefinition
             List<string> languages = [];
             Dictionary<string, IReadOnlyList<FormChoice>> lists = Choices(model.Sheet("choices"), languages);
             FormSettings settings = ReadSettings(model.Sheet("settings"));
+            pagesStyle = settings.Pages;
             FormTable root = Survey(survey, lists, languages);
 
             foreach ((string sheet, int row, string column, string expression) in expressions)
@@ -173,6 +175,11 @@ public sealed partial class FormDefinition
                     }
                     else
                     {
+                        if (closed.Appearance.Contains("table-list", StringComparer.Ordinal))
+                        {
+                            TableList(closed);
+                        }
+
                         // A group draws a screen; its questions belong to the table around it, and the body keeps the
                         // group so the client can hide it as one and give it a page.
                         open.Peek().Questions.AddRange(closed.Questions);
@@ -206,6 +213,16 @@ public sealed partial class FormDefinition
                     if (count is not null && !int.TryParse(count, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
                     {
                         expressions.Add(("survey", at, "repeat_count", count));
+                    }
+
+                    if (columns.Translations(row, "media::image").Count + columns.Translations(row, "image").Count > 0)
+                    {
+                        Refuse("survey", at, "media::image", $"A picture belongs on a question or a choice; the {(type == "begin group" ? "group" : "repeat")} '{name}' is drawn as a heading and cannot carry one.");
+                    }
+
+                    if (columns.Translations(row, "guidance_hint").Count > 0)
+                    {
+                        Refuse("survey", at, "guidance_hint", $"A guidance_hint belongs on a question; the {(type == "begin group" ? "group" : "repeat")} '{name}' has no hint to expand.");
                     }
 
                     Relevance(row, columns, at);
@@ -274,6 +291,14 @@ public sealed partial class FormDefinition
                             ? $"'{name}' is a second location question at the top level; it has at most one, which becomes the layer's geometry."
                             : $"'{name}' is a second location question in the repeat '{table.Name}'; a repeat has at most one, which becomes its geometry.");
                     }
+                }
+
+                if (type is "select_one" or "select_multiple" && argument is not null
+                    && lists.TryGetValue(argument, out IReadOnlyList<FormChoice>? offered) && offered.Any(c => c.Images.Count > 0)
+                    && (columns.Value(row, "appearance") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .Contains("minimal", StringComparer.OrdinalIgnoreCase))
+                {
+                    Refuse("survey", at, "appearance", $"The choices of '{argument}' have pictures, and a drop-down (minimal) cannot show them; take minimal off '{name}'.");
                 }
 
                 FormQuestion question = Question(row, columns, type, argument, name, labels, at);
@@ -379,12 +404,81 @@ public sealed partial class FormDefinition
                 FieldAlias: alias)
             {
                 Hints = columns.Translations(row, "hint"),
+                GuidanceHints = columns.Translations(row, "guidance_hint"),
+                Images = Pictures(columns, row, "survey", at),
                 RequiredMessages = columns.Translations(row, "required_message"),
                 ConstraintMessages = columns.Translations(row, "constraint_message"),
                 Visible = columns.Value(row, "body::esri:visible"),
                 AccuracyThreshold = columns.Value(row, "body::accuracyThreshold"),
                 Accept = columns.Value(row, "body::accept"),
             };
+        }
+
+        /// <summary>
+        /// A <c>table-list</c> group draws its questions as the rows of one table whose columns are a choice list's
+        /// choices (§5.10), so every row must be a select over that one list, whole and unfiltered.
+        /// </summary>
+        private void TableList(Frame group)
+        {
+            string? list = null;
+
+            if (group.Body.Count == 0)
+            {
+                Refuse("survey", group.Row, "appearance", $"The table-list group '{group.Name}' has no questions to make rows of.");
+                return;
+            }
+
+            foreach (object node in group.Body)
+            {
+                if (node is not FormQuestion { Type: "select_one" or "select_multiple" } q)
+                {
+                    string what = node switch
+                    {
+                        FormQuestion other => $"the {other.Type} question '{other.Name}'",
+                        FormGroup inner => $"the group '{inner.Name}'",
+                        FormTable repeat => $"the repeat '{repeat.Name}'",
+                        _ => "a row",
+                    };
+                    Refuse("survey", group.Row, "appearance", $"A table-list group holds only select_one and select_multiple questions, and {what} is in '{group.Name}'.");
+                    return;
+                }
+
+                if (q.ChoiceFilter is not null)
+                {
+                    Refuse("survey", q.Row, "choice_filter", $"'{q.Name}' sits in a table-list, whose columns are the same for every row, so it cannot filter its choices.");
+                }
+
+                list ??= q.Argument;
+
+                if (!string.Equals(q.Argument, list, StringComparison.Ordinal))
+                {
+                    Refuse("survey", q.Row, "type", $"Every question in a table-list shares one choice list; '{q.Name}' uses '{q.Argument}' and the first row uses '{list}'.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A row's pictures per language, from <c>media::image</c> and its older spelling <c>image</c>, each checked: a
+        /// picture is a file uploaded with the form, named without a folder or a web address (§5.10).
+        /// </summary>
+        private Dictionary<string, string> Pictures(Columns columns, IReadOnlyList<string> row, string sheet, int at)
+        {
+            Dictionary<string, string> pictures = columns.Translations(row, "media::image");
+
+            foreach ((string language, string name) in columns.Translations(row, "image"))
+            {
+                pictures.TryAdd(language, name);
+            }
+
+            foreach ((string language, string name) in pictures)
+            {
+                if (MediaProblem(name.Trim()) is { } problem)
+                {
+                    Refuse(sheet, at, language.Length == 0 ? "media::image" : $"media::image::{language}", $"'{name.Trim()}': {problem}");
+                }
+            }
+
+            return pictures.ToDictionary(p => p.Key, p => p.Value.Trim(), StringComparer.Ordinal);
         }
 
         private void Relevance(IReadOnlyList<string> row, Columns columns, int at)
@@ -435,6 +529,10 @@ public sealed partial class FormDefinition
                     if (!types.Contains("*") && !types.Contains(type))
                     {
                         Refuse("survey", at, "appearance", $"The appearance '{token}' applies to {string.Join(", ", types.Order(StringComparer.Ordinal))}, not to '{type}'.");
+                    }
+                    else if (token == "field-list" && !pagesStyle)
+                    {
+                        Notice("survey", at, "appearance", "Without the pages style the whole form is one page, so field-list changes nothing here: this group is already drawn together with everything else.");
                     }
                 }
                 else if (FormCatalog.PresentationAppearances.Contains(token) || WidthPattern().IsMatch(token))
@@ -673,7 +771,10 @@ public sealed partial class FormDefinition
                     filters[column] = ModelSheet.Cell(row, sheet.ColumnIndex(column));
                 }
 
-                choices.Add(new FormChoice(name, columns.Translations(row, "label"), filters, at));
+                choices.Add(new FormChoice(name, columns.Translations(row, "label"), filters, at)
+                {
+                    Images = Pictures(columns, row, "choices", at),
+                });
             }
 
             return lists.ToDictionary(p => p.Key, p => (IReadOnlyList<FormChoice>)p.Value, StringComparer.Ordinal);
@@ -717,6 +818,35 @@ public sealed partial class FormDefinition
                 expressions.Add(("settings", 2, "instance_name", instanceName));
             }
 
+            string? basemap = null;
+
+            if (columns.Value(row, "graticula:basemap") is { } ground)
+            {
+                basemap = ground.ToLowerInvariant();
+
+                if (!FormCatalog.Basemaps.Contains(basemap))
+                {
+                    Refuse("settings", 2, "graticula:basemap", $"'{ground}' is not a basemap this server offers: {string.Join(", ", FormCatalog.Basemaps.Order(StringComparer.Ordinal))}.");
+                    basemap = null;
+                }
+            }
+
+            string? redirect = columns.Value(row, "graticula:redirect");
+
+            if (redirect is not null && !IsWebAddress(redirect))
+            {
+                Refuse("settings", 2, "graticula:redirect", $"'{redirect}' is not an http or https address; a form is sent on to one of those after it is submitted, and to nothing else.");
+                redirect = null;
+            }
+
+            string? thanks = columns.Value(row, "graticula:thank_you");
+
+            if (thanks is { Length: > 2000 })
+            {
+                Refuse("settings", 2, "graticula:thank_you", "The thank-you message is longer than 2,000 characters.");
+                thanks = null;
+            }
+
             return new FormSettings(
                 columns.Value(row, "form_title"),
                 columns.Value(row, "form_id"),
@@ -724,7 +854,12 @@ public sealed partial class FormDefinition
                 columns.Value(row, "default_language"),
                 columns.Value(row, "instance_name"),
                 pages,
-                columns.Value(row, "submission_url"));
+                columns.Value(row, "submission_url"))
+            {
+                Basemap = basemap,
+                ThankYou = thanks,
+                Redirect = redirect,
+            };
         }
 
         private static string? FirstSetting(ModelSheet? settings, string column)
@@ -846,6 +981,56 @@ public sealed partial class FormDefinition
     }
 
     /// <summary>A header's base name and language: <c>label::Türkçe (tr)</c> is <c>label</c> and <c>Türkçe (tr)</c>.</summary>
+    /// <summary>Whether a text is an absolute http or https address with no credentials in it.</summary>
+    /// <param name="text">The text.</param>
+    public static bool IsWebAddress(string text) =>
+        Uri.TryCreate(text, UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" && uri.UserInfo.Length == 0 && uri.Host.Length > 0;
+
+    private static readonly string[] PictureExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
+
+    /// <summary>Why a picture's name cannot be served from the form's files, or null when it can.</summary>
+    /// <param name="name">The cell's text.</param>
+    public static string? MediaProblem(string name)
+    {
+        if (name.Length == 0)
+        {
+            return null;
+        }
+
+        if (name.Contains('/', StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal) || name.Contains("..", StringComparison.Ordinal)
+            || name.Contains(':', StringComparison.Ordinal) || name.Any(char.IsControl))
+        {
+            return "a picture is a file uploaded with the form and is named by that file alone, with no folder and no web address.";
+        }
+
+        return PictureExtensions.Any(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+            ? null
+            : $"a picture is {string.Join(", ", PictureExtensions)} — '{name}' is none of them.";
+    }
+
+    /// <summary>Every picture the form names, with the sheet, row and column it is named in.</summary>
+    public IEnumerable<(string Sheet, int Row, string Column, string Name)> MediaReferences()
+    {
+        foreach (FormQuestion q in AllQuestions)
+        {
+            foreach ((string language, string name) in q.Images)
+            {
+                yield return ("survey", q.Row, language.Length == 0 ? "media::image" : $"media::image::{language}", name);
+            }
+        }
+
+        foreach (IReadOnlyList<FormChoice> list in ChoiceLists.Values)
+        {
+            foreach (FormChoice c in list)
+            {
+                foreach ((string language, string name) in c.Images)
+                {
+                    yield return ("choices", c.Row, language.Length == 0 ? "media::image" : $"media::image::{language}", name);
+                }
+            }
+        }
+    }
+
     internal static (string Base, string? Language) BaseName(string header)
     {
         string[] parts = header.Split("::");
@@ -1070,6 +1255,15 @@ public sealed record FormQuestion(
     /// <summary>The hint per language.</summary>
     public IReadOnlyDictionary<string, string> Hints { get; init; } = new Dictionary<string, string>();
 
+    /// <summary>
+    /// <c>guidance_hint</c> per language: longer help, shown when the person asks for it (Survey123's own reading of the
+    /// column, from its public documentation).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> GuidanceHints { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The picture shown with the question: a file uploaded with the form, per language (<c>media::image</c>).</summary>
+    public IReadOnlyDictionary<string, string> Images { get; init; } = new Dictionary<string, string>();
+
     /// <summary>The message shown when a required question is left empty, per language.</summary>
     public IReadOnlyDictionary<string, string> RequiredMessages { get; init; } = new Dictionary<string, string>();
 
@@ -1087,7 +1281,11 @@ public sealed record FormQuestion(
 }
 
 /// <summary>One choice of a list: its name, its labels per language, and the values a choice_filter may read.</summary>
-public sealed record FormChoice(string Name, IReadOnlyDictionary<string, string> Labels, IReadOnlyDictionary<string, string> Filters, int Row);
+public sealed record FormChoice(string Name, IReadOnlyDictionary<string, string> Labels, IReadOnlyDictionary<string, string> Filters, int Row)
+{
+    /// <summary>The picture shown beside the choice: a file uploaded with the form, per language (<c>media::image</c>).</summary>
+    public IReadOnlyDictionary<string, string> Images { get; init; } = new Dictionary<string, string>();
+}
 
 /// <summary>The settings sheet's values.</summary>
 public sealed record FormSettings(
@@ -1097,7 +1295,17 @@ public sealed record FormSettings(
     string? DefaultLanguage,
     string? InstanceName,
     bool Pages,
-    string? SubmissionUrl);
+    string? SubmissionUrl)
+{
+    /// <summary>The ground under a location question's map: <c>osm</c> (the default), <c>topo</c> or <c>none</c> (§5.15).</summary>
+    public string? Basemap { get; init; }
+
+    /// <summary>What the confirmation says after an answer was sent; the page's own words when null.</summary>
+    public string? ThankYou { get; init; }
+
+    /// <summary>An http or https address the person is sent on to after an answer was sent.</summary>
+    public string? Redirect { get; init; }
+}
 
 /// <summary>One finding, at a sheet, a spreadsheet row (1 is the header; 0 the whole sheet) and a column.</summary>
 public sealed record FormIssue(string Sheet, int Row, string? Column, string Message);
