@@ -71,6 +71,10 @@ internal sealed record SyncLayerRequest(int Id, long? ServerGeneration, string D
 /// <param name="ReturnAttachments">Whether attachments travel.</param>
 /// <param name="CloseReplica">Whether the replica is unregistered once synchronised.</param>
 /// <param name="DataFormat"><c>sqlite</c> or <c>json</c>: how the download is written.</param>
+/// <param name="Edits">
+/// The <c>edits</c> parameter — ArcGIS's JSON upload, an array with one entry per layer — or null. Read when it is applied,
+/// against the layers' shapes (D-409).
+/// </param>
 internal sealed record SynchronizeReplicaRequest(
     Guid ReplicaId,
     string Direction,
@@ -79,7 +83,8 @@ internal sealed record SynchronizeReplicaRequest(
     bool Async,
     bool ReturnAttachments,
     bool CloseReplica,
-    string DataFormat = "sqlite");
+    string DataFormat = "sqlite",
+    string? Edits = null);
 
 /// <summary>
 /// Reads <c>createReplica</c> and <c>synchronizeReplica</c> as Esri's public REST reference describes them — ADR-288.
@@ -370,12 +375,32 @@ internal static partial class OfflineReplicaRequests
             return false;
         }
 
-        if (json && field("edits") is { } inline)
+        // D-409: `edits` is the public reference's JSON upload — an array of {id, features:{adds, updates, deleteIds},
+        // attachments:{adds, updates, deleteIds}} — and is read for either download format. The reference says it cannot be
+        // combined with editsUploadID, so it is not.
+        string? inline = field("edits") is { } sent && sent.Trim().Length > 0 ? sent.Trim() : null;
+
+        if (inline is not null && field("editsUploadID")?.Trim() is { Length: > 0 })
         {
-            error = $"edits '{(inline.Length > 80 ? inline[..80] + "..." : inline)}' is not read: a JSON replica is "
-                + "downloaded from here, not uploaded to it (D-409). Upload the changes as a mobile geodatabase delta "
-                + "(editsUploadID, dataFormat=sqlite), or apply them with applyEdits.";
+            error = "edits and editsUploadID were both sent; send the changes one way or the other (Synchronize Replica, ArcGIS REST).";
             return false;
+        }
+
+        if (inline is not null)
+        {
+            try
+            {
+                if (JsonDocument.Parse(inline).RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    error = $"edits '{(inline.Length > 80 ? inline[..80] + "..." : inline)}' is not a JSON array with one entry per layer.";
+                    return false;
+                }
+            }
+            catch (JsonException)
+            {
+                error = $"edits '{(inline.Length > 80 ? inline[..80] + "..." : inline)}' is not JSON.";
+                return false;
+            }
         }
 
         string direction = (field("syncDirection") ?? "bidirectional").Trim();
@@ -439,13 +464,6 @@ internal static partial class OfflineReplicaRequests
         string? upload = field("editsUploadID")?.Trim();
         if (upload is { Length: > 0 })
         {
-            if (json)
-            {
-                error = $"editsUploadID '{upload}' with dataFormat 'json' is not read: a JSON replica is downloaded from "
-                    + "here, not uploaded to it (D-409).";
-                return false;
-            }
-
             string uploadFormat = (field("editsUploadFormat") ?? "sqlite").Trim();
             if (!uploadFormat.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
             {
@@ -462,7 +480,8 @@ internal static partial class OfflineReplicaRequests
             IsTrue(field("async")),
             !string.Equals(field("returnAttachments")?.Trim(), "false", StringComparison.OrdinalIgnoreCase),
             IsTrue(field("closeReplica")),
-            json ? "json" : "sqlite");
+            json ? "json" : "sqlite",
+            inline);
         error = null;
         return true;
     }

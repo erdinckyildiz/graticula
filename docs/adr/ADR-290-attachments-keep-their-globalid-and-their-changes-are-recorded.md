@@ -139,8 +139,8 @@ replica the fix is invisible until its second sync.
    `syncModel=perLayer`, and a map area's packaging), so the record begins before the replica does. A store that cannot be
    prepared (a role that may not alter the table) does not stop the replica; its first download says so by sending nothing.
 10. **JSON replicas** (`dataFormat=json`) name each attachment by its kept GlobalID in `createReplica`; their `synchronizeReplica`
-    download still carries no attachment changes ([D-409](../architecture-debt.md)), because ArcGIS's JSON shape for them has
-    not been seen and nothing syncs by JSON.
+    download carried no attachment changes when this was written ([D-409](../architecture-debt.md)); **since 2026-11-15 it carries them, and
+    accepts the JSON upload: §12.6.**
 
 ## 6. Consequences
 
@@ -292,3 +292,36 @@ None recorded; the design was proposed in the task and not argued with anyone. T
      replica's generation, the delta holds every attachment of both features as an update and no insert or delete, the node logged the
      resend, and the next window holds nothing; and in `DeltaTests` the writer names the attachment dataset with no change table when
      asked to.
+6. **JSON replicas, both ways** (D-409). **DISCHARGED 2026-11-15** for the server's side; nothing was measured with a client that
+   syncs by JSON (the ArcGIS API for Python does). The shape is the public reference's, *Synchronize Replica* (ArcGIS REST API,
+   developers.arcgis.com/rest/services-reference/enterprise/synchronize-replica/): `edits` is an array with one entry per layer,
+   `{ "id", "features": { "adds", "updates", "deleteIds" }, "attachments": { "adds", "updates", "deleteIds" } }`; an attachment is
+   `{ "globalid", "parentGlobalid", "contentType", "name", "data" | "url" }`; the parameter cannot be combined with `editsUploadID`;
+   `returnAttachmentsDataByUrl` (default true) chooses an address or inline bytes in a download.
+   - **(a) Upload.** `synchronizeReplica` with `syncDirection=upload|bidirectional` and `edits` (for either `dataFormat`) is read by
+     `OfflineJsonEdits` into the edits and attachment changes a geodatabase delta is read into, and applied by the same code
+     (`OfflineReplicaEndpoints.ApplyAsync`: `applyEdits` by GlobalID, then the attachment store) under the same conflict rule (ADR-288
+     §5.5): an add of a GlobalID the server holds is an update, an update or delete of one it no longer holds is dropped and counted,
+     what the client sent is left out of the same sync's download, and an attachment keeps the GlobalID the client gave it. Only the
+     fields a client may write and the GlobalID are taken from an attribute set. Nothing is applied when any part cannot be read.
+     An uploaded delta file (`editsUploadID`) may now also be paired with `dataFormat=json` for the download.
+   - **(b) Download.** A JSON download carries the attachment changes from the same `IAttachmentSync.ChangesAsync` (and the same
+     unvouched-window rule, §12.5): `attachments.adds`/`updates` entries with `globalid`, `parentGlobalid`, `attachmentId`, `size`, and
+     `url` (the layer's own attachment route) or `data` (base64) when `returnAttachmentsDataByUrl=false`; `deleteIds` are the deleted
+     attachments' GlobalIDs.
+   - **`INFERRED`, where the public reference is silent or this server chooses:** (1) the flat shape `{ "id", "adds", "updates",
+     "deletes" }` is read as well as `features`; (2) **`deleteIds` are GlobalIDs, in the upload and, for attachments, in the download** —
+     a number in an upload's `deleteIds` is refused by name rather than taken for an object id. The page's text says GlobalIDs for the
+     upload; the **feature** `deleteIds` this server wrote in a JSON download before this (`OfflineJsonReplica`) are object ids, which
+     was already `INFERRED` and is **not changed here**, so the two directions disagree about feature deletes until a client says
+     which it reads; (3) the download writes `globalid`/`parentGlobalid` in the page's spelling, where `createReplica`'s JSON writes
+     `globalId`/`parentGlobalId`, and the upload reads either; (4) an attachment sent with only a `url` is refused (the server does not
+     fetch an address a client names — SSRF), so JSON attachments travel inline as base64, bounded by the form field; larger ones go
+     as a mobile geodatabase delta; (5) a JSON upload cannot update or delete an attachment the server stored **without** a kept
+     GlobalID by its derived one — the id is a hash and the entry carries no attachment id — so those entries are dropped. An
+     attachment a device made, or one added through a replica, has a kept GlobalID and is reached; a server-made one, created before
+     ADR-290, is not.
+   - Tested: `JsonEditsTests` (the reading, the conflict rule, the refusals, the download's attachment shape), `JsonReplicaTests` (the
+     request), and against PostgreSQL through a real server `AJsonReplicaSyncsAttachmentsBothWaysTests`: a JSON download carries the
+     added, replaced and removed attachment, and a JSON upload adds a feature and its attachment by GlobalID in one request, is idempotent
+     when sent twice, updates the feature, deletes the attachment by its GlobalID, and refuses a numeric `deleteIds` with the server unchanged.

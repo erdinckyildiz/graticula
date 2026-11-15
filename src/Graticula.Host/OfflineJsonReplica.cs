@@ -219,13 +219,29 @@ internal static class OfflineJsonReplica
     /// <param name="changes">Each layer's changes, with the shape its rows are written by.</param>
     /// <param name="generations">The layers' generations after this sync.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="featureServerUrl">
+    /// The FeatureServer address an attachment's <c>url</c> is built from; null writes every attachment's bytes inline.
+    /// </param>
+    /// <param name="dataByUrl">False to write the bytes inline (<c>returnAttachmentsDataByUrl=false</c>).</param>
     /// <returns>A task.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The attachments' shape is the public reference's</b> (<i>Synchronize Replica</i>, ArcGIS REST): <c>attachments</c>
+    /// with <c>adds</c>, <c>updates</c> and <c>deleteIds</c>, each attachment <c>globalid</c>, <c>parentGlobalid</c>,
+    /// <c>contentType</c>, <c>name</c> and a <c>url</c> or base64 <c>data</c>. <b><c>INFERRED</c>, where it is silent:</b>
+    /// <c>deleteIds</c> are the attachments' GlobalIDs (an attachment is named by <c>globalid</c> everywhere else in the shape,
+    /// and its id is the device's own); <c>attachmentId</c> and <c>size</c> are written beside them as the replica's own
+    /// attachments carry them; and an attachment of an unvouched window is an update (D-423).
+    /// </para>
+    /// </remarks>
     public static async Task WriteChangesAsync(
         string file,
         ReplicaRecord replica,
         IReadOnlyList<OfflineLayerChanges> changes,
         IReadOnlyList<ReplicaLayer> generations,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? featureServerUrl = null,
+        bool dataByUrl = true)
     {
         ArgumentNullException.ThrowIfNull(replica);
         ArgumentNullException.ThrowIfNull(changes);
@@ -278,13 +294,28 @@ internal static class OfflineJsonReplica
                 json.WriteEndArray();
                 json.WriteEndObject();
 
-                // Attachments the server changed do not travel in a download here, in either format (D-409).
+                // D-409: the attachments the server changed, from the same record the mobile geodatabase download reads.
                 json.WriteStartObject("attachments");
                 json.WriteStartArray("adds");
+                foreach (OfflineAttachment attachment in layer.AttachmentInserts)
+                {
+                    WriteAttachment(json, layer.Layer.Id, attachment, featureServerUrl, dataByUrl);
+                }
+
                 json.WriteEndArray();
                 json.WriteStartArray("updates");
+                foreach (OfflineAttachment attachment in layer.AttachmentUpdates)
+                {
+                    WriteAttachment(json, layer.Layer.Id, attachment, featureServerUrl, dataByUrl);
+                }
+
                 json.WriteEndArray();
                 json.WriteStartArray("deleteIds");
+                foreach (OfflineKey key in layer.AttachmentDeletes)
+                {
+                    json.WriteStringValue(Braced(key.GlobalId));
+                }
+
                 json.WriteEndArray();
                 json.WriteEndObject();
 
@@ -345,6 +376,28 @@ internal static class OfflineJsonReplica
         }
 
         json.WriteEndObject();
+        json.WriteEndObject();
+    }
+
+    private static void WriteAttachment(Utf8JsonWriter json, int layerId, OfflineAttachment attachment, string? featureServerUrl, bool dataByUrl)
+    {
+        json.WriteStartObject();
+        json.WriteNumber("attachmentId", attachment.AttachmentId);
+        json.WriteString("globalid", Braced(attachment.GlobalId));
+        json.WriteString("parentGlobalid", Braced(attachment.ParentGlobalId));
+        json.WriteString("contentType", attachment.ContentType);
+        json.WriteNumber("size", attachment.Data.Length);
+        json.WriteString("name", attachment.Name);
+
+        if (featureServerUrl is not null && dataByUrl && attachment.ParentObjectId > 0)
+        {
+            json.WriteString("url", AttachmentUrl(featureServerUrl, layerId, attachment.ParentObjectId, (int)attachment.AttachmentId));
+        }
+        else
+        {
+            json.WriteString("data", Convert.ToBase64String(attachment.Data.Span));
+        }
+
         json.WriteEndObject();
     }
 

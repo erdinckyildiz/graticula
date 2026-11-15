@@ -586,13 +586,14 @@ internal static partial class OfflineReplicaEndpoints
             return;
         }
 
-        bool uploading = request.UploadId is not null && covered.Any(c => c.Direction is "upload" or "bidirectional");
+        bool uploading = (request.UploadId is not null || request.Edits is not null)
+            && covered.Any(c => c.Direction is "upload" or "bidirectional");
         bool downloading = covered.Any(c => c.Direction is "download" or "bidirectional");
         string? uploadPath = null;
 
-        if (uploading)
+        if (uploading && request.UploadId is not null)
         {
-            uploadPath = ArcGisAppendEndpoints.WaitingUploadOf(request.UploadId!, caller.Principal.Id.ToString());
+            uploadPath = ArcGisAppendEndpoints.WaitingUploadOf(request.UploadId, caller.Principal.Id.ToString());
 
             if (uploadPath is null)
             {
@@ -669,6 +670,11 @@ internal static partial class OfflineReplicaEndpoints
         job.ReplicaName = replica.Name;
         job.ReplicaId = replica.Id;
         bool jsonSync = request.DataFormat == "json";
+
+        // D-409: a JSON download names an attachment by its address unless the client asked for the bytes inline
+        // (`returnAttachmentsDataByUrl=false`, Synchronize Replica, ArcGIS REST).
+        string serviceUrl = TileFaces.Origin(context) + FeatureServerPath(context);
+        bool attachmentsByUrl = !string.Equals(field("returnAttachmentsDataByUrl")?.Trim(), "false", StringComparison.OrdinalIgnoreCase);
         job.DownloadName = replica.Name + (jsonSync ? "_changes.json" : "_changes.geodatabase");
 
         // ---- the upload, on this request ----
@@ -678,11 +684,17 @@ internal static partial class OfflineReplicaEndpoints
         {
             job.Status = "ImportChanges";
 
-            string? refused = await UploadAsync(
-                context, faces, serviceName, connections, uploadPath!, shapes, planned,
-                [.. covered.Where(c => c.Direction is "upload" or "bidirectional").Select(c => c.Stored.Id)],
-                request.ReturnAttachments && replica.ReturnAttachments && replica.AttachmentsSyncDirection != "none",
-                uploaded, cancellation).ConfigureAwait(false);
+            HashSet<int> uploadable = [.. covered.Where(c => c.Direction is "upload" or "bidirectional").Select(c => c.Stored.Id)];
+            bool takesAttachments = request.ReturnAttachments && replica.ReturnAttachments && replica.AttachmentsSyncDirection != "none";
+
+            // D-409: ArcGIS's JSON upload (`edits`) and the geodatabase delta are two readings of one upload, applied by one path.
+            string? refused = request.Edits is { } json
+                ? await UploadJsonAsync(
+                    context, faces, serviceName, connections, json, shapes, planned, uploadable, takesAttachments, uploaded, cancellation)
+                    .ConfigureAwait(false)
+                : await UploadAsync(
+                    context, faces, serviceName, connections, uploadPath!, shapes, planned, uploadable, takesAttachments, uploaded, cancellation)
+                    .ConfigureAwait(false);
 
             if (refused is not null)
             {
@@ -693,7 +705,10 @@ internal static partial class OfflineReplicaEndpoints
                 return;
             }
 
-            ArcGisAppendEndpoints.Spend(request.UploadId!);
+            if (request.UploadId is not null)
+            {
+                ArcGisAppendEndpoints.Spend(request.UploadId);
+            }
         }
 
         // The new generation is taken after the upload, so the client's own edits are inside this download's window and
@@ -729,7 +744,7 @@ internal static partial class OfflineReplicaEndpoints
 
                     // ADR-290: the attachments the server changed, read from the attachment table's own record of changes, and
                     // only where the replica takes attachments down.
-                    AttachmentDownload attached = !jsonSync && request.ReturnAttachments && replica.ReturnAttachments
+                    AttachmentDownload attached = request.ReturnAttachments && replica.ReturnAttachments
                         && replica.AttachmentsSyncDirection is "bidirectional" or "download"
                         && shape.HasAttachments && p.Layer.KeepsAttachments
                         ? await AttachmentChangesAsync(connections, p, shape, DateTimeOffset.FromUnixTimeMilliseconds(from), generation, found, uploaded, stopping)
@@ -773,7 +788,8 @@ internal static partial class OfflineReplicaEndpoints
             if (jsonSync && downloading && job.File is { } jsonFile)
             {
                 // JSON edits state the generations the sync leaves the replica at, so they are written after they are known.
-                await OfflineJsonReplica.WriteChangesAsync(jsonFile, replica, jsonChanges, advanced, stopping).ConfigureAwait(false);
+                await OfflineJsonReplica.WriteChangesAsync(
+                    jsonFile, replica, jsonChanges, advanced, stopping, serviceUrl, attachmentsByUrl).ConfigureAwait(false);
             }
 
             if (request.CloseReplica)
@@ -889,6 +905,115 @@ internal static partial class OfflineReplicaEndpoints
             }
         }
 
+        return await ApplyAsync(
+            context, faces, serviceName, connections, edits, planned,
+            [.. delta.Layers.Where(c => uploadable.Contains(c.Layer.Id)).Select(c => c with { Layer = shapes.First(s => s.Id == c.Layer.Id) })],
+            attachments, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The JSON upload — <c>synchronizeReplica</c>'s <c>edits</c>, D-409: read into the same edits and the same attachment
+    /// changes a geodatabase delta is, and applied by <see cref="ApplyAsync"/> under the same conflict rule (ADR-288 §5.5).
+    /// Answers null when it was applied, or why not; nothing is applied when any part cannot be read.
+    /// </summary>
+    private static async Task<string?> UploadJsonAsync(
+        HttpContext context,
+        ReplicaFaces faces,
+        string serviceName,
+        LayerConnections connections,
+        string json,
+        List<OfflineLayer> shapes,
+        List<Planned> planned,
+        HashSet<int> uploadable,
+        bool attachments,
+        HashSet<Guid> uploaded,
+        CancellationToken cancellation)
+    {
+        if (!OfflineJsonEdits.TryRead(json, out List<OfflineJsonEdits.Entry> entries, out string? error))
+        {
+            return error + " Nothing was applied.";
+        }
+
+        List<ReplicaLayerEdits> edits = [];
+        List<OfflineLayerChanges> attached = [];
+        HashSet<Guid> pending = [];
+
+        foreach (OfflineJsonEdits.Entry entry in entries)
+        {
+            if (planned.FirstOrDefault(x => x.Id == entry.Id) is not { } p)
+            {
+                return $"edits names layer {entry.Id}, which is not in this replica. Nothing was applied.";
+            }
+
+            if (!uploadable.Contains(entry.Id))
+            {
+                continue;
+            }
+
+            OfflineLayer shape = shapes.First(s => s.Id == entry.Id);
+
+            if (shape.GlobalIdField is not { } globalIdField)
+            {
+                return $"Layer {shape.Id} has no GlobalID, so its offline edits cannot be named. Nothing was applied.";
+            }
+
+            HashSet<Guid> referenced = OfflineJsonEdits.FeatureGlobalIds(entry, globalIdField);
+            IReadOnlyDictionary<Guid, long> existing = referenced.Count == 0
+                ? new Dictionary<Guid, long>()
+                : await connections.ObjectIdsOfAsync(p.Layer, globalIdField, referenced, cancellation).ConfigureAwait(false);
+
+            if (OfflineJsonEdits.Edits(entry, shape, globalIdField, OfflineReplicaShapes.EditableFields(p.Document), existing.Keys.ToHashSet(), out error)
+                is not { } layerEdits)
+            {
+                return error + " Nothing was applied.";
+            }
+
+            // The same rule as the geodatabase upload: what the client changed and the server had already deleted is not the
+            // client's own edit, so the download still sends the server's delete. An add is the client's own either way.
+            HashSet<Guid> changedOrRemoved = [.. referenced.Except(OfflineJsonEdits.AddedGlobalIds(entry, globalIdField))];
+            pending.UnionWith(referenced.Where(id => !changedOrRemoved.Contains(id) || existing.ContainsKey(id)));
+
+            if (OfflineJsonEdits.Attachments(entry, shape, out error) is not { } layerAttachments)
+            {
+                return error + " Nothing was applied.";
+            }
+
+            pending.UnionWith(layerAttachments.AttachmentInserts.Concat(layerAttachments.AttachmentUpdates).Select(a => a.GlobalId));
+            pending.UnionWith(layerAttachments.AttachmentDeletes.Select(k => k.GlobalId));
+            attached.Add(layerAttachments);
+
+            if (layerEdits.Adds is not null || layerEdits.Updates is not null || layerEdits.Deletes is not null)
+            {
+                edits.Add(layerEdits);
+            }
+        }
+
+        string? refused = await ApplyAsync(context, faces, serviceName, connections, edits, planned, attached, attachments, cancellation)
+            .ConfigureAwait(false);
+
+        if (refused is null)
+        {
+            uploaded.UnionWith(pending);
+        }
+
+        return refused;
+    }
+
+    /// <summary>
+    /// Applies an upload, however it was read: the rows through the service's <c>applyEdits</c> by GlobalID, then the
+    /// attachments through each layer's attachment store. Answers null when it was applied, or why not.
+    /// </summary>
+    private static async Task<string?> ApplyAsync(
+        HttpContext context,
+        ReplicaFaces faces,
+        string serviceName,
+        LayerConnections connections,
+        List<ReplicaLayerEdits> edits,
+        List<Planned> planned,
+        List<OfflineLayerChanges> attachmentChanges,
+        bool attachments,
+        CancellationToken cancellation)
+    {
         if (edits.Count > 0)
         {
             JsonArray entries = [];
@@ -924,11 +1049,11 @@ internal static partial class OfflineReplicaEndpoints
 
         if (attachments)
         {
-            foreach (OfflineLayerChanges changes in delta.Layers.Where(c => uploadable.Contains(c.Layer.Id)))
+            foreach (OfflineLayerChanges changes in attachmentChanges)
             {
                 Planned p = planned.First(x => x.Id == changes.Layer.Id);
 
-                if (await ApplyAttachmentsAsync(connections, p, shapes.First(s => s.Id == p.Id), changes, cancellation).ConfigureAwait(false)
+                if (await ApplyAttachmentsAsync(connections, p, changes.Layer, changes, cancellation).ConfigureAwait(false)
                     is { } refused)
                 {
                     return refused;
@@ -1475,7 +1600,7 @@ internal static partial class OfflineReplicaEndpoints
                 Guid globalId = OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id, info.GlobalId);
 
                 if (!own.Contains(globalId)
-                    && await ReadAttachmentAsync(store, info.Id, parent, globalId, cancellation).ConfigureAwait(false) is { } read)
+                    && await ReadAttachmentAsync(store, info.Id, parent, globalId, cancellation, feature).ConfigureAwait(false) is { } read)
                 {
                     inserts.Add(read);
                 }
@@ -1484,7 +1609,7 @@ internal static partial class OfflineReplicaEndpoints
 
         foreach ((AttachmentChange change, Guid globalId) in selected.Inserts)
         {
-            if (await ReadAttachmentAsync(store, change.AttachmentId, parents[change.FeatureId], globalId, cancellation).ConfigureAwait(false) is { } read)
+            if (await ReadAttachmentAsync(store, change.AttachmentId, parents[change.FeatureId], globalId, cancellation, change.FeatureId).ConfigureAwait(false) is { } read)
             {
                 inserts.Add(read);
             }
@@ -1492,7 +1617,7 @@ internal static partial class OfflineReplicaEndpoints
 
         foreach ((AttachmentChange change, Guid globalId) in selected.Updates)
         {
-            if (await ReadAttachmentAsync(store, change.AttachmentId, parents[change.FeatureId], globalId, cancellation).ConfigureAwait(false) is { } read)
+            if (await ReadAttachmentAsync(store, change.AttachmentId, parents[change.FeatureId], globalId, cancellation, change.FeatureId).ConfigureAwait(false) is { } read)
             {
                 updates.Add(read);
             }
@@ -1528,7 +1653,7 @@ internal static partial class OfflineReplicaEndpoints
                     Guid globalId = OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, info.Id, info.GlobalId);
 
                     if (!own.Contains(globalId)
-                        && await ReadAttachmentAsync(store, info.Id, parent, globalId, cancellation).ConfigureAwait(false) is { } read)
+                        && await ReadAttachmentAsync(store, info.Id, parent, globalId, cancellation, feature).ConfigureAwait(false) is { } read)
                     {
                         updates.Add(read);
                     }
@@ -1544,7 +1669,7 @@ internal static partial class OfflineReplicaEndpoints
 
     /// <summary>One attachment read whole, as the port carries it; null when it has gone since it was listed.</summary>
     private static async Task<OfflineAttachment?> ReadAttachmentAsync(
-        IAttachmentStore store, int id, Guid parent, Guid globalId, CancellationToken cancellation)
+        IAttachmentStore store, int id, Guid parent, Guid globalId, CancellationToken cancellation, long parentObjectId = 0)
     {
         OpenAttachment? open = await store.OpenAsync(id, cancellation).ConfigureAwait(false);
 
@@ -1557,7 +1682,7 @@ internal static partial class OfflineReplicaEndpoints
         {
             using MemoryStream copy = new();
             await open.Content.CopyToAsync(copy, cancellation).ConfigureAwait(false);
-            return new OfflineAttachment(id, parent, globalId, open.Info.Name, open.Info.ContentType, copy.ToArray());
+            return new OfflineAttachment(id, parent, globalId, open.Info.Name, open.Info.ContentType, copy.ToArray(), parentObjectId);
         }
     }
 

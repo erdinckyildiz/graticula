@@ -126,7 +126,12 @@ public sealed record OfflineRow(IReadOnlyList<object?> Values, Geometry? Geometr
 /// <param name="Name">The file name.</param>
 /// <param name="ContentType">The media type.</param>
 /// <param name="Data">The bytes.</param>
-public sealed record OfflineAttachment(long AttachmentId, Guid ParentGlobalId, Guid GlobalId, string Name, string ContentType, ReadOnlyMemory<byte> Data);
+/// <param name="ParentObjectId">
+/// The object id of the feature it belongs to, or 0 when not known: a JSON download names an attachment by an address that
+/// is built from it (D-409).
+/// </param>
+public sealed record OfflineAttachment(
+    long AttachmentId, Guid ParentGlobalId, Guid GlobalId, string Name, string ContentType, ReadOnlyMemory<byte> Data, long ParentObjectId = 0);
 
 /// <summary>The registration a replica file carries.</summary>
 /// <param name="Id">The replica's id, which the client sends back on every sync.</param>

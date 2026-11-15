@@ -110,9 +110,9 @@ because they reuse every part of it.
    which serves the bytes to whoever may read the layer, where ArcGIS writes the bytes into its job directory; and
    `transportType=esriTransportTypeEmbedded` answers the JSON in the response when the request is not `async` and is
    refused by name when it is. `synchronizeReplica` with `dataFormat=json` is a download of `edits` per layer
-   (`features {adds, updates, deleteIds}`, `attachments` empty — the server's own attachment changes do not travel in this format,
-   [D-409](../architecture-debt.md); **in the mobile geodatabase download they do, since 2026-11-13: [ADR-290](ADR-290-attachments-keep-their-globalid-and-their-changes-are-recorded.md) — attachment inserts, updates and deletes read from the database's own record of changes, and an attachment keeps the GlobalID a device gave it**); `deleteIds` are object ids (`INFERRED`). An upload as JSON
-   (`edits` or `editsUploadFormat=json`) is refused by name ([D-409](../architecture-debt.md)).
+   (`features {adds, updates, deleteIds}`, and `attachments {adds, updates, deleteIds}` since 2026-11-15 — [ADR-290](ADR-290-attachments-keep-their-globalid-and-their-changes-are-recorded.md) §12.6, [D-409](../architecture-debt.md); **in the mobile geodatabase download they do, since 2026-11-13: [ADR-290](ADR-290-attachments-keep-their-globalid-and-their-changes-are-recorded.md) — attachment inserts, updates and deletes read from the database's own record of changes, and an attachment keeps the GlobalID a device gave it**); `deleteIds` are object ids (`INFERRED`). An upload as JSON
+   (`edits`, the public reference's shape) is applied **since 2026-11-15** by the path a geodatabase upload takes, under §5.5's rule
+   (ADR-290 §12.6, [D-409](../architecture-debt.md)); `editsUploadFormat=json` for an uploaded *file* is still refused by name.
 5. **Conflicts: the last edit to reach the server wins**, per row, as ArcGIS's hosted services resolve them
    *(INFERRED — §11.3)*. A row deleted on the server and edited offline stays deleted.
 6. **Preplanned map areas** (owner) — map area items related to the web map, packaged on the server as registered

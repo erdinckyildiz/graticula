@@ -173,21 +173,36 @@ public sealed class JsonReplicaTests
     }
 
     [Fact]
-    public void A_json_download_reads_and_an_inline_or_uploaded_json_edit_is_refused_by_name()
+    public void A_json_sync_reads_inline_edits_and_refuses_edits_it_cannot_read_by_name()
     {
         Assert.True(OfflineReplicaRequests.TryReadSynchronize(
             Fields(("replicaID", A.ToString()), ("dataFormat", "json"), ("syncDirection", "download")),
             out SynchronizeReplicaRequest? request, out string? error), error);
         Assert.Equal("json", request!.DataFormat);
+        Assert.Null(request.Edits);
+
+        // D-409: `edits` is read, for either download format.
+        Assert.True(OfflineReplicaRequests.TryReadSynchronize(
+            Fields(("replicaID", A.ToString()), ("dataFormat", "json"), ("edits", """[{"id":0}]""")), out request, out error), error);
+        Assert.Equal("""[{"id":0}]""", request!.Edits);
+
+        // An uploaded delta and a JSON download are independent too.
+        Assert.True(OfflineReplicaRequests.TryReadSynchronize(
+            Fields(("replicaID", A.ToString()), ("dataFormat", "json"), ("editsUploadID", "abc")), out request, out error), error);
+        Assert.Equal("abc", request!.UploadId);
+
+        // Not both, as the reference says; not text that is not an array.
+        Assert.False(OfflineReplicaRequests.TryReadSynchronize(
+            Fields(("replicaID", A.ToString()), ("edits", "[]"), ("editsUploadID", "abc")), out _, out error));
+        Assert.Contains("both", error, StringComparison.Ordinal);
 
         Assert.False(OfflineReplicaRequests.TryReadSynchronize(
-            Fields(("replicaID", A.ToString()), ("dataFormat", "json"), ("edits", """[{"id":0}]""")), out _, out error));
-        Assert.Contains("edits", error, StringComparison.Ordinal);
-        Assert.Contains("""[{"id":0}]""", error, StringComparison.Ordinal);
+            Fields(("replicaID", A.ToString()), ("edits", "{}")), out _, out error));
+        Assert.Contains("not a JSON array", error, StringComparison.Ordinal);
 
         Assert.False(OfflineReplicaRequests.TryReadSynchronize(
-            Fields(("replicaID", A.ToString()), ("dataFormat", "json"), ("editsUploadID", "abc")), out _, out error));
-        Assert.Contains("editsUploadID 'abc'", error, StringComparison.Ordinal);
+            Fields(("replicaID", A.ToString()), ("edits", "nope")), out _, out error));
+        Assert.Contains("not JSON", error, StringComparison.Ordinal);
     }
 
     // ------------------------------------------------------------------------------------------------ the file
