@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>a05a4c0b</code> · 2026-11-15 13:34</p>
+<p class="stamp">Şu commit’ten üretildi: <code>55ae5329</code> · 2026-11-15 19:18</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">288</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">706/757</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">40 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">707/757</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">234 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">23</div><div class="kpi-l">açık borç</div><div class="kpi-n">346 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">347 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">6491</div><div class="kpi-l">test</div><div class="kpi-n">728 kaynak dosya, 320,253 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">67 madde</span></div><p><b>40 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>23 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">65 madde</span></div><p><b>39 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -161,7 +161,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-284 · Contributor and Mobile Worker, as </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-288 · Offline sync is in: a hosted layer</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -464,7 +463,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">284</td><td>Contributor and Mobile Worker, as ArcGIS has them: one ceiling, two names</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/1</td></tr>
 <tr><td class="id">285</td><td>Graticula does not provide ArcGIS Pro licences</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">286</td><td>ArcGIS Field Maps tasks are turned on from a map&#x27;s Settings in Studio</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
-<tr><td class="id">288</td><td>Offline sync is in: a hosted layer can be taken offline by Field Maps and Pro, and its edits come back</td><td><span class="pill warn">REQUIRES PROTOTYPE</span></td><td class="muted-t">MEDIUM that the format can be written (§4: ArcGIS Pro reads and edits a file written…</td><td class="num">6/7</td></tr>
+<tr><td class="id">288</td><td>Offline sync is in: a hosted layer can be taken offline by Field Maps and Pro, and its edits come back</td><td><span class="pill warn">REQUIRES PROTOTYPE</span></td><td class="muted-t">MEDIUM that the format can be written (§4: ArcGIS Pro reads and edits a file written…</td><td class="num">7/7</td></tr>
 <tr><td class="id">289</td><td>The owner&#x27;s four answers after the Pro sweep: Pro&#x27;s column names, Pro&#x27;s messages, Pro&#x27;s attachment keys, and the page over Pro</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">290</td><td>A hosted layer&#x27;s attachments keep the GlobalID a device gave them, and their changes are recorded by the database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the mechanism is tested against PostgreSQL (§4), and Field Maps 26.2.2 was seen…</td><td class="num">6/6</td></tr>
 <tr><td class="id">299</td><td>ArcGIS Pro publishes a map image layer by reference to a registered database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
@@ -521,9 +520,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-417</td><td>Utility network schema details and one trace differ from Pro&#x27;s.</td><td class="muted-t">Next grapy utility network work; the trace defect first</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-418</td><td>EQUIVALENT algorithms whose results differ from Pro&#x27;s.</td><td class="muted-t">Esri publishes a rule, or a user reports a result that matters</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-419</td><td>Pro sweep names not compared on this machine.</td><td class="muted-t">A fixture, licence or environment that makes one comparable</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-425</td><td>ArcGIS Pro&#x27;s Download Map with the basemap included stops in its own vector tile export and does not come back.</td><td class="muted-t">A licensed ArcGIS vector tile service to export from beside this one; or a Pro log that names the wait</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">346 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">347 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -686,20 +684,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>a05a4c0b</code><time>2026-11-15</time><span>merge pro-reference-registered-pr</span></li>
-<li><code>810ca22f</code><time>2026-11-15</time><span>merge offline-attachments</span></li>
-<li><code>43f34af3</code><time>2026-11-15</time><span>D-425: Pro&#x27;s diagnostic log places the stop after the replica, with no tile request and no package written</span></li>
-<li><code>0d0de9be</code><time>2026-11-15</time><span>Status pages regenerated: ADR-288 6/7, ADR-290 6/6, D-423 and D-424 closed, D-425 opened</span></li>
-<li><code>0fb619ab</code><time>2026-11-15</time><span>Merge remote-tracking branch &#x27;origin/offline-packaging&#x27; into offline-attachments</span></li>
-<li><code>fd98ba58</code><time>2026-11-15</time><span>Measured on the device: D-424 closed, D-423 closed, ADR-290 all six conditions, ADR-288 condition 1; Pro takes a map offline without its basemap (D-425)</span></li>
-<li><code>7159a624</code><time>2026-11-15</time><span>Close the struck title of D-404</span></li>
-<li><code>4b5dfd1e</code><time>2026-11-15</time><span>The packaging GP service answers in the shape read from an Enterprise 12.1 portal&#x27;s task descriptions (D-404 closed)</span></li>
-<li><code>1d679ee9</code><time>2026-11-15</time><span>Merge remote-tracking branch &#x27;origin/offline-preplanned&#x27; into offline-attachments</span></li>
-<li><code>ede26f97</code><time>2026-11-15</time><span>The image keeps SQLite&#x27;s native library for linux-x64 and linux-arm64 only, and ships the licence texts for SQLitePCLRaw and Microsoft.Data.Sqlite (D-402)</span></li>
-<li><code>46c3f792</code><time>2026-11-15</time><span>ArcGIS Pro&#x27;s Share › Web Layer pane publishes by reference: the publisher is told it may publish server services, and admin services/exists is a resource (ADR-299 condition 3 discharged)</span></li>
-<li><code>eebc328a</code><time>2026-11-15</time><span>The offline packaging GP service: CreateMapArea, SetupMapArea, RefreshMapAreaPackage (D-404 first half, parameters INFERRED)</span></li>
-<li><code>fc92e4cb</code><time>2026-11-15</time><span>Map areas are refreshed on a schedule, packaged without a request, and match the Map Area item an Enterprise portal keeps (D-404 second half, D-405, D-408)</span></li>
-<li><code>e201434b</code><time>2026-11-15</time><span>A map area&#x27;s basemap package is an export job, counted in the export budget (D-410)</span></li>
+<li><code>55ae5329</code><time>2026-11-15</time><span>Linux builds with the .NET 10 SDK too, and global.json pins it everywhere</span></li>
+<li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
+<li><code>c1a637ee</code><time>2026-11-15</time><span>Offline editing for hosted layers: Field Maps and Pro take Graticula maps offline and sync both ways, preplanned map areas, attachments that keep their GlobalID; Pro publishes by reference from its Share pane (ADR-288, ADR-290, ADR-299)</span></li>
+<li><code>70c68f2d</code><time>2026-11-12</time><span>grapy against ArcGIS Pro 3.7: the module-by-module sweep, and the owner&#x27;s four answers (ADR-289)</span></li>
+<li><code>df8d84a4</code><time>2026-11-10</time><span>README and the Pages front page say geocoding exists through an optional Photon (ADR-258)</span></li>
+<li><code>9875ba4e</code><time>2026-11-09</time><span>CI no longer runs the console suite, by owner decision, and says so (D-398)</span></li>
+<li><code>79fb60a2</code><time>2026-11-09</time><span>GitHub Pages lists Scene services among the service types, and Studio authors web scenes as well as web maps</span></li>
+<li><code>04b88635</code><time>2026-11-09</time><span>ArcGIS Pro shares scene layer packages and web scenes with Graticula, and Scene services are complete (ADR-269)</span></li>
+<li><code>ac5553e4</code><time>2026-11-08</time><span>grapy: every built name has a test of its own, and the pass&#x27;s four defects are fixed (D-397)</span></li>
+<li><code>c08c7f8e</code><time>2026-11-08</time><span>ArcGIS Field Maps tasks, enabled from Studio, and returnTrueCurves accepted (ADR-286, ADR-215 reversed in part)</span></li>
+<li><code>b238b97e</code><time>2026-11-08</time><span>ArcGIS Field Maps collects into Graticula, and Contributor and Mobile Worker are user types as ArcGIS has them (ADR-077 condition 5, ADR-284, ADR-285)</span></li>
+<li><code>2eaad1e9</code><time>2026-11-08</time><span>ArcGIS Field Maps signs in and opens maps: the sign-in form keeps its path base, validateAppAccess answers, and self says the user type (ADR-077 condition 5, Q-228)</span></li>
+<li><code>5bcf5459</code><time>2026-11-08</time><span>3D scenes: web scenes, scene layer packages served as a SceneServer, scene layers written by this server, 3D object layers from models, and the fixes of 2026-11-07 (ADR-269 to ADR-283)</span></li>
+<li><code>44e270fa</code><time>2026-11-04</time><span>The day of 2026-11-04: Add browses layer items, webhooks get a Studio screen and every event, items take comments everywhere, and the Map Viewer keeps what it drew (ADR-259, 265, 266, 267, 268)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
