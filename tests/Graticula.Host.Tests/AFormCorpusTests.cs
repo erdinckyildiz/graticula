@@ -258,6 +258,14 @@ public sealed class AFormCorpusTests
             ["accepted"] = f.Accepted,
             ["refusals"] = f.Refusals.Count,
             ["notices"] = f.Notices.Count,
+
+            // What stands between this form and coming in unedited, each once: the message with its numbers taken out
+            // and its quoted names kept, so an appearance or a function can be counted by the forms it blocks.
+            ["blockedBy"] = new JsonArray(f.Refusals
+                .Select(r => Regex.Replace(r.Message, @"\d+", "N"))
+                .Distinct(StringComparer.Ordinal)
+                .Select(m => (JsonNode)m)
+                .ToArray()),
         }).ToArray());
 
         return new JsonObject

@@ -535,9 +535,10 @@ measurable question. The two device claims are, so they are conditions and not a
       draft, *resumed*, *discarded* and *reopened*; after a discard, focus goes to the next button in the list or to the
       Drafts button, and after a resume to the form. A draft started on an older version of the form is read back onto
       the form as it is: answers to questions that no longer exist are left out, and it says so.
-      **INFERRED:** (1) Survey123 opens a blank form and keeps drafts in its Drafts folder; here the latest draft is
-      reopened, because §5.10 asks for drafts to survive a reload and a form that forgets on reload has no drafts to
-      list. A link with `field:` answers in it starts a new form instead, and the draft stays in the list. (2) Several
+      **(1) The owner's, 2026-11-15** (asked that night, *"Son taslak açılsın"*): Survey123 opens a blank form and keeps
+      drafts in its Drafts folder; here the latest draft is reopened, because §5.10 asks for drafts to survive a reload
+      and a form that forgets on reload has no drafts to list. A link with `field:` answers in it starts a new form
+      instead, and the draft stays in the list. **INFERRED:** (2) Several
       drafts of one form may exist; the device holds as many as the person starts. (3) Drafts are never sent without
       the person pressing Submit. (4) A draft is kept with no credential, as the outbox is (§5.11 (m)).
     - (b) **`guidance_hint`** is sent per language (`guidanceHints`) and drawn behind a **More help** button
