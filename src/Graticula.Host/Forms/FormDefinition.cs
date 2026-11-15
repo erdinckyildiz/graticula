@@ -69,6 +69,12 @@ public sealed partial class FormDefinition
     [GeneratedRegex(@"^[\p{L}_][\p{L}\p{Nd}_.\-]*$")]
     private static partial Regex NamePattern();
 
+    [GeneratedRegex(@"\(tr\)|türkçe|turkish", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TurkishLanguage();
+
+    /// <summary>The name of the choice <c>or_other</c> adds, as XLSForm names it.</summary>
+    public const string AutomaticOther = "other";
+
     private sealed class Checker(FormModel model)
     {
         private readonly List<FormIssue> refusals = [];
@@ -92,6 +98,7 @@ public sealed partial class FormDefinition
             FormSettings settings = ReadSettings(model.Sheet("settings"));
             pagesStyle = settings.Pages;
             FormTable root = Survey(survey, lists, languages);
+            DuplicateChoices(lists, root, languages);
 
             foreach ((string sheet, int row, string column, string expression) in expressions)
             {
@@ -144,7 +151,7 @@ public sealed partial class FormDefinition
                     continue;
                 }
 
-                (string type, string? argument, string? problem) = ParseType(rawType);
+                (string type, string? argument, string? problem, bool orOther) = ParseTypeFull(rawType);
 
                 if (problem is not null)
                 {
@@ -296,15 +303,39 @@ public sealed partial class FormDefinition
                 if (type is "select_one" or "select_multiple" && argument is not null
                     && lists.TryGetValue(argument, out IReadOnlyList<FormChoice>? offered) && offered.Any(c => c.Images.Count > 0)
                     && (columns.Value(row, "appearance") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                        .Contains("minimal", StringComparer.OrdinalIgnoreCase))
+                        .FirstOrDefault(a => a.Equals("minimal", StringComparison.OrdinalIgnoreCase) || a.Equals("autocomplete", StringComparison.OrdinalIgnoreCase)) is { } listAppearance)
                 {
-                    Refuse("survey", at, "appearance", $"The choices of '{argument}' have pictures, and a drop-down (minimal) cannot show them; take minimal off '{name}'.");
+                    Refuse("survey", at, "appearance", listAppearance.Equals("minimal", StringComparison.OrdinalIgnoreCase)
+                        ? $"The choices of '{argument}' have pictures, and a drop-down (minimal) cannot show them; take minimal off '{name}'."
+                        : $"The choices of '{argument}' have pictures, and a type-ahead list (autocomplete) cannot show them; take autocomplete off '{name}'.");
+                }
+
+                if (orOther && argument is not null && lists.ContainsKey(argument))
+                {
+                    AddOther(lists, argument, languages, at);
                 }
 
                 FormQuestion question = Question(row, columns, type, argument, name, labels, at);
                 names[name] = question;
                 open.Peek().Questions.Add(question);
                 open.Peek().Body.Add(question);
+
+                if (orOther && argument is not null)
+                {
+                    FormQuestion other = SpecifyOther(name, at, languages);
+
+                    if (names.ContainsKey(other.Name) || frameNames.Contains(other.Name))
+                    {
+                        Refuse("survey", at, "type", $"'or_other' adds a text question named '{other.Name}', and that name is already taken.");
+                    }
+                    else
+                    {
+                        names[other.Name] = other;
+                        open.Peek().Questions.Add(other);
+                        open.Peek().Body.Add(other);
+                        Notice("survey", at, "type", $"or_other adds the choice 'other' to the list and a text question '{other.Name}' that is asked when it is chosen.");
+                    }
+                }
             }
 
             while (open.Count > 1)
@@ -315,6 +346,99 @@ public sealed partial class FormDefinition
 
             Frame top = open.Pop();
             return new FormTable("", null, 0, null, top.Questions, top.Repeats, top.Body, null, []);
+        }
+
+        /// <summary>
+        /// <c>select_one list or_other</c> and <c>select_multiple list or_other</c> (XLSForm's, and Survey123's): the list
+        /// gains a choice named <c>other</c>, and a text question <c>{name}_other</c> follows, asked when it is chosen.
+        /// The choice is added to the list itself, so every question over the list offers it. That is the one choice
+        /// that keeps republishing working: a layer's coded-value domain is the list's, republishing adds the new code to
+        /// the domain that exists, and a copy of the list under another name would be a second domain that the field
+        /// already made does not follow. A list that already has a choice named <c>other</c> is left as it is.
+        /// INFERRED (ADR-287 §5.19): that this is what XLSForm's own tools do with a shared list, which was not read.
+        /// </summary>
+        private static void AddOther(Dictionary<string, IReadOnlyList<FormChoice>> lists, string list, List<string> languages, int at)
+        {
+            IReadOnlyList<FormChoice> choices = lists[list];
+
+            if (choices.Any(c => c.Name == AutomaticOther))
+            {
+                return;
+            }
+
+            Dictionary<string, string> filters = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string column in choices.SelectMany(c => c.Filters.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                filters[column] = string.Empty;
+            }
+
+            lists[list] = [.. choices, new FormChoice(AutomaticOther, Words(languages, "Other", "Diğer"), filters, at) { Automatic = true }];
+        }
+
+        private static FormQuestion SpecifyOther(string name, int at, List<string> languages) =>
+            new($"{name}_other", "text", null, Words(languages, "Specify other", "Diğerini belirtin"), at,
+                Required: null,
+                Relevant: $"selected(${{{name}}}, '{AutomaticOther}')",
+                Constraint: null, Calculation: null, Default: null, ReadOnly: null, ChoiceFilter: null,
+                Appearance: [], Parameters: new Dictionary<string, string>(), EsriFieldType: null, FieldLength: null, FieldAlias: null)
+            {
+                Automatic = true,
+            };
+
+        /// <summary>A label in every language the form has: Turkish for a language that says so, English for the rest.</summary>
+        private static Dictionary<string, string> Words(List<string> languages, string english, string turkish)
+        {
+            Dictionary<string, string> words = new(StringComparer.Ordinal) { [string.Empty] = english };
+
+            foreach (string language in languages)
+            {
+                words[language] = TurkishLanguage().IsMatch(language) ? turkish : english;
+            }
+
+            return words;
+        }
+
+        /// <summary>
+        /// Duplicate choice names in one list (§5.19 (4)). XLSForm's own tools refuse them unless the settings say
+        /// <c>allow_choice_duplicates</c>; Survey123 does not, and its published documentation (the page on multiple
+        /// choice) says duplicates are supported for <c>select_one</c> and not for <c>select_multiple</c> or for a
+        /// multilingual survey. So a duplicate is accepted, with a notice that says what becomes of it, when every use of
+        /// the list is a <c>select_one</c> in a form of one language, or when the settings say so; and refused with that
+        /// reason otherwise. The first choice with a name is the one whose label the layer's domain keeps.
+        /// </summary>
+        private void DuplicateChoices(Dictionary<string, IReadOnlyList<FormChoice>> lists, FormTable root, List<string> languages)
+        {
+            bool allowed = string.Equals(
+                FirstSetting(model.Sheet("settings"), "allow_choice_duplicates"), "yes", StringComparison.OrdinalIgnoreCase);
+            List<FormQuestion> selects = [.. root.AllTables.SelectMany(t => t.Questions).Where(q => q.Type is "select_one" or "select_multiple")];
+
+            foreach ((string list, IReadOnlyList<FormChoice> choices) in lists)
+            {
+                FormChoice? second = choices.Where((c, i) => choices.Take(i).Any(e => e.Name == c.Name)).FirstOrDefault();
+
+                if (second is null)
+                {
+                    continue;
+                }
+
+                FormChoice first = choices.First(c => c.Name == second.Name);
+                string where = $"'{second.Name}' is a second choice of that name in the list '{list}' (the first is on row {first.Row})";
+                FormQuestion? multiple = selects.FirstOrDefault(q => q.Argument == list && q.Type == "select_multiple");
+
+                if (!allowed && multiple is not null)
+                {
+                    Refuse("choices", second.Row, "name", $"{where}, and the list is used by the select_multiple '{multiple.Name}' (row {multiple.Row}); Survey123 does not support duplicate choice names there. Rename one, or set allow_choice_duplicates to yes if that is meant.");
+                }
+                else if (!allowed && languages.Count > 0)
+                {
+                    Refuse("choices", second.Row, "name", $"{where}, and the form has labels in more than one language; Survey123 does not support duplicate choice names in a multilingual survey. Rename one, or set allow_choice_duplicates to yes if that is meant.");
+                }
+                else
+                {
+                    Notice("choices", second.Row, "name", $"{where}. Both are offered, they are stored as one answer, and the layer's domain keeps the label of the first.");
+                }
+            }
         }
 
         private bool Named(string name, int at)
@@ -388,6 +512,7 @@ public sealed partial class FormDefinition
             Dictionary<string, string> parameters = Parameters(columns.Value(row, "parameters"), type, at);
             (string? fieldType, int? length, string? alias) = Esri(row, columns, type, at);
             string? calculationMode = CalculationMode(row, columns, type, at);
+            string? inputMask = InputMask(row, columns, type, length, at);
 
             return new FormQuestion(
                 name, type, argument, labels, at,
@@ -413,6 +538,7 @@ public sealed partial class FormDefinition
                 AccuracyThreshold = columns.Value(row, "body::accuracyThreshold"),
                 Accept = columns.Value(row, "body::accept"),
                 CalculationMode = calculationMode,
+                InputMask = inputMask,
             };
         }
 
@@ -473,6 +599,40 @@ public sealed partial class FormDefinition
             }
 
             return mode;
+        }
+
+        /// <summary>
+        /// <c>body::esri:inputMask</c> (§5.19 (5)): on a <c>text</c> question alone, as Survey123's documentation says, and
+        /// one the client can draw. The longest answer the mask allows must fit the field it is stored in.
+        /// </summary>
+        private string? InputMask(IReadOnlyList<string> row, Columns columns, string type, int? fieldLength, int at)
+        {
+            if (columns.Value(row, "body::esri:inputMask") is not { } text)
+            {
+                return null;
+            }
+
+            if (type != "text")
+            {
+                Refuse("survey", at, "body::esri:inputMask", $"An input mask belongs on a text question; on a '{type}' use a constraint.");
+                return null;
+            }
+
+            if (!FormInputMask.TryParse(text, out FormInputMask? mask, out string? problem))
+            {
+                Refuse("survey", at, "body::esri:inputMask", $"'{text}' is not an input mask: {problem}");
+                return null;
+            }
+
+            int holds = fieldLength ?? FormLayerPlan.DefaultTextLength;
+
+            if (mask!.MaxLength > holds)
+            {
+                Refuse("survey", at, "body::esri:inputMask", $"The mask allows an answer of {mask.MaxLength} characters and the field holds {holds}; give bind::esri:fieldLength a larger number.");
+                return null;
+            }
+
+            return text;
         }
 
         /// <summary>
@@ -601,7 +761,18 @@ public sealed partial class FormDefinition
                 {
                     if (!types.Contains("*") && !types.Contains(type))
                     {
-                        Refuse("survey", at, "appearance", $"The appearance '{token}' applies to {string.Join(", ", types.Order(StringComparer.Ordinal))}, not to '{type}'.");
+                        if (FormCatalog.PresentationOnOtherTypes.Contains(token))
+                        {
+                            Notice("survey", at, "appearance", $"The appearance '{token}' means nothing on a '{type}' question (Survey123 ignores it there) and is drawn the default way.");
+                        }
+                        else if (token == "autocomplete" && type == "select_multiple")
+                        {
+                            Refuse("survey", at, "appearance", "The appearance 'autocomplete' is refused on select_multiple: Survey123 supports it there in its Mobile app only, not in the field app or the web form; use select_one, or take it off.");
+                        }
+                        else
+                        {
+                            Refuse("survey", at, "appearance", $"The appearance '{token}' applies to {string.Join(", ", types.Order(StringComparer.Ordinal))}, not to '{type}'.");
+                        }
                     }
                     else if (token == "field-list" && !pagesStyle)
                     {
@@ -885,8 +1056,6 @@ public sealed partial class FormDefinition
                 return [];
             }
 
-            bool duplicatesAllowed = string.Equals(
-                FirstSetting(model.Sheet("settings"), "allow_choice_duplicates"), "yes", StringComparison.OrdinalIgnoreCase);
             HashSet<string> filterColumns = new(sheet.Columns.Where((c, i) => i != listColumn && i != nameColumn
                 && !FormCatalog.ChoiceColumns.Contains(BaseName(c).Base) && c.Trim().Length > 0).Select(c => c.Trim()),
                 StringComparer.OrdinalIgnoreCase);
@@ -912,12 +1081,6 @@ public sealed partial class FormDefinition
                 if (!lists.TryGetValue(list, out List<FormChoice>? choices))
                 {
                     lists[list] = choices = [];
-                }
-
-                if (!duplicatesAllowed && choices.Any(c => c.Name == name))
-                {
-                    Refuse("choices", at, "name", $"'{name}' is already a choice in the list '{list}'; set allow_choice_duplicates to yes if that is meant.");
-                    continue;
                 }
 
                 Dictionary<string, string> filters = new(StringComparer.OrdinalIgnoreCase);
@@ -1224,14 +1387,42 @@ public sealed partial class FormDefinition
     /// <summary>A type cell as a type and its argument: <c>select_one hasar</c> is <c>select_one</c> and <c>hasar</c>.</summary>
     internal static (string Type, string? Argument, string? Problem) ParseType(string raw)
     {
+        (string type, string? argument, string? problem, _) = ParseTypeFull(raw);
+        return (type, argument, problem);
+    }
+
+    /// <summary>
+    /// A type cell read in full: its type, its argument, why it cannot be read, and whether it ends in <c>or_other</c>
+    /// (also written <c>or other</c>), which XLSForm allows on <c>select_one</c> and <c>select_multiple</c> alone.
+    /// </summary>
+    internal static (string Type, string? Argument, string? Problem, bool OrOther) ParseTypeFull(string raw)
+    {
         string text = string.Join(' ', raw.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         string lower = text.ToLowerInvariant();
+        bool orOther = false;
 
         if (lower.EndsWith(" or_other", StringComparison.Ordinal) || lower.EndsWith(" or other", StringComparison.Ordinal))
         {
-            return (text, null, "'or_other' is refused: an automatic 'other' choice is not in the first version; add a choice and a text question with relevant.");
+            orOther = true;
+            text = text[..^" or_other".Length].TrimEnd();
+            lower = text.ToLowerInvariant();
+
+            bool select = lower.StartsWith("select_one ", StringComparison.Ordinal) || lower.StartsWith("select one ", StringComparison.Ordinal)
+                || lower.StartsWith("select_multiple ", StringComparison.Ordinal) || lower.StartsWith("select multiple ", StringComparison.Ordinal)
+                || lower.StartsWith("select all that apply ", StringComparison.Ordinal);
+
+            if (!select)
+            {
+                return (text, null, "'or_other' belongs after the choice list of a select_one or select_multiple, and nowhere else.", false);
+            }
         }
 
+        (string kind, string? list, string? trouble) = ParseBase(text, lower);
+        return (kind, list, trouble, orOther && trouble is null);
+    }
+
+    private static (string Type, string? Argument, string? Problem) ParseBase(string text, string lower)
+    {
         foreach ((string alias, string type) in (ReadOnlySpan<(string, string)>)[
             ("select_one_from_file ", "select_one_from_file"), ("select_multiple_from_file ", "select_multiple_from_file"),
             ("select_one ", "select_one"), ("select one ", "select_one"),
@@ -1458,6 +1649,11 @@ public sealed record FormQuestion(
     /// <c>whenEmpty</c> — or null when the question does not say, which is <c>auto</c> (ADR-287 §5.20).
     /// </summary>
     public string? CalculationMode { get; init; }
+    /// <summary><c>body::esri:inputMask</c>, as written; checked to be a mask this server honours (ADR-287 §5.19).</summary>
+    public string? InputMask { get; init; }
+
+    /// <summary>True for a question the checker added: the <c>{name}_other</c> text that <c>or_other</c> makes.</summary>
+    public bool Automatic { get; init; }
 }
 
 /// <summary>One choice of a list: its name, its labels per language, and the values a choice_filter may read.</summary>
@@ -1465,6 +1661,9 @@ public sealed record FormChoice(string Name, IReadOnlyDictionary<string, string>
 {
     /// <summary>The picture shown beside the choice: a file uploaded with the form, per language (<c>media::image</c>).</summary>
     public IReadOnlyDictionary<string, string> Images { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>True for the choice <c>or_other</c> adds: it is offered whatever a <c>choice_filter</c> says.</summary>
+    public bool Automatic { get; init; }
 }
 
 /// <summary>The settings sheet's values.</summary>

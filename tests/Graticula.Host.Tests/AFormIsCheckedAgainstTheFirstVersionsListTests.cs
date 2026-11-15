@@ -79,7 +79,6 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     [InlineData("barcode", "Safari")]
     [InlineData("audit", "audit")]
     [InlineData("select_one_external renk", "external")]
-    [InlineData("select_one renk or_other", "or_other")]
     [InlineData("osm", "not a question type")]
     [InlineData("select_one_from_file yerler.xml", "CSV")]
     [InlineData("select_one yok_boyle", "not on the choices sheet")]
@@ -234,13 +233,17 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     }
 
     [Fact]
-    public void Choices_are_unique_in_their_list_unless_the_settings_allow_otherwise()
+    public void A_duplicate_choice_is_accepted_for_a_select_one_and_refused_for_a_select_multiple_unless_the_settings_allow_it()
     {
+        // ADR-287 §5.19 (3): Survey123 accepts duplicates on select_one and not on select_multiple; the settings column
+        // of XLSForm's own tools lifts the refusal. The cases in full are in AFormImportsSurvey123SpellingsTests.
         FormModel twice = Form([["select_one renk", "r", "R"]], [["renk", "a", "A"], ["renk", "a", "A2"]]);
-        FormModel allowed = Form([["select_one renk", "r", "R"]], [["renk", "a", "A"], ["renk", "a", "A2"]],
+        FormModel multiple = Form([["select_multiple renk", "r", "R"]], [["renk", "a", "A"], ["renk", "a", "A2"]]);
+        FormModel allowed = Form([["select_multiple renk", "r", "R"]], [["renk", "a", "A"], ["renk", "a", "A2"]],
             [["allow_choice_duplicates"], ["yes"]]);
 
-        RefusedAt(FormDefinition.Check(twice), 3, "name", "already a choice");
+        Assert.True(FormDefinition.Check(twice).Accepted);
+        RefusedAt(FormDefinition.Check(multiple), 3, "name", "select_multiple");
         Assert.True(FormDefinition.Check(allowed).Accepted);
     }
 
@@ -333,8 +336,11 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     }
 
     [Fact]
-    public void A_select_multiple_with_an_other_option_is_refused_as_or_other_whatever_the_spelling()
+    public void A_select_multiple_with_an_other_option_is_read_as_or_other_whatever_the_spelling()
     {
-        RefusedAt(Checked(["select_multiple renk or other", "r", "R"]), 2, "type", "or_other");
+        FormCheck check = Checked(["select_multiple renk or other", "r", "R"]);
+
+        Assert.True(check.Accepted, string.Join("; ", check.Refusals.Select(x => x.Message)));
+        Assert.Equal(["r", "r_other"], check.Definition!.Root.Questions.Select(q => q.Name));
     }
 }

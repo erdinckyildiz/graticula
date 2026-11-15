@@ -321,7 +321,7 @@ measurable question. The two device claims are, so they are conditions and not a
     |---|---|
     | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
     | Supported metadata | `start`, `end`, `today`, `username` and `email` (from the signed-in member, empty for an anonymous form), `deviceid` (a random id kept by the installed client, not a hardware id) |
-    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `or_other`, `phonenumber`, `audit` |
+    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` (`or_other` was on this list until 2026-11-15 and is supported: §5.19 (1)) |
 
     **Groups and repeats.** `begin group` / `end group` with `relevant`, nested to any depth. `begin repeat` /
     `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. ~~A repeat inside a repeat
@@ -343,18 +343,20 @@ measurable question. The two device claims are, so they are conditions and not a
     `choice_filter` reads. Refused: `geometry` (choosing on a map).
 
     **Settings sheet.** Supported: `form_title`, `form_id` (the layer's name), `version`, `instance_name`,
-    `default_language`, `style` (`pages`; any other value is drawn the default way), `allow_choice_duplicates`,
+    `default_language`, `style` (`pages`; any other value is drawn the default way), `allow_choice_duplicates` (and **since §5.19 (4) a duplicate choice name in a `select_one` list is accepted without it**, as Survey123 accepts it),
     `clean_text_values`, `name`. `submission_url` is supported **when it names a feature layer of this server**, and the
     form then writes to that layer instead of making one; any other address is refused. **Built 2026-11-15 as §5.17; until then the column was read and nothing used it, publishing made a new layer, and this sentence was untrue.** `namespaces` is accepted and
     has no effect, which the upload says. Refused: `public_key` (encrypted submissions).
 
     **Appearances.** Supported because they change what is captured: `multiline` (on `text`; on `image` and `file`,
     several attachments), `signature` (on `image`), `month-year` and `year` (on `date`), `minimal`, `likert`, `rating`
-    (on `range`), `hidden`, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**). Drawn the default way: `horizontal`, `horizontal-compact`, `compact`, `quick`,
+    (on `range`), `hidden`, **and since 2026-11-15 (§5.19): `minimal` and `compact` on `begin group` and `begin repeat`
+    (collapsed behind a button), `autocomplete` (on `select_one`), `spinner` (on `integer` and `decimal`) and
+    `week-number` (on `date`)**, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**). Drawn the default way: `horizontal`, `horizontal-compact`, `compact` (on a select), `quick`,
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
-    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`. Refused because they capture something this client cannot: `annotate`, `map` and
-    `quick map`, `search()`, `autocomplete`, `geocode`, `distress`, `spike` and its variants, `rangefinder`,
+    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: `annotate`, `map` and
+    `quick map`, `search()`, `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
     `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
 
     **Expressions.** `${name}` references and `.` for the question's own value. Every XPath 1.0 operator the ODK
@@ -371,10 +373,10 @@ measurable question. The two device claims are, so they are conditions and not a
     `esriFieldTypeDateOnly` is accepted and stored as `Date` at midnight, which loses nothing, and the upload says so.
     `TimeOnly` and `TimestampOffset` are refused, because this server has no such field and storing them as something
     else would change the value. `bind::esri:fieldLength`, `bind::esri:fieldAlias`, `body::esri:visible` (hidden but
-    still stored), `body::accuracyThreshold` and `body::accept` are supported. `body::esri:style` and
+    still stored), `body::accuracyThreshold`, `body::accept` **and `body::esri:inputMask` (on `text`, §5.19 (5))** are supported. `body::esri:style` and
     `bind::saveIncomplete` are drawn the default way (the client always keeps drafts — built 2026-11-15, §5.16 (a)). `bind::esri:parameters` is supported
     for its `calculationMode` (`auto`, `manual`, `always`, `whenEmpty`) and for nothing else, which is refused by name (§5.20). Refused: `bind::esri:warning` and `bind::esri:warning_message`,
-    `body::esri:inputMask`, `bind::esri:workflow`.
+    `bind::esri:workflow`.
 
     **What a question becomes in the layer** (follows Survey123's table where one exists, for §5.9 (d)):
 
@@ -733,6 +735,132 @@ measurable question. The two device claims are, so they are conditions and not a
     - The service worker's shell cache was bumped to `graticula-forms-shell-v4` on this work's branch, because the evaluator
       changed; merged beside the design review's v5, the shell cache is v5.
 
+19. **What a real Survey123 form says that the first version refused — built 2026-11-15, overnight, while the owner slept.**
+    The owner's decision that night, in his words as they were given to the session: *increase compatibility with real
+    Survey123 forms.* Measured on the corpus of §5.18 (110 workbooks, 61 of them Survey123-authored), **before: 17 of the 61
+    import unedited (28%, 31 of all 108 readable); after: 31 of the 61 (51%, 47 of all 108)**. The same
+    `AFormCorpusTests` run, the same corpus, the checker the only thing changed. What still blocks the Survey123 forms,
+    counted by the forms it blocks: `pulldata("@geopoint")` 6, `pulldata("@property")` 6, `draw` 5, `annotate` 4, `date-time()` 2 and
+    `property()` 2 are the parallel branch's work tonight (expressions and drawing); a row with no name 5, `barcode` 2,
+    `pulldata("@layer")` 2, `search()` 2, `bind::esri:parameters` 2 and an attachment question with a field type 2 are not started. Every item below is **supported** with its full meaning or refused at
+    its row and column; none is accepted and ignored (§5.10's rule). Public sources, read 2026-11-15:
+    Survey123's own pages on XLSForm appearances, on multiple choice, on its custom columns and on settings
+    (`doc.esri.com/en/arcgis-survey123/latest/create/main/`), the XLSForm specification, and Qt's public documentation
+    of an input mask, whose grammar Survey123 says it uses. No Survey123 code was read. Every choice that those pages
+    do not settle is **INFERRED, for the owner to confirm** and is marked so here; nothing in this list is the owner's but
+    the direction. **Nothing here was measured on a phone**; the client was run in Chrome on a desktop, against a stand-in
+    server (`FormFillCompatTests`, 17 tests), and the checker in `AFormImportsSurvey123SpellingsTests`.
+    - **(1) `select_one X or_other` and `select_multiple X or_other`** (also written `or other`; 8 forms). XLSForm's
+      meaning: the list gains a choice named `other`, labelled Other, and a text question `{name}_other`, labelled *Specify
+      other*, follows the question and is relevant when `other` is among the answers, as `selected(${name}, 'other')`.
+      Survey123's page says its tools make the extra field `{name}_other` in the layer, which the layer plan does here
+      because the question is an ordinary text question of the table (255 characters, a field of its own). Both are made
+      **by the checker, in the definition only**: the model keeps the row exactly as written (`select_one renk or_other`), so
+      the workbook, the JSON and the round trip (condition 7) are unchanged and a republish adds the `renk_other` field
+      like any new question and adds the `other` code to the list's existing domain like any new choice (the designer
+      edits the model, where the row is still one question). **Where a Turkish or English label for the two comes from:**
+      one per label language of the form, Turkish (*Diğer*, *Diğerini belirtin*) for a language that says Türkçe, Turkish or
+      `(tr)`, English for the rest. **INFERRED:** (a) the choice is added to the shared list itself, so every question
+      over that list offers Other, not a copy under another name. Survey123's page says nothing of a shared list, and I
+      did not read what XLSForm's own tools do with one. A copy was built first and dropped: it makes a second domain, and
+      a form already published with the first domain has fields that a republish does not move to the second, so an
+      answer *other* would be refused by the layer; sharing the list keeps the domain the field has. The cost is that a
+      question over the same list without `or_other` offers an Other with no text question after it. (b) A list that already
+      has a choice named `other` is used as it is and gains none. (c) The choice is offered whatever a `choice_filter` says
+      (the client is told it is automatic), because a filter reads columns the added choice has no value in and would
+      otherwise take it away. (d) `or_other` after anything but a `select_one` or `select_multiple` list, on `*_from_file`, or
+      where `{name}_other` is already a name, is refused at the type cell. Survey123's page says the *Specify other*
+      label does not show in languages other than English; here it does, which is a difference in the form's favour.
+    - **(2) `minimal` and `compact` on `begin group` and `begin repeat`** (7 forms). Survey123's page on appearances,
+      verbatim in its headings: **`compact`** is listed for `select_one`, `select_multiple`, `begin group` and `begin repeat`
+      and presents the questions of a group or repeat *"in a collapsed state at startup"*; **`minimal`** is listed for
+      `select_one`, `select_multiple`, `barcode` and `begin repeat`, and `minimal compact` for `begin repeat` as both. So
+      `compact` on a group and `minimal`/`compact` on a repeat are the documented ones. **INFERRED: `minimal` on a
+      `begin group` collapses it too**, which the page does not list but which seven corpus forms (one an Esri sample)
+      say, and which the owner's brief also read; and **`minimal`/`compact` on any other type is drawn the default way
+      with a notice** ("Survey123 ignores it there"): one corpus form writes `minimal` on a text, an integer, a date, an image
+      and a hidden question, and Survey123 publishes it, so the page's silence on them is not a refusal. In the
+      client the group's or repeat item's heading is a **button** (`aria-expanded`, `aria-controls` the panel it opens,
+      a 44 px target) that starts collapsed and is opened and closed by the person; a repeat's *item* is what collapses (one
+      heading per item, *Room 1*, and its Remove button stays beside it, outside the toggle), and an item the person just
+      added starts open, since the next thing they do is fill it in. What was opened stays open when the page is drawn again, by the group's key
+      or the item's GlobalID, and the focus is put back on the button (`FormFillCompatTests`). **A message inside a
+      collapsed panel is not hidden from the person**: the button says *needs attention* in its own name, Submit goes to the
+      first problem and opens whatever is shut around it, and so does a link in the summary. **INFERRED:** a group that
+      is a page under the pages style is not collapsible, because a page that opens shut is an empty screen; and nothing about
+      the collapsed state is kept in a draft, so a resumed draft opens with its groups collapsed again.
+    - **(3) `autocomplete`** (7 forms). Survey123's page: *"a select
+      question is presented with a text field and a drop-down menu. Entering text in the field limits the drop-down menu to
+      only answers that contain that text"*, and for `select_multiple` it is *"only supported in Survey123 Mobile"*, not in
+      the field app or the web app. So **supported on `select_one` and `select_one_from_file`, and refused on `select_multiple`
+      with that reason**, and over choices that have pictures (a type-ahead list cannot show them, as a drop-down
+      cannot, §5.16 (c)). The widget is a **WAI-ARIA 1.2 combobox with a listbox**: the box is `role=combobox`,
+      `aria-autocomplete=list`, `aria-expanded`, `aria-controls` and `aria-activedescendant`; the list is `role=listbox`
+      with `role=option` items of 44 px; ArrowDown and ArrowUp move through it, Enter chooses, Escape closes (and, closed,
+      puts the answer back); Tab or a tap elsewhere chooses a choice the text names exactly and otherwise puts the
+      answer back; emptying the box empties the answer. A polite live region says how many choices match and which one was
+      chosen. The list is drawn in the page's flow under the box, not floating, so a phone's keyboard does not cover it;
+      it lists at most 100 choices and says so when there are more. It works with no signal (the test stops the server
+      before typing) and **follows `choice_filter`**, clearing an answer the filter no longer offers as the other selects do.
+      The box is named by the question's label, not by a fieldset. **INFERRED:** matching is *contains*, as the page says,
+      and **ignores case and accents and treats the Turkish dotted and dotless i as one letter**, so *istanbul* finds
+      *İstanbul* and *Ilgaz*; the page does not say.
+    - **(4) Duplicate choice names** (6 forms; 53 refusals). **Evidence:** XLSForm's own tools refuse a duplicate name in a list
+      unless the settings sheet says `allow_choice_duplicates`; Survey123's page on multiple choice says duplicates are
+      *allowed for `select_one`* and *"not supported for `select_multiple` questions"* and *"not supported for multilingual
+      surveys"*, that `jr:choice-name()` returns *"the label of the first duplicate choice in the list"*, and that a
+      select_one reverts to *"the first duplicate choice"* when opened in some places. It describes no warning. The
+      forms in the corpus that have them are Esri's own samples and templates (a list of airport codes, a list of
+      countries, numeric scales), which Survey123 publishes. **So the decision follows Survey123 and not XLSForm's tools:**
+      a duplicate is **accepted with a notice** (the row, and the row of the first) when every use of the list is a
+      `select_one` in a form with labels in one language, or when the settings say `allow_choice_duplicates`; and it is
+      **refused**, with Survey123's own reason and the way out, when a `select_multiple` uses the list or the form has more than
+      one label language, and the setting does not say otherwise. One corpus form is refused for this (a
+      `select_multiple`). Both choices are offered; they are one answer, stored as the name; the layer's coded-value domain
+      has one code per name, and **keeps the label of the first**, which is what the page says `jr:choice-name()` does; the
+      client shows a name that appears twice chosen **once, at its first place**. **INFERRED:** that the setting lifts the
+      refusal for `select_multiple` and for several languages as well, as it did before (the first version already accepted it
+      there), though Survey123's page says those are unsupported rather than refused.
+    - **(5) `body::esri:inputMask`** (4 forms). Survey123's page on its custom columns, for the column: it applies to `text`
+      questions only (*use `constraint` for numbers*), is in Connect and the field app and **blocks submission until every
+      mask is satisfied**; the syntax is mask characters and separators, optionally ending `;` and a character that stands for a blank, with
+      `A a` (ASCII letter, required or optional), `N n` (letter or digit), `X x` (any non-blank), `9 0` (digit), `D d` (digit
+      1–9), `#` (digit, plus or minus, optional), `H h` (hexadecimal), `B b` (binary), the case switches `>` `<` `!`
+      and `\` to make a special character a separator. **Supported on `text`**; on any other type it is refused at
+      its row and column with that reason. The server keeps the column in the model and checks, at every save, that it is a mask
+      (`FormInputMask`): at least one mask character, no trailing backslash, at most 255 characters, and **that the longest answer it
+      allows fits the field it is stored in** (the 255 of §5.11 (d), or `bind::esri:fieldLength`), the one thing a database
+      can check about it. It does not re-apply the mask to an answer it is sent, for the reason §5.9 (i) gives about every
+      other rule of a form. In the client the box formats as the person types (`(555) 123-4567` from `5551234567`), drops
+      what a place does not take, puts a separator in when the next character arrives and takes it off when it is deleted,
+      keeps the caret where it was, shows the mask as the placeholder (blanks as the stated character, `_` otherwise) and
+      in a line of text under the box that the box is described by, and sets the numeric keyboard when every place is a
+      digit. An answer short of its last required place is refused, in words, with the pattern, and blocks Submit like any
+      other message. **INFERRED:** (a) places are filled **in order**, so an optional place before a required one cannot
+      be left blank, which Qt's mask allows and no corpus mask needs; (b) the stored text is **what the box shows**,
+      separators included (`123-45`), as the field app's text is, which its page does not say; (c) the separators after
+      the last place are put in when the box is left, not while typing; (d) the page's first example prints `\>A<xxxxxxxxxxxx`
+      for *"a capital letter followed by lowercase"*, which reads right only as `>A<xxxxxxxxxxxx`, so the backslash is taken
+      for a Markdown escape of the page and not for a separator. A mask that `FormInputMask` cannot read is refused, so the
+      client's own copy of the grammar (`fill.js`) is only ever asked about masks the server has read; the two are
+      held to the same cases by the two test classes.
+    - **(6) `spinner` and `week-number`** (3 forms and 1). Survey123's page: **`spinner`** (`integer`, `decimal`) *"adds increase
+      and decrease buttons to the value entry"*; **`week-number`** (`date`) *"lets the user select a week number"*; neither is
+      listed for the web app, so this is the field app's behaviour offered in the browser. A spinner is a box with a labelled
+      **Decrease** and **Increase** button either side, 44 px each, that step the value by one, and the arrow keys do the
+      same in the box. **INFERRED:** the step is one for a decimal too; an empty box steps from zero; a decimal does
+      not drift (0.1 and one is 1.1). A week number is a **year and a week number**, two labelled boxes in a group, and
+      the date stored is **the Monday of that ISO 8601 week** (2026 week 1 is 29 December 2025), since the page does not say which day the
+      field app stores; a week that does not exist (53 in a 52-week year) is refused in words and **what was typed is
+      not emptied**, and a date set another way (a default, a draft) shows its year and week. **INFERRED:** the Monday, and
+      a year and week as two boxes rather than the browser's `week` input, which Safari does not have.
+    - **What was not done, and why.** `minimal`/`compact` on a select stay as they were (a drop-down; layout). `autocomplete`
+      on `select_multiple` is refused, not built. The designer (`form-designer.js`) lists appearances by type from its own
+      table and does not offer the five new ones; a form that has them is edited as the model it is and the server's `/check`
+      accepts it, but a person cannot yet choose them from the designer's Edit tab: that table is the designer's and is
+      not changed tonight. **No device was used**: how the combobox behaves with a phone's keyboard and screen reader, the
+      44 px targets as measured on a real display, and the numeric keyboard for a mask are unmeasured.
+    - The service worker's shell cache is `graticula-forms-shell-v6`, because `fill.js` and `fill.css` changed.
 20. **Survey123's device and user properties, a geopoint's parts, the calculation modes, `date-time()` and drawing on a blank
     canvas — built 2026-11-15, by owner decision** (*"increase compatibility with real Survey123 forms"*). The corpus of
     §5.18 said which Survey123 features block the most forms; this item takes five. Built from Survey123's public pages
@@ -904,7 +1032,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
    evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. **Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.
 5. **Every refusal at upload names the row, the column and the reason**, and a set of real Survey123 forms is
-   imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18.
+   imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
    while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
    edited offline is kept on the device. Neither case may lose an edit silently.

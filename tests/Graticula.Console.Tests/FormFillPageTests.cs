@@ -327,11 +327,12 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         await browser.EvaluateAsync<bool>("(function () { document.getElementById('download-offline').click(); return true; })()");
         await WaitAsync(browser, "/^Saved for offline use/.test(document.getElementById('offline-status').textContent)", "the form to be kept");
 
-        // The service worker has kept the page and its scripts once it controls the page.
-        await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.has('graticula-forms-shell-v4'); })",
+        // The service worker has kept the page and its scripts once it controls the page. The shell cache is found by its
+        // prefix: its version moves with every client change, and a test that names one goes stale at the next.
+        await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.keys().then(function (n) { return n.some(function (x) { return x.indexOf('graticula-forms-shell-') === 0; }); }); })",
             "the service worker", seconds: 20);
         // The map library too (§5.15): a location question opened offline still has its map, without its ground.
-        await WaitAsync(browser, "caches.open('graticula-forms-shell-v4').then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 7"
+        await WaitAsync(browser, "caches.keys().then(function (n) { return caches.open(n.filter(function (x) { return x.indexOf('graticula-forms-shell-') === 0; })[0] || 'none'); }).then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 7"
             + " && k.some(function (r) { return r.url.endsWith('/ol.js'); }); })",
             "the shell to be cached", seconds: 20);
 

@@ -41,6 +41,7 @@ public static class FormCompiled
                     ["labels"] = Texts(c.Labels),
                     ["images"] = Texts(c.Images),
                     ["filters"] = Texts(c.Filters),
+                    ["auto"] = c.Automatic ? true : null,
                 })])))]),
         };
     }
@@ -98,6 +99,7 @@ public static class FormCompiled
         ["accuracyThreshold"] = q.AccuracyThreshold,
         ["accept"] = q.Accept,
         ["calculationMode"] = q.CalculationMode,
+        ["inputMask"] = q.InputMask,
     };
 
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode?)JsonValue.Create(i))]);
