@@ -192,7 +192,17 @@ internal static partial class OfflineReplicaEndpoints
             }
         }
 
+        // D-407: the packages taken from the service stand for replicas this switch unregisters; their files go with them.
+        IReadOnlyList<MapAreaPackage> packages = enabled
+            ? []
+            : await MapAreaPackaging.PackagesOfServiceAsync(services, service.Id, cancellation).ConfigureAwait(false);
+
         int unregistered = await store.SetEnabledAsync(service.Id, enabled, cancellation).ConfigureAwait(false);
+
+        if (!enabled)
+        {
+            await MapAreaPackaging.PutAwayForSyncOffAsync(services, packages, service.Id, cancellation).ConfigureAwait(false);
+        }
 
         foreach (PublishedLayer layer in service.LayersAndTables)
         {

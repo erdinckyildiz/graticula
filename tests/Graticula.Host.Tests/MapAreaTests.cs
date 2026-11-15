@@ -120,6 +120,47 @@ public sealed class MapAreaTests : IDisposable
         public Task<IReadOnlyList<MapAreaPackage>> PackagesOfMapAsync(string mapId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<MapAreaPackage>>([.. Packages.Where(p => p.MapId == mapId)]);
 
+        public Task<IReadOnlyList<MapAreaPackage>> PackagesOfServiceAsync(Guid serviceId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<MapAreaPackage>>([.. Packages.Where(p => p.ServiceId == serviceId)]);
+
+        public Task<IReadOnlyList<MapAreaPackage>> PackagesOfOwnerAsync(string memberName, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<MapAreaPackage>>([]);
+
+        public List<(string? MapId, Guid? ServiceId)> Marked { get; } = [];
+
+        public Task<int> MarkNeedsRefreshAsync(string? mapId, Guid? serviceId, CancellationToken cancellationToken)
+        {
+            Marked.Add((mapId, serviceId));
+            return Task.FromResult(1);
+        }
+
+        public Task<MapAreaPackage?> FindPackageByJobAsync(Guid job, CancellationToken cancellationToken) =>
+            Task.FromResult(Packages.FirstOrDefault(p => p.ExportJobId == job));
+
+        public Task<bool> MarkPackageProcessingAsync(Guid id, Guid job, string properties, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<MapAreaPackage?> CompletePackageAsync(
+            Guid job, string filePath, string sha256, long size, DateTimeOffset when, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> FailPackageAsync(Guid job, string error, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<int> FailStrandedPackagesAsync(CancellationToken cancellationToken) => Task.FromResult(0);
+
+        public Task<string?> SettleStatusAsync(Guid id, DateTimeOffset refreshed, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<bool> SetSettingsAsync(Guid id, MapAreaSettings settings, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> SetOriginAsync(Guid id, string origin, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<(MapArea Area, Guid Tenant)>> ScheduledAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<(MapArea, Guid)>>([]);
+
+        public Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlySet<string>>(Packages.Select(p => p.FilePath).ToHashSet());
+
         public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
@@ -312,10 +353,122 @@ public sealed class MapAreaTests : IDisposable
         Assert.Equal(3600000, extent.GetProperty("xmin").GetDouble());
         Assert.Equal(3857, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
 
-        // The item's own extent is in degrees: Web Mercator 3.6e6, 4.8e6 is near 32.3 E, 39.5 N.
-        double[][] corners = [.. item.GetProperty("extent").EnumerateArray().Select(c => c.EnumerateArray().Select(n => n.GetDouble()).ToArray())];
-        Assert.InRange(corners[0][0], 32.3, 32.4);
-        Assert.InRange(corners[0][1], 39.5, 39.6);
+        // Read on an Enterprise 12.1 portal on 2026-11-15 (research note 5a.1): the item's own extent is an empty array and its
+        // spatialReference is null, on every Map Area; the area's extent is in properties.
+        Assert.Equal(JsonValueKind.Array, item.GetProperty("extent").ValueKind);
+        Assert.Equal(0, item.GetProperty("extent").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("spatialReference").ValueKind);
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("properties").GetProperty("packageRefreshSchedule").ValueKind);
+
+        // Its size is the size of its /data text.
+        Assert.Equal(Encoding.UTF8.GetByteCount(PortalEndpoints.MapAreaDataText(area)), item.GetProperty("size").GetInt32());
+    }
+
+    [Fact]
+    public void A_map_areas_data_is_the_mapAreas_object_an_enterprise_portal_keeps()
+    {
+        // A weekly schedule, as read: cron 41 2 15 ? * TUE goes with {type weekly, dayOfWeek 2, nthDay 1}.
+        QuartzCron cron = QuartzCron.TryParse("41 2 15 ? * TUE", out QuartzCron parsed, out _) ? parsed : throw new InvalidOperationException();
+        string weekly = JsonSerializer.Serialize(cron.WeeklyParams(DateTimeOffset.Parse("2024-05-07T15:02:41.043Z")));
+        MapArea scheduled = Area() with
+        {
+            PackageRefreshSchedule = "41 2 15 ? * TUE", RefreshParams = weekly, ScheduledUpdates = true, TileScaleMin = 147914382, TileScaleMax = 20000,
+        };
+
+        JsonElement data = JsonDocument.Parse(PortalEndpoints.MapAreaDataText(scheduled)).RootElement.GetProperty("mapAreas");
+        Assert.Equal(147914382, data.GetProperty("mapAreaTileScale").GetProperty("minScale").GetDouble());
+        Assert.Equal(20000, data.GetProperty("mapAreaTileScale").GetProperty("maxScale").GetDouble());
+        Assert.Equal("weekly", data.GetProperty("mapAreaRefreshParams").GetProperty("type").GetString());
+        Assert.Equal(2, data.GetProperty("mapAreaRefreshParams").GetProperty("dayOfWeek").GetInt32());
+        Assert.Equal(1, data.GetProperty("mapAreaRefreshParams").GetProperty("nthDay").GetInt32());
+        Assert.True(data.GetProperty("mapAreaRefreshParams").TryGetProperty("startDate", out _));
+        Assert.True(data.GetProperty("mapAreasScheduledUpdatesEnabled").GetBoolean());
+
+        // No schedule: {"type": "never"}, updates off, and the same three keys.
+        JsonElement never = JsonDocument.Parse(PortalEndpoints.MapAreaDataText(Area())).RootElement.GetProperty("mapAreas");
+        Assert.Equal("""{"type":"never"}""", never.GetProperty("mapAreaRefreshParams").GetRawText());
+        Assert.False(never.GetProperty("mapAreasScheduledUpdatesEnabled").GetBoolean());
+        Assert.Equal(["mapAreaTileScale", "mapAreaRefreshParams", "mapAreasScheduledUpdatesEnabled"], never.EnumerateObject().Select(p => p.Name));
+
+        // The cron is the item's own property.
+        HttpContext context = Context(Member(Owner, "owner"), new MemoryAreas { Areas = { scheduled } }, Map(SharingScope.Private));
+        Assert.Equal("41 2 15 ? * TUE",
+            Json(PortalEndpoints.MapAreaItem(context, Map(SharingScope.Private), scheduled)).GetProperty("properties").GetProperty("packageRefreshSchedule").GetString());
+    }
+
+    [Fact]
+    public void Settings_are_read_as_a_weekly_schedule_and_a_scale_and_anything_else_is_refused_by_name()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-11-15T10:00:00Z");
+        JsonNode scale = JsonNode.Parse("""{"minScale": 750000, "maxScale": 20000}""")!;
+
+        Assert.True(AdminEndpoints.TryReadAreaSettings("0 30 2 ? * MON", true, null, scale, true, null, now, out MapAreaSettings ok, out string? why), why);
+        Assert.Equal(("0 30 2 ? * MON", true, 750000d, 20000d), (ok.PackageRefreshSchedule, ok.ScheduledUpdates, ok.TileScaleMin, ok.TileScaleMax));
+        Assert.Contains("\"dayOfWeek\":1", ok.RefreshParams, StringComparison.Ordinal);
+
+        // Sent as off, a schedule is kept and does not run; null clears it; what is not sent is not changed.
+        Assert.True(AdminEndpoints.TryReadAreaSettings("0 30 2 ? * MON", true, false, null, false, null, now, out MapAreaSettings off, out _));
+        Assert.False(off.ScheduledUpdates);
+        MapArea held = Area() with { PackageRefreshSchedule = ok.PackageRefreshSchedule, RefreshParams = ok.RefreshParams, ScheduledUpdates = true, TileScaleMin = 750000, TileScaleMax = 20000 };
+        Assert.True(AdminEndpoints.TryReadAreaSettings(null, true, null, null, false, held, now, out MapAreaSettings cleared, out _));
+        Assert.Equal((null, null, false, 750000d), (cleared.PackageRefreshSchedule, cleared.RefreshParams, cleared.ScheduledUpdates, cleared.TileScaleMin));
+        Assert.True(AdminEndpoints.TryReadAreaSettings(null, false, null, null, true, held, now, out MapAreaSettings unscaled, out _));
+        Assert.Equal(("0 30 2 ? * MON", true, null), (unscaled.PackageRefreshSchedule, unscaled.ScheduledUpdates, unscaled.TileScaleMin));
+
+        Assert.False(AdminEndpoints.TryReadAreaSettings("nonsense", true, null, null, false, null, now, out _, out why));
+        Assert.Contains("packageRefreshSchedule", why, StringComparison.Ordinal);
+        Assert.False(AdminEndpoints.TryReadAreaSettings("0 0 3 * * ?", true, null, null, false, null, now, out _, out why));
+        Assert.Contains("weekly", why, StringComparison.Ordinal);
+        Assert.False(AdminEndpoints.TryReadAreaSettings(null, false, true, null, false, null, now, out _, out why));
+        Assert.Contains("scheduledUpdatesEnabled", why, StringComparison.Ordinal);
+        Assert.False(AdminEndpoints.TryReadAreaSettings(null, false, null, JsonNode.Parse("""{"minScale": 100, "maxScale": 5000}"""), true, null, now, out _, out why));
+        Assert.Contains("mapAreaTileScale", why, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_schedule_is_due_once_a_run_has_passed_since_the_packages_were_written_and_not_while_it_is_off_or_just_failed()
+    {
+        // 2026-11-15 is a Sunday; the Monday run is 2026-11-16 02:30 UTC.
+        MapArea area = Area() with { PackageRefreshSchedule = "0 30 2 ? * MON", ScheduledUpdates = true, Refreshed = DateTimeOffset.Parse("2026-11-15T10:00:00Z") };
+
+        Assert.False(MapAreaRefreshScheduler.IsDue(area, DateTimeOffset.Parse("2026-11-16T02:29:59Z")));
+        Assert.True(MapAreaRefreshScheduler.IsDue(area, DateTimeOffset.Parse("2026-11-16T02:30:00Z")));
+
+        // Refreshed after the run: the next one is a week on, so a refresh by hand postpones it.
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { Refreshed = DateTimeOffset.Parse("2026-11-16T03:00:00Z") }, DateTimeOffset.Parse("2026-11-17T00:00:00Z")));
+        Assert.True(MapAreaRefreshScheduler.IsDue(area with { Refreshed = DateTimeOffset.Parse("2026-11-16T03:00:00Z") }, DateTimeOffset.Parse("2026-11-23T02:30:00Z")));
+
+        // Off, no schedule, or a schedule this server cannot read: never.
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { ScheduledUpdates = false }, DateTimeOffset.Parse("2026-12-01T00:00:00Z")));
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { PackageRefreshSchedule = null }, DateTimeOffset.Parse("2026-12-01T00:00:00Z")));
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { PackageRefreshSchedule = "garbage" }, DateTimeOffset.Parse("2026-12-01T00:00:00Z")));
+
+        // A try that failed a few minutes ago is not repeated at once, and is after ten.
+        DateTimeOffset due = DateTimeOffset.Parse("2026-11-16T02:30:00Z");
+        Assert.False(MapAreaRefreshScheduler.IsDue(area, due.AddMinutes(5), due));
+        Assert.True(MapAreaRefreshScheduler.IsDue(area, due.AddMinutes(11), due));
+    }
+
+    [Fact]
+    public void The_tile_scale_bounds_the_levels_from_the_one_at_the_coarse_scale_to_the_one_at_the_fine_scale()
+    {
+        Graticula.Tiles.VectorTileScheme scheme = Graticula.Tiles.VectorTileScheme.WebMercator;
+
+        Assert.Null(MapAreaPackaging.LevelsForScales(scheme, null, null));
+
+        // This grid has 512-pixel tiles, so level 0 is 1:295828763: 1:750000 lies between levels 8 (1155581) and 9 (577790), and the level at
+        // or coarser is 8; 1:20000 is first reached at level 14 (18056).
+        IReadOnlyList<int> levels = MapAreaPackaging.LevelsForScales(scheme, 750000, 20000)!;
+        Assert.Equal(8, levels[0]);
+        Assert.Equal(14, levels[^1]);
+        Assert.Equal(levels.Count, levels[^1] - levels[0] + 1);
+
+        // A fine scale alone starts at the top of the grid; a coarse one alone runs to its last level.
+        Assert.Equal(0, MapAreaPackaging.LevelsForScales(scheme, null, 20000)![0]);
+        Assert.Equal(scheme.MaxLevel, MapAreaPackaging.LevelsForScales(scheme, 750000, null)![^1]);
+
+        // Never an empty set: a range that runs backwards is the one level.
+        Assert.Single(MapAreaPackaging.LevelsForScales(scheme, 1000, 5000)!);
     }
 
     [Fact]
@@ -590,6 +743,210 @@ public sealed class MapAreaTests : IDisposable
 
         Assert.Empty(replicas.Registered);
         Assert.False(File.Exists(path));
+    }
+
+    // ------------------------------------------------------------------------------------------------ D-407
+
+    [Fact]
+    public void The_orphan_sweep_removes_a_day_old_file_no_row_names_and_keeps_the_named_the_young_and_strangers()
+    {
+        MapAreaPackageFiles files = new(_directory);
+        Directory.CreateDirectory(files.Directory);
+        string named = "0123456789abcdef0123456789abcdef.geodatabase", orphan = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.vtpk";
+        string young = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.geodatabase", stranger = "notes.txt";
+
+        foreach (string f in new[] { named, orphan, young, stranger })
+        {
+            File.WriteAllText(Path.Combine(files.Directory, f), "x");
+        }
+
+        foreach (string f in new[] { named, orphan, stranger })
+        {
+            File.SetLastWriteTimeUtc(Path.Combine(files.Directory, f), DateTime.UtcNow.AddDays(-2));
+        }
+
+        int removed = files.SweepOrphans(new HashSet<string> { $"map-area-package-files/{named}" }, TimeSpan.FromDays(1));
+
+        Assert.Equal(1, removed);
+        Assert.True(File.Exists(Path.Combine(files.Directory, named)), "A file a row names was removed.");
+        Assert.False(File.Exists(Path.Combine(files.Directory, orphan)), "A day-old file nothing names was kept.");
+        Assert.True(File.Exists(Path.Combine(files.Directory, young)), "A file written moments ago, its row not yet recorded, was removed.");
+        Assert.True(File.Exists(Path.Combine(files.Directory, stranger)), "A file this class never writes was removed.");
+    }
+
+    [Fact]
+    public async Task Turning_sync_off_puts_the_packages_replicas_and_files_away_and_marks_their_areas()
+    {
+        MapAreaPackageFiles files = new(_directory);
+        (string path, string recorded) = files.Next();
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        MapArea area = Area();
+        MapAreaPackage held = Package(area, recorded);
+        MemoryAreas areas = new() { Areas = { area }, Packages = { held } };
+        MemoryReplicas replicas = new(held.ReplicaId!.Value);
+        HttpContext context = Context(Member(Owner, "owner"), areas, Map(SharingScope.Private), replicas);
+
+        IReadOnlyList<MapAreaPackage> before = await MapAreaPackaging.PackagesOfServiceAsync(context.RequestServices, held.ServiceId, CancellationToken.None);
+        await MapAreaPackaging.PutAwayForSyncOffAsync(context.RequestServices, before, held.ServiceId, CancellationToken.None);
+
+        Assert.Equal(held.Id, Assert.Single(before).Id);
+        Assert.Empty(replicas.Registered);
+        Assert.False(File.Exists(path));
+        Assert.Equal((null, held.ServiceId), Assert.Single(areas.Marked));
+
+        // A service with no package does nothing at all.
+        areas.Marked.Clear();
+        await MapAreaPackaging.PutAwayForSyncOffAsync(context.RequestServices, [], Guid.NewGuid(), CancellationToken.None);
+        Assert.Empty(areas.Marked);
+    }
+
+    [Fact]
+    public async Task A_map_or_service_restored_from_the_recycle_bin_marks_its_areas_and_any_other_kind_marks_none()
+    {
+        MemoryAreas areas = new();
+        HttpContext context = Context(Member(Owner, "owner"), areas, Map(SharingScope.Private));
+        Guid service = Guid.NewGuid();
+
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "web map", Guid.Parse(MapId), CancellationToken.None);
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "service", service, CancellationToken.None);
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "document", Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal([(MapId, (Guid?)null), (null, (Guid?)service)], areas.Marked);
+    }
+
+    // ------------------------------------------------------------------------------------------------ D-410
+
+    [Fact]
+    public async Task A_package_whose_job_has_not_finished_says_so_and_its_file_is_not_there_yet()
+    {
+        MapArea area = Area();
+        Guid job = Guid.NewGuid();
+        MapAreaPackage waiting = Package(area, string.Empty) with
+        {
+            Format = MapAreas.VtpkFormat, ReplicaId = null, Status = MapAreas.PackageProcessing, ExportJobId = job, Size = 0, Sha256 = string.Empty,
+        };
+        MemoryAreas areas = new() { Areas = { area }, Packages = { waiting } };
+        HttpContext context = Context(Member(Owner, "owner"), areas, Map(SharingScope.Private));
+
+        JsonElement item = Json(PortalEndpoints.MapAreaPackageItem(context, Map(SharingScope.Private), area, waiting, "North - Streets"));
+        Assert.Equal(-1, item.GetProperty("size").GetInt64());
+
+        IResult data = PortalEndpoints.MapAreaPackageFile(context, waiting);
+        DefaultHttpContext response = new() { RequestServices = context.RequestServices };
+        response.Response.Body = new MemoryStream();
+        await data.ExecuteAsync(response);
+        Assert.Equal(404, response.Response.StatusCode);
+        Assert.Contains("still being written", Encoding.UTF8.GetString(Body(response)), StringComparison.Ordinal);
+
+        // The status is the portal's: processing, with the job; then failed with the reason; a complete package completed.
+        JsonElement processing = await StatusAsync(context, waiting.Id);
+        Assert.Equal("processing", processing.GetProperty("status").GetString());
+        Assert.Equal(job.ToString("N"), processing.GetProperty("jobId").GetString());
+
+        areas.Packages[0] = waiting with { Status = MapAreas.PackageFailed, ExportJobId = null, Error = "no tiles" };
+        JsonElement failed = await StatusAsync(context, waiting.Id);
+        Assert.Equal("failed", failed.GetProperty("status").GetString());
+        Assert.Equal("no tiles", failed.GetProperty("statusMessage").GetString());
+
+        areas.Packages[0] = Package(area, "map-area-package-files/0123456789abcdef0123456789abcdef.geodatabase");
+        Assert.Equal("completed", (await StatusAsync(context, areas.Packages[0].Id)).GetProperty("status").GetString());
+        Assert.Equal("null", (await StatusAsync(context, area.Id)).GetProperty("status").GetString());
+    }
+
+    private static async Task<JsonElement> StatusAsync(HttpContext context, Guid id)
+    {
+        IResult? result = await PortalEndpoints.MapAreaStatusAsync(context, id.ToString("N"), CancellationToken.None);
+        Assert.NotNull(result);
+        DefaultHttpContext response = new() { RequestServices = context.RequestServices };
+        response.Response.Body = new MemoryStream();
+        await result!.ExecuteAsync(response);
+        return JsonDocument.Parse(Body(response)).RootElement.Clone();
+    }
+
+    [Fact]
+    public void An_areas_status_is_one_of_the_portals_three_words()
+    {
+        Assert.Equal("complete", PortalEndpoints.PortalStatusOf(MapAreas.Complete));
+        Assert.Equal("processing", PortalEndpoints.PortalStatusOf(MapAreas.Processing));
+        Assert.Equal("failed", PortalEndpoints.PortalStatusOf(MapAreas.Failed));
+        Assert.Equal("failed", PortalEndpoints.PortalStatusOf(MapAreas.NeedsRefresh));
+    }
+
+    // ------------------------------------------------------------------------------------------------ D-404: the packaging service
+
+    private static Func<string, string?> Asked(params (string Name, string Value)[] given) =>
+        name => given.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase)).Value;
+
+    private static WebMap MapWith(string document) => new(MapId, "Hydrants map", null, Owner, "owner", SharingScope.Private, document, At, At);
+
+    [Fact]
+    public void An_area_is_given_by_extent_geometry_or_bookmark_and_areaType_is_read_from_what_is_sent_when_it_is_not_named()
+    {
+        WebMap map = MapWith("""{"bookmarks":[{"name":"North yard","extent":{"xmin":1,"ymin":2,"xmax":3,"ymax":4,"spatialReference":{"wkid":3857}}}]}""");
+        const string Box = """{"xmin":10,"ymin":20,"xmax":30,"ymax":40,"spatialReference":{"wkid":4326}}""";
+
+        (JsonObject? byExtent, string? why) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("extent", Box)), map);
+        Assert.Null(why);
+        Assert.Equal(10, byExtent!["xmin"]!.GetValue<double>());
+
+        (JsonObject? byTyped, _) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("areaType", "ENVELOPE"), ("extent", Box)), map);
+        Assert.Equal(30, byTyped!["xmax"]!.GetValue<double>());
+
+        (JsonObject? byRings, _) = OfflinePackagingEndpoints.AreaEnvelope(
+            Asked(("area", """{"rings":[[[5,6],[9,6],[9,12],[5,6]]],"spatialReference":{"wkid":3857}}""")), map);
+        Assert.Equal((5d, 6d, 9d, 12d), (byRings!["xmin"]!.GetValue<double>(), byRings["ymin"]!.GetValue<double>(), byRings["xmax"]!.GetValue<double>(), byRings["ymax"]!.GetValue<double>()));
+        Assert.Equal(3857, byRings["spatialReference"]!["wkid"]!.GetValue<int>());
+
+        (JsonObject? byBookmark, _) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("bookmark", "north YARD")), map);
+        Assert.Equal(4, byBookmark!["ymax"]!.GetValue<double>());
+        Assert.True(AdminEndpoints.TryReadAreaExtent(byBookmark, out Envelope e, out int wkid, out _));
+        Assert.Equal((3857, 3d), (wkid, e.MaxX));
+    }
+
+    [Fact]
+    public void The_packages_a_refresh_names_are_read_from_an_id_a_list_or_what_setup_answered()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+
+        Assert.Equal([a], OfflinePackagingEndpoints.PackageIdsOf(a.ToString("N")));
+        Assert.Equal([a, b], OfflinePackagingEndpoints.PackageIdsOf($$"""["{{a:N}}","{{b:D}}"]"""));
+        Assert.Equal([a, b], OfflinePackagingEndpoints.PackageIdsOf($$"""{"packages":[{"id":"{{a:N}}"},{"itemId":"{{b:N}}"}]}"""));
+        Assert.Empty(OfflinePackagingEndpoints.PackageIdsOf(null));
+        Assert.Empty(OfflinePackagingEndpoints.PackageIdsOf("""["nope"]"""));
+        Assert.Empty(OfflinePackagingEndpoints.PackageIdsOf("{"));
+    }
+
+    [Fact]
+    public void The_tasks_list_the_parameters_an_enterprise_portal_lists()
+    {
+        // Read 2026-11-15 from an Enterprise 12.1 portal's task descriptions.
+        static string[] Names(string task, bool output) => [.. OfflinePackagingEndpoints.ParameterNames(task, output)];
+
+        Assert.Equal(["mapItemId", "bookmark", "extent", "areaType", "area", "outputName"], Names("CreateMapArea", false));
+        Assert.Equal(["mapAreaItemId"], Names("CreateMapArea", true));
+        Assert.Equal(["mapAreaItemId", "mapLayersToIgnore", "tileServices", "featureServices"], Names("SetupMapArea", false));
+        Assert.Equal(["packages"], Names("SetupMapArea", true));
+        Assert.Equal(["packages"], Names("RefreshMapAreaPackage", false));
+        Assert.Equal(["result"], Names("RefreshMapAreaPackage", true));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("areaType=ENVELOPE")]
+    [InlineData("areaType=CIRCLE&extent=x")]
+    [InlineData("bookmark=No such")]
+    [InlineData("extent=not json")]
+    [InlineData("area=%5B1%5D")]
+    public void An_area_that_is_not_given_properly_is_refused_with_a_sentence(string query)
+    {
+        (string Name, string Value)[] given =
+        [.. query.Split('&', StringSplitOptions.RemoveEmptyEntries).Select(pair => pair.Split('=', 2))
+            .Select(kv => (kv[0], Uri.UnescapeDataString(kv[1])))];
+
+        (JsonObject? envelope, string? why) = OfflinePackagingEndpoints.AreaEnvelope(Asked(given), MapWith("{}"));
+
+        Assert.Null(envelope);
+        Assert.False(string.IsNullOrEmpty(why));
     }
 
     [Fact]

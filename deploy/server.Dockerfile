@@ -240,6 +240,23 @@ RUN find /app/runtimes -path '*/native/*' \( -iname '*SkiaSharp*' -o -iname '*Ha
  && test -f /app/runtimes/linux-x64/native/libHarfBuzzSharp.so \
  && test -f /app/runtimes/linux-arm64/native/libHarfBuzzSharp.so
 
+# <b>SQLite's native library for the two architectures too, in the host's directory and in `offline/` — ADR-288, D-402.</b>
+# `SQLitePCLRaw.lib.e_sqlite3` carries `libe_sqlite3` for twenty-two runtime identifiers (Windows, macOS, Mac Catalyst, musl, 32-bit
+# ARM, MIPS, PowerPC, s390x, RISC-V, WebAssembly), and a portable publish copies them all twice, once for the host (which still
+# references the adapter) and once for the offline reader beside it: **65 MB** of libraries an image that runs on glibc amd64
+# and arm64 never loads, measured on a publish on 2026-11-15 (the directory was 1,115 MB and 1,056 MB after this). Only the two
+# Linux directories are kept, the same rule as Skia's above. The reader that parses an uploaded file loads the one in
+# `offline/runtimes`; the host loads the one in `runtimes`. And the two notices travel with the library, as DuckDB's do: both
+# packages declare their licence only as an SPDX expression, so the text and the copyright their nuspecs state are in `deploy/`
+# and are copied in the runtime stage, beside MySqlConnector's.
+RUN find /app/runtimes /app/offline/runtimes \( -iname 'libe_sqlite3*' -o -iname 'e_sqlite3*' \) \
+      ! -path '*/linux-x64/*' ! -path '*/linux-arm64/*' -delete \
+ && test -f /app/runtimes/linux-x64/native/libe_sqlite3.so \
+ && test -f /app/runtimes/linux-arm64/native/libe_sqlite3.so \
+ && test -f /app/offline/runtimes/linux-x64/native/libe_sqlite3.so \
+ && test -f /app/offline/runtimes/linux-arm64/native/libe_sqlite3.so \
+ && test -z "$(find /app -iname '*e_sqlite3*' \( -name '*.dll' -o -name '*.dylib' -o -name '*.a' \) -not -name 'SQLitePCLRaw*')"
+
 # <b>DuckDB's httpfs extension, for remote GeoParquet — ADR-067 §5.2.</b> Fetched here, at build,
 # for the version of DuckDB the package restored, and never at run time: the server loads it by
 # path with autoinstall and autoload off. DuckDB checks the extension's signature when it loads,
@@ -399,6 +416,13 @@ RUN test -f /app/MySqlConnector.dll && test -s /app/LICENSE-MySqlConnector.txt
 # Microsoft.Data.SqlClient's, the same way and for the same reason — ADR-210.
 COPY deploy/LICENSE-Microsoft.Data.SqlClient.txt ./LICENSE-Microsoft.Data.SqlClient.txt
 RUN test -f /app/Microsoft.Data.SqlClient.dll && test -s /app/LICENSE-Microsoft.Data.SqlClient.txt
+
+# <b>SQLite's two notices travel with the libraries — ADR-288, D-402.</b> Microsoft.Data.Sqlite is MIT and SQLitePCLRaw (with the native
+# e_sqlite3) is Apache-2.0; both declare the licence only as an SPDX expression, so the text and the copyright the nuspecs state
+# are in the repository, as MySqlConnector's are, and the build fails if either library is not in the image beside its notice.
+COPY deploy/LICENSE-Microsoft.Data.Sqlite.txt deploy/LICENSE-SQLitePCLRaw.txt ./
+RUN test -f /app/Microsoft.Data.Sqlite.dll && test -s /app/LICENSE-Microsoft.Data.Sqlite.txt \
+ && test -f /app/SQLitePCLRaw.core.dll && test -s /app/LICENSE-SQLitePCLRaw.txt
 
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.

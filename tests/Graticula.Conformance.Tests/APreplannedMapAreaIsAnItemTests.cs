@@ -66,6 +66,24 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
         return (response.StatusCode, await response.Content.ReadAsByteArrayAsync(), response);
     }
 
+    /// <summary>Waits, up to a minute, for a package's export job to finish, and answers the package as the area lists it.</summary>
+    private async Task<JsonElement> PackageWhenWrittenAsync(string mapId, string areaId, string packageId, string? token)
+    {
+        for (DateTime until = DateTime.UtcNow.AddMinutes(1); ; await Task.Delay(500))
+        {
+            (_, JsonElement listed) = await JsonAsync(HttpMethod.Get, $"/admin/maps/{mapId}/areas", token);
+            JsonElement area = listed.GetProperty("areas").EnumerateArray().Single(a => a.GetProperty("id").GetString() == areaId);
+            JsonElement package = area.GetProperty("packages").EnumerateArray().Single(p => p.GetProperty("id").GetString() == packageId);
+
+            if (package.GetProperty("status").GetString() != "processing" || DateTime.UtcNow > until)
+            {
+                Assert.Equal("complete", package.GetProperty("status").GetString());
+                Assert.Equal("complete", area.GetProperty("status").GetString());
+                return package.Clone();
+            }
+        }
+    }
+
     private static bool Sees(JsonElement item, string id) =>
         item.ValueKind == JsonValueKind.Object && item.TryGetProperty("id", out JsonElement found) && found.GetString() == id;
 
@@ -369,6 +387,11 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
             Assert.Equal(2, related.Count);
             Assert.Contains(vtpkId, related);
 
+            // D-410: the basemap's package is an export job; the request returned with it processing, and its item says so
+            // until the file is written.
+            Assert.Equal("processing", area.GetProperty("status").GetString());
+            vtpk = await PackageWhenWrittenAsync(mapId, areaId, vtpkId, token);
+
             (HttpStatusCode downloaded, byte[] file, HttpResponseMessage headers) = await BytesAsync($"{Items}{vtpkId}/data", token);
             headers.Dispose();
             Assert.Equal(HttpStatusCode.OK, downloaded);
@@ -382,6 +405,7 @@ public sealed class APreplannedMapAreaIsAnItemTests : ArcGisClient
             Assert.True(refreshed == HttpStatusCode.OK, again.ToString());
             Assert.Equal(2, again.GetProperty("packages").GetArrayLength());
             Assert.Contains(again.GetProperty("packages").EnumerateArray(), p => p.GetProperty("id").GetString() == vtpkId);
+            await PackageWhenWrittenAsync(mapId, areaId, vtpkId, token);
 
             // Deleting the area takes the tile package's item and file with the rest.
             Assert.Equal(HttpStatusCode.OK, (await JsonAsync(HttpMethod.Delete, $"/admin/maps/{mapId}/areas/{areaId}", token)).Status);

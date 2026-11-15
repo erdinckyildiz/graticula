@@ -255,6 +255,71 @@ serves the same shape. None was stated by the owner.
    out on the device. A package that is ours and fails to write fails the whole area, as a feature package's failure
    does. Refresh and delete treat it as any other package; refresh rewrites the packages the area has.
 
+7. **Putting packages away, and what restoring brings back** *(2026-11-15, D-407; `INFERRED`, none stated by the owner)*.
+   A package's file and replica are put away wherever its row goes: with a map (`DeleteWebMapAsync`), with a service
+   (`RecycleBinService.RecycleServiceAsync`, which also covers a member's delete-owned removal), with a member's maps
+   (`RemoveMemberAsync`), and when a service's sync is turned off, where the package items stay (a device may hold one)
+   and the files and replicas go. An orphan sweep (`MapAreaPackageFileSweep`) removes a day-old file no row names, and
+   `Backups` copies the folder. **Restoring from the recycle bin marks, it does not rebuild:** the areas of a restored map or
+   service take the status `needs refresh`, their packages answer that the file is no longer held, and refreshing writes
+   them. Rebuilding on restore would need a caller to own the new replicas and to be able to read every service the map
+   names, and a restore that failed halfway for either reason must not undo the restore. The word `needs refresh` is ours;
+   the portal item presents it as `failed`, the nearest of the three words an Enterprise portal uses (research note §5a.1).
+
+8. **A basemap's package is an export job, and the tolerant `layerQueries` is kept** *(2026-11-15, D-410; `INFERRED`, none stated
+   by the owner)*. Item 6's "in the request that makes the area" is superseded: the VTPK is written by the export job machinery
+   (ADR-098), not beside it. The area's request starts the job and returns with the package `processing`; the job's last step
+   moves the file into `map-area-package-files/` and completes the package, so the file leaves the export directory (where it
+   would expire in a day) and the package row counts against the export budget in its place. A package says `processing`,
+   `failed` or `complete` (on the package's own `items/{id}/status` as `processing`, `failed`, `completed`, the portal's
+   words, and as the area's `properties.status`); a package without a file answers `/data` with 404 and says why; a refresh
+   serves the old file until the new one is written. **Unmeasured:** what an Enterprise portal answers at `/data` for a
+   package still being written, and whether it shows an area as `processing` while a package is. The JSON path's reading of
+   `layerQueries` accepts what the public reference describes and the shape of a registration-only request
+   (`queryOption: none`, `layers` named only there). That tolerance is **kept on purpose** for clients that send it, not owed
+   as debt: Field Maps' own registration is `registerExistingData` and is built (item 3 above).
+
+9. **A scheduled refresh, the tile scale, and the shape of a Map Area item** *(2026-11-15, D-405 and D-408; `INFERRED` where marked)*.
+   An area stores ArcGIS's own properties (migration 143) and is refreshed by `MapAreaRefreshScheduler` once a run of its Quartz
+   cron has passed since its packages were last written. The server has no scheduler library; its scheduled work is a hosted
+   service that looks once a minute under a once-per-site lock, and this is the same, with `QuartzCron` reading the expressions.
+   **INFERRED:** the refresh runs as the area's creator with the capabilities they have at that moment (a creator who is gone or
+   disabled stops it, with a log line), from the address the area was last reached at; only a weekly schedule (one day a week at
+   one time) is accepted, because it is the only shape of `mapAreaRefreshParams` that was read; `scheduledUpdatesEnabled`
+   defaults to on when a schedule is sent; a refresh also adds packages for feature layers and a vector tile basemap the map
+   gained; `mapAreaTileScale` bounds the VTPK's levels. The Map Area item follows the structure read on an Enterprise 12.1
+   portal (research note §5a.1): empty `extent`, `properties` of `extent`, `packageRefreshSchedule` and `status`, the words
+   `complete`, `processing` and `failed`, and `/data` as the `mapAreas` object. **The documents a package carries are built
+   without a request** (`PackagingCaller`), but the helpers that build them still take an `HttpContext`, which a background run
+   supplies as a carrier of its services, caller and address; that is not a request and was chosen over changing a dozen helpers
+   every endpoint shares.
+
+10. **The offline packaging service** *(2026-11-15, D-404; the shape is read, the content of the values is `INFERRED`)*.
+   `Utilities/OfflinePackaging/GPServer` serves the three tasks research note §5a measured on an Enterprise 12.1 portal.
+   **The public REST reference does not document them.** Fetched with WebFetch on 2026-11-15, all answering *Page not found*:
+   `https://developers.arcgis.com/rest/services-reference/enterprise/create-map-area/`, `…/create-map-area.htm`,
+   `…/setup-map-area.htm`, `…/refresh-map-area-package.htm`, `…/offline-packaging-service/`, `…/offline-packaging-service.htm`,
+   `…/offline-packaging.htm`, `…/offline-packaging/`, `…/utility-services.htm` and `…/gp-service/`'s navigation, which
+   names no packaging page. **The tasks' descriptions were then read, read-only, on an Enterprise 12.1 portal, and this service
+   answers in exactly that shape** (*read 2026-11-15 on an Enterprise 12.1 portal*): every task is
+   `esriExecutionTypeAsynchronous` and every parameter a `GPString`; `CreateMapArea` takes `mapItemId` (required) and
+   `bookmark`, `extent`, `areaType` (choices `BOOKMARK`, `ENVELOPE`, `POLYGON`, default `BOOKMARK`), `area` and `outputName`
+   (optional), and answers the derived `mapAreaItemId`; `SetupMapArea` takes `mapAreaItemId` (required) and `mapLayersToIgnore`,
+   `tileServices` and `featureServices` (optional), and answers the derived `packages`; `RefreshMapAreaPackage` takes
+   `packages` (required) and answers the derived `result`; and `helperServices.packaging` in `portals/self` is `{url}` only.
+   **What each value holds was not read and stays `INFERRED`:** `extent` as an envelope `{xmin, ymin, xmax, ymax,
+   spatialReference}`; `area` as a polygon `{rings, spatialReference}` whose bounds are taken (or an envelope); `bookmark` as the
+   name of one of the web map document's `bookmarks`, whose `extent` the public Web Map specification describes; `areaType`
+   inferred from what was sent when it is empty; `outputName` as the area's title (the bookmark's name, or "Map area", when
+   empty); `packages` as the JSON `SetupMapArea` answers, or an array of package item ids, or one id. `mapLayersToIgnore`,
+   `tileServices` and `featureServices` are accepted and **not used**: this server packages every sync-enabled feature service
+   of the map and every vector tile basemap of its own, and does not choose among them. **Mapped onto the Graticula route's
+   code with one difference ArcGIS makes and this server does not:** ArcGIS splits making an area from packaging it; here an
+   area is never without packages, so `CreateMapArea` makes and packages, and `SetupMapArea` writes what is missing and
+   refreshes the rest (`MapAreaPackaging.RefreshAsync`); a package alone has no refresh, so `RefreshMapAreaPackage` refreshes the area
+   its packages belong to. The task takes no schedule or scale: those are set on the area afterwards (`PUT .../settings`).
+   The tasks run before `submitJob` answers, as the print service does; the caller is the map's owner or an administrator.
+
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network

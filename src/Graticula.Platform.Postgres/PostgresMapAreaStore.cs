@@ -21,11 +21,12 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
 {
     private const string AreaColumns =
         "a.id, a.map_id, a.title, a.x_min, a.y_min, a.x_max, a.y_max, a.wkid, a.status, a.created_at, a.refreshed_at, "
-        + "a.creator_principal_id, a.creator_name";
+        + "a.creator_principal_id, a.creator_name, a.package_refresh_schedule, a.refresh_params::text, a.scheduled_updates, "
+        + "a.tile_scale_min, a.tile_scale_max, a.origin";
 
     private const string PackageColumns =
         "p.id, p.area_id, a.map_id, p.service_id, p.replica_id, p.file_name, p.file_path, p.sha256, p.size, p.properties::text, "
-        + "p.created_at, p.refreshed_at, p.format";
+        + "p.created_at, p.refreshed_at, p.format, p.status, p.export_job_id, p.error";
 
     private readonly NpgsqlDataSource _root;
 
@@ -56,8 +57,10 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         await using (NpgsqlCommand insert = new(
             """
             insert into map_area (id, map_id, title, x_min, y_min, x_max, y_max, wkid, status, created_at, refreshed_at,
-                                  creator_principal_id, creator_name)
-            select @id, @map, @title, @xmin, @ymin, @xmax, @ymax, @wkid, @status, @created, @refreshed, @creator, @creatorname
+                                  creator_principal_id, creator_name, package_refresh_schedule, refresh_params, scheduled_updates,
+                                  tile_scale_min, tile_scale_max, origin)
+            select @id, @map, @title, @xmin, @ymin, @xmax, @ymax, @wkid, @status, @created, @refreshed, @creator, @creatorname,
+                   @schedule, @params, @enabled, @scalemin, @scalemax, @origin
              where exists (select 1 from web_map where id = @map)
             """, connection, transaction))
         {
@@ -74,6 +77,9 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
             insert.Parameters.AddWithValue("refreshed", area.Refreshed);
             insert.Parameters.AddWithValue("creator", area.Creator);
             insert.Parameters.AddWithValue("creatorname", area.CreatorName);
+            AddSettings(insert, new MapAreaSettings(
+                area.PackageRefreshSchedule, area.RefreshParams, area.ScheduledUpdates, area.TileScaleMin, area.TileScaleMax));
+            insert.Parameters.Add(new NpgsqlParameter("origin", NpgsqlDbType.Text) { Value = (object?)area.Origin ?? DBNull.Value });
 
             if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)
             {
@@ -118,8 +124,9 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         await using (NpgsqlCommand insert = new(
             """
             insert into map_area_package (id, area_id, service_id, replica_id, file_name, file_path, sha256, size, properties,
-                                          created_at, refreshed_at, format)
-            select @id, @area, @service, @replica, @name, @path, @sha, @size, @properties, @created, @refreshed, @format
+                                          created_at, refreshed_at, format, status, export_job_id, error)
+            select @id, @area, @service, @replica, @name, @path, @sha, @size, @properties, @created, @refreshed, @format,
+                   @status, @job, @error
              where exists (select 1 from map_area where id = @area)
             """, connection, transaction))
         {
@@ -128,6 +135,9 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
             insert.Parameters.AddWithValue("service", package.ServiceId);
             insert.Parameters.Add(new NpgsqlParameter("replica", NpgsqlDbType.Uuid) { Value = (object?)package.ReplicaId ?? DBNull.Value });
             insert.Parameters.AddWithValue("format", package.Format);
+            insert.Parameters.AddWithValue("status", package.Status);
+            insert.Parameters.Add(new NpgsqlParameter("job", NpgsqlDbType.Uuid) { Value = (object?)package.ExportJobId ?? DBNull.Value });
+            insert.Parameters.Add(new NpgsqlParameter("error", NpgsqlDbType.Text) { Value = (object?)package.Error ?? DBNull.Value });
             insert.Parameters.AddWithValue("name", package.FileName);
             insert.Parameters.AddWithValue("path", package.FilePath);
             insert.Parameters.AddWithValue("sha", package.Sha256);
@@ -163,6 +173,7 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
             await relate.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        await SettleAsync(connection, transaction, package.AreaId, null, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }
@@ -176,7 +187,7 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
             """
             update map_area_package
                set replica_id = @replica, file_name = @name, file_path = @path, sha256 = @sha, size = @size,
-                   properties = @properties, refreshed_at = @refreshed
+                   properties = @properties, refreshed_at = @refreshed, status = 'complete', export_job_id = null, error = null
              where id = @id
             """);
         command.Parameters.AddWithValue("id", package.Id);
@@ -189,6 +200,165 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         command.Parameters.AddWithValue("refreshed", refreshed);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    private const string SettleSql =
+        """
+        update map_area a
+           set status = case
+                          when exists (select 1 from map_area_package p where p.area_id = a.id and p.status = 'processing') then 'processing'
+                          when exists (select 1 from map_area_package p where p.area_id = a.id and p.status = 'failed') then 'failed'
+                          else 'complete' end,
+               refreshed_at = coalesce(@refreshed, a.refreshed_at)
+         where a.id = @area
+        returning a.status
+        """;
+
+    private static async Task<string?> SettleAsync(
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid area, DateTimeOffset? refreshed, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = new(SettleSql, connection, transaction);
+        command.Parameters.AddWithValue("area", area);
+        command.Parameters.Add(new NpgsqlParameter("refreshed", NpgsqlDbType.TimestampTz) { Value = (object?)refreshed ?? DBNull.Value });
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string;
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> SettleStatusAsync(Guid id, DateTimeOffset refreshed, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        return await SettleAsync(connection, null, id, refreshed, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<MapAreaPackage?> FindPackageByJobAsync(Guid job, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {PackageColumns} from map_area_package p join map_area a on a.id = p.area_id where p.export_job_id = @job");
+        command.Parameters.AddWithValue("job", job);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadPackage(reader) : null;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> MarkPackageProcessingAsync(Guid id, Guid job, string properties, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        Guid? area;
+        await using (NpgsqlCommand command = new(
+            "update map_area_package set status = 'processing', export_job_id = @job, properties = @properties, error = null "
+            + "where id = @id returning area_id", connection, transaction))
+        {
+            command.Parameters.AddWithValue("id", id);
+            command.Parameters.AddWithValue("job", job);
+            command.Parameters.Add(new NpgsqlParameter("properties", NpgsqlDbType.Jsonb) { Value = properties });
+            area = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as Guid?;
+        }
+
+        if (area is null)
+        {
+            return false;
+        }
+
+        await SettleAsync(connection, transaction, area.Value, null, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public async Task<MapAreaPackage?> CompletePackageAsync(
+        Guid job, string filePath, string sha256, long size, DateTimeOffset written, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        MapAreaPackage? before;
+        await using (NpgsqlCommand read = new(
+            $"select {PackageColumns} from map_area_package p join map_area a on a.id = p.area_id where p.export_job_id = @job for update of p",
+            connection, transaction))
+        {
+            read.Parameters.AddWithValue("job", job);
+            await using NpgsqlDataReader reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            before = await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadPackage(reader) : null;
+        }
+
+        if (before is null)
+        {
+            return null;
+        }
+
+        await using (NpgsqlCommand update = new(
+            """
+            update map_area_package
+               set file_path = @path, sha256 = @sha, size = @size, refreshed_at = @when, status = 'complete', export_job_id = null, error = null
+             where id = @id
+            """, connection, transaction))
+        {
+            update.Parameters.AddWithValue("id", before.Id);
+            update.Parameters.AddWithValue("path", filePath);
+            update.Parameters.AddWithValue("sha", sha256);
+            update.Parameters.AddWithValue("size", size);
+            update.Parameters.AddWithValue("when", written);
+            await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await SettleAsync(connection, transaction, before.AreaId, written, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return before;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> FailPackageAsync(Guid job, string reason, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        Guid? area;
+        await using (NpgsqlCommand command = new(
+            "update map_area_package set status = case when file_path = '' then 'failed' else 'complete' end, "
+            + "export_job_id = null, error = @error where export_job_id = @job returning area_id", connection, transaction))
+        {
+            command.Parameters.AddWithValue("job", job);
+            command.Parameters.AddWithValue("error", reason);
+            area = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as Guid?;
+        }
+
+        if (area is null)
+        {
+            return false;
+        }
+
+        await SettleAsync(connection, transaction, area.Value, null, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> FailStrandedPackagesAsync(CancellationToken cancellationToken)
+    {
+        // Every organisation's packages, as the sweep is of the one shared folder (ADR-204).
+        await using NpgsqlCommand command = _root.CreateCommand(
+            """
+            with stranded as (
+                update map_area_package p
+                   set status = case when p.file_path = '' then 'failed' else 'complete' end, export_job_id = null,
+                       error = 'The export job ended without writing the package.'
+                 where p.status = 'processing'
+                   and not exists (select 1 from job j where j.id = p.export_job_id and j.status in ('queued', 'running', 'done'))
+                returning p.area_id)
+            update map_area a
+               set status = case
+                              when exists (select 1 from map_area_package q where q.area_id = a.id and q.status = 'processing') then 'processing'
+                              when exists (select 1 from map_area_package q where q.area_id = a.id and q.status = 'failed') then 'failed'
+                              else 'complete' end
+             where a.id in (select area_id from stranded)
+            """);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -292,6 +462,131 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<MapAreaPackage>> PackagesOfServiceAsync(Guid serviceId, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {PackageColumns} from map_area_package p join map_area a on a.id = p.area_id where p.service_id = @service "
+            + "order by p.created_at, p.id");
+        command.Parameters.AddWithValue("service", serviceId);
+
+        return await ReadPackagesAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<MapAreaPackage>> PackagesOfOwnerAsync(string memberName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {PackageColumns} from map_area_package p join map_area a on a.id = p.area_id "
+            + "where a.map_id in (select web_map_id from item where web_map_id is not null "
+            + "and owner_principal_id in (select id from principal where id = graticula_principal_named(@name))) "
+            + "order by p.created_at, p.id");
+        command.Parameters.AddWithValue("name", memberName);
+
+        return await ReadPackagesAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> MarkNeedsRefreshAsync(string? mapId, Guid? serviceId, CancellationToken cancellationToken)
+    {
+        if (mapId is null && serviceId is null)
+        {
+            return 0;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update map_area set status = @status
+             where status <> @status
+               and ((@map::text is not null and map_id = @map::text)
+                 or (@service::uuid is not null and id in (select area_id from map_area_package where service_id = @service::uuid)))
+            """);
+        command.Parameters.AddWithValue("status", MapAreas.NeedsRefresh);
+        command.Parameters.Add(new NpgsqlParameter("map", NpgsqlDbType.Text) { Value = (object?)mapId ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("service", NpgsqlDbType.Uuid) { Value = (object?)serviceId ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken)
+    {
+        // Every organisation's rows, as the sweep is of one shared folder: read through the root source, as the document
+        // store's ContentFilesAsync is (ADR-204). A recycled map's rows are kept whole in recycle_row (ADR-203).
+        HashSet<string> named = new(StringComparer.Ordinal);
+        await using NpgsqlCommand command = _root.CreateCommand(
+            "select file_path from map_area_package "
+            + "union select row->>'file_path' from recycle_row where table_name = 'map_area_package' and row->>'file_path' is not null");
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            named.Add(reader.GetString(0));
+        }
+
+        return named;
+    }
+
+    private static void AddSettings(NpgsqlCommand command, MapAreaSettings settings)
+    {
+        command.Parameters.Add(new NpgsqlParameter("schedule", NpgsqlDbType.Text) { Value = (object?)settings.PackageRefreshSchedule ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("params", NpgsqlDbType.Jsonb) { Value = (object?)settings.RefreshParams ?? DBNull.Value });
+        command.Parameters.AddWithValue("enabled", settings.ScheduledUpdates);
+        command.Parameters.Add(new NpgsqlParameter("scalemin", NpgsqlDbType.Double) { Value = (object?)settings.TileScaleMin ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("scalemax", NpgsqlDbType.Double) { Value = (object?)settings.TileScaleMax ?? DBNull.Value });
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetSettingsAsync(Guid id, MapAreaSettings settings, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update map_area
+               set package_refresh_schedule = @schedule, refresh_params = @params, scheduled_updates = @enabled,
+                   tile_scale_min = @scalemin, tile_scale_max = @scalemax
+             where id = @id
+            """);
+        command.Parameters.AddWithValue("id", id);
+        AddSettings(command, settings);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetOriginAsync(Guid id, string origin, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(origin);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("update map_area set origin = @origin where id = @id and origin is distinct from @origin");
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("origin", origin);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) >= 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<(MapArea Area, Guid Tenant)>> ScheduledAsync(CancellationToken cancellationToken)
+    {
+        // Every organisation's areas, as the scheduler is one per site (ADR-012, ADR-204): read through the root source.
+        await using NpgsqlCommand command = _root.CreateCommand(
+            $"select {AreaColumns}, a.tenant_id from map_area a "
+            + "where a.package_refresh_schedule is not null and a.scheduled_updates order by a.id");
+
+        List<(MapArea, Guid)> found = [];
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            found.Add((ReadArea(reader), reader.GetGuid(19)));
+        }
+
+        return found;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         // The area's item goes with it by cascade, and the packages and their items with it.
@@ -327,7 +622,13 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         reader.GetFieldValue<DateTimeOffset>(9),
         reader.GetFieldValue<DateTimeOffset>(10),
         reader.GetGuid(11),
-        reader.GetString(12));
+        reader.GetString(12),
+        reader.IsDBNull(13) ? null : reader.GetString(13),
+        reader.IsDBNull(14) ? null : reader.GetString(14),
+        reader.GetBoolean(15),
+        reader.IsDBNull(16) ? null : reader.GetDouble(16),
+        reader.IsDBNull(17) ? null : reader.GetDouble(17),
+        reader.IsDBNull(18) ? null : reader.GetString(18));
 
     private static MapAreaPackage ReadPackage(NpgsqlDataReader reader) => new(
         reader.GetGuid(0),
@@ -342,5 +643,8 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         reader.GetString(9),
         reader.GetFieldValue<DateTimeOffset>(10),
         reader.GetFieldValue<DateTimeOffset>(11),
-        reader.GetString(12));
+        reader.GetString(12),
+        reader.GetString(13),
+        reader.IsDBNull(14) ? null : reader.GetGuid(14),
+        reader.IsDBNull(15) ? null : reader.GetString(15));
 }

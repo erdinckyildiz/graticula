@@ -306,7 +306,8 @@ internal static class VectorTileExportEndpoints
         Planned planned,
         HostSettings settings,
         JobSignal signal,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool wake = true)
     {
         IReadOnlyList<int> levels = [.. planned.Plan.Levels.Select(level => level.Z)];
 
@@ -335,7 +336,11 @@ internal static class VectorTileExportEndpoints
                 new { estimatedBytes = planned.EstimatedBytes, heldBytes = held, budget = settings.TileExportBudgetBytes }));
         }
 
-        signal.Wake(JobKind.TileExport);
+        if (wake)
+        {
+            signal.Wake(JobKind.TileExport);
+        }
+
         return (started, null);
     }
 

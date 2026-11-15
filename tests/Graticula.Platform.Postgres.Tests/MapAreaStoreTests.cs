@@ -279,4 +279,202 @@ public sealed class MapAreaStoreTests : PostgresFixture
             + "and tablename in ('map_area', 'map_area_package') and policyname = 'tenant_floor'");
         Assert.Equal(2, policies);
     }
+
+    [Fact]
+    public async Task The_orphan_sweeps_names_are_every_rows_file_live_or_in_the_recycle_bin_and_a_service_names_its_packages()
+    {
+        Ready r = await ReadyAsync();
+        MapArea area = Area(r);
+        MapAreaPackage package = Package(r, area, "map-area-package-files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.geodatabase");
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        await r.Areas.AddPackageAsync(package, "North - Hydrants", CancellationToken.None);
+
+        Assert.Contains(package.FilePath, await r.Areas.FilesAsync(CancellationToken.None));
+        Assert.Equal(package.Id, Assert.Single(await r.Areas.PackagesOfServiceAsync(r.Service, CancellationToken.None)).Id);
+        Assert.Empty(await r.Areas.PackagesOfServiceAsync(Guid.NewGuid(), CancellationToken.None));
+
+        // The map goes to the recycle bin: its package rows are kept whole there, and the file they name is still named.
+        PostgresRecycleBin bin = new(DataSource);
+        Guid? entry = await bin.RecycleAsync(
+            "web_map", r.Map.Id, Guid.Parse(r.Map.Id), "web map", "Hydrants map", r.Owner, r.Owner,
+            DateTimeOffset.UtcNow.AddDays(14), [], CancellationToken.None);
+        Assert.NotNull(entry);
+        Assert.Null(await r.Areas.FindPackageAsync(package.Id, CancellationToken.None));
+        Assert.Contains(package.FilePath, await r.Areas.FilesAsync(CancellationToken.None));
+
+        // Brought back, its areas return as rows; marking them says they need a refresh, and does so once.
+        Assert.Null(await bin.RestoreRowsAsync(entry!.Value, CancellationToken.None));
+        Assert.Equal(MapAreas.Complete, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.Equal(1, await r.Areas.MarkNeedsRefreshAsync(r.Map.Id, null, CancellationToken.None));
+        Assert.Equal(0, await r.Areas.MarkNeedsRefreshAsync(r.Map.Id, null, CancellationToken.None));
+        Assert.Equal(MapAreas.NeedsRefresh, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+
+        // A refresh writes the area again and says it is complete.
+        Assert.True(await r.Areas.SetStatusAsync(area.Id, MapAreas.Complete, DateTimeOffset.UtcNow, CancellationToken.None));
+        Assert.Equal(1, await r.Areas.MarkNeedsRefreshAsync(null, r.Service, CancellationToken.None));
+        Assert.Equal(0, await r.Areas.MarkNeedsRefreshAsync(null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_removed_members_maps_name_their_packages()
+    {
+        Ready r = await ReadyAsync();
+        MapArea area = Area(r);
+        MapAreaPackage package = Package(r, area);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        await r.Areas.AddPackageAsync(package, "North - Hydrants", CancellationToken.None);
+
+        string name = await ScalarNameAsync(r.Owner);
+
+        Assert.Equal(package.Id, Assert.Single(await r.Areas.PackagesOfOwnerAsync(name, CancellationToken.None)).Id);
+        Assert.Empty(await r.Areas.PackagesOfOwnerAsync("nobody-" + Guid.NewGuid().ToString("N")[..8], CancellationToken.None));
+    }
+
+    private async Task<string> ScalarNameAsync(Guid principal)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand("select name from principal where id = @id");
+        command.Parameters.AddWithValue("id", principal);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    [Fact]
+    public async Task A_basemap_package_is_processing_until_its_job_completes_and_the_area_says_so()
+    {
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        Guid job = Guid.NewGuid();
+        MapAreaPackage waiting = new(
+            Guid.NewGuid(), area.Id, area.MapId, tiles, null, "streets.vtpk", string.Empty, string.Empty, 0,
+            """{"url":"https://h/rest/services/hosted/Streets/VectorTileServer","format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat, MapAreas.PackageProcessing, job);
+
+        Assert.True(await r.Areas.AddPackageAsync(waiting, "North - Streets", CancellationToken.None));
+        Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.Equal(waiting.Id, (await r.Areas.FindPackageByJobAsync(job, CancellationToken.None))!.Id);
+
+        // Not counted as held until written; once written it counts against the export budget in the export's place.
+        PostgresTileExportStore exports = new(DataSource);
+        long before = await exports.HeldBytesAsync(CancellationToken.None);
+
+        DateTimeOffset when = area.Created.AddMinutes(5);
+        MapAreaPackage previous = (await r.Areas.CompletePackageAsync(
+            job, "map-area-package-files/0123456789abcdef0123456789abcdef.vtpk", new string('d', 64), 7777, when, CancellationToken.None))!;
+
+        Assert.Equal(string.Empty, previous.FilePath);
+        MapAreaPackage done = (await r.Areas.FindPackageAsync(waiting.Id, CancellationToken.None))!;
+        Assert.Equal((MapAreas.PackageComplete, null, 7777L), (done.Status, done.ExportJobId, done.Size));
+        Assert.Equal(MapAreas.Complete, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.Equal(before + 7777, await exports.HeldBytesAsync(CancellationToken.None));
+        Assert.Null(await r.Areas.FindPackageByJobAsync(job, CancellationToken.None));
+        Assert.Null(await r.Areas.CompletePackageAsync(job, "x", "y", 1, when, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_refresh_keeps_the_old_file_until_the_new_one_is_written_and_a_failed_new_package_fails_its_area()
+    {
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        const string Old = "map-area-package-files/0123456789abcdef0123456789abcdef.vtpk";
+        MapAreaPackage held = new(
+            Guid.NewGuid(), area.Id, area.MapId, tiles, null, "streets.vtpk", Old, new string('c', 64), 8192, """{"format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat);
+        await r.Areas.AddPackageAsync(held, "North - Streets", CancellationToken.None);
+
+        // A refresh: the job is recorded, the old file stays named, the area is processing.
+        Guid refreshJob = Guid.NewGuid();
+        Assert.True(await r.Areas.MarkPackageProcessingAsync(held.Id, refreshJob, """{"format":"vtpk","tiles":5}""", CancellationToken.None));
+        MapAreaPackage during = (await r.Areas.FindPackageAsync(held.Id, CancellationToken.None))!;
+        Assert.Equal((MapAreas.PackageProcessing, Old, refreshJob), (during.Status, during.FilePath, during.ExportJobId));
+        Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+
+        // It fails: the old file is still good, so the package is complete again, with the reason noted.
+        Assert.True(await r.Areas.FailPackageAsync(refreshJob, "a tile could not be built", CancellationToken.None));
+        MapAreaPackage after = (await r.Areas.FindPackageAsync(held.Id, CancellationToken.None))!;
+        Assert.Equal((MapAreas.PackageComplete, Old, "a tile could not be built"), (after.Status, after.FilePath, after.Error));
+        Assert.Equal(MapAreas.Complete, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+
+        // A package that never had a file fails, and its area with it.
+        Guid second = await SeedServiceAsync("Labels_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        Guid newJob = Guid.NewGuid();
+        await r.Areas.AddPackageAsync(held with
+        {
+            Id = Guid.NewGuid(), ServiceId = second, FilePath = string.Empty, Sha256 = string.Empty, Size = 0,
+            Status = MapAreas.PackageProcessing, ExportJobId = newJob,
+        }, "North - Labels", CancellationToken.None);
+        Assert.True(await r.Areas.FailPackageAsync(newJob, "no tiles", CancellationToken.None));
+        Assert.Equal(MapAreas.Failed, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.False(await r.Areas.FailPackageAsync(newJob, "again", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_package_waiting_for_a_job_that_is_gone_is_failed_by_the_sweep_and_one_whose_job_runs_is_not()
+    {
+        Ready r = await ReadyAsync();
+        Guid tiles = await SeedServiceAsync("Streets_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapArea area = Area(r);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        Guid gone = Guid.NewGuid(), running = Guid.NewGuid();
+
+        await using (NpgsqlCommand job = DataSource.CreateCommand(
+            "insert into job (id, kind, status, owner_principal_id, subject, detail, protocol) values (@id, 'tile.export', 'running', @owner, 's', '{}', 1)"))
+        {
+            job.Parameters.AddWithValue("id", running);
+            job.Parameters.AddWithValue("owner", r.Owner);
+            await job.ExecuteNonQueryAsync();
+        }
+
+        Guid otherService = await SeedServiceAsync("Labels_" + Guid.NewGuid().ToString("N")[..8], "hosted", r.Owner);
+        MapAreaPackage Waiting(Guid service, Guid job) => new(
+            Guid.NewGuid(), area.Id, area.MapId, service, null, "x.vtpk", string.Empty, string.Empty, 0, """{"format":"vtpk"}""",
+            area.Created, area.Created, MapAreas.VtpkFormat, MapAreas.PackageProcessing, job);
+        MapAreaPackage orphan = Waiting(tiles, gone), live = Waiting(otherService, running);
+        await r.Areas.AddPackageAsync(orphan, "North - Streets", CancellationToken.None);
+        await r.Areas.AddPackageAsync(live, "North - Labels", CancellationToken.None);
+
+        Assert.Equal(1, await r.Areas.FailStrandedPackagesAsync(CancellationToken.None));
+        Assert.Equal(MapAreas.PackageFailed, (await r.Areas.FindPackageAsync(orphan.Id, CancellationToken.None))!.Status);
+        Assert.Equal(MapAreas.PackageProcessing, (await r.Areas.FindPackageAsync(live.Id, CancellationToken.None))!.Status);
+        Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+    }
+
+    [Fact]
+    public async Task An_areas_schedule_scale_and_address_are_kept_and_the_scheduled_ones_are_listed()
+    {
+        Ready r = await ReadyAsync();
+        MapArea plain = Area(r, "Plain");
+        MapArea timed = Area(r, "Timed") with { Origin = "https://maps.example.test:8443" };
+        await r.Areas.CreateAsync(plain, CancellationToken.None);
+        await r.Areas.CreateAsync(timed, CancellationToken.None);
+
+        Assert.Empty(await r.Areas.ScheduledAsync(CancellationToken.None));
+        Assert.Equal("https://maps.example.test:8443", (await r.Areas.FindAsync(timed.Id, CancellationToken.None))!.Origin);
+
+        MapAreaSettings settings = new(
+            "41 2 15 ? * TUE", """{"startDate":"2026-11-15T10:00:00.000Z","type":"weekly","nthDay":1,"dayOfWeek":2}""", true, 147914382, 20000);
+        Assert.True(await r.Areas.SetSettingsAsync(timed.Id, settings, CancellationToken.None));
+
+        MapArea read = (await r.Areas.FindAsync(timed.Id, CancellationToken.None))!;
+        Assert.Equal(("41 2 15 ? * TUE", true, 147914382d, 20000d), (read.PackageRefreshSchedule, read.ScheduledUpdates, read.TileScaleMin, read.TileScaleMax));
+        // jsonb keeps the document, not its key order.
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(settings.RefreshParams!), System.Text.Json.Nodes.JsonNode.Parse(read.RefreshParams!)));
+
+        (MapArea scheduled, Guid tenant) = Assert.Single(await r.Areas.ScheduledAsync(CancellationToken.None));
+        Assert.Equal(timed.Id, scheduled.Id);
+        Assert.NotEqual(Guid.Empty, tenant);
+
+        // Switched off, a schedule is kept and not listed; a scale that runs backwards is refused by the table.
+        await r.Areas.SetSettingsAsync(timed.Id, settings with { ScheduledUpdates = false }, CancellationToken.None);
+        Assert.Empty(await r.Areas.ScheduledAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            r.Areas.SetSettingsAsync(plain.Id, settings with { TileScaleMin = 100, TileScaleMax = 5000 }, CancellationToken.None));
+
+        Assert.True(await r.Areas.SetOriginAsync(plain.Id, "https://other.example.test", CancellationToken.None));
+        Assert.Equal("https://other.example.test", (await r.Areas.FindAsync(plain.Id, CancellationToken.None))!.Origin);
+        Assert.False(await r.Areas.SetSettingsAsync(Guid.NewGuid(), settings, CancellationToken.None));
+    }
 }

@@ -21,7 +21,12 @@ internal static class ExportBudget
     /// <summary>Takes the budget lock for the rest of the transaction; one for the whole server.</summary>
     internal const string LockSql = "select pg_advisory_xact_lock(hashtextextended('tile.export:budget', 0))";
 
-    /// <summary>What every live export holds: its file once written, its estimate until then.</summary>
+    /// <summary>
+    /// What every live export holds: its file once written, its estimate until then - and a map area's basemap package, which
+    /// an export job wrote and which then left the export directory for the area's folder (D-410): the disk is the same
+    /// disk, so the package counts against the same budget until its area or package is deleted. A package being written is
+    /// counted by its job's estimate, a refresh by the old file and the estimate both, which is the room it needs.
+    /// </summary>
     /// <remarks>
     /// <b>Live</b> is not removed and not failed or cancelled — a failed or cancelled export's partial file is deleted by
     /// the worker or the sweep, so it holds nothing it should be charged for.
@@ -38,6 +43,10 @@ internal static class ExportBudget
                   from feature_export f
                   join job j on j.id = f.job_id
                  where f.removed_at is null and j.status in ('queued', 'running', 'done')
+                union all
+                select p.size as held
+                  from map_area_package p
+                 where p.format = 'vtpk' and p.status = 'complete' and p.file_path <> ''
                ) live
         """;
 }

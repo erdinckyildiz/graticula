@@ -85,6 +85,8 @@ internal sealed class TileExporter : BackgroundService
     private readonly IMapCanvasFactory _canvases;
     private readonly HostSettings _settings;
     private readonly TimeProvider _clock;
+    private readonly IMapAreaStore _areas;
+    private readonly MapAreaPackageFiles _areaFiles;
     private readonly ILogger<TileExporter> _log;
 
     private readonly RepeatedFailure _claims = new();
@@ -114,6 +116,8 @@ internal sealed class TileExporter : BackgroundService
         IMapCanvasFactory canvases,
         HostSettings settings,
         TimeProvider clock,
+        IMapAreaStore areas,
+        MapAreaPackageFiles areaFiles,
         ILogger<TileExporter> log)
     {
         _jobs = jobs;
@@ -134,6 +138,8 @@ internal sealed class TileExporter : BackgroundService
         _canvases = canvases;
         _settings = settings;
         _clock = clock;
+        _areas = areas;
+        _areaFiles = areaFiles;
         _log = log;
     }
 
@@ -657,127 +663,89 @@ internal sealed class TileExporter : BackgroundService
         }
 
         Log.ExportFinished(_log, job.Id, service.QualifiedName, staging.Count, bytes, now + _settings.TileExportRetention);
+
+        if (state.Format == TileExportFormat.Vtpk)
+        {
+            await AdoptAsync(job, state, final, working).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
-    /// Writes a planned export as a VTPK to <paramref name="output"/> in this request, without a job row: the walk, the
-    /// staging and the package are the ones <see cref="ExportAsync"/> uses, but the caller waits for the file.
+    /// Hands a finished package to the map area waiting for it, if one is — ADR-288 section 11a, D-410. A preplanned area's
+    /// basemap package is an ordinary export job (the walk, the checkpoints, the lease, the budget and the package writer are
+    /// <see cref="ExportAsync"/>'s own); what differs is the end: the file leaves the export directory, where it would expire in
+    /// a day, for the area's folder, and the export is marked removed because its file is no longer one of the exports'. The
+    /// package row then counts against the export budget in the export's place (<see cref="ExportBudget"/>).
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>For a preplanned map area's basemap package</b> (ADR-288 section 11a), which is written when the area is made or
-    /// refreshed and belongs to the area, not to an export job: it is not swept as an export is, it is not counted in the
-    /// export budget (the area's packages are a deliberate store, like its mobile geodatabases), and it has no status URL.
-    /// A tile that cannot be built fails the whole package, as an export's does: a package with holes would be found out
-    /// offline. The file is written beside <paramref name="output"/> and moved into place only when complete.
-    /// </para>
-    /// <para>
-    /// <b>The steps are copied from <see cref="ExportAsync"/>, not shared</b> (D-410): that method is tied to its job row's
-    /// checkpoints, lease and cancellation, and untangling them without the exporter's own tests running against a worker
-    /// was more risk than a map area's one call is worth.
-    /// </para>
+    /// <b>A failure here is the package's, not the job's</b>: the job has finished, the file is whole, and an area that cannot
+    /// adopt it says so on the package (<c>failed</c>, with the reason) rather than leaving it <c>processing</c> for ever.
     /// </remarks>
-    /// <param name="service">The vector tile service.</param>
-    /// <param name="planned">The export as <see cref="VectorTileExportEndpoints.PlanAsync"/> counted it.</param>
-    /// <param name="output">The package file to write.</param>
-    /// <param name="cancellation">Cancellation.</param>
-    /// <returns>A task.</returns>
-    internal async Task WriteVtpkAsync(
-        PublishedService service, VectorTileExportEndpoints.Planned planned, string output, CancellationToken cancellation)
+    private async Task AdoptAsync(JobRecord job, TileExportState state, string final, CancellationToken working)
     {
-        ArgumentNullException.ThrowIfNull(service);
-        ArgumentNullException.ThrowIfNull(planned);
-        ArgumentException.ThrowIfNullOrWhiteSpace(output);
-
-        TileSeedPlan plan = planned.Plan;
-        string part = output + ".part";
-        string staged = output + ".staging";
-        TimeSpan defaultLifetime = _cache is FileSystemTileCache disk ? disk.DefaultLifetime : TimeSpan.FromHours(1);
-        TileSeedLevel[] fresh =
-        [
-            .. plan.Levels.Select(level => new TileSeedLevel(level.Z, level.Count, 0, 0, 0, 0, 0, 0, null, null)),
-        ];
-
-        TileSeedRun run = new(
-            plan,
-            fresh,
-            _settings.TileSeedConcurrency,
-            z => service.Layers.Any(layer => service.TileScheme.Draws(layer.VisibleRange, z)),
-            TileSeeder.OutageOf,
-            _clock);
+        string? recorded = null;
 
         try
         {
-            using TileExportStaging staging = new(staged);
-            long failures = 0;
-            string? firstFailure = null;
-
-            TileSeedEnd end = await run.RunAsync(
-                async (address, token) =>
-                {
-                    (TileSeedOutcome outcome, byte[] tile) = await TileSeeder.ServiceTileAsync(
-                            service, address, defaultLifetime, _contexts, _connections, _cache, _building, _projector,
-                            _datumShifts, _unindexed, _loggers, _geoParquet, token)
-                        .ConfigureAwait(false);
-
-                    await staging.AddAsync(address, tile, token).ConfigureAwait(false);
-
-                    return outcome;
-                },
-                (_, _) => Task.FromResult(true),
-                (address, failure) =>
-                {
-                    if (Interlocked.Increment(ref failures) == 1)
-                    {
-                        firstFailure = $"tile {address}: {failure.Message}";
-                    }
-                },
-                cancellation).ConfigureAwait(false);
-
-            if (end == TileSeedEnd.Released)
+            if (await _areas.FindPackageByJobAsync(job.Id, working).ConfigureAwait(false) is null)
             {
-                throw new InvalidOperationException("The tile walk was released before it finished, so there is no complete package.");
+                return; // an ordinary export
             }
 
-            if (failures > 0)
+            (string path, string name) = _areaFiles.Next(".vtpk");
+            recorded = name;
+            File.Move(final, path, overwrite: true);
+            (string sha, long size) = await MapAreaPackageFiles.HashAsync(path, working).ConfigureAwait(false);
+
+            MapAreaPackage? before = await _areas
+                .CompletePackageAsync(job.Id, recorded, sha, size, _clock.GetUtcNow(), working).ConfigureAwait(false);
+
+            if (before is null)
             {
-                throw new InvalidOperationException(
-                    $"{failures:N0} of {plan.Total:N0} tiles of '{service.QualifiedName}' could not be built, and a package with holes "
-                    + $"in it would be found out offline. The first was {firstFailure}");
+                // The area or package went while the file was being written: nobody names it.
+                _areaFiles.Delete(recorded);
+                return;
             }
 
-            await using (FileStream stream = new(part, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
-            {
-                TileExportPackage.VtpkDocuments documents = await TileExportPackage.VtpkDocumentsAsync(
-                        service, plan, Guid.NewGuid(), _clock.GetUtcNow(), _contexts, _projector, _glyphs, _origins, _catalog, _canvases, cancellation)
-                    .ConfigureAwait(false);
+            recorded = null;
 
-                await TileExportPackage.WriteVtpkAsync(stream, staging, documents, cancellation).ConfigureAwait(false);
-                await stream.FlushAsync(cancellation).ConfigureAwait(false);
+            if (before.FilePath.Length > 0)
+            {
+                _areaFiles.Delete(before.FilePath);
             }
 
-            File.Move(part, output, overwrite: true);
+            await _exports.MarkRemovedAsync(job.Id, working).ConfigureAwait(false);
+            Log.PackageAdopted(_log, job.Id, before.AreaId);
         }
-        catch
+        catch (Exception e) when (e is not OperationCanceledException)
         {
-            foreach (string leftover in (string[])[part, staged, output])
+            if (recorded is not null)
             {
-                try
-                {
-                    File.Delete(leftover);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    Log.ExportFileStuck(_log, leftover, e.Message);
-                }
+                _areaFiles.Delete(recorded);
             }
 
-            throw;
+            Log.PackageNotAdopted(_log, job.Id, e.Message, e);
+            await FailPackageQuietlyAsync(job.Id, "The finished package could not be kept for the map area: " + e.Message).ConfigureAwait(false);
+        }
+    }
+
+    private async Task FailPackageQuietlyAsync(Guid job, string why)
+    {
+        try
+        {
+            await _areas.FailPackageAsync(job, why, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Log.PackageNotAdopted(_log, job, "the package could not be marked failed: " + e.Message, e);
         }
     }
 
     private async Task FailAsync(JobRecord job, string why, Exception? cause, CancellationToken token)
     {
+        // D-410: a map area's package waiting for this job says it failed, and why.
+        await FailPackageQuietlyAsync(job.Id, why).ConfigureAwait(false);
+
         try
         {
             await _jobs.FinishAsync(job.Id, JobStatus.Failed, null, why, token, Who).ConfigureAwait(false);

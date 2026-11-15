@@ -956,6 +956,12 @@ public static class Program
         // D-389: scene package files nothing names any more, swept hourly once per site.
         builder.Services.AddHostedService<ScenePackageFileSweep>();
 
+        // D-407: map area package files no row names, swept hourly once per site.
+        builder.Services.AddHostedService<MapAreaPackageFileSweep>();
+
+        // D-405: map areas refreshed on the schedule they name, once per site.
+        builder.Services.AddHostedService<MapAreaRefreshScheduler>();
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 
@@ -3163,6 +3169,9 @@ public static class Program
         // ADR-265: the print service, where a portal's helperServices.printTask says it is.
         PrintEndpoints.Map(app);
 
+        // ADR-288 section 11a, D-404: the offline packaging service, where ArcGIS Pro and Map Viewer make preplanned map areas.
+        OfflinePackagingEndpoints.Map(app);
+
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
         // with a different discovery document, and a client pastes one address for
@@ -3490,6 +3499,9 @@ public static class Program
         // ADR-265: the print service, which every caller may use and which draws only what each may read.
         Add("Utilities", "Utilities/PrintingTools");
 
+        // ADR-288 section 11a: the offline packaging service, open to describe and asking for a token to run.
+        Add("Utilities", "Utilities/OfflinePackaging");
+
         foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
         {
             if ((seesStopped || coverage.Status == ServiceStatus.Started)
@@ -3667,6 +3679,7 @@ public static class Program
         if (string.Equals(folder, "Utilities", StringComparison.OrdinalIgnoreCase))
         {
             systemServices.Add(("Utilities/PrintingTools", "GPServer"));
+            systemServices.Add(("Utilities/OfflinePackaging", "GPServer"));
         }
 
         // <b>Which services have tile services is `ServiceFaces.Tileable`, below</b> —

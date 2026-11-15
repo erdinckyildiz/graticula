@@ -64,6 +64,35 @@ internal sealed class Authentication
     private readonly IRoleGrants _grants;
     private readonly TimeProvider _time;
 
+    /// <summary>
+    /// A principal as a request would be answered it, for work that has no request — a map area's scheduled refresh (D-405):
+    /// the capabilities they hold now, resolved as <see cref="ResolveAsync"/> resolves a session's.
+    /// </summary>
+    /// <param name="principal">Who.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The caller.</returns>
+    public async Task<RequestPrincipal> ForAsync(Principal principal, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        (string userType, IReadOnlyList<string> roles, IReadOnlyList<Guid> groups, IReadOnlyList<Guid> editableGroups) =
+            await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
+
+        if (_grants is PostgresRoleGrants live)
+        {
+            await live.EnsureFreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        Authorization authorization = Authorization.Resolve(userType, roles, _grants, groups, editableGroups);
+
+        if (principal.Kind == PrincipalKind.Service)
+        {
+            authorization = authorization.ForAMachine();
+        }
+
+        return new RequestPrincipal(principal, null, authorization);
+    }
+
     /// <summary>Creates the resolver.</summary>
     /// <param name="store">Where sessions live.</param>
     /// <param name="time">The clock.</param>
