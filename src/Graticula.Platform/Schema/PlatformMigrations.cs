@@ -164,6 +164,7 @@ public static class PlatformMigrations
         AGeneratedSceneLayerIsRelatedToItsFeatureLayerV133,
         AScenePackageAboveTheDocumentLimitIsAFileV134,
         AMobileWorkerIsAUserTypeV135,
+        ARegisteredDatabaseKnowsThePublishersAddressV137,
         AServiceMayBeTakenOfflineV138,
         AMapAreaIsAnItemV139,
         AMapAreaMayHoldABasemapPackageV140,
@@ -171,6 +172,25 @@ public static class PlatformMigrations
         APackageSaysWhetherItsFileIsWrittenV142,
         AMapAreaKeepsItsRefreshScheduleAndTileScaleV143,
     ]);
+
+    /// <summary>
+    /// A registered database may name the address its publishers reach it at, beside the one this server uses — ADR-299,
+    /// ArcGIS's <i>publisher database connection</i>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Why a second address, measured rather than supposed.</b> ArcGIS Pro shares a layer by reference only when the
+    /// database its layer was added through is one the server lists as registered, compared by the connection Pro itself
+    /// holds (ADR-299 §3). A desktop reaches a database as <c>db.example.org,5432</c> while the server, in a container
+    /// beside it, reaches the same one as <c>datastore:5432</c>; the database is one, the addresses are two, and without
+    /// the publisher's the two never match. Text — <c>host</c> or <c>host,port</c>, as ArcGIS writes
+    /// DB_CONNECTION_PROPERTIES — and no credential, so it is not sealed. <b>Expand</b>: a node older than this never reads the column.
+    /// </remarks>
+    private static Migration ARegisteredDatabaseKnowsThePublishersAddressV137 => Migration.Expand(
+        new SchemaVersion(137),
+        "A registered database may name the address its publishers reach it at (ADR-299).",
+
+        "alter table data_source add column if not exists publisher_address text");
+
 
     /// <summary>
     /// A preplanned map area is an item, and so is each package taken from it — ADR-288 §11a: the area, its packages, and
