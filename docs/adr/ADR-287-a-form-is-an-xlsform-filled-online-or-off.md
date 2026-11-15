@@ -966,6 +966,20 @@ measurable question. The two device claims are, so they are conditions and not a
     - The service worker's shell cache is `graticula-forms-shell-v7`, because `fill.js`, `fill.css` and `xlsform-eval.js`
       changed; the other forms branch took v6.
 
+21. **The two compatibility branches together, and a note with no name — 2026-11-15.** §5.19 and §5.20 were built in
+    parallel and merged; measured on the merged checker with the same corpus: **42 of the 61 Survey123-authored forms
+    import unedited (68%, from 17), and 59 of all 108 readable (55%, from 31).** One more change was made at the merge:
+    **a `note` with no name and no calculation is given a name from its row (`note_row_{row}`) and a notice, instead of
+    refused** — it stores nothing, and Esri's own published samples carry such rows. The workbook and the model keep it
+    nameless. A note that calculates makes a field and is still refused without a name, as is every other question
+    (`AFormImportsSurvey123SpellingsTests`). **INFERRED**, for the owner to confirm. What still blocks Survey123-authored
+    forms, by the forms it blocks: `annotate` 4; `barcode` 2; `pulldata("@layer")` 2; `search()` 2; an attachment question
+    given a field type 2; a `submission_url` naming a layer this server does not hold 2 (correctly refused: §5.17); and
+    one form each for an unknown column, a field length out of range, `distress`, a calculating note with no name,
+    `audio`, `bind::esri:warning`, `grid`, `pulldata("@javascript")` and a parameter on a question that takes none.
+    The merge also set the shell cache to `graticula-forms-shell-v8` (the two branches had v6 and v7), and the page test
+    that named a cache version now finds the shell cache by its prefix.
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
@@ -1032,7 +1046,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
    evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. **Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.
 5. **Every refusal at upload names the row, the column and the reason**, and a set of real Survey123 forms is
-   imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19.
+   imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19. **With §5.19, §5.20 and §5.21 together, measured after the three were merged: 42 of the 61 (68%) and 59 of the 108 (55%).** The rest is in §5.21.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
    while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
    edited offline is kept on the device. Neither case may lose an edit silently.

@@ -201,6 +201,22 @@ public sealed partial class FormDefinition
                 string name = ModelSheet.Cell(row, nameColumn).Trim();
                 Dictionary<string, string> labels = columns.Translations(row, "label");
 
+                // ADR-287 §5.21 (INFERRED): a note with no name and no calculation stores nothing, and Esri's own published
+                // samples carry such rows, so it is given a name from its row instead of refused. The workbook and the model
+                // keep the row as written; only the definition holds the name. A note that calculates makes a field, and a
+                // field needs a name its publisher chose, so that one is still refused.
+                if (name.Length == 0 && type == "note" && columns.Value(row, "calculation") is null)
+                {
+                    name = $"note_row_{at}";
+
+                    while (names.ContainsKey(name) || frameNames.Contains(name))
+                    {
+                        name = "_" + name;
+                    }
+
+                    Notice("survey", at, "name", $"This note has no name; it is shown, stores nothing, and is called '{name}' here.");
+                }
+
                 if (!Named(name, at))
                 {
                     continue;

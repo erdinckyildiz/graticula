@@ -299,4 +299,33 @@ public sealed class AFormImportsSurvey123SpellingsTests
         Assert.DoesNotContain("body::esri:inputMask", FormCatalog.RefusedSurveyColumns.Keys);
         Assert.Contains("body::esri:inputMask", (IEnumerable<string>)FormCatalog.SurveyColumns);
     }
+
+    // ------------------------------------------------------------------------------------------ a note with no name
+
+    [Fact]
+    public void A_note_with_no_name_is_named_from_its_row_and_said_so_and_the_workbook_keeps_it_nameless()
+    {
+        FormModel model = Form([["note", "", "Read this first", "", "", "", ""], ["integer", "adet", "Adet", "", "", "", ""]]);
+        FormCheck check = FormDefinition.Check(model);
+        FormDefinition form = Accepted(check);
+
+        Assert.Equal(["note_row_2", "adet"], form.Root.Questions.Select(q => q.Name));
+        Assert.Contains(check.Notices, n => n.Row == 2 && n.Column == "name" && n.Message.Contains("note_row_2", StringComparison.Ordinal));
+        Assert.Equal(string.Empty, model.Sheet("survey")!.Rows[0][1]);
+    }
+
+    [Fact]
+    public void A_note_with_no_name_that_calculates_is_still_refused_because_it_makes_a_field()
+    {
+        string[] header = ["type", "name", "label", "calculation"];
+        FormCheck check = FormDefinition.Check(Form([["note", "", "Total", "1 + 1"]], header: header));
+
+        RefusedAt(check, "survey", 2, "name", "has no name");
+    }
+
+    [Fact]
+    public void A_question_with_no_name_is_still_refused()
+    {
+        RefusedAt(Checked(["integer", "", "Adet", "", "", "", ""]), "survey", 2, "name", "has no name");
+    }
 }
