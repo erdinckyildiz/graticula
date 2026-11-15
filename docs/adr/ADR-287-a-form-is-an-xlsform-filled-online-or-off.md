@@ -764,7 +764,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
 | ID | Assumption | Status |
 |---|---|---|
 | A-088 | A field crew can install the form client to the home screen, or uses Android, so that the device keeps its queue | `UNVALIDATED` — new with this ADR; condition 2 |
-| A-089 | Most forms an organization brings from Survey123 use the common XLSForm subset of condition 3 rather than Esri-only functions | `UNVALIDATED` — new with this ADR; condition 5 counts it |
+| A-089 | Most forms an organization brings from Survey123 use the common XLSForm subset of condition 3 rather than Esri-only functions | `INVALIDATED` 2026-11-15 — 17 of 61 Survey123-authored forms import unedited (condition 5, §5.18); the register holds the detail |
 
 ## 8. Dependencies
 
