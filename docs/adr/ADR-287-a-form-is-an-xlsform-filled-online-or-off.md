@@ -345,7 +345,7 @@ measurable question. The two device claims are, so they are conditions and not a
     **Settings sheet.** Supported: `form_title`, `form_id` (the layer's name), `version`, `instance_name`,
     `default_language`, `style` (`pages`; any other value is drawn the default way), `allow_choice_duplicates`,
     `clean_text_values`, `name`. `submission_url` is supported **when it names a feature layer of this server**, and the
-    form then writes to that layer instead of making one; any other address is refused. `namespaces` is accepted and
+    form then writes to that layer instead of making one; any other address is refused. **Built 2026-11-15 as §5.17; until then the column was read and nothing used it, publishing made a new layer, and this sentence was untrue.** `namespaces` is accepted and
     has no effect, which the upload says. Refused: `public_key` (encrypted submissions).
 
     **Appearances.** Supported because they change what is captured: `multiline` (on `text`; on `image` and `file`,
@@ -513,6 +513,67 @@ measurable question. The two device claims are, so they are conditions and not a
     question; with the device's position already allowed the map opens on it; the map is a named region whose zoom
     buttons are heard, not a hidden box with focusable controls; a line's or area's points are numbered, each with its
     own Remove, and the area says when it is closed.
+
+17. **A form that names a layer writes to it — built 2026-11-15, while the owner slept (§5.10's settings row said it
+    was supported; the code parsed `submission_url` and nothing read it, so publishing silently made a new layer).**
+    This is Survey123's *survey from an existing feature layer*, built from the public ArcGIS REST address forms and from
+    what the catalogue holds, not from any product's code. Every choice below is this session's and **INFERRED, for the
+    owner to confirm**; the questions they answer were not put to the owner.
+    - **What it does.** On publish, `submission_url` is read (`SubmissionTarget`): an absolute address of this server, or a
+      relative one, ending in `/FeatureServer` or `/FeatureServer/{n}`, with the `/arcgis` and `/server` prefixes, the
+      server's path base, a trailing slash and a query accepted. An address that is not shaped so is refused wherever a
+      form is checked or saved, at `settings` row 2, column `submission_url`; one on another host or port is refused at
+      publish with the same row and column and the host named, because the server does not reach out to another one and
+      a form's results screen, sharing and view are all this server's. The service is looked up, must be the caller's to
+      manage, and must not be a view. Then every table of the form is matched to a layer or table of the service
+      (`SubmissionMatcher`), **every mismatch is listed, and nothing is written until none is left**: a question whose
+      field does not exist (row of the question, column `name`), whose type does not fit (column `type`, or
+      `bind::esri:fieldType` when that decided it), whose stated `bind::esri:fieldLength` is longer than the field holds,
+      or whose choice list has a code the field's own coded domain would refuse; an attachment question on a layer that
+      keeps none; a location question of another kind than the layer's geometry, or on a table, or a layer with geometry
+      and no location question; a layer with no GlobalID field; a repeat for which there is no table related to its
+      parent by `globalid` and `parentglobalid`, with that field present. The form's publication is then written in the
+      shape a new layer's is, marked `existing`, so the form client, the results screen and sharing read it unchanged,
+      and the form item is linked to the service. **Measured, not claimed:** against a real server over PostGIS
+      (`AFormThatNamesALayerWritesToItTests`) the target's fields are identical before and after publishing, publishing
+      again and refusing, a record sent through the answers view lands in the target, and a layer in Web Mercator takes
+      the client's WGS 84 geometry.
+    - **(a) The target's schema is never altered.** No field, GlobalID column, editor tracking or choice list is added,
+      where publishing a new layer adds all of them. Survey123 does not add fields to an existing layer when it publishes
+      to one, as far as its public documentation says; this is read from that and not measured on a Survey123 install.
+      A layer somebody else designed is theirs.
+    - **(b) Hosted layers in the `hosted` folder only.** A registered table (PostGIS, MySQL, Oracle, SQL Server) is
+      refused at publish, even for a form that is never shared, because the Create-only `_submit` view is made over a
+      hosted layer's rows ([ADR-113](ADR-113-a-hosted-layer-has-views.md): `CreateViewAsync` takes hosted layers with an
+      integer key, nothing else), so such a form could be published and then never shared. Studio's results screen also
+      addresses a form's service in the `hosted` folder. A registered target is not impossible, only not built; the
+      refusal says why.
+    - **(c)** An address that names the service and no layer means the service's first layer of the kind the form writes
+      (a layer when the form has a location question, a table when it has none); Survey123's own addresses name the
+      layer.
+    - **(d)** A repeat's table is found among the tables related from its parent's layer, by the repeat's name, the name
+      made an identifier, or `{service}_{identifier}` (what publishing makes), and must be related as a form's repeat
+      is.
+    - **(e)** A number goes into a wider field (small integer into integer, big integer or double; integer into big
+      integer or double; single into double) and nothing else changes type, because converting changes the value. A text
+      length is compared only when the form states one: the default 255 would refuse most layers somebody else designed.
+      A choice list's domain is compared only when the field already has one; a field without one gets none.
+    - **(f) The answers view is made over the layers the form writes to, not over every layer of the service**, so a
+      service with other layers does not hand a public survey a way to add to them. Its name is the service's with
+      `_submit`, the service's part cut to 33 characters when longer so the whole fits a view's 40 (this also changes a new form
+      whose name was longer, which could not be shared before). The service itself is not retitled or filed; the form
+      item and the view are, as §5.12 says.
+    - **(g) Publishing again changes nothing in the layer.** The form is matched again, the publication is rewritten with
+      the questions as they are now, and no field is added. A form that writes to a layer cannot be moved to another, cannot
+      stop naming it, and a form published with a layer of its own cannot start naming one (each refused at
+      `submission_url`, because the answers are already where they are). A new repeat is matched to an existing related
+      table or refused; the answers view is made again only when the set of layers changed.
+    - **(h) Deleting the form deletes the form item.** No route here deletes a service; the service a form names is not
+      the form's, and its records stay (`AFormThatNamesALayerWritesToItTests`). The answers view, for any form,
+      new layer or existing, is not removed by deleting the item either, which predates this and is not decided here.
+    - **Not done:** a field the layer requires (not nullable) that no question fills is not found at publish; the first
+      submission is refused by the layer, and the message says which field. Editor tracking is whatever the layer already
+      has; a form does not turn it on.
 
 ## 6. Consequences
 
