@@ -852,6 +852,11 @@ internal static partial class PortalEndpoints
         // for Python find here.
         helpers["printTask"] = new { url = PrintEndpoints.TaskUrl(Origin(context)) };
 
+        // ADR-288 section 11a, D-404: the offline packaging service, where a client looks for the tasks that make map areas.
+        // INFERRED: the key. An Enterprise portal's own self document was not read for a packaging entry; `packaging` is the
+        // name its sibling entries (`geometry`, `printTask`, `analysis`) suggest.
+        helpers["packaging"] = new { url = OfflinePackagingEndpoints.Url(Origin(context)) };
+
         if (Geocoding.GeocodeServerEndpoints.PortalLocator(
                 context.RequestServices.GetService<Geocoding.GeocoderSettings>(), current, Origin(context)) is { } locator)
         {

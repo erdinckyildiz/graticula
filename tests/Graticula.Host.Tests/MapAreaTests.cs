@@ -872,6 +872,56 @@ public sealed class MapAreaTests : IDisposable
         Assert.Equal("failed", PortalEndpoints.PortalStatusOf(MapAreas.NeedsRefresh));
     }
 
+    // ------------------------------------------------------------------------------------------------ D-404: the packaging service
+
+    private static Func<string, string?> Asked(params (string Name, string Value)[] given) =>
+        name => given.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase)).Value;
+
+    private static WebMap MapWith(string document) => new(MapId, "Hydrants map", null, Owner, "owner", SharingScope.Private, document, At, At);
+
+    [Fact]
+    public void An_area_is_given_by_extent_geometry_or_bookmark_and_areaType_is_read_from_what_is_sent_when_it_is_not_named()
+    {
+        WebMap map = MapWith("""{"bookmarks":[{"name":"North yard","extent":{"xmin":1,"ymin":2,"xmax":3,"ymax":4,"spatialReference":{"wkid":3857}}}]}""");
+        const string Box = """{"xmin":10,"ymin":20,"xmax":30,"ymax":40,"spatialReference":{"wkid":4326}}""";
+
+        (JsonObject? byExtent, string? why) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("extent", Box)), map);
+        Assert.Null(why);
+        Assert.Equal(10, byExtent!["xmin"]!.GetValue<double>());
+
+        (JsonObject? byTyped, _) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("areaType", "extent"), ("extent", Box)), map);
+        Assert.Equal(30, byTyped!["xmax"]!.GetValue<double>());
+
+        (JsonObject? byRings, _) = OfflinePackagingEndpoints.AreaEnvelope(
+            Asked(("area", """{"rings":[[[5,6],[9,6],[9,12],[5,6]]],"spatialReference":{"wkid":3857}}""")), map);
+        Assert.Equal((5d, 6d, 9d, 12d), (byRings!["xmin"]!.GetValue<double>(), byRings["ymin"]!.GetValue<double>(), byRings["xmax"]!.GetValue<double>(), byRings["ymax"]!.GetValue<double>()));
+        Assert.Equal(3857, byRings["spatialReference"]!["wkid"]!.GetValue<int>());
+
+        (JsonObject? byBookmark, _) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("bookmark", "north YARD")), map);
+        Assert.Equal(4, byBookmark!["ymax"]!.GetValue<double>());
+        Assert.True(AdminEndpoints.TryReadAreaExtent(byBookmark, out Envelope e, out int wkid, out _));
+        Assert.Equal((3857, 3d), (wkid, e.MaxX));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("areaType=extent")]
+    [InlineData("areaType=polygon&extent=x")]
+    [InlineData("bookmark=No such")]
+    [InlineData("extent=not json")]
+    [InlineData("area=%5B1%5D")]
+    public void An_area_that_is_not_given_properly_is_refused_with_a_sentence(string query)
+    {
+        (string Name, string Value)[] given =
+        [.. query.Split('&', StringSplitOptions.RemoveEmptyEntries).Select(pair => pair.Split('=', 2))
+            .Select(kv => (kv[0], Uri.UnescapeDataString(kv[1])))];
+
+        (JsonObject? envelope, string? why) = OfflinePackagingEndpoints.AreaEnvelope(Asked(given), MapWith("{}"));
+
+        Assert.Null(envelope);
+        Assert.False(string.IsNullOrEmpty(why));
+    }
+
     [Fact]
     public void Migration_139_is_in_the_set_and_the_map_area_items_are_in_it()
     {

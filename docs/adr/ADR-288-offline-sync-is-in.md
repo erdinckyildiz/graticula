@@ -294,6 +294,27 @@ serves the same shape. None was stated by the owner.
    supplies as a carrier of its services, caller and address; that is not a request and was chosen over changing a dozen helpers
    every endpoint shares.
 
+10. **The offline packaging service** *(2026-11-15, D-404; `INFERRED` throughout)*. `Utilities/OfflinePackaging/GPServer` serves the
+   three tasks research note §5a measured on an Enterprise 12.1 portal: `CreateMapArea`, `SetupMapArea`, `RefreshMapAreaPackage`.
+   **The public REST reference does not document them.** Fetched with WebFetch on 2026-11-15, all answering *Page not found*:
+   `https://developers.arcgis.com/rest/services-reference/enterprise/create-map-area/`, `…/create-map-area.htm`,
+   `…/setup-map-area.htm`, `…/refresh-map-area-package.htm`, `…/offline-packaging-service/`, `…/offline-packaging-service.htm`,
+   `…/offline-packaging.htm`, `…/offline-packaging/`, `…/utility-services.htm` and `…/gp-service/`'s navigation, which
+   names no packaging page (the GP service, task, execute and job resources it does document are the shapes this service
+   answers in, as the print service, ADR-265, does). So **every parameter is `INFERRED`**: `CreateMapArea` takes `webmap`, `name`,
+   an area given as `extent`, `area` (a polygon whose bounds are taken, or an envelope) or `bookmark` (by name, from the web map
+   document's `bookmarks`, whose `extent` the public Web Map specification describes) with `areaType` choosing between them
+   (`extent`, `bookmark`, `geometry`), and `mapAreaTileScale` and `packageRefreshSchedule` as the Map Area item names them; its output is
+   `mapAreaItemId`. `SetupMapArea` takes `mapAreaItemId`, `RefreshMapAreaPackage` takes `itemId` (an area or one of its packages);
+   both answer `packages`, a JSON text of what the area holds. **Mapped onto the Graticula route's code with one difference:** ArcGIS
+   splits making an area from packaging it; here an area is never without packages, so `CreateMapArea` makes and packages, and
+   `SetupMapArea` writes what is missing and refreshes the rest (`MapAreaPackaging.RefreshAsync`); a package alone has no refresh, so
+   `RefreshMapAreaPackage` refreshes its area. The tasks are declared asynchronous (ArcGIS's clients submit and poll) and run
+   before `submitJob` answers, as the print service does; the caller is the map's owner or an administrator. It is advertised in
+   the services directory and as `helperServices.packaging` of `portals/self` (the key is `INFERRED`, by the pattern of `geometry`,
+   `printTask` and `analysis`). **The way to replace these guesses with facts** is the task description a real portal serves at
+   `…/GPServer/CreateMapArea?f=json`, which is the service describing itself and not documentation.
+
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network
