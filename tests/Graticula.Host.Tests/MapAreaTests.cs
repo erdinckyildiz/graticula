@@ -120,6 +120,23 @@ public sealed class MapAreaTests : IDisposable
         public Task<IReadOnlyList<MapAreaPackage>> PackagesOfMapAsync(string mapId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<MapAreaPackage>>([.. Packages.Where(p => p.MapId == mapId)]);
 
+        public Task<IReadOnlyList<MapAreaPackage>> PackagesOfServiceAsync(Guid serviceId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<MapAreaPackage>>([.. Packages.Where(p => p.ServiceId == serviceId)]);
+
+        public Task<IReadOnlyList<MapAreaPackage>> PackagesOfOwnerAsync(string memberName, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<MapAreaPackage>>([]);
+
+        public List<(string? MapId, Guid? ServiceId)> Marked { get; } = [];
+
+        public Task<int> MarkNeedsRefreshAsync(string? mapId, Guid? serviceId, CancellationToken cancellationToken)
+        {
+            Marked.Add((mapId, serviceId));
+            return Task.FromResult(1);
+        }
+
+        public Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlySet<string>>(Packages.Select(p => p.FilePath).ToHashSet());
+
         public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
@@ -590,6 +607,75 @@ public sealed class MapAreaTests : IDisposable
 
         Assert.Empty(replicas.Registered);
         Assert.False(File.Exists(path));
+    }
+
+    // ------------------------------------------------------------------------------------------------ D-407
+
+    [Fact]
+    public void The_orphan_sweep_removes_a_day_old_file_no_row_names_and_keeps_the_named_the_young_and_strangers()
+    {
+        MapAreaPackageFiles files = new(_directory);
+        Directory.CreateDirectory(files.Directory);
+        string named = "0123456789abcdef0123456789abcdef.geodatabase", orphan = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.vtpk";
+        string young = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.geodatabase", stranger = "notes.txt";
+
+        foreach (string f in new[] { named, orphan, young, stranger })
+        {
+            File.WriteAllText(Path.Combine(files.Directory, f), "x");
+        }
+
+        foreach (string f in new[] { named, orphan, stranger })
+        {
+            File.SetLastWriteTimeUtc(Path.Combine(files.Directory, f), DateTime.UtcNow.AddDays(-2));
+        }
+
+        int removed = files.SweepOrphans(new HashSet<string> { $"map-area-package-files/{named}" }, TimeSpan.FromDays(1));
+
+        Assert.Equal(1, removed);
+        Assert.True(File.Exists(Path.Combine(files.Directory, named)), "A file a row names was removed.");
+        Assert.False(File.Exists(Path.Combine(files.Directory, orphan)), "A day-old file nothing names was kept.");
+        Assert.True(File.Exists(Path.Combine(files.Directory, young)), "A file written moments ago, its row not yet recorded, was removed.");
+        Assert.True(File.Exists(Path.Combine(files.Directory, stranger)), "A file this class never writes was removed.");
+    }
+
+    [Fact]
+    public async Task Turning_sync_off_puts_the_packages_replicas_and_files_away_and_marks_their_areas()
+    {
+        MapAreaPackageFiles files = new(_directory);
+        (string path, string recorded) = files.Next();
+        await File.WriteAllBytesAsync(path, [1, 2, 3]);
+        MapArea area = Area();
+        MapAreaPackage held = Package(area, recorded);
+        MemoryAreas areas = new() { Areas = { area }, Packages = { held } };
+        MemoryReplicas replicas = new(held.ReplicaId!.Value);
+        HttpContext context = Context(Member(Owner, "owner"), areas, Map(SharingScope.Private), replicas);
+
+        IReadOnlyList<MapAreaPackage> before = await MapAreaPackaging.PackagesOfServiceAsync(context.RequestServices, held.ServiceId, CancellationToken.None);
+        await MapAreaPackaging.PutAwayForSyncOffAsync(context.RequestServices, before, held.ServiceId, CancellationToken.None);
+
+        Assert.Equal(held.Id, Assert.Single(before).Id);
+        Assert.Empty(replicas.Registered);
+        Assert.False(File.Exists(path));
+        Assert.Equal((null, held.ServiceId), Assert.Single(areas.Marked));
+
+        // A service with no package does nothing at all.
+        areas.Marked.Clear();
+        await MapAreaPackaging.PutAwayForSyncOffAsync(context.RequestServices, [], Guid.NewGuid(), CancellationToken.None);
+        Assert.Empty(areas.Marked);
+    }
+
+    [Fact]
+    public async Task A_map_or_service_restored_from_the_recycle_bin_marks_its_areas_and_any_other_kind_marks_none()
+    {
+        MemoryAreas areas = new();
+        HttpContext context = Context(Member(Owner, "owner"), areas, Map(SharingScope.Private));
+        Guid service = Guid.NewGuid();
+
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "web map", Guid.Parse(MapId), CancellationToken.None);
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "service", service, CancellationToken.None);
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, "document", Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal([(MapId, (Guid?)null), (null, (Guid?)service)], areas.Marked);
     }
 
     [Fact]

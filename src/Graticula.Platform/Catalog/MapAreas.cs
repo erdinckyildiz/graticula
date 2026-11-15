@@ -93,6 +93,13 @@ public static class MapAreas
 
     /// <summary>The status of an area whose packages are all written. INFERRED: the value is not measured.</summary>
     public const string Complete = "complete";
+
+    /// <summary>
+    /// The status of an area whose packages' files and replicas were put away since they were written - the map or the service
+    /// went to the recycle bin and was brought back, or the service's sync was turned off (D-407). INFERRED: the word is
+    /// ours; refreshing the area writes the packages again and sets <see cref="Complete"/>.
+    /// </summary>
+    public const string NeedsRefresh = "needs refresh";
 }
 
 /// <summary>
@@ -176,6 +183,36 @@ public interface IMapAreaStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The packages.</returns>
     Task<IReadOnlyList<MapAreaPackage>> PackagesOfMapAsync(string mapId, CancellationToken cancellationToken);
+
+    /// <summary>Every package of a service, in any area of any map - what deleting the service, or turning its sync off, puts away.</summary>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The packages.</returns>
+    Task<IReadOnlyList<MapAreaPackage>> PackagesOfServiceAsync(Guid serviceId, CancellationToken cancellationToken);
+
+    /// <summary>Every package of every area of the web maps a member owns - what removing the member takes with them.</summary>
+    /// <param name="memberName">The member's name.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The packages.</returns>
+    Task<IReadOnlyList<MapAreaPackage>> PackagesOfOwnerAsync(string memberName, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sets <see cref="MapAreas.NeedsRefresh"/> on the areas of a map, or the areas holding a package of a service - what
+    /// restoring either from the recycle bin, or turning sync off, leaves behind: rows whose files and replicas are gone.
+    /// </summary>
+    /// <param name="mapId">The map whose areas to mark, or null.</param>
+    /// <param name="serviceId">The service whose packages' areas to mark, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many areas were marked.</returns>
+    Task<int> MarkNeedsRefreshAsync(string? mapId, Guid? serviceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every file name a package row names, in any organisation's rows and in the recycle bin's copies of them - what
+    /// the orphan sweep (D-407) must not remove.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The recorded names.</returns>
+    Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken);
 
     /// <summary>Deletes an area, its packages and their items by cascade.</summary>
     /// <param name="id">The area.</param>

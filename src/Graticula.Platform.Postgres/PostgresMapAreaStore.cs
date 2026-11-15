@@ -292,6 +292,73 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<MapAreaPackage>> PackagesOfServiceAsync(Guid serviceId, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {PackageColumns} from map_area_package p join map_area a on a.id = p.area_id where p.service_id = @service "
+            + "order by p.created_at, p.id");
+        command.Parameters.AddWithValue("service", serviceId);
+
+        return await ReadPackagesAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<MapAreaPackage>> PackagesOfOwnerAsync(string memberName, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select {PackageColumns} from map_area_package p join map_area a on a.id = p.area_id "
+            + "where a.map_id in (select web_map_id from item where web_map_id is not null "
+            + "and owner_principal_id in (select id from principal where id = graticula_principal_named(@name))) "
+            + "order by p.created_at, p.id");
+        command.Parameters.AddWithValue("name", memberName);
+
+        return await ReadPackagesAsync(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> MarkNeedsRefreshAsync(string? mapId, Guid? serviceId, CancellationToken cancellationToken)
+    {
+        if (mapId is null && serviceId is null)
+        {
+            return 0;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update map_area set status = @status
+             where status <> @status
+               and ((@map::text is not null and map_id = @map::text)
+                 or (@service::uuid is not null and id in (select area_id from map_area_package where service_id = @service::uuid)))
+            """);
+        command.Parameters.AddWithValue("status", MapAreas.NeedsRefresh);
+        command.Parameters.Add(new NpgsqlParameter("map", NpgsqlDbType.Text) { Value = (object?)mapId ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("service", NpgsqlDbType.Uuid) { Value = (object?)serviceId ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken)
+    {
+        // Every organisation's rows, as the sweep is of one shared folder: read through the root source, as the document
+        // store's ContentFilesAsync is (ADR-204). A recycled map's rows are kept whole in recycle_row (ADR-203).
+        HashSet<string> named = new(StringComparer.Ordinal);
+        await using NpgsqlCommand command = _root.CreateCommand(
+            "select file_path from map_area_package "
+            + "union select row->>'file_path' from recycle_row where table_name = 'map_area_package' and row->>'file_path' is not null");
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            named.Add(reader.GetString(0));
+        }
+
+        return named;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         // The area's item goes with it by cascade, and the packages and their items with it.

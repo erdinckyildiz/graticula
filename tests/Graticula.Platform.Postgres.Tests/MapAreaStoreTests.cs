@@ -279,4 +279,61 @@ public sealed class MapAreaStoreTests : PostgresFixture
             + "and tablename in ('map_area', 'map_area_package') and policyname = 'tenant_floor'");
         Assert.Equal(2, policies);
     }
+
+    [Fact]
+    public async Task The_orphan_sweeps_names_are_every_rows_file_live_or_in_the_recycle_bin_and_a_service_names_its_packages()
+    {
+        Ready r = await ReadyAsync();
+        MapArea area = Area(r);
+        MapAreaPackage package = Package(r, area, "map-area-package-files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.geodatabase");
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        await r.Areas.AddPackageAsync(package, "North - Hydrants", CancellationToken.None);
+
+        Assert.Contains(package.FilePath, await r.Areas.FilesAsync(CancellationToken.None));
+        Assert.Equal(package.Id, Assert.Single(await r.Areas.PackagesOfServiceAsync(r.Service, CancellationToken.None)).Id);
+        Assert.Empty(await r.Areas.PackagesOfServiceAsync(Guid.NewGuid(), CancellationToken.None));
+
+        // The map goes to the recycle bin: its package rows are kept whole there, and the file they name is still named.
+        PostgresRecycleBin bin = new(DataSource);
+        Guid? entry = await bin.RecycleAsync(
+            "web_map", r.Map.Id, Guid.Parse(r.Map.Id), "web map", "Hydrants map", r.Owner, r.Owner,
+            DateTimeOffset.UtcNow.AddDays(14), [], CancellationToken.None);
+        Assert.NotNull(entry);
+        Assert.Null(await r.Areas.FindPackageAsync(package.Id, CancellationToken.None));
+        Assert.Contains(package.FilePath, await r.Areas.FilesAsync(CancellationToken.None));
+
+        // Brought back, its areas return as rows; marking them says they need a refresh, and does so once.
+        Assert.Null(await bin.RestoreRowsAsync(entry!.Value, CancellationToken.None));
+        Assert.Equal(MapAreas.Complete, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+        Assert.Equal(1, await r.Areas.MarkNeedsRefreshAsync(r.Map.Id, null, CancellationToken.None));
+        Assert.Equal(0, await r.Areas.MarkNeedsRefreshAsync(r.Map.Id, null, CancellationToken.None));
+        Assert.Equal(MapAreas.NeedsRefresh, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
+
+        // A refresh writes the area again and says it is complete.
+        Assert.True(await r.Areas.SetStatusAsync(area.Id, MapAreas.Complete, DateTimeOffset.UtcNow, CancellationToken.None));
+        Assert.Equal(1, await r.Areas.MarkNeedsRefreshAsync(null, r.Service, CancellationToken.None));
+        Assert.Equal(0, await r.Areas.MarkNeedsRefreshAsync(null, null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_removed_members_maps_name_their_packages()
+    {
+        Ready r = await ReadyAsync();
+        MapArea area = Area(r);
+        MapAreaPackage package = Package(r, area);
+        await r.Areas.CreateAsync(area, CancellationToken.None);
+        await r.Areas.AddPackageAsync(package, "North - Hydrants", CancellationToken.None);
+
+        string name = await ScalarNameAsync(r.Owner);
+
+        Assert.Equal(package.Id, Assert.Single(await r.Areas.PackagesOfOwnerAsync(name, CancellationToken.None)).Id);
+        Assert.Empty(await r.Areas.PackagesOfOwnerAsync("nobody-" + Guid.NewGuid().ToString("N")[..8], CancellationToken.None));
+    }
+
+    private async Task<string> ScalarNameAsync(Guid principal)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand("select name from principal where id = @id");
+        command.Parameters.AddWithValue("id", principal);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
 }

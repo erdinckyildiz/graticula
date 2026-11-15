@@ -956,6 +956,9 @@ public static class Program
         // D-389: scene package files nothing names any more, swept hourly once per site.
         builder.Services.AddHostedService<ScenePackageFileSweep>();
 
+        // D-407: map area package files no row names, swept hourly once per site.
+        builder.Services.AddHostedService<MapAreaPackageFileSweep>();
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 

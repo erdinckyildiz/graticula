@@ -217,8 +217,12 @@ internal static partial class AdminEndpoints
 
         if (!request.Enabled && layer.ServiceSyncEnabled)
         {
+            IReadOnlyList<MapAreaPackage> packages = await MapAreaPackaging
+                .PackagesOfServiceAsync(context.RequestServices, layer.ServiceId, cancellation).ConfigureAwait(false);
             unregistered = await context.RequestServices.GetRequiredService<IOfflineSyncStore>()
                 .SetEnabledAsync(layer.ServiceId, false, cancellation).ConfigureAwait(false);
+            await MapAreaPackaging.PutAwayForSyncOffAsync(context.RequestServices, packages, layer.ServiceId, cancellation)
+                .ConfigureAwait(false);
             syncStopped = true;
         }
 

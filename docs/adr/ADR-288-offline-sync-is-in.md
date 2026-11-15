@@ -255,6 +255,17 @@ serves the same shape. None was stated by the owner.
    out on the device. A package that is ours and fails to write fails the whole area, as a feature package's failure
    does. Refresh and delete treat it as any other package; refresh rewrites the packages the area has.
 
+7. **Putting packages away, and what restoring brings back** *(2026-11-15, D-407; `INFERRED`, none stated by the owner)*.
+   A package's file and replica are put away wherever its row goes: with a map (`DeleteWebMapAsync`), with a service
+   (`RecycleBinService.RecycleServiceAsync`, which also covers a member's delete-owned removal), with a member's maps
+   (`RemoveMemberAsync`), and when a service's sync is turned off, where the package items stay (a device may hold one)
+   and the files and replicas go. An orphan sweep (`MapAreaPackageFileSweep`) removes a day-old file no row names, and
+   `Backups` copies the folder. **Restoring from the recycle bin marks, it does not rebuild:** the areas of a restored map or
+   service take the status `needs refresh`, their packages answer that the file is no longer held, and refreshing writes
+   them. Rebuilding on restore would need a caller to own the new replicas and to be able to read every service the map
+   names, and a restore that failed halfway for either reason must not undo the restore. The word `needs refresh` is ours;
+   the portal item presents it as `failed`, the nearest of the three words an Enterprise portal uses (research note §5a.1).
+
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -14,7 +15,7 @@ namespace Graticula.Host;
 /// <para>
 /// <b>Beside the scene packages, not among them.</b> ADR-274's <c>scene-package-files/</c> is swept of every file no
 /// document names (D-389); a package's file is named by a row in another table, and a sweep that does not know it would
-/// take it. This folder has its own, and no sweep yet (D-407).
+/// take it. This folder has its own sweep, <see cref="MapAreaPackageFileSweep"/> (D-407).
 /// </para>
 /// <para>
 /// <b>Named by a fresh id, not by the hash.</b> Two packages written from the same rows are two replicas, and each owns
@@ -99,6 +100,54 @@ internal sealed partial class MapAreaPackageFiles
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Removes the package files no row names that are older than <paramref name="age"/> - D-407, modelled on
+    /// <c>ScenePackageFiles.SweepOrphans</c> (D-389). A file written moments ago may be waiting for its row, so it is kept.
+    /// </summary>
+    /// <param name="named">The recorded names rows hold, live or in the recycle bin.</param>
+    /// <param name="age">How old a file must be to go.</param>
+    /// <returns>How many were removed.</returns>
+    public int SweepOrphans(IReadOnlySet<string> named, TimeSpan age)
+    {
+        ArgumentNullException.ThrowIfNull(named);
+
+        if (!System.IO.Directory.Exists(Directory))
+        {
+            return 0;
+        }
+
+        int removed = 0;
+        DateTime before = DateTime.UtcNow - age;
+
+        foreach (string file in System.IO.Directory.EnumerateFiles(Directory))
+        {
+            string name = System.IO.Path.GetFileName(file);
+
+            if (!FileName().IsMatch(name) || named.Contains($"{Folder}/{name}"))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < before)
+                {
+                    File.Delete(file);
+                    removed++;
+                }
+            }
+            catch (IOException)
+            {
+                // In use or already gone: the next pass tries again.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return removed;
     }
 
     /// <summary>The SHA-256 (lower-case hexadecimal) and length of a file, read as a stream.</summary>

@@ -631,6 +631,81 @@ internal static class MapAreaPackaging
         }
     }
 
+    /// <summary>
+    /// The packages taken from a service, to be put away with <see cref="DiscardAsync"/> once the service is deleted or its
+    /// sync turned off (D-407); none when this deployment keeps no map areas.
+    /// </summary>
+    /// <param name="services">The services.</param>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The packages.</returns>
+    public static async Task<IReadOnlyList<MapAreaPackage>> PackagesOfServiceAsync(IServiceProvider services, Guid serviceId, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        return services.GetService<IMapAreaStore>() is { } store
+            ? await store.PackagesOfServiceAsync(serviceId, cancellation).ConfigureAwait(false)
+            : [];
+    }
+
+    /// <summary>
+    /// Puts away the replicas and files of the packages a service's sync being turned off leaves behind, and marks their
+    /// areas <see cref="MapAreas.NeedsRefresh"/> (D-407). The package items stay, as the migration 139 comment says they must
+    /// for a device that holds one; their <c>/data</c> answers that the file is no longer held.
+    /// </summary>
+    /// <param name="services">The services.</param>
+    /// <param name="packages">What <see cref="PackagesOfServiceAsync"/> read before the switch.</param>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>A task.</returns>
+    public static async Task PutAwayForSyncOffAsync(
+        IServiceProvider services, IReadOnlyList<MapAreaPackage> packages, Guid serviceId, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(packages);
+
+        if (packages.Count == 0)
+        {
+            return;
+        }
+
+        await DiscardAsync(services, packages, cancellation).ConfigureAwait(false);
+
+        if (services.GetService<IMapAreaStore>() is { } store)
+        {
+            await store.MarkNeedsRefreshAsync(null, serviceId, cancellation).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// What restoring a web map or a service from the recycle bin does to its map areas (D-407 (3)): the rows come back, the
+    /// files and replicas do not, so the areas are marked <see cref="MapAreas.NeedsRefresh"/> and refreshing one writes its
+    /// packages again. INFERRED: marking is the simpler correct choice, because rebuilding on restore would need the
+    /// restoring request's caller to own the new replicas and to be able to read every service the map names, and a restore
+    /// that fails halfway for either reason must not undo the restore.
+    /// </summary>
+    /// <param name="services">The services.</param>
+    /// <param name="kind">The entry's kind: <c>web map</c> or <c>service</c> mean something here, others nothing.</param>
+    /// <param name="itemId">The restored item's id.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>How many areas were marked.</returns>
+    public static async Task<int> MarkRestoredAsync(IServiceProvider services, string kind, Guid itemId, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        if (services.GetService<IMapAreaStore>() is not { } store)
+        {
+            return 0;
+        }
+
+        return kind switch
+        {
+            "web map" => await store.MarkNeedsRefreshAsync(itemId.ToString("N"), null, cancellation).ConfigureAwait(false),
+            "service" => await store.MarkNeedsRefreshAsync(null, itemId, cancellation).ConfigureAwait(false),
+            _ => 0,
+        };
+    }
+
     // ------------------------------------------------------------------------------------------------ a basemap's package
 
     /// <summary>A vector tile service of this server that a map uses as a basemap, and the address the map gives it.</summary>

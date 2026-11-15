@@ -11608,6 +11608,15 @@ internal static partial class AdminEndpoints
         int unpublished = 0;
         List<string> uncheckedLayers = [];
 
+        // D-407: their web maps go with them by SQL, and a map's areas and packages by cascade as rows. What each package
+        // stood for - a registered replica and a file - is read now and put away once the removal has gone through. A
+        // transfer moves the maps, so there is nothing to put away.
+        IReadOnlyList<MapAreaPackage> theirPackages = transferTo is { Length: > 0 }
+            ? []
+            : context.RequestServices.GetService<IMapAreaStore>() is { } areaStore
+                ? await areaStore.PackagesOfOwnerAsync(name, cancellation).ConfigureAwait(false)
+                : [];
+
         if (transferTo is { Length: > 0 } receiver)
         {
             if (string.Equals(name, receiver, StringComparison.OrdinalIgnoreCase))
@@ -11756,6 +11765,11 @@ internal static partial class AdminEndpoints
 
             await Refuse(context, code, why).ConfigureAwait(false);
             return;
+        }
+
+        if (theirPackages.Count > 0)
+        {
+            await MapAreaPackaging.DiscardAsync(context.RequestServices, theirPackages, CancellationToken.None).ConfigureAwait(false);
         }
 
         await AuditAsync(
