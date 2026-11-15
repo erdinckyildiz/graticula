@@ -225,7 +225,7 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    the phone on *Sync now*; (b) one replaced on the server arrives changed; (c) one deleted on the server disappears while its
    feature stays; (d) a photo taken on the phone, synced, then replaced and deleted on the phone is applied by the server
    (the case the kept GlobalID exists for); (e) a feature deleted on the server does not make the sync fail on the attachments
-   the phone still holds for it (§11.1); (f) the repeat described in §3 is taken quietly. **PARTLY DISCHARGED 2026-11-13** —
+   the phone still holds for it (§11.1); (f) the repeat described in §3 is taken quietly. ~~**PARTLY DISCHARGED 2026-11-13**~~ (all six by 2026-11-15, below) —
    (a)–(e) on the Field Maps 26.2.2 emulator against dev, on a preplanned area registered with `registerExistingData`, each
    read back from both sides (the phone's geodatabase pulled with `adb`, the server's table read):
    - (a) `server-photo-2.png` added on the server arrived on the next *Sync now*, under its feature (`attachments +1`).
@@ -235,7 +235,7 @@ None recorded; the design was proposed in the task and not argued with anyone. T
      the phone, the server's row was renamed; removed on the phone, the server's row was deleted. Before this ADR the last
      two were refused.
    - (e) feature 6 deleted on the server, with `Photo 1.jpg` on the phone: the sync completed and both went (§11.1).
-   - (f) is not measured: a lost answer cannot be made to happen from the emulator. The store's half is tested (§4).
+   - ~~(f) is not measured: a lost answer cannot be made to happen from the emulator. The store's half is tested (§4).~~ (f) **measured 2026-11-15**, by making the repeat happen rather than the lost answer that causes it. `server-added.png` arrived on the phone (`attachments +1`, GlobalID `70168FC0-…`, the layer's generation moved), and an `insert` for the same attachment was then written into the change record by hand. The next *Sync now* sent it again (`attachments +1`), an insert of a GlobalID the phone already held. The sync completed, the phone kept one row and one version of that attachment, and the generation moved again. Field Maps takes the repeat quietly. **DISCHARGED 2026-11-15**, all of (a)–(f).
 
    **What the measurement found besides.** The first attempt showed (a) failing, and the cause was §11.4's window, not this
    ADR's code: the phone asked from 1794474726446, its package's generation, sync after sync. `synchronizeReplica` now logs
@@ -281,8 +281,8 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    server added, one it replaced, and one a device made equals what the delta geodatabase carries for it, the group's `parentGlobalId`
    is the feature's, and `globalIds` finds and misses. The attachment conformance tests were read, not run (they need the seeded
    fixture): none asserts a null `globalId` or the old refusal of `globalIds`.
-5. **A window the record cannot vouch for sends what exists** (§11.4, D-423). **Built 2026-11-15; awaiting a measurement on a device. Not
-   discharged.** The fact it rests on, measured 2026-11-13: ArcGIS Runtime moves a layer's generation only when a delta has a
+5. **A window the record cannot vouch for sends what exists** (§11.4, D-423). ~~**Built 2026-11-15; awaiting a measurement on a device.**~~ **DISCHARGED 2026-11-15. Measured 2026-11-15** on dev with Field Maps 26.2.2 on the emulator. The change record's `begin` was moved past the phone's generation by hand, so its next window could not be vouched for. `hidden-before-record.png` had been added to feature 8 and its record entries removed, so the phone had never been sent it. *Sync now* logged `FULL RESEND … 2 attachments are sent as updates`. The phone then held `server-added.png`, which it already had, as one row and one version, unchanged. It also held `hidden-before-record.png`, which it never had: an update of a GlobalID the phone does not hold is taken as an insert. The layer's generation moved from 1794736008095 to 1794736917667, so the next window starts after it and is vouched for. Updates rather than inserts (INFERRED when built) is therefore right both for what the device holds and for what it does not. What remains is the residue the design names: an attachment deleted on the server before the record began is never sent as a delete.** ~~Not
+   discharged.~~ The fact it rests on, measured 2026-11-13: ArcGIS Runtime moves a layer's generation only when a delta has a
    `GDB_DataChangesDatasets` row for that layer (its feature class row or its `__ATTACH` row), so a window that sent nothing left a
    device asking from the same moment for ever. Now, when `IAttachmentSync.ChangesAsync` answers `Unvouched` (the record begins after
    the window did, or the table was emptied in it — and, since §12.2, when the record was pruned past it),
