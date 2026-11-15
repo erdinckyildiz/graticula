@@ -852,7 +852,7 @@ internal static class MapAreaPackaging
     /// named under <c>skipped</c>, because a device will not have it offline and an item that pretended otherwise would
     /// be found out in the field.
     /// </summary>
-    private static async Task<(List<TileTarget> Targets, List<SkippedService> Skipped)> BasemapTargetsAsync(
+    private static Task<(List<TileTarget> Targets, List<SkippedService> Skipped)> BasemapTargetsAsync(
         PackagingCaller packaging, WebMap map, IReadOnlyList<PublishedService> published, CancellationToken cancellation)
     {
         List<TileTarget> targets = [];
@@ -901,7 +901,7 @@ internal static class MapAreaPackaging
             targets.Add(new TileTarget(service, TileAddressOf(url), layer.Title));
         }
 
-        return (targets, skipped);
+        return Task.FromResult((targets, skipped));
     }
 
     /// <summary>
