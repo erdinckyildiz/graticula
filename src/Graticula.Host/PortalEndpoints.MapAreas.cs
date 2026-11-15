@@ -171,6 +171,37 @@ internal static partial class PortalEndpoints
     internal static string PortalStatusOf(string status) =>
         status is MapAreas.Processing or MapAreas.Complete ? status : MapAreas.Failed;
 
+    /// <summary>
+    /// A Map Area's <c>/data</c>: <c>{"mapAreas": {"mapAreaTileScale": {"minScale", "maxScale"}, "mapAreaRefreshParams": ...,
+    /// "mapAreasScheduledUpdatesEnabled": false}}</c>, the structure read on an Enterprise 12.1 portal (research note
+    /// section 5a.1). <c>mapAreaRefreshParams</c> is <c>{"type": "never"}</c> with no schedule and the weekly object
+    /// (<c>startDate</c>, <c>type</c>, <c>nthDay</c>, <c>dayOfWeek</c>) with one.
+    /// </summary>
+    /// <param name="area">The area.</param>
+    /// <returns>The JSON text.</returns>
+    internal static string MapAreaDataText(MapArea area)
+    {
+        ArgumentNullException.ThrowIfNull(area);
+
+        JsonNode refresh = area.RefreshParams is { } kept && JsonNode.Parse(kept) is { } parsed
+            ? parsed
+            : new JsonObject { ["type"] = "never" };
+
+        return new JsonObject
+        {
+            ["mapAreas"] = new JsonObject
+            {
+                ["mapAreaTileScale"] = new JsonObject
+                {
+                    ["minScale"] = area.TileScaleMin ?? MapAreas.DefaultTileScaleMin,
+                    ["maxScale"] = area.TileScaleMax ?? MapAreas.DefaultTileScaleMax,
+                },
+                ["mapAreaRefreshParams"] = refresh,
+                ["mapAreasScheduledUpdatesEnabled"] = area.ScheduledUpdates,
+            },
+        }.ToJsonString();
+    }
+
     /// <summary>A map area as a portal item of type <c>Map Area</c>.</summary>
     internal static object MapAreaItem(HttpContext context, WebMap map, MapArea area)
     {
@@ -198,10 +229,17 @@ internal static partial class PortalEndpoints
             access = Access(map.Sharing),
             @protected = false,
             spatialReference = (string?)null,
-            extent = DegreesOf(area),
-            properties = new { extent = EnvelopeOf(area, map), status = PortalStatusOf(area.Status) },
+            // Measured 2026-11-15 (research note section 5a.1): the item's own extent is an empty array on every Map Area; the
+            // area's extent is in properties.
+            extent = Array.Empty<double[]>(),
+            properties = new
+            {
+                extent = EnvelopeOf(area, map),
+                packageRefreshSchedule = area.ScheduledUpdates || area.PackageRefreshSchedule is not null ? area.PackageRefreshSchedule : null,
+                status = PortalStatusOf(area.Status),
+            },
             numViews = 0,
-            size = -1,
+            size = System.Text.Encoding.UTF8.GetByteCount(MapAreaDataText(area)),
             created = area.Created.ToUnixTimeMilliseconds(),
             modified = area.Refreshed.ToUnixTimeMilliseconds(),
         };

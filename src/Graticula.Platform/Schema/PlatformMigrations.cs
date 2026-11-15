@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(142);
+    public static SchemaVersion ComponentSchemaVersion => new(143);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -169,6 +169,7 @@ public static class PlatformMigrations
         AMapAreaMayHoldABasemapPackageV140,
         AMapAreaHoldsOnePackagePerServiceAndKindV141,
         APackageSaysWhetherItsFileIsWrittenV142,
+        AMapAreaKeepsItsRefreshScheduleAndTileScaleV143,
     ]);
 
     /// <summary>
@@ -340,6 +341,35 @@ public static class PlatformMigrations
         "alter table map_area_package drop constraint if exists map_area_package_one_per_service",
 
         "alter table map_area_package add constraint map_area_package_one_per_service unique (area_id, service_id, format)");
+
+    /// <summary>
+    /// A map area keeps the schedule it is refreshed on and the scales its tiles cover - ADR-288 section 11a, D-405, D-408.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand</b>: six nullable or defaulted columns. They are ArcGIS's own properties of a Map Area item, as read on an
+    /// Enterprise 12.1 portal (research note section 5a.1): <c>packageRefreshSchedule</c> (a Quartz cron or null),
+    /// <c>mapAreaRefreshParams</c>, <c>mapAreasScheduledUpdatesEnabled</c> and <c>mapAreaTileScale</c>. <c>origin</c> is ours: the
+    /// address the area was last reached at, which a refresh with no request writes its documents from.
+    /// </remarks>
+    private static Migration AMapAreaKeepsItsRefreshScheduleAndTileScaleV143 => Migration.Expand(
+        new SchemaVersion(143),
+        "A map area keeps its package refresh schedule, refresh parameters, tile scale and the address it was reached at (ADR-288 section 11a, D-405).",
+
+        "alter table map_area add column if not exists package_refresh_schedule text null",
+
+        "alter table map_area add column if not exists refresh_params jsonb null",
+
+        "alter table map_area add column if not exists scheduled_updates boolean not null default false",
+
+        "alter table map_area add column if not exists tile_scale_min double precision null",
+
+        "alter table map_area add column if not exists tile_scale_max double precision null",
+
+        "alter table map_area add column if not exists origin text null",
+
+        "alter table map_area drop constraint if exists map_area_tile_scale_ordered",
+
+        "alter table map_area add constraint map_area_tile_scale_ordered check (tile_scale_min is null or tile_scale_max is null or tile_scale_min >= tile_scale_max)");
 
     /// <summary>
     /// A map area's package says whether its file is written - ADR-288 section 11a, D-410: a basemap's tile package is written by

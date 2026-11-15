@@ -21,7 +21,8 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
 {
     private const string AreaColumns =
         "a.id, a.map_id, a.title, a.x_min, a.y_min, a.x_max, a.y_max, a.wkid, a.status, a.created_at, a.refreshed_at, "
-        + "a.creator_principal_id, a.creator_name";
+        + "a.creator_principal_id, a.creator_name, a.package_refresh_schedule, a.refresh_params::text, a.scheduled_updates, "
+        + "a.tile_scale_min, a.tile_scale_max, a.origin";
 
     private const string PackageColumns =
         "p.id, p.area_id, a.map_id, p.service_id, p.replica_id, p.file_name, p.file_path, p.sha256, p.size, p.properties::text, "
@@ -56,8 +57,10 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         await using (NpgsqlCommand insert = new(
             """
             insert into map_area (id, map_id, title, x_min, y_min, x_max, y_max, wkid, status, created_at, refreshed_at,
-                                  creator_principal_id, creator_name)
-            select @id, @map, @title, @xmin, @ymin, @xmax, @ymax, @wkid, @status, @created, @refreshed, @creator, @creatorname
+                                  creator_principal_id, creator_name, package_refresh_schedule, refresh_params, scheduled_updates,
+                                  tile_scale_min, tile_scale_max, origin)
+            select @id, @map, @title, @xmin, @ymin, @xmax, @ymax, @wkid, @status, @created, @refreshed, @creator, @creatorname,
+                   @schedule, @params, @enabled, @scalemin, @scalemax, @origin
              where exists (select 1 from web_map where id = @map)
             """, connection, transaction))
         {
@@ -74,6 +77,9 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
             insert.Parameters.AddWithValue("refreshed", area.Refreshed);
             insert.Parameters.AddWithValue("creator", area.Creator);
             insert.Parameters.AddWithValue("creatorname", area.CreatorName);
+            AddSettings(insert, new MapAreaSettings(
+                area.PackageRefreshSchedule, area.RefreshParams, area.ScheduledUpdates, area.TileScaleMin, area.TileScaleMax));
+            insert.Parameters.Add(new NpgsqlParameter("origin", NpgsqlDbType.Text) { Value = (object?)area.Origin ?? DBNull.Value });
 
             if (await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 0)
             {
@@ -522,6 +528,64 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         return named;
     }
 
+    private static void AddSettings(NpgsqlCommand command, MapAreaSettings settings)
+    {
+        command.Parameters.Add(new NpgsqlParameter("schedule", NpgsqlDbType.Text) { Value = (object?)settings.PackageRefreshSchedule ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("params", NpgsqlDbType.Jsonb) { Value = (object?)settings.RefreshParams ?? DBNull.Value });
+        command.Parameters.AddWithValue("enabled", settings.ScheduledUpdates);
+        command.Parameters.Add(new NpgsqlParameter("scalemin", NpgsqlDbType.Double) { Value = (object?)settings.TileScaleMin ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("scalemax", NpgsqlDbType.Double) { Value = (object?)settings.TileScaleMax ?? DBNull.Value });
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetSettingsAsync(Guid id, MapAreaSettings settings, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update map_area
+               set package_refresh_schedule = @schedule, refresh_params = @params, scheduled_updates = @enabled,
+                   tile_scale_min = @scalemin, tile_scale_max = @scalemax
+             where id = @id
+            """);
+        command.Parameters.AddWithValue("id", id);
+        AddSettings(command, settings);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> SetOriginAsync(Guid id, string origin, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(origin);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand("update map_area set origin = @origin where id = @id and origin is distinct from @origin");
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("origin", origin);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) >= 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<(MapArea Area, Guid Tenant)>> ScheduledAsync(CancellationToken cancellationToken)
+    {
+        // Every organisation's areas, as the scheduler is one per site (ADR-012, ADR-204): read through the root source.
+        await using NpgsqlCommand command = _root.CreateCommand(
+            $"select {AreaColumns}, a.tenant_id from map_area a "
+            + "where a.package_refresh_schedule is not null and a.scheduled_updates order by a.id");
+
+        List<(MapArea, Guid)> found = [];
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            found.Add((ReadArea(reader), reader.GetGuid(19)));
+        }
+
+        return found;
+    }
+
     /// <inheritdoc/>
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
@@ -558,7 +622,13 @@ public sealed class PostgresMapAreaStore : IMapAreaStore
         reader.GetFieldValue<DateTimeOffset>(9),
         reader.GetFieldValue<DateTimeOffset>(10),
         reader.GetGuid(11),
-        reader.GetString(12));
+        reader.GetString(12),
+        reader.IsDBNull(13) ? null : reader.GetString(13),
+        reader.IsDBNull(14) ? null : reader.GetString(14),
+        reader.GetBoolean(15),
+        reader.IsDBNull(16) ? null : reader.GetDouble(16),
+        reader.IsDBNull(17) ? null : reader.GetDouble(17),
+        reader.IsDBNull(18) ? null : reader.GetString(18));
 
     private static MapAreaPackage ReadPackage(NpgsqlDataReader reader) => new(
         reader.GetGuid(0),

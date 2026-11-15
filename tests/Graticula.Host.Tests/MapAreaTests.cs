@@ -151,6 +151,13 @@ public sealed class MapAreaTests : IDisposable
         public Task<string?> SettleStatusAsync(Guid id, DateTimeOffset refreshed, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<bool> SetSettingsAsync(Guid id, MapAreaSettings settings, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> SetOriginAsync(Guid id, string origin, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<(MapArea Area, Guid Tenant)>> ScheduledAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<(MapArea, Guid)>>([]);
+
         public Task<IReadOnlySet<string>> FilesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlySet<string>>(Packages.Select(p => p.FilePath).ToHashSet());
 
@@ -346,10 +353,122 @@ public sealed class MapAreaTests : IDisposable
         Assert.Equal(3600000, extent.GetProperty("xmin").GetDouble());
         Assert.Equal(3857, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
 
-        // The item's own extent is in degrees: Web Mercator 3.6e6, 4.8e6 is near 32.3 E, 39.5 N.
-        double[][] corners = [.. item.GetProperty("extent").EnumerateArray().Select(c => c.EnumerateArray().Select(n => n.GetDouble()).ToArray())];
-        Assert.InRange(corners[0][0], 32.3, 32.4);
-        Assert.InRange(corners[0][1], 39.5, 39.6);
+        // Read on an Enterprise 12.1 portal on 2026-11-15 (research note 5a.1): the item's own extent is an empty array and its
+        // spatialReference is null, on every Map Area; the area's extent is in properties.
+        Assert.Equal(JsonValueKind.Array, item.GetProperty("extent").ValueKind);
+        Assert.Equal(0, item.GetProperty("extent").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("spatialReference").ValueKind);
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("properties").GetProperty("packageRefreshSchedule").ValueKind);
+
+        // Its size is the size of its /data text.
+        Assert.Equal(Encoding.UTF8.GetByteCount(PortalEndpoints.MapAreaDataText(area)), item.GetProperty("size").GetInt32());
+    }
+
+    [Fact]
+    public void A_map_areas_data_is_the_mapAreas_object_an_enterprise_portal_keeps()
+    {
+        // A weekly schedule, as read: cron 41 2 15 ? * TUE goes with {type weekly, dayOfWeek 2, nthDay 1}.
+        QuartzCron cron = QuartzCron.TryParse("41 2 15 ? * TUE", out QuartzCron parsed, out _) ? parsed : throw new InvalidOperationException();
+        string weekly = JsonSerializer.Serialize(cron.WeeklyParams(DateTimeOffset.Parse("2024-05-07T15:02:41.043Z")));
+        MapArea scheduled = Area() with
+        {
+            PackageRefreshSchedule = "41 2 15 ? * TUE", RefreshParams = weekly, ScheduledUpdates = true, TileScaleMin = 147914382, TileScaleMax = 20000,
+        };
+
+        JsonElement data = JsonDocument.Parse(PortalEndpoints.MapAreaDataText(scheduled)).RootElement.GetProperty("mapAreas");
+        Assert.Equal(147914382, data.GetProperty("mapAreaTileScale").GetProperty("minScale").GetDouble());
+        Assert.Equal(20000, data.GetProperty("mapAreaTileScale").GetProperty("maxScale").GetDouble());
+        Assert.Equal("weekly", data.GetProperty("mapAreaRefreshParams").GetProperty("type").GetString());
+        Assert.Equal(2, data.GetProperty("mapAreaRefreshParams").GetProperty("dayOfWeek").GetInt32());
+        Assert.Equal(1, data.GetProperty("mapAreaRefreshParams").GetProperty("nthDay").GetInt32());
+        Assert.True(data.GetProperty("mapAreaRefreshParams").TryGetProperty("startDate", out _));
+        Assert.True(data.GetProperty("mapAreasScheduledUpdatesEnabled").GetBoolean());
+
+        // No schedule: {"type": "never"}, updates off, and the same three keys.
+        JsonElement never = JsonDocument.Parse(PortalEndpoints.MapAreaDataText(Area())).RootElement.GetProperty("mapAreas");
+        Assert.Equal("""{"type":"never"}""", never.GetProperty("mapAreaRefreshParams").GetRawText());
+        Assert.False(never.GetProperty("mapAreasScheduledUpdatesEnabled").GetBoolean());
+        Assert.Equal(["mapAreaTileScale", "mapAreaRefreshParams", "mapAreasScheduledUpdatesEnabled"], never.EnumerateObject().Select(p => p.Name));
+
+        // The cron is the item's own property.
+        HttpContext context = Context(Member(Owner, "owner"), new MemoryAreas { Areas = { scheduled } }, Map(SharingScope.Private));
+        Assert.Equal("41 2 15 ? * TUE",
+            Json(PortalEndpoints.MapAreaItem(context, Map(SharingScope.Private), scheduled)).GetProperty("properties").GetProperty("packageRefreshSchedule").GetString());
+    }
+
+    [Fact]
+    public void Settings_are_read_as_a_weekly_schedule_and_a_scale_and_anything_else_is_refused_by_name()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-11-15T10:00:00Z");
+        JsonNode scale = JsonNode.Parse("""{"minScale": 750000, "maxScale": 20000}""")!;
+
+        Assert.True(AdminEndpoints.TryReadAreaSettings("0 30 2 ? * MON", true, null, scale, true, null, now, out MapAreaSettings ok, out string? why), why);
+        Assert.Equal(("0 30 2 ? * MON", true, 750000d, 20000d), (ok.PackageRefreshSchedule, ok.ScheduledUpdates, ok.TileScaleMin, ok.TileScaleMax));
+        Assert.Contains("\"dayOfWeek\":1", ok.RefreshParams, StringComparison.Ordinal);
+
+        // Sent as off, a schedule is kept and does not run; null clears it; what is not sent is not changed.
+        Assert.True(AdminEndpoints.TryReadAreaSettings("0 30 2 ? * MON", true, false, null, false, null, now, out MapAreaSettings off, out _));
+        Assert.False(off.ScheduledUpdates);
+        MapArea held = Area() with { PackageRefreshSchedule = ok.PackageRefreshSchedule, RefreshParams = ok.RefreshParams, ScheduledUpdates = true, TileScaleMin = 750000, TileScaleMax = 20000 };
+        Assert.True(AdminEndpoints.TryReadAreaSettings(null, true, null, null, false, held, now, out MapAreaSettings cleared, out _));
+        Assert.Equal((null, null, false, 750000d), (cleared.PackageRefreshSchedule, cleared.RefreshParams, cleared.ScheduledUpdates, cleared.TileScaleMin));
+        Assert.True(AdminEndpoints.TryReadAreaSettings(null, false, null, null, true, held, now, out MapAreaSettings unscaled, out _));
+        Assert.Equal(("0 30 2 ? * MON", true, null), (unscaled.PackageRefreshSchedule, unscaled.ScheduledUpdates, unscaled.TileScaleMin));
+
+        Assert.False(AdminEndpoints.TryReadAreaSettings("nonsense", true, null, null, false, null, now, out _, out why));
+        Assert.Contains("packageRefreshSchedule", why, StringComparison.Ordinal);
+        Assert.False(AdminEndpoints.TryReadAreaSettings("0 0 3 * * ?", true, null, null, false, null, now, out _, out why));
+        Assert.Contains("weekly", why, StringComparison.Ordinal);
+        Assert.False(AdminEndpoints.TryReadAreaSettings(null, false, true, null, false, null, now, out _, out why));
+        Assert.Contains("scheduledUpdatesEnabled", why, StringComparison.Ordinal);
+        Assert.False(AdminEndpoints.TryReadAreaSettings(null, false, null, JsonNode.Parse("""{"minScale": 100, "maxScale": 5000}"""), true, null, now, out _, out why));
+        Assert.Contains("mapAreaTileScale", why, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_schedule_is_due_once_a_run_has_passed_since_the_packages_were_written_and_not_while_it_is_off_or_just_failed()
+    {
+        // 2026-11-15 is a Sunday; the Monday run is 2026-11-16 02:30 UTC.
+        MapArea area = Area() with { PackageRefreshSchedule = "0 30 2 ? * MON", ScheduledUpdates = true, Refreshed = DateTimeOffset.Parse("2026-11-15T10:00:00Z") };
+
+        Assert.False(MapAreaRefreshScheduler.IsDue(area, DateTimeOffset.Parse("2026-11-16T02:29:59Z")));
+        Assert.True(MapAreaRefreshScheduler.IsDue(area, DateTimeOffset.Parse("2026-11-16T02:30:00Z")));
+
+        // Refreshed after the run: the next one is a week on, so a refresh by hand postpones it.
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { Refreshed = DateTimeOffset.Parse("2026-11-16T03:00:00Z") }, DateTimeOffset.Parse("2026-11-17T00:00:00Z")));
+        Assert.True(MapAreaRefreshScheduler.IsDue(area with { Refreshed = DateTimeOffset.Parse("2026-11-16T03:00:00Z") }, DateTimeOffset.Parse("2026-11-23T02:30:00Z")));
+
+        // Off, no schedule, or a schedule this server cannot read: never.
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { ScheduledUpdates = false }, DateTimeOffset.Parse("2026-12-01T00:00:00Z")));
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { PackageRefreshSchedule = null }, DateTimeOffset.Parse("2026-12-01T00:00:00Z")));
+        Assert.False(MapAreaRefreshScheduler.IsDue(area with { PackageRefreshSchedule = "garbage" }, DateTimeOffset.Parse("2026-12-01T00:00:00Z")));
+
+        // A try that failed a few minutes ago is not repeated at once, and is after ten.
+        DateTimeOffset due = DateTimeOffset.Parse("2026-11-16T02:30:00Z");
+        Assert.False(MapAreaRefreshScheduler.IsDue(area, due.AddMinutes(5), due));
+        Assert.True(MapAreaRefreshScheduler.IsDue(area, due.AddMinutes(11), due));
+    }
+
+    [Fact]
+    public void The_tile_scale_bounds_the_levels_from_the_one_at_the_coarse_scale_to_the_one_at_the_fine_scale()
+    {
+        Graticula.Tiles.VectorTileScheme scheme = Graticula.Tiles.VectorTileScheme.WebMercator;
+
+        Assert.Null(MapAreaPackaging.LevelsForScales(scheme, null, null));
+
+        // This grid has 512-pixel tiles, so level 0 is 1:295828763: 1:750000 lies between levels 8 (1155581) and 9 (577790), and the level at
+        // or coarser is 8; 1:20000 is first reached at level 14 (18056).
+        IReadOnlyList<int> levels = MapAreaPackaging.LevelsForScales(scheme, 750000, 20000)!;
+        Assert.Equal(8, levels[0]);
+        Assert.Equal(14, levels[^1]);
+        Assert.Equal(levels.Count, levels[^1] - levels[0] + 1);
+
+        // A fine scale alone starts at the top of the grid; a coarse one alone runs to its last level.
+        Assert.Equal(0, MapAreaPackaging.LevelsForScales(scheme, null, 20000)![0]);
+        Assert.Equal(scheme.MaxLevel, MapAreaPackaging.LevelsForScales(scheme, 750000, null)![^1]);
+
+        // Never an empty set: a range that runs backwards is the one level.
+        Assert.Single(MapAreaPackaging.LevelsForScales(scheme, 1000, 5000)!);
     }
 
     [Fact]

@@ -440,4 +440,41 @@ public sealed class MapAreaStoreTests : PostgresFixture
         Assert.Equal(MapAreas.PackageProcessing, (await r.Areas.FindPackageAsync(live.Id, CancellationToken.None))!.Status);
         Assert.Equal(MapAreas.Processing, (await r.Areas.FindAsync(area.Id, CancellationToken.None))!.Status);
     }
+
+    [Fact]
+    public async Task An_areas_schedule_scale_and_address_are_kept_and_the_scheduled_ones_are_listed()
+    {
+        Ready r = await ReadyAsync();
+        MapArea plain = Area(r, "Plain");
+        MapArea timed = Area(r, "Timed") with { Origin = "https://maps.example.test:8443" };
+        await r.Areas.CreateAsync(plain, CancellationToken.None);
+        await r.Areas.CreateAsync(timed, CancellationToken.None);
+
+        Assert.Empty(await r.Areas.ScheduledAsync(CancellationToken.None));
+        Assert.Equal("https://maps.example.test:8443", (await r.Areas.FindAsync(timed.Id, CancellationToken.None))!.Origin);
+
+        MapAreaSettings settings = new(
+            "41 2 15 ? * TUE", """{"startDate":"2026-11-15T10:00:00.000Z","type":"weekly","nthDay":1,"dayOfWeek":2}""", true, 147914382, 20000);
+        Assert.True(await r.Areas.SetSettingsAsync(timed.Id, settings, CancellationToken.None));
+
+        MapArea read = (await r.Areas.FindAsync(timed.Id, CancellationToken.None))!;
+        Assert.Equal(("41 2 15 ? * TUE", true, 147914382d, 20000d), (read.PackageRefreshSchedule, read.ScheduledUpdates, read.TileScaleMin, read.TileScaleMax));
+        // jsonb keeps the document, not its key order.
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(settings.RefreshParams!), System.Text.Json.Nodes.JsonNode.Parse(read.RefreshParams!)));
+
+        (MapArea scheduled, Guid tenant) = Assert.Single(await r.Areas.ScheduledAsync(CancellationToken.None));
+        Assert.Equal(timed.Id, scheduled.Id);
+        Assert.NotEqual(Guid.Empty, tenant);
+
+        // Switched off, a schedule is kept and not listed; a scale that runs backwards is refused by the table.
+        await r.Areas.SetSettingsAsync(timed.Id, settings with { ScheduledUpdates = false }, CancellationToken.None);
+        Assert.Empty(await r.Areas.ScheduledAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<PostgresException>(() =>
+            r.Areas.SetSettingsAsync(plain.Id, settings with { TileScaleMin = 100, TileScaleMax = 5000 }, CancellationToken.None));
+
+        Assert.True(await r.Areas.SetOriginAsync(plain.Id, "https://other.example.test", CancellationToken.None));
+        Assert.Equal("https://other.example.test", (await r.Areas.FindAsync(plain.Id, CancellationToken.None))!.Origin);
+        Assert.False(await r.Areas.SetSettingsAsync(Guid.NewGuid(), settings, CancellationToken.None));
+    }
 }

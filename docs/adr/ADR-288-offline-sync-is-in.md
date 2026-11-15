@@ -279,6 +279,21 @@ serves the same shape. None was stated by the owner.
    (`queryOption: none`, `layers` named only there). That tolerance is **kept on purpose** for clients that send it, not owed
    as debt: Field Maps' own registration is `registerExistingData` and is built (item 3 above).
 
+9. **A scheduled refresh, the tile scale, and the shape of a Map Area item** *(2026-11-15, D-405 and D-408; `INFERRED` where marked)*.
+   An area stores ArcGIS's own properties (migration 143) and is refreshed by `MapAreaRefreshScheduler` once a run of its Quartz
+   cron has passed since its packages were last written. The server has no scheduler library; its scheduled work is a hosted
+   service that looks once a minute under a once-per-site lock, and this is the same, with `QuartzCron` reading the expressions.
+   **INFERRED:** the refresh runs as the area's creator with the capabilities they have at that moment (a creator who is gone or
+   disabled stops it, with a log line), from the address the area was last reached at; only a weekly schedule (one day a week at
+   one time) is accepted, because it is the only shape of `mapAreaRefreshParams` that was read; `scheduledUpdatesEnabled`
+   defaults to on when a schedule is sent; a refresh also adds packages for feature layers and a vector tile basemap the map
+   gained; `mapAreaTileScale` bounds the VTPK's levels. The Map Area item follows the structure read on an Enterprise 12.1
+   portal (research note §5a.1): empty `extent`, `properties` of `extent`, `packageRefreshSchedule` and `status`, the words
+   `complete`, `processing` and `failed`, and `/data` as the `mapAreas` object. **The documents a package carries are built
+   without a request** (`PackagingCaller`), but the helpers that build them still take an `HttpContext`, which a background run
+   supplies as a carrier of its services, caller and address; that is not a request and was chosen over changing a dozen helpers
+   every endpoint shares.
+
 ## 12. Conditions
 
 1. **Field Maps takes an on-demand offline area of a Graticula map on the emulator**, collects offline with the network

@@ -18,7 +18,11 @@ namespace Graticula.Host;
 /// <summary>A new map area: its title and its extent as an ArcGIS envelope.</summary>
 /// <param name="Title">What the area is called.</param>
 /// <param name="Extent"><c>{"xmin","ymin","xmax","ymax","spatialReference":{"wkid"}}</c>.</param>
-internal sealed record MapAreaRequest(string? Title, JsonNode? Extent);
+/// <param name="PackageRefreshSchedule">A Quartz cron expression for a weekly refresh, or null (D-405).</param>
+/// <param name="ScheduledUpdatesEnabled">Whether the schedule runs; true when a schedule is given and this is not.</param>
+/// <param name="MapAreaTileScale"><c>{"minScale", "maxScale"}</c>, or null for the levels that fit.</param>
+internal sealed record MapAreaRequest(
+    string? Title, JsonNode? Extent, string? PackageRefreshSchedule = null, bool? ScheduledUpdatesEnabled = null, JsonNode? MapAreaTileScale = null);
 
 /// <summary>
 /// Preplanned map areas of a saved web map — ADR-288 §11a: <c>POST /admin/maps/{id}/areas</c> makes an area and packages it,
@@ -43,6 +47,7 @@ internal static partial class AdminEndpoints
         app.MapGet("/admin/maps/{id}/areas", ListMapAreasAsync);
         app.MapPost("/admin/maps/{id}/areas", CreateMapAreaAsync);
         app.MapPost("/admin/maps/{id}/areas/{areaId:guid}/refresh", RefreshMapAreaAsync);
+        app.MapPut("/admin/maps/{id}/areas/{areaId:guid}/settings", SetMapAreaSettingsAsync);
         app.MapDelete("/admin/maps/{id}/areas/{areaId:guid}", DeleteMapAreaAsync);
     }
 
@@ -96,8 +101,17 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        if (!TryReadAreaSettings(
+                request?.PackageRefreshSchedule, schedulePresent: request?.PackageRefreshSchedule is not null,
+                request?.ScheduledUpdatesEnabled, request?.MapAreaTileScale, scalePresent: request?.MapAreaTileScale is not null,
+                current: null, DateTimeOffset.UtcNow, out MapAreaSettings settings, out string? badSettings))
+        {
+            await Refuse(context, 400, badSettings!).ConfigureAwait(false);
+            return;
+        }
+
         (PackagedArea? packaged, PackageRefusal? refusal) = await MapAreaPackaging.CreateAsync(
-            context, map, title, extent, wkid, cancellation).ConfigureAwait(false);
+            context, map, title, extent, wkid, cancellation, settings).ConfigureAwait(false);
 
         if (packaged is null)
         {
@@ -153,6 +167,155 @@ internal static partial class AdminEndpoints
         await Results.Json(await DescribeAreaAsync(
             packaged.Area, packaged.Packages, context.RequestServices.GetRequiredService<IOfflineSyncStore>(), packaged.Skipped,
             cancellation).ConfigureAwait(false)).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Changes when an area is refreshed and how deep its tiles go: <c>{"packageRefreshSchedule": "0 30 2 ? * MON" | null,
+    /// "scheduledUpdatesEnabled": true, "mapAreaTileScale": {"minScale", "maxScale"} | null}</c>, each key changed only when
+    /// it is sent.
+    /// </summary>
+    private static async Task SetMapAreaSettingsAsync(
+        HttpContext context, string id, Guid areaId, JsonObject? body, IWebMapStore maps, IMapAreaStore areas, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await ManagedMapForAreasAsync(context, current, id, "change an area of", maps, audit, cancellation).ConfigureAwait(false) is null)
+        {
+            return;
+        }
+
+        if (await areas.FindAsync(areaId, cancellation).ConfigureAwait(false) is not { } area
+            || !string.Equals(area.MapId, id, StringComparison.OrdinalIgnoreCase))
+        {
+            await Refuse(context, 404, NoArea(areaId)).ConfigureAwait(false);
+            return;
+        }
+
+        body ??= [];
+        bool schedulePresent = body.ContainsKey("packageRefreshSchedule");
+        bool scalePresent = body.ContainsKey("mapAreaTileScale");
+        string? schedule = body["packageRefreshSchedule"] is JsonValue sv && sv.TryGetValue(out string? text) ? text : null;
+        bool? enabled = body["scheduledUpdatesEnabled"] is JsonValue ev && ev.TryGetValue(out bool flag) ? flag : null;
+
+        if (schedulePresent && body["packageRefreshSchedule"] is not null && schedule is null)
+        {
+            await Refuse(context, 400, "packageRefreshSchedule is a Quartz cron expression or null.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!TryReadAreaSettings(
+                schedule, schedulePresent, enabled, body["mapAreaTileScale"], scalePresent, area, DateTimeOffset.UtcNow,
+                out MapAreaSettings settings, out string? why))
+        {
+            await Refuse(context, 400, why!).ConfigureAwait(false);
+            return;
+        }
+
+        await areas.SetSettingsAsync(areaId, settings, cancellation).ConfigureAwait(false);
+        await AuditAsync(context, audit, "webmap.area.settings", id,
+            Detail(new { area = areaId, schedule = settings.PackageRefreshSchedule, enabled = settings.ScheduledUpdates, settings.TileScaleMin, settings.TileScaleMax }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        MapArea after = (await areas.FindAsync(areaId, cancellation).ConfigureAwait(false))!;
+        IReadOnlyList<MapAreaPackage> packages = await areas.PackagesAsync([areaId], cancellation).ConfigureAwait(false);
+
+        await Results.Json(await DescribeAreaAsync(
+            after, packages, context.RequestServices.GetRequiredService<IOfflineSyncStore>(), [], cancellation).ConfigureAwait(false))
+            .ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads an area's refresh schedule and tile scale (D-405, D-408) into what is stored, or says why not.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only a weekly schedule is taken</b> (INFERRED): one day of the week at one time of day is the shape of
+    /// <c>mapAreaRefreshParams</c> read on an Enterprise 12.1 portal (<c>type: weekly</c>, <c>nthDay</c>, <c>dayOfWeek</c>);
+    /// the object for any other cadence was not read, and answering <c>never</c> for a schedule that runs would be a lie.
+    /// A schedule sent with no <c>scheduledUpdatesEnabled</c> is on.
+    /// </remarks>
+    /// <param name="schedule">The cron sent, or null.</param>
+    /// <param name="schedulePresent">Whether the key was sent (null then clears it).</param>
+    /// <param name="enabled">Whether scheduled updates are on, when sent.</param>
+    /// <param name="scale"><c>{minScale, maxScale}</c> when sent.</param>
+    /// <param name="scalePresent">Whether the key was sent (null then clears it).</param>
+    /// <param name="current">The area's settings now, for what is not sent; null for a new area.</param>
+    /// <param name="now">The moment, for the weekly object's <c>startDate</c>.</param>
+    /// <param name="settings">What to keep.</param>
+    /// <param name="why">Why not.</param>
+    /// <returns>Whether it can be kept.</returns>
+    internal static bool TryReadAreaSettings(
+        string? schedule, bool schedulePresent, bool? enabled, JsonNode? scale, bool scalePresent, MapArea? current,
+        DateTimeOffset now, out MapAreaSettings settings, out string? why)
+    {
+        string? cron = current?.PackageRefreshSchedule;
+        string? parameters = current?.RefreshParams;
+        bool on = current?.ScheduledUpdates ?? false;
+        double? min = current?.TileScaleMin;
+        double? max = current?.TileScaleMax;
+        settings = new MapAreaSettings(cron, parameters, on, min, max);
+        why = null;
+
+        if (schedulePresent)
+        {
+            if (schedule is null)
+            {
+                (cron, parameters, on) = (null, null, false);
+            }
+            else
+            {
+                if (!QuartzCron.TryParse(schedule, out QuartzCron parsed, out string? bad))
+                {
+                    why = $"packageRefreshSchedule: {bad}";
+                    return false;
+                }
+
+                if (parsed.WeeklyParams(now) is not { } weekly)
+                {
+                    why = "packageRefreshSchedule: only a weekly schedule is taken, one day of the week at one time of day, for example '0 30 2 ? * MON'. "
+                        + "The refresh parameters of any other cadence have not been read from ArcGIS.";
+                    return false;
+                }
+
+                cron = parsed.Text;
+                parameters = System.Text.Json.JsonSerializer.Serialize(weekly);
+                on = enabled ?? true;
+            }
+        }
+
+        if (enabled is { } asked && !(schedulePresent && schedule is not null))
+        {
+            if (asked && cron is null)
+            {
+                why = "scheduledUpdatesEnabled cannot be true with no packageRefreshSchedule.";
+                return false;
+            }
+
+            on = asked;
+        }
+
+        if (scalePresent)
+        {
+            if (scale is null)
+            {
+                (min, max) = (null, null);
+            }
+            else if (scale is JsonObject box
+                && box["minScale"] is JsonValue lo && lo.TryGetValue(out double coarse)
+                && box["maxScale"] is JsonValue hi && hi.TryGetValue(out double fine)
+                && double.IsFinite(coarse) && double.IsFinite(fine) && coarse > 0 && fine > 0 && coarse >= fine)
+            {
+                (min, max) = (coarse, fine);
+            }
+            else
+            {
+                why = "mapAreaTileScale is {\"minScale\": the coarsest scale, \"maxScale\": the finest}, both positive, with minScale not smaller than maxScale (1:147914382 and 1:20000, for example).";
+                return false;
+            }
+        }
+
+        settings = new MapAreaSettings(cron, parameters, on, min, max);
+        return true;
     }
 
     private static async Task DeleteMapAreaAsync(
@@ -320,6 +483,14 @@ internal static partial class AdminEndpoints
                 spatialReference = new { wkid = area.Wkid },
             },
             status = area.Status,
+            packageRefreshSchedule = area.PackageRefreshSchedule,
+            scheduledUpdatesEnabled = area.ScheduledUpdates,
+            mapAreaRefreshParams = area.RefreshParams is { } kept ? System.Text.Json.Nodes.JsonNode.Parse(kept) : new JsonObject { ["type"] = "never" },
+            mapAreaTileScale = new
+            {
+                minScale = area.TileScaleMin ?? MapAreas.DefaultTileScaleMin,
+                maxScale = area.TileScaleMax ?? MapAreas.DefaultTileScaleMax,
+            },
             creator = area.CreatorName,
             created = area.Created.ToUnixTimeMilliseconds(),
             refreshed = area.Refreshed.ToUnixTimeMilliseconds(),

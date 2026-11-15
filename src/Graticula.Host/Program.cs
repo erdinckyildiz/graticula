@@ -959,6 +959,9 @@ public static class Program
         // D-407: map area package files no row names, swept hourly once per site.
         builder.Services.AddHostedService<MapAreaPackageFileSweep>();
 
+        // D-405: map areas refreshed on the schedule they name, once per site.
+        builder.Services.AddHostedService<MapAreaRefreshScheduler>();
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 

@@ -22,6 +22,12 @@ namespace Graticula.Platform.Catalog;
 /// <param name="Refreshed">When its packages were last written.</param>
 /// <param name="Creator">Who made it; the owner of its packages' replicas.</param>
 /// <param name="CreatorName">That principal's name.</param>
+/// <param name="PackageRefreshSchedule">A Quartz cron expression, ArcGIS's <c>packageRefreshSchedule</c>, or null for never (D-405).</param>
+/// <param name="RefreshParams">ArcGIS's <c>mapAreaRefreshParams</c> as JSON text, or null for <c>{"type":"never"}</c>.</param>
+/// <param name="ScheduledUpdates">ArcGIS's <c>mapAreasScheduledUpdatesEnabled</c>: whether the schedule runs.</param>
+/// <param name="TileScaleMin">ArcGIS's <c>mapAreaTileScale.minScale</c> (the coarsest scale packaged), or null for the server's levels.</param>
+/// <param name="TileScaleMax">ArcGIS's <c>mapAreaTileScale.maxScale</c> (the finest scale packaged), or null.</param>
+/// <param name="Origin">The address of this server the area was last made or refreshed through, which a background refresh writes from.</param>
 public sealed record MapArea(
     Guid Id,
     string MapId,
@@ -35,7 +41,22 @@ public sealed record MapArea(
     DateTimeOffset Created,
     DateTimeOffset Refreshed,
     Guid Creator,
-    string CreatorName);
+    string CreatorName,
+    string? PackageRefreshSchedule = null,
+    string? RefreshParams = null,
+    bool ScheduledUpdates = false,
+    double? TileScaleMin = null,
+    double? TileScaleMax = null,
+    string? Origin = null);
+
+/// <summary>What an area keeps about when and how deep its packages are refreshed (D-405).</summary>
+/// <param name="PackageRefreshSchedule">A Quartz cron expression, or null.</param>
+/// <param name="RefreshParams"><c>mapAreaRefreshParams</c> as JSON text, or null.</param>
+/// <param name="ScheduledUpdates">Whether the schedule runs.</param>
+/// <param name="TileScaleMin">The coarsest scale packaged, or null.</param>
+/// <param name="TileScaleMax">The finest scale packaged, or null.</param>
+public sealed record MapAreaSettings(
+    string? PackageRefreshSchedule, string? RefreshParams, bool ScheduledUpdates, double? TileScaleMin, double? TileScaleMax);
 
 /// <summary>
 /// A package taken from a map area: either one registered replica of one feature service, written once as a mobile
@@ -105,6 +126,16 @@ public static class MapAreas
     /// (<c>complete</c>, <c>processing</c>, <c>failed</c>; research note section 5a.1).
     /// </summary>
     public const string Complete = "complete";
+
+    /// <summary>
+    /// The scales a package covers when an area states none, as <c>mapAreaTileScale</c>: the grid's first level down to
+    /// 1:100, which is what Field Maps asks for by default (D-403). INFERRED: the portal always states a scale; this is only
+    /// what an area made without one answers.
+    /// </summary>
+    public const double DefaultTileScaleMin = 591657527.591555;
+
+    /// <summary>The finest scale an area covers when it states none; see <see cref="DefaultTileScaleMin"/>.</summary>
+    public const double DefaultTileScaleMax = 100;
 
     /// <summary>The status of an area while a package of it is still being written by its export job.</summary>
     public const string Processing = "processing";
@@ -300,6 +331,25 @@ public interface IMapAreaStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>The status, or null when there is no such area.</returns>
     Task<string?> SettleStatusAsync(Guid id, DateTimeOffset refreshed, CancellationToken cancellationToken);
+
+    /// <summary>Replaces an area's refresh schedule and tile scale (D-405).</summary>
+    /// <param name="id">The area.</param>
+    /// <param name="settings">The settings.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>False when there is no such area.</returns>
+    Task<bool> SetSettingsAsync(Guid id, MapAreaSettings settings, CancellationToken cancellationToken);
+
+    /// <summary>Records the address of this server an area was last reached through.</summary>
+    /// <param name="id">The area.</param>
+    /// <param name="origin">The address.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>False when there is no such area.</returns>
+    Task<bool> SetOriginAsync(Guid id, string origin, CancellationToken cancellationToken);
+
+    /// <summary>Every area of every organisation whose schedule is set and on, with the organisation it belongs to.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The areas.</returns>
+    Task<IReadOnlyList<(MapArea Area, Guid Tenant)>> ScheduledAsync(CancellationToken cancellationToken);
 
     /// <summary>Deletes an area, its packages and their items by cascade.</summary>
     /// <param name="id">The area.</param>

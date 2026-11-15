@@ -320,14 +320,29 @@ internal static class MapAreaPackaging
     /// <param name="extent">The area's extent, in <paramref name="wkid"/>.</param>
     /// <param name="wkid">The extent's reference.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="settings">Its refresh schedule and tile scale, or null for none (D-405).</param>
     /// <returns>The area, or why not.</returns>
+    public static Task<(PackagedArea? Packaged, PackageRefusal? Refusal)> CreateAsync(
+        HttpContext context, WebMap map, string title, Envelope extent, int wkid, CancellationToken cancellation,
+        MapAreaSettings? settings = null) =>
+        CreateAsync(PackagingCaller.Of(context), map, title, extent, wkid, cancellation, settings);
+
+    /// <inheritdoc cref="CreateAsync(HttpContext, WebMap, string, Envelope, int, CancellationToken, MapAreaSettings?)"/>
+    /// <param name="packaging">Who the packages are written for.</param>
+    /// <param name="map">The map.</param>
+    /// <param name="title">The area's title.</param>
+    /// <param name="extent">The area's extent.</param>
+    /// <param name="wkid">The extent's reference.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <param name="settings">Its refresh schedule and tile scale, or null.</param>
     public static async Task<(PackagedArea? Packaged, PackageRefusal? Refusal)> CreateAsync(
-        HttpContext context, WebMap map, string title, Envelope extent, int wkid, CancellationToken cancellation)
+        PackagingCaller packaging, WebMap map, string title, Envelope extent, int wkid, CancellationToken cancellation,
+        MapAreaSettings? settings = null)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(packaging);
         ArgumentNullException.ThrowIfNull(map);
 
-        IServiceProvider services = context.RequestServices;
+        IServiceProvider services = packaging.Services;
         IMapAreaStore store = services.GetRequiredService<IMapAreaStore>();
         IWebMapStore maps = services.GetRequiredService<IWebMapStore>();
 
@@ -338,7 +353,7 @@ internal static class MapAreaPackaging
                 + "Nothing was created."));
         }
 
-        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        RequestPrincipal caller = packaging.Principal;
         IReadOnlyDictionary<string, IReadOnlyList<string>> urls =
             await maps.FeatureServiceUrlsAsync([map.Id], cancellation).ConfigureAwait(false);
         IReadOnlyList<MapService> named = ServicesOf(urls.TryGetValue(map.Id, out IReadOnlyList<string>? held) ? held : []);
@@ -348,7 +363,7 @@ internal static class MapAreaPackaging
 
         foreach (MapService one in named)
         {
-            (PublishedService? service, string? why) = await AdmitAsync(context, published, one, cancellation).ConfigureAwait(false);
+            (PublishedService? service, string? why) = await AdmitAsync(packaging, published, one, cancellation).ConfigureAwait(false);
 
             if (service is null)
             {
@@ -361,7 +376,7 @@ internal static class MapAreaPackaging
         }
 
         // The basemap's vector tile services of this server, each to be packaged as a VTPK of the area (ADR-288 section 11a).
-        (List<TileTarget> tiles, List<SkippedService> tileSkipped) = await BasemapTargetsAsync(context, map, published, cancellation).ConfigureAwait(false);
+        (List<TileTarget> tiles, List<SkippedService> tileSkipped) = await BasemapTargetsAsync(packaging, map, published, cancellation).ConfigureAwait(false);
         skipped.AddRange(tileSkipped);
 
         if (named.Count == 0)
@@ -380,7 +395,9 @@ internal static class MapAreaPackaging
         DateTimeOffset now = Truncated(clock.GetUtcNow());
         MapArea area = new(
             Guid.NewGuid(), map.Id, title, extent.MinX, extent.MinY, extent.MaxX, extent.MaxY, wkid, MapAreas.Complete, now, now,
-            caller.Principal.Id, caller.Principal.Name);
+            caller.Principal.Id, caller.Principal.Name,
+            settings?.PackageRefreshSchedule, settings?.RefreshParams, settings?.ScheduledUpdates ?? false,
+            settings?.TileScaleMin, settings?.TileScaleMax, packaging.Origin);
 
         if (!await store.CreateAsync(area, cancellation).ConfigureAwait(false))
         {
@@ -394,7 +411,7 @@ internal static class MapAreaPackaging
             foreach ((PublishedService service, MapService one) in eligible)
             {
                 (MapAreaPackage? package, PackageRefusal? refusal) = await WriteAsync(
-                    context, writer, area, service, one, existing: null, cancellation).ConfigureAwait(false);
+                    packaging, writer, area, service, one, existing: null, cancellation).ConfigureAwait(false);
 
                 if (package is null)
                 {
@@ -412,7 +429,7 @@ internal static class MapAreaPackaging
                 // D-410: the basemap's package is an export job; its row is recorded here, processing, and the job's end
                 // completes it. The item says so until then.
                 (MapAreaPackage? package, PackageRefusal? refusal) = await StartTilesAsync(
-                    context, area, target.Service, target.Address, existing: null, TitleOf(title, target.Address), cancellation)
+                    packaging, area, target.Service, target.Address, existing: null, TitleOf(title, target.Address), cancellation)
                     .ConfigureAwait(false);
 
                 if (package is null)
@@ -448,13 +465,26 @@ internal static class MapAreaPackaging
     /// <param name="area">The area.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>The area as refreshed, or why not.</returns>
+    public static Task<(PackagedArea? Packaged, PackageRefusal? Refusal)> RefreshAsync(
+        HttpContext context, MapArea area, CancellationToken cancellation) =>
+        RefreshAsync(PackagingCaller.Of(context), area, cancellation);
+
+    /// <summary>
+    /// <see cref="RefreshAsync(HttpContext, MapArea, CancellationToken)"/> for a caller with no request - what the scheduled
+    /// refresh runs (D-405) - and which also adds a package for each feature service and vector tile basemap the map has gained
+    /// since the area was made.
+    /// </summary>
+    /// <param name="packaging">Who the packages are written for.</param>
+    /// <param name="area">The area.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The area as refreshed, or why not.</returns>
     public static async Task<(PackagedArea? Packaged, PackageRefusal? Refusal)> RefreshAsync(
-        HttpContext context, MapArea area, CancellationToken cancellation)
+        PackagingCaller packaging, MapArea area, CancellationToken cancellation)
     {
-        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(packaging);
         ArgumentNullException.ThrowIfNull(area);
 
-        IServiceProvider services = context.RequestServices;
+        IServiceProvider services = packaging.Services;
         IMapAreaStore store = services.GetRequiredService<IMapAreaStore>();
 
         if (services.GetService<IMobileGeodatabaseWriter>() is not { } writer)
@@ -479,7 +509,7 @@ internal static class MapAreaPackaging
             {
                 // D-410: the job writes the new file and the old one is removed when it finishes; until then the old file
                 // is what a device downloads.
-                MapAreaPackage? tile = await RefreshTilesAsync(context, area, old, service, url, name, skipped, cancellation).ConfigureAwait(false);
+                MapAreaPackage? tile = await RefreshTilesAsync(packaging, area, old, service, url, name, skipped, cancellation).ConfigureAwait(false);
                 now.Add(tile ?? old);
                 continue;
             }
@@ -492,7 +522,7 @@ internal static class MapAreaPackaging
             }
 
             MapService one = new(service.QualifiedName, url, LayersOf(old.Properties));
-            (PublishedService? admitted, string? why) = await AdmitAsync(context, published, one, cancellation).ConfigureAwait(false);
+            (PublishedService? admitted, string? why) = await AdmitAsync(packaging, published, one, cancellation).ConfigureAwait(false);
 
             if (admitted is null)
             {
@@ -502,7 +532,7 @@ internal static class MapAreaPackaging
             }
 
             (MapAreaPackage? package, PackageRefusal? refusal) = await WriteAsync(
-                context, writer, area, admitted, one, old, cancellation).ConfigureAwait(false);
+                packaging, writer, area, admitted, one, old, cancellation).ConfigureAwait(false);
 
             if (package is null)
             {
@@ -520,9 +550,106 @@ internal static class MapAreaPackaging
         }
 
         DateTimeOffset refreshed = Truncated(services.GetRequiredService<TimeProvider>().GetUtcNow());
+        // D-405: what the map has gained since the area was made. A package for it is written as for a new area; one that
+        // cannot be is named under skipped and does not fail the refresh of the rest.
+        await AddGainedAsync(packaging, area, existing, published, writer, now, skipped, cancellation).ConfigureAwait(false);
+
+        if (area.Origin != packaging.Origin)
+        {
+            await store.SetOriginAsync(area.Id, packaging.Origin, cancellation).ConfigureAwait(false);
+        }
+
         string status = await store.SettleStatusAsync(area.Id, refreshed, cancellation).ConfigureAwait(false) ?? MapAreas.Complete;
 
         return (new PackagedArea(area with { Status = status, Refreshed = refreshed }, now, skipped), null);
+    }
+
+    /// <summary>
+    /// Writes a package for each feature service of the map, and each vector tile basemap of this server, that the area has none for.
+    /// </summary>
+    private static async Task AddGainedAsync(
+        PackagingCaller packaging, MapArea area, IReadOnlyList<MapAreaPackage> existing, IReadOnlyList<PublishedService> published,
+        IMobileGeodatabaseWriter writer, List<MapAreaPackage> now, List<SkippedService> skipped, CancellationToken cancellation)
+    {
+        IServiceProvider services = packaging.Services;
+        IMapAreaStore store = services.GetRequiredService<IMapAreaStore>();
+
+        if (await services.GetRequiredService<IWebMapStore>().FindAsync(area.MapId, cancellation).ConfigureAwait(false) is not { } map)
+        {
+            return;
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<string>> urls =
+            await services.GetRequiredService<IWebMapStore>().FeatureServiceUrlsAsync([map.Id], cancellation).ConfigureAwait(false);
+
+        foreach (MapService one in ServicesOf(urls.TryGetValue(map.Id, out IReadOnlyList<string>? held) ? held : []))
+        {
+            PublishedService? known = published.FirstOrDefault(s => string.Equals(s.QualifiedName, one.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (known is not null && existing.Any(p => p.Format == MapAreas.SqliteFormat && p.ServiceId == known.Id))
+            {
+                continue;
+            }
+
+            (PublishedService? admitted, string? why) = await AdmitAsync(packaging, published, one, cancellation).ConfigureAwait(false);
+
+            if (admitted is null)
+            {
+                skipped.Add(new SkippedService(one.Name, why! + " It is new to the map and has no package."));
+                continue;
+            }
+
+            try
+            {
+                (MapAreaPackage? package, PackageRefusal? refusal) = await WriteAsync(
+                    packaging, writer, area, admitted, one, existing: null, cancellation).ConfigureAwait(false);
+
+                if (package is null)
+                {
+                    skipped.Add(new SkippedService(one.Name, refusal!.Message + " It is new to the map and has no package."));
+                    continue;
+                }
+
+                await store.AddPackageAsync(
+                    package, TitleOf(area.Title, one.Address.Length > 0 ? one.Address : $"/rest/services/{one.Name}/FeatureServer"), cancellation)
+                    .ConfigureAwait(false);
+                now.Add(package);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                skipped.Add(new SkippedService(one.Name, $"{e.Message} It is new to the map and has no package."));
+            }
+        }
+
+        (List<TileTarget> tiles, List<SkippedService> tileSkipped) = await BasemapTargetsAsync(packaging, map, published, cancellation).ConfigureAwait(false);
+        skipped.AddRange(tileSkipped);
+
+        foreach (TileTarget target in tiles)
+        {
+            if (existing.Any(p => p.Format == MapAreas.VtpkFormat && p.ServiceId == target.Service.Id))
+            {
+                continue;
+            }
+
+            try
+            {
+                (MapAreaPackage? package, PackageRefusal? refusal) = await StartTilesAsync(
+                    packaging, area, target.Service, target.Address, existing: null, TitleOf(area.Title, target.Address), cancellation)
+                    .ConfigureAwait(false);
+
+                if (package is null)
+                {
+                    skipped.Add(new SkippedService(target.Title, refusal!.Message + " It is new to the map and has no package."));
+                    continue;
+                }
+
+                now.Add(package);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                skipped.Add(new SkippedService(target.Title, $"{e.Message} It is new to the map and has no package."));
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------------------ one package
@@ -532,12 +659,12 @@ internal static class MapAreaPackaging
     /// refreshed one keeps <paramref name="existing"/>'s.
     /// </summary>
     private static async Task<(MapAreaPackage? Package, PackageRefusal? Refusal)> WriteAsync(
-        HttpContext context, IMobileGeodatabaseWriter writer, MapArea area, PublishedService service, MapService named,
+        PackagingCaller packaging, IMobileGeodatabaseWriter writer, MapArea area, PublishedService service, MapService named,
         MapAreaPackage? existing, CancellationToken cancellation)
     {
-        IServiceProvider services = context.RequestServices;
+        IServiceProvider services = packaging.Services;
         MapAreaPackageFiles files = services.GetRequiredService<MapAreaPackageFiles>();
-        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        RequestPrincipal caller = packaging.Principal;
         // The layers the map uses of the service, or all of them when the map names the service alone.
         IEnumerable<int> wanted = named.Layers.Count > 0 ? named.Layers : service.LayersAndTables.Select(l => l.LayerIndex);
         int[] layers = [.. wanted.Where(id => service.LayerOrTable(id) is not null).Distinct().Order()];
@@ -560,10 +687,10 @@ internal static class MapAreaPackaging
             return (null, new PackageRefusal(400, error!));
         }
 
-        string serviceDocument = await Program.ServiceDocumentTextAsync(context, service, cancellation).ConfigureAwait(false);
+        string serviceDocument = await Program.ServiceDocumentTextAsync(packaging.Carrier, service, cancellation).ConfigureAwait(false);
         (PackagePlan? plan, PackageRefusal? refusal) = await OfflinePackager.PlanAsync(
             services, service, request!, serviceDocument,
-            id => Program.LayerDocumentTextAsync(context, service, id, cancellation), cancellation).ConfigureAwait(false);
+            id => Program.LayerDocumentTextAsync(packaging.Carrier, service, id, cancellation), cancellation).ConfigureAwait(false);
 
         if (plan is null)
         {
@@ -574,7 +701,7 @@ internal static class MapAreaPackaging
         Guid replicaId = Guid.NewGuid();
         string serviceUrl = named.Address.Length > 0
             ? named.Address
-            : TileFaces.Origin(context) + "/rest/services/" + service.QualifiedName + "/FeatureServer";
+            : packaging.Origin + "/rest/services/" + service.QualifiedName + "/FeatureServer";
 
         IReadOnlyList<ReplicaLayer> generations = await OfflinePackager.WriteAsync(
             services, writer, plan, replicaId, new ReplicaOwner(caller.Principal.Id, caller.Principal.Name), serviceUrl, generation,
@@ -726,12 +853,12 @@ internal static class MapAreaPackaging
     /// be found out in the field.
     /// </summary>
     private static async Task<(List<TileTarget> Targets, List<SkippedService> Skipped)> BasemapTargetsAsync(
-        HttpContext context, WebMap map, IReadOnlyList<PublishedService> published, CancellationToken cancellation)
+        PackagingCaller packaging, WebMap map, IReadOnlyList<PublishedService> published, CancellationToken cancellation)
     {
         List<TileTarget> targets = [];
         List<SkippedService> skipped = [];
-        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
-        string origin = TileFaces.Origin(context);
+        RequestPrincipal caller = packaging.Principal;
+        string origin = packaging.Origin;
 
         foreach (BasemapLayer layer in BasemapLayersOf(map.Document))
         {
@@ -789,11 +916,11 @@ internal static class MapAreaPackaging
     /// written; <paramref name="newTitle"/> is the package item's title when there is none.
     /// </remarks>
     private static async Task<(MapAreaPackage? Package, PackageRefusal? Refusal)> StartTilesAsync(
-        HttpContext context, MapArea area, PublishedService service, string address, MapAreaPackage? existing, string? newTitle,
+        PackagingCaller packaging, MapArea area, PublishedService service, string address, MapAreaPackage? existing, string? newTitle,
         CancellationToken cancellation)
     {
-        IServiceProvider services = context.RequestServices;
-        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        IServiceProvider services = packaging.Services;
+        RequestPrincipal caller = packaging.Principal;
         IMapAreaStore store = services.GetRequiredService<IMapAreaStore>();
         ITileExportStore exports = services.GetRequiredService<ITileExportStore>();
         HostSettings settings = services.GetRequiredService<HostSettings>();
@@ -883,7 +1010,64 @@ internal static class MapAreaPackaging
     /// The levels a package is bounded to by the area's tile scale, or null for the service's own (D-405): from the service's
     /// first level down to the one whose scale reaches the area's smallest scale.
     /// </summary>
-    internal static IReadOnlyList<int>? TileLevelsOf(MapArea area, PublishedService service) => null;
+    internal static IReadOnlyList<int>? TileLevelsOf(MapArea area, PublishedService service)
+    {
+        ArgumentNullException.ThrowIfNull(area);
+        ArgumentNullException.ThrowIfNull(service);
+
+        return LevelsForScales(service.TileScheme, area.TileScaleMin, area.TileScaleMax);
+    }
+
+    /// <summary>
+    /// The levels of a grid that cover <c>mapAreaTileScale</c> (D-405): from the level at or just coarser than
+    /// <paramref name="minScale"/> down to the level at or just finer than <paramref name="maxScale"/>, so a client drawing
+    /// at either end of its range has tiles. Null when neither bound is set, which leaves the service's own levels.
+    /// </summary>
+    /// <param name="scheme">The service's grid.</param>
+    /// <param name="minScale">The coarsest scale (the larger denominator), or null.</param>
+    /// <param name="maxScale">The finest scale (the smaller denominator), or null.</param>
+    /// <returns>The levels, ascending, or null.</returns>
+    public static IReadOnlyList<int>? LevelsForScales(VectorTileScheme scheme, double? minScale, double? maxScale)
+    {
+        ArgumentNullException.ThrowIfNull(scheme);
+
+        if (minScale is null && maxScale is null)
+        {
+            return null;
+        }
+
+        int first = 0;
+
+        if (minScale is { } coarse)
+        {
+            for (int z = 0; z <= scheme.MaxLevel; z++)
+            {
+                if (scheme.Scale(z) >= coarse)
+                {
+                    first = z;
+                }
+            }
+        }
+
+        int last = scheme.MaxLevel;
+
+        if (maxScale is { } fine)
+        {
+            last = scheme.MaxLevel;
+
+            for (int z = 0; z <= scheme.MaxLevel; z++)
+            {
+                if (scheme.Scale(z) <= fine)
+                {
+                    last = z;
+                    break;
+                }
+            }
+        }
+
+        last = Math.Max(first, last);
+        return [.. Enumerable.Range(first, last - first + 1)];
+    }
 
     /// <summary>Stops an export job whose package is going away; a job already over is not an error.</summary>
     private static async Task CancelJobAsync(IServiceProvider services, Guid job)
@@ -908,10 +1092,10 @@ internal static class MapAreaPackaging
     /// being written, or null after naming in <paramref name="skipped"/> why the old one was kept.
     /// </summary>
     private static async Task<MapAreaPackage?> RefreshTilesAsync(
-        HttpContext context, MapArea area, MapAreaPackage old, PublishedService? service, string address, string name,
+        PackagingCaller packaging, MapArea area, MapAreaPackage old, PublishedService? service, string address, string name,
         List<SkippedService> skipped, CancellationToken cancellation)
     {
-        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        RequestPrincipal caller = packaging.Principal;
 
         if (service is null)
         {
@@ -927,7 +1111,7 @@ internal static class MapAreaPackaging
         }
 
         (MapAreaPackage? package, PackageRefusal? refusal) = await StartTilesAsync(
-            context, area, service, address, old, newTitle: null, cancellation).ConfigureAwait(false);
+            packaging, area, service, address, old, newTitle: null, cancellation).ConfigureAwait(false);
 
         if (package is null)
         {
@@ -947,9 +1131,9 @@ internal static class MapAreaPackaging
     /// is there and the caller may read it, sync is on, and the caller may edit it.
     /// </summary>
     private static async Task<(PublishedService? Service, string? Why)> AdmitAsync(
-        HttpContext context, IReadOnlyList<PublishedService> published, MapService named, CancellationToken cancellation)
+        PackagingCaller packaging, IReadOnlyList<PublishedService> published, MapService named, CancellationToken cancellation)
     {
-        RequestPrincipal caller = context.Features.Get<RequestPrincipal>()!;
+        RequestPrincipal caller = packaging.Principal;
         PublishedService? service = published.FirstOrDefault(s => string.Equals(s.QualifiedName, named.Name, StringComparison.OrdinalIgnoreCase));
 
         if (service is null || !LayerAccess.Evaluate(service.Sharing, service.Owner, caller.Principal, caller.Authorization, service.SharedWith).IsAllowed())
@@ -963,7 +1147,7 @@ internal static class MapAreaPackaging
         }
 
         string capabilities = await Program.ServiceCapabilitiesAsync(
-            context, service, context.RequestServices.GetRequiredService<ServiceContexts>(), cancellation).ConfigureAwait(false);
+            packaging.Carrier, service, packaging.Services.GetRequiredService<ServiceContexts>(), cancellation).ConfigureAwait(false);
 
         return SyncDocument.OffersSync(capabilities)
             ? (service, null)

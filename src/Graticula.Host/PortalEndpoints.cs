@@ -2371,14 +2371,14 @@ internal static partial class PortalEndpoints
             return Results.Content(map.Document ?? "{}", "application/json; charset=utf-8");
         }
 
-        // ADR-288 §11a: a package's data is its file, streamed with ranges. A Map Area's data is {} - what ArcGIS keeps there
-        // (`mapAreas`, with a tile scale and refresh parameters) is named in the research note without its values, and a
-        // guess would be taken for the truth by the client that reads it.
+        // ADR-288 §11a: a package's data is its file, streamed with ranges. A Map Area's data is the `mapAreas` object read on an
+        // Enterprise 12.1 portal (research note section 5a.1, D-408): its tile scale, refresh parameters and whether its
+        // scheduled updates are on.
         if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaData)
         {
             return areaData.Package is { } package
                 ? MapAreaPackageFile(context, package)
-                : Results.Content("{}", "application/json; charset=utf-8");
+                : Results.Content(MapAreaDataText(areaData.Area), "application/json; charset=utf-8");
         }
 
         // <b>A document's data is its file</b> (ADR-188), and it leaves as every document does: a download, never a
