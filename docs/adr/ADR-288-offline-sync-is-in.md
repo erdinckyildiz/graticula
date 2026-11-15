@@ -294,26 +294,31 @@ serves the same shape. None was stated by the owner.
    supplies as a carrier of its services, caller and address; that is not a request and was chosen over changing a dozen helpers
    every endpoint shares.
 
-10. **The offline packaging service** *(2026-11-15, D-404; `INFERRED` throughout)*. `Utilities/OfflinePackaging/GPServer` serves the
-   three tasks research note §5a measured on an Enterprise 12.1 portal: `CreateMapArea`, `SetupMapArea`, `RefreshMapAreaPackage`.
+10. **The offline packaging service** *(2026-11-15, D-404; the shape is read, the content of the values is `INFERRED`)*.
+   `Utilities/OfflinePackaging/GPServer` serves the three tasks research note §5a measured on an Enterprise 12.1 portal.
    **The public REST reference does not document them.** Fetched with WebFetch on 2026-11-15, all answering *Page not found*:
    `https://developers.arcgis.com/rest/services-reference/enterprise/create-map-area/`, `…/create-map-area.htm`,
    `…/setup-map-area.htm`, `…/refresh-map-area-package.htm`, `…/offline-packaging-service/`, `…/offline-packaging-service.htm`,
    `…/offline-packaging.htm`, `…/offline-packaging/`, `…/utility-services.htm` and `…/gp-service/`'s navigation, which
-   names no packaging page (the GP service, task, execute and job resources it does document are the shapes this service
-   answers in, as the print service, ADR-265, does). So **every parameter is `INFERRED`**: `CreateMapArea` takes `webmap`, `name`,
-   an area given as `extent`, `area` (a polygon whose bounds are taken, or an envelope) or `bookmark` (by name, from the web map
-   document's `bookmarks`, whose `extent` the public Web Map specification describes) with `areaType` choosing between them
-   (`extent`, `bookmark`, `geometry`), and `mapAreaTileScale` and `packageRefreshSchedule` as the Map Area item names them; its output is
-   `mapAreaItemId`. `SetupMapArea` takes `mapAreaItemId`, `RefreshMapAreaPackage` takes `itemId` (an area or one of its packages);
-   both answer `packages`, a JSON text of what the area holds. **Mapped onto the Graticula route's code with one difference:** ArcGIS
-   splits making an area from packaging it; here an area is never without packages, so `CreateMapArea` makes and packages, and
-   `SetupMapArea` writes what is missing and refreshes the rest (`MapAreaPackaging.RefreshAsync`); a package alone has no refresh, so
-   `RefreshMapAreaPackage` refreshes its area. The tasks are declared asynchronous (ArcGIS's clients submit and poll) and run
-   before `submitJob` answers, as the print service does; the caller is the map's owner or an administrator. It is advertised in
-   the services directory and as `helperServices.packaging` of `portals/self` (the key is `INFERRED`, by the pattern of `geometry`,
-   `printTask` and `analysis`). **The way to replace these guesses with facts** is the task description a real portal serves at
-   `…/GPServer/CreateMapArea?f=json`, which is the service describing itself and not documentation.
+   names no packaging page. **The tasks' descriptions were then read, read-only, on an Enterprise 12.1 portal, and this service
+   answers in exactly that shape** (*read 2026-11-15 on an Enterprise 12.1 portal*): every task is
+   `esriExecutionTypeAsynchronous` and every parameter a `GPString`; `CreateMapArea` takes `mapItemId` (required) and
+   `bookmark`, `extent`, `areaType` (choices `BOOKMARK`, `ENVELOPE`, `POLYGON`, default `BOOKMARK`), `area` and `outputName`
+   (optional), and answers the derived `mapAreaItemId`; `SetupMapArea` takes `mapAreaItemId` (required) and `mapLayersToIgnore`,
+   `tileServices` and `featureServices` (optional), and answers the derived `packages`; `RefreshMapAreaPackage` takes
+   `packages` (required) and answers the derived `result`; and `helperServices.packaging` in `portals/self` is `{url}` only.
+   **What each value holds was not read and stays `INFERRED`:** `extent` as an envelope `{xmin, ymin, xmax, ymax,
+   spatialReference}`; `area` as a polygon `{rings, spatialReference}` whose bounds are taken (or an envelope); `bookmark` as the
+   name of one of the web map document's `bookmarks`, whose `extent` the public Web Map specification describes; `areaType`
+   inferred from what was sent when it is empty; `outputName` as the area's title (the bookmark's name, or "Map area", when
+   empty); `packages` as the JSON `SetupMapArea` answers, or an array of package item ids, or one id. `mapLayersToIgnore`,
+   `tileServices` and `featureServices` are accepted and **not used**: this server packages every sync-enabled feature service
+   of the map and every vector tile basemap of its own, and does not choose among them. **Mapped onto the Graticula route's
+   code with one difference ArcGIS makes and this server does not:** ArcGIS splits making an area from packaging it; here an
+   area is never without packages, so `CreateMapArea` makes and packages, and `SetupMapArea` writes what is missing and
+   refreshes the rest (`MapAreaPackaging.RefreshAsync`); a package alone has no refresh, so `RefreshMapAreaPackage` refreshes the area
+   its packages belong to. The task takes no schedule or scale: those are set on the area afterwards (`PUT .../settings`).
+   The tasks run before `submitJob` answers, as the print service does; the caller is the map's owner or an administrator.
 
 ## 12. Conditions
 

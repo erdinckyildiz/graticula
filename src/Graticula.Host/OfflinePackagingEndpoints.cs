@@ -24,16 +24,12 @@ namespace Graticula.Host;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Nothing here is read from documentation, and that is said first.</b> The public ArcGIS REST reference for the
-/// Enterprise services was fetched on 2026-11-15 for these three tasks, the service and its parameters, and answered
-/// <i>Page not found</i> for every address tried (see ADR-288 §11a item 10 for the addresses): the tasks are not documented in
-/// the public reference. What is known is what research note §5a measured on an Enterprise 12.1 portal: the service's path,
-/// its three task names, that a Map Area item has the properties it has, and that the area was described to
-/// <c>CreateMapArea</c> by some of <c>areaType</c>, <c>area</c>, <c>bookmark</c> and <c>extent</c>. <b>Every parameter name,
-/// type, value and output below is <c>INFERRED</c></b> from those names and from what the GP service, task, execute and
-/// job resources document in general (the print service, <see cref="PrintEndpoints"/>, is written from the same
-/// resources); none was read from Enterprise's own task description, and a client that sends what Enterprise's task
-/// takes may be refused with the parameter named.
+/// <b>The shape is read; the content of the values is not.</b> The public ArcGIS REST reference does not document these tasks
+/// (every address tried on 2026-11-15 answered <i>Page not found</i>; ADR-288 §11a item 10). What this service answers for the
+/// service and each task - names, <c>GPString</c> types, directions, required or optional, <c>areaType</c>'s choices and default,
+/// derived outputs, and asynchronous execution - was read on 2026-11-15 from the task descriptions of an Enterprise 12.1
+/// portal. <b>What a value holds is INFERRED</b>: the JSON inside <c>extent</c>, <c>area</c>, <c>bookmark</c>,
+/// <c>tileServices</c>, <c>featureServices</c>, <c>mapLayersToIgnore</c> and <c>packages</c>, and what <c>outputName</c> means.
 /// </para>
 /// <para>
 /// <b>Mapped onto the same code as the Graticula route, with one difference ArcGIS makes and this server does not.</b>
@@ -75,7 +71,7 @@ internal static class OfflinePackagingEndpoints
 
     private static readonly string[] Tasks = [CreateTask, SetupTask, RefreshTask];
 
-    private static readonly string[] AreaTypes = ["extent", "bookmark", "geometry"];
+    private static readonly string[] AreaTypes = ["BOOKMARK", "ENVELOPE", "POLYGON"];
 
     private sealed record PackagingJob(string Status, IReadOnlyList<Output> Results, IReadOnlyList<string> Messages, DateTimeOffset Until);
 
@@ -151,44 +147,59 @@ internal static class OfflinePackagingEndpoints
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The tasks' parameters exactly as the task descriptions of an Enterprise 12.1 portal list them (read 2026-11-15): names, all
+    /// <c>GPString</c>, directions, required or optional, <c>areaType</c>'s choices and default, and the derived outputs. What the
+    /// <i>values</i> look like was not read and stays INFERRED.
+    /// </summary>
     private static object[] ParametersOf(string task) => task switch
     {
         CreateTask =>
         [
-            Parameter("webmap", "GPString", "Web Map", "The web map's item id.", output: false, required: true),
-            Parameter("name", "GPString", "Name", "What the area is called.", output: false, required: true),
-            Parameter("areaType", "GPString", "Area Type", "How the area is given: its extent, a bookmark of the map, or a geometry. "
-                + "Taken from whichever of the next three is sent when it is not.", output: false, required: false, null, AreaTypes),
-            Parameter("extent", "GPString", "Extent", "An envelope {xmin, ymin, xmax, ymax, spatialReference}.", output: false, required: false),
-            Parameter("area", "GPString", "Area", "A polygon {rings, spatialReference}, whose envelope is the area, or an envelope.", output: false, required: false),
-            Parameter("bookmark", "GPString", "Bookmark", "The name of a bookmark of the web map; its extent is the area.", output: false, required: false),
-            Parameter("mapAreaTileScale", "GPString", "Tile Scale", "{\"minScale\": n, \"maxScale\": n}: the scales the tile packages cover.", output: false, required: false),
-            Parameter("packageRefreshSchedule", "GPString", "Package Refresh Schedule", "A weekly Quartz cron expression, for example 0 30 2 ? * MON.", output: false, required: false),
-            Parameter("mapAreaItemId", "GPString", "Map Area Item Id", "The new Map Area item.", output: true, required: false),
+            Parameter("mapItemId", "The web map's item id.", output: false, required: true),
+            Parameter("bookmark", "The name of a bookmark of the web map, whose extent is the area (INFERRED content).", output: false, required: false),
+            Parameter("extent", "An envelope {xmin, ymin, xmax, ymax, spatialReference} (INFERRED content).", output: false, required: false),
+            Parameter("areaType", "How the area is given.", output: false, required: false, "BOOKMARK", AreaTypes),
+            Parameter("area", "A polygon {rings, spatialReference}, whose envelope is the area (INFERRED content).", output: false, required: false),
+            Parameter("outputName", "What the area is called (INFERRED).", output: false, required: false),
+            Parameter("mapAreaItemId", "The new Map Area item.", output: true, required: false),
         ],
         SetupTask =>
         [
-            Parameter("mapAreaItemId", "GPString", "Map Area Item Id", "The Map Area item to write the missing packages of.", output: false, required: true),
-            Parameter("packages", "GPString", "Packages", "The area's packages and their statuses, as JSON.", output: true, required: false),
+            Parameter("mapAreaItemId", "The Map Area item to write the missing packages of.", output: false, required: true),
+            Parameter("mapLayersToIgnore", "Accepted and not used by this server (INFERRED content).", output: false, required: false),
+            Parameter("tileServices", "Accepted and not used by this server (INFERRED content).", output: false, required: false),
+            Parameter("featureServices", "Accepted and not used by this server (INFERRED content).", output: false, required: false),
+            Parameter("packages", "The area's packages and their statuses, as JSON (INFERRED content).", output: true, required: false),
         ],
         _ =>
         [
-            Parameter("itemId", "GPString", "Item Id", "The Map Area item, or one of its package items; the area's packages are written again.", output: false, required: true),
-            Parameter("packages", "GPString", "Packages", "The area's packages and their statuses, as JSON.", output: true, required: false),
+            Parameter("packages", "The packages to write again: the JSON SetupMapArea answered, or package item ids (INFERRED content).", output: false, required: true),
+            Parameter("result", "The area's packages and their statuses, as JSON (INFERRED content).", output: true, required: false),
         ],
     };
 
+    /// <summary>The names of a task's input or output parameters, in order.</summary>
+    /// <param name="task">The task.</param>
+    /// <param name="output">Outputs when true, inputs otherwise.</param>
+    /// <returns>The names.</returns>
+    internal static IEnumerable<string> ParameterNames(string task, bool output) =>
+        ParametersOf(task)
+            .Select(p => JsonSerializer.SerializeToNode(p) as JsonObject)
+            .Where(p => p!["direction"]!.GetValue<string>().EndsWith(output ? "Output" : "Input", StringComparison.Ordinal))
+            .Select(p => p!["name"]!.GetValue<string>());
+
     private static object Parameter(
-        string name, string type, string display, string description, bool output, bool required,
+        string name, string description, bool output, bool required,
         object? defaultValue = null, string[]? choices = null) =>
         new
         {
             name,
-            dataType = type,
-            displayName = display,
+            dataType = "GPString",
+            displayName = name,
             description,
             direction = output ? "esriGPParameterDirectionOutput" : "esriGPParameterDirectionInput",
-            defaultValue,
+            defaultValue = defaultValue ?? string.Empty,
             parameterType = output ? "esriGPParameterTypeDerived"
                 : required ? "esriGPParameterTypeRequired" : "esriGPParameterTypeOptional",
             category = string.Empty,
@@ -336,25 +347,51 @@ internal static class OfflinePackagingEndpoints
             return await CreateAsync(context, asked, maps, audit, current, cancellation).ConfigureAwait(false);
         }
 
-        string key = task == SetupTask ? "mapAreaItemId" : "itemId";
+        MapArea? area;
+        string outputName = task == SetupTask ? "packages" : "result";
+        string given;
 
-        if (Guid.TryParse(asked(key)?.Trim(), out Guid item) is false)
+        if (task == SetupTask)
         {
-            return Refused(400, $"{key} is required: the id of a Map Area item{(task == RefreshTask ? " or of one of its package items" : string.Empty)}.");
+            given = asked("mapAreaItemId")?.Trim() ?? string.Empty;
+            area = Guid.TryParse(given, out Guid item) ? await areas.FindAsync(item, cancellation).ConfigureAwait(false) : null;
         }
-
-        MapArea? area = await areas.FindAsync(item, cancellation).ConfigureAwait(false);
-
-        if (area is null && task == RefreshTask && await areas.FindPackageAsync(item, cancellation).ConfigureAwait(false) is { } package)
+        else
         {
-            area = await areas.FindAsync(package.AreaId, cancellation).ConfigureAwait(false);
+            // INFERRED: `packages` is the JSON SetupMapArea answered, a JSON array of package item ids or of objects naming one, or a single id.
+            Guid[] ids = PackageIdsOf(asked("packages"));
+            given = asked("packages")?.Trim() ?? string.Empty;
+
+            if (ids.Length == 0)
+            {
+                return Refused(400, "packages is required: the JSON SetupMapArea answered, or the ids of package items of one Map Area.");
+            }
+
+            Guid? owner = null;
+
+            foreach (Guid one in ids)
+            {
+                if (await areas.FindPackageAsync(one, cancellation).ConfigureAwait(false) is not { } held)
+                {
+                    return Refused(404, $"No package '{one:N}' that you may change.");
+                }
+
+                if (owner is not null && owner != held.AreaId)
+                {
+                    return Refused(400, "packages names packages of more than one Map Area; refresh one area at a time.");
+                }
+
+                owner = held.AreaId;
+            }
+
+            area = await areas.FindAsync(owner!.Value, cancellation).ConfigureAwait(false);
         }
 
         (WebMap? managed, _) = area is null ? (null, null) : await ManagedAsync(maps, current, area.MapId, cancellation).ConfigureAwait(false);
 
         if (area is null || managed is null)
         {
-            return Refused(404, $"No map area '{asked(key)}' that you may change.");
+            return Refused(404, $"No map area for '{given}' that you may change.");
         }
 
         (PackagedArea? packaged, PackageRefusal? refusal) = await MapAreaPackaging
@@ -366,24 +403,30 @@ internal static class OfflinePackagingEndpoints
 
         return packaged is null
             ? Refused(refusal!.Status, refusal.Message)
-            : new Outcome(200, null, [new Output("packages", "GPString", PackagesJson(packaged))]);
+            : new Outcome(200, null, [new Output(outputName, "GPString", PackagesJson(packaged))]);
     }
 
     private static async Task<Outcome> CreateAsync(
         HttpContext context, Func<string, string?> asked, IWebMapStore maps, IAuditLog audit, RequestPrincipal current,
         CancellationToken cancellation)
     {
-        string mapId = (asked("webmap") ?? string.Empty).Trim().ToLowerInvariant();
-        string title = (asked("name") ?? string.Empty).Trim();
+        string mapId = (asked("mapItemId") ?? string.Empty).Trim().ToLowerInvariant();
+        string title = (asked("outputName") ?? string.Empty).Trim();
+
+        if (title.Length == 0)
+        {
+            // INFERRED: outputName is optional, so an area with none is named for its bookmark, or plainly.
+            title = (asked("bookmark") ?? string.Empty).Trim() is { Length: > 0 } bookmarkName ? bookmarkName : "Map area";
+        }
 
         if (!WebMaps.IsId(mapId))
         {
-            return Refused(400, "webmap is required: the item id of a saved web map (32 hexadecimal characters).");
+            return Refused(400, "mapItemId is required: the item id of a saved web map (32 hexadecimal characters).");
         }
 
         if (title.Length == 0 || title.Length > WebMaps.MaximumTitleLength)
         {
-            return Refused(400, $"name is required, and at most {WebMaps.MaximumTitleLength} characters.");
+            return Refused(400, $"outputName is at most {WebMaps.MaximumTitleLength} characters.");
         }
 
         (WebMap? map, string? denied) = await ManagedAsync(maps, current, mapId, cancellation).ConfigureAwait(false);
@@ -404,15 +447,8 @@ internal static class OfflinePackagingEndpoints
             return Refused(400, why ?? unreadable!);
         }
 
-        JsonNode? scale = asked("mapAreaTileScale") is { Length: > 0 } scaleText ? TryParse(scaleText) : null;
-        string? schedule = asked("packageRefreshSchedule") is { Length: > 0 } cron ? cron : null;
-
-        if (!AdminEndpoints.TryReadAreaSettings(
-                schedule, schedulePresent: schedule is not null, enabled: null, scale, scalePresent: scale is not null, current: null,
-                DateTimeOffset.UtcNow, out MapAreaSettings settings, out string? badSettings))
-        {
-            return Refused(400, badSettings!);
-        }
+        // The task takes no schedule or scale (read 2026-11-15); they are set afterwards, on the area (PUT .../settings).
+        MapAreaSettings settings = new(null, null, false, null, null);
 
         (PackagedArea? packaged, PackageRefusal? refusal) = await MapAreaPackaging
             .CreateAsync(context, map, title, extent, wkid, cancellation, settings).ConfigureAwait(false);
@@ -468,25 +504,25 @@ internal static class OfflinePackagingEndpoints
         ArgumentNullException.ThrowIfNull(asked);
         ArgumentNullException.ThrowIfNull(map);
 
-        string type = (asked("areaType") ?? string.Empty).Trim().ToLowerInvariant();
+        string type = (asked("areaType") ?? string.Empty).Trim().ToUpperInvariant();
 
         if (type.Length == 0)
         {
-            type = asked("extent") is { Length: > 0 } ? "extent"
-                : asked("bookmark") is { Length: > 0 } ? "bookmark"
-                : asked("area") is { Length: > 0 } ? "geometry"
-                : string.Empty;
+            // The task's default is BOOKMARK; INFERRED: when nothing names the type, what was sent decides it.
+            type = asked("extent") is { Length: > 0 } ? "ENVELOPE"
+                : asked("area") is { Length: > 0 } ? "POLYGON"
+                : "BOOKMARK";
         }
 
         switch (type)
         {
-            case "extent" when asked("extent") is { Length: > 0 } extent:
-                return TryParse(extent) is JsonObject box ? (box, null) : (null, "extent is an envelope {xmin, ymin, xmax, ymax, spatialReference}.");
+            case "ENVELOPE" when (asked("extent") is { Length: > 0 } ? asked("extent") : asked("area")) is { Length: > 0 } extent:
+                return BoundsOf(TryParse(extent)) is { } box ? (box, null) : (null, "extent is an envelope {xmin, ymin, xmax, ymax, spatialReference}.");
 
-            case "geometry" or "area" when asked("area") is { Length: > 0 } area:
+            case "POLYGON" when asked("area") is { Length: > 0 } area:
                 return BoundsOf(TryParse(area)) is { } bounds ? (bounds, null) : (null, "area is a polygon {rings, spatialReference} or an envelope.");
 
-            case "bookmark" when asked("bookmark") is { Length: > 0 } name:
+            case "BOOKMARK" when asked("bookmark") is { Length: > 0 } name:
                 try
                 {
                     JsonNode? found = (JsonNode.Parse(map.Document ?? "{}") as JsonObject)?["bookmarks"] is JsonArray marks
@@ -503,12 +539,67 @@ internal static class OfflinePackagingEndpoints
                     return (null, "The map's document could not be read for its bookmarks.");
                 }
 
-            case "":
-                return (null, "The area is not given: send extent, area or bookmark (and, if you like, areaType).");
+            case "ENVELOPE" or "POLYGON" or "BOOKMARK":
+                return (null, $"The area is not given: areaType {type} needs {(type == "ENVELOPE" ? "extent" : type == "POLYGON" ? "area" : "bookmark")}.");
 
             default:
-                return (null, $"areaType '{type}' is not one this server takes with the parameter it needs. Its values are {string.Join(", ", AreaTypes)}: "
-                    + "extent needs extent, bookmark needs bookmark, geometry needs area.");
+                return (null, $"areaType '{type}' is not one of {string.Join(", ", AreaTypes)}.");
+        }
+    }
+
+    /// <summary>The package item ids a <c>packages</c> value names (INFERRED shapes): an id, an array of ids or objects, or SetupMapArea's answer.</summary>
+    internal static Guid[] PackageIdsOf(string? packages)
+    {
+        if (string.IsNullOrWhiteSpace(packages))
+        {
+            return [];
+        }
+
+        string text = packages.Trim();
+
+        if (Guid.TryParse(text, out Guid single))
+        {
+            return [single];
+        }
+
+        try
+        {
+            JsonNode? node = JsonNode.Parse(text);
+
+            if (node is JsonObject wrapper && wrapper["packages"] is JsonArray inner)
+            {
+                node = inner;
+            }
+
+            if (node is not JsonArray list)
+            {
+                return [];
+            }
+
+            List<Guid> ids = [];
+
+            foreach (JsonNode? entry in list)
+            {
+                string? id = entry switch
+                {
+                    JsonValue v when v.TryGetValue(out string? t) => t,
+                    JsonObject o => (o["id"] ?? o["itemId"]) is JsonValue iv && iv.TryGetValue(out string? t2) ? t2 : null,
+                    _ => null,
+                };
+
+                if (!Guid.TryParse(id, out Guid parsed))
+                {
+                    return [];
+                }
+
+                ids.Add(parsed);
+            }
+
+            return [.. ids];
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 

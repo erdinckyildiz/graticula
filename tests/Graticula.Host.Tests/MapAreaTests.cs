@@ -889,7 +889,7 @@ public sealed class MapAreaTests : IDisposable
         Assert.Null(why);
         Assert.Equal(10, byExtent!["xmin"]!.GetValue<double>());
 
-        (JsonObject? byTyped, _) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("areaType", "extent"), ("extent", Box)), map);
+        (JsonObject? byTyped, _) = OfflinePackagingEndpoints.AreaEnvelope(Asked(("areaType", "ENVELOPE"), ("extent", Box)), map);
         Assert.Equal(30, byTyped!["xmax"]!.GetValue<double>());
 
         (JsonObject? byRings, _) = OfflinePackagingEndpoints.AreaEnvelope(
@@ -903,10 +903,37 @@ public sealed class MapAreaTests : IDisposable
         Assert.Equal((3857, 3d), (wkid, e.MaxX));
     }
 
+    [Fact]
+    public void The_packages_a_refresh_names_are_read_from_an_id_a_list_or_what_setup_answered()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+
+        Assert.Equal([a], OfflinePackagingEndpoints.PackageIdsOf(a.ToString("N")));
+        Assert.Equal([a, b], OfflinePackagingEndpoints.PackageIdsOf($$"""["{{a:N}}","{{b:D}}"]"""));
+        Assert.Equal([a, b], OfflinePackagingEndpoints.PackageIdsOf($$"""{"packages":[{"id":"{{a:N}}"},{"itemId":"{{b:N}}"}]}"""));
+        Assert.Empty(OfflinePackagingEndpoints.PackageIdsOf(null));
+        Assert.Empty(OfflinePackagingEndpoints.PackageIdsOf("""["nope"]"""));
+        Assert.Empty(OfflinePackagingEndpoints.PackageIdsOf("{"));
+    }
+
+    [Fact]
+    public void The_tasks_list_the_parameters_an_enterprise_portal_lists()
+    {
+        // Read 2026-11-15 from an Enterprise 12.1 portal's task descriptions.
+        static string[] Names(string task, bool output) => [.. OfflinePackagingEndpoints.ParameterNames(task, output)];
+
+        Assert.Equal(["mapItemId", "bookmark", "extent", "areaType", "area", "outputName"], Names("CreateMapArea", false));
+        Assert.Equal(["mapAreaItemId"], Names("CreateMapArea", true));
+        Assert.Equal(["mapAreaItemId", "mapLayersToIgnore", "tileServices", "featureServices"], Names("SetupMapArea", false));
+        Assert.Equal(["packages"], Names("SetupMapArea", true));
+        Assert.Equal(["packages"], Names("RefreshMapAreaPackage", false));
+        Assert.Equal(["result"], Names("RefreshMapAreaPackage", true));
+    }
+
     [Theory]
     [InlineData("")]
-    [InlineData("areaType=extent")]
-    [InlineData("areaType=polygon&extent=x")]
+    [InlineData("areaType=ENVELOPE")]
+    [InlineData("areaType=CIRCLE&extent=x")]
     [InlineData("bookmark=No such")]
     [InlineData("extent=not json")]
     [InlineData("area=%5B1%5D")]
