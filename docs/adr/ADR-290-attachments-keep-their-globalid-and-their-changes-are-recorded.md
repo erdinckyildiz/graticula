@@ -239,4 +239,17 @@ None recorded; the design was proposed in the task and not argued with anyone. T
      table to read it from. Nothing replicates such a layer (ADR-288 §5.8), so the record there is unreachable
      and small; the trigger to revisit is the same as D-420's.
 3. **An end-to-end test of `synchronizeReplica` against PostGIS with an attachment**, which needs the host fixture
-   and was not written here: the pieces are tested (§4), the glue between them in `OfflineReplicaEndpoints` is not. **Open.**
+   and was not written here: the pieces are tested (§4), the glue between them in `OfflineReplicaEndpoints` is not. **DISCHARGED 2026-11-15** —
+   `ASyncOfAnAttachmentTests` (`tests/Graticula.Host.Tests`), against a real server process (`TwoNodeSite`) over PostgreSQL 16 +
+   PostGIS, nothing mocked between the HTTP request and the table:
+   - a hosted layer is made through `/admin/hosted/define`, sync is switched on, two attachments are added, a `perLayer` mobile geodatabase
+     replica is created (`createReplica`), and then the server adds, replaces and deletes an attachment (`addAttachment`,
+     `updateAttachment`, `deleteAttachments`);
+   - `synchronizeReplica` (download) writes a delta geodatabase; read back with the Offline.Sqlite reader the upload path uses, it
+     holds exactly one attachment insert (the added one, under its feature's GlobalID, bytes included), one update (the replaced one,
+     with the new bytes and name), one delete (the removed one, by id and a GlobalID), and no row change; the generation advanced;
+   - a delta this suite writes with the same writer, carrying an attachment insert under a client GlobalID, is uploaded
+     (`uploads/upload`) and applied by a bidirectional `synchronizeReplica`: the PostGIS table holds it under that GlobalID, against
+     the feature named, and the download that answers the same sync does not send it back to its maker.
+   Not covered: the replace and delete of a device-made attachment through this path (`PostGisAttachmentSyncTests` and
+   `OfflineReplicaTests` cover the store's and the resolver's halves) and anything on a device.
