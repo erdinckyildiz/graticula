@@ -1884,7 +1884,10 @@ public static class Program
             current = judged;
             context.Features.Set(current);
 
-            if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Method, context.Request.Path))
+            // The method the client sent, not the GET the HEAD rewrite above turned it into: reading
+            // `Request.Method` here made the HEAD exemption dead code, and dev went on answering a
+            // HEAD 498 for two days after it was written (measured 2026-11-15, D-424).
+            if (current.TokenWasRejected && InvalidToken.Applies(AskedMethod(context), context.Request.Path))
             {
                 await InvalidToken.WriteAsync(context).ConfigureAwait(false);
                 return;
