@@ -370,7 +370,7 @@ public sealed partial class FormDefinition
 
             Relevance(row, columns, at);
 
-            if (columns.Value(row, "default") is { } fallback && (fallback.Contains("${", StringComparison.Ordinal) || fallback.Contains('(', StringComparison.Ordinal)))
+            if (columns.Value(row, "default") is { } fallback && IsFormula(fallback))
             {
                 expressions.Add(("survey", at, "default", fallback));
             }
@@ -480,6 +480,18 @@ public sealed partial class FormDefinition
 
             return pictures.ToDictionary(p => p.Key, p => p.Value.Trim(), StringComparer.Ordinal);
         }
+
+        /// <summary>
+        /// Whether a <c>default</c> is a formula rather than a literal. A literal default such as an HTML fragment or a
+        /// phone number is text (corpus: three Survey123 forms had HTML defaults that were scanned as XPath and failed).
+        /// A formula has a question reference, or starts with a function call. INFERRED, recorded in ADR-287 §5.10.
+        /// </summary>
+        private static bool IsFormula(string text) =>
+            text.Contains("${", StringComparison.Ordinal) || FormulaStart(text);
+
+        private static readonly Regex FormulaStartPattern = new(@"^\s*[A-Za-z_][A-Za-z0-9_:.\-]*\s*\(", RegexOptions.CultureInvariant);
+
+        private static bool FormulaStart(string text) => FormulaStartPattern.IsMatch(text);
 
         private void Relevance(IReadOnlyList<string> row, Columns columns, int at)
         {
@@ -1045,6 +1057,16 @@ public sealed partial class FormDefinition
 
         if (parts.Length == 1)
         {
+            // pyxform's own fixtures write a label's language with one colon, label:English (en). It is read as the
+            // double-colon form; any other single colon is part of the name.
+            int colon = header.IndexOf(':', StringComparison.Ordinal);
+
+            if (colon > 0 && header[..colon].Trim().ToLowerInvariant() is "label" or "hint" or "guidance_hint"
+                or "required_message" or "constraint_message" && header[(colon + 1)..].Trim().Length > 0)
+            {
+                return (header[..colon].Trim(), header[(colon + 1)..].Trim());
+            }
+
             return (header.Trim(), null);
         }
 
@@ -1061,7 +1083,7 @@ public sealed partial class FormDefinition
         string text = string.Join(' ', raw.Split(' ', StringSplitOptions.RemoveEmptyEntries));
         string lower = text.ToLowerInvariant();
 
-        if (lower.EndsWith(" or_other", StringComparison.Ordinal))
+        if (lower.EndsWith(" or_other", StringComparison.Ordinal) || lower.EndsWith(" or other", StringComparison.Ordinal))
         {
             return (text, null, "'or_other' is refused: an automatic 'other' choice is not in the first version; add a choice and a text question with relevant.");
         }

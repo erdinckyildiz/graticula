@@ -141,15 +141,15 @@ public static class FormCatalog
     public static readonly FrozenSet<string> Functions = Set(
         // String
         "string", "concat", "join", "substr", "substring-before", "substring-after", "translate", "string-length",
-        "normalize-space", "contains", "starts-with", "ends-with", "uuid", "pulldata",
+        "normalize-space", "contains", "starts-with", "ends-with", "uuid", "pulldata", "substring",
         // Boolean
         "if", "coalesce", "once", "true", "false", "boolean", "boolean-from-string", "not", "regex", "checklist",
         "weighted-checklist",
         // Number
-        "number", "random", "int", "sum", "max", "min", "round", "pow", "log", "log10", "abs", "sin", "cos", "tan",
-        "asin", "acos", "atan", "atan2", "sqrt", "exp", "exp10", "pi",
+        "number", "random", "int", "sum", "max", "min", "round", "floor", "ceiling", "pow", "log", "log10", "abs", "sin",
+        "cos", "tan", "asin", "acos", "atan", "atan2", "sqrt", "exp", "exp10", "pi",
         // Node-set
-        "count", "count-non-empty", "position", "current", "randomize", "instance",
+        "count", "count-non-empty", "position", "last", "current", "randomize", "instance",
         // Date and time
         "today", "now", "format-date", "format-date-time", "date", "decimal-date-time", "decimal-time",
         // Select
@@ -159,12 +159,21 @@ public static class FormCatalog
         // Geographic
         "area", "distance", "geofence", "intersects");
 
-    /// <summary>Functions refused, with the reason.</summary>
+    /// <summary>
+    /// Functions refused, with the reason. The XPath 1.0 core functions that name nodes or languages are here on purpose
+    /// (ADR-287 §5.10): a form's answers are not XML nodes with names, namespaces, IDs or <c>xml:lang</c>, so there is no
+    /// meaning to give them. The client's evaluator refuses the same names, and a test holds the two lists equal.
+    /// </summary>
     public static readonly FrozenDictionary<string, string> RefusedFunctions = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["digest"] = "digests are not in the first version",
         ["base64-decode"] = "base64 decoding is not in the first version",
         ["jr:itext"] = "jr:itext is an internal XForms function; use a label::language column",
+        ["lang"] = "lang() reads the xml:lang of a node, and a form's answers carry none; the language is the form's default_language",
+        ["id"] = "id() looks elements up by an ID attribute, which an XForm does not use; a question is named by ${name}",
+        ["local-name"] = "node names are not in the first version; a question is named by ${name}",
+        ["namespace-uri"] = "namespaces are not in the first version; a question is named by ${name}",
+        ["name"] = "node names are not in the first version; a question is named by ${name}",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary><c>bind::esri:fieldType</c> values this server can store, and the field each becomes.</summary>

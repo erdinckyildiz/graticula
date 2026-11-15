@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -62,8 +63,22 @@ public static class FormWorkbook
             throw new FormWorkbookException($"The file is not a workbook: {broken.Message}");
         }
 
-        using (zip)
+        try
         {
+            return ReadEntries(zip);
+        }
+        catch (InvalidDataException broken)
+        {
+            throw new FormWorkbookException($"The file is not a workbook: {broken.Message}");
+        }
+        finally
+        {
+            zip.Dispose();
+        }
+    }
+
+    private static List<WorkbookSheet> ReadEntries(ZipArchive zip)
+    {
             long declared = zip.Entries.Sum(e => e.Length);
 
             if (declared > MaximumUnpackedBytes)
@@ -77,6 +92,7 @@ public static class FormWorkbook
                 ?? throw new FormWorkbookException("The file is a zip but not a workbook: it has no xl/workbook.xml.");
             Dictionary<string, string> targets = Relationships(zip, "xl/_rels/workbook.xml.rels");
             IReadOnlyList<string> shared = SharedStrings(zip);
+            HashSet<int> dates = DateStyles(zip);
             List<WorkbookSheet> sheets = [];
 
             foreach (XElement sheet in book.Root?.Element(Main + "sheets")?.Elements(Main + "sheet") ?? [])
@@ -91,11 +107,10 @@ public static class FormWorkbook
 
                 XDocument part = Load(zip, PartPath(target))
                     ?? throw new FormWorkbookException($"The sheet '{name}' is named by the workbook but is not in it.");
-                sheets.Add(new WorkbookSheet(name, Rows(part, shared, name)));
+                sheets.Add(new WorkbookSheet(name, Rows(part, shared, dates, name)));
             }
 
             return sheets;
-        }
     }
 
     /// <summary>Writes sheets as a workbook, every cell an inline string.</summary>
@@ -149,7 +164,7 @@ public static class FormWorkbook
                         new XAttribute("r", Reference(x.c, r)),
                         new XAttribute("t", "inlineStr"),
                         new XElement(Main + "is", new XElement(Main + "t",
-                            Preserved(x.cell), x.cell))))))))));
+                            Preserved(x.cell), Escaped(x.cell)))))))))));
         }
     }
 
@@ -169,12 +184,79 @@ public static class FormWorkbook
         return letters.ToString();
     }
 
+    /// <summary>
+    /// The text of a cell as the writer puts it in the XML. Excel's encoding of characters a text node cannot carry
+    /// (ECMA-376 Part 1 §22.9.2.19, <c>_xHHHH_</c>) is applied in both directions: a carriage return or other control
+    /// character becomes its escape, and an underscore that begins an escape is itself escaped, so the reader gives back
+    /// exactly the text written.
+    /// </summary>
+    private static string Escaped(string text)
+    {
+        if (text.IndexOf('_') < 0 && text.All(c => c >= ' ' || c == '\t' || c == '\n'))
+        {
+            return text;
+        }
+
+        StringBuilder escaped = new(text.Length);
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+
+            if ((c < ' ' && c != '\t' && c != '\n') || (c == '_' && IsEscapeAt(text, i)))
+            {
+                escaped.Append(c == '_' ? "_x005F_" : "_x" + ((int)c).ToString("X4", CultureInfo.InvariantCulture) + "_");
+            }
+            else
+            {
+                escaped.Append(c);
+            }
+        }
+
+        return escaped.ToString();
+    }
+
+    /// <summary>
+    /// Replaces each <c>_xHHHH_</c> with the character it names, as Excel writes them. A text that holds the underscore
+    /// form of an escape was written as <c>_x005F_</c>, so decoding once, left to right, gives back what was typed.
+    /// </summary>
+    internal static string Unescaped(string text)
+    {
+        if (text.IndexOf("_x", StringComparison.Ordinal) < 0)
+        {
+            return text;
+        }
+
+        StringBuilder decoded = new(text.Length);
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (IsEscapeAt(text, i))
+            {
+                decoded.Append((char)int.Parse(text.AsSpan(i + 2, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
+                i += 6;
+            }
+            else
+            {
+                decoded.Append(text[i]);
+            }
+        }
+
+        return decoded.ToString();
+    }
+
+    private static bool IsEscapeAt(string text, int i) =>
+        i + 6 < text.Length && text[i] == '_' && text[i + 1] == 'x' && text[i + 6] == '_'
+        && IsHexDigit(text[i + 2]) && IsHexDigit(text[i + 3]) && IsHexDigit(text[i + 4]) && IsHexDigit(text[i + 5]);
+
+    private static bool IsHexDigit(char c) => c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+
     private static XAttribute? Preserved(string text) =>
         text.Length > 0 && (char.IsWhiteSpace(text[0]) || char.IsWhiteSpace(text[^1]))
             ? new XAttribute(XNamespace.Xml + "space", "preserve")
             : null;
 
-    private static List<IReadOnlyList<string>> Rows(XDocument part, IReadOnlyList<string> shared, string sheet)
+    private static List<IReadOnlyList<string>> Rows(XDocument part, IReadOnlyList<string> shared, ISet<int> dates, string sheet)
     {
         List<IReadOnlyList<string>> rows = [];
         int next = 0;
@@ -184,6 +266,14 @@ public static class FormWorkbook
             int index = int.TryParse((string?)row.Attribute("r"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int r)
                 ? r - 1
                 : next;
+
+            // A row or cell that holds nothing is formatting, not content, and does not count against the limits.
+            bool empty = row.Elements(Main + "c").All(c => Value(c, shared, dates).Length == 0);
+
+            if (empty && index >= MaximumRows)
+            {
+                continue;
+            }
 
             if (index < next || index >= MaximumRows)
             {
@@ -205,6 +295,11 @@ public static class FormWorkbook
                 string? reference = (string?)cell.Attribute("r");
                 int at = reference is null ? column : ColumnOf(reference);
 
+                if (at >= column && at >= MaximumColumns && Value(cell, shared, dates).Length == 0)
+                {
+                    continue;
+                }
+
                 if (at < column || at >= MaximumColumns)
                 {
                     throw new FormWorkbookException(at >= MaximumColumns
@@ -217,7 +312,7 @@ public static class FormWorkbook
                     cells.Add(string.Empty);
                 }
 
-                cells.Add(Value(cell, shared));
+                cells.Add(Value(cell, shared, dates));
                 column = at + 1;
             }
 
@@ -243,13 +338,13 @@ public static class FormWorkbook
         return cells;
     }
 
-    private static string Value(XElement cell, IReadOnlyList<string> shared)
+    private static string Value(XElement cell, IReadOnlyList<string> shared, ISet<int> dates)
     {
         string type = (string?)cell.Attribute("t") ?? "n";
 
         if (type == "inlineStr")
         {
-            return Text(cell.Element(Main + "is"));
+            return Unescaped(Text(cell.Element(Main + "is")));
         }
 
         string raw = (string?)cell.Element(Main + "v") ?? string.Empty;
@@ -257,10 +352,112 @@ public static class FormWorkbook
         return type switch
         {
             "s" when int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i) && i >= 0 && i < shared.Count
-                => shared[i],
+                => Unescaped(shared[i]),
             "s" => throw new FormWorkbookException($"Cell {(string?)cell.Attribute("r")} names a shared string that is not there."),
             "b" => raw == "1" ? "TRUE" : "FALSE",
-            _ => raw,
+            "n" when (int?)cell.Attribute("s") is { } style && dates.Contains(style)
+                && double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double serial) && DateText(serial) is { } text
+                => text,
+            _ => Unescaped(raw),
+        };
+    }
+
+    /// <summary>
+    /// The cell styles (by index into <c>cellXfs</c>) whose number format shows a date or a time. Excel stores such a
+    /// cell as a serial number of days; a form that types a date into a <c>default</c> or a <c>version</c> means the date.
+    /// </summary>
+    private static HashSet<int> DateStyles(ZipArchive zip)
+    {
+        XDocument? styles = Load(zip, "xl/styles.xml");
+        HashSet<int> dates = [];
+
+        if (styles?.Root is null)
+        {
+            return dates;
+        }
+
+        Dictionary<int, string> custom = [];
+
+        foreach (XElement format in styles.Root.Element(Main + "numFmts")?.Elements(Main + "numFmt") ?? [])
+        {
+            if (int.TryParse((string?)format.Attribute("numFmtId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
+            {
+                custom[id] = (string?)format.Attribute("formatCode") ?? string.Empty;
+            }
+        }
+
+        int index = 0;
+
+        foreach (XElement style in styles.Root.Element(Main + "cellXfs")?.Elements(Main + "xf") ?? [])
+        {
+            int format = int.TryParse((string?)style.Attribute("numFmtId"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int f) ? f : 0;
+
+            if (IsDateFormat(format, custom))
+            {
+                dates.Add(index);
+            }
+
+            index++;
+        }
+
+        return dates;
+    }
+
+    /// <summary>ECMA-376 Part 1 §18.8.30's built-in date and time formats, or a custom one that has a date or time field.</summary>
+    private static bool IsDateFormat(int id, Dictionary<int, string> custom)
+    {
+        if (id is (>= 14 and <= 22) or (>= 45 and <= 47) or (>= 50 and <= 58))
+        {
+            return true;
+        }
+
+        if (!custom.TryGetValue(id, out string? code))
+        {
+            return false;
+        }
+
+        // Quoted text and [colour] or [elapsed-time] brackets are not fields; d, m, y, h and s are.
+        string fields = Regex.Replace(code, @"""[^""]*""|\[[^\]]*\]", string.Empty);
+        return fields.IndexOfAny(['d', 'D', 'm', 'M', 'y', 'Y', 'h', 'H', 's', 'S']) >= 0;
+    }
+
+    /// <summary>
+    /// A date serial as the text a form would have typed: <c>2020-01-31</c>, <c>2020-01-31T12:00:00</c> or, for a time
+    /// alone, <c>12:00:00</c>. Excel's 1900 calendar is followed, including its phantom 29 February 1900. Null when the
+    /// serial is not a day Excel can show.
+    /// </summary>
+    internal static string? DateText(double serial)
+    {
+        if (double.IsNaN(serial) || double.IsInfinity(serial) || serial < 0 || serial >= 2958466)
+        {
+            return null;
+        }
+
+        double days = Math.Floor(serial);
+        long seconds = (long)Math.Round((serial - days) * 86400, MidpointRounding.AwayFromZero);
+
+        if (seconds >= 86400)
+        {
+            days += 1;
+            seconds -= 86400;
+        }
+
+        // Serial 60 is the calendar's 29 February 1900, which never existed; the serials after it are one day ahead.
+        if (days == 60)
+        {
+            return seconds > 0
+                ? "1900-02-29T" + TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)
+                : "1900-02-29";
+        }
+
+        DateTime at = (days < 60 ? new DateTime(1899, 12, 31) : new DateTime(1899, 12, 30))
+            .AddDays(days).AddSeconds(seconds);
+
+        return (days > 0, seconds > 0) switch
+        {
+            (true, true) => at.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture),
+            (true, false) => at.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            _ => at.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
         };
     }
 

@@ -48,8 +48,9 @@
     var ARITY = {
         // String
         'string': [0, 1], 'concat': [0, MANY], 'join': [1, MANY], 'substr': [2, 3], 'substring-before': [2, 2],
-        'substring-after': [2, 2], 'translate': [3, 3], 'string-length': [0, 1], 'normalize-space': [0, 1],
+        'substring-after': [2, 2], 'translate': [3, 3], 'string-length': [1, 1], 'normalize-space': [0, 1],
         'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [4, 4],
+        'substring': [2, 3],
         // Boolean
         'if': [3, 3], 'coalesce': [2, 2], 'once': [1, 1], 'true': [0, 0], 'false': [0, 0], 'boolean': [1, 1],
         'boolean-from-string': [1, 1], 'not': [1, 1], 'regex': [2, 2], 'checklist': [2, MANY],
@@ -58,10 +59,10 @@
         'number': [0, 1], 'random': [0, 0], 'int': [1, 1], 'sum': [1, 1], 'max': [1, MANY], 'min': [1, MANY],
         'round': [1, 2], 'pow': [2, 2], 'log': [1, 1], 'log10': [1, 1], 'abs': [1, 1], 'sin': [1, 1], 'cos': [1, 1],
         'tan': [1, 1], 'asin': [1, 1], 'acos': [1, 1], 'atan': [1, 1], 'atan2': [2, 2], 'sqrt': [1, 1],
-        'exp': [1, 1], 'exp10': [1, 1], 'pi': [0, 0],
+        'exp': [1, 1], 'exp10': [1, 1], 'pi': [0, 0], 'floor': [1, 1], 'ceiling': [1, 1],
         // Node-set
         'count': [1, 1], 'count-non-empty': [1, 1], 'position': [0, 1], 'current': [0, 0], 'randomize': [1, 2],
-        'instance': [1, 1],
+        'instance': [1, 1], 'last': [0, 0],
         // Date and time
         'today': [0, 0], 'now': [0, 0], 'format-date': [2, 2], 'format-date-time': [2, 2], 'date': [1, 1],
         'decimal-date-time': [1, 1], 'decimal-time': [1, 1],
@@ -77,8 +78,17 @@
     var REFUSED = {
         'digest': 'digests are not in the first version',
         'base64-decode': 'base64 decoding is not in the first version',
-        'jr:itext': 'jr:itext is an internal XForms function; use a label::language column'
+        'jr:itext': 'jr:itext is an internal XForms function; use a label::language column',
+        'lang': 'lang() reads the xml:lang of a node, and a form\'s answers carry none; the language is the form\'s default_language',
+        'id': 'id() looks elements up by an ID attribute, which an XForm does not use; a question is named by ${name}',
+        'local-name': 'node names are not in the first version; a question is named by ${name}',
+        'namespace-uri': 'namespaces are not in the first version; a question is named by ${name}',
+        'name': 'node names are not in the first version; a question is named by ${name}'
     };
+
+    // The XPath 1.0 axes: the only words that may stand before '::' (XPath 1.0 §2.2).
+    var AXES = ['ancestor', 'ancestor-or-self', 'attribute', 'child', 'descendant', 'descendant-or-self', 'following',
+        'following-sibling', 'namespace', 'parent', 'preceding', 'preceding-sibling', 'self'];
 
     // XPath node-type tests, which look like calls but are steps.
     var NODE_TESTS = { 'node': true, 'text': true };
@@ -176,6 +186,12 @@
                 // A prefixed name such as jr:choice-name — one colon, a name on each side, not the axis '::'.
                 if (text.charAt(i) === ':' && text.charAt(i + 1) !== ':' && isNameStart(text.charAt(i + 1))) {
                     i++;
+                    while (i < n && isNameChar(text.charAt(i))) { i++; }
+                }
+                // A choices column named with a language, label::English, is one name: a choice_filter reads it as one.
+                // Only an XPath axis may stand before '::', so child::x and parent::x keep their meaning.
+                if (text.substr(i, 2) === '::' && isNameStart(text.charAt(i + 2)) && AXES.indexOf(text.substring(start, i)) < 0) {
+                    i += 2;
                     while (i < n && isNameChar(text.charAt(i))) { i++; }
                 }
                 var word = text.substring(start, i);
@@ -835,6 +851,9 @@
         return s === '' ? [] : s.split(/[\s,]+/).filter(function (x) { return x !== ''; });
     }
 
+    // XPath 1.0 §4.4 round(): halves go up, towards positive infinity; NaN and the infinities pass through.
+    function xpathRound(x) { return Math.floor(x + 0.5); }
+
     function roundTo(x, decimals) {
         if (isNaN(x) || !isFinite(x)) { return x; }
         if (!decimals) { return Math.floor(x + 0.5); }
@@ -1153,8 +1172,20 @@
                     return index < 0 ? ch : (index < to.length ? to[index] : '');
                 }).join('');
             }
-            case 'string-length': return Array.from(args.length ? str(0) : nodeValue(current())).length;
+            case 'string-length': return Array.from(str(0)).length; // XPath 1.0 counts characters; ODK makes the argument required
             case 'normalize-space': return (args.length ? str(0) : nodeValue(current())).replace(/[ \t\r\n]+/g, ' ').trim();
+            case 'substring': {
+                // XPath 1.0 §4.2: the characters whose 1-based position p satisfies round(start) <= p < round(start) + round(length).
+                // With no length the run goes to the end. A NaN start or length selects nothing, as the specification says.
+                var chars = Array.from(str(0));
+                var from = xpathRound(num(1));
+                var to = args.length > 2 ? from + xpathRound(num(2)) : Infinity;
+                var kept = '';
+                for (var ci = 0; ci < chars.length; ci++) {
+                    if (ci + 1 >= from && ci + 1 < to) { kept += chars[ci]; }
+                }
+                return kept;
+            }
             case 'contains': return str(0).indexOf(str(1)) >= 0;
             case 'starts-with': return str(0).indexOf(str(1)) === 0;
             case 'ends-with': {
@@ -1258,6 +1289,8 @@
             case 'exp': return Math.exp(num(0));
             case 'exp10': return Math.pow(10, num(0));
             case 'pi': return Math.PI;
+            case 'floor': return Math.floor(num(0)); // XPath 1.0 §4.4
+            case 'ceiling': return Math.ceil(num(0)); // XPath 1.0 §4.4
 
             // ----- Node-set
             case 'count': return asNodes(arg(0), args[0].at).length;
@@ -1281,6 +1314,11 @@
                 return nodeSet(shuffle(list, generator));
             }
             case 'instance': return nodeSet([instanceRoot(env, str(0), ast.at)]);
+            case 'last': {
+                // XPath 1.0 §4.1: the context size. Inside a predicate that is the number of nodes being filtered. Elsewhere
+                // a form's expression has one context node, so it is 1; a repeat's instances are not a context size here.
+                return env.inPredicate ? env.size : 1;
+            }
 
             // ----- Date and time
             case 'today': {
@@ -1458,6 +1496,7 @@
         evaluateBoolean: function (expression, context) {
             return withOffset(context, function () { return booleanValue(evaluate(expression, context)); });
         },
+        refused: Object.freeze(Object.keys(REFUSED).sort()),
         references: references,
         toString: stringValue,
         toNumber: numberValue,

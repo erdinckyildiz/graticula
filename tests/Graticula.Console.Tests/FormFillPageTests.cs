@@ -328,10 +328,10 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         await WaitAsync(browser, "/^Saved for offline use/.test(document.getElementById('offline-status').textContent)", "the form to be kept");
 
         // The service worker has kept the page and its scripts once it controls the page.
-        await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.has('graticula-forms-shell-v2'); })",
+        await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.has('graticula-forms-shell-v4'); })",
             "the service worker", seconds: 20);
         // The map library too (§5.15): a location question opened offline still has its map, without its ground.
-        await WaitAsync(browser, "caches.open('graticula-forms-shell-v2').then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 7"
+        await WaitAsync(browser, "caches.open('graticula-forms-shell-v4').then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 7"
             + " && k.some(function (r) { return r.url.endsWith('/ol.js'); }); })",
             "the shell to be cached", seconds: 20);
 

@@ -144,6 +144,11 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     [InlineData("jr:itext('x')", "label::language")]
     [InlineData("frobnicate(${ad})", "not a function")]
     [InlineData("instance('yok')/root/item", "choice list only")]
+    [InlineData("lang('tr')", "xml:lang")]
+    [InlineData("name(.)", "node names")]
+    [InlineData("local-name()", "node names")]
+    [InlineData("namespace-uri()", "namespaces")]
+    [InlineData("id('x')", "ID attribute")]
     [InlineData("${yok} = 'a'", "names no question")]
     [InlineData("concat(${ad}, 'x'", "never closed")]
     [InlineData("${ad = 'a'", "no closing")]
@@ -160,6 +165,10 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     [InlineData("count(instance('renk')/root/item[name = 'mavi']) > 0")]
     [InlineData("format-date(today(), '%Y') >= 2020 and . mod 2 = 0 or not(true())")]
     [InlineData("area(${ad}) div 10000 > 1")]
+    // XPath 1.0 core functions the specification's list leaves out: floor, ceiling and last are XPath 1.0 §4.1 and §4.4,
+    // substring is XPath 1.0 §4.2 (ODK's substr is its own).
+    [InlineData("floor(${ad} div 2) + ceiling(1.5) = 2 and substring(${ad}, 1, 2) != ''")]
+    [InlineData("count(${renk}[position() = last()]) = 1")]
     public void An_expression_on_the_list_is_accepted(string expression)
     {
         FormCheck check = Checked(["text", "ad", "Ad"], ["select_multiple renk", "renk", "Renk"], ["text", "b", "B", "", expression]);
@@ -295,5 +304,34 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
 
         Assert.Null(problem);
         Assert.Equal((type, argument), (parsed, arg));
+    }
+
+    [Fact]
+    public void A_literal_default_is_text_and_a_formula_default_is_checked_as_one()
+    {
+        string[] header = ["type", "name", "label", "default"];
+
+        // HTML and a parenthesis are text here: a default is a formula only with a question reference or a call at its start.
+        Assert.True(FormDefinition.Check(Form([["text", "a", "A", "<p>123</p> (x)"]], surveyHeader: header)).Accepted);
+        RefusedAt(FormDefinition.Check(Form([["text", "a", "A", "${yok}"]], surveyHeader: header)), 2, "default", "names no question");
+        RefusedAt(FormDefinition.Check(Form([["text", "a", "A", "concat(${a}, 'x'"]], surveyHeader: header)), 2, "default", "never closed");
+    }
+
+    [Fact]
+    public void A_label_language_written_with_one_colon_is_read_as_a_label_in_that_language()
+    {
+        // pyxform's own fixture (tests/fixtures/example_forms/group) writes label:English (en); a corpus form does too.
+        FormModel form = new([new ModelSheet("survey", ["type", "name", "label:English (en)"], [["text", "ad", "Name"]])]);
+        FormCheck check = FormDefinition.Check(form);
+
+        Assert.True(check.Accepted, string.Join("; ", check.Refusals.Select(r => r.Message)));
+        Assert.Equal("Name", check.Definition!.Root.Questions[0].Labels["English (en)"]);
+        Assert.Equal(["English (en)"], check.Definition.Languages);
+    }
+
+    [Fact]
+    public void A_select_multiple_with_an_other_option_is_refused_as_or_other_whatever_the_spelling()
+    {
+        RefusedAt(Checked(["select_multiple renk or other", "r", "R"]), 2, "type", "or_other");
     }
 }
