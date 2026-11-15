@@ -179,6 +179,20 @@ registered data* becomes a service over the registered table, made by the same r
    **PARTLY DISCHARGED 2026-11-13:** the desktop application published the reference layer and it draws from the
    registered table, and another database user is refused (§4) — but from a notebook inside Pro and from arcpy, not by
    clicking the *Share › Web Layer* pane, because the session was locked. What remains is that pane, once, by hand.
+   **DISCHARGED 2026-11-15**, by hand through the pane on dev.graticula.com. The project was ArcGIS Pro 3.7, signed in to
+   `/studio` as an administrator, holding a map with one query layer on the registered PostgreSQL. In *Share › Web Layer*
+   the pane offered *Reference registered data › Map Image* and the hosting server `…/arcgis`. Analyze found one Pro-side
+   error, 00374 (*unique numeric IDs*, a map property), which was set. Publish then said *"Web layer published
+   successfully"*. `ShareByHand_1115` answers as a MapServer and a FeatureServer over the registered table: 20 features,
+   drawn by `export`. Driving the pane found **two defects that arcpy had never reached**:
+   - **The pane keeps Analyze and Publish disabled** for an account whose `portals/self` privileges do not include
+     `portal:publisher:publishServerServices`. With every field filled, Pro raised no exception (a trace of its
+     first-chance exceptions showed only rendering ones) and made no request that failed. Saying the privilege to anyone
+     the publish job admits (`ContentPublishFeatures`, where Pro may publish) enabled both buttons after Pro re-read
+     `portals/self` on restart.
+   - **`admin/services/exists` was read as a folder** and answered *"Folder 'exists' does not exist"*, the shape 00147
+     had. The pane asks it before uploading and turned it into *"Cannot connect to the server"*. It is now the documented
+     resource (`folderName`, `serviceName` → `{"exists": …}`).
 4. The publisher address is set in Studio, not only through the admin API. **DISCHARGED 2026-11-13** — Server › Data
    sources › ⋯ › *Publisher address…*, and the row says where Pro reaches the database.
 

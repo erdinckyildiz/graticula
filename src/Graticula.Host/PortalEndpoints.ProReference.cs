@@ -127,6 +127,36 @@ internal static partial class PortalEndpoints
             case "uploads/upload" when context.Request.HasFormContentType:
                 return await UploadAsync(context, cancellation).ConfigureAwait(false);
 
+            // ArcGIS Server's documented `services/exists` (folderName, serviceName, type → `{"exists": …}`). Pro's Share ›
+            // Web Layer pane asks it before uploading, and arcpy does not, so it went unseen until the pane was driven by
+            // hand on 2026-11-15: the folder reading answered "Folder 'exists' does not exist" and Pro said "Cannot
+            // connect to the server". A folder alone asks whether the folder exists; a name asks for the service.
+            case "services/exists":
+            {
+                IFormCollection? form = context.Request.HasFormContentType
+                    ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+                    : null;
+                string Read(string key) => (form?[key].ToString() is { Length: > 0 } posted ? posted : context.Request.Query[key].ToString()).Trim();
+                string folder = Read("folderName");
+                string service = Read("serviceName");
+                IAdminCatalog catalog = context.RequestServices.GetRequiredService<IAdminCatalog>();
+
+                if (service.Length > 0)
+                {
+                    bool found = await catalog.FindServiceAtAsync(folder.Length > 0 ? folder : null, service, cancellation)
+                        .ConfigureAwait(false) is not null;
+                    return Results.Ok(new { exists = found });
+                }
+
+                if (folder.Length == 0)
+                {
+                    return Results.Ok(new { exists = true });
+                }
+
+                IReadOnlyList<AdminFolder> folders = await catalog.ListFoldersAsync(cancellation).ConfigureAwait(false);
+                return Results.Ok(new { exists = folders.Any(f => string.Equals(f.Name, folder, StringComparison.OrdinalIgnoreCase)) });
+            }
+
             case "services/canCreateService":
                 // A map image layer is published here as a FeatureServer and a MapServer over the same layers (ADR-299 §5d).
                 return Results.Ok(new { status = "success" });

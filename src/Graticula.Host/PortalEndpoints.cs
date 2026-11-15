@@ -337,6 +337,13 @@ internal static partial class PortalEndpoints
             if (current.Authorization.Allows(Privilege.ContentPublishFeatures))
             {
                 held.Add("portal:publisher:publishFeatures");
+
+                // ADR-299: a map image layer that references registered data is published to the federated server,
+                // and Pro's Share › Web Layer pane keeps Analyze and Publish disabled for an account that does not
+                // say it may publish server services — measured 2026-11-15: every field filled, no exception in Pro,
+                // both buttons disabled, while arcpy published the same layer, because arcpy does not ask. The job
+                // behind it (PublishServiceDefinition) admits exactly this privilege, so the list says what it does.
+                held.Add("portal:publisher:publishServerServices");
             }
 
             // ADR-257: whoever may create content may add an item, publisher or not.

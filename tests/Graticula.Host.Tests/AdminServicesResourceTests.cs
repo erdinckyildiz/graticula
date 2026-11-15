@@ -5,6 +5,8 @@ namespace Graticula.Host.Tests;
 /// <summary>
 /// <c>admin/services/canCreateService</c> and <c>admin/services/properties</c> are the server's resources, not folders —
 /// ADR-299. Read as folders, they answered "Folder '…' does not exist.", and Pro turned that into analyzer 00147.
+/// <c>services/exists</c> joined them on 2026-11-15: the Share › Web Layer pane asks it before uploading, and read as a folder it
+/// made Pro say "Cannot connect to the server".
 /// </summary>
 public sealed class AdminServicesResourceTests
 {
@@ -12,6 +14,7 @@ public sealed class AdminServicesResourceTests
     [InlineData("services/canCreateService")]
     [InlineData("services/properties")]
     [InlineData("services/types")]
+    [InlineData("services/exists")]
     [InlineData("services/CanCreateService")]
     public void TheServersOwnResourcesAreNotFolders(string what) =>
         Assert.False(PortalEndpoints.IsAdminServicesFolderPath(what));

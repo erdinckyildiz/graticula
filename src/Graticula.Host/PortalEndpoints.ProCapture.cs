@@ -236,7 +236,7 @@ internal static partial class PortalEndpoints
     /// <c>{"status":"success"}</c> there alone, with every other answer at baseline: the draft stages.
     /// </remarks>
     internal static readonly System.Collections.Frozen.FrozenSet<string> AdminServicesResources =
-        System.Collections.Frozen.FrozenSet.ToFrozenSet(["canCreateService", "properties", "types"], StringComparer.OrdinalIgnoreCase);
+        System.Collections.Frozen.FrozenSet.ToFrozenSet(["canCreateService", "exists", "properties", "types"], StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// True when an admin path (trimmed of slashes) names one folder of services: <c>services/{folder}</c>, with no dot
