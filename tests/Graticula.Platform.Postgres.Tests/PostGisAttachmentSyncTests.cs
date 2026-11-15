@@ -273,4 +273,76 @@ public sealed class PostGisAttachmentSyncTests : PostgresFixture
         Assert.Empty(changes.Changes);
         await store.PrepareAsync(CancellationToken.None);
     }
+    /// <summary>ADR-290 §12.2, D-421: the history's own sweep prunes the record, and the record then admits where it begins.</summary>
+    [Fact]
+    public async Task Pruning_the_record_with_the_histories_period_moves_its_beginning_so_an_older_window_is_not_vouched_for()
+    {
+        (PostGisAttachmentStore store, string schema, string table) = await StoreAsync();
+        int a = await store.AddAsync(1, "a.txt", "text/plain", null, Bytes("a"), CancellationToken.None);
+        int b = await store.AddAsync(2, "b.txt", "text/plain", null, Bytes("b"), CancellationToken.None);
+
+        string attach = table + PostGisAttachmentStore.Suffix;
+        await using (NpgsqlCommand age = DataSource.CreateCommand(
+            $"update {schema}.graticula_attachment_log set at = now() - interval '40 days' where attach_table = '{attach}'"))
+        {
+            await age.ExecuteNonQueryAsync();
+        }
+
+        Assert.True(await store.UpdateAsync(2, b, "b2.txt", "text/plain", null, Bytes("b2"), CancellationToken.None));
+        await using (NpgsqlCommand age = DataSource.CreateCommand(
+            $"update {schema}.graticula_attachment_log set at = now() - interval '5 days' where attach_table = '{attach}' and at > now() - interval '1 day'"))
+        {
+            await age.ExecuteNonQueryAsync();
+        }
+
+        long before = await LogRowsAsync(schema, table);
+        long old;
+        await using (NpgsqlCommand count = DataSource.CreateCommand(
+            $"select count(*) from {schema}.graticula_attachment_log where attach_table = '{attach}' and at < now() - interval '30 days'"))
+        {
+            old = (long)(await count.ExecuteScalarAsync())!;
+        }
+
+        Assert.True(old >= 2);
+
+        // No keeping period on the layer: nothing is pruned, however old.
+        await using (NpgsqlCommand history = DataSource.CreateCommand(
+            $"create table {schema}.{table}__history (objectid integer, gdb_to_date timestamptz)"))
+        {
+            await history.ExecuteNonQueryAsync();
+        }
+
+        await PostGisFeatureHistory.PruneAsync(DataSource, CancellationToken.None);
+        Assert.Equal(before, await LogRowsAsync(schema, table));
+
+        await using (NpgsqlCommand keep = DataSource.CreateCommand(
+            $"comment on table {schema}.{table}__history is 'graticula:{{\"keepDays\":30}}'"))
+        {
+            await keep.ExecuteNonQueryAsync();
+        }
+
+        IReadOnlyList<(string Table, long Versions)> pruned = await PostGisFeatureHistory.PruneAsync(DataSource, CancellationToken.None);
+        Assert.Contains(pruned, p => p.Table == $"{schema}.{attach} (change record)" && p.Versions > 0);
+
+        // The two inserts of 40 days ago went; the update of 5 days ago stays; a marker says the record now begins 30 days ago.
+        Assert.Equal(0L, await LogRowsAsync(schema, table, "insert"));
+        Assert.True(await LogRowsAsync(schema, table, "update") >= 1);
+        Assert.Equal(1L, await LogRowsAsync(schema, table, "begin"));
+        Assert.Equal(before - old + 1, await LogRowsAsync(schema, table));
+
+        // A window that starts before the oldest entry kept is not vouched for: an update there could be an insert.
+        Assert.False((await store.ChangesAsync(DateTimeOffset.UtcNow.AddDays(-50), DateTimeOffset.UtcNow, CancellationToken.None)).Vouched);
+        Assert.False((await store.ChangesAsync(DateTimeOffset.UtcNow.AddDays(-31), DateTimeOffset.UtcNow, CancellationToken.None)).Vouched);
+
+        // One that starts inside the period still is, and still holds what it held.
+        AttachmentChanges inside = await store.ChangesAsync(DateTimeOffset.UtcNow.AddDays(-10), DateTimeOffset.UtcNow, CancellationToken.None);
+        Assert.True(inside.Vouched);
+        AttachmentChange only = Assert.Single(inside.Changes);
+        Assert.Equal((AttachmentChangeKind.Update, b), (only.Kind, only.AttachmentId));
+        Assert.NotEqual(a, b);
+
+        // A second sweep deletes nothing more and does not pile up markers.
+        await PostGisFeatureHistory.PruneAsync(DataSource, CancellationToken.None);
+        Assert.Equal(1L, await LogRowsAsync(schema, table, "begin"));
+    }
 }

@@ -224,6 +224,19 @@ None recorded; the design was proposed in the task and not argued with anyone. T
    **What the measurement found besides.** The first attempt showed (a) failing, and the cause was §11.4's window, not this
    ADR's code: the phone asked from 1794474726446, its package's generation, sync after sync. `synchronizeReplica` now logs
    each layer's window and what it carried, which is how that was seen.
-2. **Prune the log** with the history's keeping period, or state why not (D-421). **Open.**
+2. **Prune the log** with the history's keeping period, or state why not (D-421). **DISCHARGED 2026-11-15** — built, and tested against
+   PostgreSQL (`PostGisAttachmentSyncTests.Pruning_the_record_with_the_histories_period_…`):
+   - **One job prunes both.** `PostGisFeatureHistory.PruneAsync`, which `HistoryRetention` runs hourly and `LayerConnections` runs over
+     registered PostGIS databases, now also calls `PostGisAttachmentStore.PruneChangesAsync` for the attachment table named like the
+     history table (`<table>__history` to `<table>__attach`), with that layer's `keepDays`. Entries older than the period are deleted;
+     a layer with no keeping period keeps its record whole, as it keeps its history.
+   - **The vouching rule survives pruning.** When anything is deleted, the table's `begin` marker is moved to the cutoff (older
+     markers removed, one written), so `ChangesAsync` answers `Unvouched` for a window that starts before the oldest entry kept —
+     an attachment whose insert was pruned would otherwise read as an update. A window starting at the cutoff or later is
+     vouched for and unchanged. A second sweep adds no marker.
+   - **`INFERRED`: a registered layer whose attachments are kept in the datastore (`layer_<id>__attach`) is not pruned** by this,
+     because its keeping period is on a history table in another database and there is no history table beside the attachment
+     table to read it from. Nothing replicates such a layer (ADR-288 §5.8), so the record there is unreachable
+     and small; the trigger to revisit is the same as D-420's.
 3. **An end-to-end test of `synchronizeReplica` against PostGIS with an attachment**, which needs the host fixture
    and was not written here: the pieces are tested (§4), the glue between them in `OfflineReplicaEndpoints` is not. **Open.**

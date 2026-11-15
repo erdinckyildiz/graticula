@@ -375,6 +375,89 @@ public sealed partial class PostGisAttachmentStore
         return new AttachmentChanges(true, AttachmentChangeLog.Net(entries));
     }
 
+    /// <summary>
+    /// Deletes an attachment table's entries older than a keeping period, and moves the record's beginning to where it now
+    /// starts — ADR-290 §12.2, D-421.
+    /// </summary>
+    /// <param name="dataSource">The pool.</param>
+    /// <param name="schema">The attachment table's schema.</param>
+    /// <param name="table">The attachment table's name (<c>…__attach</c>).</param>
+    /// <param name="days">The keeping period in days: the layer's history's (ADR-078).</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many entries went; zero when the schema has no record or nothing was old enough.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A pruned record must not vouch for what it no longer holds.</b> A window that starts before the oldest entry kept
+    /// would read a net change from a log whose first entries are gone — an attachment whose insert was pruned would look
+    /// like an update. So when anything is deleted, the table's <c>begin</c> marker is moved to the cutoff (the same marker a
+    /// table made before the record carries, ADR-290 §5.6), and <see cref="ChangesAsync"/> answers
+    /// <see cref="AttachmentChanges.Unvouched"/> for a window that starts earlier. A window starting at the cutoff or later
+    /// is unaffected, because every entry after it is kept.
+    /// </para>
+    /// <para>Safe to run on every node at once: what another node deleted is not deleted twice, and one more marker at the same instant changes nothing.</para>
+    /// </remarks>
+    public static async Task<long> PruneChangesAsync(
+        NpgsqlDataSource dataSource, string schema, string table, int days, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        ArgumentOutOfRangeException.ThrowIfLessThan(days, 1);
+
+        string log = $"{LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(LogTable)}";
+
+        await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        await using (NpgsqlCommand there = new("select to_regclass(@log) is not null", connection))
+        {
+            there.Parameters.AddWithValue("log", log);
+
+            if (!(bool)(await there.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!)
+            {
+                return 0;
+            }
+        }
+
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        DateTime cutoff;
+
+        await using (NpgsqlCommand when = new("select now() - make_interval(days => @days)", connection, transaction))
+        {
+            when.Parameters.AddWithValue("days", days);
+            cutoff = ((DateTime)(await when.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!).ToUniversalTime();
+        }
+
+        long gone;
+
+        await using (NpgsqlCommand delete = new(
+            $"delete from {log} where attach_table = @table and kind <> 'begin' and at < @cutoff", connection, transaction))
+        {
+            delete.Parameters.AddWithValue("table", table);
+            delete.Parameters.Add(new NpgsqlParameter("cutoff", NpgsqlDbType.TimestampTz) { Value = cutoff });
+            delete.CommandTimeout = 0;
+            gone = await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (gone > 0)
+        {
+            // The record now begins at the cutoff: one marker, the older ones superseded.
+            await using NpgsqlCommand mark = new(
+                $"""
+                 delete from {log} where attach_table = @table and kind = 'begin' and at < @cutoff;
+                 insert into {log} (at, attach_table, kind, attachmentid, rel_objectid)
+                 select @cutoff, @table, 'begin', 0, 0
+                 where not exists (select 1 from {log} where attach_table = @table and kind = 'begin' and at >= @cutoff);
+                 """,
+                connection,
+                transaction);
+            mark.Parameters.AddWithValue("table", table);
+            mark.Parameters.Add(new NpgsqlParameter("cutoff", NpgsqlDbType.TimestampTz) { Value = cutoff });
+            await mark.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return gone;
+    }
+
     /// <summary>Removes a dropped attachment table's entries from its schema's record, which is otherwise left holding them.</summary>
     /// <param name="dataSource">The pool.</param>
     /// <param name="schema">The table's schema.</param>
