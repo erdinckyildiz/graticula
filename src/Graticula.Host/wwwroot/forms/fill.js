@@ -318,6 +318,23 @@
         "Picture not available: ": "Resim bulunamadı: "
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
+    // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
+    Object.assign(TR, {
+        "Enter a year and a week number that exists.": "Var olan bir yıl ve hafta numarası girin.",
+        "Fill in the whole pattern: ": "Kalıbın tamamını doldurun: ",
+        "Format: ": "Biçim: ",
+        "Increase": "Artır",
+        "Decrease": "Azalt",
+        "Year": "Yıl",
+        "Week number": "Hafta numarası",
+        "needs attention": "bakmanız gerekiyor",
+        "Show": "Göster",
+        "No choices match.": "Eşleşen seçenek yok.",
+        "Type to narrow the choices.": "Seçenekleri daraltmak için yazın.",
+        "selected": "seçildi",
+        "Only the first 100 are listed; keep typing to narrow them.": "Yalnız ilk 100 seçenek listeleniyor; daraltmak için yazmaya devam edin.",
+        "Choices": "Seçenekler"
+    });
     function isTurkish() { return /\(tr\)|türkçe|turkish/i.test(lang || ''); }
     function t(s) { return isTurkish() && Object.prototype.hasOwnProperty.call(TR, s) ? TR[s] : s; }
     function applyStaticText() {
@@ -366,6 +383,7 @@
         if (form.choices && Object.prototype.hasOwnProperty.call(form.choices, listName)) {
             return form.choices[listName].map(function (c) {
                 var row = { name: c.name };
+                if (c.auto) { row.__auto = true; } // the Other that or_other adds is offered whatever choice_filter says
                 Object.keys(c.labels || {}).forEach(function (k) { row[k === '' ? 'label' : 'label::' + k] = c.labels[k]; });
                 Object.keys(c.images || {}).forEach(function (k) { row[k === '' ? 'image' : 'image::' + k] = c.images[k]; });
                 Object.keys(c.filters || {}).forEach(function (k) { row[k] = c.filters[k]; });
@@ -763,6 +781,12 @@
             var need = q.type === 'geotrace' ? 2 : 3;
             if (vertices(v).length < need) { return isTurkish() ? 'En az ' + need + ' nokta ekleyin.' : 'Add at least ' + need + ' points.'; }
         }
+        if (q.type === 'date' && has(q.appearance, 'week-number') && !/^\d{4}-\d{2}-\d{2}/.test(v)) {
+            return t('Enter a year and a week number that exists.');
+        }
+        if (q.type === 'text' && q.inputMask && parseMask(q.inputMask) && !maskAccepts(parseMask(q.inputMask), v)) {
+            return t('Fill in the whole pattern: ') + maskSkeleton(parseMask(q.inputMask));
+        }
         if (q.constraint && !evalBool(q.constraint, inst, q, true, v)) {
             return text(q.constraintMessages) || t('This answer is not allowed.');
         }
@@ -904,12 +928,68 @@
         });
     }
 
+    // compact and minimal on a group or a repeat (ADR-287 §5.19): collapsed at startup, opened and closed by a button that
+    // is the heading's own. A group that is a page under the pages style is not collapsible: a page that opens shut would
+    // be an empty screen. The state is kept by key (a group) or by the item's GlobalID (a repeat's item) for the page's
+    // life, so a redraw does not close what the person opened.
+    var collapseState = {};
+
+    function collapsible(appearance) { return has(appearance, 'compact') || has(appearance, 'minimal'); }
+
+    function isCollapsed(key) { return Object.prototype.hasOwnProperty.call(collapseState, key) ? collapseState[key] : true; }
+
+    // A heading whose text is a button that shows and hides `panel`.
+    function collapseHeading(level, label, panel, key, extra) {
+        var open = !isCollapsed(key);
+        panel.hidden = !open;
+        panel.setAttribute('data-collapse-key', key);
+        var flag = el('span', { class: 'collapse-flag', hidden: true, text: ' — ' + t('needs attention') });
+        var button = el('button', { type: 'button', class: 'quiet collapse-toggle', 'data-focus': 'toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-controls': panel.id }, [el('span', { text: label }), flag]);
+        button.addEventListener('click', function () {
+            collapseState[key] = !panel.hidden;
+            panel.hidden = !panel.hidden;
+            button.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+            flagUpdate();
+        });
+        function flagUpdate() { flag.hidden = !(panel.hidden && panel.querySelector('.question.invalid, .matrix-row.invalid')); }
+        var h = el('h' + Math.min(6, Math.max(2, level)), extra || {}, [button]);
+        h.flagUpdate = flagUpdate; // pushed by the caller after the body is drawn, so the flag sees this pass's messages
+        return h;
+    }
+
+    // Opens every collapsed panel around a node, so a message inside one can be reached and its control focused.
+    function expandAround(node) {
+        for (var p = node && node.parentElement; p; p = p.parentElement) {
+            if (p.hasAttribute && p.hasAttribute('data-collapse-key') && p.hidden) {
+                collapseState[p.getAttribute('data-collapse-key')] = false;
+                p.hidden = false;
+                var button = document.querySelector('[aria-controls="' + cssEscape(p.id) + '"]');
+                if (button) {
+                    button.setAttribute('aria-expanded', 'true');
+                    var flag = button.querySelector('.collapse-flag');
+                    if (flag) { flag.hidden = true; }
+                }
+            }
+        }
+    }
+
     function renderGroup(inst, g, container, level) {
         var label = text(g.labels);
-        var box = el('section', { class: 'group', 'data-key': keyOf(inst, g.name) });
-        if (label) { box.appendChild(heading(level, label, { class: form.pages && !inst.parent ? 'page-title' : null })); }
+        var key = keyOf(inst, g.name);
+        var box = el('section', { class: 'group', 'data-key': key });
+        var foldable = collapsible(g.appearance) && !(form.pages && !inst.parent);
+        var target = box, toggle = null;
+        if (foldable) {
+            target = el('div', { class: 'collapse-panel', id: 'g' + (++seq) });
+            toggle = collapseHeading(level, label || g.name, target, key);
+            box.appendChild(toggle);
+            box.appendChild(target);
+        } else if (label) {
+            box.appendChild(heading(level, label, { class: form.pages && !inst.parent ? 'page-title' : null }));
+        }
         container.appendChild(box);
-        if (has(g.appearance, 'table-list')) { renderTable(inst, g, box); } else { renderBody(inst, g.body || [], box, level + 1); }
+        if (has(g.appearance, 'table-list')) { renderTable(inst, g, target); } else { renderBody(inst, g.body || [], target, level + 1); }
+        if (toggle) { views.push({ update: toggle.flagUpdate }); }
         views.push({ update: function () { box.hidden = inst.rel[g.name] === false; } });
     }
 
@@ -1003,7 +1083,10 @@
         var list = inst.repeats[r.name] || [];
         list.forEach(function (child, i) {
             var item = el('div', { class: 'repeat-instance', 'data-key': keyOf(child, '') });
-            var head = el('div', { class: 'instance-head' }, [heading(level + 1, label + ' ' + (i + 1))]);
+            var foldable = collapsible(r.appearance);
+            var inner = foldable ? el('div', { class: 'collapse-panel', id: 'r' + (++seq) }) : item;
+            var toggle = foldable ? collapseHeading(level + 1, label + ' ' + (i + 1), inner, 'item:' + child.id) : null;
+            var head = el('div', { class: 'instance-head' }, [toggle || heading(level + 1, label + ' ' + (i + 1))]);
             if (!r.repeatCount) {
                 var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove', text: t('Remove') });
                 remove.setAttribute('aria-label', isTurkish() ? label + ' ' + (i + 1) + ' kaldır' : 'Remove ' + label + ' ' + (i + 1));
@@ -1023,13 +1106,17 @@
                 head.appendChild(remove);
             }
             item.appendChild(head);
-            renderBody(child, r.body || [], item, level + 2);
+            if (foldable) { item.appendChild(inner); }
+            renderBody(child, r.body || [], inner, level + 2);
+            if (toggle) { views.push({ update: toggle.flagUpdate }); }
             box.appendChild(item);
         });
         if (!r.repeatCount) {
             var add = el('button', { type: 'button', class: 'quiet', 'data-focus': 'add', text: isTurkish() ? label + ' ekle' : 'Add ' + label });
             add.addEventListener('click', function () {
-                list.push(newInstance(r, inst));
+                var made = newInstance(r, inst);
+                collapseState['item:' + made.id] = false; // an item just added is open: the person is about to fill it in
+                list.push(made);
                 refresh(true);
                 scheduleDraft();
                 var items = document.querySelectorAll('[data-key="' + cssEscape(keyOf(inst, r.name)) + '"] > .repeat-instance');
@@ -1057,7 +1144,8 @@
         var hintText = text(q.hints);
         var group = q.type === 'select_one' || q.type === 'select_multiple' || q.type === 'select_one_from_file'
             || q.type === 'select_multiple_from_file' || (q.type === 'range' && has(q.appearance, 'rating'));
-        var minimal = has(q.appearance, 'minimal');
+        // A drop-down and a type-ahead box are one control with one label; the rest of the selects are a set of them.
+        var minimal = has(q.appearance, 'minimal') || (has(q.appearance, 'autocomplete') && (q.type === 'select_one' || q.type === 'select_one_from_file'));
         var useFieldset = group && !minimal;
 
         var labelText = el('span', { text: interpolate(labelTemplate, inst) });
@@ -1167,6 +1255,7 @@
     }
 
     function textWidget(inst, q, id, describedBy) {
+        if (q.inputMask && parseMask(q.inputMask)) { return maskedTextWidget(inst, q, id, describedBy); }
         var multi = has(q.appearance, 'multiline');
         var input = multi ? el('textarea', { id: id, 'aria-describedby': describedBy, 'data-focus': 'input' })
             : el('input', { type: 'text', id: id, 'aria-describedby': describedBy, 'data-focus': 'input' });
@@ -1176,6 +1265,7 @@
     }
 
     function numberWidget(inst, q, id, describedBy) {
+        if (has(q.appearance, 'spinner')) { return spinnerWidget(inst, q, id, describedBy); }
         var input = el('input', {
             type: 'text', id: id, 'aria-describedby': describedBy, 'data-focus': 'input',
             inputmode: q.type === 'integer' ? 'numeric' : 'decimal', autocomplete: 'off'
@@ -1251,7 +1341,7 @@
         try {
             var result = X.evaluate("instance('" + String(listName).replace(/'/g, '') + "')/root/item[" + q.choiceFilter + ']/name', contextFor(inst, q));
             var names = result && Array.isArray(result.nodes) ? result.nodes.map(function (n) { return String(n.value); }) : [];
-            return rows.filter(function (row) { return names.indexOf(String(row.name)) >= 0; });
+            return rows.filter(function (row) { return row.__auto || names.indexOf(String(row.name)) >= 0; });
         } catch (e) {
             warn(q.choiceFilter, e);
             return rows;
@@ -1260,6 +1350,7 @@
 
     function selectWidget(inst, q, id, describedBy) {
         var multiple = q.type.indexOf('select_multiple') === 0;
+        if (has(q.appearance, 'autocomplete') && !multiple) { return autocompleteWidget(inst, q, id, describedBy); }
         var minimal = has(q.appearance, 'minimal');
         var likert = has(q.appearance, 'likert') && !multiple;
         var holder = el('div', { class: likert ? 'likert' : null });
@@ -1331,14 +1422,390 @@
                 var kept = values().filter(function (v) { return names.indexOf(v) >= 0; });
                 if (kept.join(',') !== values().join(',')) { inst.values[q.name] = kept.join(','); setTimeout(function () { refresh(false); }, 0); }
                 var set = values();
+                var seenValue = {}; // a name that appears twice in the list (ADR-287 §5.19) is shown chosen once, at its first
                 controls.forEach(function (c) {
                     if (c.tagName === 'SELECT') {
-                        Array.prototype.forEach.call(c.options, function (o) { o.selected = o.value === '' ? set.length === 0 && !multiple : set.indexOf(o.value) >= 0; });
+                        Array.prototype.forEach.call(c.options, function (o) {
+                            var on = o.value === '' ? set.length === 0 && !multiple : set.indexOf(o.value) >= 0 && !seenValue[o.value];
+                            if (o.value !== '' && on) { seenValue[o.value] = true; }
+                            o.selected = on;
+                        });
                     } else {
-                        c.checked = set.indexOf(c.value) >= 0;
+                        var checked = set.indexOf(c.value) >= 0 && !seenValue[c.value];
+                        if (checked) { seenValue[c.value] = true; }
+                        c.checked = checked;
                     }
                     c.disabled = !!ro;
                 });
+            }
+        };
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Survey123's own widgets (ADR-287 §5.19): autocomplete, an input mask, a spinner and a week number.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    // Letters compared without case or accent, and the Turkish dotted and dotless i as one letter, so "istanbul" finds
+    // "İstanbul" and "Ilgaz" and "sehir" finds "Şehir". INFERRED (§5.19).
+    function fold(s) {
+        return String(s === null || s === undefined ? '' : s).toLowerCase().replace(/ı/g, 'i').replace(/i̇/g, 'i')
+            .normalize('NFD').replace(/[̀-ͯ]/g, '');
+    }
+
+    var COMBO_LIMIT = 100;
+
+    // autocomplete (select_one): a WAI-ARIA 1.2 combobox with a listbox. Typing narrows the choices to those whose label
+    // contains the text; the arrows and Enter choose; Escape closes. Everything is on the device, so it works offline,
+    // and the list is the question's choices after its choice_filter. The list sits in the page's flow under the box
+    // instead of floating over it, so a phone's keyboard cannot cover the choice being typed for.
+    function autocompleteWidget(inst, q, id, describedBy) {
+        var input = el('input', {
+            type: 'text', id: id, role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': id + '-list',
+            'aria-describedby': describedBy, 'data-focus': 'input', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'done'
+        });
+        var list = el('ul', { id: id + '-list', role: 'listbox', class: 'combo-list', hidden: true, 'aria-label': text(q.labels, q.name) });
+        var status = el('p', { class: 'hint combo-status', role: 'status', 'aria-live': 'polite' });
+        var unavailable = el('p', { class: 'note-warn', hidden: true });
+        var rows = [];
+        var matches = [];
+        var active = -1;
+        var typed = false;
+
+        function labelOfValue(value) {
+            for (var i = 0; i < rows.length; i++) { if (String(rows[i].name) === value) { return choiceLabel(rows[i]); } }
+            return value;
+        }
+
+        function setOpen(open) {
+            list.hidden = !open;
+            input.setAttribute('aria-expanded', open ? 'true' : 'false');
+            if (!open) { active = -1; input.removeAttribute('aria-activedescendant'); }
+        }
+
+        function setActive(i) {
+            active = i;
+            Array.prototype.forEach.call(list.children, function (li, n) { li.setAttribute('aria-selected', n === i ? 'true' : 'false'); });
+            if (i >= 0 && list.children[i]) {
+                input.setAttribute('aria-activedescendant', list.children[i].id);
+                if (list.children[i].scrollIntoView) { list.children[i].scrollIntoView({ block: 'nearest' }); }
+            } else {
+                input.removeAttribute('aria-activedescendant');
+            }
+        }
+
+        function choose(row) {
+            var name = String(row.name);
+            input.value = choiceLabel(row);
+            typed = false;
+            setOpen(false);
+            status.textContent = choiceLabel(row) + ' — ' + t('selected');
+            setValue(inst, q, name);
+        }
+
+        function draw(announce) {
+            var needle = fold(input.value.trim());
+            matches = rows.filter(function (row) { return !needle || fold(choiceLabel(row)).indexOf(needle) >= 0; });
+            list.textContent = '';
+            matches.slice(0, COMBO_LIMIT).forEach(function (row, n) {
+                var li = el('li', { id: id + '-o' + n, role: 'option', class: 'combo-option', 'aria-selected': 'false', text: choiceLabel(row) });
+                li.addEventListener('mousedown', function (e) { e.preventDefault(); }); // keep the focus in the box
+                li.addEventListener('click', function () { choose(row); input.focus(); });
+                list.appendChild(li);
+            });
+            setOpen(matches.length > 0);
+            active = -1;
+            input.removeAttribute('aria-activedescendant');
+            if (announce) {
+                status.textContent = matches.length === 0 ? t('No choices match.')
+                    : (isTurkish() ? matches.length + ' seçenek. ' : matches.length + (matches.length === 1 ? ' choice. ' : ' choices. '))
+                        + (matches.length > COMBO_LIMIT ? t('Only the first 100 are listed; keep typing to narrow them.') : '');
+            }
+        }
+
+        function revert() {
+            typed = false;
+            input.value = current(inst, q) === '' ? '' : labelOfValue(current(inst, q));
+            setOpen(false);
+        }
+
+        input.addEventListener('input', function () {
+            typed = true;
+            if (input.value.trim() === '' && current(inst, q) !== '') { setValue(inst, q, ''); }
+            draw(true);
+        });
+        input.addEventListener('click', function () { if (list.hidden && !input.readOnly) { draw(false); } });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (list.hidden) { draw(true); }
+                var count = Math.min(matches.length, COMBO_LIMIT);
+                if (!count) { return; }
+                setActive(e.key === 'ArrowDown' ? (active + 1) % count : (active <= 0 ? count - 1 : active - 1));
+            } else if (e.key === 'Enter') {
+                if (!list.hidden && active >= 0 && matches[active]) { e.preventDefault(); choose(matches[active]); }
+                else if (!list.hidden && matches.length === 1) { e.preventDefault(); choose(matches[0]); }
+            } else if (e.key === 'Escape') {
+                if (!list.hidden) { e.preventDefault(); e.stopPropagation(); setOpen(false); } else if (typed) { e.preventDefault(); revert(); }
+            }
+        });
+        input.addEventListener('blur', function () {
+            // Leaving the box with text that names a choice chooses it; anything else goes back to the answer.
+            if (typed) {
+                var needle = fold(input.value.trim());
+                var exact = rows.filter(function (row) { return fold(choiceLabel(row)) === needle; });
+                if (needle && exact.length >= 1 && String(exact[0].name) !== current(inst, q)) { choose(exact[0]); } else { revert(); }
+            }
+            setOpen(false);
+        });
+
+        return {
+            node: el('div', { class: 'combo' }, [unavailable, input, list, status]),
+            controls: function () { return [input]; },
+            sync: function (ro) {
+                var available = availableChoices(inst, q);
+                if (!available) {
+                    unavailable.hidden = false;
+                    unavailable.textContent = 'The list "' + (q.file || q.list) + '" is not available yet: it was not uploaded with the form, or could not be read.';
+                    input.disabled = true;
+                    return;
+                }
+                unavailable.hidden = true;
+                rows = available;
+                var names = rows.map(function (r) { return String(r.name); });
+                // An answer the filter no longer offers is cleared, as the other selects clear theirs.
+                if (current(inst, q) !== '' && names.indexOf(current(inst, q)) < 0) { inst.values[q.name] = ''; input.value = ''; typed = false; setTimeout(function () { refresh(false); }, 0); }
+                if (document.activeElement !== input && !typed) { input.value = current(inst, q) === '' ? '' : labelOfValue(current(inst, q)); }
+                input.readOnly = !!ro;
+                input.disabled = false;
+                if (ro) { setOpen(false); }
+            }
+        };
+    }
+
+    // ----- Input masks. body::esri:inputMask on a text question (Survey123's documented syntax; see FormInputMask.cs).
+
+    var maskCache = {};
+
+    function parseMask(source) {
+        if (Object.prototype.hasOwnProperty.call(maskCache, source)) { return maskCache[source]; }
+        var text = String(source || ''), result = null;
+        if (text.length > 0 && text.length <= 255) {
+            var cut = -1;
+            for (var i = text.length - 1; i >= 0; i--) {
+                if (text.charAt(i) === ';') {
+                    var slashes = 0;
+                    for (var j = i - 1; j >= 0 && text.charAt(j) === '\\'; j--) { slashes++; }
+                    if (slashes % 2 === 0) { cut = i; break; }
+                }
+            }
+            var placeholder = ' ', body = text;
+            if (cut >= 0 && cut >= text.length - 2) { body = text.slice(0, cut); placeholder = cut === text.length - 2 ? text.charAt(text.length - 1) : ' '; }
+            var parts = [], letterCase = '!', ok = true, slots = 0, required = 0;
+            for (var k = 0; k < body.length && ok; k++) {
+                var c = body.charAt(k);
+                if (c === '\\') {
+                    if (k + 1 >= body.length) { ok = false; } else { parts.push({ lit: body.charAt(++k), kind: null }); }
+                } else if (c === '>' || c === '<' || c === '!') {
+                    letterCase = c;
+                } else if ('AaNnXx90DdHhBb#'.indexOf(c) >= 0) {
+                    slots++;
+                    var must = 'ANX9DHB'.indexOf(c) >= 0;
+                    if (must) { required = slots; }
+                    parts.push({ lit: c, kind: c.toUpperCase(), required: must, letterCase: letterCase });
+                } else {
+                    parts.push({ lit: c, kind: null });
+                }
+            }
+            if (ok && slots > 0) { result = { parts: parts, placeholder: placeholder, slots: slots, required: required }; }
+        }
+        maskCache[source] = result;
+        return result;
+    }
+
+    function maskSlotAccepts(part, c) {
+        switch (part.kind) {
+            case 'A': return /^[A-Za-z]$/.test(c);
+            case 'N': return /^[A-Za-z0-9]$/.test(c);
+            case 'X': return /^\S$/.test(c);
+            case '9': case '0': return /^[0-9]$/.test(c);
+            case 'D': return /^[1-9]$/.test(c);
+            case '#': return /^[0-9+\-]$/.test(c);
+            case 'H': return /^[0-9A-Fa-f]$/.test(c);
+            case 'B': return /^[01]$/.test(c);
+            default: return false;
+        }
+    }
+
+    // A text made to fit the mask: the characters it holds that the slots take, in order, with the separators put
+    // between them as they are reached. A separator typed where the mask expects it is the same separator, not a character
+    // that lands in a slot; one the person did not type is put in when the next character arrives. `trim` leaves off the
+    // separators after the last slot, which is what a deletion needs, or the last one could never be deleted.
+    // Returns { text, count, caretAfter }, where caretAfter[n] is where the caret goes after the n-th slot character.
+    function maskFormat(mask, raw, trim) {
+        var parts = mask.parts, chars = [], pi = 0;
+        var input = String(raw || '');
+        for (var i = 0; i < input.length; i++) {
+            var c = input.charAt(i);
+            var scan = pi, literal = -1;
+            while (scan < parts.length && parts[scan].kind === null) { if (parts[scan].lit === c && literal < 0) { literal = scan; } scan++; }
+            if (literal >= 0) { pi = literal + 1; continue; }
+            pi = scan;
+            if (pi < parts.length && maskSlotAccepts(parts[pi], c)) {
+                var stored = c;
+                if (parts[pi].letterCase === '>') { stored = c.toUpperCase(); } else if (parts[pi].letterCase === '<') { stored = c.toLowerCase(); }
+                chars.push(stored);
+                pi++;
+            }
+        }
+        var out = '', pending = '', slot = 0, caretAfter = [0];
+        for (var p = 0; p < parts.length; p++) {
+            if (parts[p].kind === null) { pending += parts[p].lit; continue; }
+            if (slot >= chars.length) { break; }
+            out += pending + chars[slot]; pending = ''; slot++;
+            caretAfter[slot] = out.length;
+        }
+        if (!trim && chars.length === mask.slots) { out += pending; }
+        return { text: out, count: chars.length, caretAfter: caretAfter };
+    }
+
+    function maskAccepts(mask, value) {
+        if (value === '') { return true; }
+        var whole = maskFormat(mask, value, false), trimmed = maskFormat(mask, value, true);
+        return (value === whole.text || value === trimmed.text) && trimmed.count >= mask.required;
+    }
+
+    function maskSkeleton(mask) {
+        var blank = mask.placeholder === ' ' ? '_' : mask.placeholder;
+        return mask.parts.map(function (p) { return p.kind === null ? p.lit : blank; }).join('');
+    }
+
+    function maskedTextWidget(inst, q, id, describedBy) {
+        var mask = parseMask(q.inputMask);
+        var digits = mask.parts.every(function (p) { return p.kind === null || '90D#'.indexOf(p.kind) >= 0; });
+        var format = el('p', { class: 'hint', id: id + '-format', text: t('Format: ') + maskSkeleton(mask) });
+        var input = el('input', {
+            type: 'text', id: id, 'aria-describedby': describedBy + ' ' + id + '-format', 'data-focus': 'input', autocomplete: 'off',
+            autocapitalize: 'off', spellcheck: 'false', inputmode: digits ? 'numeric' : null, placeholder: maskSkeleton(mask), maxlength: String(mask.parts.length + 8)
+        });
+        input.value = current(inst, q);
+        input.addEventListener('input', function (e) {
+            var deleting = !!(e && e.inputType && e.inputType.indexOf('delete') === 0);
+            var caret = input.selectionStart === null ? input.value.length : input.selectionStart;
+            var before = maskFormat(mask, input.value.slice(0, caret), true).count;
+            var made = maskFormat(mask, input.value, deleting);
+            input.value = made.text;
+            var at = made.caretAfter[Math.min(before, made.count)];
+            if (document.activeElement === input && input.setSelectionRange) { input.setSelectionRange(at, at); }
+            setValue(inst, q, made.text);
+        });
+        // On leaving, the separators after the last slot are put in, so what is stored is the whole text.
+        input.addEventListener('change', function () {
+            var made = maskFormat(mask, input.value, false);
+            if (made.text !== input.value) { input.value = made.text; setValue(inst, q, made.text); }
+        });
+        return {
+            node: el('div', null, [input, format]),
+            controls: function () { return [input]; },
+            sync: function (ro) { syncInput(input, current(inst, q), ro); }
+        };
+    }
+
+    // ----- spinner (integer, decimal): buttons that step the value by one, beside the box.
+
+    function spinnerWidget(inst, q, id, describedBy) {
+        var input = el('input', {
+            type: 'text', id: id, 'aria-describedby': describedBy, 'data-focus': 'input',
+            inputmode: q.type === 'integer' ? 'numeric' : 'decimal', autocomplete: 'off'
+        });
+        input.value = current(inst, q);
+        var less = el('button', { type: 'button', class: 'quiet step', 'data-focus': 'less', 'aria-label': t('Decrease'), 'aria-describedby': id + '-label', text: '−' });
+        var more = el('button', { type: 'button', class: 'quiet step', 'data-focus': 'more', 'aria-label': t('Increase'), 'aria-describedby': id + '-label', text: '+' });
+
+        function step(delta) {
+            var now = Number(current(inst, q));
+            if (current(inst, q) === '' || isNaN(now)) { now = 0; }
+            var next = Math.round((now + delta) * 1e10) / 1e10;
+            if (q.type === 'integer') { next = Math.round(next); }
+            input.value = String(next);
+            setValue(inst, q, String(next));
+        }
+
+        input.addEventListener('input', function () { setValue(inst, q, input.value.trim().replace(',', '.')); });
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'ArrowUp') { e.preventDefault(); step(1); } else if (e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
+        });
+        less.addEventListener('click', function () { step(-1); });
+        more.addEventListener('click', function () { step(1); });
+        return {
+            node: el('div', { class: 'spin-row' }, [less, input, more]),
+            controls: function () { return [input]; },
+            sync: function (ro) { syncInput(input, current(inst, q), ro); less.disabled = !!ro; more.disabled = !!ro; }
+        };
+    }
+
+    // ----- week-number (date): a year and a week number, stored as the date of that ISO 8601 week's Monday. INFERRED.
+
+    function isoWeekOf(y, m, d) {
+        var date = new Date(Date.UTC(y, m - 1, d));
+        var dayNr = (date.getUTCDay() + 6) % 7;
+        date.setUTCDate(date.getUTCDate() - dayNr + 3);
+        var weekYear = date.getUTCFullYear();
+        var jan4 = new Date(Date.UTC(weekYear, 0, 4));
+        var week = 1 + Math.round(((date - jan4) / 86400000 - 3 + ((jan4.getUTCDay() + 6) % 7)) / 7);
+        return { year: weekYear, week: week };
+    }
+
+    function weeksInYear(y) { return isoWeekOf(y, 12, 28).week; }
+
+    function mondayOfWeek(y, w) {
+        var jan4 = new Date(Date.UTC(y, 0, 4));
+        var monday = new Date(jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 86400000 + (w - 1) * 7 * 86400000);
+        return monday.getUTCFullYear() + '-' + pad(monday.getUTCMonth() + 1) + '-' + pad(monday.getUTCDate());
+    }
+
+    function weekWidget(inst, q, id, describedBy) {
+        var year = el('input', { type: 'text', id: id, inputmode: 'numeric', autocomplete: 'off', maxlength: '4', 'data-focus': 'year',
+            'aria-labelledby': id + '-label ' + id + '-year', 'aria-describedby': describedBy });
+        var week = el('input', { type: 'text', id: id + '-w', inputmode: 'numeric', autocomplete: 'off', maxlength: '2', 'data-focus': 'week',
+            'aria-labelledby': id + '-label ' + id + '-weeklabel', 'aria-describedby': describedBy });
+        var box = el('div', { class: 'week-row', role: 'group', 'aria-labelledby': id + '-label' }, [
+            el('div', null, [el('span', { class: 'week-label', id: id + '-year', text: t('Year') }), year]),
+            el('div', null, [el('span', { class: 'week-label', id: id + '-weeklabel', text: t('Week number') }), week])
+        ]);
+
+        function fromValue() {
+            var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(current(inst, q));
+            if (!m) { return null; }
+            var info = isoWeekOf(Number(m[1]), Number(m[2]), Number(m[3]));
+            return { year: String(info.year), week: String(info.week) };
+        }
+
+        function write() {
+            var y = year.value.trim(), w = week.value.trim();
+            var value = '';
+            if (y !== '' || w !== '') {
+                var yn = Number(y), wn = Number(w);
+                value = /^\d{4}$/.test(y) && /^\d{1,2}$/.test(w) && wn >= 1 && wn <= weeksInYear(yn) ? mondayOfWeek(yn, wn) : (y || '') + '-W' + (w || '');
+            }
+            setValue(inst, q, value);
+        }
+
+        year.addEventListener('input', write);
+        week.addEventListener('input', write);
+        return {
+            node: box,
+            controls: function () { return [year, week]; },
+            sync: function (ro) {
+                var held = fromValue();
+                var shown = /^\d{4}$/.test(year.value.trim()) && /^\d{1,2}$/.test(week.value.trim())
+                    ? mondayOfWeek(Number(year.value.trim()), Number(week.value.trim())) : '';
+                var inside = document.activeElement === year || document.activeElement === week;
+                if (held) {
+                    if (current(inst, q).slice(0, 10) !== shown && !inside) { year.value = held.year; week.value = held.week; }
+                } else if (current(inst, q) === '' && shown !== '' && !inside) {
+                    year.value = ''; week.value = '';
+                }
+                year.readOnly = !!ro; week.readOnly = !!ro;
             }
         };
     }
@@ -1354,6 +1821,7 @@
     }
 
     function dateWidget(inst, q, id, describedBy) {
+        if (has(q.appearance, 'week-number')) { return weekWidget(inst, q, id, describedBy); }
         var monthYear = has(q.appearance, 'month-year');
         var year = has(q.appearance, 'year');
         var input = el('input', {
@@ -1993,6 +2461,7 @@
             if (page !== pageIndex) { pageIndex = page; render(); }
         }
         var node = $('body').querySelector('[data-key="' + cssEscape(p.key) + '"]');
+        expandAround(node);
         var control = node && (node.querySelector('[aria-invalid=true]') || node.querySelector('input:not([type=hidden]):not([type=file]), select, textarea')
             || node.querySelector('input[type=file], canvas, button'));
         if (control) { control.focus(); if (control.scrollIntoView) { control.scrollIntoView({ block: 'center' }); } }

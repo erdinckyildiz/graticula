@@ -51,7 +51,7 @@ public static class FormCatalog
         "constraint_message", "relevant", "default", "read_only", "readonly", "calculation", "choice_filter",
         "appearance", "parameters", "repeat_count", "image", "media::image",
         "bind::esri:fieldType", "bind::esri:fieldLength", "bind::esri:fieldAlias", "body::esri:visible",
-        "body::accuracyThreshold", "body::accept");
+        "body::accuracyThreshold", "body::accept", "body::esri:inputMask");
 
     /// <summary>Survey columns that change only how a question looks; drawn the default way, with a notice.</summary>
     public static readonly FrozenSet<string> PresentationSurveyColumns = Columns("body::esri:style", "bind::saveIncomplete");
@@ -67,7 +67,6 @@ public static class FormCatalog
         ["bind::esri:parameters"] = "its calculationMode changes the values a form stores, which is not in the first version",
         ["bind::esri:warning"] = "warnings are not in the first version",
         ["bind::esri:warning_message"] = "warnings are not in the first version",
-        ["body::esri:inputMask"] = "input masks are not in the first version",
         ["bind::esri:workflow"] = "rangefinder workflows are not in the first version",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
@@ -102,13 +101,24 @@ public static class FormCatalog
         ["signature"] = Set("image"),
         ["month-year"] = Set("date"),
         ["year"] = Set("date"),
-        ["minimal"] = Set("select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file"),
+        ["minimal"] = Set("select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file", "begin group", "begin repeat"),
+        ["compact"] = Set("begin group", "begin repeat"),
+        ["autocomplete"] = Set("select_one", "select_one_from_file"),
+        ["spinner"] = Set("integer", "decimal"),
+        ["week-number"] = Set("date"),
         ["likert"] = Set("select_one", "select_one_from_file"),
         ["rating"] = Set("range"),
         ["hidden"] = Set("*"),
         ["field-list"] = Set("begin group", "begin repeat"),
         ["table-list"] = Set("begin group"),
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Appearances supported on some types and drawn the default way on the rest (<c>compact</c> collapses a group and
+    /// is only a layout of choices on a select; <c>minimal</c> is a drop-down on a select, collapses a group or a repeat,
+    /// and means nothing on any other type, where Survey123 ignores it). ADR-287 §5.19.
+    /// </summary>
+    public static readonly FrozenSet<string> PresentationOnOtherTypes = Set("compact", "minimal");
 
     /// <summary>Appearances that change only how a question looks; drawn the default way, with a notice.</summary>
     public static readonly FrozenSet<string> PresentationAppearances = Set(
@@ -123,7 +133,6 @@ public static class FormCatalog
         ["annotate"] = "annotating a photo is not in the first version",
         ["map"] = "choosing on a map is not in the first version",
         ["quick map"] = "choosing on a map is not in the first version",
-        ["autocomplete"] = "type-ahead choice lists are not in the first version",
         ["geocode"] = "geocoding a text answer is not in the first version",
         ["distress"] = "the distress scale is a Survey123 field app control",
         ["spike"] = "Spike devices are not supported",

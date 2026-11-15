@@ -269,7 +269,7 @@ public sealed record FormLayerPlan(
 
     private static PlannedDomain Domain(string service, string list, IReadOnlyList<FormChoice> choices, string language) =>
         new($"{service}_{Identifier(list)}", list,
-            choices.Select(c => new CodedValue(DomainValue.Of(c.Name), Label(c.Labels, language) ?? c.Name)).ToList());
+            choices.DistinctBy(c => c.Name).Select(c => new CodedValue(DomainValue.Of(c.Name), Label(c.Labels, language) ?? c.Name)).ToList());
 
     private static IEnumerable<(FormTable Table, string? Parent)> Walk(FormTable table, string? parent)
     {

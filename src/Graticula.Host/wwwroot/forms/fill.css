@@ -287,3 +287,42 @@ button.quiet.guidance-toggle { margin: 0 0 4px; min-height: 44px; padding: 8px 0
 
 /* A location map with no ground (graticula:basemap none). */
 .qmap[data-ground=none] { background: var(--surface-2); }
+
+/* Survey123's own widgets (ADR-287 §5.19). */
+/* compact / minimal on a group or a repeat: the heading is a button that shows and hides what is under it. */
+.collapse-toggle {
+  display: flex; align-items: center; justify-content: flex-start; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left;
+  font-size: inherit; font-weight: 600; color: var(--ink); background: var(--surface); border-color: var(--rule);
+}
+.collapse-toggle::before {
+  content: ""; flex: none; width: 7px; height: 7px; margin-right: 12px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg);
+}
+.collapse-toggle[aria-expanded=true]::before { transform: rotate(45deg); }
+.collapse-flag { color: var(--alert); font-weight: 400; margin-left: 6px; }
+.group > h2:has(> .collapse-toggle), .group > h3:has(> .collapse-toggle), .group > h4:has(> .collapse-toggle),
+.group > h5:has(> .collapse-toggle), .group > h6:has(> .collapse-toggle) { margin: 12px 0 4px; font-size: 16px; }
+.repeat-instance > .instance-head h3:has(> .collapse-toggle), .repeat-instance > .instance-head h4:has(> .collapse-toggle),
+.repeat-instance > .instance-head h5:has(> .collapse-toggle), .repeat-instance > .instance-head h6:has(> .collapse-toggle) { flex: 1 1 auto; }
+.collapse-panel { margin-top: 4px; }
+
+/* autocomplete: a combobox whose list sits in the page's flow, under the box. */
+.combo-list {
+  list-style: none; margin: 4px 0 0; padding: 0; max-height: 40vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--control-edge); border-radius: 6px;
+}
+.combo-option { display: flex; align-items: center; min-height: 44px; padding: 8px 12px; cursor: pointer; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }
+.combo-option:first-child { border-top: 0; }
+.combo-option[aria-selected=true] { background: var(--accent); color: var(--on-accent); }
+.combo-option:hover { background: var(--accent-soft); color: var(--ink); }
+.combo-option[aria-selected=true]:hover { background: var(--accent); color: var(--on-accent); }
+.combo-status:empty { display: none; }
+
+/* spinner: a button at each end of the box, each a 44 px target. */
+.spin-row { display: flex; align-items: stretch; gap: 8px; }
+.spin-row input { flex: 1 1 auto; min-width: 0; }
+.spin-row button.step { flex: none; min-width: 44px; padding: 0 12px; font-size: 20px; line-height: 1; }
+
+/* week-number: a year and a week number side by side. */
+.week-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.week-label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
