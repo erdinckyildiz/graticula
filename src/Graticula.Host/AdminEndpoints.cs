@@ -1319,7 +1319,7 @@ internal static partial class AdminEndpoints
                 // ADR-106 §5.5: whether this caller may export its data — Studio's *Export data*: its owner and
                 // administrators always, another signed-in reader where the owner chose Extract. Said here since
                 // 2026-11-03 rather than as `Extract` in the ArcGIS capabilities, which ArcGIS clients read as
-                // createReplica's, an operation this server does not have (ADR-082; the ArcGIS veteran's review).
+                // createReplica's, which this server answers only to editors of a sync-enabled hosted service (ADR-288; the ArcGIS veteran's review).
                 exportsData = LayerAccess.MayManage(service.Owner, current.Principal, current.Authorization)
                     || (!current.Principal.IsAnonymous
                         && service.LayersAndTables.Any(l => l.CapabilityCeiling?.Contains("Extract") == true)),
@@ -11608,6 +11608,15 @@ internal static partial class AdminEndpoints
         int unpublished = 0;
         List<string> uncheckedLayers = [];
 
+        // D-407: their web maps go with them by SQL, and a map's areas and packages by cascade as rows. What each package
+        // stood for - a registered replica and a file - is read now and put away once the removal has gone through. A
+        // transfer moves the maps, so there is nothing to put away.
+        IReadOnlyList<MapAreaPackage> theirPackages = transferTo is { Length: > 0 }
+            ? []
+            : context.RequestServices.GetService<IMapAreaStore>() is { } areaStore
+                ? await areaStore.PackagesOfOwnerAsync(name, cancellation).ConfigureAwait(false)
+                : [];
+
         if (transferTo is { Length: > 0 } receiver)
         {
             if (string.Equals(name, receiver, StringComparison.OrdinalIgnoreCase))
@@ -11756,6 +11765,11 @@ internal static partial class AdminEndpoints
 
             await Refuse(context, code, why).ConfigureAwait(false);
             return;
+        }
+
+        if (theirPackages.Count > 0)
+        {
+            await MapAreaPackaging.DiscardAsync(context.RequestServices, theirPackages, CancellationToken.None).ConfigureAwait(false);
         }
 
         await AuditAsync(

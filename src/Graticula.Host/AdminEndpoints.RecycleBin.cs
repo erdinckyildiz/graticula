@@ -81,6 +81,9 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // D-407: the rows of its map areas came back, their files and replicas did not.
+        await MapAreaPackaging.MarkRestoredAsync(context.RequestServices, entry.Kind, entry.ItemId, cancellation).ConfigureAwait(false);
+
         await annotations.RefreshAsync(cancellation).ConfigureAwait(false);
         await Results.Json(new { restored = entry.ItemId.ToString("N"), kind = entry.Kind, title = entry.Title })
             .ExecuteAsync(context).ConfigureAwait(false);

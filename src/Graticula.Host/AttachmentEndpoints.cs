@@ -111,13 +111,21 @@ internal static class AttachmentEndpoints
         IReadOnlyList<AttachmentInfo> attachments =
             await store.ListAsync(objectId, cancellation).ConfigureAwait(false);
 
+        // ADR-290, D-422: the GlobalIDs a replica names them by, where this layer's attachments keep them.
+        PublishedLayer? resolved = context.Items[ResolvedLayer] as PublishedLayer;
+        bool names = KeepsGlobalIds(resolved, store);
+        Guid? parent = names && attachments.Count > 0
+            ? (await ParentGlobalIdsAsync(context, resolved!, [objectId], cancellation).ConfigureAwait(false)).GetValueOrDefault(objectId)
+            : null;
+        parent = parent == Guid.Empty ? null : parent;
+
         await Results.Json(new
         {
             attachmentInfos = attachments.Select(a => new
             {
                 id = a.Id,
-                globalId = (string?)null,
-                parentGlobalId = (string?)null,
+                globalId = names ? GlobalIds.Braced(OfflineReplicaShapes.AttachmentGlobalId(resolved!.Id, a.Id, a.GlobalId)) : null,
+                parentGlobalId = parent is { } p ? GlobalIds.Braced(p) : null,
 
                 // <b>Our determination, not theirs.</b> A client that renders by
                 // content type must be told what the bytes are rather than what
@@ -149,7 +157,9 @@ internal static class AttachmentEndpoints
     /// <c>definitionExpression</c> since 2026-09-23</b> — V-78, the fourth ArcGIS review: the Maps SDK sends an
     /// <c>AttachmentQuery.where</c> as that parameter, and it was refused. It is read by the query face's own
     /// parser, so it accepts and refuses exactly what <c>where</c> does, and it is combined with
-    /// <c>objectIds</c> when both are sent. <c>globalIds</c>, <c>attachmentsWhere</c>, <c>keywords</c> and
+    /// <c>objectIds</c> when both are sent. <c>globalIds</c> — the features' GlobalIDs, turned into object ids through
+    /// the layer's own GlobalID column, and added to <c>objectIds</c> (<c>INFERRED</c>: the public reference does not say how
+    /// the two combine) — is accepted since 2026-11-15 (D-422). <c>attachmentsWhere</c>, <c>keywords</c> and
     /// <c>size</c> are still refused rather than ignored: each narrows the answer, and a caller who sent
     /// one and got every attachment would be answered a different question.
     /// </para>
@@ -184,7 +194,7 @@ internal static class AttachmentEndpoints
                 ? posted.ToString()
                 : context.Request.Query[key].ToString();
 
-        foreach (string narrowing in (string[])["globalIds", "attachmentsWhere", "keywords", "size"])
+        foreach (string narrowing in (string[])["attachmentsWhere", "keywords", "size"])
         {
             if (Value(narrowing).Trim().Length > 0)
             {
@@ -209,6 +219,43 @@ internal static class AttachmentEndpoints
             ids.Add(id);
         }
 
+        if (Value("globalIds").Trim().Length > 0)
+        {
+            List<Guid> wanted = [];
+
+            foreach (string part in Value("globalIds").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!Guid.TryParse(part, out Guid parsed))
+                {
+                    await Refuse(context, 400, $"'{part}' in 'globalIds' is not a GlobalID.").ConfigureAwait(false);
+                    return;
+                }
+
+                wanted.Add(parsed);
+            }
+
+            PublishedLayer? asked = context.Items[ResolvedLayer] as PublishedLayer;
+
+            if (asked is null
+                || await contexts.GetAsync(asked, cancellation).ConfigureAwait(false) is not (_, { } askedDescription)
+                || GlobalIds.FieldOf(askedDescription.Fields) is not { } globalColumn)
+            {
+                await Refuse(context, 400, "'globalIds' names features by GlobalID, and this layer has no GlobalID field.").ConfigureAwait(false);
+                return;
+            }
+
+            IReadOnlyDictionary<Guid, long> owners =
+                await connections.ObjectIdsOfAsync(asked, globalColumn, wanted, cancellation).ConfigureAwait(false);
+            ids.AddRange(owners.Values);
+
+            // A GlobalID that names no feature adds none; with nothing else asked, the answer is empty.
+            if (ids.Count == 0 && Value("definitionExpression").Trim().Length == 0)
+            {
+                await Results.Json(new { attachmentGroups = Array.Empty<object>() }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+        }
+
         string definition = Value("definitionExpression").Trim();
 
         if (definition.Length > 0)
@@ -219,7 +266,8 @@ internal static class AttachmentEndpoints
                 return;
             }
 
-            ids = ids.Count == 0 ? [.. matched] : [.. ids.Intersect(matched)];
+            bool named = Value("objectIds").Trim().Length > 0 || Value("globalIds").Trim().Length > 0;
+            ids = !named ? [.. matched] : [.. ids.Intersect(matched)];
 
             if (ids.Count == 0)
             {
@@ -251,6 +299,13 @@ internal static class AttachmentEndpoints
 
         List<object> groups = [];
 
+        // ADR-290, D-422: the GlobalIDs a replica names them by, where this layer's attachments keep them.
+        PublishedLayer? resolved = context.Items[ResolvedLayer] as PublishedLayer;
+        bool names = KeepsGlobalIds(resolved, store);
+        IReadOnlyDictionary<long, Guid> parents = names
+            ? await ParentGlobalIdsAsync(context, resolved!, [.. ids.Distinct()], cancellation).ConfigureAwait(false)
+            : new Dictionary<long, Guid>();
+
         foreach (long id in ids.Distinct())
         {
             IReadOnlyList<AttachmentInfo> attachments =
@@ -263,7 +318,7 @@ internal static class AttachmentEndpoints
                     .Select(a => (object)new
                     {
                         id = a.Id,
-                        globalId = (string?)null,
+                        globalId = names ? GlobalIds.Braced(OfflineReplicaShapes.AttachmentGlobalId(resolved!.Id, a.Id, a.GlobalId)) : null,
                         name = a.Name,
                         contentType = a.ContentType,
                         size = a.Size,
@@ -275,11 +330,67 @@ internal static class AttachmentEndpoints
 
             if (infos.Length > 0)
             {
-                groups.Add(new { parentObjectId = id, parentGlobalId = (string?)null, attachmentInfos = infos });
+                groups.Add(new
+                {
+                    parentObjectId = id,
+                    parentGlobalId = parents.TryGetValue(id, out Guid parentId) ? GlobalIds.Braced(parentId) : null,
+                    attachmentInfos = infos,
+                });
             }
         }
 
         await Results.Json(new { attachmentGroups = groups }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Whether this layer's attachments are named by GlobalID in a REST answer as a replica names them (ADR-290, D-422): a
+    /// hosted PostGIS layer, whose store keeps the GlobalID a device gave an attachment and can derive the rest.
+    /// </summary>
+    /// <remarks>
+    /// <b>Anywhere else the answer stays <c>null</c></b>: a registered layer's attachments (ADR-207, ADR-208) are kept by
+    /// stores that keep no GlobalID, and sync is hosted-PostGIS only (ADR-288 §5.8), so no replica names them and there is
+    /// nothing for REST to agree with.
+    /// </remarks>
+    private static bool KeepsGlobalIds(PublishedLayer? layer, IAttachmentStore store) =>
+        layer is not null && layer.Definition.IsHosted && store is IAttachmentSync;
+
+    /// <summary>The GlobalIDs of these features, read from the layer; features without one are absent.</summary>
+    private static async Task<IReadOnlyDictionary<long, Guid>> ParentGlobalIdsAsync(
+        HttpContext context, PublishedLayer layer, IReadOnlyCollection<long> objectIds, CancellationToken cancellation)
+    {
+        Dictionary<long, Guid> found = [];
+        ServiceContexts contexts = context.RequestServices.GetRequiredService<ServiceContexts>();
+        (IFeatureSource source, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+
+        if (GlobalIds.FieldOf(described.Fields) is not { } globalColumn || objectIds.Count == 0)
+        {
+            return found;
+        }
+
+        string identity = layer.Definition.IdentityColumn;
+
+        foreach (long[] batch in objectIds.Chunk(500))
+        {
+            FeatureQuery query = new(
+                batch.Length,
+                fields: [identity, globalColumn],
+                includeGeometry: false,
+                identities: batch);
+
+            await foreach (Feature feature in source.ReadAsync(query, cancellation).ConfigureAwait(false))
+            {
+                int idAt = feature.Schema.IndexOf(identity);
+                int globalAt = feature.Schema.IndexOf(globalColumn);
+
+                if (idAt >= 0 && globalAt >= 0 && feature[idAt] is { } id
+                    && (feature[globalAt] is Guid guid || Guid.TryParse(feature[globalAt]?.ToString(), out guid)))
+                {
+                    found[Convert.ToInt64(id, CultureInfo.InvariantCulture)] = guid;
+                }
+            }
+        }
+
+        return found;
     }
 
     /// <summary>The object ids a <c>definitionExpression</c> matches, or null with the refusal written.</summary>

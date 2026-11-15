@@ -85,6 +85,8 @@ internal sealed class TileExporter : BackgroundService
     private readonly IMapCanvasFactory _canvases;
     private readonly HostSettings _settings;
     private readonly TimeProvider _clock;
+    private readonly IMapAreaStore _areas;
+    private readonly MapAreaPackageFiles _areaFiles;
     private readonly ILogger<TileExporter> _log;
 
     private readonly RepeatedFailure _claims = new();
@@ -114,6 +116,8 @@ internal sealed class TileExporter : BackgroundService
         IMapCanvasFactory canvases,
         HostSettings settings,
         TimeProvider clock,
+        IMapAreaStore areas,
+        MapAreaPackageFiles areaFiles,
         ILogger<TileExporter> log)
     {
         _jobs = jobs;
@@ -134,6 +138,8 @@ internal sealed class TileExporter : BackgroundService
         _canvases = canvases;
         _settings = settings;
         _clock = clock;
+        _areas = areas;
+        _areaFiles = areaFiles;
         _log = log;
     }
 
@@ -657,10 +663,89 @@ internal sealed class TileExporter : BackgroundService
         }
 
         Log.ExportFinished(_log, job.Id, service.QualifiedName, staging.Count, bytes, now + _settings.TileExportRetention);
+
+        if (state.Format == TileExportFormat.Vtpk)
+        {
+            await AdoptAsync(job, state, final, working).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Hands a finished package to the map area waiting for it, if one is — ADR-288 section 11a, D-427. A preplanned area's
+    /// basemap package is an ordinary export job (the walk, the checkpoints, the lease, the budget and the package writer are
+    /// <see cref="ExportAsync"/>'s own); what differs is the end: the file leaves the export directory, where it would expire in
+    /// a day, for the area's folder, and the export is marked removed because its file is no longer one of the exports'. The
+    /// package row then counts against the export budget in the export's place (<see cref="ExportBudget"/>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A failure here is the package's, not the job's</b>: the job has finished, the file is whole, and an area that cannot
+    /// adopt it says so on the package (<c>failed</c>, with the reason) rather than leaving it <c>processing</c> for ever.
+    /// </remarks>
+    private async Task AdoptAsync(JobRecord job, TileExportState state, string final, CancellationToken working)
+    {
+        string? recorded = null;
+
+        try
+        {
+            if (await _areas.FindPackageByJobAsync(job.Id, working).ConfigureAwait(false) is null)
+            {
+                return; // an ordinary export
+            }
+
+            (string path, string name) = _areaFiles.Next(".vtpk");
+            recorded = name;
+            File.Move(final, path, overwrite: true);
+            (string sha, long size) = await MapAreaPackageFiles.HashAsync(path, working).ConfigureAwait(false);
+
+            MapAreaPackage? before = await _areas
+                .CompletePackageAsync(job.Id, recorded, sha, size, _clock.GetUtcNow(), working).ConfigureAwait(false);
+
+            if (before is null)
+            {
+                // The area or package went while the file was being written: nobody names it.
+                _areaFiles.Delete(recorded);
+                return;
+            }
+
+            recorded = null;
+
+            if (before.FilePath.Length > 0)
+            {
+                _areaFiles.Delete(before.FilePath);
+            }
+
+            await _exports.MarkRemovedAsync(job.Id, working).ConfigureAwait(false);
+            Log.PackageAdopted(_log, job.Id, before.AreaId);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            if (recorded is not null)
+            {
+                _areaFiles.Delete(recorded);
+            }
+
+            Log.PackageNotAdopted(_log, job.Id, e.Message, e);
+            await FailPackageQuietlyAsync(job.Id, "The finished package could not be kept for the map area: " + e.Message).ConfigureAwait(false);
+        }
+    }
+
+    private async Task FailPackageQuietlyAsync(Guid job, string why)
+    {
+        try
+        {
+            await _areas.FailPackageAsync(job, why, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Log.PackageNotAdopted(_log, job, "the package could not be marked failed: " + e.Message, e);
+        }
     }
 
     private async Task FailAsync(JobRecord job, string why, Exception? cause, CancellationToken token)
     {
+        // D-427: a map area's package waiting for this job says it failed, and why.
+        await FailPackageQuietlyAsync(job.Id, why).ConfigureAwait(false);
+
         try
         {
             await _jobs.FinishAsync(job.Id, JobStatus.Failed, null, why, token, Who).ConfigureAwait(false);

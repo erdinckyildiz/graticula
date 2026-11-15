@@ -63,6 +63,41 @@ public sealed class PostgresWebMapStore : IWebMapStore
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The addresses of top-level layers and tables and of one level of group layers, filtered to FeatureServer, are
+    /// all a listing needs to know (D-392); the documents never leave the database.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> FeatureServiceUrlsAsync(
+        IReadOnlyCollection<string> ids, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        string[] keys = [.. System.Linq.Enumerable.Where(ids, WebMaps.IsId)];
+        Dictionary<string, IReadOnlyList<string>> found = new(StringComparer.OrdinalIgnoreCase);
+        if (keys.Length == 0)
+        {
+            return found;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "with l as (select m.id, x as layer from web_map m, "
+            + "jsonb_array_elements(case when jsonb_typeof(m.document->'operationalLayers') = 'array' then m.document->'operationalLayers' else '[]'::jsonb end "
+            + "|| case when jsonb_typeof(m.document->'tables') = 'array' then m.document->'tables' else '[]'::jsonb end) x where m.id = any(@ids)), "
+            + "u as (select id, layer->>'url' as url from l union all "
+            + "select l.id, y->>'url' from l, jsonb_array_elements(case when jsonb_typeof(l.layer->'layers') = 'array' then l.layer->'layers' else '[]'::jsonb end) y) "
+            + "select m.id, coalesce((select array_agg(u.url) from u where u.id = m.id and u.url ilike '%/FeatureServer%'), '{}'::text[]) "
+            + "from web_map m where m.id = any(@ids)");
+        command.Parameters.AddWithValue("ids", keys);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            found[reader.GetString(0)] = reader.GetFieldValue<string[]>(1);
+        }
+
+        return found;
+    }
+
+    /// <inheritdoc/>
     public async Task<WebMap?> FindAsync(string id, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(id);

@@ -31,7 +31,7 @@ namespace Graticula.Host;
 /// </remarks>
 internal sealed partial class RecycleBinService(
     IRecycleBin bin, PostGisImporter importer, IConfiguration configuration, TimeProvider time, HostSettings settings,
-    ILogger<RecycleBinService> log, SiteSingletons? site = null)
+    ILogger<RecycleBinService> log, IServiceProvider services, SiteSingletons? site = null)
     : BackgroundService
 {
     /// <summary>What a relation of kind <c>file</c> is: an uploaded image moved under the state directory's recycle bin.</summary>
@@ -63,6 +63,11 @@ internal sealed partial class RecycleBinService(
         string key = provisional.ToString("N")[..8];
         List<(string Schema, string Original, string Recycled, string Kind)> moved = [];
 
+        // D-407: the map area packages taken from this service go with it by cascade as rows; what each stood for - a registered
+        // replica and a file - is read now and put away once the service is in the bin.
+        IReadOnlyList<MapAreaPackage> packages = await MapAreaPackaging.PackagesOfServiceAsync(services, serviceId, cancellationToken)
+            .ConfigureAwait(false);
+
         try
         {
             // Each table its own key: a service of several layers sets several tables aside, and their waiting names
@@ -82,6 +87,11 @@ internal sealed partial class RecycleBinService(
             {
                 await BringBackQuietlyAsync(moved).ConfigureAwait(false);
                 return (null, "The service went while it was being deleted.");
+            }
+
+            if (packages.Count > 0)
+            {
+                await MapAreaPackaging.DiscardAsync(services, packages, CancellationToken.None).ConfigureAwait(false);
             }
 
             return (entry, null);

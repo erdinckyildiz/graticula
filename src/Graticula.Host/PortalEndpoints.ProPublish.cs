@@ -406,6 +406,12 @@ internal static partial class PortalEndpoints
             return Unknown("User");
         }
 
+        // ADR-288 section 11a, D-427: a map area's package says whether its file is written.
+        if (await MapAreaStatusAsync(context, id, cancellation).ConfigureAwait(false) is { } areaStatus)
+        {
+            return areaStatus;
+        }
+
         // ADR-263: an export's item, whose status is its job's until the file is in it.
         if (await ExportStatusAsync(context, id, current, cancellation).ConfigureAwait(false) is { } exported)
         {

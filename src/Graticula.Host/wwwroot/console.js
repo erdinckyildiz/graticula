@@ -6497,6 +6497,13 @@ async function showWebMapItem(id) {
       <p class="hint" id="mapTasksSays" role="status" aria-live="polite"></p>
       <div id="mapTasksBody"><p class="hint">Reading this map's tasks…</p></div>
     </section>
+    <section id="mapAreas" aria-labelledby="mapAreasHead">
+      <h4 id="mapAreasHead" tabindex="-1">Offline areas</h4>
+      <p class="hint">An area is a part of the map packaged once for ArcGIS Field Maps to download: one file for each of the
+        map's feature services that has sync turned on. Every device that downloads it shares that file.</p>
+      <p class="hint" id="mapAreasSays" role="status" aria-live="polite"></p>
+      <div id="mapAreasBody"><p class="hint">Reading this map's areas…</p></div>
+    </section>
     <h4>Deleting</h4>
     <label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
       Protect from deletion</label>
@@ -6509,6 +6516,7 @@ async function showWebMapItem(id) {
   drawMapTabs();
   paintPreviews();
   if (map.manages) loadMapTasks(map);
+  if (map.manages) loadMapAreas(map);
 }
 
 /** The web map item's tab strip, and which tab's panel shows. */
@@ -6534,6 +6542,184 @@ function drawMapTabs() {
   const path = `#/item/${encodeURIComponent(map.id)}${mapTab === "settings" ? "?tab=settings" : ""}`;
   if (surfaceOfPath() === "studio" && routeHash() !== path) history.replaceState(null, "", pathOf(path));
 }
+
+/**
+ * Offline areas of this map — ADR-288 §11a. The list is drawn into `#mapAreasList` and redrawn after each act; the form
+ * beside it is drawn once and never replaced, so nothing being typed is lost. The act's outcome is said in `#mapAreasSays`,
+ * which is a live region outside both and is never redrawn.
+ */
+let mapAreasState = null;
+
+function sayMapAreas(text) {
+  const says = $("mapAreasSays");
+  if (says) says.textContent = text;
+}
+
+async function loadMapAreas(map) {
+  try {
+    const listing = await api(`/admin/maps/${encodeURIComponent(map.id)}/areas`);
+    if (mapOpen !== map) return;
+    mapAreasState = { map, areas: listing.areas || [], busy: false };
+    $("mapAreasBody").innerHTML = `
+      <div id="mapAreasList" tabindex="-1"></div>
+      <form id="mapAreaForm" novalidate>
+        <h5>Add an area</h5>
+        <p><label for="mapAreaTitle">Name</label>
+          <input type="text" id="mapAreaTitle" maxlength="250" autocomplete="off" required aria-describedby="mapAreaHelp"></p>
+        <fieldset>
+          <legend>Extent</legend>
+          <p class="hint" id="mapAreaHelp">The corners of the area in the reference below. Only what lies inside it is packaged.</p>
+          <p><label for="mapAreaXmin">West (xmin)</label> <input type="text" inputmode="decimal" id="mapAreaXmin" autocomplete="off">
+            <label for="mapAreaYmin">South (ymin)</label> <input type="text" inputmode="decimal" id="mapAreaYmin" autocomplete="off"></p>
+          <p><label for="mapAreaXmax">East (xmax)</label> <input type="text" inputmode="decimal" id="mapAreaXmax" autocomplete="off">
+            <label for="mapAreaYmax">North (ymax)</label> <input type="text" inputmode="decimal" id="mapAreaYmax" autocomplete="off"></p>
+          <p><label for="mapAreaWkid">Reference (WKID)</label> <input type="text" inputmode="numeric" id="mapAreaWkid" value="4326" autocomplete="off"></p>
+          <p><button type="button" id="mapAreaUseView">Use the map's opening extent</button></p>
+        </fieldset>
+        <p><button type="submit" class="btn primary" id="mapAreaAdd">Create and package</button></p>
+      </form>`;
+    drawMapAreasList();
+  } catch (e) {
+    if (mapOpen !== map) return;
+    $("mapAreasBody").innerHTML = "";
+    sayMapAreas(`This map's areas could not be read: ${e.message || e}`);
+  }
+}
+
+/** The extent as the map document states it when it opens, or null. */
+function mapAreasOpeningExtent() {
+  const doc = typeof mapOpen?.document === "string" ? JSON.parse(mapOpen.document) : (mapOpen?.document || {});
+  const box = doc?.initialState?.viewpoint?.targetGeometry;
+  const wkid = box?.spatialReference?.latestWkid || box?.spatialReference?.wkid;
+  return box && [box.xmin, box.ymin, box.xmax, box.ymax].every(Number.isFinite) && wkid ? { box, wkid } : null;
+}
+
+function drawMapAreasList() {
+  const state = mapAreasState;
+  const list = $("mapAreasList");
+  if (!state || !list) return;
+
+  const size = bytes => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
+  list.innerHTML = state.areas.length === 0
+    ? `<p class="hint">This map has no offline areas yet.</p>`
+    : `<ul class="maplayers">${state.areas.map(a => `<li>
+        <b>${h(a.title)}</b>
+        <span class="rowmeta">${h(a.status)} · packaged ${h(day(a.refreshed))} · ${num((a.packages || []).length)} package${(a.packages || []).length === 1 ? "" : "s"}
+          (${h((a.packages || []).map(p => `${p.service.split("/").pop()}, ${size(p.size)}${p.replicaRegistered ? "" : ", its replica is gone"}`).join("; ") || "none")})</span>
+        <button type="button" class="tiny" data-area-refresh="${h(a.id)}" aria-label="Refresh the area ${h(a.title)}">Refresh</button>
+        <button type="button" class="tiny danger" data-area-delete="${h(a.id)}" aria-label="Delete the area ${h(a.title)}">Delete</button>
+      </li>`).join("")}</ul>`;
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t || !mapAreasState) return;
+
+  if (t.id === "mapAreaUseView") {
+    const opening = mapAreasOpeningExtent();
+    if (!opening) {
+      sayMapAreas("This map does not state where it opens. Type the corners instead, or open it in the Map Viewer and save it.");
+      return;
+    }
+    $("mapAreaXmin").value = opening.box.xmin;
+    $("mapAreaYmin").value = opening.box.ymin;
+    $("mapAreaXmax").value = opening.box.xmax;
+    $("mapAreaYmax").value = opening.box.ymax;
+    $("mapAreaWkid").value = opening.wkid;
+    sayMapAreas("The map's opening extent is filled in.");
+    return;
+  }
+
+  const refresh = t.closest("[data-area-refresh]");
+  const remove = t.closest("[data-area-delete]");
+  if (!refresh && !remove) return;
+
+  const state = mapAreasState;
+  const id = (refresh || remove).dataset.areaRefresh || (refresh || remove).dataset.areaDelete;
+  const area = state.areas.find(a => a.id === id);
+  if (!area || state.busy) return;
+
+  const path = `/admin/maps/${encodeURIComponent(state.map.id)}/areas/${encodeURIComponent(id)}`;
+
+  if (remove) {
+    if (!await askServerConfirm({
+      title: `Delete the area ${area.title}?`,
+      body: "Its packages are deleted and their replicas unregistered. A device that downloaded it keeps its copy and cannot sync it again.",
+      action: "Delete this area",
+    })) return;
+  }
+
+  state.busy = true;
+  sayMapAreas(refresh ? `Packaging ${area.title} again…` : `Deleting ${area.title}…`);
+  try {
+    if (refresh) {
+      const done = await api(`${path}/refresh`, { method: "POST" });
+      state.areas = state.areas.map(a => a.id === id ? done : a);
+      sayMapAreas(`${area.title} is packaged again.${(done.skipped || []).length
+        ? " Kept as they were: " + done.skipped.map(s => `${s.service} (${s.reason})`).join("; ") : ""}`);
+    } else {
+      await api(path, { method: "DELETE" });
+      state.areas = state.areas.filter(a => a.id !== id);
+      sayMapAreas(`${area.title} is deleted.`);
+    }
+  } catch (e) {
+    sayMapAreas(e.message || String(e));
+  }
+  state.busy = false;
+  drawMapAreasList();
+  $("mapAreasHead")?.focus();
+});
+
+document.addEventListener("submit", async event => {
+  const form = event.target instanceof Element ? event.target.closest("#mapAreaForm") : null;
+  if (!form || !mapAreasState) return;
+  event.preventDefault();
+
+  const state = mapAreasState;
+  if (state.busy) return;
+
+  const title = $("mapAreaTitle").value.trim();
+  const corners = ["Xmin", "Ymin", "Xmax", "Ymax"].map(k => Number($("mapArea" + k).value.trim() || NaN));
+  const wkid = Number($("mapAreaWkid").value.trim());
+
+  if (!title) {
+    sayMapAreas("Give the area a name.");
+    $("mapAreaTitle").focus();
+    return;
+  }
+  if (corners.some(n => !Number.isFinite(n)) || !(wkid > 0)) {
+    sayMapAreas("Type all four corners and the reference as numbers, or use the map's opening extent.");
+    return;
+  }
+  if (corners[0] >= corners[2] || corners[1] >= corners[3]) {
+    sayMapAreas("West must be less than east, and south less than north.");
+    return;
+  }
+
+  const add = $("mapAreaAdd");
+  state.busy = true;
+  add.disabled = true;
+  sayMapAreas(`Packaging ${title}. This can take a while for a large area…`);
+  try {
+    const made = await api(`/admin/maps/${encodeURIComponent(state.map.id)}/areas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        extent: { xmin: corners[0], ymin: corners[1], xmax: corners[2], ymax: corners[3], spatialReference: { wkid } },
+      }),
+    });
+    state.areas = [...state.areas, made];
+    $("mapAreaTitle").value = "";
+    sayMapAreas(`${title} is packaged.${(made.skipped || []).length
+      ? " Left out: " + made.skipped.map(s => `${s.service} (${s.reason})`).join("; ") : ""}`);
+  } catch (e) {
+    sayMapAreas(e.message || String(e));
+  }
+  state.busy = false;
+  add.disabled = false;
+  drawMapAreasList();
+});
 
 /**
  * ArcGIS Field Maps tasks for this map — ADR-286. Drawn in two parts so nothing a person is typing in is replaced:

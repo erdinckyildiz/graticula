@@ -82,12 +82,16 @@ internal static class ArcGisAppendEndpoints
         ImportScratch scratch,
         CancellationToken cancellation)
     {
-        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures).ConfigureAwait(false))
+        string? folder = context.Request.RouteValues.TryGetValue("folder", out object? given) ? given as string : null;
+
+        // ADR-288: a field worker who may edit a sync-enabled service uploads the edits they made offline here, and a
+        // field worker does not publish. Everybody else needs what an append needs, asked first as it always was.
+        if (!await OfflineReplicaEndpoints.MayUploadEditsAsync(context, services, folder, serviceName, cancellation).ConfigureAwait(false)
+            && !await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures).ConfigureAwait(false))
         {
             return;
         }
 
-        string? folder = context.Request.RouteValues.TryGetValue("folder", out object? given) ? given as string : null;
         CatalogAnswer answer = await services.FindServiceAsync(folder, serviceName, cancellation).ConfigureAwait(false);
 
         if (answer.Service is null)
@@ -409,6 +413,35 @@ internal static class ArcGisAppendEndpoints
         string.IsNullOrWhiteSpace(json)
             ? null
             : [.. JsonDocument.Parse(json).RootElement.EnumerateArray().Select(e => e.GetString() ?? string.Empty)];
+
+    /// <summary>
+    /// The file of an upload waiting for this caller, or null — for <c>synchronizeReplica</c>'s <c>editsUploadID</c>
+    /// (ADR-288), which reads the delta a client uploaded here.
+    /// </summary>
+    /// <param name="id">The upload's id.</param>
+    /// <param name="owner">The caller's principal id, as the upload recorded it.</param>
+    /// <returns>The file's path, or null when no upload of theirs is waiting.</returns>
+    internal static string? WaitingUploadOf(string id, string owner)
+    {
+        Forget();
+
+        return (Uploads.TryGetValue(id, out Upload? held) ? held : SiteHandoff.Load<Upload>(UploadKind, id)) is { } waiting
+            && string.Equals(waiting.Owner, owner, StringComparison.Ordinal)
+            ? waiting.Path
+            : null;
+    }
+
+    /// <summary>Removes an upload that has been used, and its file.</summary>
+    /// <param name="id">The upload's id.</param>
+    internal static void Spend(string id)
+    {
+        if (Uploads.TryRemove(id, out Upload? spent))
+        {
+            TryDelete(spent.Path);
+        }
+
+        SiteHandoff.Remove(UploadKind, id);
+    }
 
     /// <summary>Drops the uploads older than an hour.</summary>
     private static void Forget()

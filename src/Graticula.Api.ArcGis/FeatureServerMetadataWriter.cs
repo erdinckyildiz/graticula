@@ -553,6 +553,10 @@ public static class FeatureServerMetadataWriter
             serviceDescription = string.Empty,
             hasVersionedData = false,
             supportsDisconnectedEditing = false,
+
+            // ADR-288 §5.8: false here, and turned true — with syncCapabilities and Sync — for a sync-enabled hosted
+            // service by `Offline.SyncDocument.ApplyToService`, so every other service says what ArcGIS's say.
+            syncEnabled = false,
             hasStaticData = IsStatic(capabilities),
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
             supportedQueryFormats = "JSON, geoJSON, PBF",

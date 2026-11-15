@@ -60,6 +60,21 @@ internal static class InvalidToken
         Surfaces.Any(surface => path.StartsWithSegments(surface, StringComparison.OrdinalIgnoreCase))
         && !Exempt.Any(exempt => path.StartsWithSegments(exempt, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Whether a request answers a rejected token with 498: never a <c>HEAD</c>, which ArcGIS Enterprise answers 200 with a
+    /// token it cannot read (measured 2026-11-13 against a 2025.2 portal: <c>HEAD /portal/sharing/rest?f=json</c> with a
+    /// made-up token, 200, where a <c>GET</c> answers 200 with code 498 in the body). ArcGIS Field Maps opens with exactly
+    /// that request, and a <c>HEAD</c> has no body to carry the error in. <b>What this is not:</b> the fix for Field Maps
+    /// losing its portal when its 30-minute access token ran out. That was seen the same day — every request 498, syncs
+    /// failing, <i>No portal connection</i> — and the device recovered by refreshing its token (a new session at 11:40
+    /// UTC) before this change was running, so whether this change matters to it is not measured.
+    /// </summary>
+    /// <param name="method">The request method.</param>
+    /// <param name="path">The request path.</param>
+    /// <returns>Whether it does.</returns>
+    public static bool Applies(string method, PathString path) =>
+        !HttpMethods.IsHead(method) && Applies(path);
+
     /// <summary>Writes the refusal.</summary>
     /// <param name="context">The request.</param>
     /// <returns>A task.</returns>

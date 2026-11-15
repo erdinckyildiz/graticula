@@ -19,4 +19,8 @@
     <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Graticula.Api.ArcGis.Tests" />
+  </ItemGroup>
+
 </Project>

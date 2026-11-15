@@ -852,6 +852,11 @@ internal static partial class PortalEndpoints
         // for Python find here.
         helpers["printTask"] = new { url = PrintEndpoints.TaskUrl(Origin(context)) };
 
+        // ADR-288 section 11a, D-404: the offline packaging service, where a client looks for the tasks that make map areas.
+        // INFERRED: the key. An Enterprise portal's own self document was not read for a packaging entry; `packaging` is the
+        // name its sibling entries (`geometry`, `printTask`, `analysis`) suggest.
+        helpers["packaging"] = new { url = OfflinePackagingEndpoints.Url(Origin(context)) };
+
         if (Geocoding.GeocodeServerEndpoints.PortalLocator(
                 context.RequestServices.GetService<Geocoding.GeocoderSettings>(), current, Origin(context)) is { } locator)
         {
@@ -1454,6 +1459,7 @@ internal static partial class PortalEndpoints
                 .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId),
         ];
         IReadOnlySet<Guid> tasked = await TaskedMapsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
+        (IReadOnlySet<Guid> editableMaps, IReadOnlySet<Guid> offlineMaps) = await MapFactsAsync(context, ownMaps, cancellation).ConfigureAwait(false);
 
         List<(object Item, Guid? Id)> owned =
         [
@@ -1464,7 +1470,10 @@ internal static partial class PortalEndpoints
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
-            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
+            .. ownMaps.Select(map => (MapItem(context, map, tasks: tasked.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id)), editable: editableMaps.Contains(Guid.Parse(map.Id))), ItemGuidOf(map.Id))),
+
+            // And the map areas of those maps, beside them — ADR-288 §11a.
+            .. (await MapAreaItemsAsync(context, ownMaps, cancellation).ConfigureAwait(false)).Select(a => (a.Item, (Guid?)a.Id)),
 
             // And their documents — ADR-188.
             .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
@@ -1889,11 +1898,18 @@ internal static partial class PortalEndpoints
         // ADR-286: Field Maps' Tasks filter reads the search result's keywords, so which maps have tasks is asked here,
         // once for every map the search could list.
         IReadOnlySet<Guid> withTasks = await TaskedMapsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
+        (IReadOnlySet<Guid> editableMaps, IReadOnlySet<Guid> offlineMaps) = await MapFactsAsync(context, readableMaps, cancellation).ConfigureAwait(false);
 
         foreach (WebMap map in readableMaps)
         {
-            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
+            candidates.Add((MapItem(context, map, tasks: withTasks.Contains(Guid.Parse(map.Id)), offline: offlineMaps.Contains(Guid.Parse(map.Id)), editable: editableMaps.Contains(Guid.Parse(map.Id))), Guid.Parse(map.Id), With(map.SharedWith, Guid.Parse(map.Id)),
                 item => new PortalListed(map.Id, item, Map: map)));
+        }
+
+        // ADR-288 §11a: the map areas of the maps this caller may open, and their packages, under the same query.
+        foreach ((object areaItem, Guid areaId) in await MapAreaItemsAsync(context, [.. readableMaps], cancellation).ConfigureAwait(false))
+        {
+            candidates.Add((areaItem, areaId, null, item => new PortalListed(areaId.ToString("N"), item)));
         }
 
         // Documents, under the same query and the same rule as maps (ADR-188).
@@ -2134,8 +2150,15 @@ internal static partial class PortalEndpoints
             return Results.Ok(await WithCommentsAndMetadataAsync(
                 context,
                 MapItem(context, map, MapExtent(map.Document),
-                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0),
+                    tasks: (await TaskedMapsAsync(context, [map], cancellation).ConfigureAwait(false)).Count > 0,
+                    offline: (await MapFactsAsync(context, [map], cancellation).ConfigureAwait(false)).Offline.Count > 0),
                 Guid.Parse(map.Id), cancellation).ConfigureAwait(false));
+        }
+
+        // ADR-288 §11a: a preplanned map area, or a package taken from one, seen exactly when its map is.
+        if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaItem)
+        {
+            return Results.Ok(await WithCommentsAndMetadataAsync(context, areaItem.Item, areaItem.Id, cancellation).ConfigureAwait(false));
         }
 
         // A document, as a map: it needs no catalogue either (ADR-188).
@@ -2351,6 +2374,16 @@ internal static partial class PortalEndpoints
         if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
         {
             return Results.Content(map.Document ?? "{}", "application/json; charset=utf-8");
+        }
+
+        // ADR-288 §11a: a package's data is its file, streamed with ranges. A Map Area's data is the `mapAreas` object read on an
+        // Enterprise 12.1 portal (research note section 5a.1, D-408): its tile scale, refresh parameters and whether its
+        // scheduled updates are on.
+        if (await ReadableMapAreaAsync(context, id, cancellation).ConfigureAwait(false) is { } areaData)
+        {
+            return areaData.Package is { } package
+                ? MapAreaPackageFile(context, package)
+                : Results.Content(MapAreaDataText(areaData.Area), "application/json; charset=utf-8");
         }
 
         // <b>A document's data is its file</b> (ADR-188), and it leaves as every document does: a download, never a
@@ -2583,6 +2616,10 @@ internal static partial class PortalEndpoints
     /// </remarks>
     /// <summary>The type keywords for a web map whose document is at hand: <c>Collector</c> and <c>Data Editing</c> beside
     /// <see cref="WebMapKeywords"/> when it holds a feature layer or table.</summary>
+    /// <summary>A map's keywords from its document, or from what the database said of it when a listing carries none (D-392).</summary>
+    private static string[] KeywordsOf(WebMap map, bool? editable) =>
+        map.Document is not null || editable is null ? WebMapKeywordsOf(map.Document) : editable.Value ? EditableWebMapKeywords : WebMapKeywords;
+
     internal static string[] WebMapKeywordsOf(string? document) =>
         HoldsFeatureLayer(document) ? EditableWebMapKeywords : WebMapKeywords;
 
@@ -2666,6 +2703,65 @@ internal static partial class PortalEndpoints
             : await resources.ItemsHoldingAsync(ids, FieldMapsTasks.ResourcePath, cancellation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// For these maps: which hold a feature layer (so carry <c>Collector</c> and <c>Data Editing</c>, D-392) and which
+    /// Field Maps may take offline — ADR-288: every feature layer they hold is a service on this server with sync on.
+    /// </summary>
+    /// <remarks>
+    /// <b>Read from the database, not from the documents</b>, which a listing does not carry (D-392): the store answers
+    /// each map's FeatureServer addresses. <b><c>Offline</c> is INFERRED</b> (Q-233): ArcGIS keeps it as a switch its
+    /// owner turns in Map Viewer; here it follows the services, so there is nothing to store and nothing to fall out of
+    /// step.
+    /// </remarks>
+    private static async Task<(IReadOnlySet<Guid> Editable, IReadOnlySet<Guid> Offline)> MapFactsAsync(
+        HttpContext context, IEnumerable<WebMap> maps, CancellationToken cancellation)
+    {
+        HashSet<Guid> editable = [];
+        HashSet<Guid> offline = [];
+        WebMap[] all = [.. maps];
+        if (all.Length == 0 || context.RequestServices.GetService<IWebMapStore>() is not { } store)
+        {
+            return (editable, offline);
+        }
+
+        IReadOnlyDictionary<string, IReadOnlyList<string>> urls =
+            await store.FeatureServiceUrlsAsync([.. all.Select(m => m.Id)], cancellation).ConfigureAwait(false);
+
+        HashSet<string>? synced = null;
+        foreach (WebMap map in all)
+        {
+            if (!Guid.TryParse(map.Id, out Guid id) || !urls.TryGetValue(map.Id, out IReadOnlyList<string>? addresses)
+                || addresses.Count == 0)
+            {
+                continue;
+            }
+
+            editable.Add(id);
+            if (synced is null)
+            {
+                IReadOnlyList<PublishedService> services =
+                    context.RequestServices.GetService<Graticula.Platform.Postgres.CatalogFallback>() is { } published
+                        ? (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services ?? []
+                        : [];
+                synced = new(services.Where(s => s.SyncEnabled).Select(s => s.QualifiedName), StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (addresses.Select(ServiceOf).All(name => name is not null && synced.Contains(name)))
+            {
+                offline.Add(id);
+            }
+        }
+
+        return (editable, offline);
+
+        static string? ServiceOf(string url)
+        {
+            int at = url.IndexOf("/rest/services/", StringComparison.OrdinalIgnoreCase);
+            int end = url.IndexOf("/FeatureServer", StringComparison.OrdinalIgnoreCase);
+            return at >= 0 && end > at ? url[(at + "/rest/services/".Length)..end] : null;
+        }
+    }
+
     /// <summary>A saved web map as a portal item of type <c>Web Map</c> — ADR-079 §5.3.</summary>
     /// <remarks>
     /// <b>The owner is named by the same rule as a service's</b> (<see cref="Item"/>, Q-127): the
@@ -2673,7 +2769,7 @@ internal static partial class PortalEndpoints
     /// publish its author's account name to whoever opens it anonymously. <b>No <c>url</c></b>: a web map
     /// is not a service, and its content is at <c>items/{id}/data</c>.
     /// </remarks>
-    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false)
+    private static object MapItem(HttpContext context, WebMap map, double[][]? extent = null, bool tasks = false, bool offline = false, bool? editable = null)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -2688,6 +2784,11 @@ internal static partial class PortalEndpoints
                 : "graticula",
 
             // ADR-114: the owner's folder it is in, said only to its owner.
+            // ADR-288: what the caller may do with the item, as Portal says it. On 2026-11-10 the same map offered *Add
+            // offline area* in Field Maps on an Enterprise portal, which answers `admin` here to its owner, and not on
+            // this server, where the field was absent — the first difference between the two items that was tried.
+            itemControl = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id ? "admin" : null,
+            isOrgItem = true,
             ownerFolder = !current.Principal.IsAnonymous && map.Owner == current.Principal.Id && map.ContentFolder is { } inFolder
                 ? inFolder.ToString("N")
                 : null,
@@ -2695,7 +2796,10 @@ internal static partial class PortalEndpoints
             name = (string?)null,
             type = "Web Map",
             // ADR-286: `Tasks` beside the rest when the map carries Field Maps tasks.
-            typeKeywords = FieldMapsTasks.WithTasks(WebMapKeywordsOf(map.Document), tasks),
+            // ADR-288: and `Offline` when every feature layer it holds is sync-enabled.
+            typeKeywords = offline
+                ? [.. FieldMapsTasks.WithTasks(KeywordsOf(map, editable), tasks), "Offline"]
+                : FieldMapsTasks.WithTasks(KeywordsOf(map, editable), tasks),
             // ADR-119: the description when there is one, the summary as before when not; and the picture.
             description = map.Description ?? map.Snippet,
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,

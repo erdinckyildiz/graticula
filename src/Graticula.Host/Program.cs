@@ -459,6 +459,28 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Jobs.IFeatureExportStore>(services =>
             new PostgresFeatureExportStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-288: whether a service is sync-enabled, its registered replicas, and the replica jobs of this process.
+        // The writer is Graticula.Offline.Sqlite's (ADR-288 §6); the replica routes still resolve it where they use it
+        // and answer 501 if a build leaves it out.
+        builder.Services.AddSingleton<Graticula.Api.ArcGis.Offline.IMobileGeodatabaseWriter>(
+            new Graticula.Offline.Sqlite.SqliteMobileGeodatabaseWriter());
+
+        // ADR-288 condition 7: a client's upload is read in a child process, Graticula.Offline.Reader, and never here —
+        // ADR-009 §2.2's line for an untrusted file parsed by native code. Writing stays above, in this process.
+        builder.Services.AddSingleton(_ => new OfflineUploadReader(OfflineUploadReader.ExecutableBesideThisOne()));
+        builder.Services.AddSingleton<Graticula.Api.ArcGis.Offline.IOfflineDeltaReader>(
+            services => services.GetRequiredService<OfflineUploadReader>());
+        builder.Services.AddSingleton<IOfflineSyncStore>(services =>
+            new PostgresOfflineSyncStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => new ReplicaJobs(
+            System.IO.Path.Combine(services.GetRequiredService<HostSettings>().TileExportDirectory, "replicas"),
+            services.GetRequiredService<TimeProvider>()));
+
+        // ADR-288 §11a: preplanned map areas, their packages, and the files those packages are.
+        builder.Services.AddSingleton<IMapAreaStore>(services =>
+            new PostgresMapAreaStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => new MapAreaPackageFiles(services.GetRequiredService<HostSettings>().ServerDirectoryRoot));
+
         builder.Services.AddSingleton(services =>
             ActivatorUtilities.CreateInstance<FeatureExporter>(
                 services,
@@ -933,6 +955,12 @@ public static class Program
 
         // D-389: scene package files nothing names any more, swept hourly once per site.
         builder.Services.AddHostedService<ScenePackageFileSweep>();
+
+        // D-407: map area package files no row names, swept hourly once per site.
+        builder.Services.AddHostedService<MapAreaPackageFileSweep>();
+
+        // D-405: map areas refreshed on the schedule they name, once per site.
+        builder.Services.AddHostedService<MapAreaRefreshScheduler>();
 
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
@@ -1862,7 +1890,10 @@ public static class Program
             current = judged;
             context.Features.Set(current);
 
-            if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Path))
+            // The method the client sent, not the GET the HEAD rewrite above turned it into: reading
+            // `Request.Method` here made the HEAD exemption dead code, and dev went on answering a
+            // HEAD 498 for two days after it was written (measured 2026-11-15, D-424).
+            if (current.TokenWasRejected && InvalidToken.Applies(AskedMethod(context), context.Request.Path))
             {
                 await InvalidToken.WriteAsync(context).ConfigureAwait(false);
                 return;
@@ -2164,6 +2195,15 @@ public static class Program
                     "The import reader",
                     GeodatabaseReader.ExecutableBesideThisOne(),
                     "import a File Geodatabase or a shapefile; GeoJSON is unaffected");
+            }
+
+            if (!app.Services.GetRequiredService<OfflineUploadReader>().Available)
+            {
+                Log.SiblingMissing(
+                    logger,
+                    "The offline reader",
+                    OfflineUploadReader.ExecutableBesideThisOne(),
+                    "read what ArcGIS Field Maps or Pro uploads to synchronizeReplica; taking a copy offline is unaffected");
             }
         }
 
@@ -3031,6 +3071,25 @@ public static class Program
                 ServiceApplyEditsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>Offline sync — ADR-288.</b> createReplica, synchronizeReplica, unRegisterReplica and the replicas
+            // resources, which take the service's and each layer's document from the routes above and apply an upload
+            // through the service's applyEdits above, so there is one implementation of each.
+            OfflineReplicaEndpoints.Map(app, prefix, new ReplicaFaces(
+                (inner, name) => ServiceMetadataAsync(
+                    inner, name, inner.RequestServices.GetRequiredService<CatalogFallback>(),
+                    inner.RequestServices.GetRequiredService<ServiceContexts>(), inner.RequestServices.GetRequiredService<HostSettings>(),
+                    inner.RequestServices.GetRequiredService<IProjector>(), inner.RequestAborted),
+                (inner, name, layerId) => LayerMetadataAsync(
+                    inner, name, layerId, inner.RequestServices.GetRequiredService<CatalogFallback>(),
+                    inner.RequestServices.GetRequiredService<ServiceContexts>(),
+                    inner.RequestServices.GetRequiredService<PostgresRelationshipCatalog>(),
+                    inner.RequestServices.GetRequiredService<HostSettings>(), inner.RequestServices.GetRequiredService<IProjector>(),
+                    inner.RequestAborted),
+                (inner, name) => ServiceApplyEditsAsync(
+                    inner, name, inner.RequestServices.GetRequiredService<CatalogFallback>(),
+                    inner.RequestServices.GetRequiredService<LayerConnections>(), inner.RequestServices.GetRequiredService<ServiceContexts>(),
+                    inner.RequestServices.GetRequiredService<IAuditLog>(), inner.RequestAborted)));
+
             // <b>Three of the ArcGIS layer and service operations a client calls around editing —
             // 2026-09-15.</b> All three were 404: Pro's field calculator and scripts use
             // `calculate`, a where builder checks its clause with `validateSQL`, and a form reads
@@ -3095,6 +3154,7 @@ public static class Program
 
         // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).
         ArcGisAppendEndpoints.Map(app);
+        OfflineReplicaEndpoints.MapAdmin(app);
 
         // ADR-107: a layer taken away as a GeoPackage, a zipped shapefile or an Excel workbook.
         LayerExportEndpoints.Map(app);
@@ -3108,6 +3168,9 @@ public static class Program
 
         // ADR-265: the print service, where a portal's helperServices.printTask says it is.
         PrintEndpoints.Map(app);
+
+        // ADR-288 section 11a, D-404: the offline packaging service, where ArcGIS Pro and Map Viewer make preplanned map areas.
+        OfflinePackagingEndpoints.Map(app);
 
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
@@ -3436,6 +3499,9 @@ public static class Program
         // ADR-265: the print service, which every caller may use and which draws only what each may read.
         Add("Utilities", "Utilities/PrintingTools");
 
+        // ADR-288 section 11a: the offline packaging service, open to describe and asking for a token to run.
+        Add("Utilities", "Utilities/OfflinePackaging");
+
         foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
         {
             if ((seesStopped || coverage.Status == ServiceStatus.Started)
@@ -3613,6 +3679,7 @@ public static class Program
         if (string.Equals(folder, "Utilities", StringComparison.OrdinalIgnoreCase))
         {
             systemServices.Add(("Utilities/PrintingTools", "GPServer"));
+            systemServices.Add(("Utilities/OfflinePackaging", "GPServer"));
         }
 
         // <b>Which services have tile services is `ServiceFaces.Tileable`, below</b> —
@@ -4272,28 +4339,19 @@ public static class Program
 
 
 
-    private static async Task ServiceMetadataAsync(
+    /// <summary>
+    /// The service's own document, <c>FeatureServer?f=json</c>, as this caller is answered it — built from a request the
+    /// caller holds, written by <see cref="ServiceMetadataAsync"/> to its response and by a map area's packaging into a
+    /// replica's file (ADR-288 §11a), so the two cannot differ.
+    /// </summary>
+    internal static async Task<object> ServiceDocumentAsync(
         HttpContext context,
-        string serviceName,
-        CatalogFallback catalog,
+        PublishedService service,
         ServiceContexts contexts,
         HostSettings settings,
         IProjector projector,
         CancellationToken cancellation)
     {
-        // <b>The feature face's door, which carries the <c>AllowsFeatures</c> check.</b> ADR-031
-        // condition 2: a service whose feature face is configured off answers as absent. This
-        // used to be three lines written out here, and being written out here is how two other
-        // routes came to be missing them — see `ServiceLookup.FeatureServiceAsync`.
-        PublishedService? service = await ServiceLookup
-            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
-            .ConfigureAwait(false);
-
-        if (service is null)
-        {
-            return;
-        }
-
         // <b>Every layer's extent, which means every layer's shape query.</b>
         // ServiceContexts caches those for thirty seconds, so a three-layer
         // service costs three cached reads rather than three round trips — but
@@ -4392,9 +4450,81 @@ public static class Program
         // ADR-113: a view says so, and so does a source with views.
         document = ViewFlags.Apply(context, document, service.ViewOf is not null, service.HasViews, serviceCapabilities);
 
+        // ADR-288: a sync-enabled hosted service says so, and offers Sync to a caller who may edit it.
+        document = SyncFlags.ApplyToService(context, document, service);
+
         // The portal item this face is, as ArcGIS's service documents name it (ServiceItem).
         string serviceItemId = PortalEndpoints.ItemIdOf(service, "FeatureServer");
         document = ServiceItem.Apply(context, document, serviceItemId);
+
+        return document;
+    }
+
+    /// <summary>
+    /// The service's own document as the text <c>FeatureServer?f=json</c> answers this caller, built from a request the
+    /// caller holds and serialised as a response is (ADR-288 §11a).
+    /// </summary>
+    internal static async Task<string> ServiceDocumentTextAsync(
+        HttpContext context, PublishedService service, CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        object document = await ServiceDocumentAsync(
+            context, service, services.GetRequiredService<ServiceContexts>(), services.GetRequiredService<HostSettings>(),
+            services.GetRequiredService<IProjector>(), cancellation).ConfigureAwait(false);
+
+        return System.Text.Json.JsonSerializer.Serialize(document, ResponseJson(context));
+    }
+
+    /// <summary>
+    /// A layer's or table's own document as the text <c>FeatureServer/{id}?f=json</c> answers this caller, or null when the
+    /// service has no such layer.
+    /// </summary>
+    internal static async Task<string?> LayerDocumentTextAsync(
+        HttpContext context, PublishedService service, int layerId, CancellationToken cancellation)
+    {
+        if (service.LayerOrTable(layerId) is not { } layer)
+        {
+            return null;
+        }
+
+        IServiceProvider services = context.RequestServices;
+        (object document, _) = await LayerDocumentAsync(
+            context, layer, services.GetRequiredService<ServiceContexts>(), services.GetRequiredService<PostgresRelationshipCatalog>(),
+            services.GetRequiredService<CatalogFallback>(), services.GetRequiredService<HostSettings>(),
+            services.GetRequiredService<IProjector>(), cancellation, service).ConfigureAwait(false);
+
+        return System.Text.Json.JsonSerializer.Serialize(document, ResponseJson(context));
+    }
+
+    /// <summary>The serialiser options a minimal-API response is written with.</summary>
+    private static System.Text.Json.JsonSerializerOptions ResponseJson(HttpContext context) =>
+        context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()
+            .Value.SerializerOptions;
+
+    private static async Task ServiceMetadataAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        HostSettings settings,
+        IProjector projector,
+        CancellationToken cancellation)
+    {
+        // <b>The feature face's door, which carries the <c>AllowsFeatures</c> check.</b> ADR-031
+        // condition 2: a service whose feature face is configured off answers as absent. This
+        // used to be three lines written out here, and being written out here is how two other
+        // routes came to be missing them — see `ServiceLookup.FeatureServiceAsync`.
+        PublishedService? service = await ServiceLookup
+            .FeatureServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null)
+        {
+            return;
+        }
+
+        object document = await ServiceDocumentAsync(context, service, contexts, settings, projector, cancellation)
+            .ConfigureAwait(false);
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -4440,7 +4570,7 @@ public static class Program
                         WmsEndpoints.DirectoryLink(null, null, 0),
                         OgcFeaturesEndpoints.DirectoryLink(null),
                     ],
-                    serviceItemId: serviceItemId),
+                    serviceItemId: PortalEndpoints.ItemIdOf(service, "FeatureServer")),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 
@@ -4647,7 +4777,7 @@ public static class Program
     /// invites its caller to recompute the other, which is how a cheap call becomes a habit.
     /// </para>
     /// </returns>
-    private static async Task<(object Document, LayerDescription Description)> LayerDocumentAsync(
+    internal static async Task<(object Document, LayerDescription Description)> LayerDocumentAsync(
         HttpContext context,
         PublishedLayer layer,
         ServiceContexts contexts,
@@ -4745,6 +4875,9 @@ public static class Program
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
+
+        // ADR-288: a layer of a sync-enabled hosted service says Sync, and that it can return its changes.
+        document = SyncFlags.ApplyToLayer(context, document, layer);
 
         // The service's item and when the layer last changed, as ArcGIS's layer document says them (2026-11-03).
         if (owning is not null)
@@ -6080,6 +6213,19 @@ public static class Program
         return CapabilitiesFor(context, service.LayersAndTables[0], service.Limits, writable);
     }
 
+    /// <summary>
+    /// What this caller may do with a whole service, exactly as its document says it — for ADR-288's replica
+    /// operations, which a caller may use where the document offers them an edit.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="service">The service.</param>
+    /// <param name="contexts">Where a layer's shape comes from, cached.</param>
+    /// <param name="cancellation">The caller's.</param>
+    /// <returns>The capabilities string, before <c>Sync</c> is added.</returns>
+    internal static async Task<string> ServiceCapabilitiesAsync(
+        HttpContext context, PublishedService service, ServiceContexts contexts, CancellationToken cancellation) =>
+        CapabilitiesFor(context, service, await WritabilityOfAsync(service, contexts, cancellation).ConfigureAwait(false));
+
     /// <summary>The service-wide answer, for a caller holding a service rather than its shapes.</summary>
     /// <param name="service">The service.</param>
     /// <param name="contexts">Where a layer's shape comes from, cached.</param>
@@ -6239,8 +6385,10 @@ public static class Program
     /// 2026-11-03, ADR-106 §5.5 as amended that day.</b> From 2026-09-30 it was named to a signed-in caller where the owner had chosen it, as ArcGIS Online names it where
     /// others may export. What an ArcGIS client does on reading it is call <c>createReplica</c>: the ArcGIS API for
     /// Python's <c>replicas.create</c> returns nothing without <c>Extract</c> or <c>syncEnabled</c> and posts
-    /// <c>createReplica</c> with it (<c>arcgis/features/layer.py</c>, read 2026-11-03), and that operation is not served
-    /// here (ADR-082) — so the word invited a 404 and answered nothing an ArcGIS client could reach. Online's own
+    /// <c>createReplica</c> with it (<c>arcgis/features/layer.py</c>, read 2026-11-03), and that operation was not served
+    /// here (ADR-082) — so the word invited a 404 and answered nothing an ArcGIS client could reach. Since ADR-288 it is
+    /// served, but only to a caller who may edit a sync-enabled hosted service and only as a mobile geodatabase, so
+    /// <c>Extract</c> offered to a reader would still invite a refusal. Online's own
     /// <i>Export Data</i> is a portal operation (<c>content/users/{u}/export</c>), not served here either (ADR-106).
     /// </para>
     /// <para>

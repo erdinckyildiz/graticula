@@ -218,7 +218,15 @@ internal static class VectorTileExportEndpoints
 
         if (ask.Levels is { Count: > 0 } asked)
         {
-            levels = asked;
+            // <b>Levels past the service's last are dropped, not refused</b> — ADR-215, D-403. ArcGIS Field Maps asks for
+            // every level down to the scale its offline area is set to (1:100 by default, level 23) whatever the service
+            // has; a vector tile is drawn past its own level by the client, so the levels the service lacks add nothing
+            // to the package. A request naming none of the service's levels is still refused below.
+            levels = [.. asked.Where(l => l >= 0 && l <= scheme.MaxLevel)];
+            if (levels.Count == 0)
+            {
+                levels = asked;
+            }
         }
         else if (AdminEndpoints.DefaultSeedLevels(service) is { } d)
         {
@@ -257,6 +265,17 @@ internal static class VectorTileExportEndpoints
 
         long cap = service.Limits.Export.MaximumOf(settings.TileExportMaximumTiles);
 
+        // <b>An ArcGIS client's export keeps the levels that fit</b> — D-403, ADR-288. Field Maps asks for every level down to
+        // 1:100 over its offline area and treats a refusal as the whole area failing; a vector tile is drawn past the
+        // package's last level by the client, which the package's `maxzoom` tells it. So the deepest levels are dropped
+        // until the export fits, and the administrator's own export (`admin`) is still refused with the numbers.
+        if (plan.Total > cap && ask.Origin == "arcgis" && AdminEndpoints.HighestLevelThatFits(plan, cap) is { } fitting
+            && fitting >= levels[0])
+        {
+            levels = [.. levels.Where(l => l <= fitting)];
+            plan = TileSeedPlan.For(scheme, area, levels[0], levels[^1]).Keeping(levels.ToHashSet());
+        }
+
         if (plan.Total > cap)
         {
             int? fits = AdminEndpoints.HighestLevelThatFits(plan, cap);
@@ -287,7 +306,8 @@ internal static class VectorTileExportEndpoints
         Planned planned,
         HostSettings settings,
         JobSignal signal,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool wake = true)
     {
         IReadOnlyList<int> levels = [.. planned.Plan.Levels.Select(level => level.Z)];
 
@@ -316,7 +336,11 @@ internal static class VectorTileExportEndpoints
                 new { estimatedBytes = planned.EstimatedBytes, heldBytes = held, budget = settings.TileExportBudgetBytes }));
         }
 
-        signal.Wake(JobKind.TileExport);
+        if (wake)
+        {
+            signal.Wake(JobKind.TileExport);
+        }
+
         return (started, null);
     }
 
