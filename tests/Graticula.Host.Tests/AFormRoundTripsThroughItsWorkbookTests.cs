@@ -77,6 +77,110 @@ public sealed class AFormRoundTripsThroughItsWorkbookTests
         Assert.True(second.SameAs(ThroughWorkbook(second)));
     }
 
+    /// <summary>
+    /// Condition 7 over the corpus (ADR-287 §9): every workbook in <c>GRATICULA_FORMS_CORPUS</c> that reads goes workbook →
+    /// model → workbook → model, and the two models are identical; the model also survives its own JSON. With the
+    /// variable unset this says so and passes.
+    /// </summary>
+    [Fact]
+    public void Every_corpus_form_round_trips_through_its_workbook_and_its_json()
+    {
+        string? folder = AFormCorpusTests.CorpusFolder();
+
+        if (folder is null)
+        {
+            Console.WriteLine($"{AFormCorpusTests.CorpusVariable} is not set, so the corpus is not round-tripped (ADR-287 condition 7).");
+            return;
+        }
+
+        List<string> differences = [];
+        int read = 0;
+
+        foreach (string path in AFormCorpusTests.CorpusFiles(folder))
+        {
+            FormModel first;
+
+            try
+            {
+                using FileStream file = File.OpenRead(path);
+                first = FormModel.ReadWorkbook(file);
+            }
+            catch (FormWorkbookException)
+            {
+                continue; // not a workbook this reads: counted by AFormCorpusTests, not a round trip
+            }
+
+            read++;
+            FormModel second = ThroughWorkbook(first);
+            FormModel third = ThroughWorkbook(second);
+            FormModel fromJson = FormModel.FromJson(JsonNode.Parse(first.ToJson().ToJsonString()));
+
+            if (!first.SameAs(second))
+            {
+                differences.Add($"{Path.GetFileName(path)}: workbook → model → workbook differs: {FirstDifference(first, second)}");
+            }
+            else if (!second.SameAs(third))
+            {
+                differences.Add($"{Path.GetFileName(path)}: a second trip differs: {FirstDifference(second, third)}");
+            }
+
+            if (!first.SameAs(fromJson))
+            {
+                differences.Add($"{Path.GetFileName(path)}: the model's JSON differs: {FirstDifference(first, fromJson)}");
+            }
+        }
+
+        Console.WriteLine($"Round-tripped {read} corpus workbooks.");
+        Assert.True(read > 0, "No workbook in the corpus could be read, so nothing was round-tripped.");
+        Assert.True(differences.Count == 0, string.Join(Environment.NewLine, differences));
+    }
+
+    /// <summary>Where two models first differ, in words a reader of the defect can use.</summary>
+    private static string FirstDifference(FormModel a, FormModel b)
+    {
+        if (a.Sheets.Count != b.Sheets.Count)
+        {
+            return $"{a.Sheets.Count} sheets against {b.Sheets.Count}";
+        }
+
+        for (int s = 0; s < a.Sheets.Count; s++)
+        {
+            ModelSheet x = a.Sheets[s];
+            ModelSheet y = b.Sheets[s];
+
+            if (x.Name != y.Name)
+            {
+                return $"sheet {s + 1} is '{x.Name}' against '{y.Name}'";
+            }
+
+            if (!x.Columns.SequenceEqual(y.Columns))
+            {
+                return $"sheet '{x.Name}' has different columns";
+            }
+
+            for (int r = 0; r < Math.Max(x.Rows.Count, y.Rows.Count); r++)
+            {
+                IReadOnlyList<string> p = r < x.Rows.Count ? x.Rows[r] : [];
+                IReadOnlyList<string> q = r < y.Rows.Count ? y.Rows[r] : [];
+
+                if (!p.SequenceEqual(q))
+                {
+                    int c = 0;
+                    while (c < Math.Max(p.Count, q.Count) && ModelSheet.Cell(p, c) == ModelSheet.Cell(q, c))
+                    {
+                        c++;
+                    }
+
+                    return $"sheet '{x.Name}' row {r + 2}, column {FormWorkbook.ColumnLetters(c)}: {Quote(ModelSheet.Cell(p, c))} against {Quote(ModelSheet.Cell(q, c))}";
+                }
+            }
+        }
+
+        return "the models differ in a way this report does not locate";
+    }
+
+    private static string Quote(string text) => "\"" + text.Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
+
     [Fact]
     public void Model_to_json_to_model_is_identical()
     {

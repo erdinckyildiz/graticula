@@ -158,6 +158,14 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "substr('abcdef', 2)", "cdef", "{}" },              // ODK: 0-based start
         { "substr('abcdef', 1, 3)", "bc", "{}" },             // ... and an exclusive end
         { "substr('abc', 5)", "", "{}" },
+        { "substring('12345', 2, 3)", "234", "{}" },                // XPath 1.0 §4.2's examples, all of them:
+        { "substring('12345', 2)", "2345", "{}" },
+        { "substring('12345', 1.5, 2.6)", "234", "{}" },            // start and length are rounded first
+        { "substring('12345', 0, 3)", "12", "{}" },                 // a start of 0 takes one character off the length
+        { "substring('12345', 0 div 0, 3)", "", "{}" },             // NaN selects nothing
+        { "substring('12345', -42, 1 div 0)", "12345", "{}" },
+        { "substring('12345', -1 div 0, 1 div 0)", "", "{}" },
+        { "substring(${name}, 2)", "da", "{}" },                    // a node is its string value
         { "substring-before('1999/04/01', '/')", "1999", "{}" },     // XPath 1.0 §4.2's examples
         { "substring-after('1999/04/01', '/')", "04/01", "{}" },
         { "substring-after('1999/04/01', '19')", "99/04/01", "{}" },
@@ -225,6 +233,12 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "round(3.14159, 2)", "3.14", "{}" },              // ODK: a second argument gives decimals
         { "round(1.005, 2)", "1.01", "{}" },
         { "round(1234.5, -2)", "1200", "{}" },
+        { "floor(1.5)", "1", "{}" },                        // XPath 1.0 §4.4's examples: floor and ceiling round towards
+        { "floor(-1.5)", "-2", "{}" },                      // minus and plus infinity respectively
+        { "ceiling(1.5)", "2", "{}" },
+        { "ceiling(-1.5)", "-1", "{}" },
+        { "floor(${n} div 2)", "2", "{}" },                 // 5 div 2 is 2.5, and the floor of it is 2
+        { "ceiling(${a})", "NaN", "{}" },                   // an empty answer is NaN as a number, and NaN stays NaN
         { "pow(2, 10)", "1024", "{}" },
         { "log(1)", "0", "{}" },
         { "log10(1000)", "3", "{}" },
@@ -247,6 +261,11 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "count-non-empty(${cost})", "2", "{}" },
         { "position(..)", "2", "{}" },                      // the repeat instance the expression runs in
         { "position()", "2", "{}" },
+        { "count(${rep}[last()])", "1", "{}" },              // XPath 1.0 §4.1: last() is the size of the node-set filtered
+        { "count(${rep}[position() = last()])", "1", "{}" },
+        { "join(',', ${cost}[position() < last()])", "10,", "{}" },   // the first two of three answers, one of them empty
+        { "join(',', ${cost}[last()])", "2.5", "{}" },
+        { "last()", "1", "{}" },                            // INFERRED: outside a predicate a form's context size is 1
         { "count(current())", "1", "{}" },
         { "join(' ', instance('food')/root/item[cat = ${cat}]/name)", "apple pear", "{}" },   // a choice_filter
         { "join(' ', instance('food')/root/item[cat = current()/../cat]/name)", "apple pear", "{}" },
@@ -314,6 +333,9 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "jr:choice-name(selected-at(${fruits}, 0), '${fruits}')", "Apple", "{}" },
         { "jr:choice-name('pear', '${fruits}')", "Armut", "{language:'Türkçe'}" },
         { "jr:choice-name('nope', '${fruits}')", "", "{}" },
+        // A choices column named with its language is one name in a choice_filter, as the corpus's Survey123 forms write it.
+        { "join(' ', instance('food')/root/item[label::Türkçe = 'Elma']/name)", "apple", "{}" },
+        { "join(' ', instance('food')/root/item[label::Türkçe != 'Elma']/name)", "leek pear", "{}" },
 
         // ----- Geographic: the booleans here, the measures in Measures
         { "geofence('0.5 0.5', '0 0 0 0;0 1 0 0;1 1 0 0;1 0 0 0;0 0 0 0')", "true", "{}" },
@@ -358,6 +380,9 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
     {
         { "1 +", "Expected a value but found the end of the expression", 3 },
         { "foo(1)", "Unknown function 'foo'", 0 },
+        { "string-length()", "string-length() takes 1 argument, not 0", 0 },   // ODK: the argument is required
+        { "lang('en')", "lang() is not supported: lang() reads the xml:lang", 0 },
+        { "name()", "name() is not supported: node names are not in the first version", 0 },
         { "1 + digest('a')", "digest() is not supported: digests are not in the first version", 4 },
         { "concat('a'", "Expected ')' but found the end of the expression", 10 },
         { "${a", "A reference has no closing '}'", 0 },
@@ -468,6 +493,25 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         Assert.True(missing.Length == 0, "In FormCatalog.Functions but not in the evaluator: " + string.Join(", ", missing));
         Assert.True(extra.Length == 0, "In the evaluator but not in FormCatalog.Functions: " + string.Join(", ", extra));
         Assert.True(catalog.Length > 60, $"Only {catalog.Length} functions were read from FormCatalog.cs; the parse is wrong.");
+    }
+
+    /// <summary>
+    /// The refused names are the same in both places too: FormCatalog.RefusedFunctions is what the server refuses at upload,
+    /// and the evaluator must refuse the same names, so that a form the server lets through never reaches a function the
+    /// client does not have a reason for.
+    /// </summary>
+    [Fact]
+    public async Task The_evaluator_refuses_exactly_FormCatalog_RefusedFunctions()
+    {
+        string source = File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "Graticula.Host", "Forms", "FormCatalog.cs"));
+        Match block = Regex.Match(source, @"RefusedFunctions\s*=\s*new Dictionary<string, string>\(StringComparer\.Ordinal\)\s*\{(?<body>.*?)\}\.ToFrozenDictionary", RegexOptions.Singleline);
+        Assert.True(block.Success, "FormCatalog.cs has no 'RefusedFunctions' dictionary; this test reads it by that shape.");
+
+        string[] catalog = Regex.Matches(block.Groups["body"].Value, @"\[""([^""]+)""\]\s*=").Select(m => m.Groups[1].Value).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        string[] evaluator = await _page.Browser.EvaluateAsync<string[]>("GraticulaXlsform.refused.slice()") ?? [];
+
+        Assert.True(catalog.Length >= 8, $"Only {catalog.Length} refused functions were read from FormCatalog.cs; the parse is wrong.");
+        Assert.Equal(catalog, evaluator.OrderBy(x => x, StringComparer.Ordinal));
     }
 
     /// <summary>Every function on the list is called by at least one case above (condition 4: tested, not just present).</summary>

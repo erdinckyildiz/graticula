@@ -363,8 +363,8 @@ measurable question. The two device claims are, so they are conditions and not a
 
     | | Functions |
     |---|---|
-    | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring-before`, `substring-after`, `translate`, `string-length`, `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included. **Node-set:** `count`, `count-non-empty`, `position`, `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's. **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
-    | Refused | `digest`, `base64-decode`, `jr:itext`, `instance` for anything other than a choice list, and **every Esri `pulldata("@…")` form**: `@layer`, `@property`, `@json`, `@exif`, `@geopoint`, `@javascript`. `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
+    | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's. **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **every Esri `pulldata("@…")` form**: `@layer`, `@property`, `@json`, `@exif`, `@geopoint`, `@javascript`. `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
 
     **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
     `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
@@ -501,7 +501,7 @@ measurable question. The two device claims are, so they are conditions and not a
     vertex, and the shape is drawn as it grows; *Use my location*, *Add my position*, the coordinate boxes and *Remove
     last point* stay, and are the keyboard's and the screen reader's way, so the map is hidden from assistive
     technology rather than half-offered to it. The library is OpenLayers, the one Studio draws with, served under
-    `/forms/` and kept in the service worker's shell (`graticula-forms-shell-v2`), so a form opened offline still has its
+    `/forms/` and kept in the service worker's shell (`graticula-forms-shell-v4`, bumped 2026-11-15 when the evaluator gained `floor`, `ceiling`, `last` and `substring`; v3 is the survey-forms branch's), so a form opened offline still has its
     map — without its ground, since tiles are not kept. The forms' policy admits images from `tile.openstreetmap.org`
     and nothing else from there. **INFERRED, for the owner to confirm:** (a) ~~OpenStreetMap is the ground, as in Studio's
     previews, and not a basemap the publisher chooses~~ **reversed by the owner 2026-11-09: the publisher chooses the
@@ -513,6 +513,75 @@ measurable question. The two device claims are, so they are conditions and not a
     question; with the device's position already allowed the map opens on it; the map is a named region whose zoom
     buttons are heard, not a hidden box with focusable controls; a line's or area's points are numbered, each with its
     own Remove, and the area says when it is closed.
+
+18. **The corpus, the XPath core functions, and what the first real forms did — built 2026-11-15** (conditions 4, 5 and
+    7). Numbers from one run of the checks on the `forms-corpus` branch; the corpus itself is not in the repository.
+    Items 16 and 17 are the survey-forms branch's, and this item takes 18 so that the two do not collide.
+    - **The corpus.** 110 public workbooks: pyxform's test fixtures, ARCED's and stats4sd's examples, ODK's own Web Forms
+      and Central fixtures, the XLSForm.org example, eddiemulwa's ODK demo forms, and **61 Survey123-authored forms**:
+      Esri's `Survey123Community` repository (Apache-2.0; 44 readable, including its Samples and Templates), laffchem's
+      `survey123-files` (9, no licence stated), SailingGeographer's `Survey123` (5, no licence stated) and palavido-dev's
+      `survey123-designer` (3, MIT). Each file's source URL, commit and licence are in `SOURCES.md` beside the corpus
+      (`D:\temp\forms-corpus`, outside the repository). Nothing from it is committed, and nothing was run from it.
+      108 read and 2 did not: an empty 0-byte file, and a zip with no workbook part.
+    - **Condition 5 counts.** 31 of the 108 readable workbooks import unedited (29%). 12 of those have notices, which
+      say what is drawn the default way or kept with no effect, and need no edit. Of the 61 Survey123-authored forms,
+      **17 import unedited (28%)**, all of them from Esri's repository, and 0 of the other 44. There are 1,539 refusals
+      in 77 forms. The largest reasons, counted per refusal: a survey row that holds cells but no question type, 953
+      (one form, which carries a 951-row "French Translation" table beside its questions); an appearance this server does
+      not know, 204; a duplicate choice, 53; `or_other`, 28; a column type this server does not know, 28; `pulldata("@…")`
+      from Survey123 sources, 49; `autocomplete`, 27; `annotate`, 19; `property()`, 13; `search()`, 11. The full table, by
+      reason, by column and by form, is the JSON report the harness writes.
+    - **Condition 4 counts.** 1,441 expressions were found in the survey and settings sheets, and the server accepts 1,373
+      of them. Every one of those parses and runs in the client without an error (`XlsformCorpusEvaluationTests`). The 68
+      the server refuses are refused on purpose and are not run.
+    - **Condition 7 counts.** All 108 readable workbooks go workbook → model → workbook → model, and the model's JSON
+      round-trips, with the two models identical (`AFormRoundTripsThroughItsWorkbookTests`).
+    - **Defects the corpus exposed, and their fixes**, each with a test built from a minimal workbook or model:
+      1. Excel's `_xHHHH_` escapes were not decoded: 239 occurrences in 57 workbooks, so a label showed `_x000a_` where
+         Excel shows a line break. The reader now decodes them. The writer escapes carriage returns, other control
+         characters, and an underscore that begins an escape, so the round trip is exact.
+      2. A date-formatted numeric cell was read as its serial number: four cells on form sheets (`survey` 3, `settings` 1)
+         and 17 on other sheets, in 14 workbooks. A date in a `default` or a `version` now reads as the date (INFERRED, below).
+      3. A corrupt zip made the reader throw a framework exception instead of refusing the file in words (one file).
+      4. Formatting alone counted against the row and column limits, and five workbooks were refused as having more than
+         512 columns or 50,000 rows with no content there. Empty cells and rows no longer count (INFERRED, below).
+      5. A literal `default` (HTML, or a parenthesis in text) was scanned as XPath and failed in the client: three forms.
+         A `default` is a formula only with a question reference or when it starts with a call (INFERRED, below).
+      6. A label's language written with one colon, `label:English (en)`, which pyxform's own fixtures use, was read as an
+         unknown column, and seven questions were refused as having no label. It is read as the double-colon form (INFERRED).
+      7. A `choice_filter` naming a choices column with its language, `label::English`, was accepted by the server and
+         refused by the client. Found by condition 4's run; fixed in the evaluator's lexer (INFERRED, below).
+      8. `select_multiple X or other` was refused as "more than one word after the type", not as `or_other`. It is now
+         refused as `or_other`, with its reason.
+      9. `string-length()` with no argument was accepted by the evaluator; the specification makes its argument required.
+    - **XPath core functions** (the check of XPath 1.0 §4 against the catalog). Added: `floor` and `ceiling` (§4.4),
+      `last` (§4.1), and `substring` (§4.2, beside ODK's `substr`), each tested with XPath's own examples. Refused on
+      purpose, and listed in §5.10: `lang`, `id`, `name`, `local-name`, `namespace-uri`. None of the new functions appears
+      in the corpus, so they come from the specification, not from the forms, and are recorded as such. The evaluator
+      has 231 case rows, 8 measure rows and 19 parse-error rows, and the catalog and the evaluator agree on both the
+      functions and the refusals (`The_evaluator_refuses_exactly_FormCatalog_RefusedFunctions`).
+    - **What condition 4 does not check.** The corpus run checks that every accepted expression parses and runs, and that
+      the catalog and the evaluator agree. It does not compare results with expected values, because the corpus has none;
+      the expected values are the specifications' examples only. A form whose logic gives a wrong answer without an error
+      is not caught by this run.
+    - **INFERRED, for the owner to confirm:**
+      (a) `last()` outside a predicate is 1, the context size of a form's expression; inside a predicate it is the size of
+      the node-set being filtered;
+      (b) a `default` is a formula only when it contains `${` or starts with a function call, and is text otherwise;
+      (c) a single-colon label language, `label:English (en)`, means the double-colon form;
+      (d) a date-formatted numeric cell is read as the date it shows (`2020-01-31`, `2020-01-31T12:00:00`, or `12:00:00`).
+      This changes §5.3's "a number is kept as the text the workbook stored" for dates alone. Serial 60 is Excel's phantom
+      29 February 1900;
+      (e) formatting alone, an empty cell or row, does not count against the row and column limits;
+      (f) a `choice_filter` name with a language suffix is one name, and only the XPath axes may stand before `::`;
+      (g) a survey sheet with a block of text beside the questions stays refused, because nothing is ignored silently. The
+      owner may prefer a rule that lets a publisher keep notes beside a form; the one corpus form that does this is refused;
+      (h) A-089 is INVALIDATED. That changes no decision here, since refusing what §5.10 leaves out is the first version's
+      stated limit. It means the first version will refuse most Survey123 forms that use `pulldata("@…")`, `property()`,
+      `search()`, `autocomplete` or `annotate`. Whether that is the right first version is the owner's question.
+    - The service worker's shell cache is `graticula-forms-shell-v4`, bumped because the evaluator changed. The v3 bump is
+      the survey-forms branch's.
 
 ## 6. Consequences
 
@@ -578,15 +647,15 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    condition 1 (§5.9 (b)), not here.
 4. **The expression evaluator is tested against the specifications' own examples** (xlsform.org's and the XForms
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
-   evaluates differently from its specification is a defect, not a limitation.
+   evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. **Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.
 5. **Every refusal at upload names the row, the column and the reason**, and a set of real Survey123 forms is
-   imported to count how many come in unedited. A-089 is validated or invalidated by that count.
+   imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
    while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
    edited offline is kept on the device. Neither case may lose an edit silently.
 7. **The model and the workbook round-trip.** Every form in condition 4's and condition 5's sets goes workbook →
    model → workbook → model, and the two models are identical: same rows, same columns, same values, unknown columns
-   included. A difference is a defect in the reader or the writer, and forms are not released with one.
+   included. A difference is a defect in the reader or the writer, and forms are not released with one. **DISCHARGED 2026-11-15:** all 108 readable corpus workbooks go workbook → model → workbook → model, with identical models, and each model's JSON round-trips (`AFormRoundTripsThroughItsWorkbookTests`). The corpus run found three reader defects that broke the round trip or changed a value, and they are fixed with tests built from minimal workbooks: Excel's `_xHHHH_` escapes (239 occurrences, 57 workbooks), date-formatted numbers read as serials, and carriage returns in text. The writer was not measured against its pre-change self on these inputs.
 
 ## 10. Revisit triggers
 
