@@ -85,7 +85,11 @@ public static class FormExpressions
 
                 if (after < expression.Length && expression[after] == '(' && !Operators.Contains(word))
                 {
-                    calls.Add(new FunctionCall(word, FirstLiteral(expression, after + 1), Literals(expression, after + 1)));
+                    List<string?> literals = Literals(expression, after + 1, out int close);
+                    calls.Add(new FunctionCall(word, FirstLiteral(expression, after + 1), literals)
+                    {
+                        Written = close > after ? FormLayerQuery.Arguments(expression[(after + 1)..close]) : null,
+                    });
                 }
             }
             else if (char.IsDigit(c))
@@ -134,9 +138,10 @@ public static class FormExpressions
     /// <c>pulldata("@property", 'email')</c>, <c>["@property", "email"]</c>. Arguments are split at commas outside
     /// quotes and brackets, up to the call's closing parenthesis.
     /// </summary>
-    private static List<string?> Literals(string expression, int from)
+    private static List<string?> Literals(string expression, int from, out int close)
     {
         List<string?> arguments = [];
+        close = -1;
         int depth = 0;
         int start = from;
         char quote = ' ';
@@ -165,6 +170,7 @@ public static class FormExpressions
                 if (depth == 0)
                 {
                     Add(expression[start..i]);
+                    close = i;
                     return arguments;
                 }
 
@@ -240,6 +246,9 @@ public sealed record FunctionCall(string Name, string? FirstLiteral, IReadOnlyLi
 {
     /// <summary>The number of arguments written.</summary>
     public int Count => Arguments?.Count ?? (FirstLiteral is null ? 0 : 1);
+
+    /// <summary>Every argument as written, trimmed, when the call is closed; null when it is not.</summary>
+    public IReadOnlyList<string>? Written { get; init; }
 
     /// <summary>The string literal at a position, or null when the argument is not one or is missing.</summary>
     public string? Literal(int index) => Arguments is not null && index < Arguments.Count ? Arguments[index] : index == 0 ? FirstLiteral : null;

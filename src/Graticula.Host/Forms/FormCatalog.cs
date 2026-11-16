@@ -222,7 +222,7 @@ public static class FormCatalog
         ["appVersion"] = "this client has no build number to give; the form's own version is the version setting",
         ["portalInfo"] = "the whole portal description is a JSON object, which no question in a form can hold",
         ["token"] = "an access token is a credential, and a form's answers are stored and shown, so a token would be written into the layer",
-        ["submissionUrl"] = "it exists to point pulldata(\"@layer\") and search() at the layer, and neither is in the first version",
+        ["submissionUrl"] = "the address answers go to here is a view made for the form when it is shared, not the layer itself, so a query written with it would read the view; write the address of the layer in the call (§5.23)",
         ["locale"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
         ["localeInfo"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
     }.ToFrozenDictionary(StringComparer.Ordinal);
@@ -282,12 +282,11 @@ public static class FormCatalog
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
-    /// The <c>pulldata("@…")</c> sources refused, with the reason. <c>@property</c> and <c>@geopoint</c> are the two
-    /// built (§5.20); <c>@layer</c> is the one most worth adding next, and is left out for the reason given.
+    /// The <c>pulldata("@…")</c> sources refused, with the reason. <c>@property</c> and <c>@geopoint</c> are built (§5.20),
+    /// and <c>@layer</c> since §5.23.
     /// </summary>
     public static readonly FrozenDictionary<string, string> RefusedPulldataSources = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["@layer"] = "it queries a feature layer, and an offline client would need a copy of that layer on the device, which is the Inbox's problem and not built",
         ["@json"] = "reading a JSON answer is not in the first version",
         ["@javascript"] = "running a script a form carries is not in the first version, and a form shared with everyone must not carry code the page runs",
         ["@exif"] = "reading the metadata of a photo is not in the first version",

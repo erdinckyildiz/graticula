@@ -58,7 +58,7 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
     [InlineData("appVersion", "build number")]
     [InlineData("portalInfo", "JSON object")]
     [InlineData("token", "credential")]
-    [InlineData("submissionUrl", "@layer")]
+    [InlineData("submissionUrl", "view made for the form")]
     [InlineData("locale", "@javascript")]
     [InlineData("localeInfo", "@javascript")]
     public void A_property_a_browser_cannot_give_is_refused_by_name_with_its_reason(string name, string reason)
@@ -137,7 +137,8 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
     [Fact]
     public void The_other_pulldata_sources_stay_refused_with_their_reasons()
     {
-        RefusedAt(WithCalculation("pulldata('@layer', 'a', 'b', 'c')"), 3, "calculation", "copy of that layer");
+        // @layer is built since §5.23; a call it does not know is refused by its operation (AFormSearchesACsvOrALayerTests).
+        RefusedAt(WithCalculation("pulldata('@layer', 'a', 'b', 'c')"), 3, "calculation", "not an operation of pulldata");
         RefusedAt(WithCalculation("pulldata('@json', 'a', 'b')"), 3, "calculation", "JSON");
         RefusedAt(WithCalculation("pulldata('@javascript', 'f.js', 'run')"), 3, "calculation", "script");
         RefusedAt(WithCalculation("pulldata('@exif', ${konum}, 'x')"), 3, "calculation", "metadata of a photo");

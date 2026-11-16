@@ -513,6 +513,32 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             }
         }
 
+        private readonly List<string> _layerRequests = [];
+
+        /// <summary>What a feature layer under /rest/services/ answers: the path and the query in, the JSON out (null: 404).</summary>
+        public Func<string, System.Collections.Specialized.NameValueCollection, string?>? Layers { get; set; }
+
+        /// <summary>The query strings the page sent to a layer, decoded.</summary>
+        public IReadOnlyList<string> LayerRequests
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _layerRequests];
+                }
+            }
+        }
+
+        /// <summary>Forgets the layer requests seen so far.</summary>
+        public void ClearLayerRequests()
+        {
+            lock (_gate)
+            {
+                _layerRequests.Clear();
+            }
+        }
+
         /// <summary>True when the stand-in server says somebody is signed in (a member called ada, with a portal record).</summary>
         public bool SignedIn { get; set; }
 
@@ -804,6 +830,21 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
                     }
 
                     Send(context, 404, "application/json", """{"error":{"code":404,"message":"No such resource."}}"""u8.ToArray());
+                    return;
+                }
+
+                // A feature layer of this server, as search() and pulldata("@layer") ask it (ADR-287 §5.23): the test says
+                // what it answers; every request is kept so a test can read the where clause the page wrote.
+                if (method == "GET" && path.Contains("/rest/services/", StringComparison.Ordinal) && Layers is { } layers)
+                {
+                    lock (_gate)
+                    {
+                        _layerRequests.Add(Uri.UnescapeDataString(context.Request.Url!.Query.Replace('+', ' ')));
+                    }
+
+                    string? answer = layers(path, context.Request.QueryString);
+                    Send(context, answer is null ? 404 : 200, "application/json",
+                        Encoding.UTF8.GetBytes(answer ?? """{"error":{"code":404,"message":"No such layer."}}"""));
                     return;
                 }
 

@@ -341,6 +341,15 @@
         "needs attention": "bakmanız gerekiyor",
         "Show": "Göster",
         "No choices match.": "Eşleşen seçenek yok.",
+        "Loading the choices…": "Seçenekler yükleniyor…",
+        "These choices come from the server and need a connection. You can still submit the form; this question can be answered later.": "Bu seçenekler sunucudan geliyor ve bağlantı gerektiriyor. Formu yine de gönderebilirsiniz; bu soru daha sonra cevaplanabilir.",
+        "These choices come from a layer of another server, which this form does not query.": "Bu seçenekler başka bir sunucunun katmanından geliyor; bu form o sunucuya sorgu göndermez.",
+        "The choices could not be loaded from the layer.": "Seçenekler katmandan yüklenemedi.",
+        "Looking this up…": "Sorgulanıyor…",
+        "This answer is looked up on the server and needs a connection. You can still submit the form.": "Bu cevap sunucudan sorgulanıyor ve bağlantı gerektiriyor. Formu yine de gönderebilirsiniz.",
+        "This answer would be looked up in a layer of another server, which this form does not query.": "Bu cevap başka bir sunucunun katmanından sorgulanacaktı; bu form o sunucuya sorgu göndermez.",
+        "This answer could not be looked up: the layer could not be read.": "Bu cevap sorgulanamadı: katman okunamadı.",
+        "Nothing was found for this answer.": "Bu cevap için bir kayıt bulunamadı.",
         "Type to narrow the choices.": "Seçenekleri daraltmak için yazın.",
         "selected": "seçildi",
         "Only the first 100 are listed; keep typing to narrow them.": "Yalnız ilk 100 seçenek listeleniyor; daraltmak için yazmaya devam edin.",
@@ -531,6 +540,8 @@
             (node.body || []).forEach(function (n) {
                 if (n.kind === 'question') {
                     if (n.file && names.indexOf(n.file) < 0) { names.push(n.file); }
+                    // A search() over a CSV reads it from the item's files, and it is kept on the device with them (section 5.23).
+                    if (n.search && n.search.file && names.indexOf(n.search.file) < 0) { names.push(n.search.file); }
                     [n.calculation, n.relevant, n.constraint, n.default].forEach(function (e) {
                         var re = /pulldata\s*\(\s*['"]([^'"@]+)['"]/g, m;
                         while (e && (m = re.exec(e))) { var f = /\.csv$/i.test(m[1]) ? m[1] : m[1] + '.csv'; if (names.indexOf(f) < 0) { names.push(f); } }
@@ -569,6 +580,320 @@
         if (!f) { return ''; }
         for (var i = 0; i < f.rows.length; i++) {
             if (String(f.rows[i][keyColumn]) === String(key)) { return f.rows[i][column] === undefined ? '' : f.rows[i][column]; }
+        }
+        return '';
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // search() and pulldata("@layer") (ADR-287 section 5.23).
+    //
+    // search() fills a select's choices from a CSV uploaded with the form (xlsform.org's "Dynamic selects from
+    // pre-loaded data") or from a feature layer of this server (Survey123's "Multiple choice" page). The list's first row
+    // on the choices sheet says which column is the answer (name) and which is shown (label, or several columns joined).
+    // A CSV is on the device with the form, so it works offline; a layer needs the network, and with none the question
+    // says so and is not required until it can be answered (INFERRED).
+    //
+    // pulldata("@layer") answers a calculation from one record of a layer of this server (Survey123's "Query a feature
+    // layer"). The evaluator is synchronous: it asks layerAnswer(), which gives what was fetched for that exact request,
+    // or '' while the request is out, and starts it; when the answer arrives the form is recalculated, and a calculation
+    // whose inputs changed asks again with a new request. Answers are kept for the page's life, as Survey123 caches them.
+    //
+    // Only this server's layers are queried, with the member's own sign-in: an address of another origin, or one that is
+    // not .../FeatureServer/{n}, is never fetched (the server refuses such a form at publish; this covers an address
+    // worked out at run time).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var layerCache = {};     // request key -> { state: 'pending' | 'done' | 'offline' | 'error' | 'foreign', json, message }
+    var layerFields = {};    // layer address -> { state, fields: { name: esriFieldType }, geometryType }
+    var searchStatus = {};   // instance id + '/' + question -> the state of its last search()
+    var layerStatus = {};    // instance id + '/' + question -> the state of its calculation's last pulldata("@layer")
+
+    function basePath() { return location.pathname.replace(/\/forms(\/.*)?$/i, ''); }
+
+    /** A layer address as this page fetches it, or null when it is not a layer of this server. */
+    function ownLayerUrl(written) {
+        var text = String(written || '').trim();
+        if (!text) { return null; }
+        var base = basePath();
+        // A path from the root is this server's, under its path base when it runs under one.
+        var path = text.charAt(0) === '/' && text.charAt(1) !== '/' && base && text.toLowerCase().indexOf(base.toLowerCase() + '/') !== 0 ? base + text : text;
+        var resolved;
+        try { resolved = new URL(path, location.origin + base + '/'); } catch (e) { return null; }
+        if (resolved.origin !== location.origin) { return null; }
+        if (!/\/rest\/services\/.+\/FeatureServer\/\d+\/?$/i.test(resolved.pathname)) { return null; }
+        var params = {};
+        resolved.searchParams.forEach(function (v, k) { params[k] = v; });
+        return { url: resolved.origin + resolved.pathname.replace(/\/$/, ''), params: params };
+    }
+
+    function layerHeaders() {
+        var headers = {};
+        var held = token();
+        if (held) { headers.Authorization = 'Bearer ' + held; }
+        return headers;
+    }
+
+    function encodeForm(params) {
+        return Object.keys(params).filter(function (k) { return params[k] !== null && params[k] !== undefined; })
+            .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+    }
+
+    // One GET, its answer kept under its key. A thrown fetch is no network; an HTTP or ArcGIS error is said as one.
+    function layerGet(key, url, params) {
+        var hit = layerCache[key];
+        if (hit) { return hit; }
+        // No network a moment ago: not asked again on every redraw, but after a while, or when the browser says it is back.
+        var off = layerCache[key + '#offline'];
+        if (off && (navigator.onLine === false || Date.now() - off.at < 15000)) { return off; }
+        delete layerCache[key + '#offline'];
+        if (navigator.onLine === false) { return { state: 'offline' }; }
+        var entry = layerCache[key] = { state: 'pending' };
+        fetch(url + '?' + encodeForm(params), { headers: layerHeaders(), credentials: 'same-origin' }).then(function (response) {
+            return response.text().then(function (body) {
+                var json = null;
+                try { json = JSON.parse(body); } catch (e) { json = null; }
+                if (!response.ok || !json || json.error) {
+                    entry.state = 'error';
+                    entry.message = json && json.error && json.error.message ? String(json.error.message) : 'HTTP ' + response.status;
+                } else {
+                    entry.state = 'done';
+                    entry.json = json;
+                }
+            });
+        }, function () {
+            delete layerCache[key];          // no network: asked again when it returns
+            layerCache[key + '#offline'] = { state: 'offline', at: Date.now() };
+        }).then(function () { setTimeout(function () { refresh(false); }, 0); });
+        return entry;
+    }
+
+    // The connection came back: what failed for want of it is asked again.
+    window.addEventListener('online', function () {
+        Object.keys(layerCache).forEach(function (k) { if (/#offline$/.test(k)) { delete layerCache[k]; } });
+        if (form && root) { setTimeout(function () { refresh(false); }, 0); }
+    });
+
+    // A layer's fields, asked once, so a value is written as the field's type wants it in a where clause.
+    function fieldsOf(url) {
+        if (layerFields[url]) { return layerFields[url]; }
+        var entry = layerGet('fields|' + url, url, { f: 'json' });
+        if (entry.state !== 'done') { return { state: entry.state, message: entry.message }; }
+        var fields = {};
+        (entry.json.fields || []).forEach(function (f) { fields[String(f.name).toLowerCase()] = f.type; });
+        return (layerFields[url] = { state: 'done', fields: fields, geometryType: entry.json.geometryType || null });
+    }
+
+    function sqlString(v) { return "'" + String(v).replace(/'/g, "''") + "'"; }
+
+    function sqlValue(fields, column, value) {
+        var type = fields[String(column).toLowerCase()];
+        var numeric = /esriFieldType(SmallInteger|Integer|BigInteger|Single|Double|OID)/.test(type || '');
+        if (numeric) { return isFinite(Number(value)) && String(value).trim() !== '' ? String(Number(value)) : null; }
+        return sqlString(value);
+    }
+
+    // A geopoint, geotrace or geoshape answer ("lat lon alt acc; …") as an ArcGIS geometry in WGS 84, or null.
+    function answerGeometry(text) {
+        var points = String(text || '').split(';').map(function (p) { return p.trim().split(/\s+/).map(Number); })
+            .filter(function (p) { return p.length >= 2 && isFinite(p[0]) && isFinite(p[1]); });
+        if (!points.length) { return null; }
+        var sr = { wkid: 4326 };
+        if (points.length === 1) { return { type: 'esriGeometryPoint', geometry: { x: points[0][1], y: points[0][0], spatialReference: sr } }; }
+        var path = points.map(function (p) { return [p[1], p[0]]; });
+        var closed = path.length > 3 && path[0][0] === path[path.length - 1][0] && path[0][1] === path[path.length - 1][1];
+        return closed
+            ? { type: 'esriGeometryPolygon', geometry: { rings: [path], spatialReference: sr } }
+            : { type: 'esriGeometryPolyline', geometry: { paths: [path], spatialReference: sr } };
+    }
+
+    var SPATIAL_RELATIONS = {
+        intersects: 'esriSpatialRelIntersects', contains: 'esriSpatialRelContains', crosses: 'esriSpatialRelCrosses',
+        envelope_intersects: 'esriSpatialRelEnvelopeIntersects', index_intersects: 'esriSpatialRelIndexIntersects',
+        index_intercepts: 'esriSpatialRelIndexIntersects', overlaps: 'esriSpatialRelOverlaps', touches: 'esriSpatialRelTouches',
+        within: 'esriSpatialRelWithin'
+    };
+
+    // The columns a search() list's one row names: { name, labels: { '' | language: [columns] }, image }.
+    function searchColumnsOf(q) {
+        var rows = form.choices && form.choices[q.list];
+        var first = rows && rows.filter(function (c) { return !c.auto; })[0];
+        if (!first) { return null; }
+        var labels = {};
+        Object.keys(first.labels || {}).forEach(function (k) {
+            labels[k] = String(first.labels[k]).split(',').map(function (c) { return c.trim(); }).filter(Boolean);
+        });
+        return { name: String(first.name), labels: labels, image: text(first.images || {}, '') || null };
+    }
+
+    // A record (a CSV row or a layer's attributes) as a choice row: name, label per language, picture, and every column,
+    // so a choice_filter can read them.
+    function choiceFromRecord(record, columns) {
+        var value = record[columns.name];
+        if (value === undefined || value === null || String(value) === '') { return null; }
+        var row = {};
+        Object.keys(record).forEach(function (k) { row[k] = record[k] === null || record[k] === undefined ? '' : String(record[k]); });
+        row.name = String(value);
+        Object.keys(columns.labels).forEach(function (k) {
+            // INFERRED (section 5.23): several label columns are joined with a space; xlsform.org says only that they are all shown.
+            var label = columns.labels[k].map(function (c) { return record[c] === undefined || record[c] === null ? '' : String(record[c]); })
+                .filter(Boolean).join(' ');
+            row[k === '' ? 'label' : 'label::' + k] = label;
+        });
+        if (columns.image && record[columns.image]) { row.image = String(record[columns.image]); }
+        return row;
+    }
+
+    function distinctByName(rows) {
+        var seen = {};
+        return rows.filter(function (r) { if (!r || seen[r.name]) { return false; } seen[r.name] = true; return true; });
+    }
+
+    function matchesText(type, cell, needle) {
+        var a = String(cell === undefined || cell === null ? '' : cell);
+        if (type === 'matches') { return a === needle; }
+        var hay = fold(a), want = fold(needle);
+        if (type === 'contains') { return hay.indexOf(want) >= 0; }
+        if (type === 'startswith') { return hay.indexOf(want) === 0; }
+        if (type === 'endswith') { return hay.length >= want.length && hay.substring(hay.length - want.length) === want; }
+        return false;
+    }
+
+    function searchCsv(inst, q, s, columns) {
+        var f = files[s.file];
+        if (!f) { return { state: 'missing' }; }
+        var needle = s.text ? String(evalString(s.text, inst, q)) : '';
+        var filterValue = s.filterText ? String(evalString(s.filterText, inst, q)) : '';
+        var searched = s.type ? String(s.column || '').split(',').map(function (c) { return c.trim(); }).filter(Boolean) : [];
+        var rows = f.rows.filter(function (r) {
+            // INFERRED (section 5.23): an empty search text narrows nothing, as Survey123's layer lists show every record then.
+            if (s.type && needle !== '' && !searched.some(function (c) { return matchesText(s.type, r[c], needle); })) { return false; }
+            if (s.filterColumn && String(r[s.filterColumn] === undefined ? '' : r[s.filterColumn]) !== filterValue) { return false; }
+            return true;
+        });
+        // xlsform.org: a numeric column named sortby orders the choices; otherwise they keep the file's order.
+        if (f.rows.length && Object.prototype.hasOwnProperty.call(f.rows[0], 'sortby')) {
+            rows = rows.slice().sort(function (a, b) { return Number(a.sortby) - Number(b.sortby); });
+        }
+        return { state: 'done', rows: distinctByName(rows.map(function (r) { return choiceFromRecord(r, columns); })) };
+    }
+
+    function searchLayer(inst, q, s, columns) {
+        var target = ownLayerUrl(s.url);
+        if (!target) { return { state: 'foreign' }; }
+        var shape = fieldsOf(target.url);
+        if (shape.state !== 'done') { return shape; }
+        var needle = s.text ? String(evalString(s.text, inst, q)) : '';
+        var filterValue = s.filterText ? String(evalString(s.filterText, inst, q)) : '';
+        var params = { f: 'json', outFields: '*', returnGeometry: 'false' };
+        Object.keys(target.params).forEach(function (k) { params[k] = target.params[k]; });
+        Object.keys(s.query || {}).forEach(function (k) { params[k] = s.query[k]; });
+        var where = [];
+        if (params.where) { where.push('(' + params.where + ')'); }
+        // "contains" is both a text and a spatial search; it is spatial on a layer with geometry when the text is a location.
+        var spatial = !!(s.type && SPATIAL_RELATIONS[s.type] && shape.geometryType
+            && (s.type !== 'contains' || /^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?(\s|;|$)/.test(needle)));
+        if (s.type && needle !== '') {
+            if (spatial) {
+                var g = answerGeometry(needle);
+                if (g) {
+                    params.geometry = JSON.stringify(g.geometry);
+                    params.geometryType = g.type;
+                    params.inSR = '4326';
+                    params.spatialRel = SPATIAL_RELATIONS[s.type];
+                }
+            } else {
+                var each = String(s.column || '').split(',').map(function (c) { return c.trim(); }).filter(Boolean).map(function (c) {
+                    if (s.type === 'matches') { var v = sqlValue(shape.fields, c, needle); return v === null ? '1=0' : c + ' = ' + v; }
+                    var pattern = s.type === 'contains' ? '%' + needle + '%' : s.type === 'startswith' ? needle + '%' : '%' + needle;
+                    return 'UPPER(' + c + ') LIKE ' + sqlString(pattern.toUpperCase());
+                });
+                if (each.length) { where.push('(' + each.join(' OR ') + ')'); }
+            }
+        }
+        if (s.filterColumn) {
+            var fv = sqlValue(shape.fields, s.filterColumn, filterValue);
+            where.push(fv === null ? '1=0' : s.filterColumn + ' = ' + fv);
+        }
+        params.where = where.length ? where.join(' AND ') : '1=1';
+        var entry = layerGet('search|' + target.url + '|' + encodeForm(params), target.url + '/query', params);
+        if (entry.state !== 'done') { return entry; }
+        var features = entry.json.features || [];
+        return { state: 'done', rows: distinctByName(features.map(function (f) { return choiceFromRecord(f.attributes || {}, columns); })) };
+    }
+
+    /** The choices a search() offers now, as { state, rows }: rows only when state is 'done'. */
+    function searchChoices(inst, q) {
+        var columns = searchColumnsOf(q);
+        var result = !columns ? { state: 'error', message: 'no columns' }
+            : q.search.url ? searchLayer(inst, q, q.search, columns) : searchCsv(inst, q, q.search, columns);
+        searchStatus[inst.id + '/' + q.name] = result.state;
+        return result;
+    }
+
+    /** What a select whose choices cannot be shown says instead. */
+    function listUnavailableText(inst, q) {
+        if (q.search) {
+            switch (searchStatus[inst.id + '/' + q.name]) {
+                case 'pending': return t('Loading the choices…');
+                case 'offline': return t('These choices come from the server and need a connection. You can still submit the form; this question can be answered later.');
+                case 'foreign': return t('These choices come from a layer of another server, which this form does not query.');
+                case 'error': return t('The choices could not be loaded from the layer.');
+            }
+        }
+        return isTurkish()
+            ? '"' + (q.file || (q.search && q.search.file) || q.list) + '" listesi henüz yok: formla birlikte yüklenmedi ya da okunamadı.'
+            : 'The list "' + (q.file || (q.search && q.search.file) || q.list) + '" is not available yet: it was not uploaded with the form, or could not be read.';
+    }
+
+    // pulldata("@layer"): the evaluator's ctx.layer, for the question q in the instance inst.
+    function layerAnswer(inst, q, request) {
+        var key = inst.id + '/' + q.name;
+        var target = ownLayerUrl(request.url);
+        if (!target) { layerStatus[key] = 'foreign'; return ''; }
+        var params = { f: 'json' };
+        Object.keys(target.params).forEach(function (k) { params[k] = target.params[k]; });
+        params.where = request.where && String(request.where).trim() !== '' ? String(request.where) : '1=1';
+        if (request.location !== null && request.location !== undefined) {
+            var g = answerGeometry(request.location);
+            if (!g || g.type !== 'esriGeometryPoint') { layerStatus[key] = 'done'; return ''; }   // no location yet: nothing to ask
+            params.geometry = JSON.stringify(g.geometry);
+            params.geometryType = g.type;
+            params.inSR = '4326';
+            if (!params.spatialRel) { params.spatialRel = 'esriSpatialRelIntersects'; }
+        }
+        if (!params.outStatistics) {
+            params.outFields = '*';
+            params.returnGeometry = request.operation.indexOf('getRecord') === 0 || /^geometry/.test(request.property || '') ? 'true' : 'false';
+            params.outSR = '4326';
+            params.resultRecordCount = '1';
+        }
+        var requestKey = 'layer|' + target.url + '|' + encodeForm(params);
+        var entry = layerGet(requestKey, target.url + '/query', params);
+        layerStatus[key] = entry.state;
+        if (entry.state !== 'done') { return ''; }
+        var feature = (entry.json.features || [])[0];
+        // INFERRED (section 5.23): nothing found is the empty answer, as is a layer the member cannot read.
+        if (!feature) { layerStatus[key] = 'none'; return ''; }
+        if (request.operation.indexOf('getRecord') === 0) { return JSON.stringify(feature); }
+        var value = feature;
+        String(request.property || '').split('.').forEach(function (part) { value = value === null || value === undefined ? undefined : value[part]; });
+        if (value === null || value === undefined) { return ''; }
+        // INFERRED: a point's geometry into a geopoint question is the point a geopoint holds, "latitude longitude".
+        if (typeof value === 'object') {
+            if (q.type === 'geopoint' && isFinite(value.x) && isFinite(value.y)) { return value.y + ' ' + value.x; }
+            return JSON.stringify(value);
+        }
+        return value;
+    }
+
+    /** What a question whose calculation queries a layer says under its answer, or ''. */
+    function layerStatusText(inst, q) {
+        switch (layerStatus[inst.id + '/' + q.name]) {
+            case 'pending': return t('Looking this up…');
+            case 'offline': return t('This answer is looked up on the server and needs a connection. You can still submit the form.');
+            case 'foreign': return t('This answer would be looked up in a layer of another server, which this form does not query.');
+            case 'error': return t('This answer could not be looked up: the layer could not be read.');
+            case 'none': return t('Nothing was found for this answer.');
         }
         return '';
     }
@@ -759,7 +1084,8 @@
             listOf: function (name) { var d = defs[name]; return d ? (d.node.list || d.node.file || null) : null; },
             language: lang,
             pulldata: pulldata,
-            property: propertyOf
+            property: propertyOf,
+            layer: function (request) { return q && q.kind === 'question' ? layerAnswer(inst, q, request) : ''; }
         };
     }
 
@@ -952,6 +1278,9 @@
         if (q.type === 'note') { return ''; }
         var empty = isEmpty(inst, q);
         if (empty) {
+            // INFERRED (section 5.23): a choice list that needs the network and has none does not hold the record back; the
+            // question says so, and the record can be completed from the Inbox later.
+            if (q.search && q.search.url && searchStatus[inst.id + '/' + q.name] === 'offline') { return ''; }
             if (evalBool(q.required, inst, q, false)) { return text(q.requiredMessages) || t('This answer is required.'); }
             return '';
         }
@@ -1341,7 +1670,7 @@
         var group = q.type === 'select_one' || q.type === 'select_multiple' || q.type === 'select_one_from_file'
             || q.type === 'select_multiple_from_file' || (q.type === 'range' && has(q.appearance, 'rating'));
         // A drop-down and a type-ahead box are one control with one label; the rest of the selects are a set of them.
-        var minimal = has(q.appearance, 'minimal') || (has(q.appearance, 'autocomplete') && (q.type === 'select_one' || q.type === 'select_one_from_file'));
+        var minimal = has(q.appearance, 'minimal') || isCombo(q);
         var useFieldset = group && !minimal;
 
         var labelText = el('span', { text: interpolate(labelTemplate, inst) });
@@ -1380,6 +1709,9 @@
             shell.appendChild(el('div', { class: 'inline' }, [calculate]));
             shell.appendChild(calculated);
         }
+        // pulldata("@layer") (section 5.23): what the lookup is doing, said where the answer is, and announced.
+        var lookup = q.calculation && /@layer/.test(q.calculation) ? el('p', { class: 'hint layer-status', id: id + '-lookup', 'aria-live': 'polite' }) : null;
+        if (lookup) { shell.appendChild(lookup); }
         wrap.appendChild(error);
         if (q.type === 'note' && labelNode.tagName === 'DIV') { wrap.classList.add('note'); }
         container.appendChild(wrap);
@@ -1397,6 +1729,7 @@
                 var readOnly = !!q.calculation && q.type !== 'note' ? evalBool(q.readOnly, inst, q, true) : evalBool(q.readOnly, inst, q, false);
                 if (lockedRow(inst)) { readOnly = true; }
                 if (widget.sync) { widget.sync(readOnly, required); }
+                if (lookup) { var said = layerStatusText(inst, q); if (lookup.textContent !== said) { lookup.textContent = said; } }
                 var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
                 error.textContent = message;
                 wrap.classList.toggle('invalid', !!message);
@@ -1547,11 +1880,22 @@
     // evaluator itself, as instance('list')/root/item[filter]/name, so a filter means what the specification says.
     function availableChoices(inst, q) {
         var listName = q.list || q.file;
-        var rows = choiceRows(listName);
+        var rows;
+        var ctx = contextFor(inst, q);
+        if (q.search) {
+            // search() (section 5.23): the list's choices are the CSV's or the layer's rows, and a choice_filter reads those.
+            var found = searchChoices(inst, q);
+            if (found.state !== 'done') { return null; }
+            rows = found.rows;
+            var own = ctx.choices;
+            ctx.choices = function (name) { return name === listName ? rows : own(name); };
+        } else {
+            rows = choiceRows(listName);
+        }
         if (!rows) { return null; }
         if (!q.choiceFilter) { return rows; }
         try {
-            var result = X.evaluate("instance('" + String(listName).replace(/'/g, '') + "')/root/item[" + q.choiceFilter + ']/name', contextFor(inst, q));
+            var result = X.evaluate("instance('" + String(listName).replace(/'/g, '') + "')/root/item[" + q.choiceFilter + ']/name', ctx);
             var names = result && Array.isArray(result.nodes) ? result.nodes.map(function (n) { return String(n.value); }) : [];
             return rows.filter(function (row) { return row.__auto || names.indexOf(String(row.name)) >= 0; });
         } catch (e) {
@@ -1560,15 +1904,22 @@
         }
     }
 
+    // A type-ahead box: autocomplete on a select_one, and a select_one with search(), which Survey123's web app draws as
+    // one (its Multiple choice page), unless the form asks for a drop-down with minimal.
+    function isCombo(q) {
+        if (q.type !== 'select_one' && q.type !== 'select_one_from_file') { return false; }
+        return has(q.appearance, 'autocomplete') || (!!q.search && !has(q.appearance, 'minimal'));
+    }
+
     function selectWidget(inst, q, id, describedBy) {
         var multiple = q.type.indexOf('select_multiple') === 0;
-        if (has(q.appearance, 'autocomplete') && !multiple) { return autocompleteWidget(inst, q, id, describedBy); }
+        if (isCombo(q)) { return autocompleteWidget(inst, q, id, describedBy); }
         var minimal = has(q.appearance, 'minimal');
         var likert = has(q.appearance, 'likert') && !multiple;
         var holder = el('div', { class: likert ? 'likert' : null });
         var shown = null; // the names drawn, joined, to know when the filter changed them
         var controls = [];
-        var unavailable = el('p', { class: 'note-warn', hidden: true });
+        var unavailable = el('p', { class: 'note-warn', role: 'status', hidden: true });   // announced: a search() list loads after the page (section 5.23)
 
         function values() { return current(inst, q).split(',').filter(Boolean); }
 
@@ -1621,7 +1972,7 @@
                 var rows = availableChoices(inst, q);
                 if (!rows) {
                     unavailable.hidden = false;
-                    unavailable.textContent = 'The list "' + (q.file || q.list) + '" is not available yet: it was not uploaded with the form, or could not be read.';
+                    unavailable.textContent = listUnavailableText(inst, q);
                     holder.textContent = '';
                     controls = [];
                     return;
@@ -1677,7 +2028,7 @@
         });
         var list = el('ul', { id: id + '-list', role: 'listbox', class: 'combo-list', hidden: true, 'aria-label': text(q.labels, q.name) });
         var status = el('p', { class: 'hint combo-status', role: 'status', 'aria-live': 'polite' });
-        var unavailable = el('p', { class: 'note-warn', hidden: true });
+        var unavailable = el('p', { class: 'note-warn', role: 'status', hidden: true });   // announced: a search() list loads after the page (section 5.23)
         var rows = [];
         var matches = [];
         var active = -1;
@@ -1783,7 +2134,7 @@
                 var available = availableChoices(inst, q);
                 if (!available) {
                     unavailable.hidden = false;
-                    unavailable.textContent = 'The list "' + (q.file || q.list) + '" is not available yet: it was not uploaded with the form, or could not be read.';
+                    unavailable.textContent = listUnavailableText(inst, q);
                     input.disabled = true;
                     return;
                 }

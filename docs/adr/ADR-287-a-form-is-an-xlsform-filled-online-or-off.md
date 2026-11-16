@@ -357,7 +357,7 @@ measurable question. The two device claims are, so they are conditions and not a
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
     `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: `annotate`, `map` and
-    `quick map`, `search()`, `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
+    `quick map`, ~~`search()`~~ (**supported since 2026-11-16, §5.23**), `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
     `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
 
     **Expressions.** `${name}` references and `.` for the question's own value. Every XPath 1.0 operator the ODK
@@ -367,7 +367,7 @@ measurable question. The two device claims are, so they are conditions and not a
     | | Functions |
     |---|---|
     | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form), **and `pulldata("@property", name)` and `pulldata("@geopoint", ${q}, part)`** (§5.20); `property(name)` (ODK's, §5.20). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's, and `date-time` (Survey123's, §5.20; the specification's table has no other date function this list lacks). **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
-    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: `@layer`, `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: ~~`@layer`~~ (**supported since 2026-11-16, §5.23**), `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). ~~`@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again~~ — built 2026-11-16 by owner decision, online only, as Survey123's is (§5.23) |
 
     **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
     `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
@@ -982,6 +982,104 @@ measurable question. The two device claims are, so they are conditions and not a
     `audio`, `bind::esri:warning`, `grid`, `pulldata("@javascript")` and a parameter on a question that takes none.
     The merge also set the shell cache to `graticula-forms-shell-v8` (the two branches had v6 and v7), and the page test
     that named a cache version now finds the shell cache by its prefix.
+
+23. **`search()` and `pulldata("@layer")` — built 2026-11-16, by owner decision (*"Yap"*).** §5.10 refused both: `search()`
+    because *"dynamic choices from a CSV are not in the first version"*, `@layer` because *"an offline client would need a
+    copy of that layer on the device"*. The owner lifted both. Learned from public pages only, read that day, and no
+    Esri-written file is in the repository:
+    [xlsform.org, *Dynamic selects from pre-loaded data*](https://xlsform.org/en/#dynamic-selects-from-pre-loaded-data);
+    [Survey123, *Multiple choice* — *Create a dynamic choice list using the search appearance*](https://doc.esri.com/en/arcgis-survey123/latest/create/main/multiplechoice.html);
+    [Survey123, *Formulas* — *Query a feature layer* and its *Request parameters*](https://doc.esri.com/en/arcgis-survey123/latest/create/main/xlsformformulas.html);
+    and, for offline only, which neither Survey123 page covers, Esri's own public blog posts
+    [*Dynamic Choice Lists using Search Appearance*](https://community.esri.com/t5/arcgis-survey123-blog/dynamic-choice-lists-using-search-appearance/m-p/1060838)
+    and [*Survey123 Tricks of the Trade: pulldata("@layer")*](https://community.esri.com/t5/arcgis-survey123-blog/survey123-tricks-of-the-trade-pulldata-quot-layer/m-p/1224415).
+    - **What the sources say.** *xlsform.org:* `search()` goes in the appearance column, after a style such as `quick`
+      if there is one; the list on the choices sheet has one row whose `name` is the CSV column that identifies a choice
+      and whose `label` is the column shown — *"a comma-separated list of all columns"* for several — and an `image`
+      column may name the column that holds a picture's file name; `search('csv')` offers *"all distinct rows"*,
+      `contains`, `startswith`, `endswith` and `matches` (*"exactly"*) narrow by a column, and *"two extra parameters"*
+      add a filter column and its exact value; a numeric `sortby` column orders the choices, otherwise they keep the
+      file's order. *Survey123, Multiple choice:* select_one and select_multiple support it, written
+      `search(tableName, searchType, searchColumn, searchText, filterColumn, filterText)`; the table is the CSV in the
+      survey's media folder *"or the URL of a feature layer … preceded by a name"* — `"airports?url=…/FeatureServer/0&resultRecordCount=10"`
+      — and the choices row then names fields; a `where=` may be appended; a non-spatial table takes the four text types,
+      a spatial one `intersects`, `contains`, `crosses`, `envelope_intersects`, `index_intercepts` (sic), `overlaps`,
+      `touches` and `within`; parameters with special characters *"must be encoded"* for the web app, where such a
+      question is drawn like one with `autocomplete`. *Survey123, Query a feature layer:* `getRecord(url[, where])`,
+      `getValue(property, url[, where])`, `getRecordAt(url, location[, where])`, `getValueAt(property, url, location[, where])`;
+      the property is a path such as `"attributes.COUNTRY"` or `"geometry"`; the location *"must be a geopoint
+      question"*; without a where clause *"a default of "1=1" is used"*; the first record of the answer is used; request
+      parameters follow the URL after `?` (`orderByFields`, `resultOffset`, `outStatistics`), except `f`, `outFields`,
+      `outSR`, `resultRecordCount`, `returnCountOnly`, `returnGeometry`, `returnIDsOnly` and `token`; answers are
+      cached. *The blog posts:* a layer list is not populated offline, and `pulldata("@layer")` *"only works while
+      online"*; a layer the person cannot reach gives an empty output.
+    - **Server.** `FormLayerQuery` reads `search(…)` out of the appearance cell (the rest of the cell is still checked
+      token by token, so `quick`, `minimal` and `autocomplete` mean what they meant); the question carries it as
+      `Search`, the client is sent it read (`search`: file or address, parameters, type, column, text, filter), and the
+      list's row makes no coded-value domain, because it names columns and not answers. `pulldata("@layer")` is checked
+      by operation, number of arguments, property (`attributes.<field>` or `geometry`), a geopoint question for the
+      location, and its address. Refused, at the row and column with the reason: `search()` on a question without
+      choices or on a `*_from_file` one; 2, 3 or 5 arguments; an unquoted table, type or column; an unknown type; a
+      spatial type over a CSV; a CSV named with a folder or an address; two `search()`s in one cell; a layer list with
+      no row; `or_other` on a `search()` list; an address that is not `…/FeatureServer/{n}`; a parameter Survey123
+      excludes (each with Survey123's reason, `token` with this server's) or one not on the list a form may add.
+      **At upload, at check and at every publish** each address the form writes out is checked as a `submission_url`
+      is (§5.17): on the host and port that answered the request, there in the catalogue, and readable by the person
+      publishing — a layer they cannot read is answered as one that is not there, as the REST API answers it
+      (`FormEndpoints.QueriedLayerProblemsAsync`, measured against PostGIS in `AFormQueriesOnlyThisServersLayersTests`).
+    - **Client.** A CSV `search()` reads the CSV the form already fetches and keeps on the device with its other files
+      (`csvNamesOf` now lists it), so it works offline with no change to the service worker: matched, filtered, ordered
+      by `sortby`, each name once, every CSV column on the choice so that a `choice_filter` reads it (the corpus has
+      `not(selected(${main_activities}, name))` on a `search()` list). A layer `search()` asks the layer's description once
+      (for its field types, so a number is compared as a number) and then `…/query` with `outFields=*`, the search as
+      `UPPER(column) LIKE '%TEXT%'` (or `column = value` for `matches`, several columns joined by `OR`), the filter as
+      `column = value`, the form's own `where` and parameters, and for a spatial type the geopoint, geotrace or geoshape
+      answer as the geometry. A select_one with `search()` is the type-ahead box unless it says `minimal`.
+      `pulldata("@layer")` goes through the evaluator's `ctx.layer`: the evaluator stays synchronous, the page answers
+      from what it has fetched for that exact request and '' until then, starts the request, and recalculates when it
+      arrives; a calculation whose inputs changed makes a new request, so it re-runs as its inputs change. A question
+      whose calculation queries a layer says under its answer, in a polite live region, *Looking this up…*, *needs a
+      connection*, *could not be read* or *Nothing was found*. Every query is a GET with the member's own token, to
+      `…/rest/services/…/FeatureServer/{n}` on the page's own origin and nothing else — an address worked out at run
+      time that is anything else is never fetched and is said — so `connect-src 'self'` is unchanged and no endpoint
+      was added. Words are in English and Turkish.
+    - **Offline.** The CSV kind works with no signal (tested: the page reloaded from the device with the server stopped).
+      The layer kind, as Survey123's does, does not: the list says *"These choices come from the server and need a
+      connection. You can still submit the form; this question can be answered later."* and the calculation says it
+      needs a connection; nothing throws, and the form submits into the outbox (tested with the server stopped). A
+      request that failed for want of the network is asked again when the browser says it is back online, or after
+      15 seconds.
+    - **Corpus** (`AFormCorpusTests`, same 110 workbooks, against the last full report): **accepted unedited 59 → 62**,
+      refused 49 → 46, server-accepted expressions 1418 → 1434 of 1441. Unblocked: `stats4sd-Data_Confirmation_Example`,
+      `stats4sd-Google_Maps_Link_Example`, `stats4sd-Multiple_select_choice_filter_example` (their CSVs are not in the
+      corpus; until the CSV is added to the form's files the question says the list is not available yet, as a
+      `select_one_from_file` does). Still refused, for other reasons: the two `laff-surveys_Apopka_Quarterly_*_PM_Inspections` forms (their
+      `submission_url` is an item address, not a layer's, and an `image` question is given a field type; their
+      `search()` and `pulldata("@layer")` now pass the shape check, and name `services.arcgis.com`, which publish
+      refuses as another server's); `eddie-odk_simprints_verification_demo.xls` (`trigger`); and
+      `stats4sd-Repeat_over_not_selcted_options_2` (prose written in its appearance column).
+    - **INFERRED, for the owner to confirm:** (a) **only this server's layers are queried** — a relative address or this
+      server's own host, checked at upload and publish, and by the client for an address worked out at run time; a
+      layer elsewhere is refused in words, because the page's `connect-src` is `'self'` and a member's token must not
+      go to another host. (b) The query goes with the member's own sign-in, so an anonymous public form sees only
+      public layers and a member only what they may read; a layer the publisher cannot read is refused at publish.
+      (c) An address written as `concat("<address>", '?…')` is checked for its written part; one in a question
+      (`${url}`) is accepted and left to the client. (d) With no network a layer-list question is not required, so the
+      record can be sent and completed from the Inbox later. (e) An empty search text narrows nothing (every row), for
+      every type, as a community report says Survey123's layer list behaves; Survey123's pages do not say. (f) `contains`,
+      `startswith` and `endswith` ignore case (and, over a CSV, accents and the Turkish dotted i, as the type-ahead
+      does); `matches` is exact. (g) Several label columns are joined with a space. (h) Rows with the same name are
+      offered once, the first kept (xlsform.org says *distinct*). (i) `contains` over a layer is spatial when the layer
+      has geometry and the search text is a location. (j) Nothing found, or a layer that cannot be read, is the empty
+      answer, and the question says which. (k) A `geometry` answered into a geopoint question is `latitude longitude`;
+      anywhere else it, and `getRecord`'s record, is JSON text (`pulldata("@json")`, which reads it, is still refused).
+      (l) The parameters a `search()` address may carry are `where`, `orderByFields`, `resultRecordCount`,
+      `resultOffset`, `returnDistinctValues`, `distance`, `units` and `time`; a `pulldata("@layer")` address,
+      `where`, `orderByFields`, `resultOffset`, `outStatistics`, `groupByFieldsForStatistics`, `having`, `distance`,
+      `units`, `time`, `returnDistinctValues`, `spatialRel` and `objectIds`; any other is refused by name. (m) A map
+      service layer (`…/MapServer/{n}`), which Survey123 also queries, is refused: only feature layers are. (n)
+      `pulldata("@property", "submissionUrl")` stays refused, with a new reason: answers here go to a view made for
+      the form when it is shared, not to the layer, so a query written with it would read the view.
 
 ## 6. Consequences
 

@@ -27,6 +27,9 @@
     listOf(name)       the choice list a select question uses, for jr:choice-name.
     language           the active language, for jr:choice-name's label::language column.
     pulldata(file, column, keyColumn, key)  a value from a CSV uploaded with the form, or '' when none.
+    layer(request)     pulldata("@layer", …) (ADR-287 section 5.23): { operation, property, url, location, where }. The
+                       page answers from what it has already fetched and '' until then; the query is the page's, and so
+                       is running the calculation again when the answer arrives.
     now()              a Date standing for the present moment; new Date() when absent. For tests.
     timezoneOffset     the device's offset from UTC in minutes (Turkey: 180); the browser's when absent.
     random()           a number in [0, 1); Math.random when absent. For tests.
@@ -49,7 +52,7 @@
         // String
         'string': [0, 1], 'concat': [0, MANY], 'join': [1, MANY], 'substr': [2, 3], 'substring-before': [2, 2],
         'substring-after': [2, 2], 'translate': [3, 3], 'string-length': [1, 1], 'normalize-space': [0, 1],
-        'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [2, 4], 'property': [1, 1],
+        'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [2, 6], 'property': [1, 1],
         'substring': [2, 3],
         // Boolean
         'if': [3, 3], 'coalesce': [2, 2], 'once': [1, 1], 'true': [0, 0], 'false': [0, 0], 'boolean': [1, 1],
@@ -97,7 +100,7 @@
         'appVersion': 'this client has no build number to give',
         'portalInfo': 'the whole portal description is a JSON object, which no question in a form can hold',
         'token': 'an access token is a credential, and a form\'s answers are stored and shown',
-        'submissionUrl': 'it exists to point pulldata("@layer") and search() at the layer, and neither is in the first version',
+        'submissionUrl': 'the address answers go to here is a view made for the form when it is shared, not the layer itself, so a query written with it would read the view; write the address of the layer in the call (§5.23)',
         'locale': 'Survey123 offers it only to pulldata("@javascript"), which is refused',
         'localeInfo': 'Survey123 offers it only to pulldata("@javascript"), which is refused'
     };
@@ -124,12 +127,13 @@
         'UTM.hemisphere': 'converting to UTM is not built', 'MGRS': 'converting to MGRS is not built'
     };
     var REFUSED_PULLDATA_SOURCES = {
-        '@layer': 'it queries a feature layer, and an offline client would need a copy of that layer on the device',
         '@json': 'reading a JSON answer is not in the first version',
         '@javascript': 'running a script a form carries is not in the first version',
         '@exif': 'reading the metadata of a photo is not in the first version'
     };
     var CALCULATION_MODES = ['auto', 'manual', 'always', 'whenEmpty'];
+    // pulldata("@layer") operations with the fewest and most arguments, the source included (FormLayerQuery.Operations).
+    var LAYER_OPERATIONS = { 'getRecord': [3, 4], 'getValue': [4, 5], 'getRecordAt': [4, 5], 'getValueAt': [5, 6] };
 
     function listHas(list, item) { return list.indexOf(item) >= 0; }
     function hasKey(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
@@ -462,6 +466,13 @@
                         var part = args[2].value;
                         if (hasKey(REFUSED_GEOPOINT_PARTS, part)) { fail('pulldata("@geopoint") does not give \'' + part + '\': ' + REFUSED_GEOPOINT_PARTS[part], t.at); }
                         if (!listHas(GEOPOINT_PARTS, part) && !listHas(GEOPOINT_PARTS_EMPTY, part)) { fail('\'' + part + '\' is not a part of a geopoint Survey123 documents', t.at); }
+                    }
+                } else if (source === '@layer') {
+                    var operation = args.length > 1 && args[1].type === 'str' ? args[1].value : null;
+                    if (operation === null) { fail('pulldata("@layer") names its operation in quotes: getValue, getRecord, getValueAt or getRecordAt', t.at); }
+                    else if (!hasKey(LAYER_OPERATIONS, operation)) { fail('\'' + operation + '\' is not an operation of pulldata("@layer")', t.at); }
+                    else if (args.length < LAYER_OPERATIONS[operation][0] || args.length > LAYER_OPERATIONS[operation][1]) {
+                        fail('pulldata("@layer", "' + operation + '") takes ' + (LAYER_OPERATIONS[operation][0] - 2) + ' to ' + (LAYER_OPERATIONS[operation][1] - 2) + ' arguments after the operation, not ' + (args.length - 2), t.at);
                     }
                 } else if (source.charAt(0) === '@') {
                     fail('pulldata("' + source + '") is not supported: ' + (hasKey(REFUSED_PULLDATA_SOURCES, source)
@@ -1336,6 +1347,25 @@
                 var file = str(0);
                 if (file === '@property') { return propertyValue(str(1), ctx); }
                 if (file === '@geopoint') { return geopointPart(str(1), str(2)); }
+                if (file === '@layer') {
+                    var op = str(1);
+                    if (!hasKey(LAYER_OPERATIONS, op)) { fail('\'' + op + '\' is not an operation of pulldata("@layer")', ast.at); }
+                    if (args.length < LAYER_OPERATIONS[op][0] || args.length > LAYER_OPERATIONS[op][1]) {
+                        fail('pulldata("@layer", "' + op + '") takes ' + (LAYER_OPERATIONS[op][0] - 2) + ' to ' + (LAYER_OPERATIONS[op][1] - 2) + ' arguments after the operation', ast.at);
+                    }
+                    if (typeof ctx.layer !== 'function') { return ''; }
+                    var valued = op === 'getValue' || op === 'getValueAt', at = op === 'getValueAt' || op === 'getRecordAt';
+                    var k = valued ? 3 : 2;
+                    var request = {
+                        operation: op,
+                        property: valued ? str(2) : null,
+                        url: str(k),
+                        location: at ? str(k + 1) : null,
+                        where: args.length > k + (at ? 2 : 1) ? str(k + (at ? 2 : 1)) : ''
+                    };
+                    var answered = ctx.layer(request);
+                    return answered === null || answered === undefined ? '' : answered;
+                }
                 if (file.charAt(0) === '@') {
                     fail('pulldata("' + file + '") is not supported: ' + (hasKey(REFUSED_PULLDATA_SOURCES, file)
                         ? REFUSED_PULLDATA_SOURCES[file] : 'it is not a source Survey123 documents'), ast.at);

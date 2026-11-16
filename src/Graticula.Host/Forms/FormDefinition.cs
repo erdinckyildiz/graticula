@@ -54,6 +54,12 @@ public sealed partial class FormDefinition
     /// <summary>The settings sheet.</summary>
     public FormSettings Settings { get; }
 
+    /// <summary>
+    /// The layer addresses the form's search() appearances and pulldata("@layer") calls write out in full, with where; each
+    /// is checked at publish to be a layer of this server the publisher can read (§5.23).
+    /// </summary>
+    public IReadOnlyList<QueriedLayer> QueriedLayers { get; private init; } = [];
+
     /// <summary>Every question, in form order, at every depth.</summary>
     public IEnumerable<FormQuestion> AllQuestions => Root.AllTables.SelectMany(t => t.Questions);
 
@@ -69,6 +75,9 @@ public sealed partial class FormDefinition
     [GeneratedRegex(@"^[\p{L}_][\p{L}\p{Nd}_.\-]*$")]
     private static partial Regex NamePattern();
 
+    [GeneratedRegex(@"^(attributes\.[^\s.]+|geometry(\.[A-Za-z]+)?)$", RegexOptions.CultureInvariant)]
+    private static partial Regex PropertyPattern();
+
     [GeneratedRegex(@"\(tr\)|türkçe|turkish", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TurkishLanguage();
 
@@ -81,6 +90,8 @@ public sealed partial class FormDefinition
         private readonly List<FormIssue> notices = [];
         private readonly Dictionary<string, FormQuestion> names = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<(string Sheet, int Row, string Column, string Expression)> expressions = [];
+        private readonly Dictionary<int, FormSearch> searches = [];
+        private readonly List<QueriedLayer> queried = [];
         private bool pagesStyle;
 
         public FormCheck Run()
@@ -112,7 +123,7 @@ public sealed partial class FormDefinition
                     $"default_language '{language}' is not one of the label languages: {string.Join(", ", languages)}.");
             }
 
-            FormDefinition? definition = refusals.Count == 0 ? new FormDefinition(root, lists, languages, settings) : null;
+            FormDefinition? definition = refusals.Count == 0 ? new FormDefinition(root, lists, languages, settings) { QueriedLayers = queried } : null;
             return new FormCheck(definition, refusals, notices);
         }
 
@@ -339,6 +350,11 @@ public sealed partial class FormDefinition
 
                 FormQuestion question = Question(row, columns, type, argument, name, labels, at);
                 names[name] = question;
+
+                if (question.Search is not null)
+                {
+                    SearchList(question, lists, at);
+                }
                 open.Peek().Questions.Add(question);
                 open.Peek().Body.Add(question);
 
@@ -545,7 +561,7 @@ public sealed partial class FormDefinition
                 Default: columns.Value(row, "default"),
                 ReadOnly: readOnly,
                 ChoiceFilter: columns.Value(row, "choice_filter"),
-                Appearance: (columns.Value(row, "appearance") ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                Appearance: WithoutSearch(columns.Value(row, "appearance")).Split(' ', StringSplitOptions.RemoveEmptyEntries),
                 Parameters: parameters,
                 EsriFieldType: fieldType,
                 FieldLength: length,
@@ -561,8 +577,13 @@ public sealed partial class FormDefinition
                 Accept = columns.Value(row, "body::accept"),
                 CalculationMode = calculationMode,
                 InputMask = inputMask,
+                Search = searches.GetValueOrDefault(at),
             };
         }
+
+        /// <summary>An appearance cell with its search(…) taken out, which is the question's search and not an appearance.</summary>
+        private static string WithoutSearch(string? appearance) =>
+            appearance is null ? string.Empty : FormLayerQuery.TryExtract(appearance, out _, out string rest, out _) ? rest : appearance;
 
         /// <summary>
         /// <c>bind::esri:parameters</c> on a <c>begin repeat</c> row: Survey123's <c>allowAdds</c> and <c>allowUpdates</c>,
@@ -824,10 +845,11 @@ public sealed partial class FormDefinition
                 return;
             }
 
-            if (appearance.Contains("search(", StringComparison.OrdinalIgnoreCase))
+            // search() (§5.23): choices from a CSV uploaded with the form, or from a layer of this server.
+            if (FormLayerQuery.TryExtract(appearance, out string inner, out string rest, out string? malformed))
             {
-                Refuse("survey", at, "appearance", "search() is refused: dynamic choices from a CSV are not in the first version; use select_one_from_file.");
-                return;
+                appearance = rest;
+                Search(inner, malformed, type, at);
             }
 
             foreach (string token in appearance.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries))
@@ -866,6 +888,75 @@ public sealed partial class FormDefinition
                 {
                     Refuse("survey", at, "appearance", $"'{token}' is not an appearance this server knows.");
                 }
+            }
+        }
+
+        /// <summary>The search() of a select's appearance: read, checked, and kept for the question (§5.23).</summary>
+        private void Search(string inner, string? malformed, string type, int at)
+        {
+            if (malformed is not null)
+            {
+                Refuse("survey", at, "appearance", malformed);
+                return;
+            }
+
+            if (type is not ("select_one" or "select_multiple"))
+            {
+                Refuse("survey", at, "appearance", type is "select_one_from_file" or "select_multiple_from_file"
+                    ? $"search() fills a select_one or select_multiple from a CSV or a layer; a '{type}' already takes its choices from its file. Use one or the other."
+                    : $"search() fills the choices of a select_one or select_multiple, and a '{type}' has none.");
+                return;
+            }
+
+            if (!FormLayerQuery.TryParseSearch(inner, out FormSearch? search, out string? why))
+            {
+                Refuse("survey", at, "appearance", why!);
+                return;
+            }
+
+            searches[at] = search!;
+
+            if (search!.SearchText is { } text)
+            {
+                expressions.Add(("survey", at, "appearance", text));
+            }
+
+            if (search.FilterText is { } filter)
+            {
+                expressions.Add(("survey", at, "appearance", filter));
+            }
+
+            if (search.Url is { } url && FormLayerQuery.TryLayer(url, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), FormLayerQuery.SearchParameters, out SubmissionAddress? address, out _))
+            {
+                queried.Add(new QueriedLayer("survey", at, "appearance", url, address!));
+            }
+        }
+
+        /// <summary>
+        /// A search()'s choice list: its first row's <c>name</c> is the column (or field) the answer is taken from and its
+        /// <c>label</c> the one shown, as xlsform.org and Survey123 both say. Further rows are not offered, and that is said.
+        /// </summary>
+        private void SearchList(FormQuestion question, Dictionary<string, IReadOnlyList<FormChoice>> lists, int at)
+        {
+            if (question.Argument is not { } list || !lists.TryGetValue(list, out IReadOnlyList<FormChoice>? rows))
+            {
+                return;
+            }
+
+            List<FormChoice> written = [.. rows.Where(c => !c.Automatic)];
+
+            if (written.Count == 0)
+            {
+                Refuse("survey", at, "type", $"search() needs a row of '{list}' on the choices sheet: its name is the column the answer is taken from and its label the column shown.");
+            }
+            else if (written.Count > 1)
+            {
+                Notice("survey", at, "appearance", $"search() reads the first row of '{list}' (choices row {written[0].Row}) to know which columns hold the answer and the label; the list's other rows are not offered.");
+            }
+
+            if (rows.Any(c => c.Automatic))
+            {
+                Refuse("survey", at, "type", "or_other adds a choice to a list, and a search() list's choices come from its CSV or layer; take or_other off.");
             }
         }
 
@@ -1067,6 +1158,10 @@ public sealed partial class FormDefinition
                     }
                 }
             }
+            else if (source == "@layer")
+            {
+                LayerSource(sheet, row, column, call);
+            }
             else if (FormCatalog.RefusedPulldataSources.TryGetValue(source, out string? why))
             {
                 Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: {why}.");
@@ -1074,6 +1169,92 @@ public sealed partial class FormDefinition
             else
             {
                 Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: '{source}' is not a source Survey123 documents.");
+            }
+        }
+
+        /// <summary>
+        /// <c>pulldata("@layer", operation, …)</c> as Survey123's <i>Query a feature layer</i> writes it (§5.23):
+        /// <c>getRecord(url[, where])</c>, <c>getValue(property, url[, where])</c>, <c>getRecordAt(url, location[, where])</c>
+        /// and <c>getValueAt(property, url, location[, where])</c>. The location is a geopoint question, as the page says. An
+        /// address written out is checked here for its shape and at publish for being this server's; one worked out at run
+        /// time (<c>concat(…)</c> of a written address and parameters is read for the address) is checked by the client.
+        /// </summary>
+        private void LayerSource(string sheet, int row, string column, FunctionCall call)
+        {
+            const string Shapes = "pulldata(\"@layer\", \"getValue\", \"attributes.NAME\", <layer address>[, <where>]), \"getRecord\" without the property, "
+                + "and \"getValueAt\" / \"getRecordAt\" with a geopoint question after the address";
+
+            if (call.Count < 2 || call.Literal(1) is not { } operation)
+            {
+                Refuse(sheet, row, column, $"pulldata(\"@layer\", …) names its operation in quotes as its second argument: {Shapes}.");
+                return;
+            }
+
+            if (!FormLayerQuery.Operations.TryGetValue(operation, out (int Fewest, int Most) count))
+            {
+                Refuse(sheet, row, column, $"'{operation}' is not an operation of pulldata(\"@layer\"): it is getValue, getRecord, getValueAt or getRecordAt.");
+                return;
+            }
+
+            if (call.Count < count.Fewest || call.Count > count.Most)
+            {
+                Refuse(sheet, row, column, $"pulldata(\"@layer\", \"{operation}\", …) takes {count.Fewest - 2} to {count.Most - 2} arguments after the operation, not {call.Count - 2}: {Shapes}.");
+                return;
+            }
+
+            bool value = operation.StartsWith("getValue", StringComparison.Ordinal);
+            int at = value ? 3 : 2;
+
+            if (value && call.Literal(2) is { } property && !PropertyPattern().IsMatch(property))
+            {
+                Refuse(sheet, row, column, $"'{property}' is not a property of a feature: it is attributes.<field>, or geometry, as in \"attributes.NAME\".");
+            }
+
+            if (operation.EndsWith("At", StringComparison.Ordinal) && call.Written is { } written)
+            {
+                string location = written[at + 1];
+                string? name = location.StartsWith("${", StringComparison.Ordinal) && location.EndsWith('}') ? location[2..^1].Trim() : null;
+
+                if (name is null)
+                {
+                    Refuse(sheet, row, column, $"pulldata(\"@layer\", \"{operation}\", …) queries at a location, and Survey123 asks for a geopoint question there: ${{location}}, not '{location}'.");
+                }
+                else if (names.TryGetValue(name, out FormQuestion? point) && point.Type != "geopoint")
+                {
+                    Refuse(sheet, row, column, $"pulldata(\"@layer\", \"{operation}\", …) queries at a location, and ${{{name}}} is a '{point.Type}', not a geopoint.");
+                }
+            }
+
+            if (call.Written is not { } arguments)
+            {
+                return;
+            }
+
+            string url = arguments[at];
+
+            if (FormLayerQuery.Literal(url) is { } literal)
+            {
+                Address(literal, url: literal);
+            }
+            else if (url.StartsWith("concat", StringComparison.Ordinal) && url.IndexOf('(', StringComparison.Ordinal) is var open and > 0
+                && FormLayerQuery.Arguments(url[(open + 1)..url.LastIndexOf(')')]) is [var first, ..] && FormLayerQuery.Literal(first) is { } start)
+            {
+                // concat("https://…/FeatureServer/1", '?outStatistics=…') — Survey123's own example: the written part is
+                // the address, and the parameters after it are the client's to read at run time.
+                Address(start, url: start);
+            }
+
+            void Address(string text, string url)
+            {
+                Dictionary<string, string> query = new(StringComparer.OrdinalIgnoreCase);
+
+                if (!FormLayerQuery.TryLayer(text, query, FormLayerQuery.PulldataParameters, out SubmissionAddress? address, out string? why))
+                {
+                    Refuse(sheet, row, column, why!);
+                    return;
+                }
+
+                queried.Add(new QueriedLayer(sheet, row, column, url, address!));
             }
         }
 
@@ -1736,6 +1917,9 @@ public sealed record FormQuestion(
 
     /// <summary>True for a question the checker added: the <c>{name}_other</c> text that <c>or_other</c> makes.</summary>
     public bool Automatic { get; init; }
+
+    /// <summary>The search() its appearance holds: its choices come from a CSV or a layer (ADR-287 §5.23).</summary>
+    public FormSearch? Search { get; init; }
 }
 
 /// <summary>One choice of a list: its name, its labels per language, and the values a choice_filter may read.</summary>

@@ -131,6 +131,12 @@ public static partial class FormEndpoints
             return Refusal(check.Refusals, check.Notices, "The form was not added.");
         }
 
+        // §5.23: a layer the form queries is this server's, as at publish, so an upload says so at once.
+        if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
+        {
+            return Refusal(unqueryable, check.Notices, "The form was not added.");
+        }
+
         title ??= check.Definition!.Settings.Title ?? "Form";
         IServiceProvider services = context.RequestServices;
         IDocumentStore documents = services.GetRequiredService<IDocumentStore>();
@@ -238,7 +244,8 @@ public static partial class FormEndpoints
         // A stored form's plan is named as publishing will name it, after its title; anything else after the id given.
         string fallback = (await ManagedFormAsync(context, id, "check", cancellation).ConfigureAwait(false)).Document?.Title ?? id;
         FormLayerPlan? plan = check.Definition is { } definition ? FormLayerPlan.For(definition, fallback) : null;
-        IReadOnlyList<FormIssue> refusals = [.. check.Refusals, .. plan?.Refusals ?? []];
+        IReadOnlyList<FormIssue> refusals = [.. check.Refusals, .. plan?.Refusals ?? [],
+            .. check.Definition is { } queried ? await QueriedLayerProblemsAsync(context, queried, cancellation).ConfigureAwait(false) : []];
 
         return Results.Json(new
         {
@@ -302,6 +309,11 @@ public static partial class FormEndpoints
         if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
         {
             return Refusal(missing, check.Notices, "The form was not published.");
+        }
+
+        if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
+        {
+            return Refusal(unqueryable, check.Notices, "The form was not published.");
         }
 
         // ADR-287 §5.17: a form that names a layer writes to it and makes none.
@@ -685,6 +697,11 @@ public static partial class FormEndpoints
         if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
         {
             return Refusal(missing, check.Notices, "The form was not published again.");
+        }
+
+        if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
+        {
+            return Refusal(unqueryable, check.Notices, "The form was not published again.");
         }
 
         if (await RepublishToExistingAsync(context, document, model, check, plan, publication, cancellation).ConfigureAwait(false) is { } handled)
