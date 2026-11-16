@@ -624,6 +624,7 @@
     var layerFields = {};    // layer address -> { state, fields: { name: esriFieldType }, geometryType }
     var searchStatus = {};   // instance id + '/' + question -> the state of its last search()
     var layerStatus = {};    // instance id + '/' + question -> the state of its calculation's last pulldata("@layer")
+    var lookupPending = false;   // set while a calculation runs when a lookup it made has not answered yet (section 5.27)
 
     function basePath() { return location.pathname.replace(/\/forms(\/.*)?$/i, ''); }
 
@@ -887,6 +888,7 @@
         var requestKey = 'layer|' + target.url + '|' + encodeForm(params);
         var entry = layerGet(requestKey, target.url + '/query', params);
         layerStatus[key] = entry.state;
+        if (entry.state === 'pending') { lookupPending = true; }
         if (entry.state !== 'done') { return ''; }
         var feature = (entry.json.features || [])[0];
         // INFERRED (section 5.23): nothing found is the empty answer, as is a layer the member cannot read.
@@ -925,6 +927,237 @@
             var v = valueIn(inst, n);
             return v === undefined || v === null || (Array.isArray(v) ? v.length === 0 : String(v) === '');
         });
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // pulldata("@javascript") (ADR-287 section 5.27).
+    //
+    // A form's script is a file uploaded with it, under scripts/ as Survey123 keeps it, read like a CSV list and kept on
+    // the device with the form. It never runs in this page. It runs in a frame of script-sandbox.html with
+    // sandbox="allow-scripts" and nothing else: an opaque origin, so no cookie, no storage, no token and no same-origin
+    // request, and no way into this page; the frame's own policy forbids every connection and every other script, and
+    // the frame runs each file in a worker, so a script that never returns blocks nothing here. What crosses is what the
+    // call passes — the arguments the form wrote, as plain values — and what the function returns, both size-limited.
+    //
+    // The evaluator is synchronous, so a call is answered as pulldata("@layer") is (section 5.23): scriptAnswer() gives
+    // what the sandbox already returned for that exact call, or '' while it is out and sends it; when the answer arrives
+    // the form is recalculated. A call that does not answer within SCRIPT_TIMEOUT_MS is abandoned: the frame is removed,
+    // which stops every worker in it, the answer stays empty and the question says why. The next call starts a new frame.
+    //
+    // The server says whether this form's scripts may run at all (form.json's "scripts"): never on a form shared with
+    // everyone, nor for a caller who is not signed in; the preview, in Studio, runs them for the publisher.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var SANDBOX_VERSION = '1';           // script-sandbox.html is cached for a year: change this when the file changes
+    var SCRIPT_TIMEOUT_MS = 2000;        // INFERRED (section 5.27): Survey123's page sets no limit
+    var SANDBOX_START_MS = 8000;
+    var SCRIPT_ARGS_MAX = 65536;         // characters of JSON a call may pass
+    var scriptTexts = {};                // script file name -> its text
+    var missingScripts = [];             // script names the item does not have
+    var scriptCache = {};                // call key -> { state: 'pending' | 'done' | 'error' | 'timeout' | 'unavailable', value, message }
+    var scriptStatus = {};               // instance id + '/' + question -> the state of its calculation's last script call
+    var sandbox = null;                  // { frame, ready, sent: { file: true }, queue: [message], waiting: { id: key }, timers: { id: timer }, startTimer }
+    var sandboxSeq = 0;
+
+    Object.assign(TR, {
+        "This answer is worked out by a script, which runs only for a signed-in member, and never on a form shared with everyone.": "Bu cevabı bir betik hesaplıyor; betik yalnız giriş yapmış bir üye için çalışır, herkesle paylaşılan bir formda hiç çalışmaz.",
+        "This answer is worked out by a script that was not uploaded with the form.": "Bu cevabı hesaplayan betik formla birlikte yüklenmemiş.",
+        "This answer is worked out by a script that took too long, and was stopped. The answer is left empty.": "Bu cevabı hesaplayan betik çok uzun sürdü ve durduruldu. Cevap boş bırakıldı.",
+        "This answer is worked out by a script that failed: ": "Bu cevabı hesaplayan betik hata verdi: ",
+        "This answer is worked out by a script that could not be started on this device. It is tried again when the connection returns.": "Bu cevabı hesaplayan betik bu cihazda başlatılamadı. Bağlantı gelince yeniden denenir."
+    });
+
+    function scriptNamesOf(formIn) {
+        var names = [];
+        (function walk(node) {
+            (node.body || []).forEach(function (n) {
+                if (n.kind === 'question') {
+                    [n.calculation, n.relevant, n.constraint, n.default, n.required, n.readOnly, n.choiceFilter].forEach(function (e) {
+                        var re = /pulldata\s*\(\s*['"]@javascript['"]\s*,\s*['"]([^'"]+)['"]/g, m;
+                        while (typeof e === 'string' && (m = re.exec(e))) { if (names.indexOf(m[1]) < 0) { names.push(m[1]); } }
+                    });
+                } else { walk(n); }
+            });
+        })(formIn.root);
+        return names;
+    }
+
+    // Whether this form's scripts may run here: the server's word, and in a preview the publisher's own.
+    function scriptsAllowed() {
+        if (loadedFrom === 'preview') { return true; }
+        return !!doc && doc.scripts === 'allowed';
+    }
+
+    // A script is an item resource like a CSV, tried under scripts/ first. It is read as text: the server serves it as
+    // text, never as a script, and it is handed to the sandbox, the one place it runs.
+    async function fetchScript(name) {
+        var candidates = ['scripts/' + name, name];
+        for (var i = 0; i < candidates.length; i++) {
+            try {
+                var headers = {};
+                var held = token();
+                if (held) { headers.Authorization = 'Bearer ' + held; }
+                var response = await fetch('/sharing/rest/content/items/' + itemId + '/resources/' + encodeURI(candidates[i]),
+                    { headers: headers, credentials: 'same-origin' });
+                if (!response.ok) { continue; }
+                var body = await response.text();
+                if (/json/i.test(response.headers.get('content-type') || '') && /"error"/.test(body)) { continue; }
+                return body;
+            } catch (e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    async function loadScripts(loaded) {
+        if (!scriptsAllowed()) { return; }
+        var names = scriptNamesOf(form);
+        for (var i = 0; i < names.length; i++) {
+            if (scriptTexts[names[i]] !== undefined) { continue; }
+            var body = loaded.from !== 'device' && itemId ? await fetchScript(names[i]) : null;
+            if (body === null && loaded.from !== 'preview' && itemId) {
+                var copy = await dbGet('forms', itemId).catch(function () { return null; });
+                if (copy && copy.scripts && copy.scripts[names[i]] !== undefined) { body = copy.scripts[names[i]]; }
+            }
+            if (body === null) { missingScripts.push(names[i]); } else { scriptTexts[names[i]] = body; }
+        }
+        // Started now, while there is a connection, so the browser has the sandbox page in its cache for a reload with none.
+        if (Object.keys(scriptTexts).length) { sandboxFrame(); }
+    }
+
+    function sandboxUrl() { return basePath() + '/forms/script-sandbox.html?v=' + SANDBOX_VERSION; }
+
+    function sandboxFrame() {
+        if (sandbox) { return sandbox; }
+        var frame = document.createElement('iframe');
+        frame.setAttribute('sandbox', 'allow-scripts');
+        frame.setAttribute('title', 'Form scripts');
+        frame.setAttribute('aria-hidden', 'true');
+        frame.setAttribute('tabindex', '-1');
+        frame.hidden = true;
+        frame.className = 'script-sandbox';
+        frame.src = sandboxUrl();
+        var box = { frame: frame, ready: false, sent: {}, queue: [], waiting: {}, timers: {}, startTimer: 0 };
+        // No answer from the page at all — no connection and nothing cached — is said as such, and tried again later.
+        box.startTimer = setTimeout(function () { if (sandbox === box && !box.ready) { dropSandbox('unavailable'); } }, SANDBOX_START_MS);
+        sandbox = box;
+        document.body.appendChild(frame);
+        return box;
+    }
+
+    // Removes the frame and every worker in it. The call that caused it keeps its state; every other call that was out
+    // is forgotten, so it is simply asked again by the next recalculation.
+    function dropSandbox(why, culprit) {
+        var box = sandbox;
+        if (!box) { return; }
+        sandbox = null;
+        clearTimeout(box.startTimer);
+        Object.keys(box.timers).forEach(function (id) { clearTimeout(box.timers[id]); });
+        Object.keys(box.waiting).forEach(function (id) {
+            var key = box.waiting[id];
+            if (key === culprit) { return; }
+            if (why === 'unavailable') { scriptCache[key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[key]; }
+        });
+        box.queue.forEach(function (m) { if (m.kind === 'call' && m.key !== culprit) { if (why === 'unavailable') { scriptCache[m.key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[m.key]; } } });
+        if (box.frame.parentNode) { box.frame.parentNode.removeChild(box.frame); }
+        setTimeout(function () { refresh(false); }, 0);
+    }
+
+    function sandboxSend(box, message) {
+        if (!box.ready) { box.queue.push(message); return; }
+        if (message.kind === 'call' && !box.sent[message.file]) {
+            box.frame.contentWindow.postMessage({ kind: 'load', file: message.file, source: scriptTexts[message.file] }, '*');
+            box.sent[message.file] = true;
+        }
+        if (message.kind === 'call') {
+            box.waiting[message.id] = message.key;
+            box.timers[message.id] = setTimeout(function () {
+                if (sandbox !== box || !Object.prototype.hasOwnProperty.call(box.waiting, message.id)) { return; }
+                scriptCache[message.key] = { state: 'timeout' };
+                dropSandbox('timeout', message.key);
+            }, SCRIPT_TIMEOUT_MS);
+            box.frame.contentWindow.postMessage({ kind: 'call', id: message.id, file: message.file, fn: message.fn, args: message.args }, '*');
+        }
+    }
+
+    window.addEventListener('message', function (event) {
+        var box = sandbox;
+        if (!box || event.source !== box.frame.contentWindow) { return; }
+        var d = event.data || {};
+        if (d.kind === 'ready' && !box.ready) {
+            box.ready = true;
+            clearTimeout(box.startTimer);
+            var queued = box.queue;
+            box.queue = [];
+            queued.forEach(function (m) { sandboxSend(box, m); });
+            return;
+        }
+        if (d.kind !== 'result' || typeof d.id !== 'number' || !Object.prototype.hasOwnProperty.call(box.waiting, d.id)) { return; }
+        var key = box.waiting[d.id];
+        delete box.waiting[d.id];
+        clearTimeout(box.timers[d.id]);
+        delete box.timers[d.id];
+        var v = d.value;
+        var fine = d.ok === true && (v === null || typeof v === 'boolean' || (typeof v === 'number' && isFinite(v)) || (typeof v === 'string' && v.length <= SCRIPT_ARGS_MAX));
+        scriptCache[key] = fine ? { state: 'done', value: v === null ? '' : v }
+            : { state: 'error', message: String(d.error || 'the answer is not a value a question can hold').slice(0, 300) };
+        setTimeout(function () { refresh(false); }, 0);
+    });
+
+    // A frame that could not start for want of a connection is tried again when the connection returns.
+    window.addEventListener('online', function () {
+        Object.keys(scriptCache).forEach(function (k) { if (scriptCache[k].state === 'unavailable') { delete scriptCache[k]; } });
+        if (form && root) { setTimeout(function () { refresh(false); }, 0); }
+    });
+
+    // pulldata("@javascript"): the evaluator's ctx.javascript, for the question q in the instance inst.
+    function scriptAnswer(inst, q, request) {
+        var at = inst.id + '/' + q.name;
+        if (!scriptsAllowed()) { scriptStatus[at] = 'refused'; return ''; }
+        if (scriptTexts[request.file] === undefined) { scriptStatus[at] = 'missing'; return ''; }
+        var args;
+        try { args = JSON.stringify(request.args || []); } catch (e) { args = null; }
+        if (args === null || args.length > SCRIPT_ARGS_MAX) {
+            scriptStatus[at] = 'error';
+            scriptStatus[at + '#message'] = 'its arguments are too long';
+            return '';
+        }
+        var key = request.file + '|' + request.fn + '|' + args;
+        var hit = scriptCache[key];
+        // Unstartable a moment ago: not asked again on every redraw, but after a while.
+        if (hit && hit.state === 'unavailable' && Date.now() - hit.at > 15000 && navigator.onLine !== false) { delete scriptCache[key]; hit = null; }
+        if (!hit) {
+            hit = scriptCache[key] = { state: 'pending' };
+            sandboxSend(sandboxFrame(), { kind: 'call', id: ++sandboxSeq, key: key, file: request.file, fn: request.fn, args: JSON.parse(args) });
+        }
+        scriptStatus[at] = hit.state;
+        scriptStatus[at + '#message'] = hit.message || '';
+        if (hit.state === 'pending') { lookupPending = true; }
+        return hit.state === 'done' ? hit.value : '';
+    }
+
+    /** What a question whose calculation runs a script says under its answer, or ''. */
+    function scriptStatusText(inst, q) {
+        if (!q.calculation || !/@javascript/.test(q.calculation)) { return ''; }
+        var at = inst.id + '/' + q.name;
+        switch (scriptStatus[at]) {
+            case 'refused': return t('This answer is worked out by a script, which runs only for a signed-in member, and never on a form shared with everyone.');
+            case 'missing': return t('This answer is worked out by a script that was not uploaded with the form.');
+            case 'timeout': return t('This answer is worked out by a script that took too long, and was stopped. The answer is left empty.');
+            case 'error': return t('This answer is worked out by a script that failed: ') + (scriptStatus[at + '#message'] || '');
+            case 'unavailable': return t('This answer is worked out by a script that could not be started on this device. It is tried again when the connection returns.');
+        }
+        return '';
+    }
+
+    // A new preview: the scripts are read again, and the frame that ran the old ones goes.
+    function resetScripts() {
+        scriptTexts = {};
+        missingScripts = [];
+        scriptCache = {};
+        scriptStatus = {};
+        if (sandbox) { var box = sandbox; sandbox = null; clearTimeout(box.startTimer); if (box.frame.parentNode) { box.frame.parentNode.removeChild(box.frame); } }
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -1114,7 +1347,8 @@
             language: lang,
             pulldata: pulldata,
             property: propertyOf,
-            layer: function (request) { return q && q.kind === 'question' ? layerAnswer(inst, q, request) : ''; }
+            layer: function (request) { return q && q.kind === 'question' ? layerAnswer(inst, q, request) : ''; },
+            javascript: function (request) { return q && q.kind === 'question' ? scriptAnswer(inst, q, request) : ''; }
         };
     }
 
@@ -1187,6 +1421,7 @@
             if (inst.rel[n.name] !== r) { inst.rel[n.name] = r; changed = true; }
             if (n.kind === 'question') {
                 if (r && n.calculation && calculationDue(inst, n)) {
+                    lookupPending = false;
                     var v = asCalculated(n, evalString(n.calculation, inst, n));
                     noteCalculated(inst, n, v);
                     if (inst.values[n.name] !== v) { inst.values[n.name] = v; changed = true; }
@@ -1262,6 +1497,11 @@
     function noteCalculated(inst, q, value) {
         var st = calcState(inst, q.name);
         st.ran = true;
+        // A lookup the calculation made is still out (pulldata("@layer"), pulldata("@javascript")): what it gave stands for
+        // now, but is not this calculation's answer to these inputs, so it is neither kept nor locked, and the calculation
+        // runs again when the answer arrives. Without this a calculation that wraps the lookup — concat('[', …, ']') —
+        // gave '[]', which is not empty, and an "auto" calculation whose inputs had not changed was never run again.
+        if (lookupPending) { st.key = null; return; }
         if ((q.calculationMode || 'auto') === 'whenEmpty' && value !== '') { st.locked = true; }
         if ((q.calculationMode || 'auto') === 'auto') { st.key = calculationKey(inst, q); }
     }
@@ -1276,6 +1516,7 @@
 
     /** The Calculate button: runs the calculation now, whatever the mode, and leaves the person's own touch alone. */
     function calculateNow(inst, q) {
+        lookupPending = false;
         var v = asCalculated(q, evalString(q.calculation, inst, q));
         noteCalculated(inst, q, v);
         inst.values[q.name] = v;
@@ -1759,18 +2000,18 @@
             shell.appendChild(calculated);
         }
         // pulldata("@layer") (section 5.23): what the lookup is doing, said where the answer is, and announced.
-        var lookup = q.calculation && /@layer/.test(q.calculation) ? el('p', { class: 'hint layer-status', id: id + '-lookup', 'aria-live': 'polite' }) : null;
+        var lookup = q.calculation && /@layer|@javascript/.test(q.calculation) ? el('p', { class: 'hint layer-status', id: id + '-lookup', 'aria-live': 'polite' }) : null;
         if (lookup) { shell.appendChild(lookup); }
         // "Looking this up…" is said only when the answer has not come back within half a second: a lookup per keystroke
         // in the question it reads otherwise announced it, and blanked it, once a letter (UX review 2026-11-16).
         var lookupTimer = 0;
         function sayLookup() {
-            var said = layerStatusText(inst, q);
+            var said = layerStatusText(inst, q) || scriptStatusText(inst, q);
             if (said === t('Looking this up…') && lookup.textContent !== said) {
                 if (!lookupTimer) {
                     lookupTimer = setTimeout(function () {
                         lookupTimer = 0;
-                        var now = layerStatusText(inst, q);
+                        var now = layerStatusText(inst, q) || scriptStatusText(inst, q);
                         if (lookup.isConnected && lookup.textContent !== now) { lookup.textContent = now; }
                     }, 500);
                 }
@@ -5628,7 +5869,7 @@
             var blob = await loadMedia(wanted[i]);
             if (blob) { media[wanted[i]] = blob; }
         }
-        await dbPut('forms', { id: itemId, doc: doc, files: csv, media: media, saved: Date.now() });
+        await dbPut('forms', { id: itemId, doc: doc, files: csv, media: media, scripts: scriptTexts, saved: Date.now() });
     }
 
     async function downloadForOffline() {
@@ -5857,6 +6098,7 @@
         }
 
         mediaNamesOf(form).forEach(function (n) { loadMedia(n); });
+        await loadScripts(loaded);
 
         var languages = Array.isArray(form.languages) ? form.languages.filter(function (l) { return l !== null && l !== undefined; }) : [];
         var keep = languages.indexOf(lang) >= 0 && loaded.from === 'preview';
@@ -5919,6 +6161,7 @@
             drawing = drawing.then(function () {
                 files = {};
                 missingFiles = [];
+                resetScripts();
                 itemId = String(sent.itemId || '').toLowerCase();
                 $('summary').hidden = true;
                 $('done').hidden = true;
@@ -5952,7 +6195,9 @@
             });
         },
         /** The CSV lists the form names that the item does not hold. */
-        missingFiles: function () { return missingFiles.slice(); }
+        missingFiles: function () { return missingFiles.slice(); },
+        /** The scripts the form names that the item does not hold (section 5.27). */
+        missingScripts: function () { return missingScripts.slice(); }
     });
 
     if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start); } else { start(); }

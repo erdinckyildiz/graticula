@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-m5/NyvbPtGXvyZJ1JN5xZeqQDoqzkNe0qYvFKE5QD9Y='; worker-src blob:; base-uri 'none'; form-action 'none'">
+<title>Form scripts</title>
+<!--
+  The sandbox a form's scripts run in — ADR-287 §5.27, pulldata("@javascript").
+
+  The form page frames this file with sandbox="allow-scripts" and nothing else, so it runs at an opaque origin: no
+  cookie, no storage, no token, no same-origin request, and no way into the page that framed it. Its policy (above, and
+  the same again in the header SecurityHeaders.FormScriptSandboxPolicy builds) admits this one inline block by its hash
+  and no other script, so a form's script cannot load another; it forbids every connection, so it cannot fetch; and it
+  admits workers from blob: only, which is where a form's script runs. A worker has no document, so not even this
+  page's DOM is reachable from it, and a worker can be stopped: a script that never returns is abandoned by the page,
+  which removes this frame and with it every worker in it.
+
+  The page sends: { kind: 'load', file, source } once per file, then { kind: 'call', id, file, fn, args }.
+  This answers: { kind: 'ready' } when it can be sent to, and { kind: 'result', id, ok, value } or { kind: 'result', id,
+  error }. Nothing else crosses, in either direction: messages from any window but the one that framed this are dropped.
+
+  The hash in the policy is of the script block's text exactly as written: change one character of it and the hash in
+  both places must change with it (AFormRunsItsScriptsInASandboxTests checks the two agree).
+-->
+<script>
+(function () {
+    'use strict';
+    var up = window.parent;
+    var MAX_RESULT = 65536;
+    var files = {};
+    // Put before the form's script in its worker: the calls it answers, and the shape of an answer. A function's result
+    // is a string, a number, a boolean or nothing; an object or array is given as its JSON, which is what Survey123's
+    // pulldata("@json") would read; a promise is refused, because Survey123 says asynchronous calls are not supported.
+    var HARNESS = [
+        '(function () {',
+        '  var post = self.postMessage.bind(self), max = ' + MAX_RESULT + ';',
+        '  function shaped(v) {',
+        '    if (v === undefined || v === null) { return null; }',
+        '    if (typeof v === "number") { return isFinite(v) ? v : String(v); }',
+        '    if (typeof v === "string" || typeof v === "boolean") { return v; }',
+        '    if (typeof v === "object" && typeof v.then === "function") { throw new Error("the function returned a promise, and asynchronous calls are not supported"); }',
+        '    if (typeof v === "object") { var j = JSON.stringify(v); return j === undefined ? null : j; }',
+        '    return String(v);',
+        '  }',
+        '  self.addEventListener("message", function (m) {',
+        '    var c = m.data || {};',
+        '    try {',
+        '      var f = self[c.fn];',
+        '      if (typeof f !== "function") { post({ id: c.id, error: "the script has no function named " + c.fn }); return; }',
+        '      var v = shaped(f.apply(null, c.args || []));',
+        '      if (typeof v === "string" && v.length > max) { post({ id: c.id, error: "the answer is longer than " + max + " characters" }); return; }',
+        '      post({ id: c.id, ok: true, value: v });',
+        '    } catch (x) {',
+        '      post({ id: c.id, error: String(x && x.message ? x.message : x).slice(0, 300) });',
+        '    }',
+        '  });',
+        '})();',
+        ''
+    ].join('\n');
+
+    function answer(message) { up.postMessage(message, '*'); }
+
+    function workerFor(file) {
+        var entry = files[file];
+        if (!entry || entry.worker) { return entry; }
+        try {
+            var url = URL.createObjectURL(new Blob([HARNESS, entry.source], { type: 'text/javascript' }));
+            entry.worker = new Worker(url);
+            URL.revokeObjectURL(url);
+        } catch (x) {
+            entry.broken = 'the script could not be started';
+            return entry;
+        }
+        entry.worker.onmessage = function (m) {
+            var r = m.data || {};
+            if (!Object.prototype.hasOwnProperty.call(entry.waiting, r.id)) { return; }
+            delete entry.waiting[r.id];
+            if (r.ok === true) {
+                var v = r.value;
+                var fine = v === null || typeof v === 'number' || typeof v === 'boolean' || (typeof v === 'string' && v.length <= MAX_RESULT);
+                answer(fine ? { kind: 'result', id: r.id, ok: true, value: v } : { kind: 'result', id: r.id, error: 'the answer is not a value a question can hold' });
+            } else {
+                answer({ kind: 'result', id: r.id, error: String(r.error || 'the function failed').slice(0, 300) });
+            }
+        };
+        // A script that does not compile, or throws while it loads: every call waiting on it, and every later one, fails.
+        entry.worker.onerror = function (e) {
+            if (e && e.preventDefault) { e.preventDefault(); }
+            entry.broken = String((e && e.message) || 'the script failed to load').slice(0, 300);
+            Object.keys(entry.waiting).forEach(function (id) { answer({ kind: 'result', id: Number(id), error: entry.broken }); });
+            entry.waiting = {};
+        };
+        return entry;
+    }
+
+    window.addEventListener('message', function (event) {
+        if (event.source !== up) { return; }
+        var d = event.data || {};
+        if (d.kind === 'load' && typeof d.file === 'string' && typeof d.source === 'string') {
+            if (!files[d.file]) { files[d.file] = { source: d.source, worker: null, waiting: {}, broken: null }; }
+            return;
+        }
+        if (d.kind !== 'call' || typeof d.file !== 'string' || typeof d.fn !== 'string' || typeof d.id !== 'number') { return; }
+        var entry = workerFor(d.file);
+        if (!entry) { answer({ kind: 'result', id: d.id, error: 'the script was not given' }); return; }
+        if (entry.broken) { answer({ kind: 'result', id: d.id, error: entry.broken }); return; }
+        entry.waiting[d.id] = true;
+        entry.worker.postMessage({ id: d.id, fn: d.fn, args: Array.isArray(d.args) ? d.args : [] });
+    });
+
+    answer({ kind: 'ready' });
+})();
+</script>
+</head>
+<body></body>
+</html>

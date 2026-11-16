@@ -367,7 +367,7 @@ measurable question. The two device claims are, so they are conditions and not a
     | | Functions |
     |---|---|
     | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form), **and `pulldata("@property", name)` and `pulldata("@geopoint", ${q}, part)`** (§5.20); `property(name)` (ODK's, §5.20). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's, and `date-time` (Survey123's, §5.20; the specification's table has no other date function this list lacks). **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
-    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: ~~`@layer`~~ (**supported since 2026-11-16, §5.23**), `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). ~~`@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again~~ — built 2026-11-16 by owner decision, online only, as Survey123's is (§5.23) |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: ~~`@layer`~~ (**supported since 2026-11-16, §5.23**), `@json`, `@exif`, ~~`@javascript`~~ (**supported since 2026-11-17 in a sandbox the page cannot be reached from, and never on a form shared with everyone, §5.27**); and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). ~~`@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again~~ — built 2026-11-16 by owner decision, online only, as Survey123's is (§5.23) |
 
     **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
     `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
@@ -1368,6 +1368,137 @@ measurable question. The two device claims are, so they are conditions and not a
       needed a connection:* and the questions' labels, kept on the queued record, so the member knows what to complete
       from the Inbox once it has been sent.
 
+27. **A form's own scripts, `pulldata("@javascript")`, in a sandbox — and the evaluator's answers checked against
+    ODK's — 2026-11-17, overnight** (*"gece, gerçek formlarla ve henüz olmayan her şeyi tamamla. yavaştan survey123'yi de
+    bitirelim"*: the owner asked for what Survey123 does to be built, and was asleep; every choice below that the public
+    pages do not settle is the conservative one and **INFERRED**, listed in [Q-239](../open-questions.md)). §5.10 refused
+    `@javascript` because *"running a script a form carries is not in the first version, and a form shared with everyone
+    must not carry code the page runs"*. The second half of that reason is a security reason, and it is answered here,
+    not set aside: a form's script never runs in the page.
+    - **What Survey123's public pages say.** [*JavaScript functions in survey forms*](https://doc.esri.com/en/arcgis-survey123/latest/create/main/pulldatajavascript.html)
+      (read 2026-11-17): the call is `pulldata("@javascript", "yourJSFile.js", "yourFunction", "parameter1", …)` with
+      *"any number of function parameters"*, and *"other questions in the survey can be used as parameters"*; the files
+      are kept *"in a folder named scripts in the survey directory"*; *"as of Survey123 version 3.14, empty values passed
+      through a JavaScript function can now return either undefined or null"*; a function may return an object that
+      `pulldata("@json")` reads; *"Document Object Model (DOM) is not supported"*, *"frameworks such as JQuery, Ember,
+      and Angular are not supported"*, *"you cannot access local files"*, *"asynchronous calls are not supported"*;
+      *"JavaScript functions are not supported for public surveys"* and *"are only supported in forms completed by users
+      in the same organization as the form author"*; *"accessing values in repeats using pulldata("@javascript") is not
+      supported in the Survey123 web app"*. Esri's developer page
+      [*Customize surveys using JavaScript*](https://developers.arcgis.com/documentation/app-builders/low-code/arcgis-survey123/customize-surveys-using-javascript/)
+      adds that functions *"run in a sandboxed environment with specific limitations"* and may *"process external data
+      through API calls (with limitations)"*, without saying which. Neither page says how long a function may run.
+    - **Can it be made safe in a browser? Yes, and this is how.** The script is the publisher's code running on every
+      member's device, so the question is what it can reach. Here: nothing but the values the call passes it.
+      (1) The form page frames `/forms/script-sandbox.html` with `sandbox="allow-scripts"` and nothing else, so the frame
+      runs at an **opaque origin**: no cookie, no `localStorage` or IndexedDB of this site, no token, no same-origin
+      request, and no way into the page that framed it (`parent.document` is a cross-origin object it cannot read).
+      (2) The frame's own policy — sent as a header built from the file at start-up, and the same again in a `<meta>` so a
+      copy served without the header is held to it — is `default-src 'none'; script-src 'sha256-…'; worker-src blob:;
+      base-uri 'none'; form-action 'none'; frame-ancestors 'self'`: its one inline block admitted by hash and no other
+      script, **no connection of any kind** (`connect-src` falls back to `'none'`), so neither `fetch`, `XMLHttpRequest`,
+      `WebSocket`, `sendBeacon` nor `importScripts` reaches anything. (3) Each script file runs in a **dedicated worker**
+      the frame starts from a `blob:` — a worker has no document, so not even the frame's DOM is there, and it inherits
+      the frame's policy. (4) What crosses is `postMessage` of plain values: the arguments (JSON, at most 64 KB) and the
+      answer (a string of at most 64 KB, a number, a boolean or nothing; an object comes back as its JSON, which is what
+      Survey123 hands to `@json`; a promise is refused, since Survey123 does not support asynchronous calls). Messages
+      from any window but the frame are dropped, and the frame drops any but its parent's. (5) **A call that does not
+      answer within 2 seconds is abandoned**: the page removes the frame, which ends every worker in it, the answer stays
+      empty, the question says *This answer is worked out by a script that took too long, and was stopped*, and the next
+      call starts a new frame; the page itself never waits, because the evaluator never waits (below). Measured in
+      Chrome before it was built (2026-11-17): a blob worker in an opaque-origin frame runs; the policy blocks a
+      synchronous request, `fetch`, `importScripts` and a socket, and no request reached the server; IndexedDB throws
+      `SecurityError`; a `while (true)` in the worker left the page's timers running. **The form page's own policy
+      changes by one directive**, `frame-src 'self'`; every other page here still refuses to be framed
+      (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so what can load in that frame is the sandbox, which alone is
+      sent `SAMEORIGIN` and `frame-ancestors 'self'`.
+    - **The script is never served as a script.** It is an item resource, like a CSV list and a picture, uploaded to
+      `scripts/name.js` (or `name.js`). Every item resource is now served with a type that is never JavaScript — a `.js`
+      file is stored as `text/plain`, and a resource stored earlier as `text/javascript` (or any `*javascript*` or
+      `*ecmascript*` type) is served as `text/plain` — with `nosniff`, as before. This matters beyond forms: the form
+      page and the console admit scripts from this origin (`script-src 'self'`), so a member's resource served as
+      JavaScript was a script any page here could be made to load. The page reads the file as text and hands it to the
+      sandbox, the one place it runs.
+    - **Server.** `pulldata("@javascript", file, function, …)` is checked at upload: the file and the function are
+      written out in quotes (so the file can be found at publish and the client knows what it runs before it runs it);
+      the file is a name alone ending `.js` — no folder, no address, no `..`, no space; the function is a JavaScript
+      identifier; the arguments are any expressions, as many as the function takes. The definition lists each script
+      with its sheet, row and column. **Publishing** refuses a form whose script is not among the item's files
+      (*"The script 'calc.js' is not among this form's files. Add it to the item's files as scripts/calc.js."*), one larger
+      than 256 KB, and **any form with a script that is shared with everyone**; **sharing** with everyone refuses a form
+      whose draft or published model has one (409, its sharing unchanged); and `form.json` tells the page `scripts:
+      "allowed"`, `"refused"` or `"none"` — `refused` for a form shared with everyone or a caller who is not signed in,
+      which covers a draft never published (saving a draft refuses nothing, so this is the last word).
+      `locale` and `localeInfo` stay refused for `pulldata("@property")`, now for the reason that is true: a script here
+      is given only the values the form passes it.
+    - **Client.** The evaluator's `pulldata("@javascript", …)` asks the page through `ctx.javascript({ file, fn, args })`
+      and answers from what the sandbox already returned for that exact call, `''` while it is out — the mechanism §5.23
+      built for `@layer`, reused rather than written twice: the call is sent, and when the answer arrives the form is
+      recalculated. The status line under the question (`aria-live`, the one `@layer` uses) says why an answer is empty:
+      refused, not uploaded, stopped, failed (with the function's own error message), or not startable on this device.
+      **Offline:** the script's text is kept in the device's copy of the form with its CSV lists and pictures, so a
+      form opened with no signal runs it. The sandbox page itself cannot be kept by the service worker — a sandboxed
+      frame's navigation bypasses it (measured in Chrome: the frame was served from the network while the same address
+      in an ordinary frame came from the worker) — so it is served `Cache-Control: public, max-age=31536000, immutable`
+      at a versioned address and the browser's own cache has it; it is loaded as soon as a form with a script opens,
+      while there is a connection. If it is not there with no signal, the question says *could not be started on this
+      device. It is tried again when the connection returns*, and the form still submits. The preview in Studio runs a
+      form's scripts for the publisher.
+    - **A fault §5.23 had, found by this work.** A calculation that wraps a lookup — `concat('[', pulldata(…), ']')` —
+      gave `'[]'` while the lookup was out, which is not empty, so an `auto` calculation whose inputs had not changed was
+      never run again when the answer came. Both `@layer` and `@javascript` now mark the calculation as waiting, and a
+      waiting calculation is neither kept nor locked. Tested for both.
+    - **INFERRED** (Q-239): (a) **a form shared with everyone never runs a script**, refused at publish and at sharing,
+      and a caller who is not signed in is never given one to run — Survey123 says scripts are not supported for public
+      surveys; this does not reverse that, though the sandbox would make it safe; (b) **any signed-in member who can open
+      the form runs its scripts**: Survey123 limits them to the author's organisation, and here a form is shared with an
+      organisation or with groups, never with every organisation (§5.11 (l)); a group that holds members of a partner
+      organisation runs them too, because the sandbox, not the membership, is what keeps the script from the member's
+      data; (c) **a script has no network**: Survey123's developer page allows *"API calls (with limitations)"*, and a
+      script here that asks the network gets nothing — the stricter reading, because a script that could reach the
+      network could send the answers it is given anywhere; a publisher who needs a layer's data uses
+      `pulldata("@layer")`; (d) **2 seconds** before a call is abandoned, and a call is not retried with the same
+      arguments once abandoned; (e) arguments: an empty answer is `null`, an answer is its text as the form holds it
+      (a script reads a number with `Number()`), a number or boolean the expression worked out is that number or
+      boolean, a question in a repeat read from outside it is an array of its answers; (f) 256 KB a script, 64 KB of
+      arguments, 64 KB of answer; (g) a function that throws, returns a promise or does not exist leaves the answer empty
+      and says why; (h) the publisher's preview runs scripts.
+    - **Tests.** `AFormRunsItsScriptsInASandboxTests` (checker; the sandbox page's hash, header and `<meta>` agree; the
+      form page frames this origin only; no resource is served as a script), `AFormsScriptGoesOutOnlyWhereItMayRunTests`
+      (a real server over PostGIS: refused at publish until the file is there, published, the file served as
+      `text/plain` with `nosniff`, `scripts: "allowed"`, sharing with everyone refused and the sharing left as it was, a
+      public form refused at republish with a script, a public draft sent with `scripts: "refused"`, the sandbox page's
+      headers), and `FormFillScriptTests` in headless Chrome: a script works an answer out and again when its inputs
+      change, an empty answer arrives as `null`, an object comes back as JSON, an answer inside `concat()`; a script
+      that tries `XMLHttpRequest`, `fetch`, `sendBeacon`, a socket, `document.cookie`, `parent.document`,
+      `localStorage`, IndexedDB and `importScripts` gets nothing and **no request reaches the server**, while the
+      page's own cookie and storage are as they were; `while (true)` is stopped, a call behind it is answered by a new
+      frame, the page keeps taking input and the form submits; a throw, a promise and a missing function are said; a
+      refused form and a missing script start no frame; and the script works from the device with no server.
+    - **The corpus.** One workbook calls a script, `laff-surveys_Single-Family_Inspection_Single-Family_Residential_Inspection.xlsx`
+      (`passFail.js`, four calls), and `@javascript` was the only thing that refused it: it now imports, with notices
+      and no refusal, and publishes once `passFail.js` is uploaded with it (the script itself is not public, so it is not
+      in any test). **The corpus run, against the base's run the same night: 66 of the 108 readable workbooks import
+      unedited, up from 65.**
+    - **Condition 4: the evaluator's answers, not only its errors.** `XlsformEvaluatorExpectedResultsTests` adds 162 of
+      ODK's own vectors — the values JavaRosa, ODK's reference implementation, states for each expression in its public
+      test suite (Apache-2.0; `XPathEvalTest`, `RandomizeTypesTest`, `GeoAreaTest`, `GeoDistanceTest`), copied as data
+      and no code — 14 more compared within JavaRosa's tolerance, and **58 calculations, constraints and relevants from
+      twelve corpus workbooks**, each copied with its workbook and row and given answers whose value was worked out by
+      hand from the specification, the arithmetic written beside it. **Defects they found, all fixed:** (1) a text seed
+      of `randomize()` gave another order than ODK's, because the 64-bit integer it hashes to was kept exact rather than
+      as the number (a double) it is — every text seed's order depends on that rounding; (2) an empty seed was hashed
+      instead of being 0; (3) `area()` summed edges along parallels (Chamberlain and Duquette), not the great circles
+      `distance()` measures — 1.4 m² off ODK's 151,452 ± 0.5 m² for five points near Patras, now the spherical excess,
+      151,452.2; (4) `substr()` clamped a negative index to 0, where ODK's vectors count it from the end
+      (`substr('hello', -2)` is `lo`); (5) `format-date()` left `%H`, `%M` and `%S` as written, where ODK formats them;
+      and (6) the wrapped lookup above. **One disagreement is recorded, not resolved:** `checklist(1, 3, 'foo', 'bar')`
+      is true for JavaRosa, which counts any non-empty text; the specification counts what *"converts to a number > 0"*;
+      ODK's documentation counts *"exactly the string 'yes'"*. Three readings; this evaluator keeps the specification's
+      (INFERRED (i), Q-239). **`digest()` stays refused**, so JavaRosa's digest vectors are not run: building it means
+      MD5, SHA-1, SHA-384 and SHA-512 written here (the browser's own `crypto.subtle` is asynchronous and the evaluator is
+      not), which is a decision about scope and not a correctness fix (Q-239 (j)).
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
@@ -1442,7 +1573,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    condition 1 (§5.9 (b)), not here.
 4. **The expression evaluator is tested against the specifications' own examples** (xlsform.org's and the XForms
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
-   evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. **Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.
+   evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. ~~**Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.~~ **DISCHARGED 2026-11-17 (§5.27):** `XlsformEvaluatorExpectedResultsTests` holds 162 of ODK's own vectors with the values JavaRosa, ODK's reference implementation, states for them (`XPathEvalTest`, `RandomizeTypesTest` — the seeded `randomize` orders for numeric, text, geopoint and empty seeds — `GeoAreaTest`, `GeoDistanceTest`), 14 more within JavaRosa's tolerance, and 58 calculations, constraints and relevants from twelve corpus workbooks with values worked out by hand. The five evaluator defects they found (`randomize` text and empty seeds, `area()` on great circles, negative `substr()` indexes, time in `format-date()`) and a recalculation fault are fixed, and every case passes. Two things are recorded rather than met: `checklist()` is read three ways by ODK's three sources and keeps the specification's reading, and `digest()` stays refused, so its vectors are not run (Q-239 (i), (j)).
 5. **Every refusal at upload names the row, the column and the reason**, and a set of real Survey123 forms is
    imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19. **With §5.19, §5.20 and §5.21 together, measured after the three were merged: 42 of the 61 (68%) and 59 of the 108 (55%).** The rest is in §5.21.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both

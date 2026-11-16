@@ -237,9 +237,45 @@ internal static class SecurityHeaders
         + "connect-src 'self'; "
         + "worker-src 'self'; "
         + "manifest-src 'self'; "
+
+        // <b>'self', since 2026-11-17 — ADR-287 §5.27.</b> A form's scripts (pulldata("@javascript")) run in a frame of
+        // /forms/script-sandbox.html with sandbox="allow-scripts", an opaque origin the page cannot be reached from and
+        // that cannot reach the page. 'self' admits only this origin, and every other page here refuses to be framed
+        // (frame-ancestors 'none', X-Frame-Options DENY) — so what can actually load in a frame is that sandbox.
+        + "frame-src 'self'; "
         + "form-action 'self'; "
         + "frame-ancestors 'none'; "
         + "base-uri 'self'";
+
+    /// <summary>The page a form's scripts run in (ADR-287 §5.27), served from <c>wwwroot/forms</c> with its own headers.</summary>
+    internal const string FormScriptSandboxFile = "script-sandbox.html";
+
+    /// <summary>
+    /// The script sandbox's policy, built from the page itself: its one inline block admitted by hash and no other script,
+    /// no connection of any kind (<c>default-src 'none'</c> covers <c>connect-src</c>, so neither the page nor a worker it
+    /// starts can fetch), workers from <c>blob:</c> only, and framed by this origin alone — ADR-287 §5.27.
+    /// </summary>
+    /// <param name="page">The text of <c>script-sandbox.html</c>.</param>
+    /// <returns>The policy, or a policy that admits no script at all when the page holds no script block.</returns>
+    internal static string FormScriptSandboxPolicy(string page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+
+        // An HTML parser reads CR LF as LF before it hashes a script (HTML's input stream preprocessing), and a checkout on
+        // Windows writes CR LF: the hash is of the text the browser sees.
+        string text = page.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        int open = text.IndexOf("<script>", StringComparison.Ordinal);
+        int close = open < 0 ? -1 : text.IndexOf("</script>", open, StringComparison.Ordinal);
+        string scripts = "'none'";
+
+        if (open >= 0 && close > open)
+        {
+            byte[] digest = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text[(open + "<script>".Length)..close]));
+            scripts = "'sha256-" + Convert.ToBase64String(digest) + "'";
+        }
+
+        return "default-src 'none'; script-src " + scripts + "; worker-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+    }
 
     /// <summary>The form page as the designer's preview — the one address framed, and only by this origin (ADR-287 §5.8).</summary>
     internal const string FormPreviewPath = "/forms/preview";

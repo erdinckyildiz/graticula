@@ -2146,12 +2146,33 @@ public static class Program
 
         if (Directory.Exists(formsDirectory))
         {
+            // <b>Except the script sandbox — ADR-287 §5.27.</b> A form's scripts run in a frame of script-sandbox.html with
+            // sandbox="allow-scripts", and that frame is never handed to the service worker (a sandboxed frame's navigation
+            // bypasses it: measured in Chrome 2026-11-17), so it is the browser's own cache that has it with no signal. It
+            // is kept for a year and asked for by a versioned address (fill.js SANDBOX_VERSION), and it carries its own
+            // policy, built from the file: its one script by hash, no connection, workers from blob:, framed by this origin.
+            string sandboxPath = Path.Combine(formsDirectory, SecurityHeaders.FormScriptSandboxFile);
+            string sandboxPolicy = SecurityHeaders.FormScriptSandboxPolicy(File.Exists(sandboxPath) ? File.ReadAllText(sandboxPath) : string.Empty);
+
             app.UseStaticFiles(new StaticFileOptions
             {
                 FileProvider = new PhysicalFileProvider(formsDirectory),
                 RequestPath = "/forms",
                 ContentTypeProvider = contentTypes,
-                OnPrepareResponse = file => file.Context.Response.Headers.CacheControl = "no-cache",
+                OnPrepareResponse = file =>
+                {
+                    IHeaderDictionary headers = file.Context.Response.Headers;
+
+                    if (string.Equals(file.File.Name, SecurityHeaders.FormScriptSandboxFile, StringComparison.OrdinalIgnoreCase))
+                    {
+                        headers.CacheControl = "public, max-age=31536000, immutable";
+                        headers.ContentSecurityPolicy = sandboxPolicy;
+                        headers.XFrameOptions = "SAMEORIGIN";
+                        return;
+                    }
+
+                    headers.CacheControl = "no-cache";
+                },
             });
         }
 

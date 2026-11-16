@@ -229,8 +229,8 @@ public static class FormCatalog
         ["portalInfo"] = "the whole portal description is a JSON object, which no question in a form can hold",
         ["token"] = "an access token is a credential, and a form's answers are stored and shown, so a token would be written into the layer",
         ["submissionUrl"] = "the address answers go to here is a view made for the form when it is shared, not the layer itself, so a query written with it would read the view; write the address of the layer in the call (§5.23)",
-        ["locale"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
-        ["localeInfo"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
+        ["locale"] = "Survey123 offers it to pulldata(\"@javascript\") scripts, and a script here is given only the values the form passes it (§5.27); pass pulldata(\"@property\", 'language') to the script instead",
+        ["localeInfo"] = "Survey123 offers it to pulldata(\"@javascript\") scripts as an object no question can hold, and a script here is given only the values the form passes it (§5.27); pass pulldata(\"@property\", 'language') to the script instead",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
@@ -289,14 +289,23 @@ public static class FormCatalog
 
     /// <summary>
     /// The <c>pulldata("@…")</c> sources refused, with the reason. <c>@property</c> and <c>@geopoint</c> are built (§5.20),
-    /// and <c>@layer</c> since §5.23.
+    /// <c>@layer</c> since §5.23, and <c>@javascript</c> since §5.27 — run in a sandbox the page cannot be reached from,
+    /// and never on a form shared with everyone.
     /// </summary>
     public static readonly FrozenDictionary<string, string> RefusedPulldataSources = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["@json"] = "reading a JSON answer is not in the first version",
-        ["@javascript"] = "running a script a form carries is not in the first version, and a form shared with everyone must not carry code the page runs",
         ["@exif"] = "reading the metadata of a photo is not in the first version",
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The folder a form's scripts are uploaded to among the item's files, as Survey123 keeps them in the survey's
+    /// <c>scripts</c> folder (§5.27). A script is also found at its bare name, as a CSV and a picture are.
+    /// </summary>
+    public const string ScriptFolder = "scripts/";
+
+    /// <summary>The largest script a form may carry, in bytes: the sandbox is handed the whole file (§5.27).</summary>
+    public const int MaximumScriptBytes = 256 * 1024;
 
     /// <summary>The documented values of <c>calculationMode</c> in <c>bind::esri:parameters</c> (§5.20).</summary>
     public static readonly FrozenSet<string> CalculationModes = Set("auto", "manual", "always", "whenEmpty");

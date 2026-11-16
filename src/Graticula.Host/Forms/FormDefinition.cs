@@ -60,6 +60,33 @@ public sealed partial class FormDefinition
     /// </summary>
     public IReadOnlyList<QueriedLayer> QueriedLayers { get; private init; } = [];
 
+    /// <summary>
+    /// The script files the form's <c>pulldata("@javascript")</c> calls name, each with the sheet, row and column it is
+    /// named in (§5.27). Each is looked for among the item's files at publish, and a form that names one is never shared
+    /// with everyone.
+    /// </summary>
+    public IReadOnlyList<(string Sheet, int Row, string Column, string File)> Scripts { get; private init; } = [];
+
+    /// <summary>Why a script's name cannot be one of the form's files, or null when it can (§5.27).</summary>
+    /// <param name="name">The name as the call writes it.</param>
+    public static string? ScriptProblem(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (name.Contains('/', StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal) || name.Contains("..", StringComparison.Ordinal)
+            || name.Contains(':', StringComparison.Ordinal) || name.Any(c => char.IsControl(c) || char.IsWhiteSpace(c)))
+        {
+            return "a script is a file uploaded with the form, in its scripts folder, and is named by that file alone: no folder, no web address, no spaces.";
+        }
+
+        return name.Length > 3 && name.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : "a script is a .js file.";
+    }
+
+    [GeneratedRegex(@"^[A-Za-z_$][A-Za-z0-9_$]*$", RegexOptions.CultureInvariant)]
+    private static partial Regex ScriptFunctionPattern();
+
     /// <summary>Every question, in form order, at every depth.</summary>
     public IEnumerable<FormQuestion> AllQuestions => Root.AllTables.SelectMany(t => t.Questions);
 
@@ -92,6 +119,7 @@ public sealed partial class FormDefinition
         private readonly List<(string Sheet, int Row, string Column, string Expression)> expressions = [];
         private readonly Dictionary<int, FormSearch> searches = [];
         private readonly List<QueriedLayer> queried = [];
+        private readonly List<(string Sheet, int Row, string Column, string File)> scripts = [];
         private bool pagesStyle;
 
         public FormCheck Run()
@@ -123,7 +151,7 @@ public sealed partial class FormDefinition
                     $"default_language '{language}' is not one of the label languages: {string.Join(", ", languages)}.");
             }
 
-            FormDefinition? definition = refusals.Count == 0 ? new FormDefinition(root, lists, languages, settings) { QueriedLayers = queried } : null;
+            FormDefinition? definition = refusals.Count == 0 ? new FormDefinition(root, lists, languages, settings) { QueriedLayers = queried, Scripts = scripts } : null;
             return new FormCheck(definition, refusals, notices);
         }
 
@@ -1213,6 +1241,10 @@ public sealed partial class FormDefinition
             {
                 LayerSource(sheet, row, column, call);
             }
+            else if (source == "@javascript")
+            {
+                ScriptSource(sheet, row, column, call);
+            }
             else if (FormCatalog.RefusedPulldataSources.TryGetValue(source, out string? why))
             {
                 Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: {why}.");
@@ -1221,6 +1253,46 @@ public sealed partial class FormDefinition
             {
                 Refuse(sheet, row, column, $"pulldata(\"{source}\", …) is refused: '{source}' is not a source Survey123 documents.");
             }
+        }
+
+        /// <summary>
+        /// <c>pulldata("@javascript", "file.js", "function", arguments…)</c> as Survey123's <i>JavaScript functions in
+        /// survey forms</i> writes it (§5.27). The file and the function are written out, so the file can be found at
+        /// publish and the client knows what it runs before it runs it: a file is a name with no folder, ending
+        /// <c>.js</c>; a function is a JavaScript identifier. The arguments are any expressions, as many as the function
+        /// takes.
+        /// </summary>
+        private void ScriptSource(string sheet, int row, string column, FunctionCall call)
+        {
+            const string Shape = "pulldata(\"@javascript\", \"file.js\", \"functionName\", ${question}, …)";
+
+            if (call.Count < 3)
+            {
+                Refuse(sheet, row, column, $"pulldata(\"@javascript\", …) names the script file and the function in quotes: {Shape}.");
+                return;
+            }
+
+            if (call.Literal(1) is not { } file)
+            {
+                Refuse(sheet, row, column, $"pulldata(\"@javascript\", …) names its script file in quotes, as it is uploaded with the form: {Shape}.");
+                return;
+            }
+
+            if (ScriptProblem(file) is { } problem)
+            {
+                Refuse(sheet, row, column, $"'{file}' is not a script file a form can carry: {problem}");
+                return;
+            }
+
+            if (call.Literal(2) is not { } function || !ScriptFunctionPattern().IsMatch(function))
+            {
+                Refuse(sheet, row, column, call.Literal(2) is { } written
+                    ? $"'{written}' is not the name of a JavaScript function: it is letters, digits, _ and $, and does not begin with a digit."
+                    : $"pulldata(\"@javascript\", …) names its function in quotes: {Shape}.");
+                return;
+            }
+
+            scripts.Add((sheet, row, column, file));
         }
 
         /// <summary>
