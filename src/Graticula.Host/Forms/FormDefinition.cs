@@ -537,6 +537,13 @@ public sealed partial class FormDefinition
                 expressions.Add(("survey", at, "default", fallback));
             }
 
+            // Survey123's media page: on draw and annotate a default is a picture from the media folder, drawn over. That
+            // is not built (ADR-287 §5.24), and the client would have answered with the picture's name and no file.
+            if (type == "image" && columns.Value(row, "default") is not null)
+            {
+                Refuse("survey", at, "default", "A default picture on an image question is refused: drawing or annotating over a picture from the form's media is not built, and the answer would be a file name with no file.");
+            }
+
             if (type == "calculate" && columns.Value(row, "calculation") is null)
             {
                 Refuse("survey", at, "calculation", $"The calculate '{name}' has no calculation.");
@@ -888,6 +895,38 @@ public sealed partial class FormDefinition
                 {
                     Refuse("survey", at, "appearance", $"'{token}' is not an appearance this server knows.");
                 }
+            }
+
+            AnnotateCombination(appearance, type, at);
+        }
+
+        // annotate (ADR-287 §5.24) draws over one photo. Survey123's media page allows `multiline annotate`; this client
+        // annotates a single photo per question, so the combination is refused in words rather than half-built. Beside
+        // `draw` or `signature` the question would be two different controls at once.
+        private static readonly string[] AnnotateExclusive = ["draw", "signature"];
+
+        private void AnnotateCombination(string appearance, string type, int at)
+        {
+            if (type != "image")
+            {
+                return;
+            }
+
+            string[] tokens = appearance.ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (!tokens.Contains("annotate"))
+            {
+                return;
+            }
+
+            if (tokens.Contains("multiline"))
+            {
+                Refuse("survey", at, "appearance", "The appearances 'multiline' and 'annotate' together are refused: this client annotates one photo per question; use several image questions with 'annotate'.");
+            }
+
+            foreach (string other in AnnotateExclusive.Where(tokens.Contains))
+            {
+                Refuse("survey", at, "appearance", $"The appearances 'annotate' and '{other}' together are refused: a question is either a drawing over a photo or a {(other == "draw" ? "drawing on a blank canvas" : "signature")}, not both.");
             }
         }
 

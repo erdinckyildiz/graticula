@@ -108,6 +108,7 @@ public static class FormCatalog
         ["rating"] = Set("range"),
         ["hidden"] = Set("*"),
         ["draw"] = Set("image"),
+        ["annotate"] = Set("image"),
         ["field-list"] = Set("begin group", "begin repeat"),
         ["table-list"] = Set("begin group"),
         ["hidden-answer"] = Set("barcode"),
@@ -129,7 +130,6 @@ public static class FormCatalog
     /// <summary>Appearances refused, with the reason.</summary>
     public static readonly FrozenDictionary<string, string> RefusedAppearances = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["annotate"] = "annotating a photo is not in the first version",
         ["map"] = "choosing on a map is not in the first version",
         ["quick map"] = "choosing on a map is not in the first version",
         ["geocode"] = "geocoding a text answer is not in the first version",

@@ -1800,6 +1800,7 @@
             case 'image': case 'audio': case 'video': case 'file':
                 if (q.type === 'image' && has(q.appearance, 'signature')) { return signatureWidget(inst, q, id, false); }
                 if (q.type === 'image' && has(q.appearance, 'draw')) { return signatureWidget(inst, q, id, true); }
+                if (q.type === 'image' && has(q.appearance, 'annotate')) { return annotateWidget(inst, q, id, describedBy); }
                 return mediaWidget(inst, q, id, describedBy);
             default: return textWidget(inst, q, id, describedBy);
         }
@@ -2992,10 +2993,13 @@
     async function shrink(file, maxPixels) {
         if (!maxPixels || !window.createImageBitmap || !/^image\//.test(file.type)) { return file; }
         try {
+            // max-pixels is the long edge in pixels, as Survey123's media page and ODK's question-types page both say
+            // (ADR-287 section 5.24). Until 2026-11-16 this read it as the total number of pixels, so max-pixels=1280 made
+            // a photo of about 36 by 36.
             var bitmap = await createImageBitmap(file);
-            var pixels = bitmap.width * bitmap.height;
-            if (pixels <= maxPixels) { return file; }
-            var scale = Math.sqrt(maxPixels / pixels);
+            var edge = Math.max(bitmap.width, bitmap.height);
+            if (edge <= maxPixels) { if (bitmap.close) { bitmap.close(); } return file; }
+            var scale = maxPixels / edge;
             var canvas = document.createElement('canvas');
             canvas.width = Math.max(1, Math.round(bitmap.width * scale));
             canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -3118,6 +3122,312 @@
             node: el('div', { class: freehand ? 'signature drawing' : 'signature' }, [needsPointer, canvas, el('div', { class: 'inline' }, [clear]), status].filter(Boolean)),
             controls: function () { return [canvas]; },
             sync: function (ro) { canvas.setAttribute('aria-disabled', ro ? 'true' : 'false'); clear.disabled = !!ro; }
+        };
+    }
+
+    // The `annotate` appearance (ADR-287 section 5.24): the drawing pad of section 5.20, laid over a photo the member took
+    // or chose. Choosing the photo answers the question at once, so a person who cannot draw (keyboard only, a screen
+    // reader) still answers it; drawing changes that answer to one flattened JPEG, saved after every line, so a reload or a
+    // redraw of the page loses nothing. The original photo is not kept beside it: the question holds one picture.
+    Object.assign(TR, {
+        "Choose or take a photo, then draw on it if you need to. The photo can be sent as it is.": "Bir fotoğraf seçin ya da çekin, gerekirse üzerine çizin. Fotoğraf olduğu gibi de gönderilebilir.",
+        "The attached photo": "Eklenen fotoğraf",
+        "Draw on the photo": "Fotoğrafın üzerine çiz",
+        "Remove photo": "Fotoğrafı kaldır",
+        "The photo, to draw on": "Üzerine çizilecek fotoğraf",
+        "Pen colour": "Kalem rengi",
+        "Pen width": "Kalem kalınlığı",
+        "Red": "Kırmızı",
+        "Yellow": "Sarı",
+        "Blue": "Mavi",
+        "Black": "Siyah",
+        "White": "Beyaz",
+        "Thin": "İnce",
+        "Medium": "Orta",
+        "Thick": "Kalın",
+        "Undo": "Geri al",
+        "Done drawing": "Çizimi bitir",
+        "Opening the photo…": "Fotoğraf açılıyor…",
+        "Photo attached. You can draw on it, or leave it as it is.": "Fotoğraf eklendi. Üzerine çizebilir ya da olduğu gibi bırakabilirsiniz.",
+        "This photo could not be opened for drawing. It is attached as it is.": "Bu fotoğraf çizim için açılamadı. Olduğu gibi eklendi.",
+        "Line saved on the photo.": "Çizgi fotoğrafa kaydedildi.",
+        "Last line undone.": "Son çizgi geri alındı.",
+        "Drawing cleared. The photo is as it was.": "Çizim temizlendi. Fotoğraf eski hâlinde.",
+        "The photo is saved with your drawing.": "Fotoğraf çiziminizle birlikte kaydedildi.",
+        "The photo is attached as it is.": "Fotoğraf olduğu gibi eklendi.",
+        "Photo removed.": "Fotoğraf kaldırıldı."
+    });
+
+    // max-pixels, as Survey123's media page and ODK's question-types page both define it, is the length of the long edge
+    // in pixels. With no max-pixels an annotated photo is held to 1280, the image size Survey123 documents as its default;
+    // that limit is also what keeps a phone's 48-megapixel photo from being drawn on at full size.
+    var ANNOTATE_DEFAULT_EDGE = 1280;
+    var ANNOTATE_COLOURS = [['#d7191c', 'Red'], ['#ffd400', 'Yellow'], ['#1f6fd1', 'Blue'], ['#101826', 'Black'], ['#ffffff', 'White']];
+    var ANNOTATE_WIDTHS = [[2, 'Thin'], [5, 'Medium'], [10, 'Thick']];   // CSS pixels on the screen, whatever the photo's size
+    // The photo being drawn on, its lines and whether the pad is open, by instance and question, for the page's life: a
+    // structural redraw builds the widget again and must find them where they were.
+    var annotateSessions = {};
+
+    function fittedSize(w, h, maxEdge) {
+        var long = Math.max(w, h);
+        var scale = maxEdge && long > maxEdge ? maxEdge / long : 1;
+        return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)), scaled: scale < 1 };
+    }
+
+    function canvasBlob(canvas, type, quality) {
+        return new Promise(function (resolve) { canvas.toBlob(function (b) { resolve(b); }, type, quality); });
+    }
+
+    function fileStem(name) { return String(name || '').replace(/\.[^.]+$/, '') || 'photo'; }
+
+    // Decodes a photo into a canvas no longer than maxEdge on its long side. The size is read from an <img> first, which
+    // needs only the file's header, so the decode can be asked for at the small size (createImageBitmap's resize options)
+    // and a large photo is not held as full-size pixels where the browser can avoid it; where it cannot, the <img> is
+    // drawn scaled. Resolves null for a file this browser cannot read as an image (HEIC in Chrome, for one).
+    function decodeFitted(blob, maxEdge) {
+        return new Promise(function (resolve) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+            img.onload = async function () {
+                try {
+                    if (!img.naturalWidth || !img.naturalHeight) { resolve(null); return; }
+                    var size = fittedSize(img.naturalWidth, img.naturalHeight, maxEdge);
+                    var bitmap = null;
+                    if (window.createImageBitmap) {
+                        try { bitmap = await createImageBitmap(blob, { resizeWidth: size.w, resizeHeight: size.h, resizeQuality: 'high' }); } catch (e) { bitmap = null; }
+                    }
+                    var canvas = document.createElement('canvas');
+                    canvas.width = size.w; canvas.height = size.h;
+                    var ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size.w, size.h);   // a transparent PNG becomes a JPEG on white
+                    ctx.drawImage(bitmap || img, 0, 0, size.w, size.h);
+                    if (bitmap && bitmap.close) { bitmap.close(); }
+                    resolve({ canvas: canvas, scaled: size.scaled });
+                } catch (e) {
+                    resolve(null);
+                } finally {
+                    URL.revokeObjectURL(url);
+                }
+            };
+            img.src = url;
+        });
+    }
+
+    function annotateWidget(inst, q, id, describedBy) {
+        var key = inst.id + '\u0001' + q.name;
+        var maxEdge = Number((q.parameters || {})['max-pixels']) || ANNOTATE_DEFAULT_EDGE;
+        var s = annotateSessions[key] || (annotateSessions[key] = {
+            base: null, strokes: [], photo: null, saved: null, open: false, colour: ANNOTATE_COLOURS[0][0], width: 5, version: 0, saving: Promise.resolve()
+        });
+        var readOnly = false;
+
+        var how = el('p', { class: 'hint', id: id + '-how', text: t('Choose or take a photo, then draw on it if you need to. The photo can be sent as it is.') });
+        // No `capture`: Survey123's web app offers a file to browse for, and a phone's file chooser offers its camera too.
+        var input = el('input', {
+            type: 'file', id: id, accept: 'image/*', 'data-focus': 'input', 'aria-labelledby': id + '-label',
+            'aria-describedby': (describedBy ? describedBy + ' ' : '') + id + '-how'
+        });
+        var preview = el('img', { class: 'annotate-preview', alt: t('The attached photo') });
+        preview.addEventListener('error', function () { preview.hidden = true; });   // never a broken image; the words stay
+        var openButton = el('button', { type: 'button', class: 'quiet', 'data-focus': 'open', 'aria-describedby': id + '-label', text: t('Draw on the photo') });
+        var removeButton = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove', 'aria-describedby': id + '-label', text: t('Remove photo') });
+        var held = el('div', { class: 'annotate-held', hidden: true }, [preview, el('div', { class: 'inline' }, [openButton, removeButton])]);
+
+        var pointer = el('p', { class: 'hint', id: id + '-pointer', text: t('Drawing needs a mouse, a pen or a finger. It cannot be done with the keyboard alone.') });
+        var canvas = el('canvas', { tabindex: '0', role: 'img', 'aria-label': t('The photo, to draw on'), 'aria-describedby': id + '-pointer', 'data-focus': 'pad' });
+        var colour = el('select', { id: id + '-colour', 'data-focus': 'colour' },
+            ANNOTATE_COLOURS.map(function (c) { return el('option', { value: c[0], text: t(c[1]) }); }));
+        var width = el('select', { id: id + '-width', 'data-focus': 'width' },
+            ANNOTATE_WIDTHS.map(function (w) { return el('option', { value: String(w[0]), text: t(w[1]) }); }));
+        colour.value = s.colour; width.value = String(s.width);
+        colour.addEventListener('change', function () { s.colour = colour.value; });
+        width.addEventListener('change', function () { s.width = Number(width.value) || 5; });
+        var undo = el('button', { type: 'button', class: 'quiet', 'data-focus': 'undo', text: t('Undo') });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear drawing') });
+        var done = el('button', { type: 'button', 'data-focus': 'done', text: t('Done drawing') });
+        var pad = el('div', { class: 'annotate-pad', hidden: true }, [
+            pointer, canvas,
+            el('div', { class: 'pair' }, [
+                el('label', { for: id + '-colour' }, [el('span', { text: t('Pen colour') }), colour]),
+                el('label', { for: id + '-width' }, [el('span', { text: t('Pen width') }), width])
+            ]),
+            el('div', { class: 'inline' }, [undo, clear, done])
+        ]);
+        var status = el('p', { class: 'hint', 'aria-live': 'polite' });
+
+        // Emptied first, so the same words said twice are announced twice.
+        function say(words) { status.textContent = ''; setTimeout(function () { status.textContent = words; }, 30); }
+
+        function paintStroke(ctx, st) {
+            ctx.strokeStyle = st.colour; ctx.fillStyle = st.colour; ctx.lineWidth = st.width;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            if (st.points.length === 1) {
+                ctx.beginPath(); ctx.arc(st.points[0].x, st.points[0].y, st.width / 2, 0, Math.PI * 2); ctx.fill();
+                return;
+            }
+            ctx.beginPath(); ctx.moveTo(st.points[0].x, st.points[0].y);
+            for (var i = 1; i < st.points.length; i++) { ctx.lineTo(st.points[i].x, st.points[i].y); }
+            ctx.stroke();
+        }
+        function paint() {
+            if (!s.base) { return; }
+            if (canvas.width !== s.base.width || canvas.height !== s.base.height) { canvas.width = s.base.width; canvas.height = s.base.height; }
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(s.base, 0, 0);
+            s.strokes.forEach(function (st) { paintStroke(ctx, st); });
+        }
+
+        // The answer follows the pad: the photo itself while nothing is drawn, the flattened picture once something is.
+        function save(words) {
+            var version = ++s.version;
+            s.saving = (async function () {
+                var entry = s.photo;
+                if (s.strokes.length) {
+                    var blob = await canvasBlob(canvas, 'image/jpeg', 0.9);
+                    if (!blob || version !== s.version) { return; }
+                    entry = { name: fileStem(s.photo && s.photo.name) + '.jpg', type: 'image/jpeg', size: blob.size, blob: blob };
+                }
+                if (version !== s.version || !entry) { return; }
+                s.saved = entry;
+                setFiles(inst, q, [entry]);
+                if (words) { say(words); }
+            })();
+            return s.saving;
+        }
+
+        function show() {
+            var now = filesOf(inst, q.name)[0] || null;
+            if (!now) { s.open = false; }
+            held.hidden = !now || s.open;
+            pad.hidden = !now || !s.open || !s.base;
+            if (now && preview.getAttribute('data-for') !== String(now.size) + ':' + now.name) {
+                if (preview.src) { URL.revokeObjectURL(preview.src); }
+                preview.hidden = false;
+                preview.src = URL.createObjectURL(now.blob);
+                preview.setAttribute('data-for', String(now.size) + ':' + now.name);
+            }
+            if (!pad.hidden) { paint(); }
+            undo.disabled = readOnly || !s.strokes.length;
+            clear.disabled = readOnly || !s.strokes.length;
+        }
+
+        async function takePhoto(f) {
+            say(t('Opening the photo…'));
+            var fitted = await decodeFitted(f, maxEdge);
+            if (!fitted) {
+                var raw = { name: f.name || q.name, type: f.type || 'application/octet-stream', size: f.size, blob: f };
+                s.base = null; s.strokes = []; s.photo = raw; s.saved = raw; s.open = false; s.version++;
+                setFiles(inst, q, [raw]);
+                show();
+                say(t('This photo could not be opened for drawing. It is attached as it is.'));
+                return;
+            }
+            var photo;
+            if (fitted.scaled) {
+                var small = await canvasBlob(fitted.canvas, 'image/jpeg', 0.9);
+                photo = { name: fileStem(f.name || q.name) + '.jpg', type: 'image/jpeg', size: small.size, blob: small };
+            } else {
+                photo = { name: f.name || (q.name + '.jpg'), type: f.type || 'image/jpeg', size: f.size, blob: f };
+            }
+            s.base = fitted.canvas; s.strokes = []; s.photo = photo; s.saved = photo; s.open = true; s.version++;
+            setFiles(inst, q, [photo]);
+            show();
+            say(t('Photo attached. You can draw on it, or leave it as it is.'));
+        }
+
+        input.addEventListener('change', function () {
+            var f = input.files && input.files[0];
+            input.value = '';
+            if (f) { takePhoto(f); }
+        });
+
+        openButton.addEventListener('click', async function () {
+            var now = filesOf(inst, q.name)[0];
+            if (!now || readOnly) { return; }
+            // The same session goes on where it was; a picture from a draft or another session is the new ground, its
+            // earlier lines part of it, as Survey123 says of a saved image reopened.
+            if (!s.base || (now !== s.saved && now !== s.photo)) {
+                say(t('Opening the photo…'));
+                var fitted = await decodeFitted(now.blob, maxEdge);
+                if (!fitted) { say(t('This photo could not be opened for drawing. It is attached as it is.')); return; }
+                s.base = fitted.canvas; s.strokes = []; s.photo = now; s.saved = now;
+            }
+            s.open = true;
+            show();
+            canvas.focus();
+        });
+
+        removeButton.addEventListener('click', function () {
+            s.base = null; s.strokes = []; s.photo = null; s.saved = null; s.open = false; s.version++;
+            setFiles(inst, q, []);
+            show();
+            input.focus();
+            say(t('Photo removed.'));
+        });
+
+        var drawing = null;
+        function at(e) {
+            var r = canvas.getBoundingClientRect();
+            return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height };
+        }
+        canvas.addEventListener('pointerdown', function (e) {
+            if (readOnly || !s.base) { return; }
+            var r = canvas.getBoundingClientRect();
+            drawing = { colour: s.colour, width: s.width * canvas.width / (r.width || canvas.width), points: [at(e)] };
+            s.strokes.push(drawing);
+            canvas.setPointerCapture(e.pointerId);
+            paintStroke(canvas.getContext('2d'), drawing);
+            e.preventDefault();
+        });
+        canvas.addEventListener('pointermove', function (e) {
+            if (!drawing) { return; }
+            var p = at(e), last = drawing.points[drawing.points.length - 1];
+            drawing.points.push(p);
+            var ctx = canvas.getContext('2d');
+            ctx.strokeStyle = drawing.colour; ctx.lineWidth = drawing.width; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+        });
+        function endStroke() {
+            if (!drawing) { return; }
+            drawing = null;
+            show();
+            save(t('Line saved on the photo.'));
+        }
+        canvas.addEventListener('pointerup', endStroke);
+        canvas.addEventListener('pointercancel', endStroke);
+
+        undo.addEventListener('click', function () {
+            if (!s.strokes.length) { return; }
+            s.strokes.pop();
+            show();
+            save(t('Last line undone.'));
+            if (undo.disabled) { canvas.focus(); }   // the last line went, and Undo with it: focus stays on the pad
+        });
+        clear.addEventListener('click', function () {
+            s.strokes = [];
+            show();
+            save(t('Drawing cleared. The photo is as it was.'));
+            canvas.focus();
+        });
+        done.addEventListener('click', async function () {
+            s.open = false;
+            await s.saving;
+            show();
+            openButton.focus();
+            say(t(s.strokes.length ? 'The photo is saved with your drawing.' : 'The photo is attached as it is.'));
+        });
+
+        return {
+            node: el('div', { class: 'annotate' }, [how, input, held, pad, status]),
+            controls: function () { return [input]; },
+            sync: function (ro) {
+                readOnly = !!ro;
+                input.disabled = readOnly;
+                openButton.disabled = removeButton.disabled = done.disabled = colour.disabled = width.disabled = readOnly;
+                canvas.setAttribute('aria-disabled', readOnly ? 'true' : 'false');
+                show();
+            }
         };
     }
 
