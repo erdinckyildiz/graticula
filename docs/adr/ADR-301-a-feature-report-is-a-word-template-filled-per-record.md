@@ -193,7 +193,13 @@ rendered, at upload: a template Word opens and this engine reads may still look 
 
 1. **Real templates are filled and opened.** At least five templates written by Survey123 users (public ones, read for
    their syntax, not committed), filled from a fixture and opened in Microsoft Word and in LibreOffice without a repair
-   prompt; each failure either fixed or refused at upload with its reason.
+   prompt; each failure either fixed or refused at upload with its reason. *Progress 2026-11-17, not a discharge:* one
+   template written for the purpose (a placeholder split over two runs as Word writes it, curly quotes in a `format`,
+   a choice's label and `getValue`, a date format, an `${if}`, a photo with `size`, a repeat over table rows, `$date`)
+   filled on the fixture for two records with photos and three repeat rows each, as a zip of two and as one merged
+   document. Microsoft Word 16, driven hidden with alerts off, opened all three without a repair prompt, counted the
+   pages (2 merged, 1 each), the pictures and the four table rows, and exported them to PDF; the text read back was the
+   expected text. Not yet: Survey123 users' own templates, and LibreOffice, which this machine does not have.
 2. **The owner confirms the INFERRED list** of §5.9, (a) to (q), through [Q-237](../open-questions.md).
 3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down.
 4. **Maps are drawn** for `${location | map}` and `$shape` on ADR-265's renderer, or the refusal stays and is recorded as
