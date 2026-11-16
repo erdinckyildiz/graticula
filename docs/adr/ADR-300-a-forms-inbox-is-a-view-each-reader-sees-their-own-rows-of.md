@@ -275,11 +275,23 @@ Q-232 named.
       refreshed last is assumed; (10) the client reads a repeat's `allowUpdates`/`allowAdds` from the repeat's
       `parameters` in `form.json` (or a boolean of that name) — **the server does not send them yet**: the checker refuses
       every `bind::esri:parameters` key but `calculationMode`, and the compiled repeat carries no parameters, so until the
-      server half carries them every existing repeat row opens read-only, which is Survey123's default.
-    - **Not verified without the real server:** the `inboxUrl` paths and the answer shapes of the view (field names
-      `objectid`, `globalid`, `parentglobalid`, `last_edited_date`, `last_edited_user`; `updateResults` carrying
-      `globalId`); `queryAttachments` on a view; whether an `adds` of repeat rows and `addAttachment` are accepted through
-      a view that offers no Create; attachment images loading with the session cookie; offline on a phone.
+      server half carries them every existing repeat row opens read-only, which is Survey123's default. *(The server half
+      carries them since the merge, §5.10 (q).)*
+    - ~~**Not verified without the real server:**~~ **Verified on the merged branch, 2026-11-16**, against a live server by
+      the ux review (two members, Chrome, 360 and 1366 wide): the view's field names and `updateResults` as above,
+      `queryAttachments`, repeat `adds` and `addAttachment` through the view (which offers Create since §5.10), photos
+      loading with the session cookie. Offline on a phone is still not verified; a reload while offline was not, because
+      the service worker does not register on the fixture's self-signed certificate.
+    - **(11) *Keep mine* keeps the server's change to an answer the member did not touch — found by the ux review,
+      INFERRED, for the owner (Q-235).** As first built it sent every answer of the record again, and an answer only the
+      office had changed went back to what the device had downloaded: measured, the office's `sorumlu` reverted. The
+      client now keeps each record as downloaded, and the comparison says of each differing answer whether the member
+      changed it, the server did, or both; *Keep mine* takes the server's value where only the server changed it and the
+      member's everywhere else. *Use the server's* still drops the member's whole change to that row, including answers
+      the server never touched — whether it should give way only where both changed is asked of the owner.
+    - **(12)** The page's own words follow the form's language tag; a form whose labels name no language shows them in
+      English to a Turkish browser. Whether they should follow the browser, as Survey123's web app does, is asked of the
+      owner.
 
 ## 6. Consequences
 

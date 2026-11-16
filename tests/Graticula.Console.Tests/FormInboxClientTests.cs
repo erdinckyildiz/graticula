@@ -169,6 +169,35 @@ public sealed class FormInboxClientTests : IClassFixture<FormFillClientTests.Sit
         Assert.Empty(await OutboxAsync(id));
     }
 
+    /// <summary>
+    /// Found by the ux review 2026-11-16: <i>Keep mine</i> sent every answer again, and the office's change to an answer the
+    /// member never touched went back to what the device had downloaded.
+    /// </summary>
+    [Fact]
+    public async Task Keep_mine_keeps_the_servers_change_to_an_answer_the_member_did_not_touch()
+    {
+        _site.SignedIn = true;
+        string id = _site.Publish(Inspection());
+        await _site.OpenAsync(id);
+        await RefreshAsync(2);
+        await OpenRecordAsync("Ayşe");
+        _site.ChangeOnServer(id, "", 1, "durum", "kapali");
+
+        await _site.SetAsync("ad", "Benimki");
+        await SubmitAsync();
+        await _site.WaitAsync("!document.getElementById('compare').hidden", "both versions to be shown");
+        await _site.EvalAsync<bool>("document.getElementById('compare-mine').click(); true");
+        await _site.WaitAsync("document.getElementById('compare-status').textContent.indexOf('Your version was sent') >= 0", "the change to be sent again");
+
+        InboxData inbox = _site.InboxOf(id);
+        lock (inbox)
+        {
+            JsonNode attributes = inbox.Row("", 1)["attributes"]!;
+            Assert.Equal("Benimki", (string?)attributes["ad"]);
+            Assert.Equal("kapali", (string?)attributes["durum"]);
+        }
+    }
+
     [Fact]
     public async Task A_stale_change_can_give_way_to_the_servers_version_and_nothing_of_it_is_sent()
     {
