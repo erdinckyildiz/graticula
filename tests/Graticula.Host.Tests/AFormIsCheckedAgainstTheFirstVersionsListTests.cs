@@ -139,7 +139,7 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     [Theory]
     [InlineData("pulldata('@layer', 'getFeature', 'x', 'y')", "@layer")]
     [InlineData("pulldata('@json', 'a', 'b')", "@json")]
-    [InlineData("pulldata('@javascript', 'f.js', 'run')", "@javascript")]
+    [InlineData("pulldata('@javascript', 'f.js')", "@javascript")]
     [InlineData("pulldata('@exif', ${ad}, 'GPSLatitude')", "@exif")]
     [InlineData("digest(${ad}, 'SHA-256')", "digest")]
     [InlineData("jr:itext('x')", "label::language")]

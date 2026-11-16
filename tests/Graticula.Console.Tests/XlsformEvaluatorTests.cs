@@ -419,8 +419,22 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
             // equatorial circumference the specification names, 40,075,000 m, over 2π.
             double r = 40_075_000 / (2 * Math.PI);
             double degree = r * Math.PI / 180;
-            double box = r * r * (Math.PI / 180) * Math.Sin(Math.PI / 180);
             double phi = Math.PI / 180;
+
+            // The one-degree box's edges are great circles (ADR-287 §5.27: ODK's own vector settles it), so its area is
+            // its spherical excess, here by L'Huilier's theorem on its two triangles from their sides — a different
+            // route from the evaluator's vector formula. The box between two parallels, R²·Δλ·(sin φ₂ − sin φ₁), which
+            // this test held until then, is larger by the sliver its top edge cuts off.
+            double top = Math.Acos((Math.Sin(phi) * Math.Sin(phi)) + (Math.Cos(phi) * Math.Cos(phi) * Math.Cos(phi)));
+            double diagonal = Math.Acos(Math.Cos(phi) * Math.Cos(phi));
+            static double Excess(double a, double b, double c)
+            {
+                double s = (a + b + c) / 2;
+                return 4 * Math.Atan(Math.Sqrt(Math.Tan(s / 2) * Math.Tan((s - a) / 2) * Math.Tan((s - b) / 2) * Math.Tan((s - c) / 2)));
+            }
+
+            // (0,0)-(0,1)-(1,1) has two sides of 1° and the diagonal; (0,0)-(1,1)-(1,0) has the diagonal, the top and 1°.
+            double box = r * r * (Excess(phi, top, diagonal) + Excess(diagonal, phi, phi));
             double alongOneNorth = r * Math.Acos((Math.Sin(phi) * Math.Sin(phi)) + (Math.Cos(phi) * Math.Cos(phi) * Math.Cos(phi)));
 
             return new TheoryData<string, double, double>
@@ -455,11 +469,13 @@ public sealed class XlsformEvaluatorTests : IClassFixture<XlsformEvaluatorTests.
         { "pulldata('@layer', 'a', 'b', 'c')", "'a' is not an operation of pulldata(\"@layer\")", 0 },
         { "pulldata('@layer', 'getValue', 'attributes.A')", "pulldata(\"@layer\", \"getValue\") takes 2 to 3 arguments after the operation, not 1", 0 },
         { "pulldata('@json', 'a')", "pulldata(\"@json\") is not supported: reading a JSON answer", 0 },
-        { "pulldata('@javascript', 'f.js', 'run')", "pulldata(\"@javascript\") is not supported: running a script", 0 },
+        { "pulldata('@javascript', 'f.js')", "pulldata(\"@javascript\") names its script file and its function in quotes", 0 },
+        { "pulldata('@javascript', 'a/f.js', 'run')", "'a/f.js' is not a script file a form can carry", 0 },
+        { "pulldata('@javascript', 'f.js', '1run')", "'1run' is not the name of a JavaScript function", 0 },
         { "pulldata('@exif', ${a}, 'x')", "pulldata(\"@exif\") is not supported: reading the metadata of a photo", 0 },
         { "pulldata('@mystery', 'a')", "pulldata(\"@mystery\") is not supported: it is not a source Survey123 documents", 0 },
         { "pulldata('prices', 'price')", "pulldata() takes 4 arguments, not 2", 0 },
-        { "pulldata('@property')", "pulldata() takes 2 to 6 arguments, not 1", 0 },
+        { "pulldata('@property')", "pulldata() takes at least 2 arguments, not 1", 0 },
         { "pulldata('@property', 'username', 'x')", "pulldata(\"@property\") takes the name of one property", 0 },
         { "pulldata('@property', 'token')", "pulldata(\"@property\") does not give 'token': an access token is a credential", 0 },
         { "pulldata('@property', 'deviceModel')", "pulldata(\"@property\") does not give 'deviceModel'", 0 },

@@ -140,7 +140,8 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
         // @layer is built since §5.23; a call it does not know is refused by its operation (AFormSearchesACsvOrALayerTests).
         RefusedAt(WithCalculation("pulldata('@layer', 'a', 'b', 'c')"), 3, "calculation", "not an operation of pulldata");
         RefusedAt(WithCalculation("pulldata('@json', 'a', 'b')"), 3, "calculation", "JSON");
-        RefusedAt(WithCalculation("pulldata('@javascript', 'f.js', 'run')"), 3, "calculation", "script");
+        // @javascript is built since §5.27; a call that does not name its file and function is refused (AFormRunsItsScriptsInASandboxTests).
+        RefusedAt(WithCalculation("pulldata('@javascript', 'f.js', '1run')"), 3, "calculation", "JavaScript function");
         RefusedAt(WithCalculation("pulldata('@exif', ${konum}, 'x')"), 3, "calculation", "metadata of a photo");
         RefusedAt(WithCalculation("pulldata('@mystery', 'a')"), 3, "calculation", "not a source Survey123 documents");
         Accepted(WithCalculation("pulldata('prices', 'price', 'code', 'A1')"));
