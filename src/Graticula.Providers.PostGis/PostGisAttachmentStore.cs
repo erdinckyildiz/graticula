@@ -214,7 +214,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
              """);
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         // Whether the table was there before this call decides what the change record may vouch for (ADR-290 §5).
         bool existed;
@@ -308,7 +308,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
 
             List<AttachmentInfo> attachments = [];
 
-            await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+            await using NpgsqlCommand command = _dataSource.CreateReaderCommand(sql);
             command.Parameters.AddWithValue("feature", featureId);
 
             try
@@ -357,7 +357,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
     public async Task<OpenAttachment?> OpenAsync(int attachmentId, CancellationToken cancellationToken)
     {
         NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         try
         {
@@ -463,7 +463,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
         await EnsureTableAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -555,7 +555,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
         await EnsureTableAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -729,7 +729,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
 
         List<int> removed = [];
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand(
             $"delete from {Qualified} where attachmentid = any(@ids) returning attachmentid");
 
         command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Integer)
@@ -759,7 +759,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
     public async Task<AttachmentUsage> UsageAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         return new AttachmentUsage(
             await SumAsync(connection, null, cancellationToken).ConfigureAwait(false), _quota);
@@ -783,7 +783,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
     /// <returns>The count and the bytes; zero for a store whose tables were never made.</returns>
     public async Task<(long Count, long Bytes)> CountAsync(CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = _dataSource.CreateCommand(
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand(
             $"select count(*), coalesce(sum(data_size), 0)::bigint from {Qualified}");
 
         try
@@ -803,7 +803,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
     /// <returns>A task.</returns>
     public async Task DropAsync(CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = _dataSource.CreateCommand(
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand(
             $"drop table if exists {QualifiedChunks}; drop table if exists {Qualified}");
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
@@ -823,7 +823,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
             return 0;
         }
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand($"delete from {Qualified} where rel_objectid = any(@ids)");
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand($"delete from {Qualified} where rel_objectid = any(@ids)");
         command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = featureIds.ToArray() });
 
         try
@@ -841,7 +841,7 @@ public sealed partial class PostGisAttachmentStore : IAttachmentStore, IAttachme
     /// <returns>Their object ids.</returns>
     public async Task<IReadOnlyList<long>> FeaturesAsync(CancellationToken cancellationToken)
     {
-        await using NpgsqlCommand command = _dataSource.CreateCommand($"select distinct rel_objectid from {Qualified}");
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand($"select distinct rel_objectid from {Qualified}");
         List<long> features = [];
 
         try

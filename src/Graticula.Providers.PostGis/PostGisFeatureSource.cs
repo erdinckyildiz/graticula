@@ -78,10 +78,17 @@ public sealed class PostGisFeatureSource
     /// but it has to lead the command text, and a leading `SET` shifts which result set the
     /// reader opens on — a trap in the one code path that streams.
     /// </para>
+    /// <para>
+    /// <b>Since ADR-300 every command here does lead with a <c>SET</c></b> — the reader's name,
+    /// <see cref="ReaderSession"/> — and the trap above was measured rather than repeated: Npgsql's
+    /// reader passes over a statement that returns no rows, so a streamed, sequential read opens on
+    /// the caller's <c>select</c> (<c>ReaderSessionTests</c>, 2026-11-16, against PostgreSQL 16 and
+    /// Npgsql 9). The bound stays a command timeout for the reason above, not for this one.
+    /// </para>
     /// </remarks>
     private NpgsqlCommand Command(string sql)
     {
-        NpgsqlCommand command = _dataSource.CreateCommand(sql);
+        NpgsqlCommand command = _dataSource.CreateReaderCommand(sql);
 
         if (_statementTimeout is { } allowed && allowed > TimeSpan.Zero)
         {
@@ -264,7 +271,7 @@ public sealed class PostGisFeatureSource
         }
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlCommand command = connection.CreateCommand();
 
@@ -1488,7 +1495,7 @@ public sealed class PostGisFeatureSource
         }
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         return await PostGisFeatureHistory.IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
             ? await PostGisFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false)

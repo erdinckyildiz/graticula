@@ -458,7 +458,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     private static NpgsqlDataSource BuildPool(string connectionString) =>
         new NpgsqlDataSourceBuilder(
-            WithApplicationName(WithStatementTimeout(InUtc(connectionString)))).Build();
+            WithApplicationName(WithStatementTimeout(InUtc(ResetOnClose(connectionString))))).Build();
+
+    /// <summary>
+    /// A layer pool resets a connection returned to it, whatever the connection string says — ADR-300 §5.3.
+    /// </summary>
+    /// <remarks>
+    /// <b>Forced, as the time zone and the statement bound are.</b> The member a statement is read for is set on the
+    /// connection it runs on (<see cref="ReaderSession"/>), and Npgsql's reset on close is what takes it off before the
+    /// next request borrows the connection. A registered connection string may say <c>No Reset On Close=true</c>, which
+    /// is a speed-up an operator may reasonably have chosen and which would hand one member's name to the next request.
+    /// </remarks>
+    /// <param name="connectionString">The connection string.</param>
+    /// <returns>The connection string, resetting on close.</returns>
+    internal static string ResetOnClose(string connectionString) =>
+        new NpgsqlConnectionStringBuilder(connectionString) { NoResetOnClose = false }.ConnectionString;
 
     /// <summary>
     /// A layer's session runs in UTC, whatever the database's own <c>TimeZone</c> is.
@@ -746,7 +760,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         NpgsqlDataSource pool = PoolFor(edits[0].Layer.ConnectionString);
 
-        await using NpgsqlConnection connection = await pool.OpenConnectionAsync(cancellation).ConfigureAwait(false);
+        // ADR-300 §5.3: the edits of one transaction read through a per-reader view as the caller, like every other write.
+        await using NpgsqlConnection connection = await pool.OpenReaderConnectionAsync(cancellation).ConfigureAwait(false);
         await using NpgsqlTransaction transaction = await connection
             .BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellation)
             .ConfigureAwait(false);
@@ -1169,6 +1184,9 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             MaxPoolSize = 8,
             MinPoolSize = 0,
             Timezone = "UTC",
+
+            // ADR-300 §5.3, as BuildPool: attachments are read through a per-reader view's attachment views.
+            NoResetOnClose = false,
         };
 
         if (string.IsNullOrWhiteSpace(builder.ApplicationName))

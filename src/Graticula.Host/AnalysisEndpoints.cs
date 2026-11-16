@@ -1449,6 +1449,14 @@ internal static partial class AnalysisEndpoints
             return (null, null, "Analysis reads hosted layers for now; this layer is read from a registered source.", null, null);
         }
 
+        // <b>ADR-300 §5.4: a per-reader view is refused as an input, by analysis and by a toolbox alike.</b> A job runs
+        // later and on behalf of nobody, so it would read none of the view's rows, or — kept as a result — keep one
+        // reader's rows where others may read them. Its source, which its owner may analyse, is the input instead.
+        if (layer.IsPerReader)
+        {
+            return (null, null, $"'{service.Name}' shows each reader their own rows, so it is not read by a job. Analyse the layer it is a view of.", null, null);
+        }
+
         if (layer.GeometryType is null)
         {
             return (null, null, "This is a table, which has no shapes to analyse.", null, null);

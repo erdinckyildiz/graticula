@@ -336,6 +336,22 @@ public sealed class PublishedLayer
     /// <summary>A view layer's filter as it was written, or null for none — ADR-113. Enforced by the database.</summary>
     public string? ViewDefinition { get; init; }
 
+    /// <summary>What a view filter writes to name its reader — ADR-300 §5.2, Survey123's spelling.</summary>
+    public const string ReaderVariable = "${username}";
+
+    /// <summary>
+    /// Whether this is a view whose filter names its reader, so that each reader sees their own rows of it — a
+    /// <i>per-reader view</i>, ADR-300 §5.4. Every face that does not read the view per caller — tiles, the cached extent,
+    /// thumbnails, HTTP caching, export and analysis — is closed for such a layer.
+    /// </summary>
+    /// <remarks>
+    /// Derived from the recorded filter rather than kept as a flag, so the record and the rule cannot disagree: the
+    /// filter text is what the database's view was made from. A repeat's Inbox layer records the filter it was made with
+    /// too — the rows whose parent its parent's Inbox shows, to <c>${username}</c> — for the same reason.
+    /// </remarks>
+    public bool IsPerReader =>
+        ViewOf is not null && ViewDefinition is { } filter && filter.Contains(ReaderVariable, StringComparison.Ordinal);
+
     /// <summary>Whether another service is a view of this layer's service — ADR-113.</summary>
     public bool HasViews { get; init; }
 

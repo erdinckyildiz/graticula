@@ -246,7 +246,10 @@ internal sealed class ServiceContexts
         // submitted point's coordinates in its FeatureServer, MapServer and VectorTileServer documents for anyone to
         // read. Here, beside the hidden columns and for the same reason, so that no face has to remember it. Null is
         // *unknown*, which is the truth for a caller who may not look.
-        return (source, CapabilityCeilings.Refuses(layer, "Query") && described.Extent is not null
+        //
+        // <b>Nor does a per-reader view — ADR-300 §5.4.</b> Its rows are each reader's own, and the description is
+        // cached per table: the extent the first reader's rows had would be every later reader's.
+        return (source, (CapabilityCeilings.Refuses(layer, "Query") || layer.IsPerReader) && described.Extent is not null
             ? described with { Extent = null }
             : described);
     }

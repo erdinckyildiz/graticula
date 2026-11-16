@@ -121,6 +121,16 @@ internal static class LayerExportEndpoints
             return;
         }
 
+        // ADR-300 §5.4: a per-reader view is not exported, here as by the export job, whoever asks.
+        if (layer.IsPerReader)
+        {
+            await RefuseAsync(
+                context, 403,
+                $"'{layer.Definition.Name}' shows each reader their own rows, so it is not exported. Export the layer it is a "
+                + "view of.").ConfigureAwait(false);
+            return;
+        }
+
         // Nobody anonymous; another reader only on the owner's explicit Extract; the owner and administrators always.
         if (context.Features.Get<RequestPrincipal>() is not { Principal.IsAnonymous: false })
         {

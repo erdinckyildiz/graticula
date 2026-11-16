@@ -193,6 +193,15 @@ public static partial class FormEndpoints
             }
         }
 
+        // ADR-300 §5.1, §5.17: over the layer the form writes to, where it is a hosted layer its publisher manages.
+        (int boxed, string? boxedWhy) = await SyncInboxAsync(
+            context, document, publication, null, document.Sharing, document.SharedWithNames ?? [], cancellation).ConfigureAwait(false);
+
+        if (boxed is < 200 or >= 300)
+        {
+            return Error(boxed, $"The form was published, but its Inbox could not be made: {boxedWhy ?? "no reason given"}. Turn it on again.");
+        }
+
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.publish", document.Id,
             AdminEndpoints.Detail(new { service = target.Service.Name, layers = target.Match.Matched.Count, existing = true }), succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -248,6 +257,9 @@ public static partial class FormEndpoints
         JsonObject updated = ExistingPublication(target, check.Definition, publication);
         string? view = (string?)publication["submitService"];
 
+        // ADR-300 §5.1: the Inbox is made again over the layers as they are now, below.
+        await RemoveInboxAsync(context, publication, cancellation).ConfigureAwait(false);
+
         // The answers view is made over the layers the form writes to. When a new repeat brings another one in, it is made
         // again, as publishing again does for a new form; when the set is the same it stays as it is.
         bool remake = view is not null && !before.SequenceEqual(LayerNumbers(updated));
@@ -280,6 +292,14 @@ public static partial class FormEndpoints
             {
                 return Error(opened, $"The form was published again, but its answers view could not be made again: {why ?? "no reason given"}. Share it again.");
             }
+        }
+
+        (int boxed, string? boxedWhy) = await SyncInboxAsync(
+            context, document, updated, null, document.Sharing, document.SharedWithNames ?? [], cancellation).ConfigureAwait(false);
+
+        if (boxed is < 200 or >= 300)
+        {
+            return Error(boxed, $"The form was published again, but its Inbox could not be made again: {boxedWhy ?? "no reason given"}. Turn it on again.");
         }
 
         await WritePublishedModelAsync(context, document.Id, model, cancellation).ConfigureAwait(false);

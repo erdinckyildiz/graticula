@@ -173,6 +173,14 @@ internal static class ThumbnailEndpoints
             return;
         }
 
+        // <b>ADR-300 §5.4: no picture of a per-reader view.</b> A picture is kept per layer, so it would be the first
+        // reader's rows for everybody; and the source's picture is every reader's rows. 404, the placeholder.
+        if (drawn.IsPerReader)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
         if (drawn.Definition.GeometryColumn is not { Length: > 0 })
         {
             // A table with no geometry has no picture. 404 rather than an empty image, so the
@@ -220,7 +228,8 @@ internal static class ThumbnailEndpoints
         HostSettings settings,
         CancellationToken cancellation)
     {
-        if (layer.Definition.GeometryColumn is not { Length: > 0 })
+        // ADR-300 §5.4, for the warmer as for a request: a per-reader view is never drawn.
+        if (layer.Definition.GeometryColumn is not { Length: > 0 } || layer.IsPerReader)
         {
             return null;
         }

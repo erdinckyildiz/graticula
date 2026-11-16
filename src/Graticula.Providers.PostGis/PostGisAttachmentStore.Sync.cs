@@ -46,7 +46,7 @@ public sealed partial class PostGisAttachmentStore
     public async Task PrepareAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlCommand there = new("select to_regclass(@name) is not null", connection);
         there.Parameters.AddWithValue("name", Qualified);
@@ -222,7 +222,7 @@ public sealed partial class PostGisAttachmentStore
             return found;
         }
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand($"select globalid, attachmentid from {Qualified} where globalid = any(@ids)");
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand($"select globalid, attachmentid from {Qualified} where globalid = any(@ids)");
         command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = globalIds.ToArray() });
 
         try
@@ -257,7 +257,7 @@ public sealed partial class PostGisAttachmentStore
 
         foreach (bool withGlobalId in (bool[])[true, false])
         {
-            await using NpgsqlCommand command = _dataSource.CreateCommand(
+            await using NpgsqlCommand command = _dataSource.CreateReaderCommand(
                 $"select attachmentid, {GlobalIdColumn(withGlobalId)} from {Qualified} where attachmentid = any(@ids)");
             command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Integer) { Value = attachmentIds.ToArray() });
 
@@ -289,7 +289,7 @@ public sealed partial class PostGisAttachmentStore
     public async Task<AttachmentChanges> ChangesAsync(DateTimeOffset after, DateTimeOffset until, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         bool table;
         bool recorded;
@@ -404,7 +404,7 @@ public sealed partial class PostGisAttachmentStore
 
         string log = $"{LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(LogTable)}";
 
-        await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlConnection connection = await dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using (NpgsqlCommand there = new("select to_regclass(@log) is not null", connection))
         {
@@ -468,7 +468,7 @@ public sealed partial class PostGisAttachmentStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlConnection connection = await dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
         await ForgetChangesAsync(connection, null, schema, table, cancellationToken).ConfigureAwait(false);
     }
 

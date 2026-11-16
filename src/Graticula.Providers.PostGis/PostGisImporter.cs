@@ -241,7 +241,7 @@ public sealed partial class PostGisImporter
         try
         {
             NpgsqlConnection connection =
-                await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
             if (permit is not null)
             {
@@ -1432,6 +1432,17 @@ public sealed partial class PostGisImporter
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     literals[i] = quoted.GetString(i);
+                }
+            }
+
+            // <b>ADR-300 §5.2: the reader's name is the database's to fill.</b> A filter that names <c>${username}</c> was
+            // parsed with the variable standing as <see cref="ReaderSession.Marker"/>; that one value becomes the setting
+            // every layer statement carries, so each reader's rows are their own, and an unset name matches nothing.
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                if (parameters[i] is string value && string.Equals(value, ReaderSession.Marker, StringComparison.Ordinal))
+                {
+                    literals[i] = ReaderSession.Expression;
                 }
             }
 

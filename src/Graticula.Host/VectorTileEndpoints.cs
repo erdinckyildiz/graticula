@@ -266,9 +266,14 @@ internal static class VectorTileEndpoints
     /// <b>The rule is <see cref="Graticula.Platform.Admin.TileSources.Tiled"/>, and this only asks it</b>, so the
     /// catalogue's <c>AdminLayer.Tileable</c> cannot answer differently. From 2026-09-29 to 2026-10-20 a registered
     /// PostGIS, DuckDB-read or Oracle layer was tiled too (ADR-095, ADR-066 §9, ADR-205 §5c); ADR-206 restored Q-67.
+    /// <para>
+    /// <b>Never a per-reader view — ADR-300 §5.4.</b> A tile is cached per layer, so it would be the first reader's rows
+    /// for everybody. The view is made with its tile switch off as well; this is the second lock, derived from the filter
+    /// so that a view whose filter is changed to name its reader stops tiling with nothing else to remember.
+    /// </para>
     /// </remarks>
     internal static bool Tileable(PublishedLayer layer) =>
-        !layer.IsTable && Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted);
+        !layer.IsTable && !layer.IsPerReader && Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted);
 
     /// <summary>The kind of a layer's source, read off its locator — <see cref="Graticula.Platform.Admin.DataSourceKinds"/>.</summary>
     private static string KindOf(PublishedLayer layer) =>
