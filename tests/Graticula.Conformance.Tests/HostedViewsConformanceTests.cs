@@ -143,6 +143,40 @@ public sealed class HostedViewsConformanceTests : ArcGisClient
                 Form(("updates", $$$"""[{"attributes":{"objectid":{{{a}}},"n":42}}]"""), ("f", "json")));
             Assert.Contains("\"success\":true", inside.Replace(" ", "", StringComparison.Ordinal), StringComparison.Ordinal);
 
+            // A view's attachments are its source's (ADR-113, 2026-11-09), and until 2026-11-16 the view answered for the
+            // attachments of every source row, its filter unasked: listed, queried, downloaded and added to past it.
+            using (MultipartFormDataContent photo = new())
+            {
+                ByteArrayContent png = new([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]);
+                png.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                photo.Add(png, "attachment", "hidden.png");
+                photo.Add(new StringContent("json"), "f");
+                (HttpStatusCode attached, string attachedBody) = await SendAsync(root, token, HttpMethod.Post,
+                    $"/rest/services/hosted/{source}/FeatureServer/0/{bs[0]}/addAttachment", photo);
+                Assert.True(attached == HttpStatusCode.OK && attachedBody.Contains("\"success\":true", StringComparison.Ordinal),
+                    $"Attaching to the source answered {(int)attached}: {attachedBody}");
+            }
+
+            string viewLayer = $"/rest/services/hosted/{onlyA}/FeatureServer/0";
+            foreach (string face in (string[])[$"{viewLayer}/{bs[0]}/attachments?f=json", $"{viewLayer}/queryAttachments?objectIds={bs[0]}&f=json",
+                $"{viewLayer}/queryAttachments?definitionExpression=1%3D1&f=json", $"{viewLayer}/{bs[0]}/attachments/1"])
+            {
+                (HttpStatusCode status, string body) = await SendAsync(root, token, HttpMethod.Get, face);
+                Assert.False(status == HttpStatusCode.OK && (body.Contains("hidden", StringComparison.Ordinal) || body.StartsWith("\u0089PNG", StringComparison.Ordinal)),
+                    $"The view's {face} answered {(int)status} with an attachment of a row its filter leaves out: {body[..Math.Min(body.Length, 300)]}");
+            }
+
+            using (MultipartFormDataContent past2 = new())
+            {
+                ByteArrayContent bytes = new([1, 2, 3]);
+                bytes.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                past2.Add(bytes, "attachment", "past.bin");
+                past2.Add(new StringContent("json"), "f");
+                (HttpStatusCode status, string body) = await SendAsync(root, token, HttpMethod.Post, $"{viewLayer}/{bs[0]}/addAttachment", past2);
+                Assert.False(body.Contains("\"success\":true", StringComparison.Ordinal),
+                    $"Attaching through the view to a row past its filter answered {(int)status}: {body}");
+            }
+
             JsonElement after = await QueryAsync(root, token!, source);
             JsonElement[] rows = [.. after.GetProperty("features").EnumerateArray().Select(f => f.GetProperty("attributes"))];
             Assert.Equal(42, rows.Single(r => r.GetProperty("objectid").GetInt64() == a).GetProperty("n").GetInt32());

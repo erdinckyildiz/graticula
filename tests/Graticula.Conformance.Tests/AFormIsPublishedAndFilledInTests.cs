@@ -257,11 +257,28 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
                 ByteArrayContent png = new([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0]);
                 png.Headers.ContentType = new MediaTypeHeaderValue("image/png");
                 photo.Add(png, "attachment", "foto.png");
-                using HttpRequestMessage attach = new(HttpMethod.Post, $"{root}{top}/{objectId}/addAttachment") { Content = photo };
+                using HttpRequestMessage attach = new(HttpMethod.Post,
+                    $"{root}{top}/{objectId}/addAttachment?parentGlobalId={Uri.EscapeDataString(building)}") { Content = photo };
                 using HttpResponseMessage attached = await Http.SendAsync(attach);
                 string attachBody = await attached.Content.ReadAsStringAsync();
                 Assert.True(attached.StatusCode == HttpStatusCode.OK && attachBody.Contains("\"success\":true", StringComparison.Ordinal),
                     $"An anonymous photo through the view answered {(int)attached.StatusCode}: {attachBody}");
+            }
+
+            // 2026-11-16: the view shows no feature, so it protects none by its filter; a stranger who counts object ids
+            // and cannot name the feature's GlobalID attaches nothing to somebody else's submission.
+            foreach (string stranger in (string[])["", $"?parentGlobalId={Uri.EscapeDataString(Guid.NewGuid().ToString("B"))}"])
+            {
+                using MultipartFormDataContent junk = new();
+                junk.Add(new StringContent("json"), "f");
+                ByteArrayContent bytes = new([1, 2, 3]);
+                bytes.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                junk.Add(bytes, "attachment", "junk.bin");
+                using HttpRequestMessage attach = new(HttpMethod.Post, $"{root}{top}/{objectId}/addAttachment{stranger}") { Content = junk };
+                using HttpResponseMessage attached = await Http.SendAsync(attach);
+                string attachBody = await attached.Content.ReadAsStringAsync();
+                Assert.False(attachBody.Contains("\"success\":true", StringComparison.Ordinal),
+                    $"A stranger's attachment through the view{stranger} answered {(int)attached.StatusCode}: {attachBody}");
             }
 
             using HttpRequestMessage peek = new(HttpMethod.Get, $"{root}{top}/query?where=1%3D1&outFields=*&f=json");
@@ -290,6 +307,25 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
                 Assert.False(seen.Contains("Anonim", StringComparison.Ordinal) || seen.Contains("32.85", StringComparison.Ordinal)
                     || seen.Contains("39.93", StringComparison.Ordinal),
                     $"The public view's {face} answered {(int)looked.StatusCode} with what was submitted: {seen[..Math.Min(seen.Length, 400)]}");
+            }
+
+            // Found 2026-11-16 reading the code for the Inbox: a view's attachments are its source's (ADR-113, 2026-11-09),
+            // and the attachment faces asked neither the view's Query nor its filter, so anybody who could add through the
+            // public view could list and download every submission's photographs by counting object ids.
+            string[] attachmentFaces =
+            [
+                $"{top}/{objectId}/attachments?f=json",
+                $"{top}/queryAttachments?objectIds={objectId}&f=json",
+                $"{top}/queryAttachments?definitionExpression=1%3D1&f=json",
+                $"{top}/{objectId}/attachments/1",
+            ];
+            foreach (string face in attachmentFaces)
+            {
+                using HttpRequestMessage look = new(HttpMethod.Get, $"{root}{face}");
+                using HttpResponseMessage looked = await Http.SendAsync(look);
+                string seen = System.Text.Encoding.Latin1.GetString(await looked.Content.ReadAsByteArrayAsync());
+                Assert.False(looked.StatusCode == HttpStatusCode.OK && (seen.Contains("foto", StringComparison.Ordinal) || seen.StartsWith("\u0089PNG", StringComparison.Ordinal)),
+                    $"The public view's {face} answered {(int)looked.StatusCode} with the submission's photograph: {seen[..Math.Min(seen.Length, 400)]}");
             }
 
             (HttpStatusCode owned, string ownBody) = await RequestAsync(HttpMethod.Get,

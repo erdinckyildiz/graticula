@@ -2880,7 +2880,8 @@
             data.append('f', 'json');
             data.append('keywords', att.question); // before the file, so a streaming reader has it first
             data.append('attachment', att.blob, att.name);
-            var added = await api((att.submit || att.url) + '/' + oid + '/addAttachment', { method: 'POST', body: data });
+            // The row's GlobalID shows the answers view, which shows no row, that this device made it (2026-11-16).
+            var added = await api((att.submit || att.url) + '/' + oid + '/addAttachment?parentGlobalId=' + encodeURIComponent(att.globalid), { method: 'POST', body: data });
             if (added && added.addAttachmentResult && added.addAttachmentResult.success === false) {
                 var e = new Error((added.addAttachmentResult.error && added.addAttachmentResult.error.description) || t('The attachment was refused.'));
                 e.refused = true;

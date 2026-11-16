@@ -72,6 +72,16 @@ the first thing that would make an ArcGIS user distrust it.
   value. A filter such as *the last thirty days* needs remaking; said in the dialog's hint rather than hidden.
 - *A view's attachments are its source's only when the source had attachments when the view was made*: the view
   over the attachment table is made then. Attachments turned on later need the view remade (changing its filter does).
+  ~~The filtered attachment view of §5.2 is what the attachment face reads.~~ **Since 2026-11-09 the attachment face
+  reads the source's store** (a foreign key cannot reference a view: the first photograph through a form's answers view
+  answered 500), **and until 2026-11-16 it asked neither the view's filter nor its Query**, so a view answered for the
+  attachments of every row of its source: listed, queried, downloaded and added to past its filter, and a form's public
+  Create-only answers view gave every submission's photographs to anybody counting object ids. Released in v1.0.520 and
+  repaired in v1.0.521, before the showcase ran it. Now every attachment read asks Query, as the other faces do; a
+  feature is read through the view's own relation before its attachments are, so one past the filter is not there; and
+  an attachment added through a view that offers neither Query nor Update goes only to a feature its caller provably
+  sent — a signed-in member recorded as its creator, or a caller naming its GlobalID in `parentGlobalId`, which that
+  view shows nobody. `HostedViewsConformanceTests` and `AFormIsPublishedAndFilledInTests` ask each attachment face.
 - *A view layer is not called what its source's is.* Portal keeps the source's layer names; here the admin surface
   finds a layer by its name, and a second layer with the source's name would make every one of the source's pages
   ambiguous (409). A single-layer view's layer takes the view's name, as an import's does; a multi-layer view's are

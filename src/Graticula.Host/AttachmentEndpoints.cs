@@ -108,6 +108,11 @@ internal static class AttachmentEndpoints
             return;
         }
 
+        if (await HiddenByViewAsync(context, objectId, cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
         IReadOnlyList<AttachmentInfo> attachments =
             await store.ListAsync(objectId, cancellation).ConfigureAwait(false);
 
@@ -283,6 +288,18 @@ internal static class AttachmentEndpoints
             return;
         }
 
+        // A view answers only for the features it shows (ADR-113); asked about one it does not, it says nothing.
+        if (await SeenThroughViewAsync(context, ids, cancellation).ConfigureAwait(false) is { } shown)
+        {
+            ids = [.. ids.Where(shown.ContainsKey)];
+
+            if (ids.Count == 0)
+            {
+                await Results.Json(new { attachmentGroups = Array.Empty<object>() }).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+        }
+
         if (ids.Count > MostQueriedFeatures)
         {
             await Refuse(context, 400,
@@ -359,6 +376,121 @@ internal static class AttachmentEndpoints
     /// </remarks>
     private static bool KeepsGlobalIds(PublishedLayer? layer, IAttachmentStore store) =>
         layer is not null && layer.Definition.IsHosted && store is IAttachmentSync;
+
+    /// <summary>A feature as a view shows it: who created it and its GlobalID, where the layer records them.</summary>
+    private sealed record SeenFeature(string? Creator, Guid? GlobalId);
+
+    /// <summary>
+    /// The features among these that the resolved layer itself shows, or null when the layer is not a view and shows every
+    /// feature its attachments belong to.
+    /// </summary>
+    /// <remarks>
+    /// <b>A view's attachments are its source's (ADR-113, 2026-11-09), so the view's filter has to be asked here</b> —
+    /// 2026-11-16. The store is the source's, and it answers for any feature of the source; read through the view's own
+    /// relation, as every other face reads it, a feature outside the view's filter is simply not there.
+    /// </remarks>
+    private static async Task<IReadOnlyDictionary<long, SeenFeature>?> SeenThroughViewAsync(
+        HttpContext context, IReadOnlyCollection<long> objectIds, CancellationToken cancellation)
+    {
+        if (context.Items[ResolvedLayer] is not PublishedLayer { ViewOf: not null } layer)
+        {
+            return null;
+        }
+
+        Dictionary<long, SeenFeature> seen = [];
+        ServiceContexts contexts = context.RequestServices.GetRequiredService<ServiceContexts>();
+        (IFeatureSource source, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+        string identity = layer.Definition.IdentityColumn;
+        string? globalColumn = GlobalIds.FieldOf(described.Fields);
+        string? creatorColumn = described.Tracking.Creator;
+        string[] fields = [identity, .. new[] { globalColumn, creatorColumn }.OfType<string>().Distinct(StringComparer.Ordinal)];
+
+        foreach (long[] batch in objectIds.Distinct().Chunk(500))
+        {
+            FeatureQuery query = new(batch.Length, fields: fields, includeGeometry: false, identities: batch);
+
+            await foreach (Feature feature in source.ReadAsync(query, cancellation).ConfigureAwait(false))
+            {
+                if (feature[feature.Schema.IndexOf(identity)] is not { } id)
+                {
+                    continue;
+                }
+
+                Guid? global = globalColumn is not null && feature[feature.Schema.IndexOf(globalColumn)] is { } g
+                    && (g is Guid guid || Guid.TryParse(g.ToString(), out guid))
+                    ? guid
+                    : null;
+                string? creator = creatorColumn is not null ? feature[feature.Schema.IndexOf(creatorColumn)]?.ToString() : null;
+                seen[Convert.ToInt64(id, CultureInfo.InvariantCulture)] = new SeenFeature(creator, global);
+            }
+        }
+
+        return seen;
+    }
+
+    /// <summary>Refuses, as a feature that is not there, one the resolved view does not show; true when it refused.</summary>
+    private static async Task<bool> HiddenByViewAsync(HttpContext context, long objectId, CancellationToken cancellation)
+    {
+        if (await SeenThroughViewAsync(context, [objectId], cancellation).ConfigureAwait(false) is { } seen
+            && !seen.ContainsKey(objectId))
+        {
+            await Refuse(context, 404, $"No feature {objectId} in this layer.").ConfigureAwait(false);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Refuses an attachment added through a view to a feature the view does not show, or — through a view that offers
+    /// neither Query nor Update — to a feature the caller cannot show is theirs. True when it refused.
+    /// </summary>
+    /// <remarks>
+    /// <b>Adding through a view that shows nothing — 2026-11-16.</b> A form's answers view takes an attachment for the
+    /// feature its client has just sent (ADR-287 §5.2), and it offers Create alone, so its caller can read no feature and
+    /// the view's filter, which shows every row, protects none: anybody could attach a file to any submission by counting
+    /// object ids. The add is kept to a feature the caller provably sent: a signed-in member who is its recorded creator,
+    /// or a caller who names the feature's GlobalID in <c>parentGlobalId</c>, which only the client that made the feature
+    /// knows, since the view shows no GlobalID to anyone. Graticula's form client sends it; an ArcGIS client adding
+    /// through such a view anonymously is refused with this reason.
+    /// </remarks>
+    private static async Task<bool> AddRefusedThroughViewAsync(HttpContext context, long objectId, CancellationToken cancellation)
+    {
+        if (await SeenThroughViewAsync(context, [objectId], cancellation).ConfigureAwait(false) is not { } seen)
+        {
+            return false;
+        }
+
+        if (!seen.TryGetValue(objectId, out SeenFeature? feature))
+        {
+            await Refuse(context, 404, $"No feature {objectId} in this layer.").ConfigureAwait(false);
+            return true;
+        }
+
+        PublishedLayer layer = (PublishedLayer)context.Items[ResolvedLayer]!;
+
+        if (!CapabilityCeilings.Refuses(layer, "Query") || !CapabilityCeilings.Refuses(layer, "Update"))
+        {
+            return false;
+        }
+
+        RequestPrincipal? caller = context.Features.Get<RequestPrincipal>();
+        bool created = caller is not null && !caller.Principal.IsAnonymous
+            && feature.Creator is { } creator && string.Equals(creator, caller.QualifiedName, StringComparison.Ordinal);
+        bool named = Guid.TryParse(context.Request.Query["parentGlobalId"].ToString(), out Guid parent)
+            && feature.GlobalId == parent;
+
+        if (created || named)
+        {
+            return false;
+        }
+
+        await Refuse(context, 403,
+            $"'{layer.ServiceName}' takes new features and shows none, so an attachment is added here only to a feature "
+            + "its caller sent: name the feature's GlobalID in 'parentGlobalId', or sign in as the member who created it.")
+            .ConfigureAwait(false);
+        return true;
+    }
 
     /// <summary>The GlobalIDs of these features, read from the layer; features without one are absent.</summary>
     private static async Task<IReadOnlyDictionary<long, Guid>> ParentGlobalIdsAsync(
@@ -505,6 +637,11 @@ internal static class AttachmentEndpoints
     {
         if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation)
                 .ConfigureAwait(false) is not { } store)
+        {
+            return;
+        }
+
+        if (await HiddenByViewAsync(context, objectId, cancellation).ConfigureAwait(false))
         {
             return;
         }
@@ -656,6 +793,11 @@ internal static class AttachmentEndpoints
             return;
         }
 
+        if (await HiddenByViewAsync(context, objectId, cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
         OpenAttachment? open = await store.OpenAsync(attachmentId, cancellation).ConfigureAwait(false);
 
         try
@@ -777,6 +919,11 @@ internal static class AttachmentEndpoints
     {
         if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation, adding: true)
                 .ConfigureAwait(false) is not { } store)
+        {
+            return;
+        }
+
+        if (await AddRefusedThroughViewAsync(context, objectId, cancellation).ConfigureAwait(false))
         {
             return;
         }
@@ -917,6 +1064,11 @@ internal static class AttachmentEndpoints
             return;
         }
 
+        if (await HiddenByViewAsync(context, objectId, cancellation).ConfigureAwait(false))
+        {
+            return;
+        }
+
         string raw = context.Request.HasFormContentType
             ? context.Request.Form["attachmentIds"].ToString()
             : context.Request.Query["attachmentIds"].ToString();
@@ -1038,6 +1190,15 @@ internal static class AttachmentEndpoints
         if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: adding)
                 .ConfigureAwait(false))
         {
+            return null;
+        }
+
+        // <b>A read of an attachment is a read of its feature, and asks what a query asks — 2026-11-16.</b> The query,
+        // renderer, tile and document faces each refuse a service whose owner turned Query off; this one did not, and a
+        // form's public Create-only answers view handed every submission's photographs to anybody counting object ids.
+        if (!write && CapabilityCeilings.Refuses(layer, "Query"))
+        {
+            await Refuse(context, 403, CapabilityCeilings.Explain(layer, "Query")).ConfigureAwait(false);
             return null;
         }
 
