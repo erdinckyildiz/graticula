@@ -223,7 +223,7 @@ Q-232 named.
     - **(q) Repeat parameters:** `bind::esri:parameters` on `begin repeat` takes `allowAdds` and `allowUpdates`
       (defaults true and false, Survey123's), refuses `query` with its reason and any other key by name; `form.json`
       carries `parameters: {allowAdds, allowUpdates}` on every table.
-/^>>>>>>> inbox-client$/d
+
 11. **Client, built 2026-11-16** (branch `inbox-client`, built beside the server half and against its contract; nothing
     here has met the real server or a phone). Tests: `FormInboxClientTests`, eight, in a real Chrome against the
     stand-in Inbox view of `FormFillClientTests.Site`, which answers `expectedEditDates` with 412 and 404 as §5.5 says.
@@ -280,7 +280,6 @@ Q-232 named.
       `objectid`, `globalid`, `parentglobalid`, `last_edited_date`, `last_edited_user`; `updateResults` carrying
       `globalId`); `queryAttachments` on a view; whether an `adds` of repeat rows and `addAttachment` are accepted through
       a view that offers no Create; attachment images loading with the session cookie; offline on a phone.
->>>>>>> inbox-client
 
 ## 6. Consequences
 
