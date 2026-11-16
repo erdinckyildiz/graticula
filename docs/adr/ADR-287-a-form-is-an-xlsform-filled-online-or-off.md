@@ -338,7 +338,8 @@ measurable question. The two device claims are, so they are conditions and not a
     `readonly`, which the specification's own example uses), `calculation`, `choice_filter`, `appearance`,
     `repeat_count`, the `image` media column, and every `::language` variant of the text columns. `parameters` is
     supported for `range` (`start`, `end`, `step`) and for `image` (`max-pixels`), and refused for anything else.
-    Refused: `trigger`, and the `audio` and `video` media columns.
+    Refused: `trigger`, ~~and the `audio`~~ and the `video` media columns (**the `audio` column and `media::audio` are
+    supported since 2026-11-17, §5.26**).
 
     **Choices sheet.** `list_name`, `name`, `label`, `label::language`, `image`, and any further column a
     `choice_filter` reads. Refused: `geometry` (choosing on a map).
@@ -357,8 +358,9 @@ measurable question. The two device claims are, so they are conditions and not a
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
     `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: ~~`annotate`~~ (**built 2026-11-16, §5.24**), `map` and
-    `quick map`, ~~`search()`~~ (**supported since 2026-11-16, §5.23**), `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
-    `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
+    `quick map`, ~~`search()`~~ (**supported since 2026-11-16, §5.23**), `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, ~~`distress`~~, `spike` and its variants, `rangefinder`,
+    `image-map`, `inframarker`, `getinframarkerid`, ~~`new-front`, `new-rear`~~ (**`distress`, `new-front` and `new-rear`
+    are built since 2026-11-17, §5.26, as are ODK's `new` and the grid widths under a grid style**).
 
     **Expressions.** `${name}` references and `.` for the question's own value. Every XPath 1.0 operator the ODK
     specification lists (`|`, `and`, `or`, `mod`, `div`, `=`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-` — and `*`, which XPath 1.0 has and the page's list drops), with
@@ -376,8 +378,10 @@ measurable question. The two device claims are, so they are conditions and not a
     else would change the value. `bind::esri:fieldLength`, `bind::esri:fieldAlias`, `body::esri:visible` (hidden but
     still stored), `body::accuracyThreshold`, `body::accept` **and `body::esri:inputMask` (on `text`, §5.19 (5))** are supported. `body::esri:style` and
     `bind::saveIncomplete` are drawn the default way (the client always keeps drafts — built 2026-11-15, §5.16 (a)). `bind::esri:parameters` is supported
-    for its `calculationMode` (`auto`, `manual`, `always`, `whenEmpty`) and for nothing else, which is refused by name (§5.20). Refused: `bind::esri:warning` and `bind::esri:warning_message`,
-    `bind::esri:workflow`.
+    for its `calculationMode` (`auto`, `manual`, `always`, `whenEmpty`) and for nothing else, which is refused by name (§5.20). Refused: ~~`bind::esri:warning` and `bind::esri:warning_message`,~~
+    `bind::esri:workflow` (**the warning columns are supported since 2026-11-17, §5.26, and `bind::esri:parameters`
+    takes an audio question's `max-duration` and, with a notice, the image and audio keys Survey123 documents for its
+    field app alone**).
 
     **What a question becomes in the layer** (follows Survey123's table where one exists, for §5.9 (d)):
 
@@ -1367,6 +1371,163 @@ measurable question. The two device claims are, so they are conditions and not a
       because its layer needed a connection (§5.23 (d)) says so in the Outbox** — *Required, but left empty because it
       needed a connection:* and the questions' labels, kept on the queued record, so the member knows what to complete
       from the Inbox once it has been sent.
+
+26. **What still kept real forms out, and the question types not yet built — 2026-11-17, overnight, while the owner
+    slept** (*"gece, gerçek formlarla ve henüz olmayan her şeyi tamamla. yavaştan survey123'yi de bitirelim"*). The corpus
+    report after §5.25 was ranked by what blocks each form, Survey123's own first. Each blocker was looked up in a public
+    page and given the authoring tool's behaviour; where the pages do not settle it, the choice is **INFERRED** and listed
+    in [Q-238](../open-questions.md). **Measured with `AFormCorpusTests` on the same 110 workbooks (108 readable): 81 of
+    the 108 import unedited (from 65), and 56 of the 61 Survey123-authored forms (from 45).**
+    - **What Esri's and ODK's public pages say, and what each settles.**
+      - *Appearance* (`https://doc.esri.com/en/arcgis-survey123/latest/create/main/xlsformsappearance.html`): `distress`
+        on `integer`, *"Displays the question as a colored sliding scale"*, field app only; `new-front` and `new-rear` on
+        `image`, *"Limits the question to only taking a photo, using the front-facing (rear-facing) camera as the
+        default"*, field app only; `thousands-sep` (decimal, field app), `compact-n` (selects) and `no-ticks` (range);
+        *"You can specify width appearances for questions in surveys that use a grid layout"*. No `grid` appearance and no
+        plain `new` are listed.
+      - *Text and numbers* (`…/create/main/xlsform-text-numbers.html`): *"A distress scale is a 10-point scale used to
+        measure feelings such as stress, pain, and happiness."* It names no range, no stored values and no colours.
+        `thousands-sep` *"does not affect the value sent as part of the survey response, only the display in the app."*
+      - *Media* (`…/create/main/xlsformmedia.html`): *"The audio question type allows users to record audio"*; *"Audio
+        questions only allow uploading an existing audio file in the web app"*; recordings are limited *"to 10 minutes in
+        the Survey123 web app"* by default, and *"you can specify a time limit in seconds using the max-duration
+        parameter"*; *"Images and audio can also be added to other questions in a survey for reference and styling
+        purposes"*; *"You may not be able to play some audio files in a web browser because not all codecs are supported
+        by browsers"*; the file question's table lists BMP among image types. The page says nothing of `media::audio`'s
+        formats, of a `.bmp` label picture, or of `bind::esri:fieldType` on an attachment question.
+      - *XLSForm parameters* (`…/create/main/xlsformparameters.html`): in `bind::esri:parameters`, `max-duration` (audio;
+        mobile, web and field app), `codec` (audio; mobile and field app), `fileName` and `max-size`, and on `image` the
+        watermarks (`watermark`, `topLeftWatermark` … `bottomRightWatermark`), `smartAttributes`, `smartAnnotation` and
+        `redaction`, **field app only**. In `parameters`, `start`, `end` and `step` are listed for `range` alone.
+      - *Geopoints* (`…/create/main/geopoints.html`): *"The bind::esri:warning and bind::esri:warning_message columns can
+        be used to display a warning to the user if the location quality expression is not met"* and *"the user can still
+        capture the location"*; location quality expressions are listed as not supported in the web app. The page shows
+        the warning only on a geopoint; it does not say the columns are limited to one.
+      - *Groups and pages* (`…/create/main/xlsform-groups-pages.html`): *"By setting the style column on the settings sheet
+        to fixed-grid or dynamic-grid, groups in your survey can be set to display the contained questions in a grid"*;
+        *"Set a group's width appearance to w followed by the number of columns"*; a question's width is how many columns
+        it spans; *"The fixed grid style creates a placeholder for each question, including those with a hidden
+        appearance"*; dynamic lets questions move with their relevance; *"The table-list appearance will not function in a
+        grid layout."* No default width is given.
+      - **pyxform** (`github.com/XLSForm/pyxform`, the converter ODK documents; its source read, BSD-licensed, nothing
+        copied): `question_type_dictionary.py` has `string`, `int`, `trigger`, `phone number` (a text input bound with
+        `regex(., '^\d*$')` and the hint *"Enter numbers only."*), `imei` (preloads `deviceid`), `subscriberid`,
+        `simserial`, `phonenumber` and their `uri:`/`get …` spellings, and `select all that apply from`; `aliases.py`
+        has `select one from` and the survey header `audio` (media). `xls2json.py`: a begin row matches
+        `^begin(\s|_)(group|repeat|loop)( (over )?(\S+))?$` and only a loop uses the word after it; an unnamed `note` is
+        named `generated_note_name_<row>` and any other unnamed row is *"Question or group with no name"*; a row with a
+        name or label and no type is *"Question with no type"*; the choices sheet is grouped by `list_name` and a row
+        without one is passed over. `survey_element.py`: *"The survey element named '…' has no label or hint"* only when
+        the label, the media, the hint and the guidance hint are all empty.
+    - **Built — question types and appearances.**
+      - **Recording an `audio` answer.** The audio question kept its file input (an attachment, like a photo) and gained a
+        **Record** button where the browser has `MediaRecorder` and `getUserMedia` (both need an https address; the page
+        says which is missing, in words, where they are not). Record asks for the microphone only, shows a running clock
+        and the limit (*Longest recording: 10:00*), and turns into **Stop recording** (`aria-pressed`); a live region says
+        *Recording…*, *Recording saved.*, *Recording stopped at the time limit and saved.*, a refused or missing
+        microphone, and focus returns to the button. The recording becomes the question's file in the browser's own
+        format (`{name}-{UTC time}.webm` on Chrome), with a player and Remove, is kept in the draft as a Blob and goes
+        through the outbox and `addAttachment` as a photo does, so it works with no signal. **`max-duration`** in
+        `bind::esri:parameters` (1–86400 s) stops it; **600 s when the form does not say**, Survey123's web-app default. The
+        tracks are stopped on Stop, at the limit, on `pagehide` and when the page is hidden (keeping what was recorded).
+        `codec` is accepted with a notice (the browser picks the format); `max-size` and `fileName` stay refused.
+      - **Recordings in a label and beside a choice** (`media::audio`, and pyxform's `audio` column, per language). Checked
+        like a picture — a file of the form, named without a folder or an address, and one a browser plays (`.mp3`, `.wav`,
+        `.ogg`, `.oga`, `.opus`, `.m4a`, `.aac`, `.webm`, `.flac`) — and looked for among the item's files at publish,
+        where a missing one is refused by row and column (*The recording '…' is not among this form's files*). The client
+        draws a native player labelled *Recording: {label}*, beside a choice and not inside its label (so pressing play
+        does not choose), and keeps the file on the device with the form, so it plays offline; one that cannot be found
+        says *Recording not available: {name}*. On a group or a repeat it is refused (*drawn as a heading*). `media::video`
+        stays refused.
+      - **`distress`** on `integer`: eleven radio buttons **0–10** in a `radiogroup` labelled by the question, with *0 is
+        none at all and 10 is the most.*, coloured from green to red along their lower edge, a Clear button (focus goes to
+        0), and the integer stored. Off `integer` it is refused (*applies to integer*).
+      - **`bind::esri:warning` / `bind::esri:warning_message`**: Survey123's soft constraint. The expression is checked like
+        a constraint at upload (its `${}` references, its functions); the client shows the message (or *Check this
+        answer.*) in a `role=status` line under the question, joined to its control by `aria-describedby`, when the
+        expression is false for an answered, touched question, and **the record is sent all the same**. An error, when
+        there is one, is said instead. A message with no expression, a warning on a note, on a question with no screen
+        (`calculate`, `hidden`, metadata) and on a group or repeat are refused, each in words.
+      - **A grid**: `fixed-grid`, `dynamic-grid` and the older `theme-grid` in the settings' `style` are read (they were
+        drawn the default way). A group whose appearance has `w2`…`wN` lays its questions out in N columns; a question's
+        own `wK` is its span (capped at N); a group or a repeat inside takes the whole row; under `fixed-grid` a question
+        hidden by its relevance keeps its place. Below 480 px the grid is one column. Without a grid style a width does
+        nothing, as in Survey123, and the upload now says so in those words. `grid` written as an appearance (a real form
+        writes `grid w2`) is ignored with a notice that a grid is set by the style.
+      - **The camera**: `new-front` (`image`) opens the front camera through the file input's `capture="user"`, `new-rear`
+        and ODK's `new` (`image`, `audio`, `video`) the rear one — which is what a plain photo already did on a phone; a
+        desktop browser ignores `capture` and offers a file.
+      - **Display only, with a notice**: `thousands-sep`, `no-ticks`, `compact-2`…`compact-n`.
+    - **Accepted the way the authoring tools accept them, with a notice.**
+      - **pyxform's other spellings of a type** (`FormCatalog.TypeSpellings`): `string` → text, `int` → integer, `trigger`
+        → acknowledge, `imei`, `device id`, `get device id`, `uri:deviceid` → deviceid, `uri:username`, `uri:email`;
+        `phone number` → text with pyxform's digits-only constraint and hint unless the row has its own; `select one
+        from`, `select all that apply from`, `select multiple from`, and `or specify other` beside `or_other`. The SIM's
+        spellings (`subscriberid`, `simserial`, `uri:phonenumber`, `sim id` …) are **refused as types**, with the reason
+        `property()` already gives (*a browser cannot read …*).
+      - **A word after `begin group` / `begin repeat`** is ignored, as pyxform ignores it (`begin group pressure`).
+      - **`start`, `end`, `step` on an integer or a decimal** are ignored with a notice that they are a range's and that a
+        constraint bounds a number; any other key is still refused.
+      - **An image's field-app parameters** (the watermarks, `smartAttributes`, `smartAnnotation`, `redaction`) are accepted
+        with a notice that Survey123's field app alone applies them, not its web app and not this one. A
+        `bind::esri:parameters` cell is now read with double-quoted values, whose spaces and `&` are their own.
+      - **An attachment question given `esriFieldTypeString`** (two real forms, on photos): the photo is an attachment, no
+        field is made, and the upload says so; `null` is accepted silently; any other type is still refused.
+      - **`bind::esri:fieldLength` = `null`** (Esri's own question-types sample): the field keeps its usual length, and the
+        notice says that `null` belongs in `bind::esri:fieldType` to store nothing.
+      - **`bind::type`**, the XForms data type pyxform writes through (ODK XForms specification's bind types): on a
+        `calculate` or `hidden` it picks the field where `bind::esri:fieldType` does not (`int` → Integer, `decimal` →
+        Double, `string` → text) and must agree with it where it does; on any other question it must be the type it
+        already has (a notice), and anything else is refused.
+      - **A nameless note that calculates** is named `note_row_{row}` (pyxform: `generated_note_name_…`) and **stores
+        nothing**, which §5.21 refused; one that asks for a field with `bind::esri:fieldType` is still refused.
+      - **A question with a hint and no label** shows its hint as its label (pyxform refuses only when both are missing);
+        one with neither is refused (*has no label or hint*).
+      - **A choices row with no `list_name`** is left out, as pyxform leaves it out; one with a list and no name is still
+        refused.
+      - **A `.bmp` picture** is accepted: every browser shows one, and Survey123's media page lists BMP among image types.
+      - **`default_language` written without its code** (`English` for `English (en)`) is read as that language.
+    - **Still refused, and why.** A duplicate choice name in a list a `select_multiple` uses without
+      `allow_choice_duplicates` (Survey123's multiple-choice page and pyxform both refuse it: `palav-public_test-form`); a
+      row with a name and no type (pyxform: *Question with no type*: `sailing-CollectProfileInformation_Examples`); a
+      `submission_url` on arcgis.com (owner decision, §5.25: the two Apopka forms); `pulldata("@javascript")` (another
+      agent's work tonight); a question with a picture and no label or hint, which pyxform accepts and this server does not
+      yet (it would be named by its field name; no form is held by it alone); and on the ODK side `begin loop`,
+      `public_key`, `media::video`, `osm`, `select_one_external`, two location questions at the top level, ODK's
+      `ex:…` app appearances, `jr:itext()` and the SIM properties.
+    - **The forms this unblocked** (before → after, from `D:\temp\forms-corpus-report-compat4-before.json` to
+      `…-compat4.json`): Survey123-authored — `esri-Community_Pre-Enumeration_Survey` (`bind::type`),
+      `esri-Samples_001_Question_Types` (`fieldLength` null), `esri-Samples_002_Appearance` (`distress`),
+      `esri-Samples_CalculateLocationFromCSV` (a nameless calculating note), `esri-Samples_Media` (audio in labels),
+      `laff-…Hydrostatic_Testing_of_Ductile_Iron_Pipe` (warning, `begin group pressure`), `laff-…Pipe_Break_Calculations`
+      (`grid`), `laff-…Uni-Bell_Low_Air_Test` (`start`/`end`/`step` on an integer), `palav-…example-multipage-inspection`
+      (`new`), `sailing-R9SignsSurvey` (watermarks), `sailing-RapidStormDamageAssestment` (a stray choices row, a `.bmp`,
+      hints as labels); ODK and pyxform — `eddie-odk_simprints_verification_demo` (`trigger`),
+      `pyx-…ODKValidateWarnings` and `pyx-…group` (`phone number`), `pyx-…excel_with_macros` (`default_language`),
+      `pyx-…yes_or_no_question` (`select one from`). None was refused that was accepted before.
+    - **INFERRED, for the owner to confirm** ([Q-238](../open-questions.md)): (1) the browser **records** an audio answer,
+      where Survey123's web app only takes a file; the recording is in the browser's own format, not transcoded, and
+      `max-duration` (600 s by default) limits a recording, not a chosen file; (2) the label-recording formats are the
+      nine a browser's audio element plays, not Survey123's longer list; (3) `distress` is **0 to 10** (eleven points; the
+      page says only *10-point*), green to red, and it is drawn here although Survey123 draws it in its field app only;
+      (4) a warning is honoured on **every question with an answer**, not on a geopoint alone, is shown once the question
+      is touched or a send was tried, and is not repeated in the send summary; (5) `theme-grid` is read as
+      `dynamic-grid`, a question with no width spans **one** column, a nested group or repeat the whole row, one column
+      below 480 px, and `layout=` in `body::esri:style` is still not read (drawn the default way, with its notice);
+      (6) `grid` as an appearance is ignored; (7) `new`, `new-front` and `new-rear` are the file input's `capture`, which a
+      desktop browser ignores; (8) a photo given `esriFieldTypeString` makes no field; (9) `fieldLength` `null` keeps the
+      usual length; (10) `bind::type` on a calculation chooses its field when nothing else does; (11) the word after
+      `begin group` is ignored; (12) `start`/`end`/`step` on a number are ignored; (13) an image's field-app parameters are
+      accepted and not applied, as in Survey123's web app; (14) a nameless calculating note stores nothing; (15) a hint
+      stands in for a missing label; (16) a choices row with no list is left out; (17) `.bmp` is accepted; (18) pyxform's
+      type spellings are read, and `phone number`'s hint is pyxform's English *Enter numbers only.* (it is the form's text,
+      not the page's, so it is not translated); (19) `English` names `English (en)`. **And one proposal not taken:** ODK's
+      own web client leaves `phonenumber`, `subscriberid` and `simserial` empty rather than refusing the form; answering
+      them empty with a notice would let four more `stats4sd` forms in. It reverses a §5.10 refusal, so it is the owner's
+      to decide.
+
+    The service worker's shell cache is not changed here: `fill.js` and `fill.css` changed, and the merge sets the
+    version.
 
 ## 6. Consequences
 
