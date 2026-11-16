@@ -155,6 +155,63 @@ Q-232 named.
    - (f) the Inbox's settings live in the form's model, not in the XLSForm, as Survey123 keeps them in Connect and not in
      the workbook.
 
+11. **Client, built 2026-11-16** (branch `inbox-client`, built beside the server half and against its contract; nothing
+    here has met the real server or a phone). Tests: `FormInboxClientTests`, eight, in a real Chrome against the
+    stand-in Inbox view of `FormFillClientTests.Site`, which answers `expectedEditDates` with 412 and 404 as §5.5 says.
+    - **The fill page.** An *Inbox* button beside Drafts and Outbox, shown only when `form.json` carries
+      `publication.inbox` and a top layer with `inboxUrl`, and the member is signed in — or the server cannot be reached
+      to ask, since the server sends `inbox` only to a signed-in member. Its panel: *Refresh*, a status line (a live
+      region), the time of the last refresh, a search box, a count, and the records with *Open*. Refresh queries the
+      top layer's `inboxUrl` (`where=1=1`, `resultRecordCount=` the limit, geometry in 4326), each repeat's `inboxUrl` with
+      `parentglobalid in (…)` a hundred parents at a time and every page of each, and `queryAttachments` for every layer
+      with attachments. The records are kept in a fourth IndexedDB store, `inbox` (database version 3), one entry per
+      record keyed `form|member|GlobalID` with its repeat rows and attachment names, and one per form and member saying
+      when it was refreshed; the list, search and opening work from it offline.
+    - **Opening a record** builds the form's instances from the rows: answers from columns (dates and date-times from
+      epoch milliseconds, the location from the geometry), repeats from their rows, no defaults and no empty repeat item.
+      Nothing is marked as changed by hand, so calculations run again exactly as §5.20's `calculationMode` rules say for
+      an answer that was not typed; one the person then changes is kept. `pulldata("@property", 'mode')` is `edit`.
+      Existing attachments are listed under their question (linked and shown when online), without Remove; new files are
+      added beside them. A line above the form says a record from the Inbox is open.
+    - **Repeats.** A row the server holds has no Remove, and a `repeat_count` never takes it away. Its answers are
+      read-only unless its repeat says `allowUpdates=true`; new rows are added unless it says `allowAdds=false`.
+    - **Sending.** The change is queued in the same outbox as new records, oldest first, as a record of kind `edit`: per
+      layer, `updates` (the row's object id and GlobalID, every column of a relevant question, a cleared answer sent as
+      `null`) through `applyEdits` on the layer's `inboxUrl` with `useGlobalIds=true`, `rollbackOnFailure=false` and
+      `expectedEditDates` keyed by object id; then new repeat rows as `adds` by the existing new-record path; then new
+      files through `addAttachment` on the `inboxUrl`, without `parentGlobalId`. The top row is always sent; a repeat row
+      only when it allows updates and its answers changed.
+    - **412.** The rows refused as stale are read again. A row whose server version already equals what was sent is an
+      earlier attempt that arrived, and is done. Otherwise the record waits in the outbox as *changed on the server*, and
+      the comparison opens: per row, a table of question, *Yours*, *On the server*, each differing answer marked in words
+      as well as colour, who changed it and when. *Keep mine* sends it again against the server's new EditDate; *Use the
+      server's* (confirmed) drops those rows' updates and sends whatever else the record holds. The device's copy of the
+      record is read again after either.
+    - **404.** The record stays in the outbox marked *no longer on the server*, and its entry stays in the Inbox, marked,
+      through later refreshes; *Show answers* lists every answer with its question and *Copy answers* puts them on the
+      clipboard (or selects them where the browser will not). Only the person's *Discard* removes it.
+    - **Studio.** On the form's item page, under its state, an *Inbox* section: on/off, the filter (hint with
+      `${username}` and both Survey123 examples — the `where` parser takes `POSITION(a IN b)`, so it needs no caveat), the
+      limit 1–5,000 and *Save*, the server's 400 shown beside the field it is about with focus moved there.
+    - **INFERRED, for the owner to confirm:** (1) a record whose change still waits in the outbox cannot be opened again
+      until that change is sent or discarded, because a second change would be sent against the same EditDate and refused;
+      (2) a draft of an Inbox change is kept under the record's GlobalID and reopened when the record is opened again;
+      (3) *Use the server's* keeps the person's new repeat rows and pictures and sends them, since dropping them silently
+      would lose an edit nobody compared; (4) any 404 in a change stops the whole record rather than sending the rest;
+      (5) the list shows at most 200 records at a time, newest change first, and the search narrows it; (6) a record's
+      label is the form's `instance_name`, else its first two answers that read as words, with the last change's date and
+      editor beneath; (7) attachments are matched to their question by `keywords`, which this client sends, and one media
+      question takes those with none; (8) a refresh drops records the server no longer gives, except one found gone or
+      with a change waiting; (9) the Inbox's records are kept per member on a shared device, and offline the member who
+      refreshed last is assumed; (10) the client reads a repeat's `allowUpdates`/`allowAdds` from the repeat's
+      `parameters` in `form.json` (or a boolean of that name) — **the server does not send them yet**: the checker refuses
+      every `bind::esri:parameters` key but `calculationMode`, and the compiled repeat carries no parameters, so until the
+      server half carries them every existing repeat row opens read-only, which is Survey123's default.
+    - **Not verified without the real server:** the `inboxUrl` paths and the answer shapes of the view (field names
+      `objectid`, `globalid`, `parentglobalid`, `last_edited_date`, `last_edited_user`; `updateResults` carrying
+      `globalId`); `queryAttachments` on a view; whether an `adds` of repeat rows and `addAttachment` are accepted through
+      a view that offers no Create; attachment images loading with the session cookie; offline on a phone.
+
 ## 6. Consequences
 
 **Positive.** The largest gap between Graticula's forms and Survey123 closes, through the arrangement an ArcGIS

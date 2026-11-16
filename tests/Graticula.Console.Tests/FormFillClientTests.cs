@@ -187,6 +187,9 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
 
         public Dictionary<string, byte[]> Media { get; init; } = [];
 
+        /// <summary>The form's Inbox, when it has one (ADR-300): what the Inbox view holds, per table.</summary>
+        public InboxData? Inbox { get; init; }
+
         /// <summary>A text, a number and a photo.</summary>
         public static Form Basic() => new()
         {
@@ -243,8 +246,13 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             ["filters"] = new JsonObject(),
         };
 
-        public JsonObject Document(string id)
+        public JsonObject Document(string id, bool signedIn = false)
         {
+            if (Inbox is not null)
+            {
+                return InboxDocument(id, signedIn);
+            }
+
             JsonObject settings = JsonNode.Parse(Settings)!.AsObject();
             JsonObject form = new()
             {
@@ -289,6 +297,125 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             };
         }
 
+        /// <summary>
+        /// The document of a form with an Inbox, as the server sends it (ADR-300 §5.6): a layer per table — the top one
+        /// and each repeat's, in form order — each with its <c>inboxUrl</c>, and <c>publication.inbox</c>, but only to a
+        /// signed-in member. The top table's first geopoint is its location.
+        /// </summary>
+        private JsonObject InboxDocument(string id, bool signedIn)
+        {
+            JsonObject document = new Form { Root = Root, Choices = Choices, Pages = Pages, Settings = Settings, Media = Media }.Document(id);
+            JsonArray layers = [];
+            int index = 0;
+
+            void Add(JsonObject table, string repeat, string? parentRepeat)
+            {
+                int n = index++;
+                JsonObject[] questions = [.. Own(table)];
+                string? location = questions.FirstOrDefault(q => (string?)q["type"] is "geopoint" or "geotrace" or "geoshape") is { } g ? (string)g["name"]! : null;
+                JsonObject layer = new()
+                {
+                    ["repeat"] = repeat,
+                    ["parentRepeat"] = parentRepeat,
+                    ["name"] = repeat == "" ? "deneme" : repeat,
+                    ["url"] = $"/fs/{n}",
+                    ["submitUrl"] = $"/fs/{n}",
+                    ["location"] = location,
+                    ["columns"] = new JsonObject(questions.Where(q => (string?)q["type"] is not ("image" or "audio" or "video" or "file" or "note") && (string)q["name"]! != location)
+                        .Select(q => KeyValuePair.Create((string)q["name"]!, (JsonNode?)JsonValue.Create((string)q["name"]!)))),
+                    ["attachments"] = new JsonArray([.. questions.Where(q => (string?)q["type"] is "image" or "audio" or "video" or "file").Select(q => (JsonNode)(string)q["name"]!)]),
+                };
+
+                if (signedIn)
+                {
+                    layer["inboxUrl"] = $"/inbox/{id}/{n}";
+                }
+
+                layers.Add(layer);
+
+                foreach (JsonObject inner in Repeats(table))
+                {
+                    Add(inner, (string)inner["name"]!, repeat);
+                }
+            }
+
+            Add(Root, "", null);
+            JsonObject publication = document["publication"]!.AsObject();
+            publication["layers"] = layers;
+
+            if (signedIn)
+            {
+                publication["inbox"] = new JsonObject { ["limit"] = Inbox!.Limit };
+            }
+
+            return document;
+        }
+
+        /// <summary>The table names of every layer of an Inbox form, in the order <see cref="InboxDocument"/> numbers them.</summary>
+        public IReadOnlyList<string> Tables()
+        {
+            List<string> names = [];
+
+            void Add(JsonObject table, string name)
+            {
+                names.Add(name);
+
+                foreach (JsonObject inner in Repeats(table))
+                {
+                    Add(inner, (string)inner["name"]!);
+                }
+            }
+
+            Add(Root, "");
+            return names;
+        }
+
+        /// <summary>The questions of a table, through its groups and not into its repeats.</summary>
+        private static IEnumerable<JsonObject> Own(JsonObject node)
+        {
+            foreach (JsonNode? child in node["body"]!.AsArray())
+            {
+                JsonObject c = child!.AsObject();
+
+                switch ((string?)c["kind"])
+                {
+                    case "question":
+                        yield return c;
+                        break;
+                    case "group":
+                        foreach (JsonObject inner in Own(c))
+                        {
+                            yield return inner;
+                        }
+
+                        break;
+                }
+            }
+        }
+
+        /// <summary>The repeats directly in a table, through its groups.</summary>
+        private static IEnumerable<JsonObject> Repeats(JsonObject node)
+        {
+            foreach (JsonNode? child in node["body"]!.AsArray())
+            {
+                JsonObject c = child!.AsObject();
+
+                switch ((string?)c["kind"])
+                {
+                    case "repeat":
+                        yield return c;
+                        break;
+                    case "group":
+                        foreach (JsonObject inner in Repeats(c))
+                        {
+                            yield return inner;
+                        }
+
+                        break;
+                }
+            }
+        }
+
         private static IEnumerable<JsonObject> Walk(JsonObject node)
         {
             foreach (JsonNode? child in node["body"]!.AsArray())
@@ -307,6 +434,60 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// What a form's Inbox view holds in the stand-in server (ADR-300): rows per table, each with the editor tracking
+    /// fields, attachments per row, and what the page asked and sent. Read and changed under its own lock.
+    /// </summary>
+    public sealed class InboxData
+    {
+        private long _clock = 1_763_000_000_000;
+
+        /// <summary>The Inbox's record limit, sent to the page as <c>publication.inbox.limit</c>.</summary>
+        public int Limit { get; init; } = 1000;
+
+        /// <summary>Rows per table ("" for the top one, else the repeat's name), each <c>{attributes, geometry}</c>.</summary>
+        public Dictionary<string, List<JsonObject>> Rows { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Attachment infos, keyed <c>table|objectId</c>.</summary>
+        public Dictionary<string, List<JsonObject>> Attachments { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Every applyEdits the page sent: <c>{table, updates, adds, expected}</c>.</summary>
+        public List<JsonObject> Edits { get; } = [];
+
+        /// <summary>Every addAttachment: <c>table|objectId|query</c>.</summary>
+        public List<string> AttachmentsAdded { get; } = [];
+
+        /// <summary>Every query: <c>table|where</c>.</summary>
+        public List<string> Queries { get; } = [];
+
+        /// <summary>The next EditDate, a second after the last.</summary>
+        public long Tick() => _clock += 1000;
+
+        /// <summary>A row by its object id.</summary>
+        public JsonObject Row(string table, int objectId) => Rows[table].First(r => (int)r["attributes"]!["objectid"]! == objectId);
+
+        /// <summary>Adds a row with a new object id, a GlobalID unless it has one, and the editor tracking fields.</summary>
+        public JsonObject AddRow(string table, JsonObject attributes, JsonObject? geometry = null)
+        {
+            if (!Rows.TryGetValue(table, out List<JsonObject>? list))
+            {
+                Rows[table] = list = [];
+            }
+
+            int oid = list.Count == 0 ? 1 : list.Max(r => (int)r["attributes"]!["objectid"]!) + 1;
+            long now = Tick();
+            attributes["objectid"] = oid;
+            attributes["globalid"] ??= "{" + Guid.NewGuid().ToString().ToUpperInvariant() + "}";
+            attributes["created_user"] ??= "ada";
+            attributes["created_date"] ??= now;
+            attributes["last_edited_user"] ??= "ada";
+            attributes["last_edited_date"] = now;
+            JsonObject row = new() { ["attributes"] = attributes, ["geometry"] = geometry };
+            list.Add(row);
+            return row;
         }
     }
 
@@ -548,7 +729,7 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
 
                     Send(context, form is null ? 404 : 200, "application/json", Encoding.UTF8.GetBytes(form is null
                         ? """{"error":{"code":404,"message":"No such form."}}"""
-                        : form.Document(id).ToJsonString()));
+                        : form.Document(id, SignedIn).ToJsonString()));
                     return;
                 }
 
@@ -569,6 +750,12 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
                 if (path == "/rest/auth/session")
                 {
                     Send(context, 401, "application/json", """{"error":{"code":401,"message":"Not signed in."}}"""u8.ToArray());
+                    return;
+                }
+
+                if (path.StartsWith("/inbox/", StringComparison.Ordinal))
+                {
+                    AnswerInbox(context, path, method);
                     return;
                 }
 
@@ -626,6 +813,197 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             {
                 // the page went away
             }
+        }
+
+        /// <summary>Changes a row as somebody else would, in Studio: a new answer and a new EditDate.</summary>
+        /// <param name="id">The form's item id.</param>
+        /// <param name="table">"" for the top table, or a repeat's name.</param>
+        /// <param name="objectId">The row.</param>
+        /// <param name="column">The field.</param>
+        /// <param name="value">Its new value.</param>
+        public void ChangeOnServer(string id, string table, int objectId, string column, JsonNode? value)
+        {
+            InboxData inbox = InboxOf(id);
+
+            lock (inbox)
+            {
+                JsonObject attributes = inbox.Row(table, objectId)["attributes"]!.AsObject();
+                attributes[column] = value;
+                attributes["last_edited_user"] = "baskasi";
+                attributes["last_edited_date"] = inbox.Tick();
+            }
+        }
+
+        /// <summary>Deletes a row on the server.</summary>
+        /// <param name="id">The form's item id.</param>
+        /// <param name="table">"" for the top table, or a repeat's name.</param>
+        /// <param name="objectId">The row.</param>
+        public void DeleteOnServer(string id, string table, int objectId)
+        {
+            InboxData inbox = InboxOf(id);
+
+            lock (inbox)
+            {
+                inbox.Rows[table].Remove(inbox.Row(table, objectId));
+            }
+        }
+
+        /// <summary>A form's Inbox data, read under its lock by the caller.</summary>
+        /// <param name="id">The form's item id.</param>
+        public InboxData InboxOf(string id)
+        {
+            lock (_gate)
+            {
+                return _forms[id].Inbox ?? throw new InvalidOperationException("The form has no Inbox.");
+            }
+        }
+
+        // The Inbox view of a form, as ADR-300's server answers it: /inbox/{form}/{layer}/query, queryAttachments,
+        // applyEdits with expectedEditDates (412 for a row that moved, 404 for one that is gone), addAttachment, and an
+        // attachment's bytes. Only for a signed-in caller, as the real view is never shared with everyone.
+        private void AnswerInbox(HttpListenerContext context, string path, string method)
+        {
+            string[] parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            Form? form;
+
+            lock (_gate)
+            {
+                _forms.TryGetValue(parts[1], out form);
+            }
+
+            if (form?.Inbox is not { } inbox || !SignedIn || parts.Length < 4)
+            {
+                Send(context, 403, "application/json", """{"error":{"code":403,"message":"Not shared with you."}}"""u8.ToArray());
+                return;
+            }
+
+            string table = form.Tables()[int.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture)];
+            string op = parts[^1];
+            System.Collections.Specialized.NameValueCollection query = context.Request.QueryString;
+            JsonObject answer;
+
+            if (method == "GET" && parts.Length >= 6 && parts[^2] == "attachments")
+            {
+                Send(context, 200, "image/png", Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="));
+                return;
+            }
+
+            lock (inbox)
+            {
+                List<JsonObject> rows = inbox.Rows.TryGetValue(table, out List<JsonObject>? held) ? held : [];
+
+                if (method == "GET" && op == "query")
+                {
+                    string where = query["where"] ?? "1=1";
+                    HashSet<string> ids = [.. System.Text.RegularExpressions.Regex.Matches(where, "'([^']*)'").Select(m => m.Groups[1].Value.ToUpperInvariant())];
+                    IEnumerable<JsonObject> found = rows;
+
+                    if (where.StartsWith("parentglobalid", StringComparison.OrdinalIgnoreCase))
+                    {
+                        found = rows.Where(r => ids.Contains(((string?)r["attributes"]!["parentglobalid"] ?? string.Empty).ToUpperInvariant()));
+                    }
+                    else if (where.StartsWith("globalid", StringComparison.OrdinalIgnoreCase))
+                    {
+                        found = rows.Where(r => ids.Contains(((string)r["attributes"]!["globalid"]!).ToUpperInvariant()));
+                    }
+
+                    List<JsonObject> all = [.. found];
+                    int offset = int.TryParse(query["resultOffset"], out int o) ? o : 0;
+                    int count = int.TryParse(query["resultRecordCount"], out int c) ? c : int.MaxValue;
+                    List<JsonObject> page = [.. all.Skip(offset).Take(count)];
+                    inbox.Queries.Add($"{table}|{where}");
+                    answer = new JsonObject
+                    {
+                        ["objectIdFieldName"] = "objectid",
+                        ["globalIdFieldName"] = "globalid",
+                        ["features"] = new JsonArray([.. page.Select(r => r.DeepClone())]),
+                        ["exceededTransferLimit"] = all.Count > offset + page.Count,
+                    };
+                }
+                else if (method == "GET" && op == "queryAttachments")
+                {
+                    int[] oids = [.. (query["objectIds"] ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => int.Parse(s, System.Globalization.CultureInfo.InvariantCulture))];
+                    answer = new JsonObject
+                    {
+                        ["attachmentGroups"] = new JsonArray([.. oids.Where(oid => inbox.Attachments.ContainsKey($"{table}|{oid}") && rows.Any(r => (int)r["attributes"]!["objectid"]! == oid))
+                            .Select(oid => (JsonNode)new JsonObject
+                            {
+                                ["parentObjectId"] = oid,
+                                ["parentGlobalId"] = (string)inbox.Row(table, oid)["attributes"]!["globalid"]!,
+                                ["attachmentInfos"] = new JsonArray([.. inbox.Attachments[$"{table}|{oid}"].Select(a => a.DeepClone())]),
+                            })]),
+                    };
+                }
+                else if (method == "POST" && op == "applyEdits")
+                {
+                    using StreamReader reader = new(context.Request.InputStream, Encoding.UTF8);
+                    System.Collections.Specialized.NameValueCollection body = System.Web.HttpUtility.ParseQueryString(reader.ReadToEnd());
+                    JsonArray updates = JsonNode.Parse(body["updates"] ?? "[]")!.AsArray();
+                    JsonArray adds = JsonNode.Parse(body["adds"] ?? "[]")!.AsArray();
+                    JsonObject expected = JsonNode.Parse(body["expectedEditDates"] ?? "{}")!.AsObject();
+                    inbox.Edits.Add(new JsonObject { ["table"] = table, ["updates"] = updates.DeepClone(), ["adds"] = adds.DeepClone(), ["expected"] = expected.DeepClone() });
+                    JsonArray updateResults = [];
+
+                    foreach (JsonObject update in updates.Select(u => u!.AsObject()))
+                    {
+                        int oid = (int)update["attributes"]!["objectid"]!;
+                        string gid = (string?)update["attributes"]!["globalid"] ?? string.Empty;
+                        JsonObject? row = rows.FirstOrDefault(r => (int)r["attributes"]!["objectid"]! == oid);
+
+                        if (row is null)
+                        {
+                            updateResults.Add(new JsonObject { ["objectId"] = oid, ["globalId"] = gid, ["success"] = false, ["error"] = new JsonObject { ["code"] = 404, ["description"] = "The row is not there." } });
+                            continue;
+                        }
+
+                        JsonObject attributes = row["attributes"]!.AsObject();
+
+                        if (expected[oid.ToString(System.Globalization.CultureInfo.InvariantCulture)] is { } wanted && (long)wanted != (long)attributes["last_edited_date"]!)
+                        {
+                            updateResults.Add(new JsonObject { ["objectId"] = oid, ["globalId"] = gid, ["success"] = false, ["error"] = new JsonObject { ["code"] = 412, ["description"] = "The row changed since it was read." } });
+                            continue;
+                        }
+
+                        foreach ((string key, JsonNode? value) in update["attributes"]!.AsObject())
+                        {
+                            if (key is not ("objectid" or "globalid"))
+                            {
+                                attributes[key] = value?.DeepClone();
+                            }
+                        }
+
+                        if (update["geometry"] is { } geometry)
+                        {
+                            row["geometry"] = geometry.DeepClone();
+                        }
+
+                        attributes["last_edited_user"] = "ada";
+                        attributes["last_edited_date"] = inbox.Tick();
+                        updateResults.Add(new JsonObject { ["objectId"] = oid, ["globalId"] = gid, ["success"] = true });
+                    }
+
+                    JsonArray addResults = [];
+
+                    foreach (JsonObject add in adds.Select(a => a!.AsObject()))
+                    {
+                        JsonObject made = inbox.AddRow(table, add["attributes"]!.DeepClone().AsObject(), add["geometry"]?.DeepClone().AsObject());
+                        addResults.Add(new JsonObject { ["objectId"] = (int)made["attributes"]!["objectid"]!, ["globalId"] = (string)made["attributes"]!["globalid"]!, ["success"] = true });
+                    }
+
+                    answer = new JsonObject { ["updateResults"] = updateResults, ["addResults"] = addResults };
+                }
+                else if (method == "POST" && op == "addAttachment")
+                {
+                    inbox.AttachmentsAdded.Add($"{table}|{parts[^2]}|{context.Request.Url!.Query}");
+                    answer = new JsonObject { ["addAttachmentResult"] = new JsonObject { ["success"] = true } };
+                }
+                else
+                {
+                    answer = new JsonObject { ["error"] = new JsonObject { ["code"] = 404, ["message"] = "Not an Inbox operation." } };
+                }
+            }
+
+            Send(context, 200, "application/json", Encoding.UTF8.GetBytes(answer.ToJsonString()));
         }
 
         private static void Send(HttpListenerContext context, int status, string type, byte[] body)

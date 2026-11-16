@@ -21,6 +21,7 @@
         <span>Language</span>
         <select id="language"></select>
       </label>
+      <button type="button" id="inbox-toggle" class="quiet" aria-controls="inbox" aria-expanded="false" hidden>Inbox <span id="inbox-count" class="count">0</span></button>
       <button type="button" id="drafts-toggle" class="quiet" aria-controls="drafts" aria-expanded="false" hidden>Drafts <span id="drafts-count" class="count">0</span></button>
       <button type="button" id="outbox-toggle" class="quiet" aria-controls="outbox" aria-expanded="false">Outbox <span id="outbox-count" class="count">0</span></button>
     </div>
@@ -36,6 +37,23 @@
     <p class="hint">Records filled here wait on this device until the server has accepted them.</p>
     <p id="outbox-status" class="outbox-status" role="status" aria-live="polite"></p>
     <ul id="outbox-list" class="outbox-list"></ul>
+  </section>
+
+  <section id="inbox" class="outbox" hidden aria-labelledby="inbox-heading">
+    <div class="outbox-head">
+      <h2 id="inbox-heading">Inbox</h2>
+      <button type="button" id="inbox-refresh">Refresh</button>
+    </div>
+    <p class="hint" id="inbox-hint">Records you can open and change. Refresh downloads them to this device; once downloaded they open and can be changed without a signal, and your changes wait in the Outbox.</p>
+    <p id="inbox-status" class="outbox-status" role="status" aria-live="polite"></p>
+    <p id="inbox-refreshed" class="hint"></p>
+    <div class="inbox-search">
+      <label for="inbox-search">Search</label>
+      <input type="search" id="inbox-search" autocomplete="off" aria-describedby="inbox-shown">
+    </div>
+    <p id="inbox-shown" class="hint" role="status" aria-live="polite"></p>
+    <ul id="inbox-list" class="outbox-list"></ul>
+    <p class="hint" id="inbox-waiting-why">A record whose changes are waiting in the Outbox opens again once they are sent or discarded.</p>
   </section>
 
   <section id="drafts" class="outbox" hidden aria-labelledby="drafts-heading">
@@ -63,6 +81,29 @@
     <p id="loading" class="hint" role="status" aria-live="polite">Loading the form…</p>
     <div id="device-forms" hidden></div>
     <div id="summary" class="summary" role="alert" tabindex="-1" hidden></div>
+    <section id="compare" class="compare" hidden aria-labelledby="compare-heading">
+      <h2 id="compare-heading">Changed on the server since you downloaded it</h2>
+      <div id="compare-body"></div>
+      <div id="compare-actions" class="inline">
+        <button type="button" id="compare-mine">Keep mine</button>
+        <button type="button" id="compare-server" class="quiet">Use the server’s</button>
+      </div>
+      <p id="compare-status" class="draft-status" role="status" aria-live="polite"></p>
+      <button type="button" id="compare-close" class="quiet" hidden>Close</button>
+    </section>
+    <section id="answers-view" class="compare" hidden aria-labelledby="answers-heading">
+      <h2 id="answers-heading">No longer on the server</h2>
+      <p class="hint" id="answers-hint">The record was deleted on the server, or is no longer one the Inbox gives you, after you downloaded it. Your answers are kept on this device: copy them before you discard the record.</p>
+      <dl id="answers-list" class="answers-list"></dl>
+      <div class="inline">
+        <button type="button" id="answers-copy">Copy answers</button>
+        <button type="button" id="answers-close" class="quiet">Close</button>
+      </div>
+      <p id="answers-status" class="draft-status" role="status" aria-live="polite"></p>
+    </section>
+    <div id="inbox-editing" class="editing-bar" hidden>
+      <p id="inbox-editing-text" role="status" aria-live="polite"></p>
+    </div>
     <form id="form" novalidate hidden>
       <div id="pages-progress" class="progress" aria-live="polite" hidden></div>
       <div id="body"></div>
