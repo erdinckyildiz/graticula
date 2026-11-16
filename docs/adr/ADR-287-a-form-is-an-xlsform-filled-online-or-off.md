@@ -1074,7 +1074,7 @@ measurable question. The two device claims are, so they are conditions and not a
       Cancel, `pagehide` and a refused camera each stop the camera and say so, and a refused camera shows a `minimal`
       question's box; the no-reader hint is Turkish in a Turkish browser.
     - **The corpus.** Measured with `AFormCorpusTests` on the same 110 workbooks (108 readable), against the last full report: **60 of the 108 import unedited (from 59), and 43 of the 61 Survey123-authored forms (from 42).** The one form this item unblocks is `esri-Samples_Barcode_Scanning.xlsx` (a plain barcode and a `minimal` one). `esri-Samples_001_Question_Types.xlsx` is still refused, now only for a `bind::esri:fieldLength` of `null` on another row, which is not this item's. The pyxform fixtures and the ODK Web Forms all-question-types workbook no longer name `barcode` or `hidden-answer` among their refusals and stay refused for their other reasons (`public_key`, audio in a label, `simserial`, `phonenumber` and others).
-    - **INFERRED, for the owner to confirm:** (1) the default length is **255**, the length every text field here gets,
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.25):** (1) the default length is **255**, the length every text field here gets,
       because no Esri page states a barcode's field type or length; (2) a barcode is stored only as `esriFieldTypeString`
       or not at all, and a numeric, date or GUID field type is refused, because a code with leading zeros (an EAN, a UPC)
       would change; Survey123's pages do not say; (3) `minimal` and `hidden-answer` hide the box only where there is a
