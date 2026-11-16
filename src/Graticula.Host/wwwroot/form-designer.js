@@ -55,6 +55,7 @@ const FD_TYPES = [
   { key: "image", word: "Image", type: "image", shelf: "Location and media", family: "media" },
   { key: "signature", word: "Signature", type: "image", appearance: "signature", shelf: "Location and media", family: "media" },
   { key: "draw", word: "Drawing", type: "image", appearance: "draw", shelf: "Location and media", family: "media" },
+  { key: "annotate", word: "Photo to draw on", type: "image", appearance: "annotate", shelf: "Location and media", family: "media" },
   { key: "file", word: "File", type: "file", shelf: "Location and media", family: "media" },
   { key: "audio", word: "Audio", type: "audio", shelf: "Location and media", family: "media" },
   { key: "hidden", word: "Hidden", type: "hidden", shelf: "Behind the scenes" },
@@ -87,7 +88,7 @@ function fdChangeType(row, spec) {
 
 /** What an appearance is called on screen, its XLSForm word after it. */
 const FD_APPEARANCE_WORDS = {
-  multiline: "Several lines", signature: "Signature", draw: "Drawing", "month-year": "Month and year", year: "Year only",
+  multiline: "Several lines", signature: "Signature", draw: "Drawing", annotate: "Drawn over a photo", "month-year": "Month and year", year: "Year only",
   minimal: "Dropdown", likert: "Likert scale", rating: "Stars", "field-list": "All on one page", "table-list": "As a table",
 };
 
