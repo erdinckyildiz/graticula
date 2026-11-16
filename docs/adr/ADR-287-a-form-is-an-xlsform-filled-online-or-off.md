@@ -891,7 +891,7 @@ measurable question. The two device claims are, so they are conditions and not a
       name and `userLastName` is empty. **Refused at upload by name, each with its reason:** `deviceModel` and `OS`
       (a browser does not tell a page; Survey123's web app does not either), `appVersion`, `portalInfo` (a JSON object no
       question holds), `token` (a credential that would be written into the layer), `submissionUrl`, `locale` and
-      `localeInfo` (the last three exist for `@layer`, `search()` and `@javascript`, which are refused). A name that is not
+      `localeInfo` (the last three exist for `@layer`, `search()` and `@javascript`, which are refused — *all three built since: §5.23 and §5.27*). A name that is not
       on Survey123's list is refused as unknown; a name worked out at run time cannot be checked at upload, and the
       client then refuses it when it runs. **INFERRED:** (1) an anonymous form, and any value the portal does not hold,
       answers an empty string, since Survey123's page says nothing; (2) `online` is a true boolean, `utcOffset` a number,
@@ -960,7 +960,7 @@ measurable question. The two device claims are, so they are conditions and not a
     - **(f) What still keeps a Survey123 form out.** The sole blockers after this item, from the same run: `or_other` (3
       forms), `autocomplete` (2) and one each of `esri:inputMask`, `spinner`, duplicate choices, a row with no name, an audio
       media column, the `grid` appearance, `pulldata("@javascript")`, a parameter on a question that takes none, and
-      `annotate`, and one row that holds cells and no question type. Some of those are another branch's tonight, the others are left. **`pulldata("@layer")`, `@json` and `@javascript` stay refused**,
+      `annotate`, and one row that holds cells and no question type. Some of those are another branch's tonight, the others are left. *(`@layer` built since in §5.23, `@javascript` in §5.27; `@json` is still refused.)* **`pulldata("@layer")`, `@json` and `@javascript` stay refused**,
       each with its reason in the upload (`FormCatalog.RefusedPulldataSources`); `@exif` too. *How `@layer` could be
       built, written down and not built:* `pulldata("@layer", property, layerUrl, field, value)` is a query on a feature
       layer, `where field = value`, `outFields property`. Online, the client could send exactly that to the layer through
