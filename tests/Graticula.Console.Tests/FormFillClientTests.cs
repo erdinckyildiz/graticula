@@ -1077,7 +1077,7 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             string? found = name switch
             {
                 "ol.js" or "ol.css" => Path.Combine(FormsFolder(), "..", name),
-                "fill.html" or "fill.js" or "fill.css" or "xlsform-eval.js" or "sw.js" or "manifest.webmanifest" or "icon.svg" => Path.Combine(FormsFolder(), name),
+                "fill.html" or "fill.js" or "fill.css" or "xlsform-eval.js" or "barcode-reader.js" or "zxing.min.js" or "sw.js" or "manifest.webmanifest" or "icon.svg" => Path.Combine(FormsFolder(), name),
                 _ => null,
             };
 

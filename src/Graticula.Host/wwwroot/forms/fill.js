@@ -340,7 +340,9 @@
         "Camera permission was refused. Type the code instead.": "Kamera izni verilmedi. Kodu elle yazın.",
         "No camera was found. Type the code instead.": "Kamera bulunamadı. Kodu elle yazın.",
         "The camera could not be started. Type the code instead.": "Kamera açılamadı. Kodu elle yazın.",
-        "The code could not be read. Type the code instead.": "Kod okunamadı. Kodu elle yazın."
+        "The code could not be read. Type the code instead.": "Kod okunamadı. Kodu elle yazın.",
+        "The code reader could not be loaded. Connect once to download it, or type the code instead.": "Kod okuyucu yüklenemedi. İndirmek için bir kez internete bağlanın ya da kodu elle yazın.",
+        "Scanning needs the form to be opened at an https address. Type the code instead.": "Tarama için form https ile başlayan bir adresten açılmalı. Kodu elle yazın."
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
     // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
@@ -1877,11 +1879,12 @@
         return { node: input, controls: function () { return [input]; }, sync: function (ro) { syncInput(input, current(inst, q), ro); } };
     }
 
-    // ----- Barcode (ADR-287 §5.22). The answer is always a text box, so it can be typed on every browser; where the browser
-    // has a barcode reader of its own (the BarcodeDetector Web API, with at least one format) a Scan button opens the rear
-    // camera and puts the first code read into the box. Decoding is the browser's, on the device, so it works offline.
-    // No decoding library is carried (build-vs-adopt): Safari has no reader, and there the code is typed.
-    var barcodeFormats;      // undefined until asked; null where there is no reader; the formats it reads where there is
+    // ----- Barcode (ADR-287 §5.22). The answer is always a text box, so it can be typed on every browser; where the page
+    // has a camera a Scan button opens the rear camera and puts the first code read into the box. The reading is
+    // barcode-reader.js's (GraticulaBarcode): the browser's own BarcodeDetector where there is one, ZXing everywhere else
+    // (owner decision 2026-11-17), loaded only when Scan is pressed and kept by the service worker, so it works offline.
+    // This file never names a ZXing type.
+    var barcodeFormats;      // undefined until asked; null where there is no camera; the reader where there is
     var barcodeAsked = null;
     var barcodeScan = null;  // the one scan running: { stop: function (how) }
     var barcodeSaid = {};    // what a scan said, by question key, so a redraw that replaced the widget still says it
@@ -1890,15 +1893,9 @@
 
     function barcodeReader() {
         if (!barcodeAsked) {
-            barcodeAsked = new Promise(function (resolve) {
-                try {
-                    if (typeof window.BarcodeDetector !== 'function' || typeof window.BarcodeDetector.getSupportedFormats !== 'function'
-                        || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') { resolve(null); return; }
-                    window.BarcodeDetector.getSupportedFormats().then(function (f) {
-                        resolve(Array.isArray(f) && f.length ? f : null);
-                    }, function () { resolve(null); });
-                } catch (e) { resolve(null); }
-            }).then(function (f) { barcodeFormats = f; return f; });
+            barcodeAsked = (window.GraticulaBarcode ? window.GraticulaBarcode.reader() : Promise.resolve(null))
+                .catch(function () { return null; })
+                .then(function (r) { barcodeFormats = r || null; return barcodeFormats; });
         }
         return barcodeAsked;
     }
@@ -1924,7 +1921,10 @@
         video.muted = true;
         // The instruction is the status line's alone: written here as well it stood twice under the preview (UX review 2026-11-16).
         var panel = el('div', { class: 'scanner', hidden: true }, [video, el('div', { class: 'inline' }, [cancel])]);
-        var noReader = el('p', { class: 'hint', id: id + '-no-reader', text: t('This browser cannot scan codes. Type the code instead.'), hidden: true });
+        // With no camera API the reason is usually the address: a page that is not https has none, on every browser.
+        var insecure = window.GraticulaBarcode && !window.GraticulaBarcode.secure();
+        var noReader = el('p', { class: 'hint', id: id + '-no-reader', hidden: true,
+            text: insecure ? t('Scanning needs the form to be opened at an https address. Type the code instead.') : t('This browser cannot scan codes. Type the code instead.') });
         var status = el('p', { class: 'hint', id: id + '-scan', 'aria-live': 'polite' });
         // Where the box is hidden (minimal, hidden-answer) the code read is still shown, as text: a person who cannot see
         // which code went in cannot catch a wrong label, and after a draft reload nothing else said there was one
@@ -1963,14 +1963,16 @@
                 window.addEventListener('pagehide', function () { stopBarcodeScan('hidden'); });
                 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { stopBarcodeScan('hidden'); } });
             }
-            var stream = null, timer = 0, done = false, detector;
+            var stream = null, timer = 0, done = false, reader = barcodeFormats, ready = false;
             var session = { stop: function (how) { finish(how); } };
-            try { detector = new window.BarcodeDetector({ formats: barcodeFormats }); } catch (e) { mine = session; finish('failed'); return; }
             mine = session;
             barcodeScan = session;
             panel.hidden = false;
             scan.disabled = true;
             say(t('Opening the camera…'));
+            // The reader is made ready while the camera opens: for ZXing that is the library's first load, which the
+            // service worker answers from its copy offline. Without it nothing can read, so the scan stops and says so.
+            reader.prepare().then(function () { ready = true; if (stream && !done) { tick(); } }, function () { finish(reader.engine === 'zxing' ? 'noreader' : 'failed'); });
             navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).then(function (s) {
                 stream = s;
                 if (done) { release(); return; }
@@ -1979,7 +1981,7 @@
                 if (playing && playing.catch) { playing.catch(function () { /* autoplay is muted; a refusal here leaves the preview still */ }); }
                 say(t('Point the camera at the code.'));
                 cancel.focus();
-                tick();
+                if (ready) { tick(); }
             }, function (e) {
                 var name = e && e.name;
                 finish(name === 'NotAllowedError' || name === 'SecurityError' ? 'refused'
@@ -1990,10 +1992,10 @@
                 if (done) { return; }
                 // A redraw replaced this widget: its camera goes with it.
                 if (!video.isConnected) { finish('gone'); return; }
-                detector.detect(video).then(function (found) {
+                clearTimeout(timer);
+                reader.detect(video).then(function (value) {
                     if (done) { return; }
-                    var hit = (found || []).filter(function (b) { return b && typeof b.rawValue === 'string' && b.rawValue !== ''; })[0];
-                    if (hit) { finish('read', hit.rawValue); } else { timer = setTimeout(tick, 200); }
+                    if (value) { finish('read', value); } else { timer = setTimeout(tick, 200); }
                 }, function () { finish('unreadable'); });
             }
             function release() {
@@ -2013,7 +2015,8 @@
                     refused: 'Camera permission was refused. Type the code instead.',
                     nocamera: 'No camera was found. Type the code instead.',
                     failed: 'The camera could not be started. Type the code instead.',
-                    unreadable: 'The code could not be read. Type the code instead.'
+                    unreadable: 'The code could not be read. Type the code instead.',
+                    noreader: 'The code reader could not be loaded. Connect once to download it, or type the code instead.'
                 }[how];
                 if (how === 'read') {
                     input.value = value;

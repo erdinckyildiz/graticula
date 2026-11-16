@@ -1038,9 +1038,13 @@ measurable question. The two device claims are, so they are conditions and not a
       `minimal` and `hidden-answer` hide the box **only where there is a reader**; without one, and after the camera has
       failed for that question, the box is shown, because it is then the only way to answer. Every string is in the Turkish
       table. The preview is in `fill.css` (as wide as the question, at most half the screen high).
+      *(Amended 2026-11-17: "a reader" is now any page with a camera API — the browser's own where it has one, ZXing
+      otherwise — and the no-reader hint is left for pages with no camera API; see the last item of this section.)*
     - **Offline.** Decoding is the browser's, on the device, and the camera needs no network, so scanning works with no
       signal exactly as it does online; the answer is text and goes into the draft and the outbox as any text does. Nothing
-      is downloaded to scan. Where the browser has no reader, offline or not, the code is typed.
+      is downloaded to scan. Where the browser has no reader, offline or not, the code is typed. *(Amended 2026-11-17:
+      where ZXing reads, it is downloaded once, with the page's shell, and kept by the service worker; see the last item
+      of this section.)*
     - **The headers.** The form pages' `Content-Security-Policy` (`SecurityHeaders.FormsPolicy`) was read and **left
       unchanged**: a camera stream is given to the `<video>` as `srcObject`, which is not a URL fetch and so not governed
       by `media-src`, and the reader is a browser API, not a script source. **This server sends no `Permissions-Policy`
@@ -1049,13 +1053,15 @@ measurable question. The two device claims are, so they are conditions and not a
       that adds `Permissions-Policy: camera=()` would remove the Scan button's camera; the client then says *The camera
       could not be started* or *permission was refused*, and the box still works. `getUserMedia` needs a secure context,
       which a deployment already is (HTTPS) and `localhost` is.
-    - **No decoding library.** None is carried, by the brief and by the build-vs-adopt policy. *Open point for the owner,
+    - ~~**No decoding library.** None is carried, by the brief and by the build-vs-adopt policy. *Open point for the owner,
       not decided here:* Safari on iPhone and iPad, Firefox, and Chrome on Windows and Linux have **no `BarcodeDetector`**
       (MDN's compatibility table, as known to this session and not measured here, has it in Chrome and Edge on Android, ChromeOS and macOS only), so on those a person types the code. If the
       owner wants scanning on an iPhone, the only route a web client has is a decoding library run in the page on camera
       frames (for example ZXing's JavaScript port, Apache-2.0); that is a Tier 2 adoption under
       [build-vs-adopt-policy.md](../build-vs-adopt-policy.md), behind our own port, and it is a separate decision with its
-      own size and licence record.
+      own size and licence record.~~ **Decided by the owner 2026-11-17** (*"ZXing'i benimse"*): ZXing's JavaScript port is
+      adopted, behind our own port, with its size and licence record in `DEPENDENCY-LICENSES.md` — the last item of this
+      section.
     - **Tests.** Server: `AFormTakesABarcodeQuestionTests` (accepted and off the refused list; text field of 255 and of the
       given length; stored as text or not at all, a numeric field type refused; `minimal` and `hidden-answer` accepted and
       sent to the client, `hidden-answer` refused off a barcode; `barcodeType` accepted with a notice; `front`, `new-front`,
@@ -1079,6 +1085,64 @@ measurable question. The two device claims are, so they are conditions and not a
       and the person can still edit it; (6) ODK's `front` is not built, because the brief asked for the rear camera, and is
       refused as unknown rather than accepted and ignored.
     - The service worker's shell cache is not changed here (`fill.js` and `fill.css` changed); the merge sets it.
+    - **ZXing, where the browser has no reader — owner decision 2026-11-17** (*"ZXing'i benimse"*, the choice the open
+      point above asked for). A barcode question now **scans with the camera on every page that has a camera API**, not
+      only where the browser has `BarcodeDetector`: Safari on iPhone and iPad above all, and Firefox and Chrome on Windows
+      and Linux.
+      - **What was adopted.** `@zxing/library` **0.23.0**, the JavaScript port of ZXing, **Apache-2.0**, its build
+        `umd/index.min.js` copied byte for byte to `wwwroot/forms/zxing.min.js` (**362,150 bytes, 108 KB gzipped**). Fetched
+        from `registry.npmjs.org` only, into an empty directory, and checked against the registry's published `sha512`
+        integrity (matched); no install script was run. The package ships no smaller decoder-only build — one UMD bundle
+        holds every reader and writer, and its ES-module builds would need a bundler this project does not run. It bundles
+        `ts-custom-error` 3.3.1 (MIT), verified the same way. The row in `DEPENDENCY-LICENSES.md` holds the record and
+        `NOTICE` the two licence texts in full, following OpenLayers and qrcode-generator. Its README says the project is
+        **in maintenance mode**, which is the reason for the port below rather than a reason against it: the decoders are a
+        port of ZXing's long-standing Java ones.
+      - **Our port** (`wwwroot/forms/barcode-reader.js`, Tier 2 under
+        [build-vs-adopt-policy.md](../build-vs-adopt-policy.md)): `GraticulaBarcode.reader()` answers a promise of `null`
+        where the page has no `navigator.mediaDevices.getUserMedia`, and otherwise a reader with `engine` (`browser` or
+        `zxing`), `formats`, `prepare()` and `detect(videoOrCanvas)` → the first code's text or `null`. The browser's own
+        `BarcodeDetector` is used wherever it exists and gives a format, so Android Chrome is unchanged; ZXing everywhere
+        else, with thirteen formats (Aztec, Codabar, Code 39, 93 and 128, Data Matrix, EAN-8, EAN-13, ITF, PDF417, QR,
+        UPC-A, UPC-E). `fill.js` talks only to the port and never names a ZXing type (a test checks the file). ZXing reads
+        **a snapshot of the live video every 200 ms**, drawn to a canvas of at most 1280 px on its longer side.
+      - **Loaded lazily.** `zxing.min.js` is fetched only when **Scan is pressed on a browser without a reader of its
+        own** — at the same moment the camera is asked for — so a form without a barcode question, and every browser with
+        `BarcodeDetector`, never fetches it. If it cannot be loaded the camera is stopped and the question says *The code
+        reader could not be loaded. Connect once to download it, or type the code instead.*, the box is shown and takes
+        focus; a later Scan tries again.
+      - **Offline.** The port and the library are in the service worker's shell list beside `ol.js`, so they are kept
+        when the worker installs — the visit that makes "Download for offline use" possible — and a form opened with no
+        signal scans with ZXing exactly as online. Measured with the stand-in server stopped. The cost is that **every
+        device that opens a form downloads 108 KB more (gzipped) once, into its cache**, whether or not the form has a
+        barcode; that was chosen over fetching it only on the first scan, which would leave a device that never scanned
+        online unable to scan offline. The `SHELL_CACHE` name is not changed here; the merge sets it.
+      - **Where Scan appears now.** Wherever `getUserMedia` exists. Where it does not, the hint stays, and says why when
+        it can: on a page that is not a secure context (an `http://` address other than `localhost`, where browsers give
+        no camera API at all, iPhone Safari included) it reads *Scanning needs the form to be opened at an https address.
+        Type the code instead.*; elsewhere *This browser cannot scan codes. Type the code instead.* A deployment is HTTPS,
+        so the first is a misconfiguration's message rather than a user's.
+      - **iPhone.** The preview `<video>` already had `playsinline` and `muted` (Safari plays a camera inline and
+        autoplays only with both), and the camera is stopped on a value, Cancel, `pagehide`, the page being hidden and
+        every error, as before. **Not measured on an iPhone** — this session has none; the headless Chrome tests below
+        remove `BarcodeDetector`, which is the condition iPhone Safari is in, but not Safari's camera or its speed.
+      - **The headers.** `SecurityHeaders.FormsPolicy` is unchanged: the library is a script from this origin
+        (`script-src 'self'`), and it contains no `eval` and no `new Function` (searched, and checked by the test), so no
+        `unsafe-eval` is needed. Reading a canvas the page drew from its own camera taints nothing.
+      - **Tests** (`FormFillBarcodeTests`). With `BarcodeDetector` removed and the camera a canvas showing a real QR code
+        drawn by the vendored `qrcode.js`: the Scan button appears, ZXing is not in the page before Scan and is after it,
+        the code is read into the box, announced and sent, the one camera track is stopped, a second scan reuses the one
+        script; a library that cannot be fetched stops the camera and says so; the port and the library are in the
+        service worker's cache and a form opened with the server stopped still scans; the vendored file's SHA-256 is the
+        pinned one and it evaluates no strings; a page that is not a secure context gives the https hint. The earlier
+        no-reader tests now remove the camera API as well, since a camera alone now means a Scan button.
+        `FormFillPageTests`' offline test also checks the real server's cache holds both files.
+      - **INFERRED, for the owner to confirm:** (7) the library is part of the offline shell for every form, as `ol.js`
+        is, rather than fetched only by forms with a barcode question — 108 KB gzipped per device, once; (8) the browser's
+        own reader is preferred wherever it exists, and ZXing is never used beside it, because it is faster and costs no
+        download; (9) ZXing reads at most 1280 px of each frame and does not run its slower "try harder" mode, to keep a
+        200 ms cadence on a phone — a code that is hard to read is typed; (10) a library that fails to load is said as its
+        own message, distinct from a camera failure, because what helps (a signal) is different.
 
 23. **`search()` and `pulldata("@layer")` — built 2026-11-16, by owner decision (*"Yap"*).** §5.10 refused both: `search()`
     because *"dynamic choices from a CSV are not in the first version"*, `@layer` because *"an offline client would need a
