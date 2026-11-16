@@ -291,7 +291,7 @@ measurable question. The two device claims are, so they are conditions and not a
      that no longer exists is refused by the server, and the record is kept on the device, marked, and shown to its
      author rather than lost or silently trimmed;
    - (g) Esri's Survey123 apps opening Graticula's forms is **not** a goal;
-   - (h) a report per record (Survey123's *feature report*) is a later ADR, built on the print service
+   - (h) a report per record (Survey123's *feature report*) is a later ADR, built on the print service — *written 2026-11-17 as [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md), on an engine of its own; the print service gives it neither the document nor PDF (ADR-301 §1, §5.7)*
      ([ADR-265](ADR-265-the-server-prints-a-web-map.md)) and not on Word templates;
    - (i) the server checks what a database can check (types, lengths, domains, required fields that are not
      conditional) and does **not** re-evaluate the form's XPath logic. A second evaluator in C# would drift from the
@@ -1414,7 +1414,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
 [ADR-266](ADR-266-a-webhook-tells-another-system-what-changed.md). It leaves
 [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) standing (§5.6).
 
-**Depended on by**: the feature-report ADR, when written (§5.9 (h)).
+**Depended on by**: [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md), the feature report (§5.9 (h)), written 2026-11-17 — not on the print service, as (h) expected; ADR-301 §1 says why.
 
 ## 9. Conditions
 
