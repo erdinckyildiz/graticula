@@ -85,7 +85,10 @@ values stay. Refused while own-only is on.
 
 ## 9. Revisit triggers
 
-- Somebody needs editors to see only their own features, which needs per-caller reads and tiles.
+- Somebody needs editors to see only their own features, which needs per-caller reads and tiles. **Arrived 2026-11-16,
+  for views only:** a form's Inbox ([ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md)) is a
+  view whose filter names its reader, read per request by the database, with tiles off. A layer itself still answers
+  every reader alike.
 
 ## 10. Conditions
 

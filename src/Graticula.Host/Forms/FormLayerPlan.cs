@@ -98,7 +98,8 @@ public sealed record FormLayerPlan(
                 columns[column] = question;
                 PlannedDomain? domain = null;
 
-                if (question.Type == "select_one" && question.Argument is { } list && definition.ChoiceLists.TryGetValue(list, out IReadOnlyList<FormChoice>? choices))
+                // A search() list's one row names columns, not answers (§5.23), so it makes no domain.
+                if (question.Type == "select_one" && question.Search is null && question.Argument is { } list && definition.ChoiceLists.TryGetValue(list, out IReadOnlyList<FormChoice>? choices))
                 {
                     if (!domains.TryGetValue(list, out domain))
                     {

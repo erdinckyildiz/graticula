@@ -68,6 +68,7 @@ public static partial class FormEndpoints
         app.MapPost("/admin/forms/{id}/publish", PublishAsync);
         app.MapPut("/admin/forms/{id}/sharing", ShareAsync);
         app.MapGet("/forms/{id}/form.json", ClientAsync);
+        MapInbox(app);
         app.MapGet("/forms/{id:regex(^[0-9a-fA-F]{{32}}$)}", PageAsync);
         app.MapGet("/forms/preview", (HttpContext context, CancellationToken cancellation) => PageAsync(context, "preview", cancellation));
 
@@ -128,6 +129,12 @@ public static partial class FormEndpoints
         if (!check.Accepted)
         {
             return Refusal(check.Refusals, check.Notices, "The form was not added.");
+        }
+
+        // §5.23: a layer the form queries is this server's, as at publish, so an upload says so at once.
+        if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
+        {
+            return Refusal(unqueryable, check.Notices, "The form was not added.");
         }
 
         title ??= check.Definition!.Settings.Title ?? "Form";
@@ -237,7 +244,8 @@ public static partial class FormEndpoints
         // A stored form's plan is named as publishing will name it, after its title; anything else after the id given.
         string fallback = (await ManagedFormAsync(context, id, "check", cancellation).ConfigureAwait(false)).Document?.Title ?? id;
         FormLayerPlan? plan = check.Definition is { } definition ? FormLayerPlan.For(definition, fallback) : null;
-        IReadOnlyList<FormIssue> refusals = [.. check.Refusals, .. plan?.Refusals ?? []];
+        IReadOnlyList<FormIssue> refusals = [.. check.Refusals, .. plan?.Refusals ?? [],
+            .. check.Definition is { } queried ? await QueriedLayerProblemsAsync(context, queried, cancellation).ConfigureAwait(false) : []];
 
         return Results.Json(new
         {
@@ -303,6 +311,11 @@ public static partial class FormEndpoints
             return Refusal(missing, check.Notices, "The form was not published.");
         }
 
+        if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
+        {
+            return Refusal(unqueryable, check.Notices, "The form was not published.");
+        }
+
         // ADR-287 §5.17: a form that names a layer writes to it and makes none.
         if (check.Definition!.Settings.SubmissionUrl is not null)
         {
@@ -337,6 +350,16 @@ public static partial class FormEndpoints
                 return Error(opened, $"The form was published, but its answers could not be opened to its sharing: {why ?? "no reason given"}. Share it again.");
             }
         }
+
+        // ADR-300 §5.1: a form whose Inbox was turned on before it was published has it from now.
+        (int boxed, string? boxedWhy) = await SyncInboxAsync(
+            context, document, publication, null, document.Sharing, document.SharedWithNames ?? [], cancellation).ConfigureAwait(false);
+
+        if (boxed is < 200 or >= 300)
+        {
+            return Error(boxed, $"The form was published, but its Inbox could not be made: {boxedWhy ?? "no reason given"}. Turn it on again.");
+        }
+
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.publish", document.Id,
             AdminEndpoints.Detail(new { service = plan.ServiceName, layers = plan.Layers.Count }), succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -676,6 +699,11 @@ public static partial class FormEndpoints
             return Refusal(missing, check.Notices, "The form was not published again.");
         }
 
+        if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
+        {
+            return Refusal(unqueryable, check.Notices, "The form was not published again.");
+        }
+
         if (await RepublishToExistingAsync(context, document, model, check, plan, publication, cancellation).ConfigureAwait(false) is { } handled)
         {
             return handled;
@@ -764,8 +792,10 @@ public static partial class FormEndpoints
         }
 
         // The answers view goes first, so the source takes new fields with no view depending on them, and comes back last
-        // — made again whatever happened between, so a shared form never stays without one.
+        // — made again whatever happened between, so a shared form never stays without one. The Inbox view likewise
+        // (ADR-300 §5.1): its columns are fixed when it is made too, and publishing again keeps it.
         string? view = (string?)publication["submitService"];
+        await RemoveInboxAsync(context, publication, cancellation).ConfigureAwait(false);
 
         if (view is not null)
         {
@@ -860,6 +890,14 @@ public static partial class FormEndpoints
                 {
                     (status, message) = (opened, $"The form was published again, but its answers view could not be made again: {why ?? "no reason given"}. Share it again.");
                 }
+            }
+
+            (int boxed, string? boxedWhy) = await SyncInboxAsync(
+                context, document, publication, null, document.Sharing, document.SharedWithNames ?? [], CancellationToken.None).ConfigureAwait(false);
+
+            if (boxed is < 200 or >= 300 && status is >= 200 and < 300)
+            {
+                (status, message) = (boxed, $"The form was published again, but its Inbox could not be made again: {boxedWhy ?? "no reason given"}. Turn it on again.");
             }
         }
 
@@ -965,6 +1003,18 @@ public static partial class FormEndpoints
 
         await services.GetRequiredService<IDocumentStore>().UpdateAsync(document.Id, document.Title, document.Snippet, scope, cancellation)
             .ConfigureAwait(false);
+
+        // ADR-300 §5.1: the Inbox is shared as the form is — never with everyone — so it is made again for the new sharing.
+        if (publication is not null)
+        {
+            (int boxed, string? boxedWhy) = await SyncInboxAsync(
+                context, document, publication, null, scope, scope == SharingScope.Group ? wanted : [], cancellation).ConfigureAwait(false);
+
+            if (boxed is < 200 or >= 300)
+            {
+                return Error(boxed, $"The form was shared as '{word}', but its Inbox could not follow: {boxedWhy ?? "no reason given"}. Turn the Inbox on again.");
+            }
+        }
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.share", document.Id,
             AdminEndpoints.Detail(new { sharing = word, view = (string?)publication?["submitService"] }), succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -1188,6 +1238,12 @@ public static partial class FormEndpoints
         if (check.Definition is null)
         {
             return Error(409, "The form cannot be filled in: it no longer passes its check.");
+        }
+
+        // ADR-300 §5.1: the Inbox is for signed-in members; an anonymous caller is not told it exists.
+        if (current.Principal.IsAnonymous)
+        {
+            WithoutInbox(publication);
         }
 
         return Results.Json(new { id = document.Id, title = document.Title, form = FormCompiled.Json(check.Definition), publication });

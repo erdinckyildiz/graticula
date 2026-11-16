@@ -1941,6 +1941,12 @@ public static class Program
             RestDirectory.SignedInAs(
                 current.Principal.IsAnonymous ? null : current.QualifiedName);
 
+            // <b>ADR-300 §5.3: every layer statement of this request is read for this member</b>, and for nobody when
+            // nobody signed in — a per-reader view gives each their own rows, and anonymous none. An AsyncLocal, so it
+            // flows into what the request awaits and never into another request.
+            using IDisposable reader = Graticula.Providers.PostGis.ReaderSession.Enter(
+                current.Principal.IsAnonymous ? null : current.QualifiedName);
+
             try
             {
                 await next(context).ConfigureAwait(false);
@@ -5294,7 +5300,8 @@ public static class Program
         // accepted and ignored, so the caller was told its edits succeeded as a different edit than
         // the one it sent. `query` has refused a parameter it could not honour since 2026-08-15
         // and this route had never been held to the same rule.
-        if (EditParameterRefusal(form, context, globalIdsHonoured: operation == EditOperation.Apply) is { } refusedParameter)
+        if (EditParameterRefusal(form, context, globalIdsHonoured: operation == EditOperation.Apply,
+                expectedDatesHonoured: operation == EditOperation.Apply) is { } refusedParameter)
         {
             await Results.Json(
                 new { error = new { code = 400, message = refusedParameter, details = Array.Empty<string>() } },
@@ -5361,7 +5368,8 @@ public static class Program
         // pass a privilege test to be told the service is refusing.
         if (await PrepareEditAsync(
                 context, layer, adds, updates, deletes, RollbackOnFailure(form, context), contexts, cancellation,
-                UsesGlobalIds(form, context) ? connections : null)
+                UsesGlobalIds(form, context) ? connections : null,
+                operation == EditOperation.Apply ? Field(form, context, ExpectedEditDates.Parameter) : null)
             .ConfigureAwait(false) is not { } prepared)
         {
             return;
@@ -5373,6 +5381,15 @@ public static class Program
             .WriterFor(layer, description.Fields, description.Tracking, description.Subtypes)
             .ApplyAsync(batch, cancellation)
             .ConfigureAwait(false);
+
+        // ADR-300 §5.5: the compared updates' results carry their GlobalIDs and the form client's words.
+        bool preconditions = false;
+
+        if (context.Items[ExpectedEditDates.ItemKey] is ExpectedEditDates.Report report)
+        {
+            outcome = ExpectedEditDates.Decorate(outcome, report);
+            preconditions = true;
+        }
 
         DateTimeOffset? editMoment = string.Equals(
                 Field(form, context, "returnEditMoment"), "true", StringComparison.OrdinalIgnoreCase)
@@ -5395,7 +5412,7 @@ public static class Program
                 ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Update, editMoment),
             EditOperation.Delete =>
                 ApplyEditsResponse.One(outcome, parsed, ApplyEditsResponse.EditKind.Delete, editMoment),
-            _ => ApplyEditsResponse.Build(outcome, parsed, editMoment),
+            _ => ApplyEditsResponse.Build(outcome, parsed, editMoment, preconditions),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -5409,7 +5426,8 @@ public static class Program
     /// they describe is the one applied to the only version there is, so ignoring them loses
     /// nothing. <c>useGlobalIds=false</c> and an empty <c>attachments</c> ask for nothing extra.
     /// </remarks>
-    internal static string? EditParameterRefusal(IFormCollection form, HttpContext context, bool globalIdsHonoured = false)
+    internal static string? EditParameterRefusal(
+        IFormCollection form, HttpContext context, bool globalIdsHonoured = false, bool expectedDatesHonoured = false)
     {
         // <b>Honoured by applyEdits since 2026-09-15</b> (<see cref="GlobalIdEdits"/>); the single
         // operations take object ids by definition — deleteFeatures names its parameter objectIds.
@@ -5418,6 +5436,14 @@ public static class Program
         {
             return "useGlobalIds=true is honoured by applyEdits, not by this operation, which addresses "
                 + "features by objectId. Send the edit to applyEdits, or identify the features by objectId.";
+        }
+
+        // ADR-300 §5.5: compared by a layer's applyEdits alone, whose object ids are that layer's. Refused elsewhere rather
+        // than ignored, since ignoring it would apply an edit its client asked to have refused if the record had moved.
+        if (!expectedDatesHonoured && Field(form, context, ExpectedEditDates.Parameter) is not null)
+        {
+            return "expectedEditDates is compared by a layer's applyEdits, not by this operation. Send the updates to "
+                + "the layer's applyEdits.";
         }
 
         string? attachments = Field(form, context, "attachments")?.Trim();
@@ -5997,7 +6023,8 @@ public static class Program
         bool rollbackOnFailure,
         ServiceContexts contexts,
         CancellationToken cancellation,
-        LayerConnections? byGlobalId = null)
+        LayerConnections? byGlobalId = null,
+        string? expectedEditDates = null)
     {
         if (await RefusedByCeilingAsync(context, layer, adds, updates, deletes)
             .ConfigureAwait(false))
@@ -6005,12 +6032,34 @@ public static class Program
             return null;
         }
 
+        Task RefuseRequest(string message) =>
+            Results.Json(new { error = new { code = 400, message, details = Array.Empty<string>() } }, statusCode: StatusCodes.Status400BadRequest)
+                .ExecuteAsync(context);
+
+        // ADR-300 §5.5: read before anything is resolved, so a malformed one refuses the request and nothing else is asked.
+        Dictionary<string, long?>? expectedDates = null;
+
+        if (expectedEditDates is not null)
+        {
+            if (!ExpectedEditDates.TryParse(expectedEditDates, out Dictionary<string, long?> read, out string? unreadableDates))
+            {
+                await RefuseRequest(unreadableDates!).ConfigureAwait(false);
+                return null;
+            }
+
+            expectedDates = read;
+        }
+
+        Dictionary<Guid, long>? resolvedGlobalIds = null;
+        HashSet<long> placeholders = [];
+
         // <b>Whose layer it is, for adds, updates and deletes alike — ADR-075.</b> Adds used to ask
         // for features:edit and changes for features:fullEdit or, on a tracked layer, the caller's
         // own features (ADR-064); none of it asked whose layer this was. Owner, administrator or a
         // shared-update group now, and one question for all three kinds of edit.
         if ((adds is not null || updates is not null || deletes is not null)
-            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: updates is null && deletes is null)
+            && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: updates is null && deletes is null,
+                    updatesThroughView: updates is not null && deletes is null && (adds is null || Authorize.AddsThroughView(layer)))
                 .ConfigureAwait(false))
         {
             return null;
@@ -6045,6 +6094,25 @@ public static class Program
             IReadOnlyDictionary<Guid, long> objectIds = await byGlobalId
                 .ObjectIdsOfAsync(layer, globalIdField, referenced, cancellation)
                 .ConfigureAwait(false);
+
+            // <b>ADR-300 §5.5: with expectedEditDates, a GlobalID nothing carries is that feature's 404, not the request's
+            // 400</b> — a record deleted while its device was offline. It stands as an identity no row has, so the writer
+            // answers it as missing in its place, and the response gives it back its GlobalID.
+            if (expectedDates is not null)
+            {
+                Dictionary<Guid, long> withPlaceholders = new(objectIds);
+                long next = long.MaxValue;
+
+                foreach (Guid absent in referenced.Where(r => !objectIds.ContainsKey(r)))
+                {
+                    withPlaceholders[absent] = next;
+                    placeholders.Add(next);
+                    next--;
+                }
+
+                objectIds = withPlaceholders;
+                resolvedGlobalIds = withPlaceholders;
+            }
 
             (updates, deletes) = GlobalIdEdits.Rewrite(
                 updates, deletes, globalIdField, layer.Definition.IntegerIdentityColumn!, objectIds, out List<Guid> missing);
@@ -6106,6 +6174,21 @@ public static class Program
             return null;
         }
 
+        Dictionary<long, long?>? expectsEdited = null;
+
+        if (expectedDates is not null)
+        {
+            if (!ExpectedEditDates.TryResolve(expectedDates, resolvedGlobalIds, out Dictionary<long, long?> byIdentity, out string? unresolved))
+            {
+                await RefuseRequest(unresolved!).ConfigureAwait(false);
+                return null;
+            }
+
+            expectsEdited = byIdentity;
+            context.Items[ExpectedEditDates.ItemKey] = new ExpectedEditDates.Report(
+                resolvedGlobalIds?.ToDictionary(pair => pair.Value, pair => pair.Key) ?? [], placeholders);
+        }
+
         // <b>The account signs what it writes, and own-only rides on the batch — ADR-064.</b> The
         // writer fills a tracked layer's creator and editor columns with this name and, for a
         // features:edit caller, changes only rows whose creator it is.
@@ -6114,6 +6197,7 @@ public static class Program
             Editor = context.Features.Get<RequestPrincipal>()!.QualifiedName,
             OwnOnly = OwnOnlyFor(context, layer, description),
             KeepsGlobalIds = byGlobalId is not null,
+            ExpectsEdited = expectsEdited,
         });
     }
 

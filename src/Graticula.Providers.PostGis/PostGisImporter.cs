@@ -241,7 +241,7 @@ public sealed partial class PostGisImporter
         try
         {
             NpgsqlConnection connection =
-                await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
             if (permit is not null)
             {
@@ -1394,13 +1394,19 @@ public sealed partial class PostGisImporter
     /// <param name="filterSql">The parsed filter's SQL, or null or empty for every row.</param>
     /// <param name="parameters">Its <c>@wN</c> values, in order.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="checkOption">
+    /// Whether a row written through the view must be one the view shows — <c>WITH CASCADED CHECK OPTION</c>. Always so for a
+    /// filter that names its reader (ADR-300 §5.7): a member adds and changes only rows that stay theirs; and asked for by a
+    /// form's Inbox for its repeats, so a repeat row is added only under a record the reader has.
+    /// </param>
     public async Task CreateViewAsync(
         string sourceTable,
         string viewTable,
         string identityColumn,
         string? filterSql,
         IReadOnlyList<object?> parameters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool checkOption = false)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         RefuseOutsideHosted(HostedSchema, sourceTable, "make a view of");
@@ -1435,6 +1441,17 @@ public sealed partial class PostGisImporter
                 }
             }
 
+            // <b>ADR-300 §5.2: the reader's name is the database's to fill.</b> A filter that names <c>${username}</c> was
+            // parsed with the variable standing as <see cref="ReaderSession.Marker"/>; that one value becomes the setting
+            // every layer statement carries, so each reader's rows are their own, and an unset name matches nothing.
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                if (parameters[i] is string value && string.Equals(value, ReaderSession.Marker, StringComparison.Ordinal))
+                {
+                    literals[i] = ReaderSession.Expression;
+                }
+            }
+
             for (int i = parameters.Count - 1; i >= 0; i--)
             {
                 where = where.Replace($"@w{i}", literals[i], StringComparison.Ordinal);
@@ -1442,10 +1459,13 @@ public sealed partial class PostGisImporter
         }
 
         string filter = where.Length > 0 ? $" where ({where})" : string.Empty;
+        bool perReader = parameters.Any(p => p is string text && string.Equals(text, ReaderSession.Marker, StringComparison.Ordinal));
+        string check = filter.Length > 0 && (checkOption || perReader) ? " with cascaded check option" : string.Empty;
 
+        // CREATE OR REPLACE replaces a view's options too, so a filter remade without one loses its check option.
         await ExecuteAsync(
             connection, transaction,
-            $"create or replace view {Qualified(viewTable)} as select s.*, s.xmin as xmin from {Qualified(sourceTable)} s{filter}",
+            $"create or replace view {Qualified(viewTable)} as select s.*, s.xmin as xmin from {Qualified(sourceTable)} s{filter}{check}",
             cancellationToken).ConfigureAwait(false);
 
         string attachments = sourceTable + PostGisAttachmentStore.Suffix;

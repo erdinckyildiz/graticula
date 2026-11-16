@@ -101,7 +101,7 @@ the first thing that would make an ArcGIS user distrust it.
 `layer.view_definition text null`, the filter as it was written. A view service's layers keep the source layers'
 indices.
 
-5.2 **Data.** One PostgreSQL view per view layer in the hosted schema, over the source layer's table, with the filter
+5.2 **Data.** *(Amended 2026-11-16 by [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md): a view's filter may name its reader, `${username}`, which the database reads per request.)*  One PostgreSQL view per view layer in the hosted schema, over the source layer's table, with the filter
 as its `where`; one more over the source's attachment table, filtered to the rows the first can see, when the source
 has attachments. Changing a filter replaces the view (`create or replace view`).
 

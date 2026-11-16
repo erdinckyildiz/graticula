@@ -167,8 +167,11 @@ internal static partial class AdminEndpoints
         {
             // <b>The ceiling is what was asked, so an add-only view offers no Query</b> — Survey123's shape — and the
             // edits offered are the same list without it (ADR-113 §5.3).
+            // <b>A view whose filter names its reader serves no tiles — ADR-300 §5.4</b>: a tile is kept per layer and
+            // would be the first reader's rows for everybody. Off before anything can be shared.
+            bool perReader = plan.Any(p => ReaderFilters.Names(p.Written));
             await catalog.SetServiceCapabilitiesAsync(
-                viewName, view.Folder, new ServiceCapabilityLimits(null, null, capabilities, null), cancellation).ConfigureAwait(false);
+                viewName, view.Folder, new ServiceCapabilityLimits(null, perReader ? false : null, capabilities, null), cancellation).ConfigureAwait(false);
             await catalog.SetEditingOfferedAsync(
                 viewName, view.Folder, [.. capabilities.Where(c => c != "Query")], cancellation).ConfigureAwait(false);
         }
@@ -506,6 +509,17 @@ internal static partial class AdminEndpoints
             parsed.Value.Sql, parsed.Value.Parameters, cancellation).ConfigureAwait(false);
 
         string? written = string.IsNullOrWhiteSpace(request.Definition) ? null : request.Definition.Trim();
+
+        // ADR-300 §5.4: a filter changed to name its reader turns the view's tiles off before the new filter is recorded;
+        // the layer's own rule (VectorTileEndpoints.Tileable) already refuses them from the record on.
+        if (ReaderFilters.Names(written) && view.Limits.ServesTiles != false)
+        {
+            await catalog.SetServiceCapabilitiesAsync(
+                view.Name, view.Folder,
+                new ServiceCapabilityLimits(view.Limits.ServesFeatures, false, view.Limits.Ceiling, view.Limits.StatementTimeout),
+                cancellation).ConfigureAwait(false);
+        }
+
         await catalog.SetViewDefinitionAsync(layer.Id, written, cancellation).ConfigureAwait(false);
 
         contexts.Forget(layer);
@@ -518,7 +532,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>A view filter parsed against its source layer's columns, as a query's <c>where</c> is.</summary>
-    private static async Task<(ParsedWhere? Parsed, string? Why)> ParseViewFilterAsync(
+    internal static async Task<(ParsedWhere? Parsed, string? Why)> ParseViewFilterAsync(
         ServiceContexts contexts, PublishedLayer source, string? written, CancellationToken cancellation)
     {
         if (string.IsNullOrWhiteSpace(written))
@@ -534,9 +548,15 @@ internal static partial class AdminEndpoints
             types[field.Name] = field.Type;
         }
 
-        return WhereClause.TryParse(
-                written, [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote, out ParsedWhere parsed, out string? error, types)
-            ? (parsed, null)
-            : (null, error);
+        // ADR-300 §5.2: `${username}` stands as a marked literal while the filter is parsed, so the filter is accepted
+        // and refused exactly as any view filter is, and the view's DDL puts the reader's setting where the literal is.
+        if (!WhereClause.TryParse(
+                ReaderFilters.Prepare(written), [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote,
+                out ParsedWhere parsed, out string? error, types))
+        {
+            return (null, ReaderFilters.Words(error));
+        }
+
+        return ReaderFilters.Misplaced(parsed) is { } misplaced ? (null, misplaced) : (parsed, null);
     }
 }

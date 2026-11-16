@@ -128,7 +128,7 @@ public sealed class PostGisRelatedRecords : IRelatedRecords
 
         System.Threading.Interlocked.Increment(ref _queriesIssued);
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand(sql);
         command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Bigint)
         {
             Value = objectIds,

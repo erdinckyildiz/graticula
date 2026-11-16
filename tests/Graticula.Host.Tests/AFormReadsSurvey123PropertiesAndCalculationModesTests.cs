@@ -58,7 +58,7 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
     [InlineData("appVersion", "build number")]
     [InlineData("portalInfo", "JSON object")]
     [InlineData("token", "credential")]
-    [InlineData("submissionUrl", "@layer")]
+    [InlineData("submissionUrl", "view made for the form")]
     [InlineData("locale", "@javascript")]
     [InlineData("localeInfo", "@javascript")]
     public void A_property_a_browser_cannot_give_is_refused_by_name_with_its_reason(string name, string reason)
@@ -137,7 +137,8 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
     [Fact]
     public void The_other_pulldata_sources_stay_refused_with_their_reasons()
     {
-        RefusedAt(WithCalculation("pulldata('@layer', 'a', 'b', 'c')"), 3, "calculation", "copy of that layer");
+        // @layer is built since §5.23; a call it does not know is refused by its operation (AFormSearchesACsvOrALayerTests).
+        RefusedAt(WithCalculation("pulldata('@layer', 'a', 'b', 'c')"), 3, "calculation", "not an operation of pulldata");
         RefusedAt(WithCalculation("pulldata('@json', 'a', 'b')"), 3, "calculation", "JSON");
         RefusedAt(WithCalculation("pulldata('@javascript', 'f.js', 'run')"), 3, "calculation", "script");
         RefusedAt(WithCalculation("pulldata('@exif', ${konum}, 'x')"), 3, "calculation", "metadata of a photo");
@@ -200,6 +201,30 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
         RefusedAt(Checked(["hidden", "h", "", "", "1", "", "calculationMode=manual"]), 2, "bind::esri:parameters", "Calculate button");
         RefusedAt(Checked(["text", "t", "T", "", "1", "hidden", "calculationMode=manual"]), 2, "bind::esri:parameters", "Calculate button");
         Accepted(Checked(["text", "t", "T", "", "1", "", "calculationMode=manual"]));
+    }
+
+    [Fact]
+    public void A_repeat_takes_allowAdds_and_allowUpdates_and_says_them_to_the_client()
+    {
+        // ADR-300 §5.7: Survey123's repeat parameters, read for the Inbox; absent, adds are allowed and updates are not.
+        FormCheck check = Checked(
+            ["begin repeat", "katlar", "Katlar", "", "", "", "allowAdds=false allowUpdates=true"], ["integer", "kat", "Kat"], ["end repeat"],
+            ["begin repeat", "odalar", "Odalar"], ["text", "oda", "Oda"], ["end repeat"]);
+
+        Accepted(check);
+        JsonArray body = Assert.IsType<JsonArray>(FormCompiled.Json(check.Definition!)["root"]!["body"]);
+        Assert.False((bool)body[0]!["parameters"]!["allowAdds"]!);
+        Assert.True((bool)body[0]!["parameters"]!["allowUpdates"]!);
+        Assert.True((bool)body[1]!["parameters"]!["allowAdds"]!);
+        Assert.False((bool)body[1]!["parameters"]!["allowUpdates"]!);
+    }
+
+    [Fact]
+    public void A_repeats_query_or_another_parameter_or_value_is_refused_by_name()
+    {
+        RefusedAt(Checked(["begin repeat", "r", "R", "", "", "", "query=kat > 1"], ["text", "t", "T"], ["end repeat"]), 2, "bind::esri:parameters", "query is refused");
+        RefusedAt(Checked(["begin repeat", "r", "R", "", "", "", "allowDeletes=true"], ["text", "t", "T"], ["end repeat"]), 2, "bind::esri:parameters", "'allowDeletes' is refused");
+        RefusedAt(Checked(["begin repeat", "r", "R", "", "", "", "allowAdds=sometimes"], ["text", "t", "T"], ["end repeat"]), 2, "bind::esri:parameters", "true or false");
     }
 
     [Fact]

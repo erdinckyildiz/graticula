@@ -128,6 +128,56 @@ public static partial class FormEndpoints
             : (null, Refusal(match.Refusals, check.Notices, what));
     }
 
+    /// <summary>
+    /// The layers a form's search() appearances and pulldata("@layer") calls name, checked as a <c>submission_url</c> is
+    /// (§5.17): on this server, there, and readable by whoever publishes the form — ADR-287 §5.23. Each problem is a
+    /// refusal at the row and column the address is written in. The query itself is the member's, with their own sign-in,
+    /// so this check widens nothing; it only stops a form going out that would ask another server, or a layer that is not.
+    /// </summary>
+    private static async Task<List<FormIssue>> QueriedLayerProblemsAsync(HttpContext context, FormDefinition definition, CancellationToken cancellation)
+    {
+        List<FormIssue> problems = [];
+
+        if (definition.QueriedLayers.Count == 0)
+        {
+            return problems;
+        }
+
+        string host = context.Request.Host.Value ?? string.Empty;
+        string pathBase = context.Request.PathBase.Value ?? string.Empty;
+        PostgresLayerCatalog catalogue = context.RequestServices.GetRequiredService<PostgresLayerCatalog>();
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        foreach (QueriedLayer queried in definition.QueriedLayers)
+        {
+            if (FormLayerQuery.Foreign(queried.Address, queried.Url, host, context.Request.Scheme) is { } foreign)
+            {
+                problems.Add(new FormIssue(queried.Sheet, queried.Row, queried.Column, foreign));
+                continue;
+            }
+
+            string path = queried.Url.Split('?')[0];
+
+            if (!SubmissionTarget.TryParse(path, out SubmissionAddress? address, out string? why, pathBase))
+            {
+                problems.Add(new FormIssue(queried.Sheet, queried.Row, queried.Column, why!));
+                continue;
+            }
+
+            PublishedService? service = await catalogue.FindServiceAsync(address!.Folder, address.Service, cancellation).ConfigureAwait(false);
+            PublishedLayer? layer = service?.LayersAndTables.FirstOrDefault(l => l.LayerIndex == address.Layer);
+
+            // A layer the publisher cannot read is answered as one that is not there, as the REST API answers it.
+            if (layer is null || !LayerAccess.Evaluate(layer.Sharing, layer.Owner, current.Principal, current.Authorization, layer.SharedWith).IsAllowed())
+            {
+                problems.Add(new FormIssue(queried.Sheet, queried.Row, queried.Column,
+                    $"There is no layer {address.Layer} in a feature service '{address.Service}' on this server that you can read, at '{queried.Url}'."));
+            }
+        }
+
+        return problems;
+    }
+
     /// <summary>What the form client and the results screen read: the same shape publishing a new layer writes.</summary>
     private static JsonObject ExistingPublication(Target target, FormDefinition definition, JsonObject? before)
     {
@@ -193,6 +243,15 @@ public static partial class FormEndpoints
             }
         }
 
+        // ADR-300 §5.1, §5.17: over the layer the form writes to, where it is a hosted layer its publisher manages.
+        (int boxed, string? boxedWhy) = await SyncInboxAsync(
+            context, document, publication, null, document.Sharing, document.SharedWithNames ?? [], cancellation).ConfigureAwait(false);
+
+        if (boxed is < 200 or >= 300)
+        {
+            return Error(boxed, $"The form was published, but its Inbox could not be made: {boxedWhy ?? "no reason given"}. Turn it on again.");
+        }
+
         await AdminEndpoints.AuditAsync(context, services.GetRequiredService<IAuditLog>(), "form.publish", document.Id,
             AdminEndpoints.Detail(new { service = target.Service.Name, layers = target.Match.Matched.Count, existing = true }), succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -248,6 +307,9 @@ public static partial class FormEndpoints
         JsonObject updated = ExistingPublication(target, check.Definition, publication);
         string? view = (string?)publication["submitService"];
 
+        // ADR-300 §5.1: the Inbox is made again over the layers as they are now, below.
+        await RemoveInboxAsync(context, publication, cancellation).ConfigureAwait(false);
+
         // The answers view is made over the layers the form writes to. When a new repeat brings another one in, it is made
         // again, as publishing again does for a new form; when the set is the same it stays as it is.
         bool remake = view is not null && !before.SequenceEqual(LayerNumbers(updated));
@@ -280,6 +342,14 @@ public static partial class FormEndpoints
             {
                 return Error(opened, $"The form was published again, but its answers view could not be made again: {why ?? "no reason given"}. Share it again.");
             }
+        }
+
+        (int boxed, string? boxedWhy) = await SyncInboxAsync(
+            context, document, updated, null, document.Sharing, document.SharedWithNames ?? [], cancellation).ConfigureAwait(false);
+
+        if (boxed is < 200 or >= 300)
+        {
+            return Error(boxed, $"The form was published again, but its Inbox could not be made again: {boxedWhy ?? "no reason given"}. Turn it on again.");
         }
 
         await WritePublishedModelAsync(context, document.Id, model, cancellation).ConfigureAwait(false);

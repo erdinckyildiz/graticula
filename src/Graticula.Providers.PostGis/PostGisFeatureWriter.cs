@@ -78,7 +78,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
 
         try
         {
-            await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+            await using NpgsqlCommand command = _dataSource.CreateReaderCommand(sql);
             command.Parameters.AddWithValue("srid", srid);
             command.Parameters.AddWithValue("ids", identities.ToArray());
 
@@ -244,7 +244,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         ArgumentNullException.ThrowIfNull(batch);
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction = await connection
             .BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken)
@@ -459,7 +459,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return found;
         }
 
-        await using NpgsqlCommand command = dataSource.CreateCommand(
+        await using NpgsqlCommand command = dataSource.CreateReaderCommand(
             $"select {LayerDefinition.Quote(globalIdColumn)}, {LayerDefinition.Quote(layer.IntegerIdentityColumn!)}::bigint "
             + $"from {LayerDefinition.Quote(layer.SchemaName)}.{LayerDefinition.Quote(layer.TableName)} "
             + $"where {LayerDefinition.Quote(globalIdColumn)} = any(@ids)");
@@ -587,6 +587,42 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             ? [.. versions]
             : null;
 
+    /// <summary>The EditDate a batch expects one row to have, in epoch milliseconds or null for none — ADR-300 §5.5.</summary>
+    /// <param name="Milliseconds">The moment, or null where the row is expected never to have been dated.</param>
+    private readonly record struct EditedExpectation(long? Milliseconds);
+
+    /// <summary>What this batch expects one row's EditDate to be, or null for no such precondition.</summary>
+    private static EditedExpectation? EditedOf(EditBatch batch, long identity) =>
+        batch.ExpectsEdited is { } expects && expects.TryGetValue(identity, out long? moment)
+            ? new EditedExpectation(moment)
+            : null;
+
+    /// <summary>
+    /// The EditDate comparison, to the millisecond — ADR-300 §5.5 and §5.9 (d).
+    /// </summary>
+    /// <remarks>
+    /// <b>Truncated, as the answer the caller downloaded was.</b> A query writes a date as whole epoch milliseconds, so the
+    /// stored microseconds are cut before comparing; <c>extract(epoch …)</c> reads a <c>timestamp</c> as the UTC it is in
+    /// a layer's session (<c>LayerConnections.InUtc</c>) and a <c>timestamptz</c> as its instant, so either column type
+    /// compares with what the client holds. In the update's own <c>where</c>, beside <c>xmin</c>, so it is atomic.
+    /// </remarks>
+    private string EditedPredicate(EditedExpectation edited)
+    {
+        string column = LayerDefinition.Quote(_tracking.Edited!);
+
+        return edited.Milliseconds is null
+            ? $"{column} is null"
+            : $"(extract(epoch from date_trunc('milliseconds', {column})) * 1000)::bigint = @expectedEdited";
+    }
+
+    private static void BindEdited(NpgsqlCommand command, EditedExpectation? edited)
+    {
+        if (edited is { Milliseconds: { } milliseconds })
+        {
+            command.Parameters.AddWithValue("expectedEdited", milliseconds);
+        }
+    }
+
     /// <summary>
     /// What a precondition says about one row: gone, at the version asked for, or moved on.
     /// </summary>
@@ -623,24 +659,35 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
     /// <param name="connection">The connection.</param>
     /// <param name="transaction">The transaction the write ran in.</param>
     /// <param name="identity">The row.</param>
-    /// <param name="expected">The versions the caller offered; never empty.</param>
+    /// <param name="expected">The versions the caller offered, never empty; or null when only the EditDate is compared.</param>
     /// <param name="cancellationToken">The caller's.</param>
+    /// <param name="edited">The EditDate the caller downloaded, or null — ADR-300 §5.5.</param>
     /// <returns>What the row says.</returns>
     private async Task<Match> MatchAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         long identity,
-        string[] expected,
-        CancellationToken cancellationToken)
+        string[]? expected,
+        CancellationToken cancellationToken,
+        EditedExpectation? edited = null)
     {
+        string version = expected is null ? "true" : "xmin::text = any(@expected)";
+        string moment = edited is { } e ? EditedPredicate(e) : "true";
+
         await using NpgsqlCommand command = new(
-            $"select xmin::text = any(@expected) from {_layer.QuotedTable} "
+            $"select ({version}) and ({moment}) from {_layer.QuotedTable} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id",
             connection,
             transaction);
 
         command.Parameters.AddWithValue("id", identity);
-        command.Parameters.AddWithValue("expected", expected);
+
+        if (expected is not null)
+        {
+            command.Parameters.AddWithValue("expected", expected);
+        }
+
+        BindEdited(command, edited);
 
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) switch
         {
@@ -664,6 +711,17 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         if (!zmFlags.TryGetValue(update.Identity, out int? zmFlag))
         {
             return EditResult.Missing(update.Identity);
+        }
+
+        // ADR-300 §5.5: the EditDate the caller downloaded, where it sent one.
+        EditedExpectation? edited = EditedOf(batch, update.Identity);
+
+        if (edited is not null && _tracking.Edited is null)
+        {
+            return EditResult.Failed(
+                update.Identity,
+                "expectedEditDates names this feature, and this layer does not record when its features were edited, so "
+                + "the date cannot be compared. Send the edit without it.");
         }
 
         if (update.Geometry is not null && TableRefusal is { } table)
@@ -735,13 +793,13 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
                 return refused;
             }
 
-            if (expected is null)
+            if (expected is null && edited is null)
             {
                 return EditResult.Ok(update.Identity);
             }
 
             return await MatchAsync(
-                connection, transaction, update.Identity, expected, cancellationToken)
+                connection, transaction, update.Identity, expected, cancellationToken, edited)
                 .ConfigureAwait(false) switch
             {
                 Match.Matched => EditResult.Ok(update.Identity),
@@ -776,6 +834,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             $"update {_layer.QuotedTable} set {string.Join(", ", assignments)} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
             + (expected is null ? string.Empty : " and xmin::text = any(@expected)")
+            + (edited is { } moment ? " and " + EditedPredicate(moment) : string.Empty)
             + OwnerClause(owner)
             + Returning + $", {repairedSql}";
 
@@ -786,6 +845,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         {
             command.Parameters.AddWithValue("expected", expected);
         }
+
+        BindEdited(command, edited);
 
         if (owner is not null)
         {
@@ -809,7 +870,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             // Nothing changed. That is a missing row, somebody else's row, or a version that
             // moved — three different answers, and the caller needs to know which.
             return await WhyNotAsync(
-                    connection, transaction, update.Identity, expected, owner, cancellationToken)
+                    connection, transaction, update.Identity, expected, owner, cancellationToken, edited)
                 .ConfigureAwait(false);
         }
         catch (PostgresException e)
@@ -961,7 +1022,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         long identity,
         string[]? expected,
         string? owner,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        EditedExpectation? edited = null)
     {
         if (owner is not null
             && await WhoseAsync(connection, transaction, identity, owner, cancellationToken)
@@ -970,8 +1032,8 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return refused;
         }
 
-        return expected is not null
-            && await MatchAsync(connection, transaction, identity, expected, cancellationToken)
+        return (expected is not null || edited is not null)
+            && await MatchAsync(connection, transaction, identity, expected, cancellationToken, edited)
                 .ConfigureAwait(false) is not Match.Gone
             ? EditResult.Stale(identity)
             : EditResult.Missing(identity);
@@ -1218,6 +1280,10 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         "23514" => "A rule on this layer's table refused this value.",
         "22P02" or "22003" => $"A value is the wrong type or out of range: {e.MessageText}",
         "42501" => "The server's credential for this database may not write to this table.",
+
+        // WITH CHECK OPTION on a per-reader view (ADR-300 §5.7): the row would not be one the view shows its writer.
+        "44000" => "This row would not be one this layer shows you — a repeat's row must belong to a record you have here, "
+            + "and a change must not take a record out of your view — so it was not written.",
         _ => $"The database refused this edit ({e.SqlState}).",
     };
 }

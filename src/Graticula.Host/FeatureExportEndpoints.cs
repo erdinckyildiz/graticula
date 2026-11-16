@@ -218,6 +218,18 @@ internal static class FeatureExportEndpoints
             return;
         }
 
+        // <b>ADR-300 §5.4: a per-reader view is never exported.</b> The job runs later on behalf of nobody, so it would
+        // write none of the view's rows, and a file kept from it would hold one reader's rows where others may fetch them.
+        if (layers.FirstOrDefault(layer => layer.IsPerReader) is { } perReader)
+        {
+            await RefuseAsync(
+                context, 403,
+                $"'{perReader.Definition.Name}' shows each reader their own rows, so it is not exported. Export the layer it "
+                + "is a view of.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         List<string> refused = [.. layers.Where(layer => !MayExport(layer, caller)).Select(layer => layer.Definition.Name)];
 
         if (refused.Count > 0)

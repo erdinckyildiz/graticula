@@ -144,6 +144,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   outline: 3px solid var(--accent); outline-offset: 2px;
 }
 input[readonly], textarea[readonly] { background: var(--surface-2); }
+/* A disabled box looked like an empty one waiting for an answer: a search() list with no connection was tapped and did
+   nothing (UX review 2026-11-16). */
+input:disabled:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=range]), select:disabled, textarea:disabled { background: var(--surface-2); border-style: dashed; cursor: not-allowed; }
 
 .choices { display: grid; gap: 2px; }
 .choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 2px; cursor: pointer; }
@@ -174,6 +177,8 @@ button {
 button.quiet { color: var(--accent-ink); background: var(--surface); border-color: var(--control-edge); }
 button.danger { color: var(--alert); background: var(--surface); border-color: var(--alert); }
 button:disabled { opacity: 0.55; cursor: default; }
+/* Busy without giving up focus (the Inbox's Refresh): looks disabled, keeps the keyboard where it was. */
+button[aria-disabled="true"] { opacity: 0.55; cursor: progress; }
 
 .inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
@@ -190,6 +195,26 @@ button:disabled { opacity: 0.55; cursor: default; }
   background: #ffffff; border: 1px dashed var(--control-edge); border-radius: 6px;
 }
 .signature.drawing canvas { height: 280px; border-style: solid; }
+/* annotate (ADR-287 section 5.24): the photo shown whole, scaled to fit, its pixels the photo's own. */
+.annotate-preview { display: block; max-width: 100%; max-height: 240px; margin-top: 8px; border-radius: 4px; border: 1px solid var(--rule); }
+.annotate-pad canvas {
+  display: block; width: auto; height: auto; max-width: 100%; margin-top: 8px; touch-action: none; cursor: crosshair;
+  /* The pad's words and tools take about 240 px under and over the photo; the photo leaves them room on the screen, so
+     Done is in reach without scrolling off a canvas that does not scroll (UX review 2026-11-16). Never under 160 px. */
+  max-height: 70vh;
+  max-height: max(160px, min(70vh, calc(100dvh - 240px)));
+  border: 1px solid var(--control-edge); border-radius: 6px; background: #ffffff;
+}
+
+/* minimal and hidden-answer barcode: the code read, shown as text where the box is not. */
+.barcode-value { margin: 0 0 4px; overflow-wrap: anywhere; }
+
+/* The barcode scanner's live preview (ADR-287 §5.22): as wide as the question, never taller than half the screen. */
+.scanner { margin-top: 8px; }
+.scanner video {
+  display: block; width: 100%; max-height: 50vh; object-fit: cover;
+  background: #101826; border: 1px solid var(--control-edge); border-radius: 6px;
+}
 
 .repeat-instance {
   margin: 12px 0; padding: 4px 12px 12px;
@@ -211,6 +236,9 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 .done { margin-top: 24px; padding: 16px; background: var(--ok-soft); border-radius: 8px; outline: none; }
 .done h2 { margin-top: 0; color: var(--ok); }
+/* Kept on the device, not sent: a holding state, not a success. */
+.done.queued { background: var(--warn-soft); }
+.done.queued h2 { color: var(--warn); }
 
 .device-forms ul { list-style: none; padding: 0; }
 .device-forms li { padding: 8px 0; border-top: 1px solid var(--rule); }
@@ -327,3 +355,42 @@ button.quiet.guidance-toggle { margin: 0 0 4px; min-height: 44px; padding: 8px 0
 /* week-number: a year and a week number side by side. */
 .week-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .week-label { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+
+/* The Inbox (ADR-300 §5.6-§5.8): the list of records to change, the comparison of a refused change, the answers of a
+   record gone from the server. Same panel, rows and buttons as the Outbox and Drafts. */
+.inbox-search { display: grid; gap: 4px; margin-top: 8px; }
+.inbox-search label { font-size: 14px; font-weight: 600; }
+.inbox-search input {
+  width: 100%; min-height: 44px; padding: 8px 10px; font: inherit; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--control-edge); border-radius: 6px;
+}
+.inbox-search input:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+#inbox-shown:empty, #inbox-refreshed:empty { display: none; }
+.outbox-list strong { overflow-wrap: anywhere; }
+.editing-bar { margin-top: 12px; padding: 10px 12px; background: var(--accent-soft); border-radius: 6px; }
+.editing-bar p { margin: 0; overflow-wrap: anywhere; }
+.existing-mark { font-size: 14px; color: var(--muted); }
+.existing { margin-top: 8px; }
+.existing-files a { overflow-wrap: anywhere; }
+.compare { margin-top: 12px; padding: 12px 16px 16px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; }
+.compare h2 { margin: 0 0 8px; font-size: 18px; }
+.compare h2:focus { outline: none; }
+.compare-scroll { overflow-x: auto; margin: 8px 0; }
+.compare-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.compare-table { border-collapse: collapse; width: 100%; }
+.compare-table caption { text-align: left; font-weight: 600; padding: 4px 0; }
+.compare-table th, .compare-table td { padding: 8px; text-align: left; vertical-align: top; border-top: 1px solid var(--rule); overflow-wrap: anywhere; }
+.compare-table thead th { border-top: 0; font-size: 14px; color: var(--muted); }
+.compare-table tr.differs th, .compare-table tr.differs td { background: var(--warn-soft); }
+.differs-flag { color: var(--warn); font-weight: 400; }
+.compare-explain { margin: 12px 0 0; font-size: 15px; }
+/* A phone: each answer under its question, "Yours" and "On the server" named on their own lines. */
+@media (max-width: 480px) {
+  .compare-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .compare-table tr { display: block; border-top: 1px solid var(--rule); padding: 6px 0; }
+  .compare-table th, .compare-table td { display: block; border-top: 0; padding: 2px 4px; }
+  .compare-table td::before { content: attr(data-label) ": "; color: var(--muted); font-size: 14px; }
+}
+.answers-list { margin: 8px 0 0; }
+.answers-list dt { font-weight: 600; margin-top: 8px; overflow-wrap: anywhere; }
+.answers-list dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -141,7 +141,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
     public async Task<bool> IsOnAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         return await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
     }
@@ -200,7 +200,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
     public async Task<HistoryKept?> KeptAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         return await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
             ? await KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false)
@@ -233,7 +233,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
         }
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         if (!await IsOnAsync(connection, _layer, cancellationToken).ConfigureAwait(false))
         {
@@ -274,7 +274,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
 
         List<(string Schema, string Table, int Days)> kept = [];
 
-        await using (NpgsqlCommand list = dataSource.CreateCommand(
+        await using (NpgsqlCommand list = dataSource.CreateReaderCommand(
             """
             select n.nspname, c.relname, obj_description(c.oid, 'pg_class')
             from pg_class c
@@ -298,7 +298,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
 
         foreach ((string schema, string table, int days) in kept)
         {
-            await using NpgsqlCommand delete = dataSource.CreateCommand(
+            await using NpgsqlCommand delete = dataSource.CreateReaderCommand(
                 $"delete from {LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(table)} "
                 + "where gdb_to_date is not null and gdb_to_date < now() - make_interval(days => @days)");
             delete.Parameters.AddWithValue("days", days);
@@ -416,7 +416,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
         }
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -509,7 +509,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
     {
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -581,7 +581,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
              """;
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlCommand command = new(sql, connection);
         command.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.TimestampTz) { Value = (object?)before ?? DBNull.Value });
@@ -623,7 +623,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
              """;
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlCommand command = new(sql, connection);
         command.Parameters.AddWithValue("id", objectId);
@@ -693,7 +693,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
         EditorTracking track = tracking ?? EditorTracking.None;
 
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using NpgsqlTransaction transaction =
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -810,7 +810,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
     private async Task<long> CurrentCountAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection =
-            await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await _dataSource.OpenReaderConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using NpgsqlCommand command = new($"select count(*) from {Qualified} where gdb_to_date is null", connection);
         return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
     }

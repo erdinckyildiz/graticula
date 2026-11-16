@@ -211,6 +211,12 @@ public readonly record struct EditResult(
 /// client mints the id so that it can refer to the feature (an attachment, a related row, a replica)
 /// before the server has answered. False drops a sent GlobalID and the column's default gives one.
 /// </param>
+/// <param name="ExpectsEdited">
+/// The EditDate each updated identity must still have, in epoch milliseconds (null: never dated), for the updates that
+/// carry one, or null when none do — ADR-300 §5.5, Graticula's <c>expectedEditDates</c>. Compared to the millisecond in
+/// the update's own <c>where</c>, beside <see cref="Expects"/>; a row that moved is <see cref="EditResult.Stale"/> and one
+/// that is not there <see cref="EditResult.Missing"/>. Null by default, so every other caller edits as before.
+/// </param>
 public sealed record EditBatch(
     IReadOnlyList<FeatureAdd> Adds,
     IReadOnlyList<FeatureUpdate> Updates,
@@ -220,7 +226,8 @@ public sealed record EditBatch(
     IReadOnlyDictionary<long, IReadOnlyList<string>>? Expects = null,
     string? Editor = null,
     bool OwnOnly = false,
-    bool KeepsGlobalIds = false)
+    bool KeepsGlobalIds = false,
+    IReadOnlyDictionary<long, long?>? ExpectsEdited = null)
 {
     /// <summary>How many features this batch touches.</summary>
     public int Count => Adds.Count + Updates.Count + Deletes.Count;

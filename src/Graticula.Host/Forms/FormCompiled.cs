@@ -54,6 +54,7 @@ public static class FormCompiled
         ["relevant"] = table.Relevant,
         ["repeatCount"] = table.RepeatCount,
         ["appearance"] = Strings(table.Appearance),
+        ["parameters"] = new JsonObject { ["allowAdds"] = table.AllowAdds, ["allowUpdates"] = table.AllowUpdates },
         ["body"] = Body(table.Body),
     };
 
@@ -100,6 +101,18 @@ public static class FormCompiled
         ["accept"] = q.Accept,
         ["calculationMode"] = q.CalculationMode,
         ["inputMask"] = q.InputMask,
+        ["search"] = q.Search is { } s ? new JsonObject
+        {
+            ["table"] = s.Table,
+            ["file"] = s.File,
+            ["url"] = s.Url,
+            ["query"] = new JsonObject([.. s.Query.Select(p => KeyValuePair.Create(p.Key, (JsonNode?)JsonValue.Create(p.Value)))]),
+            ["type"] = s.SearchType,
+            ["column"] = s.SearchColumn,
+            ["text"] = s.SearchText,
+            ["filterColumn"] = s.FilterColumn,
+            ["filterText"] = s.FilterText,
+        } : null,
     };
 
     private static JsonArray Strings(IEnumerable<string> items) => new([.. items.Select(i => (JsonNode?)JsonValue.Create(i))]);

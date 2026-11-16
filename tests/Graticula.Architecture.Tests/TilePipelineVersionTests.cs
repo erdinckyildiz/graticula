@@ -237,7 +237,10 @@ public sealed class TilePipelineVersionTests
         // <b>Moved again 2026-11-12, and the version did not move.</b> `VectorTileEndpoints` gained the root `tilemap`
         // route (Esri's quadtree of which tiles exist, `TilemapIndexAsync`) and `MayHold`, the box test the block tile map
         // already made, split out so both ask one rule. No tile, key, statement or encoder byte changed.
-        "3e493e9b3c68262517a9a8b1b81fde2bd8d4ca322192d0ee2f9a4aa2d0d159ea";
+        // <b>Moved again 2026-11-16 for ADR-300, and the version did not move.</b> The tile statement leads with the
+        // reader's `SET graticula.username` (ReaderSession), which returns no rows; and `Tileable` answers false for a
+        // per-reader view, which only takes such a view out of tile lists. No tile, key or encoder byte changed.
+        "55044940b390d4c63276d121e1778ea5446221d90545e6f1d5d1289a5e9afc4d";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

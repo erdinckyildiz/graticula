@@ -87,6 +87,13 @@ internal static class QueryResponseCaching
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layers);
 
+        // <b>ADR-300 §5.4: a per-reader view's answer is this reader's rows</b>, so nothing — not a shared cache, not
+        // the browser for a second account on the same machine — keeps it, whatever lifetime the layer was given.
+        if (layers.Any(layer => layer.IsPerReader))
+        {
+            return "private, no-store";
+        }
+
         if (lifetime <= TimeSpan.Zero)
         {
             return "no-store";
@@ -253,6 +260,12 @@ internal static class QueryResponseCaching
     {
         ArgumentNullException.ThrowIfNull(layer);
 
+        // ADR-300 §5.4: a per-reader view's answers are kept by nobody, whatever lifetime it was given.
+        if (layer.IsPerReader)
+        {
+            return TimeSpan.Zero;
+        }
+
         if (layer.CacheLifetime is { } chosen)
         {
             return chosen;
@@ -373,6 +386,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.IsTable)] = "derived from Definition.GeometryColumn, which is fingerprinted (ADR-213)",
             [nameof(PublishedLayer.IsRunning)] = "derived from Status",
             [nameof(PublishedLayer.ViewOf)] = "says whose rows a view reads, not which; the filter is ViewDefinition",
+            [nameof(PublishedLayer.IsPerReader)] = "derived from ViewOf and ViewDefinition, which is fingerprinted (ADR-300)",
             [nameof(PublishedLayer.HasViews)] = "whether others read this layer's rows, which changes none of them",
             [nameof(PublishedLayer.ViewLayers)] = "which tiles an edit empties, not what a query answers",
             [nameof(PublishedLayer.EditOwnOnly)] = "who may change a row, not what a query answers (ADR-115)",

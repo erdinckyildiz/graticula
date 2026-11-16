@@ -218,7 +218,8 @@ measurable question. The two device claims are, so they are conditions and not a
    device with its files and sent when the signal returns, oldest first. Because every record carries its own
    `globalId`, a submission that was half sent is sent again and lands once. A queued record is never deleted until
    the server has accepted it.
-6. **Existing records are edited offline too (owner decision), and ADR-082 is amended in part.** A form may have an
+6. **Existing records are edited offline too (owner decision), and ADR-082 is amended in part.** *(Designed 2026-11-16 in
+   [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md): the Inbox is a view, Q-232 (a).)* A form may have an
    *Inbox*, as Survey123's does: the records a publisher's filter selects for the signed-in user are downloaded with
    their attachments, and edited on the device with or without signal. The edits wait in the same queue as new records.
    - **Conflicts are found on the server, never resolved silently (owner decision 2026-11-09, §5.9 (j)).** Each downloaded record
@@ -319,9 +320,9 @@ measurable question. The two device claims are, so they are conditions and not a
 
     | | Types |
     |---|---|
-    | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
+    | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`, **`barcode` (since 2026-11-16, §5.22)**; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
     | Supported metadata | `start`, `end`, `today`, `username` and `email` (from the signed-in member, empty for an anonymous form), `deviceid` (a random id kept by the installed client, not a hardware id) |
-    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` (`or_other` was on this list until 2026-11-15 and is supported: §5.19 (1)) |
+    | Refused | `rank`, ~~`barcode` (Safari has no barcode reader)~~ *(lifted 2026-11-16 by owner decision: the answer is always typeable and the camera scans where the browser can read a code, §5.22)*, `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` (`or_other` was on this list until 2026-11-15 and is supported: §5.19 (1)) |
 
     **Groups and repeats.** `begin group` / `end group` with `relevant`, nested to any depth. `begin repeat` /
     `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. ~~A repeat inside a repeat
@@ -352,11 +353,11 @@ measurable question. The two device claims are, so they are conditions and not a
     several attachments), `signature` (on `image`), `month-year` and `year` (on `date`), `minimal`, `likert`, `rating`
     (on `range`), `hidden`, **and since 2026-11-15 (§5.19): `minimal` and `compact` on `begin group` and `begin repeat`
     (collapsed behind a button), `autocomplete` (on `select_one`), `spinner` (on `integer` and `decimal`) and
-    `week-number` (on `date`)**, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**). Drawn the default way: `horizontal`, `horizontal-compact`, `compact` (on a select), `quick`,
+    `week-number` (on `date`)**, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**), **and since 2026-11-16 (§5.22) `minimal` and ODK's `hidden-answer` on `barcode`**. Drawn the default way: `horizontal`, `horizontal-compact`, `compact` (on a select), `quick`,
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
-    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: `annotate`, `map` and
-    `quick map`, `search()`, `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
+    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: ~~`annotate`~~ (**built 2026-11-16, §5.24**), `map` and
+    `quick map`, ~~`search()`~~ (**supported since 2026-11-16, §5.23**), `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
     `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
 
     **Expressions.** `${name}` references and `.` for the question's own value. Every XPath 1.0 operator the ODK
@@ -366,7 +367,7 @@ measurable question. The two device claims are, so they are conditions and not a
     | | Functions |
     |---|---|
     | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form), **and `pulldata("@property", name)` and `pulldata("@geopoint", ${q}, part)`** (§5.20); `property(name)` (ODK's, §5.20). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's, and `date-time` (Survey123's, §5.20; the specification's table has no other date function this list lacks). **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
-    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: `@layer`, `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). `@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: ~~`@layer`~~ (**supported since 2026-11-16, §5.23**), `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). ~~`@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again~~ — built 2026-11-16 by owner decision, online only, as Survey123's is (§5.23) |
 
     **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
     `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
@@ -891,7 +892,7 @@ measurable question. The two device claims are, so they are conditions and not a
       client then refuses it when it runs. **INFERRED:** (1) an anonymous form, and any value the portal does not hold,
       answers an empty string, since Survey123's page says nothing; (2) `online` is a true boolean, `utcOffset` a number,
       so `if(pulldata("@property", 'online'), …)` means what it says; (3) `mode` is always `new` and `status` always empty,
-      the value Survey123 gives for a new response, because this client does not yet edit a sent record; (4) `language` is
+      the value Survey123 gives for a new response, because this client does not yet edit a sent record *(since 2026-11-16 `mode` is `edit` for a record opened from the Inbox, [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md) §5.11; `status` stays empty)*; (4) `language` is
       the active language's name as the form writes it, `surveyName` the form's title, `portalUrl` this server's address
       for a signed-in member and empty otherwise; (5) **`property(name)` takes the three names ODK documents, `deviceid`,
       `username` and `email`, with or without the `uri:` prefix ODK's own forms write, and also every name
@@ -982,6 +983,391 @@ measurable question. The two device claims are, so they are conditions and not a
     The merge also set the shell cache to `graticula-forms-shell-v8` (the two branches had v6 and v7), and the page test
     that named a cache version now finds the shell cache by its prefix.
 
+22. **The `barcode` question — 2026-11-16, by owner decision (*"Yap"*, after it was proposed as the next step).** §5.10
+    refused `barcode` because *Safari has no barcode reader, so the question could not be answered on an iPhone*. That
+    reason was about one way of answering, not about the question: a barcode answer is text, and text can be typed on every
+    browser. So the refusal is lifted by making the box the answer everywhere and the camera an extra where the browser
+    can read a code, and the iPhone case is protected by the box rather than by refusing the form.
+    - **What Esri's public pages say, and what each settles.** *Barcodes*
+      (`https://doc.arcgis.com/en/survey123/create/main/barcodes.htm`, now served at
+      `https://doc.esri.com/en/arcgis-survey123/latest/create/main/barcodes.html`): *"Users select the barcode button to
+      scan a barcode with the device's camera. The value read from the barcode is displayed in the text box."*;
+      *"By setting the appearance column to minimal, a barcode question displays only the button to start the scanner. The
+      text box that contains the barcode value is not shown."*; the `barcodeType` parameter goes in **`body::esri:style`**,
+      and for the **web app** specifically: *"Barcode types cannot be manually selected in the Survey123 web app"*, *"The
+      web app doesn't support using an expression to set the barcodeType parameter"*, and *"all barcode types will be
+      accepted when barcodeType is set to all, 1d, or 2d."* The web designer's page
+      (`https://doc.esri.com/en/arcgis-survey123/latest/create/web-designer/textnumberdatetime.html`), which is the web
+      app's own question: *"The coded value can be manually entered if it is human readable"*, and the list of formats
+      *"cannot be limited by the survey author in the web designer or by the respondent in the web app."* *XLSForm
+      parameters* (`…/create/main/xlsformparameters.html`): `barcodeType` and `placeholderText` (both in
+      `body::esri:style`) are the only parameters that name barcode; `calculationMode` is **not** allowed on it. *Question
+      types overview* (`…/create/main/question-types-overview.html`): *"Scan a barcode or QR code."* **None of these pages
+      gives the field type or length a barcode question makes, or says which browsers the web app scans in.** ODK's
+      *Question types* (`https://docs.getodk.org/form-question-types/`, Barcode): *"Scans, decodes, and captures the
+      content of a barcode, using the device camera"*, with the appearances `front` (the front camera) and
+      `hidden-answer` (the value read is not shown, for long or encoded values).
+    - **The server.** `barcode` is an input type (`FormCatalog.InputTypes`) and off `RefusedTypes`. It makes a **text
+      field of 255** (`FormLayerPlan.DefaultTextLength`, the length every text field here gets, §5.9 (d)), and
+      `bind::esri:fieldLength` sets another length (1–10000) as it does for `text`. Appearances: **`minimal`** (Survey123's)
+      and **`hidden-answer`** (ODK's, the same meaning) are supported on `barcode`; `hidden` and the presentation appearances
+      behave as on any question; `front` is refused as unknown and `new-front`/`new-rear` stay refused (*choosing the camera
+      is not in the first version*); `multiline` is refused (*applies to file, image, text*). `body::esri:style` is accepted
+      with its existing notice (*changes only how questions look and is drawn the default way*), which for `barcodeType`
+      is true of the web app as Esri describes it and for `placeholderText` is true here. The `parameters` column is refused
+      (*'barcode' takes no parameters*), as is `body::esri:inputMask` (*belongs on a text question*) and `calculationMode`
+      (Survey123's list leaves `barcode` out). A calculation, a constraint, `required`, `default`, `read_only` and
+      `relevant` work as on `text`, and a barcode's answer reads as a string in another question's expression. The designer
+      offers **Barcode** on the Text shelf, and lists `minimal` and `hidden-answer` for it.
+    - **The client** (`fill.js`, `barcodeWidget`). The answer is **always a text box** (`autocomplete`, `autocapitalize`
+      and `spellcheck` off), labelled by the question, so a code is typed on an iPhone, on a desktop and on any browser.
+      The page asks once whether the browser has a reader: `BarcodeDetector` exists, `BarcodeDetector.getSupportedFormats()`
+      gives **at least one format**, and `navigator.mediaDevices.getUserMedia` exists (it does not on a page that is not
+      HTTPS). **Where it has one**, a **Scan** button (described by the question's label) opens the camera with
+      `facingMode: { ideal: 'environment' }` and no audio, shows the live preview (labelled *Camera preview*) with a **Cancel
+      scan** button, which takes focus, and asks the reader every 200 ms with every format the browser offers. The first
+      non-empty value read goes into the box, becomes the answer, is announced (*Code read.*) and focus goes to the box.
+      **The camera's tracks are stopped** on a value, on Cancel (focus back to Scan), on `pagehide` and on the page being
+      hidden (`visibilitychange`), when a redraw has removed the preview, when another barcode question starts scanning, when
+      the question becomes read-only, and on every error; only one camera is ever open. **Where it has none**, there is no
+      Scan button, and a line under the box says *This browser cannot scan codes. Type the code instead.*, which the box is
+      described by. **Failures are said in words** in the question's polite live region, and each says what to do: *Camera
+      permission was refused.*, *No camera was found.* (`NotFoundError`, `OverconstrainedError`), *The camera could not be
+      started.* (anything else, including the camera being in use), *The code could not be read.* (the reader failed),
+      each followed by *Type the code instead.* and focus on the box. A message survives a redraw of the question.
+      `minimal` and `hidden-answer` hide the box **only where there is a reader**; without one, and after the camera has
+      failed for that question, the box is shown, because it is then the only way to answer. Every string is in the Turkish
+      table. The preview is in `fill.css` (as wide as the question, at most half the screen high).
+      *(Amended 2026-11-17: "a reader" is now any page with a camera API — the browser's own where it has one, ZXing
+      otherwise — and the no-reader hint is left for pages with no camera API; see the last item of this section.)*
+    - **Offline.** Decoding is the browser's, on the device, and the camera needs no network, so scanning works with no
+      signal exactly as it does online; the answer is text and goes into the draft and the outbox as any text does. Nothing
+      is downloaded to scan. Where the browser has no reader, offline or not, the code is typed. *(Amended 2026-11-17:
+      where ZXing reads, it is downloaded once, with the page's shell, and kept by the service worker; see the last item
+      of this section.)*
+    - **The headers.** The form pages' `Content-Security-Policy` (`SecurityHeaders.FormsPolicy`) was read and **left
+      unchanged**: a camera stream is given to the `<video>` as `srcObject`, which is not a URL fetch and so not governed
+      by `media-src`, and the reader is a browser API, not a script source. **This server sends no `Permissions-Policy`
+      header on any path** (searched across `src/`), so the camera keeps the browser default, which allows it for the page's
+      own origin, and the designer's same-origin preview frame inherits the same. A reverse proxy in front of the server
+      that adds `Permissions-Policy: camera=()` would remove the Scan button's camera; the client then says *The camera
+      could not be started* or *permission was refused*, and the box still works. `getUserMedia` needs a secure context,
+      which a deployment already is (HTTPS) and `localhost` is.
+    - ~~**No decoding library.** None is carried, by the brief and by the build-vs-adopt policy. *Open point for the owner,
+      not decided here:* Safari on iPhone and iPad, Firefox, and Chrome on Windows and Linux have **no `BarcodeDetector`**
+      (MDN's compatibility table, as known to this session and not measured here, has it in Chrome and Edge on Android, ChromeOS and macOS only), so on those a person types the code. If the
+      owner wants scanning on an iPhone, the only route a web client has is a decoding library run in the page on camera
+      frames (for example ZXing's JavaScript port, Apache-2.0); that is a Tier 2 adoption under
+      [build-vs-adopt-policy.md](../build-vs-adopt-policy.md), behind our own port, and it is a separate decision with its
+      own size and licence record.~~ **Decided by the owner 2026-11-17** (*"ZXing'i benimse"*): ZXing's JavaScript port is
+      adopted, behind our own port, with its size and licence record in `DEPENDENCY-LICENSES.md` — the last item of this
+      section.
+    - **Tests.** Server: `AFormTakesABarcodeQuestionTests` (accepted and off the refused list; text field of 255 and of the
+      given length; stored as text or not at all, a numeric field type refused; `minimal` and `hidden-answer` accepted and
+      sent to the client, `hidden-answer` refused off a barcode; `barcodeType` accepted with a notice; `front`, `new-front`,
+      `parameters`, an input mask, `calculationMode` and `multiline` refused in words; another question reads it).
+      `AFormIsCheckedAgainstTheFirstVersionsListTests` and the conformance refusal test name another refused type in its
+      place. Client, in headless Chrome with the reader and the camera stubbed before the page's scripts run
+      (`FormFillBarcodeTests`): with no reader there is no Scan button, the hint is shown and describes the box, a `minimal`
+      question shows its box, and typed codes are sent; with a reader, Scan asks for the rear camera without audio and for
+      the reader's formats, the code read is in the box, announced, focused and sent, and the one camera track is stopped;
+      Cancel, `pagehide` and a refused camera each stop the camera and say so, and a refused camera shows a `minimal`
+      question's box; the no-reader hint is Turkish in a Turkish browser.
+    - **The corpus.** Measured with `AFormCorpusTests` on the same 110 workbooks (108 readable), against the last full report: **60 of the 108 import unedited (from 59), and 43 of the 61 Survey123-authored forms (from 42).** The one form this item unblocks is `esri-Samples_Barcode_Scanning.xlsx` (a plain barcode and a `minimal` one). `esri-Samples_001_Question_Types.xlsx` is still refused, now only for a `bind::esri:fieldLength` of `null` on another row, which is not this item's. The pyxform fixtures and the ODK Web Forms all-question-types workbook no longer name `barcode` or `hidden-answer` among their refusals and stay refused for their other reasons (`public_key`, audio in a label, `simserial`, `phonenumber` and others).
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.25):** (1) the default length is **255**, the length every text field here gets,
+      because no Esri page states a barcode's field type or length; (2) a barcode is stored only as `esriFieldTypeString`
+      or not at all, and a numeric, date or GUID field type is refused, because a code with leading zeros (an EAN, a UPC)
+      would change; Survey123's pages do not say; (3) `minimal` and `hidden-answer` hide the box only where there is a
+      reader, and a failed camera shows it, where Survey123 hides it always (its field app always has a scanner); (4)
+      `barcodeType` is accepted and not enforced: every format the browser reads is read, which is what Esri says its web
+      app does for `all`, `1d` and `2d`, and a specific list is not narrowed — the page does not say what the web app does
+      with one; (5) the first value read is taken, with no confirmation step, as Survey123 puts *the value read* in the box
+      and the person can still edit it; (6) ODK's `front` is not built, because the brief asked for the rear camera, and is
+      refused as unknown rather than accepted and ignored.
+    - The service worker's shell cache is not changed here (`fill.js` and `fill.css` changed); the merge sets it.
+    - **ZXing, where the browser has no reader — owner decision 2026-11-17** (*"ZXing'i benimse"*, the choice the open
+      point above asked for). A barcode question now **scans with the camera on every page that has a camera API**, not
+      only where the browser has `BarcodeDetector`: Safari on iPhone and iPad above all, and Firefox and Chrome on Windows
+      and Linux.
+      - **What was adopted.** `@zxing/library` **0.23.0**, the JavaScript port of ZXing, **Apache-2.0**, its build
+        `umd/index.min.js` copied byte for byte to `wwwroot/forms/zxing.min.js` (**362,150 bytes, 108 KB gzipped**). Fetched
+        from `registry.npmjs.org` only, into an empty directory, and checked against the registry's published `sha512`
+        integrity (matched); no install script was run. The package ships no smaller decoder-only build — one UMD bundle
+        holds every reader and writer, and its ES-module builds would need a bundler this project does not run. It bundles
+        `ts-custom-error` 3.3.1 (MIT), verified the same way. The row in `DEPENDENCY-LICENSES.md` holds the record and
+        `NOTICE` the two licence texts in full, following OpenLayers and qrcode-generator. Its README says the project is
+        **in maintenance mode**, which is the reason for the port below rather than a reason against it: the decoders are a
+        port of ZXing's long-standing Java ones.
+      - **Our port** (`wwwroot/forms/barcode-reader.js`, Tier 2 under
+        [build-vs-adopt-policy.md](../build-vs-adopt-policy.md)): `GraticulaBarcode.reader()` answers a promise of `null`
+        where the page has no `navigator.mediaDevices.getUserMedia`, and otherwise a reader with `engine` (`browser` or
+        `zxing`), `formats`, `prepare()` and `detect(videoOrCanvas)` → the first code's text or `null`. The browser's own
+        `BarcodeDetector` is used wherever it exists and gives a format, so Android Chrome is unchanged; ZXing everywhere
+        else, with thirteen formats (Aztec, Codabar, Code 39, 93 and 128, Data Matrix, EAN-8, EAN-13, ITF, PDF417, QR,
+        UPC-A, UPC-E). `fill.js` talks only to the port and never names a ZXing type (a test checks the file). ZXing reads
+        **a snapshot of the live video every 200 ms**, drawn to a canvas of at most 1280 px on its longer side.
+      - **Loaded lazily.** `zxing.min.js` is fetched only when **Scan is pressed on a browser without a reader of its
+        own** — at the same moment the camera is asked for — so a form without a barcode question, and every browser with
+        `BarcodeDetector`, never fetches it. If it cannot be loaded the camera is stopped and the question says *The code
+        reader could not be loaded. Connect once to download it, or type the code instead.*, the box is shown and takes
+        focus; a later Scan tries again.
+      - **Offline.** The port and the library are in the service worker's shell list beside `ol.js`, so they are kept
+        when the worker installs — the visit that makes "Download for offline use" possible — and a form opened with no
+        signal scans with ZXing exactly as online. Measured with the stand-in server stopped. The cost is that **every
+        device that opens a form downloads 108 KB more (gzipped) once, into its cache**, whether or not the form has a
+        barcode; that was chosen over fetching it only on the first scan, which would leave a device that never scanned
+        online unable to scan offline. The `SHELL_CACHE` name is not changed here; the merge sets it.
+      - **Where Scan appears now.** Wherever `getUserMedia` exists. Where it does not, the hint stays, and says why when
+        it can: on a page that is not a secure context (an `http://` address other than `localhost`, where browsers give
+        no camera API at all, iPhone Safari included) it reads *Scanning needs the form to be opened at an https address.
+        Type the code instead.*; elsewhere *This browser cannot scan codes. Type the code instead.* A deployment is HTTPS,
+        so the first is a misconfiguration's message rather than a user's.
+      - **iPhone.** The preview `<video>` already had `playsinline` and `muted` (Safari plays a camera inline and
+        autoplays only with both), and the camera is stopped on a value, Cancel, `pagehide`, the page being hidden and
+        every error, as before. **Not measured on an iPhone** — this session has none; the headless Chrome tests below
+        remove `BarcodeDetector`, which is the condition iPhone Safari is in, but not Safari's camera or its speed.
+      - **The headers.** `SecurityHeaders.FormsPolicy` is unchanged: the library is a script from this origin
+        (`script-src 'self'`), and it contains no `eval` and no `new Function` (searched, and checked by the test), so no
+        `unsafe-eval` is needed. Reading a canvas the page drew from its own camera taints nothing.
+      - **Tests** (`FormFillBarcodeTests`). With `BarcodeDetector` removed and the camera a canvas showing a real QR code
+        drawn by the vendored `qrcode.js`: the Scan button appears, ZXing is not in the page before Scan and is after it,
+        the code is read into the box, announced and sent, the one camera track is stopped, a second scan reuses the one
+        script; a library that cannot be fetched stops the camera and says so; the port and the library are in the
+        service worker's cache and a form opened with the server stopped still scans; the vendored file's SHA-256 is the
+        pinned one and it evaluates no strings; a page that is not a secure context gives the https hint. The earlier
+        no-reader tests now remove the camera API as well, since a camera alone now means a Scan button.
+        `FormFillPageTests`' offline test also checks the real server's cache holds both files.
+      - **INFERRED, for the owner to confirm:** (7) the library is part of the offline shell for every form, as `ol.js`
+        is, rather than fetched only by forms with a barcode question — 108 KB gzipped per device, once; (8) the browser's
+        own reader is preferred wherever it exists, and ZXing is never used beside it, because it is faster and costs no
+        download; (9) ZXing reads at most 1280 px of each frame and does not run its slower "try harder" mode, to keep a
+        200 ms cadence on a phone — a code that is hard to read is typed; (10) a library that fails to load is said as its
+        own message, distinct from a camera failure, because what helps (a signal) is different.
+
+23. **`search()` and `pulldata("@layer")` — built 2026-11-16, by owner decision (*"Yap"*).** §5.10 refused both: `search()`
+    because *"dynamic choices from a CSV are not in the first version"*, `@layer` because *"an offline client would need a
+    copy of that layer on the device"*. The owner lifted both. Learned from public pages only, read that day, and no
+    Esri-written file is in the repository:
+    [xlsform.org, *Dynamic selects from pre-loaded data*](https://xlsform.org/en/#dynamic-selects-from-pre-loaded-data);
+    [Survey123, *Multiple choice* — *Create a dynamic choice list using the search appearance*](https://doc.esri.com/en/arcgis-survey123/latest/create/main/multiplechoice.html);
+    [Survey123, *Formulas* — *Query a feature layer* and its *Request parameters*](https://doc.esri.com/en/arcgis-survey123/latest/create/main/xlsformformulas.html);
+    and, for offline only, which neither Survey123 page covers, Esri's own public blog posts
+    [*Dynamic Choice Lists using Search Appearance*](https://community.esri.com/t5/arcgis-survey123-blog/dynamic-choice-lists-using-search-appearance/m-p/1060838)
+    and [*Survey123 Tricks of the Trade: pulldata("@layer")*](https://community.esri.com/t5/arcgis-survey123-blog/survey123-tricks-of-the-trade-pulldata-quot-layer/m-p/1224415).
+    - **What the sources say.** *xlsform.org:* `search()` goes in the appearance column, after a style such as `quick`
+      if there is one; the list on the choices sheet has one row whose `name` is the CSV column that identifies a choice
+      and whose `label` is the column shown — *"a comma-separated list of all columns"* for several — and an `image`
+      column may name the column that holds a picture's file name; `search('csv')` offers *"all distinct rows"*,
+      `contains`, `startswith`, `endswith` and `matches` (*"exactly"*) narrow by a column, and *"two extra parameters"*
+      add a filter column and its exact value; a numeric `sortby` column orders the choices, otherwise they keep the
+      file's order. *Survey123, Multiple choice:* select_one and select_multiple support it, written
+      `search(tableName, searchType, searchColumn, searchText, filterColumn, filterText)`; the table is the CSV in the
+      survey's media folder *"or the URL of a feature layer … preceded by a name"* — `"airports?url=…/FeatureServer/0&resultRecordCount=10"`
+      — and the choices row then names fields; a `where=` may be appended; a non-spatial table takes the four text types,
+      a spatial one `intersects`, `contains`, `crosses`, `envelope_intersects`, `index_intercepts` (sic), `overlaps`,
+      `touches` and `within`; parameters with special characters *"must be encoded"* for the web app, where such a
+      question is drawn like one with `autocomplete`. *Survey123, Query a feature layer:* `getRecord(url[, where])`,
+      `getValue(property, url[, where])`, `getRecordAt(url, location[, where])`, `getValueAt(property, url, location[, where])`;
+      the property is a path such as `"attributes.COUNTRY"` or `"geometry"`; the location *"must be a geopoint
+      question"*; without a where clause *"a default of "1=1" is used"*; the first record of the answer is used; request
+      parameters follow the URL after `?` (`orderByFields`, `resultOffset`, `outStatistics`), except `f`, `outFields`,
+      `outSR`, `resultRecordCount`, `returnCountOnly`, `returnGeometry`, `returnIDsOnly` and `token`; answers are
+      cached. *The blog posts:* a layer list is not populated offline, and `pulldata("@layer")` *"only works while
+      online"*; a layer the person cannot reach gives an empty output.
+    - **Server.** `FormLayerQuery` reads `search(…)` out of the appearance cell (the rest of the cell is still checked
+      token by token, so `quick`, `minimal` and `autocomplete` mean what they meant); the question carries it as
+      `Search`, the client is sent it read (`search`: file or address, parameters, type, column, text, filter), and the
+      list's row makes no coded-value domain, because it names columns and not answers. `pulldata("@layer")` is checked
+      by operation, number of arguments, property (`attributes.<field>` or `geometry`), a geopoint question for the
+      location, and its address. Refused, at the row and column with the reason: `search()` on a question without
+      choices or on a `*_from_file` one; 2, 3 or 5 arguments; an unquoted table, type or column; an unknown type; a
+      spatial type over a CSV; a CSV named with a folder or an address; two `search()`s in one cell; a layer list with
+      no row; `or_other` on a `search()` list; an address that is not `…/FeatureServer/{n}`; a parameter Survey123
+      excludes (each with Survey123's reason, `token` with this server's) or one not on the list a form may add.
+      **At upload, at check and at every publish** each address the form writes out is checked as a `submission_url`
+      is (§5.17): on the host and port that answered the request, there in the catalogue, and readable by the person
+      publishing — a layer they cannot read is answered as one that is not there, as the REST API answers it
+      (`FormEndpoints.QueriedLayerProblemsAsync`, measured against PostGIS in `AFormQueriesOnlyThisServersLayersTests`).
+    - **Client.** A CSV `search()` reads the CSV the form already fetches and keeps on the device with its other files
+      (`csvNamesOf` now lists it), so it works offline with no change to the service worker: matched, filtered, ordered
+      by `sortby`, each name once, every CSV column on the choice so that a `choice_filter` reads it (the corpus has
+      `not(selected(${main_activities}, name))` on a `search()` list). A layer `search()` asks the layer's description once
+      (for its field types, so a number is compared as a number) and then `…/query` with `outFields=*`, the search as
+      `UPPER(column) LIKE '%TEXT%'` (or `column = value` for `matches`, several columns joined by `OR`), the filter as
+      `column = value`, the form's own `where` and parameters, and for a spatial type the geopoint, geotrace or geoshape
+      answer as the geometry. A select_one with `search()` is the type-ahead box unless it says `minimal`.
+      `pulldata("@layer")` goes through the evaluator's `ctx.layer`: the evaluator stays synchronous, the page answers
+      from what it has fetched for that exact request and '' until then, starts the request, and recalculates when it
+      arrives; a calculation whose inputs changed makes a new request, so it re-runs as its inputs change. A question
+      whose calculation queries a layer says under its answer, in a polite live region, *Looking this up…*, *needs a
+      connection*, *could not be read* or *Nothing was found*. Every query is a GET with the member's own token, to
+      `…/rest/services/…/FeatureServer/{n}` on the page's own origin and nothing else — an address worked out at run
+      time that is anything else is never fetched and is said — so `connect-src 'self'` is unchanged and no endpoint
+      was added. Words are in English and Turkish.
+    - **Offline.** The CSV kind works with no signal (tested: the page reloaded from the device with the server stopped).
+      The layer kind, as Survey123's does, does not: the list says *"These choices come from the server and need a
+      connection. You can still submit the form; this question can be answered later."* and the calculation says it
+      needs a connection; nothing throws, and the form submits into the outbox (tested with the server stopped). A
+      request that failed for want of the network is asked again when the browser says it is back online, or after
+      15 seconds.
+    - **Corpus** (`AFormCorpusTests`, same 110 workbooks, against the last full report): **accepted unedited 59 → 62**,
+      refused 49 → 46, server-accepted expressions 1418 → 1434 of 1441. Unblocked: `stats4sd-Data_Confirmation_Example`,
+      `stats4sd-Google_Maps_Link_Example`, `stats4sd-Multiple_select_choice_filter_example` (their CSVs are not in the
+      corpus; until the CSV is added to the form's files the question says the list is not available yet, as a
+      `select_one_from_file` does). Still refused, for other reasons: the two `laff-surveys_Apopka_Quarterly_*_PM_Inspections` forms (their
+      `submission_url` is an item address, not a layer's, and an `image` question is given a field type; their
+      `search()` and `pulldata("@layer")` now pass the shape check, and name `services.arcgis.com`, which publish
+      refuses as another server's); `eddie-odk_simprints_verification_demo.xls` (`trigger`); and
+      `stats4sd-Repeat_over_not_selcted_options_2` (prose written in its appearance column).
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.25):** (a) **only this server's layers are queried** — a relative address or this
+      server's own host, checked at upload and publish, and by the client for an address worked out at run time; a
+      layer elsewhere is refused in words, because the page's `connect-src` is `'self'` and a member's token must not
+      go to another host. (b) The query goes with the member's own sign-in, so an anonymous public form sees only
+      public layers and a member only what they may read; a layer the publisher cannot read is refused at publish.
+      (c) An address written as `concat("<address>", '?…')` is checked for its written part; one in a question
+      (`${url}`) is accepted and left to the client. (d) With no network a layer-list question is not required, so the
+      record can be sent and completed from the Inbox later. (e) An empty search text narrows nothing (every row), for
+      every type, as a community report says Survey123's layer list behaves; Survey123's pages do not say. (f) `contains`,
+      `startswith` and `endswith` ignore case (and, over a CSV, accents and the Turkish dotted i, as the type-ahead
+      does); `matches` is exact. (g) Several label columns are joined with a space. (h) Rows with the same name are
+      offered once, the first kept (xlsform.org says *distinct*). (i) `contains` over a layer is spatial when the layer
+      has geometry and the search text is a location. (j) Nothing found, or a layer that cannot be read, is the empty
+      answer, and the question says which. (k) A `geometry` answered into a geopoint question is `latitude longitude`;
+      anywhere else it, and `getRecord`'s record, is JSON text (`pulldata("@json")`, which reads it, is still refused).
+      (l) The parameters a `search()` address may carry are `where`, `orderByFields`, `resultRecordCount`,
+      `resultOffset`, `returnDistinctValues`, `distance`, `units` and `time`; a `pulldata("@layer")` address,
+      `where`, `orderByFields`, `resultOffset`, `outStatistics`, `groupByFieldsForStatistics`, `having`, `distance`,
+      `units`, `time`, `returnDistinctValues`, `spatialRel` and `objectIds`; any other is refused by name. (m) A map
+      service layer (`…/MapServer/{n}`), which Survey123 also queries, is refused: only feature layers are. (n)
+      `pulldata("@property", "submissionUrl")` stays refused, with a new reason: answers here go to a view made for
+      the form when it is shared, not to the layer, so a query written with it would read the view.
+
+24. **Drawing over a photo: the `annotate` appearance — built 2026-11-16, by owner decision** (*"Yap"*, the same day).
+    Until this item `annotate` was refused at upload (*"annotating a photo is not in the first version"*, §5.10). It is
+    now accepted on an `image` question and built in the client, on the drawing of §5.20 (e). Read 2026-11-16, and
+    nothing from Survey123's code or any Esri file:
+    - Survey123's appearance page (`doc.esri.com/en/arcgis-survey123/latest/create/main/xlsformsappearance.html`):
+      `annotate` *"allows the user to open a canvas window on which to sketch that also supports annotation on images"*,
+      on `image`, listed for both the web app and the field app.
+    - Survey123's media page (`…/create/main/xlsformmedia.html`): with `annotate` *"an image question displays a button to
+      open the device's camera to take a photo that you can annotate with graphics and text"*; `method=camera`,
+      `browse` or `map` in `body::esri:style` choose the source; **`max-pixels` on `annotate` sets "the longest side of
+      the image" and keeps its aspect ratio** (on `draw`, a square canvas of that side); with no `max-pixels`, *"the
+      default image size is 1280 pixels"*; a default image *"is replaced by a provided image"*; from 3.13 *"EXIF data is
+      copied from the source image to the annotated image"*. The same page says draw and annotate are *"only available
+      in Survey123 Connect and the Survey123 field app"* and that *"regardless of the method set, the Survey123 web app
+      only displays a browse for file option"* — which disagrees with the appearance page's web-app column. Recorded, not
+      resolved: this client draws, because the owner asked for annotation and a browse button that cannot annotate is
+      the `annotate` refusal under another name.
+    - Survey123's field-app page (`…/capture/field-app/drawannotate.html`): eight tools (freehand, smart shape, marker,
+      label, line, polyline, arrow, double arrow), colour, width and opacity per tool, undo and redo, a **Reset** that
+      *"deletes all graphic elements and removes the image"*, and *"once the image is saved and reopened, these graphic
+      elements can no longer be manipulated individually"*. It does not say whether the unannotated photo is kept or
+      sent, nor the saved format. Survey123's palettes page (`…/create/connect/drawannotatepalettes.html`): custom
+      palettes (`palette=` in `body::esri:style`) *"are not supported in the Survey123 web app"*.
+    - ODK's question-types page (`docs.getodk.org/form-question-types/`): *"Adding the annotate appearance allows the
+      user to draw on the image before submitting it"*; *"Collect renames images after annotation"*; `max-pixels` —
+      *"the image is resized proportionally so that the long edge matches the provided pixel value"*, scaled JPEGs saved
+      at 80 % quality.
+
+    **What was built.**
+    - **(a) The server.** `annotate` moves from `FormCatalog.RefusedAppearances` to `SupportedAppearances`, on `image`
+      only; on any other type it is refused in words (*"The appearance 'annotate' applies to image, not to 'text'"*), as
+      `draw` is. Refused in words where this client would half-build it: `multiline annotate` (Survey123's media page
+      allows it; this client annotates one photo per question), and `annotate` beside `draw` or `signature`. **A
+      `default` on an `image` question is now refused**, with any appearance: Survey123 uses it as a picture from the
+      media folder to draw over, which is not built, and until today the client took it as the answer's text, a file
+      name with no file. No form in the corpus has one. `max-pixels` was already accepted on `image` and reaches the
+      client unchanged. `body::esri:style` stays a column drawn the default way with a notice (§5.10), so `method=` and
+      `palette=` change nothing, which is what Survey123's own web app does with them.
+    - **(b) The client** (`annotateWidget` in `fill.js`). A file input (`accept="image/*"`, no `capture`, so a phone's
+      chooser offers both the camera and the gallery) with words under it: *Choose or take a photo, then draw on it if
+      you need to. The photo can be sent as it is.* **Choosing the photo answers the question at once**; the drawing pad
+      then opens over it, the photo scaled to fit the screen while the canvas keeps the photo's own pixels. A pen of five
+      colours and three widths (both `<select>`s with labels), **Undo** (the last line), **Clear drawing** (every line;
+      the photo is as it was) and **Done drawing**. Every line is saved as it ends, so the answer is always the picture as
+      it stands: the photo alone while nothing is drawn, one flattened JPEG (quality 0.9, named after the photo, `.jpg`)
+      once something is. Done closes the pad and puts focus on **Draw on the photo**, which reopens it; **Remove photo**
+      empties the answer and puts focus on the input; choosing again replaces the photo and starts with no lines. The
+      session (photo, lines, pad open) is kept by record and question for the page's life, so a structural redraw of the
+      page does not lose lines or Undo. A polite live region says each result (*Photo attached…*, ~~*Line saved on the
+      photo.*~~ — silent since 2026-11-17, §5.25 —, *Last line undone.*, *Drawing cleared. The photo is as it was.*, *Photo removed.*). Every new string has
+      its Turkish in the same table.
+    - **(c) `max-pixels`, and a correction.** The photo is held to `max-pixels` on its long edge, or to **1280** when the
+      form sets none — Survey123's documented default. The `<img>` is read for its size first (its header only), then
+      decoded at the small size with `createImageBitmap`'s resize options, falling back to drawing the `<img>` scaled; a
+      48-megapixel phone photo is therefore drawn on as about 1.2 megapixels (1280 × 960 × 4 bytes ≈ 5 MB of canvas)
+      and never held as a full-size canvas by this code. **The plain `image` question's `max-pixels` was wrong**: the
+      client read it as a total number of pixels, so `max-pixels=1280` shrank a photo to about 36 × 36. Both public pages
+      say long edge; it now means long edge there too. The plain photo keeps no default limit, as before.
+    - **(d) Offline and drafts.** Nothing here needs the network. The answer is an ordinary file entry (`name`, `type`,
+      `size`, `blob`) set through `setFiles`, so it is kept in the draft as a `Blob` and queued in the outbox with the
+      record exactly as a photo is (§5.5, §5.10), and a reloaded draft shows it and reopens it for more lines.
+    - **(e) Keyboard and screen-reader users.** Drawing is pointer-only by nature, and the pad says so in words before
+      the canvas (§5.20 (e)'s sentence), the canvas described by it. **The question does not need the drawing**: choosing
+      a photo answers it, so a required `annotate` question can be completed from the keyboard, which a required `draw`
+      cannot. Every control is a native input, select or button with a visible name, reached by Tab; focus is moved
+      deliberately where a button disappears or disables itself (Undo of the last line and Clear move it to the canvas).
+    - **(f) A file the browser cannot read as an image** (HEIC in Chrome, for one) is attached as it is, and the client
+      says so: *This photo could not be opened for drawing. It is attached as it is.* The preview of such a file is
+      hidden rather than shown broken.
+
+    **Measured** — the server's checker (`AFormAnnotatesAPhotoTests`, 8 cases), the client in headless Chrome against
+    the stand-in server (`FormFillAnnotateTests`, 4: a photo set on the input opens the pad at 800 × 400 for a 2000 × 1000
+    photo under `max-pixels=800` and at 1280 × 640 with none; a stroke drawn with synthesized mouse events turns the
+    canvas's centre from the photo's green to the pen's red; Undo and Clear return it to green, in the pad and in the
+    draft; Done leaves one JPEG; the drafted drawing comes back after a reload and reopens; the photo alone, with nothing
+    drawn, is queued in the outbox as a JPEG `Blob` with the server stopped; an unreadable file is attached and said).
+    **Nothing was measured on a phone**: the memory of the decode on a real 48-megapixel photo, a finger on a real touch
+    screen, and a screen reader on the pad are unmeasured.
+
+    **The count, from the corpus, run before and after on this branch:** all readable workbooks importing unedited,
+    **59 of 108 before, 60 after**. `sailing-DrainageStructureStreamCrossingSurvey.xlsx` comes in. The others that used
+    `annotate` are held by something else: `esri-Samples_002_Appearance.xlsx` by `distress`;
+    `sailing-RapidStormDamageAssestment.xlsx` by a choice with no name, a `.bmp` picture and two questions with no label;
+    the ODK web-forms all-question-types workbook by many ODK-only appearances; and **`sailing-RoadLogs.xlsx` by its own
+    `annotate` on a `select_one`** (a help question), which is refused as `draw` would be. Whether Survey123 ignores
+    `annotate` there, as it ignores `minimal` off its types (§5.19 (2)), no public page says; if the owner wants it
+    ignored with a notice, adding `annotate` to `FormCatalog.PresentationOnOtherTypes` brings that form in.
+
+    **INFERRED, confirmed by the owner 2026-11-17 (§5.25):** (1) the client draws in the web form although Survey123's media page says its
+    web app offers only a file to browse for (the appearance page says otherwise); (2) **the unannotated photo is not
+    uploaded beside the drawing** — the question holds one picture, the drawn one; no public page says what Survey123
+    sends; (3) the photo alone is the answer until something is drawn, so an annotate question can be answered without
+    drawing; (4) lines are saved as they end, and Done only closes the pad, where the field app saves when the pad is
+    left; (5) the tools are a freehand pen of five colours (red, the default, yellow, blue, black, white) and three widths
+    (2, 5 and 10 screen pixels, scaled to the photo), with Undo and Clear; Survey123's shapes, arrows, markers, labels,
+    opacity and redo are not built; (6) the flattened picture is a JPEG at quality 0.9, named after the chosen photo with
+    `.jpg`; Survey123 names no format and ODK says only that Collect renames; (7) **the EXIF of the photo is not copied
+    to the drawn picture** (a canvas writes none), where Survey123 3.13 copies it; the photo sent unscaled and undrawn
+    keeps its own; (8) reopened after a reload, the drawn picture is the new ground and its earlier lines can no longer
+    be undone, as Survey123's field-app page says of a saved image; within one page's life Undo reaches back across Done;
+    (9) the 1280 default applies to `annotate` only, not to a plain `image`, whose behaviour without `max-pixels` is
+    unchanged; (10) `max-size` (Survey123's web-app file-size limit) stays refused as a parameter, as before.
+
+    The service worker's shell cache is not changed here: `fill.js` and `fill.css` changed, and the merge sets the
+    version.
+
+25. **The owner's answers on §5.22–§5.24 — 2026-11-17** ([Q-236](../open-questions.md)). Four choices were put
+    to the owner together, and each was answered:
+    - **Barcode on browsers with no reader: adopt ZXing** (*"ZXing'i benimse"*). §5.22 left iPhone Safari, Firefox and
+      desktop Chrome with a typed box only. A JavaScript port of ZXing is adopted as a Tier 2 library behind the forms
+      client's own barcode port, vendored and loaded only when it is needed; the version, the licence and the
+      verification are recorded in `DEPENDENCY-LICENSES.md` and in §5.22 by the change that adopts it.
+    - **search() and pulldata("@layer") query this server's layers only** (*"Yalnız bu sunucu"*): §5.23 (a) and (b)
+      stand. A form naming another server's layer is refused at upload in words, which keeps the two Apopka corpus
+      forms out (they name `services.arcgis.com`).
+    - **`annotate` on a question that is not an image is ignored, with a notice** (*"Yok say, uyarı göster"*), instead
+      of refused. No public page says what Survey123 does with it there, and `sailing-RoadLogs.xlsx` carries it on a
+      `select_one`. The `multiline`, `draw` and `signature` combinations on an image stay refused (§5.24).
+    - **Every other INFERRED point in §5.22, §5.23 and §5.24 is confirmed as written, with the two changes the UX
+      review of 2026-11-16 asked for** (*"Yazıldığı gibi, ux'in ikisi de olsun"*): **a line drawn on a photo is saved
+      without an announcement** — *Done drawing* says the result, and a status after every stroke was noise to the
+      people who hear it, who are mostly not drawing; and **a record sent with a required search() list left empty
+      because its layer needed a connection (§5.23 (d)) says so in the Outbox** — *Required, but left empty because it
+      needed a connection:* and the questions' labels, kept on the queued record, so the member knows what to complete
+      from the Inbox once it has been sent.
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
@@ -1039,7 +1425,17 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    fill ten records with photos in flight mode, close the browser, restart the device, restore the signal, and every
    record arrives once. On an iPhone in Safari, installed to the home screen: the same, and the queue survives eight
    days unopened. The iPhone half needs a device the owner supplies; until then the client says *offline on iPhone
-   is not yet verified* where it offers offline use.
+   is not yet verified* where it offers offline use. **PARTLY DISCHARGED 2026-11-16 — the Android half, measured on the emulator:** Chrome 124 on the
+   `FieldMaps_API35` image (Android 15), the form downloaded for offline use by a member signed in with *Keep me signed
+   in*. Flight mode on **and** the `adb reverse` tunnel removed, because the tunnel reaches the server through adb and
+   would have carried requests that flight mode alone does not stop; the page read `navigator.onLine` false and a fetch
+   to the server failed. Ten records filled, each with a 0.94 MB JPEG; the server held none. Chrome force-stopped, the
+   device rebooted with flight mode still on, the signal restored, the form opened: *10 records sent*, and the layer
+   held ten rows, ten distinct records, each with one attachment of exactly the size the device made, each
+   `created_user` the member — so after the restart the session cookie was traded for a token as §5.5 says. Two
+   limits: the photos were made in the page and handed to the file input, so the camera picker was not exercised; and
+   a member who left *Keep me signed in* clear waits for sign-in after a restart, by design. **The iPhone half is
+   open**, and the client's note stays.
 3. **The first version's list is written down** in this ADR before the client is built: question types, functions
    and appearances, each one either supported or refused. That list is what the evaluator is tested against and what
    condition 5 refuses by. **DISCHARGED 2026-11-08:** §5.10. What is on it was confirmed through
@@ -1051,7 +1447,8 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19. **With §5.19, §5.20 and §5.21 together, measured after the three were merged: 42 of the 61 (68%) and 59 of the 108 (55%).** The rest is in §5.21.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
    while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
-   edited offline is kept on the device. Neither case may lose an edit silently.
+   edited offline is kept on the device. Neither case may lose an edit silently. **DISCHARGED 2026-11-16** on the emulator and the
+   server, recorded under [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md) condition 2.
 7. **The model and the workbook round-trip.** Every form in condition 4's and condition 5's sets goes workbook →
    model → workbook → model, and the two models are identical: same rows, same columns, same values, unknown columns
    included. A difference is a defect in the reader or the writer, and forms are not released with one. **DISCHARGED 2026-11-15:** all 108 readable corpus workbooks go workbook → model → workbook → model, with identical models, and each model's JSON round-trips (`AFormRoundTripsThroughItsWorkbookTests`). The corpus run found three reader defects that broke the round trip or changed a value, and they are fixed with tests built from minimal workbooks: Excel's `_xHHHH_` escapes (239 occurrences, 57 workbooks), date-formatted numbers read as serials, and carriage returns in text. The writer was not measured against its pre-change self on these inputs.

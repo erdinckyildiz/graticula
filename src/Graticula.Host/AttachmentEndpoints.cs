@@ -1187,7 +1187,9 @@ internal static class AttachmentEndpoints
 
         // <b>Whose layer it is — ADR-075.</b> This asked for the privilege alone, so an attachment
         // could be added to any layer the caller could read; it asks what every other write asks.
-        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: adding)
+        // ADR-300 §5.8: a picture is added to a record of the Inbox by whoever the Inbox shows it to; existing ones are not
+        // changed there, so only an add rides on the view's Update.
+        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: adding, updatesThroughView: adding)
                 .ConfigureAwait(false))
         {
             return null;

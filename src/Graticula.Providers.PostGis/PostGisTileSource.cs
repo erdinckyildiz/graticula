@@ -280,7 +280,7 @@ public sealed class PostGisTileSource : ITileSource
             throw new ArgumentOutOfRangeException(nameof(address), rejection);
         }
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(BuildSql(layerName));
+        await using NpgsqlCommand command = _dataSource.CreateReaderCommand(BuildSql(layerName));
         Bind(command, _scheme, address);
 
         object? result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);

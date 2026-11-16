@@ -17,7 +17,7 @@ public static class FormCatalog
     /// <summary>Question types the client fills in and the layer stores.</summary>
     public static readonly FrozenSet<string> InputTypes = Set(
         "integer", "decimal", "range", "text", "note", "geopoint", "geotrace", "geoshape", "date", "time", "dateTime",
-        "image", "audio", "video", "file", "acknowledge");
+        "image", "audio", "video", "file", "acknowledge", "barcode");
 
     /// <summary>Types with no screen: a value worked out or set.</summary>
     public static readonly FrozenSet<string> ValueTypes = Set("calculate", "hidden");
@@ -35,7 +35,6 @@ public static class FormCatalog
     public static readonly FrozenDictionary<string, string> RefusedTypes = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["rank"] = "ordering a list is not in the first version",
-        ["barcode"] = "Safari has no barcode reader, so the question could not be answered on an iPhone",
         ["background-audio"] = "recording in the background is not in the first version",
         ["xml-external"] = "external XML data is not in the first version",
         ["csv-external"] = "external CSV data through instance() is not in the first version; use pulldata() or select_one_from_file",
@@ -100,7 +99,7 @@ public static class FormCatalog
         ["signature"] = Set("image"),
         ["month-year"] = Set("date"),
         ["year"] = Set("date"),
-        ["minimal"] = Set("select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file", "begin group", "begin repeat"),
+        ["minimal"] = Set("select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file", "begin group", "begin repeat", "barcode"),
         ["compact"] = Set("begin group", "begin repeat"),
         ["autocomplete"] = Set("select_one", "select_one_from_file"),
         ["spinner"] = Set("integer", "decimal"),
@@ -109,8 +108,10 @@ public static class FormCatalog
         ["rating"] = Set("range"),
         ["hidden"] = Set("*"),
         ["draw"] = Set("image"),
+        ["annotate"] = Set("image"),
         ["field-list"] = Set("begin group", "begin repeat"),
         ["table-list"] = Set("begin group"),
+        ["hidden-answer"] = Set("barcode"),
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
@@ -129,7 +130,6 @@ public static class FormCatalog
     /// <summary>Appearances refused, with the reason.</summary>
     public static readonly FrozenDictionary<string, string> RefusedAppearances = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["annotate"] = "annotating a photo is not in the first version",
         ["map"] = "choosing on a map is not in the first version",
         ["quick map"] = "choosing on a map is not in the first version",
         ["geocode"] = "geocoding a text answer is not in the first version",
@@ -198,6 +198,12 @@ public static class FormCatalog
         ["esriFieldTypeGUID"] = "esriFieldTypeGUID",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The field types a <c>barcode</c> answer may be stored as (ADR-287 §5.22): text, or not stored. A scanned code is
+    /// text — an EAN or a UPC may begin with zeros a number would drop, and a QR code holds anything.
+    /// </summary>
+    public static readonly FrozenSet<string> BarcodeFieldTypes = Columns("esriFieldTypeString", "null");
+
     /// <summary><c>bind::esri:fieldType</c> values refused, with the reason.</summary>
     public static readonly FrozenDictionary<string, string> RefusedEsriFieldTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -222,7 +228,7 @@ public static class FormCatalog
         ["appVersion"] = "this client has no build number to give; the form's own version is the version setting",
         ["portalInfo"] = "the whole portal description is a JSON object, which no question in a form can hold",
         ["token"] = "an access token is a credential, and a form's answers are stored and shown, so a token would be written into the layer",
-        ["submissionUrl"] = "it exists to point pulldata(\"@layer\") and search() at the layer, and neither is in the first version",
+        ["submissionUrl"] = "the address answers go to here is a view made for the form when it is shared, not the layer itself, so a query written with it would read the view; write the address of the layer in the call (§5.23)",
         ["locale"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
         ["localeInfo"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
     }.ToFrozenDictionary(StringComparer.Ordinal);
@@ -282,12 +288,11 @@ public static class FormCatalog
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
-    /// The <c>pulldata("@…")</c> sources refused, with the reason. <c>@property</c> and <c>@geopoint</c> are the two
-    /// built (§5.20); <c>@layer</c> is the one most worth adding next, and is left out for the reason given.
+    /// The <c>pulldata("@…")</c> sources refused, with the reason. <c>@property</c> and <c>@geopoint</c> are built (§5.20),
+    /// and <c>@layer</c> since §5.23.
     /// </summary>
     public static readonly FrozenDictionary<string, string> RefusedPulldataSources = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["@layer"] = "it queries a feature layer, and an offline client would need a copy of that layer on the device, which is the Inbox's problem and not built",
         ["@json"] = "reading a JSON answer is not in the first version",
         ["@javascript"] = "running a script a form carries is not in the first version, and a form shared with everyone must not carry code the page runs",
         ["@exif"] = "reading the metadata of a photo is not in the first version",

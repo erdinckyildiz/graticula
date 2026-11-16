@@ -30,8 +30,14 @@ public static class ApplyEditsResponse
     /// When the edits were kept, for a caller that asked with <c>returnEditMoment=true</c>; null
     /// leaves it out, and so does a batch that was rolled back, which kept nothing to date.
     /// </param>
+    /// <param name="preconditions">
+    /// Whether the request carried Graticula's <c>expectedEditDates</c> — ADR-300 §5.5. Then a feature refused because it
+    /// moved answers <c>412</c> and one that is not there <c>404</c>, each with its GlobalID where the result knows it, so
+    /// the form client can tell a conflict from a record that is gone. Without it every failure is <c>400</c>, as before.
+    /// </param>
     /// <returns>An object ready for JSON serialisation.</returns>
-    public static object Build(EditOutcome outcome, ApplyEditsRequest.Parsed parsed, DateTimeOffset? editMoment = null)
+    public static object Build(
+        EditOutcome outcome, ApplyEditsRequest.Parsed parsed, DateTimeOffset? editMoment = null, bool preconditions = false)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(parsed);
@@ -39,7 +45,7 @@ public static class ApplyEditsResponse
         Dictionary<string, object> response = new()
         {
             ["addResults"] = Merge(outcome.Adds, parsed.RejectedAdds, outcome.RolledBack, adds: true),
-            ["updateResults"] = Merge(outcome.Updates, parsed.RejectedUpdates, outcome.RolledBack, adds: false),
+            ["updateResults"] = Merge(outcome.Updates, parsed.RejectedUpdates, outcome.RolledBack, adds: false, preconditions),
             ["deleteResults"] = Merge(outcome.Deletes, parsed.RejectedDeletes, outcome.RolledBack, adds: false),
         };
 
@@ -150,7 +156,8 @@ public static class ApplyEditsResponse
         IReadOnlyList<EditResult> applied,
         IReadOnlyList<ApplyEditsRequest.Rejected> rejected,
         bool rolledBack,
-        bool adds)
+        bool adds,
+        bool preconditions = false)
     {
         object[] results = new object[applied.Count + rejected.Count];
 
@@ -179,7 +186,9 @@ public static class ApplyEditsResponse
             }
 
             results[at] = !result.Succeeded
-                ? Failure(result.Identity, result.Error ?? "The edit failed.")
+                ? preconditions && (result.VersionMoved || result.NoSuchFeature)
+                    ? Failure(result.Identity, result.Error ?? "The edit failed.", result.VersionMoved ? 412 : 404, result.GlobalId)
+                    : Failure(result.Identity, result.Error ?? "The edit failed.")
                 : rolledBack
                     ? Failure(adds ? -1 : result.Identity, RolledBackDescription)
                     : Success(result.Identity, result.GlobalId, result.GeometryRepaired);
@@ -220,11 +229,15 @@ public static class ApplyEditsResponse
     /// would be worse than one honest code with a description that says what is
     /// actually wrong.
     /// </remarks>
-    private static object Failure(long objectId, string description) => new
+    /// <param name="objectId">The feature's object id, or -1.</param>
+    /// <param name="description">Why.</param>
+    /// <param name="code">400, or ADR-300 §5.5's 412 and 404 for a request that carried <c>expectedEditDates</c>.</param>
+    /// <param name="globalId">The feature's GlobalID where it is known.</param>
+    private static object Failure(long objectId, string description, int code = 400, Guid? globalId = null) => new
     {
         objectId,
-        globalId = (string?)null,
+        globalId = globalId is { } value ? GlobalIds.Braced(value) : null,
         success = false,
-        error = new { code = 400, description },
+        error = new { code, description },
     };
 }

@@ -76,7 +76,7 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
 
     [Theory]
     [InlineData("rank renk", "ordering")]
-    [InlineData("barcode", "Safari")]
+    [InlineData("phonenumber", "phone number")]
     [InlineData("audit", "audit")]
     [InlineData("select_one_external renk", "external")]
     [InlineData("osm", "not a question type")]
@@ -137,7 +137,7 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
     }
 
     [Theory]
-    [InlineData("pulldata('@layer', 'getValue', 'x', 'y')", "@layer")]
+    [InlineData("pulldata('@layer', 'getFeature', 'x', 'y')", "@layer")]
     [InlineData("pulldata('@json', 'a', 'b')", "@json")]
     [InlineData("pulldata('@javascript', 'f.js', 'run')", "@javascript")]
     [InlineData("pulldata('@exif', ${ad}, 'GPSLatitude')", "@exif")]
@@ -183,7 +183,8 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
         RefusedAt(Checked(["text", "t", "T", "", "", "", "", "draw"]), 2, "appearance", "applies to image");
         Assert.True(Checked(["image", "f", "F", "", "", "", "", "draw"]).Accepted);
         RefusedAt(Checked(["text", "t", "T", "", "", "", "", "signature"]), 2, "appearance", "applies to image");
-        RefusedAt(Checked(["select_one renk", "r", "R", "", "", "", "", "search('x')"]), 2, "appearance", "search()");
+        // search() is accepted since §5.23 (AFormSearchesACsvOrALayerTests); on a question without choices it is still refused.
+        RefusedAt(Checked(["text", "t", "T", "", "", "", "", "search('x')"]), 2, "appearance", "search()");
         RefusedAt(Checked(["text", "t", "T", "", "", "", "", "sparkly"]), 2, "appearance", "not an appearance");
 
         FormCheck drawn = Checked(["select_one renk", "r", "R", "", "", "", "", "minimal horizontal w2"], ["image", "s", "S", "", "", "", "", "signature"]);

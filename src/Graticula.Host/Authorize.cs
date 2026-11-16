@@ -69,9 +69,16 @@ internal static class Authorize
     /// and, measured, they did not. Updates and deletes keep the rule above; so does every write to a layer that is not
     /// a view. Reading the view is already settled: <c>ServiceLookup</c> answers 404 for one the caller cannot read.
     /// </param>
+    /// <param name="updatesThroughView">
+    /// Whether the request changes features and deletes none, adding only where <see cref="AddsThroughView"/> would let it
+    /// — or adds an attachment. <b>ADR-300 §5.1:</b> a per-reader view that offers <c>Update</c> — a form's Inbox — takes
+    /// those from any signed-in member who can read it, for the rows it shows them; the writer reads through the view, so a
+    /// row past its filter is not there to change. A view whose filter does not name its reader keeps the rule above.
+    /// </param>
     /// <returns>Whether the caller may proceed; a refusal has been written when false.</returns>
     public static async Task<bool> RequireEditAsync(
-        HttpContext context, Privilege privilege, Graticula.Platform.Catalog.PublishedLayer layer, bool addsOnly = false)
+        HttpContext context, Privilege privilege, Graticula.Platform.Catalog.PublishedLayer layer, bool addsOnly = false,
+        bool updatesThroughView = false)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(layer);
@@ -88,6 +95,11 @@ internal static class Authorize
         }
 
         if (addsOnly && AddsThroughView(layer))
+        {
+            return true;
+        }
+
+        if (updatesThroughView && !current.Principal.IsAnonymous && UpdatesThroughView(layer))
         {
             return true;
         }
@@ -119,6 +131,15 @@ internal static class Authorize
         layer.ViewOf is not null
         && layer.CapabilityCeiling is { } ceiling
         && System.Linq.Enumerable.Contains(ceiling, "Create", StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a layer is a per-reader view that offers <c>Update</c> — a form's Inbox, ADR-300 §5.1: its readers change
+    /// the rows it shows them.
+    /// </summary>
+    internal static bool UpdatesThroughView(Graticula.Platform.Catalog.PublishedLayer layer) =>
+        layer.IsPerReader
+        && layer.CapabilityCeiling is { } ceiling
+        && System.Linq.Enumerable.Contains(ceiling, "Update", StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The caller's right to write to a layer, from the request.</summary>
     /// <param name="current">The caller.</param>

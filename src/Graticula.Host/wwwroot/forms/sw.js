@@ -12,9 +12,9 @@
 */
 'use strict';
 
-var SHELL_CACHE = 'graticula-forms-shell-v10';
+var SHELL_CACHE = 'graticula-forms-shell-v15';
 var FORMS_CACHE = 'graticula-forms-data-v1';
-var SHELL = ['fill.html', 'fill.js', 'fill.css', 'xlsform-eval.js', 'manifest.webmanifest', 'icon.svg', 'ol.js', 'ol.css'];
+var SHELL = ['fill.html', 'fill.js', 'fill.css', 'xlsform-eval.js', 'manifest.webmanifest', 'icon.svg', 'ol.js', 'ol.css', 'barcode-reader.js', 'zxing.min.js'];
 
 self.addEventListener('install', function (event) {
     event.waitUntil(caches.open(SHELL_CACHE).then(function (cache) { return cache.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));

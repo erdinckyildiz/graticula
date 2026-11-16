@@ -8056,3 +8056,13 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .formchoices td:has(.formbar) { display: flex; align-items: center; gap: 6px; }
 .formchoices td:has(.formbar) .formbar { flex: 1; }
 .formfilterrow { position: relative; }
+
+/* ADR-300 §5.1: a form's Inbox settings, under its state on the item page. */
+.forminbox { margin-top: 18px; border-top: 1px solid var(--rule); }
+.forminbox .stacked { display: flex; flex-direction: column; gap: 4px; margin: var(--gap-3) 0 4px; }
+.forminbox .stacked input { font: inherit; max-width: 100%; min-height: 44px; }
+.forminbox #formInboxFilter { font-family: var(--mono); width: 100%; }
+.forminbox #formInboxLimit { width: 10em; }
+.forminbox label.check { display: flex; gap: var(--gap-2); align-items: center; min-height: 44px; }
+.forminbox .bad-inline:empty { display: none; }
+.forminbox code { overflow-wrap: anywhere; }

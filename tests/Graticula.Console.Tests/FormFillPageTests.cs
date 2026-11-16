@@ -331,9 +331,11 @@ public sealed class FormFillPageTests : IClassFixture<FormFillPageTests.Publishe
         // prefix: its version moves with every client change, and a test that names one goes stale at the next.
         await WaitAsync(browser, "navigator.serviceWorker.ready.then(function () { return !!navigator.serviceWorker.controller || caches.keys().then(function (n) { return n.some(function (x) { return x.indexOf('graticula-forms-shell-') === 0; }); }); })",
             "the service worker", seconds: 20);
-        // The map library too (§5.15): a location question opened offline still has its map, without its ground.
+        // The map library too (§5.15): a location question opened offline still has its map, without its ground. And the barcode reader
+        // and its vendored ZXing (§5.22, 2026-11-17), so a barcode question opened offline still scans.
         await WaitAsync(browser, "caches.keys().then(function (n) { return caches.open(n.filter(function (x) { return x.indexOf('graticula-forms-shell-') === 0; })[0] || 'none'); }).then(function (c) { return c.keys(); }).then(function (k) { return k.length >= 7"
-            + " && k.some(function (r) { return r.url.endsWith('/ol.js'); }); })",
+            + " && k.some(function (r) { return r.url.endsWith('/ol.js'); })"
+            + " && k.some(function (r) { return r.url.endsWith('/zxing.min.js'); }) && k.some(function (r) { return r.url.endsWith('/barcode-reader.js'); }); })",
             "the shell to be cached", seconds: 20);
 
         await browser.CallAsync("Network.enable");

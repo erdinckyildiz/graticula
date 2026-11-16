@@ -740,6 +740,14 @@ internal static partial class WmsEndpoints
 
         TimeDimension dimension = new(field, null, null);
 
+        // <b>ADR-300 §5.4: not measured for a per-reader view</b>, whose rows are each reader's, and remembered per layer it
+        // would give the first reader's span to everybody after; nor for a layer that does not offer Query, whose extent
+        // ServiceContexts already withholds for the same reason. The dimension stays, its span unknown.
+        if (layer.IsPerReader || CapabilityCeilings.Refuses(layer, "Query"))
+        {
+            return dimension;
+        }
+
         // <b>Statistics are not on `IFeatureSource`.</b> `ReadAsync` ignores the
         // `statistics` a query carries and returns rows, so asking it for a min and
         // a max produces a feature with no attributes at all — which is what this
