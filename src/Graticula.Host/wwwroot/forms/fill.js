@@ -360,6 +360,7 @@
         "These choices come from a layer of another server, which this form does not query.": "Bu seçenekler başka bir sunucunun katmanından geliyor; bu form o sunucuya sorgu göndermez.",
         "The choices could not be loaded from the layer.": "Seçenekler katmandan yüklenemedi.",
         "Looking this up…": "Sorgulanıyor…",
+        "Required, but left empty because it needed a connection: ": "Zorunluydu ama bağlantı gerektirdiği için boş kaldı: ",
         "This answer comes from the server and needs a connection. It fills in by itself when you are back online; if you submit before then, it is left empty.": "Bu cevap sunucudan geliyor ve bağlantı gerektiriyor. Bağlantı gelince kendiliğinden dolar; daha önce gönderirseniz boş kalır.",
         "This answer would be looked up in a layer of another server, which this form does not query.": "Bu cevabın sorgulanacağı katman başka bir sunucunun; bu form o sunucuya sorgu göndermez.",
         "This answer could not be looked up: the layer could not be read.": "Bu cevap sorgulanamadı: katman okunamadı.",
@@ -1350,6 +1351,26 @@
                 if (n.kind === 'question') {
                     var m = messageFor(inst, n);
                     if (m) { out.push({ inst: inst, q: n, message: m, key: keyOf(inst, n.name) }); }
+                } else if (n.kind === 'group') {
+                    visit(inst, n.body || []);
+                } else if (n.kind === 'repeat') {
+                    (inst.repeats[n.name] || []).forEach(function (child) { visit(child, n.body || []); });
+                }
+            });
+        })(root, root.node.body || []);
+        return out;
+    }
+
+    // The required search() lists left empty because their layer needed a connection (owner decision 2026-11-17,
+    // ADR-287 section 5.23): the record goes, and the Outbox names what it went without.
+    function leftForConnection() {
+        var out = [];
+        (function visit(inst, body) {
+            body.forEach(function (n) {
+                if (inst.rel[n.name] === false) { return; }
+                if (n.kind === 'question') {
+                    if (n.search && n.search.url && searchStatus[inst.id + '/' + n.name] === 'offline' && isEmpty(inst, n)
+                        && evalBool(n.required, inst, n, false)) { out.push(text(n.labels, n.name)); }
                 } else if (n.kind === 'group') {
                     visit(inst, n.body || []);
                 } else if (n.kind === 'repeat') {
@@ -3201,7 +3222,6 @@
         "Opening the photo…": "Fotoğraf açılıyor…",
         "Photo attached. You can draw on it, or leave it as it is.": "Fotoğraf eklendi. Üzerine çizebilir ya da olduğu gibi bırakabilirsiniz.",
         "This photo could not be opened for drawing. It is attached as it is.": "Bu fotoğraf çizim için açılamadı. Olduğu gibi eklendi.",
-        "Line saved on the photo.": "Çizgi fotoğrafa kaydedildi.",
         "Last line undone.": "Son çizgi geri alındı.",
         "Drawing cleared. The photo is as it was.": "Çizim temizlendi; fotoğraf ilk hâline döndü.",
         "The photo is saved with your drawing.": "Fotoğraf çiziminizle birlikte kaydedildi.",
@@ -3467,7 +3487,8 @@
             if (!drawing) { return; }
             drawing = null;
             show();
-            save(t('Line saved on the photo.'));
+            // Saved silently: a status after every line is noise (owner decision 2026-11-17, ADR-287 §5.24); Done says it.
+            save('');
         }
         canvas.addEventListener('pointerup', endStroke);
         canvas.addEventListener('pointercancel', endStroke);
@@ -3787,7 +3808,8 @@
             layers: layers,
             attachments: attachments,
             progress: { done: {}, attached: {}, attempted: {}, updated: {}, known: known },
-            problems: problemsFound
+            problems: problemsFound,
+            leftForConnection: leftForConnection()
         };
         if (edit) {
             record.inbox = { key: editing.key, globalId: root.id, objectId: editing.objectId, label: editing.label };
@@ -4033,6 +4055,9 @@
                 el('strong', { text: title }),
                 el('span', { class: 'state' + (r.status === 'refused' || r.status === 'conflict' || r.status === 'gone' ? ' refused' : ''), text: state })
             ]);
+            if (r.leftForConnection && r.leftForConnection.length) {
+                item.appendChild(el('span', { class: 'state left-empty', text: t('Required, but left empty because it needed a connection: ') + r.leftForConnection.join(', ') + '.' }));
+            }
             var actions = el('div', { class: 'row-actions' });
             if (r.status === 'conflict') {
                 if (r.formId === itemId && form) {

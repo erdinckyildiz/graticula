@@ -865,7 +865,13 @@ public sealed partial class FormDefinition
                 {
                     if (!types.Contains("*") && !types.Contains(type))
                     {
-                        if (FormCatalog.PresentationOnOtherTypes.Contains(token))
+                        if (token == "annotate")
+                        {
+                            // Owner decision 2026-11-17 (ADR-287 §5.24): no public page says what Survey123 does with
+                            // annotate off an image, and a real form carries it on a select_one; it is ignored, in words.
+                            Notice("survey", at, "appearance", $"The appearance 'annotate' draws over a photo, and a '{type}' question has none, so it is ignored here.");
+                        }
+                        else if (FormCatalog.PresentationOnOtherTypes.Contains(token))
                         {
                             Notice("survey", at, "appearance", $"The appearance '{token}' means nothing on a '{type}' question (Survey123 ignores it there) and is drawn the default way.");
                         }

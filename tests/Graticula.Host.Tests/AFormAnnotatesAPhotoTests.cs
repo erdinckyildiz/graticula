@@ -46,12 +46,17 @@ public sealed class AFormAnnotatesAPhotoTests
 
     [Theory]
     [InlineData("text")]
-    [InlineData("audio")]
     [InlineData("file")]
     [InlineData("select_one l")]
-    public void Annotate_on_any_other_type_is_refused_in_words(string type)
+    public void Annotate_on_any_other_type_is_ignored_with_a_notice(string type)
     {
-        RefusedAt(Checked([type, "q", "Q", "annotate"]), 2, "appearance", "The appearance 'annotate' applies to image, not to");
+        // Owner decision 2026-11-17 (ADR-287 §5.24): sailing-RoadLogs carries annotate on a select_one, and no public
+        // page says what Survey123 does with it there.
+        FormCheck check = Checked([type, "q", "Q", "annotate"]);
+
+        Accepted(check);
+        Assert.Contains(check.Notices, n => n.Row == 2 && n.Message.Contains("'annotate' draws over a photo", StringComparison.Ordinal)
+            && n.Message.Contains("ignored", StringComparison.Ordinal));
     }
 
     [Fact]

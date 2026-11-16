@@ -1155,7 +1155,7 @@ measurable question. The two device claims are, so they are conditions and not a
       `search()` and `pulldata("@layer")` now pass the shape check, and name `services.arcgis.com`, which publish
       refuses as another server's); `eddie-odk_simprints_verification_demo.xls` (`trigger`); and
       `stats4sd-Repeat_over_not_selcted_options_2` (prose written in its appearance column).
-    - **INFERRED, for the owner to confirm:** (a) **only this server's layers are queried** — a relative address or this
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.25):** (a) **only this server's layers are queried** — a relative address or this
       server's own host, checked at upload and publish, and by the client for an address worked out at run time; a
       layer elsewhere is refused in words, because the page's `connect-src` is `'self'` and a member's token must not
       go to another host. (b) The query goes with the member's own sign-in, so an anonymous public form sees only
@@ -1226,8 +1226,8 @@ measurable question. The two device claims are, so they are conditions and not a
       once something is. Done closes the pad and puts focus on **Draw on the photo**, which reopens it; **Remove photo**
       empties the answer and puts focus on the input; choosing again replaces the photo and starts with no lines. The
       session (photo, lines, pad open) is kept by record and question for the page's life, so a structural redraw of the
-      page does not lose lines or Undo. A polite live region says each result (*Photo attached…*, *Line saved on the
-      photo.*, *Last line undone.*, *Drawing cleared. The photo is as it was.*, *Photo removed.*). Every new string has
+      page does not lose lines or Undo. A polite live region says each result (*Photo attached…*, ~~*Line saved on the
+      photo.*~~ — silent since 2026-11-17, §5.25 —, *Last line undone.*, *Drawing cleared. The photo is as it was.*, *Photo removed.*). Every new string has
       its Turkish in the same table.
     - **(c) `max-pixels`, and a correction.** The photo is held to `max-pixels` on its long edge, or to **1280** when the
       form sets none — Survey123's documented default. The `<img>` is read for its size first (its header only), then
@@ -1266,7 +1266,7 @@ measurable question. The two device claims are, so they are conditions and not a
     `annotate` there, as it ignores `minimal` off its types (§5.19 (2)), no public page says; if the owner wants it
     ignored with a notice, adding `annotate` to `FormCatalog.PresentationOnOtherTypes` brings that form in.
 
-    **INFERRED, for the owner to confirm:** (1) the client draws in the web form although Survey123's media page says its
+    **INFERRED, confirmed by the owner 2026-11-17 (§5.25):** (1) the client draws in the web form although Survey123's media page says its
     web app offers only a file to browse for (the appearance page says otherwise); (2) **the unannotated photo is not
     uploaded beside the drawing** — the question holds one picture, the drawn one; no public page says what Survey123
     sends; (3) the photo alone is the answer until something is drawn, so an annotate question can be answered without
@@ -1283,6 +1283,26 @@ measurable question. The two device claims are, so they are conditions and not a
 
     The service worker's shell cache is not changed here: `fill.js` and `fill.css` changed, and the merge sets the
     version.
+
+25. **The owner's answers on §5.22–§5.24 — 2026-11-17** ([Q-236](../open-questions.md)). Four choices were put
+    to the owner together, and each was answered:
+    - **Barcode on browsers with no reader: adopt ZXing** (*"ZXing'i benimse"*). §5.22 left iPhone Safari, Firefox and
+      desktop Chrome with a typed box only. A JavaScript port of ZXing is adopted as a Tier 2 library behind the forms
+      client's own barcode port, vendored and loaded only when it is needed; the version, the licence and the
+      verification are recorded in `DEPENDENCY-LICENSES.md` and in §5.22 by the change that adopts it.
+    - **search() and pulldata("@layer") query this server's layers only** (*"Yalnız bu sunucu"*): §5.23 (a) and (b)
+      stand. A form naming another server's layer is refused at upload in words, which keeps the two Apopka corpus
+      forms out (they name `services.arcgis.com`).
+    - **`annotate` on a question that is not an image is ignored, with a notice** (*"Yok say, uyarı göster"*), instead
+      of refused. No public page says what Survey123 does with it there, and `sailing-RoadLogs.xlsx` carries it on a
+      `select_one`. The `multiline`, `draw` and `signature` combinations on an image stay refused (§5.24).
+    - **Every other INFERRED point in §5.22, §5.23 and §5.24 is confirmed as written, with the two changes the UX
+      review of 2026-11-16 asked for** (*"Yazıldığı gibi, ux'in ikisi de olsun"*): **a line drawn on a photo is saved
+      without an announcement** — *Done drawing* says the result, and a status after every stroke was noise to the
+      people who hear it, who are mostly not drawing; and **a record sent with a required search() list left empty
+      because its layer needed a connection (§5.23 (d)) says so in the Outbox** — *Required, but left empty because it
+      needed a connection:* and the questions' labels, kept on the queued record, so the member knows what to complete
+      from the Inbox once it has been sent.
 
 ## 6. Consequences
 

@@ -315,6 +315,10 @@ public sealed class FormFillSearchAndLayerTests : IClassFixture<FormFillClientTe
             await _site.EvalAsync<bool>("document.getElementById('submit').click(); true");
             await _site.WaitAsync("!document.getElementById('done').hidden", "the record to be queued with no server", seconds: 20);
             Assert.Equal(0, await _site.EvalAsync<int>("window.__errors.length"));
+
+            // Owner decision 2026-11-17: the Outbox names the required answer the record went without.
+            await _site.WaitAsync("(function () { var n = document.querySelector('#outbox-list .left-empty'); return !!n && n.textContent.indexOf('needed a connection') >= 0 && n.textContent.indexOf('Yer') >= 0; })()",
+                "the Outbox to name the required list left empty", seconds: 20);
         }
         finally
         {
