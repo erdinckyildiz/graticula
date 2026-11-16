@@ -342,7 +342,26 @@
         "The camera could not be started. Type the code instead.": "Kamera açılamadı. Kodu elle yazın.",
         "The code could not be read. Type the code instead.": "Kod okunamadı. Kodu elle yazın.",
         "The code reader could not be loaded. Connect once to download it, or type the code instead.": "Kod okuyucu yüklenemedi. İndirmek için bir kez internete bağlanın ya da kodu elle yazın.",
-        "Scanning needs the form to be opened at an https address. Type the code instead.": "Tarama için form https ile başlayan bir adresten açılmalı. Kodu elle yazın."
+        "Scanning needs the form to be opened at an https address. Type the code instead.": "Tarama için form https ile başlayan bir adresten açılmalı. Kodu elle yazın.",
+        // ADR-287 section 5.26
+        "Record": "Ses kaydet",
+        "Stop recording": "Kaydı durdur",
+        "Longest recording: ": "En uzun kayıt: ",
+        "Opening the microphone…": "Mikrofon açılıyor…",
+        "Recording. Press Stop recording to finish.": "Kayıt sürüyor. Bitirmek için Kaydı durdur'a basın.",
+        "Recording saved.": "Kayıt eklendi.",
+        "Recording stopped at the time limit and saved.": "Süre dolduğu için kayıt durdu ve eklendi.",
+        "Recording stopped because the page was left, and saved.": "Sayfadan ayrıldığınız için kayıt durdu ve eklendi.",
+        "Nothing was recorded.": "Hiçbir şey kaydedilmedi.",
+        "Microphone permission was refused. Choose a recording instead.": "Mikrofon izni verilmedi. Bunun yerine bir ses dosyası seçin.",
+        "No microphone was found. Choose a recording instead.": "Mikrofon bulunamadı. Bunun yerine bir ses dosyası seçin.",
+        "The microphone could not be started. Choose a recording instead.": "Mikrofon açılamadı. Bunun yerine bir ses dosyası seçin.",
+        "This browser cannot record. Choose a recording instead.": "Bu tarayıcı ses kaydedemiyor. Bunun yerine bir ses dosyası seçin.",
+        "Recording needs the form to be opened at an https address. Choose a recording instead.": "Ses kaydı için form https ile başlayan bir adresten açılmalı. Bunun yerine bir ses dosyası seçin.",
+        "Recording not available: ": "Ses kaydı bulunamadı: ",
+        "Recording: ": "Ses kaydı: ",
+        "0 is none at all and 10 is the most.": "0 hiç yok, 10 en fazla demek.",
+        "Check this answer.": "Bu cevabı bir daha kontrol edin."
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
     // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
@@ -501,6 +520,7 @@
                 if (c.auto) { row.__auto = true; } // the Other that or_other adds is offered whatever choice_filter says
                 Object.keys(c.labels || {}).forEach(function (k) { row[k === '' ? 'label' : 'label::' + k] = c.labels[k]; });
                 Object.keys(c.images || {}).forEach(function (k) { row[k === '' ? 'image' : 'image::' + k] = c.images[k]; });
+                Object.keys(c.audio || {}).forEach(function (k) { row[k === '' ? 'audio' : 'audio::' + k] = c.audio[k]; });
                 Object.keys(c.filters || {}).forEach(function (k) { row[k] = c.filters[k]; });
                 return row;
             });
@@ -940,7 +960,10 @@
     function mediaTypeOf(name) {
         var m = /\.([a-z0-9]+)$/i.exec(name || '');
         var ext = m ? m[1].toLowerCase() : '';
-        return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' }[ext] || 'application/octet-stream';
+        return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+            // section 5.26: a .bmp picture, and the recordings a label or a choice may play
+            bmp: 'image/bmp', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+            m4a: 'audio/mp4', aac: 'audio/aac', webm: 'audio/webm', flac: 'audio/flac' }[ext] || 'application/octet-stream';
     }
 
     function loadMedia(name) {
@@ -980,9 +1003,9 @@
         var names = [];
         function add(map) { Object.keys(map || {}).forEach(function (k) { if (map[k] && names.indexOf(map[k]) < 0) { names.push(map[k]); } }); }
         (function walk(node) {
-            (node.body || []).forEach(function (n) { if (n.kind === 'question') { add(n.images); } else { walk(n); } });
+            (node.body || []).forEach(function (n) { if (n.kind === 'question') { add(n.images); add(n.audio); } else { walk(n); } });
         })(formIn.root);
-        Object.keys(formIn.choices || {}).forEach(function (l) { formIn.choices[l].forEach(function (c) { add(c.images); }); });
+        Object.keys(formIn.choices || {}).forEach(function (l) { formIn.choices[l].forEach(function (c) { add(c.images); add(c.audio); }); });
         return names;
     }
 
@@ -1490,11 +1513,13 @@
     function renderBody(inst, body, container, level) {
         body.forEach(function (n) {
             if (n.kind === 'question') {
-                if (hasUi(n)) { renderQuestion(inst, n, container); }
+                if (hasUi(n)) { renderQuestion(inst, n, container); gridPlace(container, n); }
             } else if (n.kind === 'group') {
                 renderGroup(inst, n, container, level);
+                gridPlace(container, n);
             } else if (n.kind === 'repeat') {
                 renderRepeat(inst, n, container, level);
+                gridPlace(container, n);
             }
         });
     }
@@ -1559,6 +1584,8 @@
             box.appendChild(heading(level, label, { class: form.pages && !inst.parent ? 'page-title' : null }));
         }
         container.appendChild(box);
+        if (form.grid && widthOf(g.appearance) > 1 && target === box) { target = box.appendChild(el('div', { class: 'group-body' })); }
+        gridGroup(target, g);
         if (has(g.appearance, 'table-list')) { renderTable(inst, g, target); } else { renderBody(inst, g.body || [], target, level + 1); }
         if (toggle) { views.push({ update: toggle.flagUpdate }); }
         views.push({ update: function () { box.hidden = inst.rel[g.name] === false; } });
@@ -1731,15 +1758,19 @@
         var hint = hintText ? el('p', { class: 'hint', id: id + '-hint', text: hintText }) : null;
         var picture = pictureName(q.images);
         var pictureBlock = picture ? pictureNode('div', picture, 'question-picture') : null;
+        var sound = soundName(q.audio);
+        var soundBlock = sound ? soundNode(sound, labelTemplate, 'question-sound') : null;
+        var warning = q.warning ? el('p', { class: 'warning', id: id + '-warning', role: 'status' }) : null;
         var guidance = guidanceNodes(q, id, key);
         // No live region per question: the summary is the one alert, and two announcements per error was noise (UX review).
         var error = el('p', { class: 'error', id: id + '-error' });
-        var describedBy = (hint ? id + '-hint ' : '') + id + '-error';
+        var describedBy = (hint ? id + '-hint ' : '') + id + '-error' + (warning ? ' ' + id + '-warning' : '');
 
         var shell = useFieldset ? el('fieldset', { 'aria-describedby': describedBy }) : wrap;
         if (useFieldset) { wrap.appendChild(shell); }
         shell.appendChild(labelNode);
         if (pictureBlock) { shell.appendChild(pictureBlock); }
+        if (soundBlock) { shell.appendChild(soundBlock); }
         if (hint) { shell.appendChild(hint); }
         if (guidance) { shell.appendChild(guidance.button); shell.appendChild(guidance.panel); }
 
@@ -1781,6 +1812,7 @@
             if (lookup.textContent !== said) { lookup.textContent = said; }
         }
         wrap.appendChild(error);
+        if (warning) { wrap.appendChild(warning); }
         if (q.type === 'note' && labelNode.tagName === 'DIV') { wrap.classList.add('note'); }
         container.appendChild(wrap);
 
@@ -1801,6 +1833,11 @@
                 var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
                 error.textContent = message;
                 wrap.classList.toggle('invalid', !!message);
+                if (warning) {
+                    var cautious = !message && (showAll || inst.touched[q.name]) ? warningFor(inst, q) : '';
+                    if (warning.textContent !== cautious) { warning.textContent = cautious; }
+                    wrap.classList.toggle('warned', !!cautious);
+                }
                 if (widget.controls) {
                     widget.controls().forEach(function (c) {
                         if (message) { c.setAttribute('aria-invalid', 'true'); } else { c.removeAttribute('aria-invalid'); }
@@ -2055,6 +2092,7 @@
 
     function numberWidget(inst, q, id, describedBy) {
         if (has(q.appearance, 'spinner')) { return spinnerWidget(inst, q, id, describedBy); }
+        if (q.type === 'integer' && has(q.appearance, 'distress')) { return distressWidget(inst, q, id); }
         var input = el('input', {
             type: 'text', id: id, 'aria-describedby': describedBy, 'data-focus': 'input',
             inputmode: q.type === 'integer' ? 'numeric' : 'decimal', autocomplete: 'off'
@@ -2204,6 +2242,8 @@
                 controls.push(input);
                 var shown = choicePicture(row);
                 box.appendChild(el('label', { class: 'choice', for: id + '-' + i }, [input, shown ? pictureNode('span', shown, 'choice-picture') : null, el('span', { text: choiceLabel(row) })]));
+                var heard = choiceSound(row);
+                if (heard) { box.appendChild(soundNode(heard, choiceLabel(row), 'choice-sound')); }
                 if (focusedValue === value) { setTimeout(function () { input.focus(); }, 0); }
             });
             holder.appendChild(box);
@@ -3093,7 +3133,7 @@
         var input = el('input', {
             type: 'file', id: id, accept: accept, multiple: multiple ? true : null, 'aria-describedby': describedBy,
             'data-focus': 'input', 'aria-labelledby': id + '-label',
-            capture: q.type === 'image' || q.type === 'video' ? 'environment' : q.type === 'audio' ? 'user' : null
+            capture: captureFor(q)
         });
         var list = el('ul', { class: 'files' });
         var urls = [];
@@ -3128,7 +3168,7 @@
         }
         var drawnFor = null;
         return {
-            node: el('div', null, [input, list]),
+            node: el('div', null, [input, q.type === 'audio' ? audioRecorderNode(inst, q, id) : null, list]),
             controls: function () { return [input]; },
             sync: function (ro) {
                 var now = filesOf(inst, q.name);
@@ -3136,6 +3176,221 @@
                 input.disabled = !!ro;
             }
         };
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // ADR-287 section 5.26: recording an audio answer, recordings in labels, the distress scale, a warning that lets the
+    // answer go, the camera a photo is taken with, and a grid of a group's questions. Kept together so a merge of
+    // fill.js meets them in one place.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    // new-front takes a photo with the front camera, as Survey123's field app does; new, new-rear and a plain image the
+    // rear one. `capture` on a phone opens the camera itself; a desktop browser ignores it and offers a file.
+    function captureFor(q) {
+        if (q.type === 'image') { return has(q.appearance, 'new-front') ? 'user' : 'environment'; }
+        if (q.type === 'video') { return 'environment'; }
+        if (q.type === 'audio') { return 'user'; }
+        return null;
+    }
+
+    // ----- Recording an audio answer. Survey123's web app only chooses a file; this one also records where the browser
+    // can (MediaRecorder and a microphone, which need an https address), up to max-duration seconds (600 when the form
+    // does not say: Survey123's web-app default). A recording is a file like a chosen one: it waits in the outbox with
+    // the record when there is no signal, and is sent as an attachment.
+    var recording = null;    // the one recording running: { key, recorder, stream, chunks, started, timer, tick, view, stop }
+    var recordingSaid = {};  // what the last recording said, by question key, so a redraw still says it
+
+    function canRecord() {
+        return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function clockOf(seconds) {
+        var s = Math.max(0, Math.floor(seconds));
+        return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+    }
+
+    function recordingExtension(type) {
+        if (/ogg/.test(type)) { return '.ogg'; }
+        if (/mp4|aac|m4a/.test(type)) { return '.m4a'; }
+        if (/mpeg/.test(type)) { return '.mp3'; }
+        if (/wav/.test(type)) { return '.wav'; }
+        return '.webm';
+    }
+
+    function stopRecording(how) {
+        if (recording) { var r = recording; recording = null; r.stop(how); }
+    }
+
+    window.addEventListener('pagehide', function () { stopRecording('left'); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) { stopRecording('left'); } });
+
+    function audioRecorderNode(inst, q, id) {
+        var key = keyOf(inst, q.name);
+        var limit = Number(q.maxDuration) > 0 ? Number(q.maxDuration) : 600;
+        var status = el('p', { class: 'hint', id: id + '-recording', 'aria-live': 'polite' });
+        var clock = el('p', { class: 'hint recording-clock', 'aria-hidden': 'true' });
+        if (!canRecord()) {
+            var insecure = window.isSecureContext === false;
+            return el('div', { class: 'recorder' }, [el('p', { class: 'hint', text: insecure
+                ? t('Recording needs the form to be opened at an https address. Choose a recording instead.')
+                : t('This browser cannot record. Choose a recording instead.') })]);
+        }
+        var button = el('button', { type: 'button', class: 'quiet', 'data-focus': 'record', 'aria-describedby': id + '-label ' + id + '-limit' });
+        var limitNote = el('p', { class: 'hint', id: id + '-limit', text: t('Longest recording: ') + clockOf(limit) });
+        function draw() {
+            var on = !!(recording && recording.key === key);
+            button.textContent = on ? t('Stop recording') : t('Record');
+            button.setAttribute('aria-pressed', on ? 'true' : 'false');
+            clock.hidden = !on;
+            if (on) { clock.textContent = clockOf((Date.now() - recording.started) / 1000) + ' / ' + clockOf(limit); }
+            if (!on && recordingSaid[key] && status.textContent !== recordingSaid[key]) { status.textContent = recordingSaid[key]; }
+        }
+        function say(words) {
+            recordingSaid[key] = words;
+            status.textContent = '';
+            setTimeout(function () { status.textContent = words; }, 50);
+        }
+        button.addEventListener('click', function () {
+            if (recording && recording.key === key) { stopRecording('done'); return; }
+            stopRecording('other');
+            stopBarcodeScan('other');
+            say(t('Opening the microphone…'));
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(function (stream) {
+                var recorder;
+                try { recorder = new MediaRecorder(stream); } catch (e) {
+                    stream.getTracks().forEach(function (tr) { tr.stop(); });
+                    say(t('This browser cannot record. Choose a recording instead.'));
+                    return;
+                }
+                var chunks = [];
+                var session = { key: key, recorder: recorder, stream: stream, started: Date.now(), view: draw, say: say };
+                var ended = 'done';
+                recorder.ondataavailable = function (e) { if (e.data && e.data.size) { chunks.push(e.data); } };
+                recorder.onstop = function () {
+                    stream.getTracks().forEach(function (tr) { tr.stop(); });
+                    var type = (recorder.mimeType || (chunks[0] && chunks[0].type) || 'audio/webm').split(';')[0];
+                    if (chunks.length) {
+                        var blob = new Blob(chunks, { type: type });
+                        var stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '');
+                        var file = { name: q.name + '-' + stamp + recordingExtension(type), type: type, size: blob.size, blob: blob };
+                        var multiple = has(q.appearance, 'multiline');
+                        setFiles(inst, q, multiple ? filesOf(inst, q.name).concat([file]) : [file]);
+                        session.say(ended === 'limit' ? t('Recording stopped at the time limit and saved.')
+                            : ended === 'left' ? t('Recording stopped because the page was left, and saved.') : t('Recording saved.'));
+                    } else {
+                        session.say(t('Nothing was recorded.'));
+                    }
+                    var now = document.querySelector('[data-key="' + cssEscape(key) + '"] [data-focus=record]');
+                    if (ended === 'done' && now) { now.focus(); }
+                    if (session.view) { session.view(); }
+                };
+                session.stop = function (how) {
+                    ended = how;
+                    clearTimeout(session.timer); clearInterval(session.tick);
+                    try { if (recorder.state !== 'inactive') { recorder.stop(); } else { recorder.onstop(); } } catch (e) { recorder.onstop(); }
+                };
+                session.timer = setTimeout(function () { if (recording === session) { stopRecording('limit'); } }, limit * 1000);
+                session.tick = setInterval(function () { if (session.view) { session.view(); } }, 1000);
+                recording = session;
+                recorder.start();
+                say(t('Recording. Press Stop recording to finish.'));
+                draw();
+            }, function (err) {
+                var name = err && err.name;
+                say(name === 'NotAllowedError' || name === 'SecurityError' ? t('Microphone permission was refused. Choose a recording instead.')
+                    : name === 'NotFoundError' ? t('No microphone was found. Choose a recording instead.')
+                        : t('The microphone could not be started. Choose a recording instead.'));
+            });
+        });
+        // A redraw makes a new widget; the recording running is drawn by whichever widget is on the page now.
+        if (recording && recording.key === key) { recording.view = draw; recording.say = say; }
+        draw();
+        return el('div', { class: 'recorder' }, [el('div', { class: 'inline' }, [button]), clock, limitNote, status]);
+    }
+
+    // ----- Recordings in labels and choices (media::audio, and its older spelling audio). Found and kept on the device
+    // with the form, as pictures are, so an offline reload still plays them.
+    function soundName(map) { return text(map || {}, ''); }
+
+    function choiceSound(row) {
+        if (lang && row['audio::' + lang]) { return String(row['audio::' + lang]); }
+        if (row.audio) { return String(row.audio); }
+        var keys = Object.keys(row);
+        for (var i = 0; i < keys.length; i++) { if (keys[i].indexOf('audio::') === 0 && row[keys[i]]) { return String(row[keys[i]]); } }
+        return '';
+    }
+
+    function soundNode(name, label, cls) {
+        var holder = el('div', { class: 'sound' + (cls ? ' ' + cls : '') });
+        loadMedia(name).then(function (blob) {
+            if (!blob) {
+                holder.appendChild(el('span', { class: 'picture-missing', text: t('Recording not available: ') + name }));
+                return;
+            }
+            if (!mediaUrls[name]) { mediaUrls[name] = URL.createObjectURL(blob); }
+            holder.appendChild(el('audio', { src: mediaUrls[name], controls: true, preload: 'none', 'aria-label': t('Recording: ') + label }));
+        });
+        return holder;
+    }
+
+    // ----- distress (Survey123's integer appearance): "a 10-point scale used to measure feelings such as stress, pain,
+    // and happiness". INFERRED: the points are 0 to 10, the convention of such scales, drawn from green to red; it is a
+    // set of radio buttons, so it is answered with the arrow keys as any choice is, and Clear takes the answer away.
+    function distressWidget(inst, q, id) {
+        var box = el('div', { class: 'choices distress', role: 'radiogroup', 'aria-labelledby': id + '-label', 'aria-describedby': id + '-scale' });
+        var radios = [];
+        for (var v = 0; v <= 10; v++) {
+            var value = String(v);
+            var radio = el('input', { type: 'radio', name: id, value: value, id: id + '-' + v, 'data-focus': 'opt-' + value });
+            radio.addEventListener('change', (function (val) { return function () { setValue(inst, q, val); }; })(value));
+            radios.push(radio);
+            box.appendChild(el('label', { class: 'choice distress-' + v, for: id + '-' + v }, [radio, el('span', { text: value })]));
+        }
+        var scale = el('p', { class: 'hint', id: id + '-scale', text: t('0 is none at all and 10 is the most.') });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear') });
+        clear.addEventListener('click', function () { setValue(inst, q, ''); if (radios[0]) { radios[0].focus(); } });
+        return {
+            node: el('div', null, [scale, box, el('div', { class: 'inline' }, [clear])]),
+            controls: function () { return radios; },
+            sync: function (ro) {
+                var cur = current(inst, q);
+                radios.forEach(function (rd) { rd.checked = rd.value === cur; rd.disabled = !!ro; rd.parentNode.classList.toggle('on', rd.checked); });
+                clear.disabled = !!ro || cur === '';
+            }
+        };
+    }
+
+    // ----- bind::esri:warning: Survey123's soft constraint. When its expression is false for an answer the warning is
+    // shown beside the question, and the record can still be sent; an error, when there is one, is said instead.
+    function warningFor(inst, q) {
+        if (!q.warning || inst.relevant === false || inst.rel[q.name] === false || isEmpty(inst, q)) { return ''; }
+        var v = String(inst.values[q.name] === undefined ? '' : inst.values[q.name]);
+        return evalBool(q.warning, inst, q, true, v) ? '' : (text(q.warningMessages || {}) || t('Check this answer.'));
+    }
+
+    // ----- A grid (the settings' style fixed-grid or dynamic-grid, Survey123's groups-and-pages page): a group whose
+    // appearance has a width w2…w9 divides into that many columns, a question in it spans its own width (one when it has
+    // none, INFERRED) and a group or a repeat inside takes the whole row. Under fixed-grid a hidden question keeps its place.
+    function widthOf(appearance) {
+        var found = 0;
+        (appearance || []).forEach(function (a) { var m = /^w(\d+)$/.exec(a); if (m) { found = Number(m[1]); } });
+        return found;
+    }
+
+    function gridGroup(target, g) {
+        var columns = form.grid ? widthOf(g.appearance) : 0;
+        if (columns < 2 || has(g.appearance, 'table-list')) { return; }
+        target.classList.add('grid-group');
+        if (form.grid === 'fixed') { target.classList.add('grid-fixed'); }
+        target.setAttribute('data-grid-columns', String(columns));
+        target.style.gridTemplateColumns = 'repeat(' + columns + ', minmax(0, 1fr))';
+    }
+
+    function gridPlace(container, n) {
+        var columns = Number(container.getAttribute && container.getAttribute('data-grid-columns')) || 0;
+        var node = container.lastElementChild;
+        if (!columns || !node) { return; }
+        node.style.gridColumn = n.kind === 'question' ? 'span ' + Math.min(columns, Math.max(1, widthOf(n.appearance) || 1)) : '1 / -1';
     }
 
     // The signature pad, and the `draw` appearance (ADR-287 section 5.20), which is the same pad taller: a blank canvas drawn

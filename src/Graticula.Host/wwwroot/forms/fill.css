@@ -394,3 +394,27 @@ button.quiet.guidance-toggle { margin: 0 0 4px; min-height: 44px; padding: 8px 0
 .answers-list { margin: 8px 0 0; }
 .answers-list dt { font-weight: 600; margin-top: 8px; overflow-wrap: anywhere; }
 .answers-list dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ADR-287 §5.26: the distress scale, a warning that lets the answer go, recordings, and a grid of a group's questions. */
+.distress { display: flex; flex-wrap: wrap; gap: 6px; }
+.distress .choice { min-width: 52px; justify-content: center; border: 1px solid var(--control-edge); border-radius: 6px; padding: 4px 8px;
+  border-bottom-width: 6px; }
+.distress .choice.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+.distress-0, .distress-1 { border-bottom-color: #2e8b57 !important; }
+.distress-2, .distress-3 { border-bottom-color: #7fb03f !important; }
+.distress-4, .distress-5 { border-bottom-color: #d4b106 !important; }
+.distress-6, .distress-7 { border-bottom-color: #e07b12 !important; }
+.distress-8, .distress-9, .distress-10 { border-bottom-color: #c0392b !important; }
+.question .warning { color: var(--warn); background: var(--warn-soft); font-size: 14px; margin: 6px 0 0; padding: 4px 8px; border-radius: 4px; }
+.question .warning:empty { display: none; }
+.recorder { margin-top: 8px; }
+.recorder .recording-clock { font-variant-numeric: tabular-nums; }
+.sound audio, .choice-sound audio { width: 100%; max-width: 360px; height: 40px; }
+.choice-sound { margin: 0 0 6px 34px; }
+.grid-group { display: grid; column-gap: 16px; align-items: start; }
+.grid-group > * { min-width: 0; }
+.grid-fixed > .question[hidden] { display: block; visibility: hidden; }
+@media (max-width: 480px) {
+  .grid-group { grid-template-columns: minmax(0, 1fr) !important; }
+  .grid-group > * { grid-column: auto !important; }
+}

@@ -93,6 +93,7 @@ public sealed partial class FormDefinition
         private readonly Dictionary<int, FormSearch> searches = [];
         private readonly List<QueriedLayer> queried = [];
         private bool pagesStyle;
+        private bool gridStyle;
 
         public FormCheck Run()
         {
@@ -108,12 +109,22 @@ public sealed partial class FormDefinition
             Dictionary<string, IReadOnlyList<FormChoice>> lists = Choices(model.Sheet("choices"), languages);
             FormSettings settings = ReadSettings(model.Sheet("settings"));
             pagesStyle = settings.Pages;
+            gridStyle = settings.Grid is not null;
             FormTable root = Survey(survey, lists, languages);
             DuplicateChoices(lists, root, languages);
 
             foreach ((string sheet, int row, string column, string expression) in expressions)
             {
                 Expression(sheet, row, column, expression, lists);
+            }
+
+            if (settings.DefaultLanguage is { Length: > 0 } named && languages.Count > 0 && !languages.Contains(named, StringComparer.Ordinal)
+                && languages.Where(l => l.EndsWith(')') && l.Contains(" (", StringComparison.Ordinal) && l[..l.LastIndexOf(" (", StringComparison.Ordinal)].Trim() == named.Trim()).ToList() is [var full])
+            {
+                // ADR-287 §5.26, INFERRED: 'English' where the label columns say 'English (en)' names one language without
+                // its code; it is read as that language, and the upload says so.
+                Notice("settings", 2, "default_language", $"default_language '{named}' is read as '{full}', the label language it names without its code.");
+                settings = settings with { DefaultLanguage = full };
             }
 
             if (settings.DefaultLanguage is { Length: > 0 } language && languages.Count > 0
@@ -162,12 +173,38 @@ public sealed partial class FormDefinition
                     continue;
                 }
 
+                bool phoneNumber = false;
+
+                // ADR-287 §5.26: pyxform's other spellings of a type (string, int, trigger, imei, phone number…) are read as
+                // the type they spell, and the upload says so.
+                if (FormCatalog.TypeSpellings.TryGetValue(string.Join(' ', rawType.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToLowerInvariant(), out string? respelled))
+                {
+                    phoneNumber = rawType.Trim().Equals("phone number", StringComparison.OrdinalIgnoreCase);
+
+                    if (!FormCatalog.RefusedTypes.ContainsKey(respelled))
+                    {
+                        Notice("survey", at, "type", phoneNumber
+                            ? "'phone number' is pyxform's text question that takes digits only; it is read as text with that constraint, unless the row has its own."
+                            : $"'{rawType.Trim()}' is pyxform's spelling of '{respelled}' and is read as that.");
+                    }
+
+                    rawType = respelled;
+                }
+
                 (string type, string? argument, string? problem, bool orOther) = ParseTypeFull(rawType);
 
                 if (problem is not null)
                 {
                     Refuse("survey", at, "type", problem);
                     continue;
+                }
+
+                if (type is "begin group" or "begin repeat" && argument is not null)
+                {
+                    // ADR-287 §5.26: pyxform reads a word after 'begin group' or 'begin repeat' as a list name, which only
+                    // 'begin loop' uses; on a group or a repeat it is dropped. A real Survey123 form writes 'begin group pressure'.
+                    Notice("survey", at, "type", $"'{rawType.Trim()}' is read as '{type}': the word after it names a list, which only a loop uses, and it is ignored as pyxform ignores it.");
+                    argument = null;
                 }
 
                 if (type is "end group" or "end repeat")
@@ -220,7 +257,13 @@ public sealed partial class FormDefinition
                 // samples carry such rows, so it is given a name from its row instead of refused. The workbook and the model
                 // keep the row as written; only the definition holds the name. A note that calculates makes a field, and a
                 // field needs a name its publisher chose, so that one is still refused.
-                if (name.Length == 0 && type == "note" && columns.Value(row, "calculation") is null)
+                // §5.26 widens it to a note that calculates: pyxform names every unnamed note (generated_note_name_…) and
+                // Esri's Calculate-location-from-CSV sample carries one, so it is named the same way and stores nothing — a
+                // field needs a name its publisher chose. One that asks for a field (bind::esri:fieldType) is still refused.
+                bool unnamedNote = name.Length == 0 && type == "note"
+                    && (columns.Value(row, "bind::esri:fieldType") is null || columns.Value(row, "bind::esri:fieldType")!.Equals("null", StringComparison.OrdinalIgnoreCase));
+
+                if (unnamedNote)
                 {
                     name = $"note_row_{at}";
 
@@ -256,6 +299,16 @@ public sealed partial class FormDefinition
                     if (columns.Translations(row, "media::image").Count + columns.Translations(row, "image").Count > 0)
                     {
                         Refuse("survey", at, "media::image", $"A picture belongs on a question or a choice; the {(type == "begin group" ? "group" : "repeat")} '{name}' is drawn as a heading and cannot carry one.");
+                    }
+
+                    if (columns.Translations(row, "media::audio").Count + columns.Translations(row, "audio").Count > 0)
+                    {
+                        Refuse("survey", at, "media::audio", $"A recording belongs on a question or a choice; the {(type == "begin group" ? "group" : "repeat")} '{name}' is drawn as a heading and cannot carry one.");
+                    }
+
+                    if (columns.Value(row, "bind::esri:warning") is not null)
+                    {
+                        Refuse("survey", at, "bind::esri:warning", "A warning is about an answer; a group or a repeat has none.");
                     }
 
                     if (columns.Translations(row, "guidance_hint").Count > 0)
@@ -311,9 +364,22 @@ public sealed partial class FormDefinition
 
                 bool needsLabel = select || fromFile || FormCatalog.InputTypes.Contains(type);
 
+                bool hintIsLabel = false;
+
                 if (needsLabel && labels.Count == 0)
                 {
-                    Refuse("survey", at, "label", $"The question '{name}' has no label.");
+                    // ADR-287 §5.26: pyxform refuses an element only when it has neither a label nor a hint ("has no label or
+                    // hint"); with a hint alone the hint is what is shown, so here it becomes the label, and the upload says so.
+                    if (columns.Translations(row, "hint").Count > 0)
+                    {
+                        hintIsLabel = true;
+                        labels = columns.Translations(row, "hint");
+                        Notice("survey", at, "label", $"The question '{name}' has no label; its hint is shown as its label.");
+                    }
+                    else
+                    {
+                        Refuse("survey", at, "label", $"The question '{name}' has no label or hint.");
+                    }
                 }
 
                 if (FormCatalog.LocationTypes.Contains(type))
@@ -349,6 +415,28 @@ public sealed partial class FormDefinition
                 }
 
                 FormQuestion question = Question(row, columns, type, argument, name, labels, at);
+
+                if (hintIsLabel)
+                {
+                    question = question with { Hints = new Dictionary<string, string>(StringComparer.Ordinal) };
+                }
+
+                if (unnamedNote)
+                {
+                    question = question with { EsriFieldType = "null" };
+                }
+
+                if (phoneNumber)
+                {
+                    // pyxform's 'phone number': a text input bound with regex(., '^\d*$') and the hint "Enter numbers only.";
+                    // the row's own constraint and hint win, as a row's columns win over pyxform's defaults.
+                    question = question with
+                    {
+                        Constraint = question.Constraint ?? @"regex(., '^\d*$')",
+                        Hints = question.Hints.Count > 0 ? question.Hints : new Dictionary<string, string>(StringComparer.Ordinal) { [string.Empty] = "Enter numbers only." },
+                    };
+                }
+
                 names[name] = question;
 
                 if (question.Search is not null)
@@ -522,7 +610,7 @@ public sealed partial class FormDefinition
             Flag(required, "required", at);
             Flag(readOnly, columns.Value(row, "read_only") is null ? "readonly" : "read_only", at);
 
-            foreach (string column in (string[])["constraint", "calculation", "choice_filter"])
+            foreach (string column in (string[])["constraint", "calculation", "choice_filter", "bind::esri:warning"])
             {
                 if (columns.Value(row, column) is { } expression)
                 {
@@ -554,9 +642,24 @@ public sealed partial class FormDefinition
                 Refuse("survey", at, "choice_filter", "A choice_filter belongs on a select question.");
             }
 
+            if (columns.Translations(row, "bind::esri:warning_message").Count > 0 && columns.Value(row, "bind::esri:warning") is null)
+            {
+                Refuse("survey", at, "bind::esri:warning_message", "A warning message is shown when the bind::esri:warning expression is false, and this row has none.");
+            }
+
+            if (type == "note" && columns.Value(row, "bind::esri:warning") is not null)
+            {
+                Refuse("survey", at, "bind::esri:warning", "A warning is about an answer, and a note has none to warn about.");
+            }
+            else if ((FormCatalog.ValueTypes.Contains(type) || FormCatalog.MetadataTypes.Contains(type)) && columns.Value(row, "bind::esri:warning") is not null)
+            {
+                Refuse("survey", at, "bind::esri:warning", $"A warning is shown beside a question, and a '{type}' is not shown; put it on the question the value comes from.");
+            }
+
             Dictionary<string, string> parameters = Parameters(columns.Value(row, "parameters"), type, at);
             (string? fieldType, int? length, string? alias) = Esri(row, columns, type, at);
-            string? calculationMode = CalculationMode(row, columns, type, at);
+            fieldType = BindType(row, columns, type, fieldType, at);
+            (string? calculationMode, int? maxDuration) = EsriParameters(row, columns, type, at);
             string? inputMask = InputMask(row, columns, type, length, at);
 
             return new FormQuestion(
@@ -585,7 +688,111 @@ public sealed partial class FormDefinition
                 CalculationMode = calculationMode,
                 InputMask = inputMask,
                 Search = searches.GetValueOrDefault(at),
+                Warning = columns.Value(row, "bind::esri:warning"),
+                WarningMessages = columns.Translations(row, "bind::esri:warning_message"),
+                Audio = Sounds(columns, row, "survey", at),
+                MaxDuration = maxDuration ?? (type == "audio" ? FormCatalog.DefaultMaxDurationSeconds : null),
             };
+        }
+
+        /// <summary>
+        /// <c>bind::type</c> (ADR-287 §5.26): the XForms data type pyxform writes through to the bind, which Survey123's older
+        /// template carried as a column. ODK's XForms specification lists the types. On a calculate or a hidden question it
+        /// says what the value is, so where no <c>bind::esri:fieldType</c> is given it chooses the field (int an integer,
+        /// decimal a double, string text); where one is given the two must agree. On any other question it must be the type
+        /// the question already has; anything else would change what is stored and is refused.
+        /// </summary>
+        private string? BindType(IReadOnlyList<string> row, Columns columns, string type, string? fieldType, int at)
+        {
+            if (columns.Value(row, "bind::type") is not { } written)
+            {
+                return fieldType;
+            }
+
+            string bind = written.Trim().ToLowerInvariant() switch
+            {
+                "integer" => "int",
+                "datetime" => "datetime",
+                var other => other,
+            };
+
+            if (type is "calculate" or "hidden")
+            {
+                (string? esri, string[] agreeing) = bind switch
+                {
+                    "int" => ("esriFieldTypeInteger", new[] { "esriFieldTypeInteger", "esriFieldTypeSmallInteger", "esriFieldTypeBigInteger" }),
+                    "decimal" => ("esriFieldTypeDouble", new[] { "esriFieldTypeDouble", "esriFieldTypeSingle" }),
+                    "string" => ("esriFieldTypeString", new[] { "esriFieldTypeString", "esriFieldTypeGUID" }),
+                    _ => ((string?)null, Array.Empty<string>()),
+                };
+
+                if (esri is null)
+                {
+                    Refuse("survey", at, "bind::type", $"bind::type '{written}' is refused on a '{type}': int, decimal and string are the types a calculated value is stored as here.");
+                    return fieldType;
+                }
+
+                if (fieldType is null)
+                {
+                    Notice("survey", at, "bind::type", $"bind::type '{written}' makes the field {esri}, as bind::esri:fieldType would.");
+                    return esri;
+                }
+
+                if (fieldType != "null" && !agreeing.Contains(fieldType, StringComparer.OrdinalIgnoreCase))
+                {
+                    Refuse("survey", at, "bind::type", $"bind::type '{written}' and bind::esri:fieldType '{fieldType}' disagree about what the value is.");
+                }
+
+                return fieldType;
+            }
+
+            string? own = type switch
+            {
+                "text" or "barcode" or "select_one" or "select_one_from_file" or "acknowledge" => "string",
+                "select_multiple" or "select_multiple_from_file" => "string",
+                "integer" => "int",
+                "decimal" => "decimal",
+                "date" => "date",
+                "time" => "time",
+                "dateTime" => "datetime",
+                "geopoint" or "geotrace" or "geoshape" => type,
+                "image" or "audio" or "video" or "file" => "binary",
+                "note" => "string",
+                "range" => bind is "int" or "decimal" ? bind : "decimal",
+                _ => null,
+            };
+
+            if (own == bind || (type is "select_one" or "select_one_from_file" && bind == "select1") || (type.StartsWith("select_multiple", StringComparison.Ordinal) && bind == "select"))
+            {
+                Notice("survey", at, "bind::type", $"bind::type '{written}' is the type a '{type}' question already has, and changes nothing.");
+            }
+            else
+            {
+                Refuse("survey", at, "bind::type", $"bind::type '{written}' is refused on a '{type}' question: it would store the answer as another type than the question asks for.");
+            }
+
+            return fieldType;
+        }
+
+        /// <summary>A row's recordings per language, from <c>media::audio</c> and its older spelling <c>audio</c> (§5.26).</summary>
+        private Dictionary<string, string> Sounds(Columns columns, IReadOnlyList<string> row, string sheet, int at)
+        {
+            Dictionary<string, string> sounds = columns.Translations(row, "media::audio");
+
+            foreach ((string language, string name) in columns.Translations(row, "audio"))
+            {
+                sounds.TryAdd(language, name);
+            }
+
+            foreach ((string language, string name) in sounds)
+            {
+                if (SoundProblem(name.Trim()) is { } problem)
+                {
+                    Refuse(sheet, at, language.Length == 0 ? "media::audio" : $"media::audio::{language}", $"'{name.Trim()}': {problem}");
+                }
+            }
+
+            return sounds.ToDictionary(p => p.Key, p => p.Value.Trim(), StringComparer.Ordinal);
         }
 
         /// <summary>An appearance cell with its search(…) taken out, which is the question's search and not an appearance.</summary>
@@ -646,28 +853,51 @@ public sealed partial class FormDefinition
         }
 
         /// <summary>
-        /// <c>bind::esri:parameters</c>, whose one parameter is <c>calculationMode</c> (§5.20): <c>auto</c>, <c>manual</c>,
+        /// <c>bind::esri:parameters</c> on a question (§5.20, §5.26): <c>calculationMode</c> — <c>auto</c>, <c>manual</c>,
         /// <c>always</c> or <c>whenEmpty</c>, on a question that has a calculation and is one of the types Survey123 allows
-        /// it on. Any other parameter is refused by name.
+        /// it on; <c>max-duration</c> on an <c>audio</c> question, in seconds; and the keys Survey123's parameters page lists
+        /// for its field app alone (an image's watermarks, smart attributes and redaction; an audio's codec), accepted with a
+        /// notice that they are not applied here, as they are not in Survey123's own web app. Any other key is refused by
+        /// name. A value may be written in double quotes, and a watermark's is: its spaces and ampersands are its own.
         /// </summary>
-        private string? CalculationMode(IReadOnlyList<string> row, Columns columns, string type, int at)
+        private (string? Mode, int? MaxDuration) EsriParameters(IReadOnlyList<string> row, Columns columns, string type, int at)
         {
             if (columns.Value(row, "bind::esri:parameters") is not { } written)
             {
-                return null;
+                return (null, null);
             }
 
             string? mode = null;
+            int? maxDuration = null;
+            List<string> fieldApp = [];
 
-            foreach (string pair in written.Split([' ', ',', ';', '&'], StringSplitOptions.RemoveEmptyEntries))
+            foreach ((string key, string setting) in ParameterPairs(written))
             {
-                int equals = pair.IndexOf('=', StringComparison.Ordinal);
-                string key = equals < 0 ? pair : pair[..equals].Trim();
-                string setting = equals < 0 ? string.Empty : pair[(equals + 1)..].Trim();
+                if (FormCatalog.FieldAppParameters.TryGetValue(type, out var onlyThere) && onlyThere.Contains(key))
+                {
+                    fieldApp.Add(key);
+                    continue;
+                }
+
+                if (type == "audio" && key.Equals("max-duration", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!int.TryParse(setting, NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds) || seconds < 1 || seconds > 86_400)
+                    {
+                        Refuse("survey", at, "bind::esri:parameters", $"max-duration is a number of seconds from 1 to 86400, not '{setting}'.");
+                    }
+                    else
+                    {
+                        maxDuration = seconds;
+                    }
+
+                    continue;
+                }
 
                 if (!key.Equals("calculationMode", StringComparison.OrdinalIgnoreCase))
                 {
-                    Refuse("survey", at, "bind::esri:parameters", $"The parameter '{key}' is refused: calculationMode is the only one Survey123 documents for this column.");
+                    Refuse("survey", at, "bind::esri:parameters", type == "audio"
+                        ? $"The parameter '{key}' is refused: on an audio question calculationMode is not allowed, max-duration is built and codec is accepted."
+                        : $"The parameter '{key}' is refused: calculationMode is the only one Survey123 documents for this column{(type == "image" ? " on an image here, beside its field-app parameters (watermarks, smartAttributes, redaction)" : string.Empty)}.");
                     continue;
                 }
 
@@ -682,9 +912,14 @@ public sealed partial class FormDefinition
                 mode = canonical;
             }
 
+            if (fieldApp.Count > 0)
+            {
+                Notice("survey", at, "bind::esri:parameters", $"{string.Join(", ", fieldApp)} {(fieldApp.Count == 1 ? "is" : "are")} applied by Survey123's field app alone, not by its web app, and not here: the {(type == "image" ? "photo is kept as it was taken" : "recording is kept in the format the browser makes")}.");
+            }
+
             if (mode is null)
             {
-                return null;
+                return (null, maxDuration);
             }
 
             if (columns.Value(row, "calculation") is null)
@@ -701,7 +936,7 @@ public sealed partial class FormDefinition
                 Refuse("survey", at, "bind::esri:parameters", "calculationMode=manual is run by a Calculate button on the question, and a question the person does not see has none; it would never be calculated.");
             }
 
-            return mode;
+            return (mode, maxDuration);
         }
 
         /// <summary>
@@ -889,7 +1124,22 @@ public sealed partial class FormDefinition
                         Notice("survey", at, "appearance", "Without the pages style the whole form is one page, so field-list changes nothing here: this group is already drawn together with everything else.");
                     }
                 }
-                else if (FormCatalog.PresentationAppearances.Contains(token) || WidthPattern().IsMatch(token))
+                else if (WidthPattern().IsMatch(token))
+                {
+                    // ADR-287 §5.26: under a grid style a width is built (a group's columns, a question's span); without
+                    // one it does nothing in Survey123 either, and the upload says so.
+                    if (!gridStyle)
+                    {
+                        Notice("survey", at, "appearance", $"The width '{token}' lays a question out in a grid, and the form has no grid style (fixed-grid or dynamic-grid in the settings' style), so it changes nothing.");
+                    }
+                }
+                else if (token == "grid")
+                {
+                    // ADR-287 §5.26, INFERRED: Survey123's pages set a grid by the settings' style, not by an appearance; a
+                    // real form writes 'grid w2' on a group. It is ignored in words.
+                    Notice("survey", at, "appearance", "'grid' is not an appearance: a grid is set by the settings' style (fixed-grid or dynamic-grid) and a group's width (w2, w3…). It is ignored.");
+                }
+                else if (FormCatalog.PresentationAppearances.Contains(token) || CompactColumnsPattern().IsMatch(token))
                 {
                     Notice("survey", at, "appearance", $"The appearance '{token}' changes only how the question looks and is drawn the default way.");
                 }
@@ -1027,6 +1277,15 @@ public sealed partial class FormDefinition
                 string key = equals < 0 ? pair : pair[..equals].Trim();
                 string setting = equals < 0 ? string.Empty : pair[(equals + 1)..].Trim();
 
+                if (type is "integer" or "decimal" && key.ToLowerInvariant() is "start" or "end" or "step")
+                {
+                    // ADR-287 §5.26: start, end and step are a range's (Survey123's parameters page lists them for range
+                    // alone), and on a number they bound nothing in Survey123 either. A real form writes them on an integer;
+                    // they are ignored in words, and a constraint is what bounds a number.
+                    Notice("survey", at, "parameters", $"'{key}' belongs to a range question and does nothing on '{type}'; it is ignored. A constraint such as . >= 1 and . <= 50 bounds a number, and a range question draws a slider.");
+                    continue;
+                }
+
                 if (!allowed.Contains(key))
                 {
                     Refuse("survey", at, "parameters", allowed.Count == 0
@@ -1089,7 +1348,17 @@ public sealed partial class FormDefinition
                     Refuse("survey", at, "bind::esri:fieldType", $"A barcode is stored as text (esriFieldTypeString) or not at all; '{fieldType}' would change a scanned code, such as the leading zeros of an EAN.");
                 }
 
-                if (FormCatalog.AttachmentTypes.Contains(type) || FormCatalog.LocationTypes.Contains(type))
+                if (FormCatalog.AttachmentTypes.Contains(type) && stored is "null" or "esriFieldTypeString")
+                {
+                    // ADR-287 §5.26, INFERRED: Survey123's media page names no field type for an attachment question, and
+                    // two real forms give a photo esriFieldTypeString. A photo is an attachment whatever the cell says; no
+                    // field is made, and the upload says so rather than refusing the form.
+                    if (stored == "esriFieldTypeString")
+                    {
+                        Notice("survey", at, "bind::esri:fieldType", $"A '{type}' question is stored as an attachment; no text field is made for it, and esriFieldTypeString is ignored.");
+                    }
+                }
+                else if (FormCatalog.AttachmentTypes.Contains(type) || FormCatalog.LocationTypes.Contains(type))
                 {
                     Refuse("survey", at, "bind::esri:fieldType", $"A '{type}' question is stored as {(FormCatalog.LocationTypes.Contains(type) ? "the layer's geometry" : "an attachment")}, and its field type cannot be changed.");
                 }
@@ -1099,7 +1368,13 @@ public sealed partial class FormDefinition
 
             if (columns.Value(row, "bind::esri:fieldLength") is { } text)
             {
-                if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) || n < 1 || n > 10_000)
+                if (text.Equals("null", StringComparison.OrdinalIgnoreCase))
+                {
+                    // ADR-287 §5.26, INFERRED: Esri's own question-types sample writes 'null' here. It is not a length; the
+                    // field keeps the length it would have had, and the upload says what 'null' would mean in the type column.
+                    Notice("survey", at, "bind::esri:fieldLength", "'null' is not a length, so the field gets its usual one. To store nothing for a question, write null in bind::esri:fieldType.");
+                }
+                else if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) || n < 1 || n > 10_000)
                 {
                     Refuse("survey", at, "bind::esri:fieldLength", $"A field length is a whole number from 1 to 10000, not '{text}'.");
                 }
@@ -1379,9 +1654,18 @@ public sealed partial class FormDefinition
                     continue;
                 }
 
-                if (list.Length == 0 || name.Length == 0)
+                if (list.Length == 0)
                 {
-                    Refuse("choices", at, list.Length == 0 ? "list_name" : "name", "A choice needs a list_name and a name.");
+                    // ADR-287 §5.26: pyxform groups the choices sheet by list_name and passes over a row without one; a
+                    // real Survey123 form keeps stray pictures in such rows. The row belongs to no list, so no question
+                    // can offer it, and the upload says it is left out.
+                    Notice("choices", at, "list_name", "This row has no list_name, so it belongs to no list and is left out, as pyxform leaves it out.");
+                    continue;
+                }
+
+                if (name.Length == 0)
+                {
+                    Refuse("choices", at, "name", "A choice needs a list_name and a name.");
                     continue;
                 }
 
@@ -1400,6 +1684,7 @@ public sealed partial class FormDefinition
                 choices.Add(new FormChoice(name, columns.Translations(row, "label"), filters, at)
                 {
                     Images = Pictures(columns, row, "choices", at),
+                    Audio = Sounds(columns, row, "choices", at),
                 });
             }
 
@@ -1423,6 +1708,7 @@ public sealed partial class FormDefinition
             }
 
             bool pages = false;
+            string? grid = null;
 
             if (columns.Value(row, "style") is { } style)
             {
@@ -1431,6 +1717,12 @@ public sealed partial class FormDefinition
                     if (token.Equals("pages", StringComparison.OrdinalIgnoreCase))
                     {
                         pages = true;
+                    }
+                    else if (FormCatalog.GridStyles.Contains(token))
+                    {
+                        // ADR-287 §5.26: Survey123's groups-and-pages page — a group's width (w4) divides it into columns
+                        // and a question's width spans them. theme-grid, the older name, is read as dynamic-grid (INFERRED).
+                        grid = token.Equals("fixed-grid", StringComparison.OrdinalIgnoreCase) ? "fixed" : "dynamic";
                     }
                     else
                     {
@@ -1493,6 +1785,7 @@ public sealed partial class FormDefinition
                 Basemap = basemap,
                 ThankYou = thanks,
                 Redirect = redirect,
+                Grid = grid,
             };
         }
 
@@ -1620,7 +1913,77 @@ public sealed partial class FormDefinition
     public static bool IsWebAddress(string text) =>
         Uri.TryCreate(text, UriKind.Absolute, out Uri? uri) && uri.Scheme is "http" or "https" && uri.UserInfo.Length == 0 && uri.Host.Length > 0;
 
-    private static readonly string[] PictureExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
+    // .bmp since ADR-287 §5.26: every browser shows one, and a real Survey123 form names a .bmp choice picture.
+    private static readonly string[] PictureExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp"];
+
+    /// <summary>
+    /// The key=value pairs of a <c>bind::esri:parameters</c> cell. They are separated by spaces, commas, semicolons or
+    /// ampersands, except inside double quotes, which a value may be written in and which are taken off it.
+    /// </summary>
+    internal static List<(string Key, string Value)> ParameterPairs(string written)
+    {
+        List<string> tokens = [];
+        System.Text.StringBuilder token = new();
+        bool quoted = false;
+
+        foreach (char c in written)
+        {
+            if (c == '"')
+            {
+                quoted = !quoted;
+                token.Append(c);
+            }
+            else if (!quoted && (char.IsWhiteSpace(c) || c is ',' or ';' or '&'))
+            {
+                if (token.Length > 0)
+                {
+                    tokens.Add(token.ToString());
+                    token.Clear();
+                }
+            }
+            else
+            {
+                token.Append(c);
+            }
+        }
+
+        if (token.Length > 0)
+        {
+            tokens.Add(token.ToString());
+        }
+
+        return [.. tokens.Select(pair =>
+        {
+            int equals = pair.IndexOf('=', StringComparison.Ordinal);
+            string key = equals < 0 ? pair : pair[..equals].Trim();
+            string value = equals < 0 ? string.Empty : pair[(equals + 1)..].Trim();
+            return (key, value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1] : value);
+        })];
+    }
+
+    // ADR-287 §5.26: recordings a browser's audio element plays. Survey123's media page lists more (AIF, MID, RA, WMA…)
+    // for a file question and warns that a browser may not play every codec; a label's recording is there to be played.
+    private static readonly string[] SoundExtensions = [".mp3", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".webm", ".flac"];
+
+    /// <summary>Why a recording's name cannot be served from the form's files and played, or null when it can (§5.26).</summary>
+    /// <param name="name">The cell's text.</param>
+    public static string? SoundProblem(string name)
+    {
+        if (name.Length == 0)
+        {
+            return null;
+        }
+
+        if (name.Contains('/', StringComparison.Ordinal) || name.Contains('\\', StringComparison.Ordinal) || name.Contains("..", StringComparison.Ordinal)
+            || name.Contains(':', StringComparison.Ordinal) || name.Any(char.IsControl))
+        {
+            return "a recording is a file uploaded with the form and is named by that file alone, with no folder and no web address.";
+        }
+
+        return SoundExtensions.Any(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+            ? null
+            : $"a recording is {string.Join(", ", SoundExtensions)}, which a browser plays — '{name}' is none of them.";
+    }
 
     /// <summary>Why a picture's name cannot be served from the form's files, or null when it can.</summary>
     /// <param name="name">The cell's text.</param>
@@ -1642,7 +2005,7 @@ public sealed partial class FormDefinition
             : $"a picture is {string.Join(", ", PictureExtensions)} — '{name}' is none of them.";
     }
 
-    /// <summary>Every picture the form names, with the sheet, row and column it is named in.</summary>
+    /// <summary>Every picture and recording the form names, with the sheet, row and column it is named in.</summary>
     public IEnumerable<(string Sheet, int Row, string Column, string Name)> MediaReferences()
     {
         foreach (FormQuestion q in AllQuestions)
@@ -1650,6 +2013,11 @@ public sealed partial class FormDefinition
             foreach ((string language, string name) in q.Images)
             {
                 yield return ("survey", q.Row, language.Length == 0 ? "media::image" : $"media::image::{language}", name);
+            }
+
+            foreach ((string language, string name) in q.Audio)
+            {
+                yield return ("survey", q.Row, language.Length == 0 ? "media::audio" : $"media::audio::{language}", name);
             }
         }
 
@@ -1660,6 +2028,11 @@ public sealed partial class FormDefinition
                 foreach ((string language, string name) in c.Images)
                 {
                     yield return ("choices", c.Row, language.Length == 0 ? "media::image" : $"media::image::{language}", name);
+                }
+
+                foreach ((string language, string name) in c.Audio)
+                {
+                    yield return ("choices", c.Row, language.Length == 0 ? "media::audio" : $"media::audio::{language}", name);
                 }
             }
         }
@@ -1708,10 +2081,12 @@ public sealed partial class FormDefinition
         string lower = text.ToLowerInvariant();
         bool orOther = false;
 
-        if (lower.EndsWith(" or_other", StringComparison.Ordinal) || lower.EndsWith(" or other", StringComparison.Ordinal))
+        if (lower.EndsWith(" or_other", StringComparison.Ordinal) || lower.EndsWith(" or other", StringComparison.Ordinal)
+            || lower.EndsWith(" or specify other", StringComparison.Ordinal))
         {
             orOther = true;
-            text = text[..^" or_other".Length].TrimEnd();
+            // "or specify other" is pyxform's third spelling (ADR-287 §5.26).
+            text = text[..^(lower.EndsWith(" or specify other", StringComparison.Ordinal) ? " or specify other".Length : " or_other".Length)].TrimEnd();
             lower = text.ToLowerInvariant();
 
             bool select = lower.StartsWith("select_one ", StringComparison.Ordinal) || lower.StartsWith("select one ", StringComparison.Ordinal)
@@ -1732,6 +2107,8 @@ public sealed partial class FormDefinition
     {
         foreach ((string alias, string type) in (ReadOnlySpan<(string, string)>)[
             ("select_one_from_file ", "select_one_from_file"), ("select_multiple_from_file ", "select_multiple_from_file"),
+            // pyxform's own spellings (its question_type_dictionary), ADR-287 §5.26; before the shorter ones they begin with.
+            ("select one from ", "select_one"), ("select all that apply from ", "select_multiple"), ("select multiple from ", "select_multiple"),
             ("select_one ", "select_one"), ("select one ", "select_one"),
             ("select_multiple ", "select_multiple"), ("select multiple ", "select_multiple"),
             ("select all that apply ", "select_multiple")])
@@ -1761,6 +2138,13 @@ public sealed partial class FormDefinition
             return (canonical, null, null);
         }
 
+        // "begin group pressure": pyxform's begin pattern takes one word after begin group / begin repeat (a list name, used
+        // by loops alone). It is given back as the argument, and the checker says it is ignored (ADR-287 §5.26).
+        if (BeginWithWord().Match(lower) is { Success: true } begin && begin.Groups[2].Value != "over")
+        {
+            return (begin.Groups[1].Value == "group" ? "begin group" : "begin repeat", text.Split(' ')[^1], null);
+        }
+
         if (canonical.StartsWith("begin ", StringComparison.Ordinal) || canonical.StartsWith("end ", StringComparison.Ordinal)
             || !canonical.Contains(' ', StringComparison.Ordinal))
         {
@@ -1776,6 +2160,12 @@ public sealed partial class FormDefinition
 
     [GeneratedRegex(@"^w\d+$")]
     private static partial Regex WidthPattern();
+
+    [GeneratedRegex(@"^begin[ _](group|repeat) (\S+)$")]
+    private static partial Regex BeginWithWord();
+
+    [GeneratedRegex(@"^compact-\d+$")]
+    private static partial Regex CompactColumnsPattern();
 
     private enum ColumnKind
     {
@@ -1971,6 +2361,21 @@ public sealed record FormQuestion(
 
     /// <summary>The search() its appearance holds: its choices come from a CSV or a layer (ADR-287 §5.23).</summary>
     public FormSearch? Search { get; init; }
+
+    /// <summary>
+    /// <c>bind::esri:warning</c>: an expression that, when false, shows a warning and lets the answer go — Survey123's soft
+    /// constraint (ADR-287 §5.26).
+    /// </summary>
+    public string? Warning { get; init; }
+
+    /// <summary><c>bind::esri:warning_message</c> per language: what the warning says.</summary>
+    public IReadOnlyDictionary<string, string> WarningMessages { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The recording played with the question: a file uploaded with the form, per language (<c>media::audio</c>, §5.26).</summary>
+    public IReadOnlyDictionary<string, string> Audio { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The longest recording an <c>audio</c> question takes, in seconds (<c>max-duration</c>, §5.26); null on other types.</summary>
+    public int? MaxDuration { get; init; }
 }
 
 /// <summary>One choice of a list: its name, its labels per language, and the values a choice_filter may read.</summary>
@@ -1978,6 +2383,9 @@ public sealed record FormChoice(string Name, IReadOnlyDictionary<string, string>
 {
     /// <summary>The picture shown beside the choice: a file uploaded with the form, per language (<c>media::image</c>).</summary>
     public IReadOnlyDictionary<string, string> Images { get; init; } = new Dictionary<string, string>();
+
+    /// <summary>The recording played beside the choice, per language (<c>media::audio</c>, ADR-287 §5.26).</summary>
+    public IReadOnlyDictionary<string, string> Audio { get; init; } = new Dictionary<string, string>();
 
     /// <summary>True for the choice <c>or_other</c> adds: it is offered whatever a <c>choice_filter</c> says.</summary>
     public bool Automatic { get; init; }
@@ -2001,6 +2409,12 @@ public sealed record FormSettings(
 
     /// <summary>An http or https address the person is sent on to after an answer was sent.</summary>
     public string? Redirect { get; init; }
+
+    /// <summary>
+    /// The grid the settings' style asks for — <c>fixed</c> (a hidden question keeps its place) or <c>dynamic</c> (the
+    /// rest move up) — or null for none (ADR-287 §5.26).
+    /// </summary>
+    public string? Grid { get; init; }
 }
 
 /// <summary>One finding, at a sheet, a spreadsheet row (1 is the header; 0 the whole sheet) and a column.</summary>

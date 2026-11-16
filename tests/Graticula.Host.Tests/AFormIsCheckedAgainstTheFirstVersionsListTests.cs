@@ -224,7 +224,8 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
         FormCheck ok = FormDefinition.Check(Form([["date", "d", "D", "esriFieldTypeDateOnly", ""], ["text", "t", "T", "", "40"], ["calculate", "c", "", "null", ""]],
             surveyHeader: ["type", "name", "label", "bind::esri:fieldType", "bind::esri:fieldLength", "calculation"]));
         FormCheck time = FormDefinition.Check(Form([["time", "t", "T", "esriFieldTypeTimeOnly", ""]], surveyHeader: header));
-        FormCheck image = FormDefinition.Check(Form([["image", "i", "I", "esriFieldTypeString", ""]], surveyHeader: header));
+        // esriFieldTypeString on an image is accepted with a notice since ADR-287 §5.26; a number is still refused.
+        FormCheck image = FormDefinition.Check(Form([["image", "i", "I", "esriFieldTypeInteger", ""]], surveyHeader: header));
 
         Assert.False(ok.Accepted);
         RefusedAt(ok, 4, "calculation", "no calculation");
@@ -259,7 +260,8 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
         Assert.True(check.Accepted, string.Join("; ", check.Refusals.Select(r => r.Message)));
         FormSettings settings = check.Definition!.Settings;
         Assert.Equal(("Denetim", "denetim", "3", true), (settings.Title, settings.FormId, settings.Version, settings.Pages));
-        Assert.Contains(check.Notices, n => n.Message.Contains("theme-grid", StringComparison.Ordinal));
+        // theme-grid lays groups out as a grid since ADR-287 §5.26 (read as dynamic-grid), so it is no longer a notice.
+        Assert.Equal("dynamic", settings.Grid);
         Assert.Contains(check.Notices, n => n.Column == "namespaces");
 
         RefusedAt(FormDefinition.Check(Form([["text", "ad", "Ad"]], settings: [["public_key"], ["MIIB"]])), 2, "public_key", "encrypted");

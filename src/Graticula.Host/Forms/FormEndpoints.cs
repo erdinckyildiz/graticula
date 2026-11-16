@@ -633,7 +633,7 @@ public static partial class FormEndpoints
         HashSet<string> paths = new(page.Select(r => r.Path), StringComparer.Ordinal);
 
         return [.. named.Where(n => !paths.Contains("media/" + n.Name) && !paths.Contains(n.Name)).Select(n => new FormIssue(n.Sheet, n.Row, n.Column,
-            $"The picture '{n.Name}' is not among this form's files. Add it to the item's files as media/{n.Name}."))];
+            $"The {(n.Column.StartsWith("media::audio", StringComparison.Ordinal) ? "recording" : "picture")} '{n.Name}' is not among this form's files. Add it to the item's files as media/{n.Name}."))];
     }
 
     private static async Task<FormModel?> PublishedModelAsync(HttpContext context, string id, CancellationToken cancellation)

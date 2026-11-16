@@ -110,9 +110,9 @@ public sealed class AFormTakesABarcodeQuestionTests
     [Fact]
     public void What_a_barcode_does_not_take_is_refused_in_words()
     {
-        // A camera choice: ODK's front, and Survey123's new-front, are not built.
+        // A camera choice: ODK's front is not built, and Survey123's new-front (built for a photo since §5.26) is an image's.
         RefusedAt(Checked(Row(appearance: "front")), 2, "appearance", "not an appearance");
-        RefusedAt(Checked(Row(appearance: "new-front")), 2, "appearance", "choosing the camera");
+        RefusedAt(Checked(Row(appearance: "new-front")), 2, "appearance", "applies to image");
         // Survey123's barcode takes no parameters column; an input mask and a calculation mode are text's, not a barcode's.
         RefusedAt(Checked(Row(parameters: "barcodeType=qrcode")), 2, "parameters", "'barcode' takes no parameters");
         RefusedAt(Checked(Row(mask: "999")), 2, "body::esri:inputMask", "belongs on a text question");
