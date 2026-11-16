@@ -54,6 +54,7 @@ public static class FormCompiled
         ["relevant"] = table.Relevant,
         ["repeatCount"] = table.RepeatCount,
         ["appearance"] = Strings(table.Appearance),
+        ["parameters"] = new JsonObject { ["allowAdds"] = table.AllowAdds, ["allowUpdates"] = table.AllowUpdates },
         ["body"] = Body(table.Body),
     };
 

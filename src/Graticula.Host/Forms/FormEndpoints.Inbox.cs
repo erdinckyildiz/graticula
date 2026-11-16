@@ -35,8 +35,8 @@ namespace Graticula.Host.Forms;
 /// publish and every change of sharing makes it again: it holds no rows of its own, so remaking it loses nothing.
 /// </para>
 /// <para>
-/// <b>The view.</b> <c>&lt;service&gt;_inbox</c>, a hosted view (ADR-113) of the layers the form writes to, offering Query and
-/// Update, no tiles; the top layer filtered by the publisher's filter, each repeat's table filtered to the rows whose
+/// <b>The view.</b> <c>&lt;service&gt;_inbox</c>, a hosted view (ADR-113) of the layers the form writes to, offering Query,
+/// Create and Update — no Delete (§5.7; Create INFERRED, ADR-300 §5.10) — and no tiles; the top layer filtered by the publisher's filter, each repeat's table filtered to the rows whose
 /// parent the parent's Inbox layer shows, so a repeat cannot be read past its parent (§5.4). Made private, filtered, and
 /// only then shared as the form is — never with everyone: a public form's Inbox is shared with the organisation (§5.1,
 /// §5.9 (b)).
@@ -380,7 +380,7 @@ public static partial class FormEndpoints
         string view = InboxNameFor(source.Name);
         AdminEndpoints.ViewRequest asked = new(
             view, layers, new Dictionary<string, string?> { [top.LayerIndex.ToString(CultureInfo.InvariantCulture)] = settings.Filter },
-            ["Query", "Update"], "private");
+            ["Query", "Create", "Update"], "private");
 
         (int status, string? message) = await PortalEndpoints.InnerStatusAsync(context, () => AdminEndpoints.CreateViewAsync(
             context, source.Name, source.Folder, asked, admin, catalogue, importer, contexts,
@@ -396,7 +396,7 @@ public static partial class FormEndpoints
         try
         {
             // No tiles, whatever the filter: the Inbox is a reader's working list, not a map layer (§5.1).
-            if (!await admin.SetServiceCapabilitiesAsync(view, Hosted, new ServiceCapabilityLimits(null, false, ["Query", "Update"], null), cancellation)
+            if (!await admin.SetServiceCapabilitiesAsync(view, Hosted, new ServiceCapabilityLimits(null, false, ["Query", "Create", "Update"], null), cancellation)
                     .ConfigureAwait(false))
             {
                 throw new InvalidOperationException($"The Inbox view '{view}' was made but its tiles could not be turned off.");
@@ -427,7 +427,7 @@ public static partial class FormEndpoints
 
                 await importer.CreateViewAsync(
                     sourceChild.Definition.TableName, child.Definition.TableName, sourceChild.Definition.IntegerIdentityColumn!,
-                    filterSql, [], cancellation).ConfigureAwait(false);
+                    filterSql, [], cancellation, checkOption: true).ConfigureAwait(false);
 
                 // Recorded as what it is, and naming its reader where its parent does, so the faces closed for a per-reader
                 // view (PublishedLayer.IsPerReader) are closed for it too.

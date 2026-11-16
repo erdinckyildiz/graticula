@@ -176,7 +176,11 @@ public sealed partial class FormDefinition
                     if (closed.Kind == FrameKind.Repeat)
                     {
                         FormTable repeat = new(closed.Name, closed.Label, closed.Row, closed.RepeatCount,
-                            closed.Questions, closed.Repeats, closed.Body, closed.Relevant, closed.Appearance);
+                            closed.Questions, closed.Repeats, closed.Body, closed.Relevant, closed.Appearance)
+                        {
+                            AllowAdds = closed.AllowAdds,
+                            AllowUpdates = closed.AllowUpdates,
+                        };
                         open.Peek().Repeats.Add(repeat);
                         open.Peek().Body.Add(repeat);
                     }
@@ -249,9 +253,11 @@ public sealed partial class FormDefinition
                     }
 
                     Relevance(row, columns, at);
+                    (bool allowAdds, bool allowUpdates) = type == "begin repeat" ? RepeatParameters(row, columns, at) : (true, false);
                     open.Push(new Frame(type == "begin group" ? FrameKind.Group : FrameKind.Repeat, name, at, [], [],
                         labels.Count > 0 ? labels : null, count, [], columns.Value(row, "relevant"),
-                        (columns.Value(row, "appearance") ?? string.Empty).ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries)));
+                        (columns.Value(row, "appearance") ?? string.Empty).ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                        allowAdds, allowUpdates));
                     continue;
                 }
 
@@ -556,6 +562,59 @@ public sealed partial class FormDefinition
                 CalculationMode = calculationMode,
                 InputMask = inputMask,
             };
+        }
+
+        /// <summary>
+        /// <c>bind::esri:parameters</c> on a <c>begin repeat</c> row: Survey123's <c>allowAdds</c> and <c>allowUpdates</c>,
+        /// which say whether a record opened from the Inbox may gain new rows of the repeat and change the ones it has —
+        /// ADR-300 §5.7. <c>true</c> or <c>false</c>; absent, adds are allowed and updates are not, Survey123's defaults.
+        /// <c>query</c>, which filters the rows downloaded with a record, is refused with its reason; any other key by name.
+        /// </summary>
+        private (bool AllowAdds, bool AllowUpdates) RepeatParameters(IReadOnlyList<string> row, Columns columns, int at)
+        {
+            bool adds = true, updates = false;
+
+            if (columns.Value(row, "bind::esri:parameters") is not { } written)
+            {
+                return (adds, updates);
+            }
+
+            foreach (string pair in written.Split([' ', ',', ';', '&'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                int equals = pair.IndexOf('=', StringComparison.Ordinal);
+                string key = equals < 0 ? pair : pair[..equals].Trim();
+                string setting = equals < 0 ? string.Empty : pair[(equals + 1)..].Trim();
+
+                if (key.Equals("query", StringComparison.OrdinalIgnoreCase))
+                {
+                    Refuse("survey", at, "bind::esri:parameters",
+                        "query is refused: it filters the repeat's rows downloaded with an Inbox record, and the Inbox downloads them all.");
+                    continue;
+                }
+
+                if (!key.Equals("allowAdds", StringComparison.OrdinalIgnoreCase) && !key.Equals("allowUpdates", StringComparison.OrdinalIgnoreCase))
+                {
+                    Refuse("survey", at, "bind::esri:parameters", $"The parameter '{key}' is refused: allowAdds and allowUpdates are the ones a repeat takes.");
+                    continue;
+                }
+
+                if (!bool.TryParse(setting, out bool value))
+                {
+                    Refuse("survey", at, "bind::esri:parameters", $"{key} is true or false, not '{setting}'.");
+                    continue;
+                }
+
+                if (key.Equals("allowAdds", StringComparison.OrdinalIgnoreCase))
+                {
+                    adds = value;
+                }
+                else
+                {
+                    updates = value;
+                }
+            }
+
+            return (adds, updates);
         }
 
         /// <summary>
@@ -1503,7 +1562,8 @@ public sealed partial class FormDefinition
     }
 
     private sealed record Frame(FrameKind Kind, string Name, int Row, List<FormQuestion> Questions, List<FormTable> Repeats,
-        Dictionary<string, string>? Label, string? RepeatCount, List<object> Body, string? Relevant, IReadOnlyList<string> Appearance);
+        Dictionary<string, string>? Label, string? RepeatCount, List<object> Body, string? Relevant, IReadOnlyList<string> Appearance,
+        bool AllowAdds = true, bool AllowUpdates = false);
 
     /// <summary>A sheet's columns by base name and language.</summary>
     private sealed class Columns
@@ -1594,6 +1654,12 @@ public sealed record FormTable(
     string? Relevant,
     IReadOnlyList<string> Appearance)
 {
+    /// <summary>Whether a record opened from the Inbox may gain new rows of this repeat — <c>allowAdds</c>, ADR-300 §5.7.</summary>
+    public bool AllowAdds { get; init; } = true;
+
+    /// <summary>Whether a record opened from the Inbox may change the rows of this repeat it has — <c>allowUpdates</c>.</summary>
+    public bool AllowUpdates { get; init; }
+
     /// <summary>This table and every table under it, parents before children.</summary>
     public IEnumerable<FormTable> AllTables => new[] { this }.Concat(Repeats.SelectMany(r => r.AllTables));
 

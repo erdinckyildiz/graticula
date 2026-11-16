@@ -1280,6 +1280,10 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         "23514" => "A rule on this layer's table refused this value.",
         "22P02" or "22003" => $"A value is the wrong type or out of range: {e.MessageText}",
         "42501" => "The server's credential for this database may not write to this table.",
+
+        // WITH CHECK OPTION on a per-reader view (ADR-300 §5.7): the row would not be one the view shows its writer.
+        "44000" => "This row would not be one this layer shows you — a repeat's row must belong to a record you have here, "
+            + "and a change must not take a record out of your view — so it was not written.",
         _ => $"The database refused this edit ({e.SqlState}).",
     };
 }

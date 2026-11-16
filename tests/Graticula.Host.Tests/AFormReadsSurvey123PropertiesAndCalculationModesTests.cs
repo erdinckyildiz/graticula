@@ -203,6 +203,30 @@ public sealed class AFormReadsSurvey123PropertiesAndCalculationModesTests
     }
 
     [Fact]
+    public void A_repeat_takes_allowAdds_and_allowUpdates_and_says_them_to_the_client()
+    {
+        // ADR-300 §5.7: Survey123's repeat parameters, read for the Inbox; absent, adds are allowed and updates are not.
+        FormCheck check = Checked(
+            ["begin repeat", "katlar", "Katlar", "", "", "", "allowAdds=false allowUpdates=true"], ["integer", "kat", "Kat"], ["end repeat"],
+            ["begin repeat", "odalar", "Odalar"], ["text", "oda", "Oda"], ["end repeat"]);
+
+        Accepted(check);
+        JsonArray body = Assert.IsType<JsonArray>(FormCompiled.Json(check.Definition!)["root"]!["body"]);
+        Assert.False((bool)body[0]!["parameters"]!["allowAdds"]!);
+        Assert.True((bool)body[0]!["parameters"]!["allowUpdates"]!);
+        Assert.True((bool)body[1]!["parameters"]!["allowAdds"]!);
+        Assert.False((bool)body[1]!["parameters"]!["allowUpdates"]!);
+    }
+
+    [Fact]
+    public void A_repeats_query_or_another_parameter_or_value_is_refused_by_name()
+    {
+        RefusedAt(Checked(["begin repeat", "r", "R", "", "", "", "query=kat > 1"], ["text", "t", "T"], ["end repeat"]), 2, "bind::esri:parameters", "query is refused");
+        RefusedAt(Checked(["begin repeat", "r", "R", "", "", "", "allowDeletes=true"], ["text", "t", "T"], ["end repeat"]), 2, "bind::esri:parameters", "'allowDeletes' is refused");
+        RefusedAt(Checked(["begin repeat", "r", "R", "", "", "", "allowAdds=sometimes"], ["text", "t", "T"], ["end repeat"]), 2, "bind::esri:parameters", "true or false");
+    }
+
+    [Fact]
     public void The_draw_appearance_is_supported_on_an_image_only()
     {
         FormCheck check = Checked(["image", "kroki", "Kroki", "", "", "draw"]);
