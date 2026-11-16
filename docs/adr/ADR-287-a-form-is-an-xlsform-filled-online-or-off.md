@@ -356,7 +356,7 @@ measurable question. The two device claims are, so they are conditions and not a
     `week-number` (on `date`)**, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**). Drawn the default way: `horizontal`, `horizontal-compact`, `compact` (on a select), `quick`,
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
-    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: `annotate`, `map` and
+    `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: ~~`annotate`~~ (**built 2026-11-16, §5.24**), `map` and
     `quick map`, `search()`, `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
     `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
 
@@ -982,6 +982,112 @@ measurable question. The two device claims are, so they are conditions and not a
     `audio`, `bind::esri:warning`, `grid`, `pulldata("@javascript")` and a parameter on a question that takes none.
     The merge also set the shell cache to `graticula-forms-shell-v8` (the two branches had v6 and v7), and the page test
     that named a cache version now finds the shell cache by its prefix.
+
+24. **Drawing over a photo: the `annotate` appearance — built 2026-11-16, by owner decision** (*"Yap"*, the same day).
+    Until this item `annotate` was refused at upload (*"annotating a photo is not in the first version"*, §5.10). It is
+    now accepted on an `image` question and built in the client, on the drawing of §5.20 (e). Read 2026-11-16, and
+    nothing from Survey123's code or any Esri file:
+    - Survey123's appearance page (`doc.esri.com/en/arcgis-survey123/latest/create/main/xlsformsappearance.html`):
+      `annotate` *"allows the user to open a canvas window on which to sketch that also supports annotation on images"*,
+      on `image`, listed for both the web app and the field app.
+    - Survey123's media page (`…/create/main/xlsformmedia.html`): with `annotate` *"an image question displays a button to
+      open the device's camera to take a photo that you can annotate with graphics and text"*; `method=camera`,
+      `browse` or `map` in `body::esri:style` choose the source; **`max-pixels` on `annotate` sets "the longest side of
+      the image" and keeps its aspect ratio** (on `draw`, a square canvas of that side); with no `max-pixels`, *"the
+      default image size is 1280 pixels"*; a default image *"is replaced by a provided image"*; from 3.13 *"EXIF data is
+      copied from the source image to the annotated image"*. The same page says draw and annotate are *"only available
+      in Survey123 Connect and the Survey123 field app"* and that *"regardless of the method set, the Survey123 web app
+      only displays a browse for file option"* — which disagrees with the appearance page's web-app column. Recorded, not
+      resolved: this client draws, because the owner asked for annotation and a browse button that cannot annotate is
+      the `annotate` refusal under another name.
+    - Survey123's field-app page (`…/capture/field-app/drawannotate.html`): eight tools (freehand, smart shape, marker,
+      label, line, polyline, arrow, double arrow), colour, width and opacity per tool, undo and redo, a **Reset** that
+      *"deletes all graphic elements and removes the image"*, and *"once the image is saved and reopened, these graphic
+      elements can no longer be manipulated individually"*. It does not say whether the unannotated photo is kept or
+      sent, nor the saved format. Survey123's palettes page (`…/create/connect/drawannotatepalettes.html`): custom
+      palettes (`palette=` in `body::esri:style`) *"are not supported in the Survey123 web app"*.
+    - ODK's question-types page (`docs.getodk.org/form-question-types/`): *"Adding the annotate appearance allows the
+      user to draw on the image before submitting it"*; *"Collect renames images after annotation"*; `max-pixels` —
+      *"the image is resized proportionally so that the long edge matches the provided pixel value"*, scaled JPEGs saved
+      at 80 % quality.
+
+    **What was built.**
+    - **(a) The server.** `annotate` moves from `FormCatalog.RefusedAppearances` to `SupportedAppearances`, on `image`
+      only; on any other type it is refused in words (*"The appearance 'annotate' applies to image, not to 'text'"*), as
+      `draw` is. Refused in words where this client would half-build it: `multiline annotate` (Survey123's media page
+      allows it; this client annotates one photo per question), and `annotate` beside `draw` or `signature`. **A
+      `default` on an `image` question is now refused**, with any appearance: Survey123 uses it as a picture from the
+      media folder to draw over, which is not built, and until today the client took it as the answer's text, a file
+      name with no file. No form in the corpus has one. `max-pixels` was already accepted on `image` and reaches the
+      client unchanged. `body::esri:style` stays a column drawn the default way with a notice (§5.10), so `method=` and
+      `palette=` change nothing, which is what Survey123's own web app does with them.
+    - **(b) The client** (`annotateWidget` in `fill.js`). A file input (`accept="image/*"`, no `capture`, so a phone's
+      chooser offers both the camera and the gallery) with words under it: *Choose or take a photo, then draw on it if
+      you need to. The photo can be sent as it is.* **Choosing the photo answers the question at once**; the drawing pad
+      then opens over it, the photo scaled to fit the screen while the canvas keeps the photo's own pixels. A pen of five
+      colours and three widths (both `<select>`s with labels), **Undo** (the last line), **Clear drawing** (every line;
+      the photo is as it was) and **Done drawing**. Every line is saved as it ends, so the answer is always the picture as
+      it stands: the photo alone while nothing is drawn, one flattened JPEG (quality 0.9, named after the photo, `.jpg`)
+      once something is. Done closes the pad and puts focus on **Draw on the photo**, which reopens it; **Remove photo**
+      empties the answer and puts focus on the input; choosing again replaces the photo and starts with no lines. The
+      session (photo, lines, pad open) is kept by record and question for the page's life, so a structural redraw of the
+      page does not lose lines or Undo. A polite live region says each result (*Photo attached…*, *Line saved on the
+      photo.*, *Last line undone.*, *Drawing cleared. The photo is as it was.*, *Photo removed.*). Every new string has
+      its Turkish in the same table.
+    - **(c) `max-pixels`, and a correction.** The photo is held to `max-pixels` on its long edge, or to **1280** when the
+      form sets none — Survey123's documented default. The `<img>` is read for its size first (its header only), then
+      decoded at the small size with `createImageBitmap`'s resize options, falling back to drawing the `<img>` scaled; a
+      48-megapixel phone photo is therefore drawn on as about 1.2 megapixels (1280 × 960 × 4 bytes ≈ 5 MB of canvas)
+      and never held as a full-size canvas by this code. **The plain `image` question's `max-pixels` was wrong**: the
+      client read it as a total number of pixels, so `max-pixels=1280` shrank a photo to about 36 × 36. Both public pages
+      say long edge; it now means long edge there too. The plain photo keeps no default limit, as before.
+    - **(d) Offline and drafts.** Nothing here needs the network. The answer is an ordinary file entry (`name`, `type`,
+      `size`, `blob`) set through `setFiles`, so it is kept in the draft as a `Blob` and queued in the outbox with the
+      record exactly as a photo is (§5.5, §5.10), and a reloaded draft shows it and reopens it for more lines.
+    - **(e) Keyboard and screen-reader users.** Drawing is pointer-only by nature, and the pad says so in words before
+      the canvas (§5.20 (e)'s sentence), the canvas described by it. **The question does not need the drawing**: choosing
+      a photo answers it, so a required `annotate` question can be completed from the keyboard, which a required `draw`
+      cannot. Every control is a native input, select or button with a visible name, reached by Tab; focus is moved
+      deliberately where a button disappears or disables itself (Undo of the last line and Clear move it to the canvas).
+    - **(f) A file the browser cannot read as an image** (HEIC in Chrome, for one) is attached as it is, and the client
+      says so: *This photo could not be opened for drawing. It is attached as it is.* The preview of such a file is
+      hidden rather than shown broken.
+
+    **Measured** — the server's checker (`AFormAnnotatesAPhotoTests`, 8 cases), the client in headless Chrome against
+    the stand-in server (`FormFillAnnotateTests`, 4: a photo set on the input opens the pad at 800 × 400 for a 2000 × 1000
+    photo under `max-pixels=800` and at 1280 × 640 with none; a stroke drawn with synthesized mouse events turns the
+    canvas's centre from the photo's green to the pen's red; Undo and Clear return it to green, in the pad and in the
+    draft; Done leaves one JPEG; the drafted drawing comes back after a reload and reopens; the photo alone, with nothing
+    drawn, is queued in the outbox as a JPEG `Blob` with the server stopped; an unreadable file is attached and said).
+    **Nothing was measured on a phone**: the memory of the decode on a real 48-megapixel photo, a finger on a real touch
+    screen, and a screen reader on the pad are unmeasured.
+
+    **The count, from the corpus, run before and after on this branch:** all readable workbooks importing unedited,
+    **59 of 108 before, 60 after**. `sailing-DrainageStructureStreamCrossingSurvey.xlsx` comes in. The others that used
+    `annotate` are held by something else: `esri-Samples_002_Appearance.xlsx` by `distress`;
+    `sailing-RapidStormDamageAssestment.xlsx` by a choice with no name, a `.bmp` picture and two questions with no label;
+    the ODK web-forms all-question-types workbook by many ODK-only appearances; and **`sailing-RoadLogs.xlsx` by its own
+    `annotate` on a `select_one`** (a help question), which is refused as `draw` would be. Whether Survey123 ignores
+    `annotate` there, as it ignores `minimal` off its types (§5.19 (2)), no public page says; if the owner wants it
+    ignored with a notice, adding `annotate` to `FormCatalog.PresentationOnOtherTypes` brings that form in.
+
+    **INFERRED, for the owner to confirm:** (1) the client draws in the web form although Survey123's media page says its
+    web app offers only a file to browse for (the appearance page says otherwise); (2) **the unannotated photo is not
+    uploaded beside the drawing** — the question holds one picture, the drawn one; no public page says what Survey123
+    sends; (3) the photo alone is the answer until something is drawn, so an annotate question can be answered without
+    drawing; (4) lines are saved as they end, and Done only closes the pad, where the field app saves when the pad is
+    left; (5) the tools are a freehand pen of five colours (red, the default, yellow, blue, black, white) and three widths
+    (2, 5 and 10 screen pixels, scaled to the photo), with Undo and Clear; Survey123's shapes, arrows, markers, labels,
+    opacity and redo are not built; (6) the flattened picture is a JPEG at quality 0.9, named after the chosen photo with
+    `.jpg`; Survey123 names no format and ODK says only that Collect renames; (7) **the EXIF of the photo is not copied
+    to the drawn picture** (a canvas writes none), where Survey123 3.13 copies it; the photo sent unscaled and undrawn
+    keeps its own; (8) reopened after a reload, the drawn picture is the new ground and its earlier lines can no longer
+    be undone, as Survey123's field-app page says of a saved image; within one page's life Undo reaches back across Done;
+    (9) the 1280 default applies to `annotate` only, not to a plain `image`, whose behaviour without `max-pixels` is
+    unchanged; (10) `max-size` (Survey123's web-app file-size limit) stays refused as a parameter, as before.
+
+    The service worker's shell cache is not changed here: `fill.js` and `fill.css` changed, and the merge sets the
+    version.
 
 ## 6. Consequences
 
