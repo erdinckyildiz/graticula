@@ -188,6 +188,11 @@ internal static class SecurityHeaders
         + $"connect-src 'self' blob: {mapSdkOrigin} https://tile.openstreetmap.org{extra}; "
         + $"font-src {mapSdkOrigin}; "
         + "worker-src blob:; "
+
+        // <b>'self', since 2026-11-09 — ADR-287 §5.8.</b> The form designer shows its preview in a frame of
+        // /forms/preview. 'self' admits only this origin, and every other page here refuses to be framed
+        // (frame-ancestors 'none', X-Frame-Options DENY) — so what can actually load in a frame is that preview.
+        + "frame-src 'self'; "
         + "form-action 'self'; "
         + "frame-ancestors 'none'; "
 
@@ -205,6 +210,42 @@ internal static class SecurityHeaders
     /// do anything with it.
     /// </remarks>
     private const string DocumentPolicy = "default-src 'none'; frame-ancestors 'none'";
+
+    /// <summary>
+    /// The form client's policy — ADR-287 §5.4 and §5.5, 2026-11-09.
+    /// </summary>
+    /// <remarks>
+    /// <b>Its own, not the console's.</b> The page under <c>/forms/</c> is script like the console, but it loads no map
+    /// SDK and no third-party origin, and it needs three things the console's policy refuses: a service worker from
+    /// this origin (<c>worker-src 'self'</c>, where the console admits only <c>blob:</c>), its web app manifest
+    /// (<c>manifest-src</c>), and previews of the photos, recordings and videos a person has just captured, which are
+    /// <c>blob:</c> addresses of bytes the page already holds (<c>img-src</c>, <c>media-src</c>). Without this the form
+    /// fell under <see cref="HtmlPolicy"/>, which forbids every script, and the page drew nothing.
+    /// </remarks>
+    internal const string FormsPolicy =
+        "default-src 'none'; "
+        + "script-src 'self'; "
+        + "style-src 'self'; "
+
+        // <b>OpenStreetMap's tiles, since 2026-11-09 — ADR-287 §5.15.</b> A location question draws its map over the
+        // same ground Studio's previews use; a tile is an image and nothing else is admitted from there.
+        // <b>And OpenTopoMap's, since 2026-11-15</b>, because the publisher chooses the ground (§5.15): the second of
+        // the three a form can name (osm, topo, none). A policy that names origins cannot take a publisher's own address,
+        // which is why there are three.
+        + "img-src 'self' data: blob: https://tile.openstreetmap.org https://tile.opentopomap.org; "
+        + "media-src 'self' blob:; "
+        + "connect-src 'self'; "
+        + "worker-src 'self'; "
+        + "manifest-src 'self'; "
+        + "form-action 'self'; "
+        + "frame-ancestors 'none'; "
+        + "base-uri 'self'";
+
+    /// <summary>The form page as the designer's preview — the one address framed, and only by this origin (ADR-287 §5.8).</summary>
+    internal const string FormPreviewPath = "/forms/preview";
+
+    private static bool IsFormClient(PathString path) =>
+        path.StartsWithSegments("/forms", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Whether a path belongs to one of the two application surfaces.
@@ -308,7 +349,14 @@ internal static class SecurityHeaders
                 bool embed = embedders.Count > 0
                     && context.Request.Path.Equals(EmbedPath, StringComparison.OrdinalIgnoreCase);
 
-                if (!embed)
+                // ADR-287 §5.8: the form designer frames the form page's preview, from this origin and no other.
+                bool preview = context.Request.Path.Equals(FormPreviewPath, StringComparison.OrdinalIgnoreCase);
+
+                if (preview)
+                {
+                    Set(headers, "X-Frame-Options", "SAMEORIGIN");
+                }
+                else if (!embed)
                 {
                     Set(headers, "X-Frame-Options", "DENY");
                 }
@@ -327,7 +375,9 @@ internal static class SecurityHeaders
                 bool console = IsSurface(context.Request.Path);
 
                 Set(headers, "Content-Security-Policy",
-                    embed ? Framable(surfacePolicy, embedders) : console ? surfacePolicy : html ? HtmlPolicy : DocumentPolicy);
+                    embed ? Framable(surfacePolicy, embedders) : console ? surfacePolicy
+                    : preview ? FormsPolicy.Replace("frame-ancestors 'none'", "frame-ancestors 'self'", StringComparison.Ordinal)
+                    : IsFormClient(context.Request.Path) ? FormsPolicy : html ? HtmlPolicy : DocumentPolicy);
 
                 if (https)
                 {

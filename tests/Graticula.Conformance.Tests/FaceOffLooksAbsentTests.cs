@@ -227,25 +227,25 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
 
     /// <summary>A service's capability document, as it stands now.</summary>
     /// <summary>
-    /// Turning `Query` off does not stop the tile path, and `servesTiles` does.
+    /// Turning `Query` off stops the tile path, and so does `servesTiles` alone.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>[D-180](../../docs/architecture-debt.md) counted a face that was never one.</b> Its
-    /// reasoning listed *the tile path* among the five reading faces the `Query` capability
-    /// governs and therefore among the places the enforcement was missing. Measured
-    /// 2026-08-27 and it is not: tiles have their own switch. This pins both halves so the
-    /// row cannot drift back.
+    /// <b>This test said the opposite until 2026-11-09.</b> [D-180](../../docs/architecture-debt.md) counted
+    /// the tile path among the faces `Query` governs; measured 2026-08-27 it was not, and this pinned it
+    /// with the instruction that a change belonged in ADR-031 rather than here. On 2026-11-09 a form's
+    /// public, Create-only view was found on dev refusing queries and handing every answer out as tiles,
+    /// and the owner decided [Q-231](../../docs/open-questions.md): `Query` off turns tiles off. ADR-031
+    /// §2a says so now, and the rule lives in <c>ServiceCapabilityLimits.AllowsTiles</c>.
     /// </para>
     /// <para>
-    /// <b>Both halves, because either alone is misleading.</b> That the tile path answers
-    /// while `Query` is off looks like the defect D-180 was about, and it is only correct
-    /// beside the fact that `servesTiles` does stop it. That `servesTiles` stops it proves
-    /// nothing about whether `Query` should have.
+    /// <b>Both halves still, because the switches are still two.</b> `Query` off must turn tiles off,
+    /// answered exactly as absent; `servesTiles` off must too, with `Query` on, for the service that
+    /// should answer queries and not tiles.
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task The_tile_path_answers_to_its_own_switch_rather_than_to_Query()
+    public async Task The_tile_path_goes_dark_with_Query_and_with_its_own_switch()
     {
         string root = await RequireServerAsync();
         string? service = await AnyTileServiceNameAsync();
@@ -271,15 +271,21 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
 
             Assert.Equal(HttpStatusCode.Forbidden, refused);
 
-            (HttpStatusCode tiles, _) = await AnonymousAsync(document);
+            (HttpStatusCode tiles, string tilesBody) = await AnonymousAsync(document);
+            (HttpStatusCode absent, string absentBody) =
+                await AnonymousAsync($"{prefix}/zz_none_{Guid.NewGuid():N}/VectorTileServer?f=json");
 
             Assert.True(
-                tiles == HttpStatusCode.OK,
-                $"With the capability ceiling set to Create -- Query explicitly off -- the "
-                + $"VectorTileServer document answered {(int)tiles}. Tiles answer to "
-                + "servesTiles, not to Query, and D-180's reasoning counted this as a fifth "
-                + "unenforced face when it is not one. If this has genuinely changed, the "
-                + "decision belongs in ADR-031 rather than in a test.");
+                (tiles, tilesBody) == (absent, absentBody),
+                $"With the capability ceiling set to Create -- Query explicitly off -- the VectorTileServer "
+                + $"document answered {(int)tiles}: {tilesBody}, and a name that does not exist {(int)absent}: "
+                + $"{absentBody}. A tile carries the rows Query was turned off to withhold (Q-231).");
+
+            (HttpStatusCode tile, _) = await AnonymousAsync($"{prefix}/{bare}/VectorTileServer/tile/0/0/0.pbf");
+
+            Assert.True(
+                tile != HttpStatusCode.OK,
+                $"With Query off a tile was still served ({(int)tile}) -- the rows themselves, not a document (Q-231).");
 
             // ---------------------------------------------------------------- tiles off
             await SetTileFaceAsync(root, bare, folder, serves: false);

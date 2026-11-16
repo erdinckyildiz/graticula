@@ -56,6 +56,7 @@ public enum FeatureExportPhase
 /// <param name="EstimatedBytes">What the file and its staging are expected to take, held against the budget until it is written.</param>
 /// <param name="Token">The file's name and the secret half of its address — 32 hexadecimal characters.</param>
 /// <param name="FileName">The name a download is saved under.</param>
+/// <param name="Filters">The where clause asked for on each filtered layer, by layer id; null for every row (ADR-107 §8).</param>
 public sealed record FeatureExportRequest(
     Guid ServiceId,
     FeatureExportFormat Format,
@@ -63,7 +64,8 @@ public sealed record FeatureExportRequest(
     long RowsTotal,
     long EstimatedBytes,
     string Token,
-    string FileName);
+    string FileName,
+    IReadOnlyDictionary<int, string>? Filters = null);
 
 /// <summary>A feature export, as the store holds it.</summary>
 /// <param name="Job">The job, whose status says whether it is queued, running, done, failed or cancelled; its owner is the caller.</param>
@@ -79,6 +81,7 @@ public sealed record FeatureExportRequest(
 /// <param name="FileName">The name a download is saved under.</param>
 /// <param name="ExpiresAt">When a written file is removed, or null while it is not written.</param>
 /// <param name="RemovedAt">When the file was removed — by its owner, by expiry or by a failure — or null.</param>
+/// <param name="Filters">The where clause asked for on each filtered layer, by layer id; null for every row (ADR-107 §8).</param>
 public sealed record FeatureExportState(
     JobRecord Job,
     Guid ServiceId,
@@ -92,7 +95,8 @@ public sealed record FeatureExportState(
     string Token,
     string FileName,
     DateTimeOffset? ExpiresAt,
-    DateTimeOffset? RemovedAt);
+    DateTimeOffset? RemovedAt,
+    IReadOnlyDictionary<int, string>? Filters = null);
 
 /// <summary>What asking for a feature export came to.</summary>
 /// <param name="Started">The export, queued, or null when it was refused.</param>

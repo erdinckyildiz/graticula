@@ -7905,3 +7905,154 @@ button.tiny.ghost[data-describe]:hover, button.tiny.ghost[data-item-categorize]:
 .scenesource h3 { margin: 0 0 8px; font-size: 15px; }
 .scenesource p { margin: 0 0 8px; }
 .scenesource code { font-family: var(--mono); font-size: .95em; }
+
+/* ADR-287 §5.7: a form's item page — its state and publishing, and its answers. Padded as the about panel is. */
+#docForm, #docFormResults { padding: var(--gap-3) var(--gap-4); }
+.formpanel h5 { margin: 18px 0 8px; font-size: 15px; }
+.formpanel h6 { margin: 14px 0 6px; font-size: 14px; }
+/* Links in running text are told apart by more than colour (WCAG 1.4.1; design review 2026-11-09). */
+.formpanel p a, .formpanel li a { text-decoration: underline; }
+.formpanel code, #addItem .formissues code { font-family: var(--mono); font-size: .95em; }
+.formlayers { list-style: none; margin: 0; padding: 0; }
+.formlayers li + li { margin-top: 4px; }
+.formissues caption { text-align: left; font-weight: 650; padding: 10px 0 6px; }
+.formissues td, .formplan td, .formresults td, .formchoices td { padding: 8px 12px; vertical-align: top; }
+.formresults td { white-space: nowrap; max-width: 22em; overflow: hidden; text-overflow: ellipsis; }
+.formsums { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 20px; }
+.formsum { min-width: 0; }
+.formchoices td:last-child { width: 40%; }
+/* A proportion bar in the accent on a neutral track — not the browser's meter, whose green reads as "good". */
+.formbar { height: 8px; min-width: 60px; border-radius: 4px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--rule); overflow: hidden; }
+.formbarfill { height: 100%; background: var(--accent); border-radius: 4px; }
+.formact { margin: 12px 0 4px; }
+.widetable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* On a phone a refusal is a short stack: where it is on one line, what to change under it. */
+@media (max-width: 599px) {
+  .formissues thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .formissues, .widetable table.formissues, .formissues tbody, .formissues tr { display: block; width: 100%; min-width: 0; }
+  .formissues caption { display: block; }
+  .formissues tr { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  .formissues td { display: inline; padding: 0; border: 0; }
+  .formissues td[data-label]::before { content: attr(data-label) " "; color: var(--muted); }
+  .formissues td[data-label] + td[data-label]::before { content: " · " attr(data-label) " "; }
+  .formissues td.formissuemsg { display: block; margin-top: 4px; white-space: normal; overflow-wrap: anywhere; }
+}
+
+/* An item page's Open link carries the external glyph, which has no size of its own: unsized it filled the button
+   (seen on a form's Open form, and the same rule held for an app's Open app). */
+#docActions > a.btn svg, #docActions .sheet a.btn svg { width: 13px; height: 13px; margin-left: 6px; vertical-align: -1px; }
+
+/* ---------------------------------------------------------------- the form designer (ADR-287 §5.8, form-designer.js)
+   Survey123's web designer in structure: the form in the middle as it reads, the tools beside it. Tokens only, so the
+   dark theme follows. */
+.fdbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.fdbar h1 { margin: 0; font-size: 20px; }
+/* A heading focused to say where the reader is, not a control: no ring, as Studio's other route headings. */
+#fdTitle:focus { outline: none; }
+.fdbar .fill { flex: 1; }
+.fdback { font-size: 13px; width: 100%; }
+.fdstate { font-size: 13px; color: var(--muted); }
+.fdstate.dirty { color: var(--warn); font-weight: 600; }
+.fdsayline { display: flex; align-items: center; gap: 10px; min-height: 30px; margin: 2px 0 8px; }
+.fdsays { margin: 0; }
+.fdskip { position: absolute; left: -9999px; }
+.fdskip:focus { position: static; display: inline-block; margin-bottom: 6px; }
+.fdnotices { border: 1px solid var(--warn-line); background: var(--warn-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.fdnotices p { margin: 0; }
+.fdproblems { border: 1px solid var(--alert-line); background: var(--alert-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.fdproblems h3 { margin: 0 0 6px; font-size: 14px; color: var(--alert); }
+.fdproblems ul { margin: 0; padding-left: 18px; }
+.fdgrid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; align-items: start; }
+.fdcanvas { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; min-height: 320px; }
+.fdformhead { border-bottom: 1px solid var(--rule); margin-bottom: 12px; }
+.fdformtitle { margin: 0 0 10px; font-size: 18px; }
+.fdq { border: 1px solid var(--rule); border-radius: 6px; margin: 0 0 8px; background: var(--surface); }
+.fdq.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.fdq.flagged { border-color: var(--alert-line); }
+.fdq.on.flagged { border-color: var(--accent); }
+.fdqhead { display: flex; align-items: stretch; }
+.fdqpick { all: unset; box-sizing: border-box; flex: 1; min-width: 0; padding: 8px 10px; cursor: pointer; display: grid; gap: 2px; border-radius: 6px; }
+.fdqpick:hover { background: var(--surface-2); }
+.fdqpick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fdqtype { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.fdqlabel { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.fdqname { font-size: 12px; color: var(--muted); }
+.fdreq { color: var(--alert); }
+.fdrule { color: var(--accent-ink); }
+.fdflag { color: var(--alert); font-weight: 600; }
+.fdqacts { display: flex; align-items: center; gap: 8px; padding-right: 8px; }
+.fdqacts [data-fd-act=delete] { margin-left: 8px; border-left: 1px solid var(--rule); border-radius: 0 4px 4px 0; }
+.fdqhint { font-size: 12px; color: var(--muted); }
+.fdqchoices { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.fdqchoice { font-size: 12px; border: 1px solid var(--rule); border-radius: 10px; padding: 1px 8px; color: var(--ink); }
+.fdqmore { font-size: 12px; color: var(--muted); }
+.fdshelf { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.fdshelf:first-of-type { margin-top: 4px; }
+.fdtocard { display: none; margin-bottom: 6px; }
+.fdinvalid { margin: 4px 0 0; font-size: 12px; }
+.fdfield textarea#fdLabel, .fdfield textarea#fdSetThanks { font: inherit; }
+.fdicon { min-width: 30px; min-height: 30px; padding: 4px 6px; font-size: 14px; }
+.fdchildren { padding: 4px 10px 6px 18px; border-top: 1px dashed var(--rule); }
+.fdgroup > .fdchildren { border-left: 3px solid var(--rule-strong); margin-left: 8px; }
+.fdrepeat > .fdchildren { border-left: 3px solid var(--violet-line); margin-left: 8px; }
+.fdempty { margin: 6px 0; }
+.fdside { position: sticky; top: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.fdtabs { display: flex; border-bottom: 1px solid var(--rule); }
+.fdtabs [role=tab] { flex: 1; border: 0; border-radius: 0; background: none; padding: 10px 6px; color: var(--muted); border-bottom: 3px solid transparent; }
+.fdtabs [role=tab][aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.fdpanel { padding: 12px 14px; max-height: calc(100vh - 220px); overflow: auto; }
+.fdtypes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.fdtype { text-align: left; padding: 8px 10px; }
+.fdedithead { margin: 0 0 8px; font-size: 15px; }
+.fdfield { margin-bottom: 10px; }
+label.check.fdfield { display: flex; gap: 8px; align-items: center; }
+.fdfield textarea, .fdfield input[type=text], .fdfield input[type=url], .fdfield select { width: 100%; box-sizing: border-box; }
+.fdchoices, .fdrules, .fdlimits, .fdrange { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px; }
+.fdchoices legend, .fdrules legend, .fdlimits legend, .fdrange legend { font-weight: 600; padding: 0 4px; }
+.fdchoicelist, .fdrulelist { list-style: none; margin: 0 0 8px; padding: 0; }
+.fdchoicelist li, .fdruleline { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+.fdchoicelist input { flex: 1 1 110px; min-width: 0; }
+.fdchoicelist .fdchoicename { flex: 0 1 90px; font-family: var(--mono); font-size: 12px; }
+.fdruleline select, .fdruleline input { flex: 1 1 120px; min-width: 0; }
+.fdrulejoin { margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+.fdrow3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fdrow3 input { width: 100%; box-sizing: border-box; }
+.fdkept { border-top: 1px solid var(--rule); margin-top: 8px; padding-top: 6px; font-size: 12px; }
+.fdkept dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+.fdkept dd { margin: 0; overflow-wrap: anywhere; }
+.fdpreview { padding: 12px 14px; }
+/* A device's bezel is the device's colour, not the theme's: it stays dark in both. */
+.fdphone { --device-bezel: #1b2230; margin: 0 auto; width: 360px; max-width: 100%; height: 640px; border: 10px solid var(--device-bezel); border-radius: 26px; overflow: hidden; background: var(--surface); }
+.fdphone iframe { width: 100%; height: 100%; border: 0; display: block; }
+@media (max-width: 960px) {
+  .fdgrid { grid-template-columns: minmax(0, 1fr); }
+  .fdside { position: static; scroll-margin-top: 8px; }
+  #fdTabs { scroll-margin-top: 72px; }
+  .fdpanel { max-height: none; }
+  .fdtocard { display: inline-block; }
+  .fdicon { min-width: 44px; min-height: 44px; }
+  .fdphone { border: 0; border-radius: 0; height: 70vh; width: 100%; }
+}
+
+/* The form's results: the filter, the export and the map (ADR-287 §5.7). */
+.formfilter fieldset { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; margin: 8px 0 12px; }
+.formfilter legend { font-weight: 600; padding: 0 4px; }
+.formfilterrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.formfilterrow select, .formfilterrow input { min-width: 0; }
+.formexport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px; }
+.formexport .hint { flex-basis: 100%; margin: 0; }
+.formmap { height: 320px; border: 1px solid var(--rule); border-radius: 6px; margin: 0 0 12px; }
+.formmapcard:not(:empty) { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; margin: -4px 0 12px; }
+.formmapcard h6 { margin: 0 0 6px; }
+.formbar { background: var(--rule-strong); }
+@media (max-width: 600px) {
+  .formfilterrow { flex-direction: column; align-items: stretch; }
+  .formfilterrow > * { width: 100%; box-sizing: border-box; }
+}
+.fdlive { border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.fdlive p { margin: 0; }
+.fdnew { color: var(--warn); font-weight: 600; }
+.formpct { margin-left: 6px; }
+.formchoices td:has(.formbar) { display: flex; align-items: center; gap: 6px; }
+.formchoices td:has(.formbar) .formbar { flex: 1; }
+.formfilterrow { position: relative; }

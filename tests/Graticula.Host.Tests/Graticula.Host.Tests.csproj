@@ -43,5 +43,7 @@
     <None Include="Schemas\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- ADR-191 conditions 3 to 5: small service definitions, written by ServiceDefinitions/make_fixtures.py. -->
     <None Include="ServiceDefinitions\*.sd" CopyToOutputDirectory="PreserveNewest" />
+    <!-- ADR-287 condition 7: XLSForm workbooks written by openpyxl, by Forms/make-fixtures.py. -->
+    <None Include="Forms\*.xlsx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

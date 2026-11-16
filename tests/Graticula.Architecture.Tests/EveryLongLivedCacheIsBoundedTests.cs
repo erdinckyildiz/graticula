@@ -65,6 +65,11 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     /// </remarks>
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
+        ["FormDefinition.names"] = "one check: a Checker is built per FormDefinition.Check, and holds the names of one form's questions (ADR-287)",
+        ["FormDefinition.translated"] = "one sheet: a Columns is built per sheet of one check, and holds that sheet's translated headers (ADR-287)",
+        ["FormEndpoints.domainIds"] = "one publish: a Publisher is built per form publish, and holds that form's choice lists (ADR-287)",
+        ["FormEndpoints.relationshipNumbers"] = "one publish: a Publisher is built per form publish, and holds that form's repeats (ADR-287)",
+        ["FormDefinition.plain"] = "one sheet: a Columns is built per sheet of one check, and holds that sheet's headers (ADR-287)",
         ["AdminEndpoints.WebMapTasks._members"] = "one request: an Access is built per tasks answer, and holds at most the organization's groups (ADR-286)",
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["ModelConverters.Extensions"] = "fixed: the model formats the converters offer (ADR-282, ADR-283)",

@@ -466,10 +466,10 @@ public sealed class JsonReplicaTests
 
         public Task<OpenAttachment?> OpenAsync(int attachmentId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<int> AddAsync(long featureId, string name, string contentType, string? declaredContentType, Stream content, CancellationToken cancellationToken) =>
+        public Task<int> AddAsync(long featureId, string name, string contentType, string? declaredContentType, Stream content, CancellationToken cancellationToken, string? keywords = null) =>
             throw new NotSupportedException();
 
-        public Task<bool> UpdateAsync(long featureId, int attachmentId, string name, string contentType, string? declaredContentType, Stream content, CancellationToken cancellationToken) =>
+        public Task<bool> UpdateAsync(long featureId, int attachmentId, string name, string contentType, string? declaredContentType, Stream content, CancellationToken cancellationToken, string? keywords = null) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<int>> DeleteAsync(IReadOnlyList<int> attachmentIds, CancellationToken cancellationToken) => throw new NotSupportedException();

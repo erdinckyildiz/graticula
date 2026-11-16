@@ -194,6 +194,25 @@ public sealed class CeilingReachesEveryReadFaceTests : ArcGisClient
                 string.Empty,
                 JsonDocument.Parse(mapDocumentBody).RootElement.GetProperty("capabilities").GetString());
 
+            // ------------------------------- renderers and the extent, which did not either — 2026-11-09
+            // <b>Found on dev</b> through a form's public, Create-only view: its query refused, and generateRenderer
+            // listed the distinct values and the documents' extent drew a box round the rows. Tiles follow Query too
+            // since the owner's Q-231 decision of the same day, and are asked by FaceOffLooksAbsentTests, which has
+            // a tile service to ask them of.
+            (HttpStatusCode renderer, string rendererBody, _) = await GetAsync(
+                $"{prefix}/{bare}/FeatureServer/0/generateRenderer?classificationDef="
+                + Uri.EscapeDataString("""{"type":"uniqueValueDef","uniqueValueFields":["objectid"]}""") + "&f=json");
+            Assert.True(
+                RefusedWith403(rendererBody),
+                $"generateRenderer answered {(int)renderer} without a 403 refusal: {Head(rendererBody)}");
+
+            (HttpStatusCode layerDocument, string layerDocumentBody, _) = await GetAsync($"{prefix}/{bare}/FeatureServer/0?f=json");
+            Assert.Equal(HttpStatusCode.OK, layerDocument);
+            Assert.True(
+                !JsonDocument.Parse(layerDocumentBody).RootElement.TryGetProperty("extent", out JsonElement stated)
+                    || stated.ValueKind == JsonValueKind.Null,
+                $"The layer document of a service offering nothing states where its rows are: {stated}");
+
             // ------------------------------------ and the three doors that must stay open
             (HttpStatusCode stillListed, string stillCapabilities, _) =
                 await GetAsync("/wfs?service=WFS&version=2.0.0&request=GetCapabilities");

@@ -206,6 +206,15 @@ public sealed class ServiceCapabilityLimits
     /// PostGIS database, a GeoParquet or DuckDB source (ADR-095, which reversed Q-67 for
     /// PostGIS) — so a configuration that says <c>true</c> for any other layer is still
     /// refused: the setting is a ceiling, and a ceiling cannot lift a floor.
+    /// <para>
+    /// <b>And <c>Query</c> off turns tiles off — Q-231, owner decision 2026-11-09.</b> A vector tile carries
+    /// the rows and their attributes, so it is a read; until that day a service whose ceiling left
+    /// <c>Query</c> out still handed every row out as tiles, which is how a form's Create-only public view
+    /// was found giving its answers away. The tile switch stays its own, and is the only one for a service
+    /// that should answer queries and not tiles; it simply cannot keep tiles on where reading is off.
+    /// Asked here, once, so every caller — the tile face, the listings, the seeder, basemaps — follows.
+    /// </para>
     /// </remarks>
-    public bool AllowsTiles(bool dataSupportsIt) => dataSupportsIt && ServesTiles != false;
+    public bool AllowsTiles(bool dataSupportsIt) =>
+        dataSupportsIt && ServesTiles != false && (Ceiling is null || Ceiling.Contains("Query", StringComparer.Ordinal));
 }

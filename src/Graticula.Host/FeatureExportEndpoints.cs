@@ -53,7 +53,11 @@ internal static class FeatureExportEndpoints
     /// <summary>What a feature export is asked for.</summary>
     /// <param name="Format">This server's token or ArcGIS Online's spelling of one of the eight formats.</param>
     /// <param name="Layers">The layer ids, or none for every layer of the service.</param>
-    internal sealed record Ask(string? Format, IReadOnlyList<int>? Layers);
+    /// <param name="Where">
+    /// A where clause by layer id — <c>{"0": "status = 'open'"}</c> — or null for every row (ADR-107 §8). A chosen layer
+    /// related to a filtered one takes only the rows that belong to the rows its filter keeps (<see cref="ExportFilters"/>).
+    /// </param>
+    internal sealed record Ask(string? Format, IReadOnlyList<int>? Layers, IReadOnlyDictionary<string, string>? Where = null);
 
     /// <summary>The request item a caller inside this request sets to name the service's folder (ADR-263).</summary>
     internal const string FolderItem = "graticula.export.folder";
@@ -226,10 +230,28 @@ internal static class FeatureExportEndpoints
             return;
         }
 
+        IReadOnlyDictionary<int, string>? filters = ExportFilters.Read(request?.Where, out string? filtersError);
+
+        if (filtersError is not null)
+        {
+            await RefuseAsync(context, 400, filtersError).ConfigureAwait(false);
+            return;
+        }
+
+        (IReadOnlyList<ExportFilters.Rows>? filtered, string? filterError) = await ExportFilters.BuildAsync(
+                layers, filters, contexts, context.RequestServices.GetRequiredService<PostgresRelationshipCatalog>(), cancellation)
+            .ConfigureAwait(false);
+
+        if (filtered is null)
+        {
+            await RefuseAsync(context, 400, filterError!).ConfigureAwait(false);
+            return;
+        }
+
         long cap = settings.FeatureExportMaximumRows;
 
         FeatureExporter.Weighed weighed =
-            await FeatureExporter.WeighAsync(layers, contexts, cap, cancellation, format).ConfigureAwait(false);
+            await FeatureExporter.WeighAsync(layers, contexts, cap, cancellation, format, filtered).ConfigureAwait(false);
 
         if (weighed.Rows > cap)
         {
@@ -292,7 +314,14 @@ internal static class FeatureExportEndpoints
                 name = service.Name,
                 folder = service.Folder,
                 format = wire,
-                layers = layers.Select((layer, i) => new { id = layer.LayerIndex, name = layer.Definition.Name, rows = weighed.RowsByLayer[i] }),
+                layers = layers.Select((layer, i) => new
+                {
+                    id = layer.LayerIndex,
+                    name = layer.Definition.Name,
+                    rows = weighed.RowsByLayer[i],
+                    where = filters is not null && filters.TryGetValue(layer.LayerIndex, out string? own) ? own : null,
+                    follows = filtered[i].Follows,
+                }),
                 rows = weighed.Rows,
                 cap,
                 fileName = FeatureExportPackaging.DownloadName(service.Name, format, ids.Count),
@@ -313,7 +342,7 @@ internal static class FeatureExportEndpoints
 
         FeatureExportStart start = await exports.StartAsync(
             caller.Principal.Id,
-            new FeatureExportRequest(service.Id, format, ids, weighed.Rows, weighed.EstimatedBytes, token, fileName),
+            new FeatureExportRequest(service.Id, format, ids, weighed.Rows, weighed.EstimatedBytes, token, fileName, filters),
             $"Exporting {(ids.Count == 1 ? "one layer" : $"{ids.Count} layers")} of {service.QualifiedName} as {wire}",
             FeatureExporter.Detail(service, format, ids, weighed.Rows),
             settings.TileExportBudgetBytes,
@@ -352,6 +381,7 @@ internal static class FeatureExportEndpoints
                 job = started.Job.Id,
                 format = wire,
                 layers = ids,
+                where = filters,
                 rows = weighed.Rows,
                 estimatedBytes = weighed.EstimatedBytes,
                 through = layers.All(layer => Manages(layer, caller)) ? "owner" : "extract",
@@ -662,6 +692,7 @@ internal static class FeatureExportEndpoints
             format = PostgresFeatureExportStore.Wire(export.Format),
             layers = export.Layers.Select(id => new { id, name = service.LayerOrTable(id)?.Definition.Name }),
             layerCount = export.Layers.Count,
+            where = export.Filters?.ToDictionary(f => f.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), f => f.Value),
             phase = export.Job.Status == JobStatus.Running ? export.Phase.ToString().ToLowerInvariant() : null,
             rows = export.RowsTotal,
             rowsWritten = export.RowsWritten,

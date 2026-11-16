@@ -239,7 +239,16 @@ internal sealed class ServiceContexts
         // would give the second layer the first one's hidden columns. The catalogue entry is
         // read on every request, so a changed override is seen on the next one. For a layer
         // with none this returns the same instance and allocates nothing.
-        return (source, FieldOverrides.Apply(table, layer.FieldOverrides));
+        LayerDescription described = FieldOverrides.Apply(table, layer.FieldOverrides);
+
+        // <b>A layer that does not offer Query states no extent — found 2026-11-09.</b> The extent is read from the
+        // rows, and over few rows it is where they are: a form's public, Create-only `_submit` view put the one
+        // submitted point's coordinates in its FeatureServer, MapServer and VectorTileServer documents for anyone to
+        // read. Here, beside the hidden columns and for the same reason, so that no face has to remember it. Null is
+        // *unknown*, which is the truth for a caller who may not look.
+        return (source, CapabilityCeilings.Refuses(layer, "Query") && described.Extent is not null
+            ? described with { Extent = null }
+            : described);
     }
 
     /// <summary>

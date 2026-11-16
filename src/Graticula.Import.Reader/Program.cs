@@ -231,7 +231,8 @@ internal static class Program
                 request.TryGetProperty("append", out JsonElement append) && append.ValueKind == JsonValueKind.True,
                 request.TryGetProperty("domains", out JsonElement domains) && domains.ValueKind == JsonValueKind.Array
                     ? domains
-                    : null),
+                    : null,
+                request.TryGetProperty("table", out JsonElement table) && table.ValueKind == JsonValueKind.True),
 
 
             // ADR-157: imagery in a format the server does not read itself, written as the GeoTIFFs it does.
@@ -1215,8 +1216,10 @@ internal static class Program
     /// has measured able to (ADR-106 §5.6); a format that could not would write a second dataset over the first.
     /// </param>
     /// <param name="domains">The layer's field domains, written into a GeoPackage or File Geodatabase (<see cref="ExportDomains"/>).</param>
+    /// <param name="table">Whether the layer is a table, written to a File Geodatabase as one with no geometry.</param>
     private static object Export(
-        string input, string output, string format, string layer, bool append = false, JsonElement? domains = null)
+        string input, string output, string format, string layer, bool append = false, JsonElement? domains = null,
+        bool table = false)
     {
         string driver = format switch
         {
@@ -1249,7 +1252,10 @@ internal static class Program
 
             if (format == "geojson") options.AddRange(["-lco", "RFC7946=YES"]);
 
-            if (format == "fgdb" && FileGeodatabaseType(source) is { } declared) options.AddRange(["-nlt", declared]);
+            // <b>A table says it has no geometry</b> (2026-11-09): its GeoJSON staging reads as an unknown type, which the
+            // File Geodatabase driver refuses — a form's repeat table failed the whole export.
+            if (format == "fgdb" && table) options.AddRange(["-nlt", "NONE"]);
+            else if (format == "fgdb" && FileGeodatabaseType(source) is { } declared) options.AddRange(["-nlt", declared]);
 
             if (format == "csv")
             {

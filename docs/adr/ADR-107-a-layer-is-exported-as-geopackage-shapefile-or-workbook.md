@@ -87,6 +87,25 @@ it runs in the request.
 
 5.5 In Studio, *Export data* offers the three beside CSV and GeoJSON.
 
+5.6 **An export may be filtered — owner decision 2026-11-09** (*"Evet, süzgeç alsın"*), asked from a form's Results,
+where *4 of 12* on the screen and a button that downloaded all twelve did not agree. ADR-106's job takes `where` — a
+where clause by layer id, `{"0": "hasar = 'agir'"}` — beside `layers`. Each clause goes through the grammar every where
+clause here goes through (`WhereClause`), against that layer's columns, and is refused with its reason before anything
+starts. **A chosen layer related to a filtered chosen layer takes only the rows that belong to the rows the filter
+keeps**, following each relationship from its origin to the related layer and through more than one level, so a
+form's floors follow its buildings and its rooms follow the floors; the rows are selected in the database as
+`key in (select origin_key from origin where …)`, never carried through the process. That needs both tables in one
+database under this server's own SQL — a hosted layer always is — and a related layer that is not is refused rather
+than exported whole. The clauses are kept with the job (migration 144, `feature_export.wheres`) and parsed again when it
+runs, so a column dropped in between fails the job with its reason. The dry run reports each layer's filtered count and
+which layer it follows; the job's answer carries `where`. `AFormIsPublishedAndFilledInTests.A_filtered_export_takes_the_submissions_it_keeps_with_their_repeats_and_nothing_else`.
+**INFERRED, for the owner to confirm:** (a) the limit follows a relationship from origin to related and not back — a
+filtered repeat does not limit its parents; (b) a related layer outside a hosted pair is refused, not exported whole;
+(c) Studio's *Export data* on a layer page is unchanged and exports every row — only a form's Results sends a filter.
+**Found on the way, and repaired:** a table without geometry could not be written to a File Geodatabase at all — the
+staged GeoJSON read as an unknown geometry type, which OpenFileGDB refuses — so every form with a repeat failed *File
+geodatabase*. A table now says so to the reader, which writes it with `-nlt NONE`.
+
 ## 6. Consequences
 
 **Positive.** The formats a desktop GIS user expects, in the reference they published in.

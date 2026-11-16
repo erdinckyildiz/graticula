@@ -28,7 +28,7 @@ public sealed class PostgresFeatureExportStore : IFeatureExportStore
 {
     private const string ExportColumns =
         "e.service_id, e.format, e.layers, e.rows_total, e.rows_written, e.phase, e.estimated_bytes, e.bytes, "
-        + "e.token, e.file_name, e.expires_at, e.removed_at";
+        + "e.token, e.file_name, e.expires_at, e.removed_at, e.wheres::text";
 
     private readonly NpgsqlDataSource _root;
 
@@ -174,8 +174,8 @@ public sealed class PostgresFeatureExportStore : IFeatureExportStore
         await using (NpgsqlCommand export = new(
                          """
                          insert into feature_export (job_id, service_id, format, layers, rows_total, estimated_bytes,
-                                                     token, file_name)
-                         values (@id, @service, @format, @layers, @rows, @estimated, @token, @name)
+                                                     token, file_name, wheres)
+                         values (@id, @service, @format, @layers, @rows, @estimated, @token, @name, @wheres::jsonb)
                          """,
                          connection,
                          transaction))
@@ -188,6 +188,10 @@ public sealed class PostgresFeatureExportStore : IFeatureExportStore
             export.Parameters.AddWithValue("estimated", Math.Max(0, request.EstimatedBytes));
             export.Parameters.AddWithValue("token", request.Token);
             export.Parameters.AddWithValue("name", request.FileName);
+            export.Parameters.AddWithValue("wheres", request.Filters is { Count: > 0 } filters
+                ? System.Text.Json.JsonSerializer.Serialize(filters.ToDictionary(
+                    f => f.Key.ToString(System.Globalization.CultureInfo.InvariantCulture), f => f.Value))
+                : DBNull.Value);
             await export.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -405,9 +409,25 @@ public sealed class PostgresFeatureExportStore : IFeatureExportStore
                 reader.GetString(At + 8),
                 reader.GetString(At + 9),
                 When(At + 10),
-                When(At + 11)));
+                When(At + 11),
+                Filters(reader, At + 12)));
         }
 
         return exports;
+    }
+
+    /// <summary>The stored filters, by layer id, or null for an export of every row.</summary>
+    private static Dictionary<int, string>? Filters(NpgsqlDataReader reader, int at)
+    {
+        if (reader.IsDBNull(at))
+        {
+            return null;
+        }
+
+        Dictionary<string, string>? stored = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(at));
+
+        return stored is { Count: > 0 }
+            ? stored.ToDictionary(f => int.Parse(f.Key, System.Globalization.CultureInfo.InvariantCulture), f => f.Value)
+            : null;
     }
 }

@@ -133,6 +133,7 @@ internal static class AttachmentEndpoints
                 contentType = a.ContentType,
                 size = a.Size,
                 name = a.Name,
+                keywords = a.Keywords,
                 exifInfo = (object?)null,
 
                 // Not part of the ArcGIS shape, and included because the gap
@@ -194,7 +195,7 @@ internal static class AttachmentEndpoints
                 ? posted.ToString()
                 : context.Request.Query[key].ToString();
 
-        foreach (string narrowing in (string[])["attachmentsWhere", "keywords", "size"])
+        foreach (string narrowing in (string[])["attachmentsWhere", "size"])
         {
             if (Value(narrowing).Trim().Length > 0)
             {
@@ -293,6 +294,10 @@ internal static class AttachmentEndpoints
         string[] types = Value("attachmentTypes")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+        // ADR-287 §5.2: an attachment's keywords say which question it answers, and a form's Inbox asks by them.
+        string[] keywordsAsked = Value("keywords")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
         bool urls = string.Equals(Value("returnUrl"), "true", StringComparison.OrdinalIgnoreCase);
         string layerUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}"
             + context.Request.Path.Value![..context.Request.Path.Value!.LastIndexOf('/')];
@@ -315,6 +320,7 @@ internal static class AttachmentEndpoints
             [
                 .. attachments
                     .Where(a => types.Length == 0 || types.Any(t => Matches(a.ContentType, t)))
+                    .Where(a => keywordsAsked.Length == 0 || keywordsAsked.Contains(a.Keywords, StringComparer.Ordinal))
                     .Select(a => (object)new
                     {
                         id = a.Id,
@@ -322,7 +328,7 @@ internal static class AttachmentEndpoints
                         name = a.Name,
                         contentType = a.ContentType,
                         size = a.Size,
-                        keywords = string.Empty,
+                        keywords = a.Keywords,
                         exifInfo = (object?)null,
                         url = urls ? $"{layerUrl}/{id}/attachments/{a.Id}" : null,
                     }),
@@ -520,6 +526,7 @@ internal static class AttachmentEndpoints
         }
 
         int? attachmentId = null;
+        string? replacedKeywords = Keywords(context.Request.Query["keywords"].ToString());
         MultipartReader reader = new(boundary, context.Request.Body, bufferSize: 1024 * 1024);
         MultipartSection? section;
 
@@ -546,6 +553,11 @@ internal static class AttachmentEndpoints
 
                     attachmentId = parsed;
                 }
+                else if (string.Equals(disposition.Name.Value, "keywords", StringComparison.OrdinalIgnoreCase))
+                {
+                    using StreamReader text = new(section.Body);
+                    replacedKeywords = Keywords(await text.ReadToEndAsync(cancellation).ConfigureAwait(false));
+                }
 
                 continue;
             }
@@ -567,7 +579,7 @@ internal static class AttachmentEndpoints
 
             try
             {
-                if (!await store.UpdateAsync(objectId, id, name, sniffed, section.ContentType, limited, cancellation)
+                if (!await store.UpdateAsync(objectId, id, name, sniffed, section.ContentType, limited, cancellation, replacedKeywords)
                         .ConfigureAwait(false))
                 {
                     await Refuse(context, 404, $"No attachment {id} on feature {objectId}. Nothing was replaced.")
@@ -595,11 +607,22 @@ internal static class AttachmentEndpoints
             {
                 await Refuse(context, 507, e.Message).ConfigureAwait(false);
             }
+            catch (AttachmentKeywordsNotKeptException unkept)
+            {
+                await Refuse(context, 400, unkept.Message).ConfigureAwait(false);
+            }
 
             return;
         }
 
         await Refuse(context, 400, "No file part was found in the request.").ConfigureAwait(false);
+    }
+
+    /// <summary>Keywords as stored: trimmed, at most 255 characters, null when none were sent.</summary>
+    private static string? Keywords(string? sent)
+    {
+        string trimmed = (sent ?? string.Empty).Trim();
+        return trimmed.Length == 0 ? null : trimmed.Length > 255 ? trimmed[..255] : trimmed;
     }
 
     // ---------- download ----------
@@ -752,7 +775,7 @@ internal static class AttachmentEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation)
+        if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: true, cancellation, adding: true)
                 .ConfigureAwait(false) is not { } store)
         {
             return;
@@ -788,6 +811,7 @@ internal static class AttachmentEndpoints
         // measured on a 40 MB upload that was 8.2 seconds — about 5 MB/s — while
         // PostgreSQL wrote the same 640 chunks in 191 ms. The database was never
         // the bottleneck; the framing was.
+        string? keywords = Keywords(context.Request.Query["keywords"].ToString());
         MultipartReader reader = new(boundary, context.Request.Body, bufferSize: 1024 * 1024);
         MultipartSection? section;
 
@@ -795,9 +819,21 @@ internal static class AttachmentEndpoints
                is not null)
         {
             if (!ContentDispositionHeaderValue.TryParse(
-                    section.ContentDisposition, out ContentDispositionHeaderValue? disposition)
-                || !disposition.IsFileDisposition())
+                    section.ContentDisposition, out ContentDispositionHeaderValue? disposition))
             {
+                continue;
+            }
+
+            if (!disposition.IsFileDisposition())
+            {
+                // ADR-287 §5.2: the question an attachment answers, sent as a part before the file — the bytes are
+                // written as they arrive, so a part after them comes too late, as 'attachmentId' does for an update.
+                if (string.Equals(disposition.Name.Value, "keywords", StringComparison.OrdinalIgnoreCase))
+                {
+                    using StreamReader text = new(section.Body);
+                    keywords = Keywords(await text.ReadToEndAsync(cancellation).ConfigureAwait(false));
+                }
+
                 continue;
             }
 
@@ -815,7 +851,7 @@ internal static class AttachmentEndpoints
             try
             {
                 int id = await store.AddAsync(
-                    objectId, name, sniffed, section.ContentType, limited, cancellation)
+                    objectId, name, sniffed, section.ContentType, limited, cancellation, keywords)
                     .ConfigureAwait(false);
 
                 await AuditAsync(
@@ -838,6 +874,10 @@ internal static class AttachmentEndpoints
             catch (AttachmentQuotaExceededException e)
             {
                 await Refuse(context, 507, e.Message).ConfigureAwait(false);
+            }
+            catch (AttachmentKeywordsNotKeptException unkept)
+            {
+                await Refuse(context, 400, unkept.Message).ConfigureAwait(false);
             }
             catch (Exception missing)
                 when (missing is AttachmentFeatureMissingException
@@ -979,7 +1019,8 @@ internal static class AttachmentEndpoints
         CatalogFallback catalog,
         LayerConnections connections,
         bool write,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        bool adding = false)
     {
         // Folder, then sharing, then status — through the one resolver, so this
         // surface cannot drift from the query endpoint's answers.
@@ -994,7 +1035,7 @@ internal static class AttachmentEndpoints
 
         // <b>Whose layer it is — ADR-075.</b> This asked for the privilege alone, so an attachment
         // could be added to any layer the caller could read; it asks what every other write asks.
-        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer)
+        if (write && !await Authorize.RequireEditAsync(context, Privilege.FeaturesEdit, layer, addsOnly: adding)
                 .ConfigureAwait(false))
         {
             return null;
@@ -1044,6 +1085,18 @@ internal static class AttachmentEndpoints
                 + $"POST /admin/layers/{layer.Definition.Name}/attachments, choosing beside its table or in the datastore "
                 + "(ADR-207).").ConfigureAwait(false);
             return null;
+        }
+
+        // <b>A view's attachments are its source layer's — ADR-113, measured 2026-11-09.</b> A view is a PostgreSQL view,
+        // and the companion table cannot hold a foreign key to one: the first photograph added through a survey view
+        // answered 500, "referenced relation … is not a table". The source's table holds the rows, so it holds their
+        // attachments, and its foreign key still refuses one for a feature that is not there.
+        // ViewOf names the source service; a view's layers keep their source's indexes (ADR-113).
+        if (layer.ViewOf is { } source
+            && (await context.RequestServices.GetRequiredService<PostgresLayerCatalog>().ListAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(l => l.ServiceId == source && l.LayerIndex == layer.LayerIndex) is { } underlying)
+        {
+            return connections.AttachmentsFor(underlying);
         }
 
         return connections.AttachmentsFor(layer);

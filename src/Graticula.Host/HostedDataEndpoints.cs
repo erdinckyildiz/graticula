@@ -3278,7 +3278,7 @@ internal static class HostedDataEndpoints
     /// reason editor tracking refuses a wrong-typed column: this server does not write identifiers into
     /// somebody's text. Asking twice is not an error; the answer says it was already there.
     /// </remarks>
-    private static async Task AddGlobalIdsAsync(
+    internal static async Task AddGlobalIdsAsync(
         HttpContext context,
         string layer,
         PostgresLayerCatalog layers,
@@ -3370,7 +3370,7 @@ internal static class HostedDataEndpoints
     /// it is the one thing about turning this on that an operator might not expect.
     /// </para>
     /// </remarks>
-    private static async Task TrackEditsAsync(
+    internal static async Task TrackEditsAsync(
         HttpContext context,
         string layer,
         PostgresLayerCatalog layers,

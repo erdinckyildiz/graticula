@@ -18,6 +18,7 @@ namespace Graticula.Features;
 /// The GlobalID this attachment was stored with — ADR-290 — or null for one that was stored without: a replica calls such
 /// an attachment by a GlobalID derived from the layer and its id. Null for a store that keeps none.
 /// </param>
+/// <param name="Keywords">What the uploader said the attachment is, such as the form question it answers (ADR-287 §5.2); empty when nothing was said or the store keeps none.</param>
 public readonly record struct AttachmentInfo(
     int Id,
     long FeatureId,
@@ -26,7 +27,8 @@ public readonly record struct AttachmentInfo(
     string? DeclaredContentType,
     long Size,
     DateTimeOffset UploadedAt,
-    Guid? GlobalId = null);
+    Guid? GlobalId = null,
+    string Keywords = "");
 
 /// <summary>How much of a layer's attachment quota is gone.</summary>
 /// <param name="Used">Bytes stored.</param>
@@ -90,6 +92,7 @@ public interface IAttachmentStore
     /// <param name="declaredContentType">What the uploader claimed.</param>
     /// <param name="content">The bytes.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="keywords">What the attachment is, such as the form question it answers (ADR-287 §5.2), or null to say nothing. A store that cannot keep it throws <see cref="AttachmentKeywordsNotKeptException"/> rather than dropping it.</param>
     /// <returns>The new attachment's id.</returns>
     /// <remarks>
     /// <b>The quota is enforced inside the write.</b> Checking before means a
@@ -103,7 +106,8 @@ public interface IAttachmentStore
         string contentType,
         string? declaredContentType,
         Stream content,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? keywords = null);
 
     /// <summary>
     /// Replaces an attachment's bytes, name and type, keeping its id.
@@ -115,6 +119,7 @@ public interface IAttachmentStore
     /// <param name="declaredContentType">What the uploader claimed.</param>
     /// <param name="content">The new bytes.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="keywords">What the attachment is, such as the form question it answers (ADR-287 §5.2), or null to say nothing. A store that cannot keep it throws <see cref="AttachmentKeywordsNotKeptException"/> rather than dropping it.</param>
     /// <returns>False when the feature has no such attachment, and nothing was written.</returns>
     /// <remarks>
     /// <b>In one transaction with the same quota rule as <see cref="AddAsync"/></b>, so a
@@ -127,7 +132,8 @@ public interface IAttachmentStore
         string contentType,
         string? declaredContentType,
         Stream content,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? keywords = null);
 
     /// <summary>Removes attachments by id.</summary>
     /// <param name="attachmentIds">Which ones.</param>
@@ -253,4 +259,31 @@ public sealed class OpenAttachment : IAsyncDisposable
     /// </remarks>
     public ValueTask DisposeAsync() =>
         Interlocked.Exchange(ref _released, 1) == 0 ? _release() : ValueTask.CompletedTask;
+}
+
+/// <summary>
+/// Keywords were sent for an attachment and the store has nowhere to keep them — ADR-287 §5.2: a hosted layer's
+/// attachments keep keywords; a registered database's companion table does not, and refuses rather than drops them.
+/// </summary>
+public sealed class AttachmentKeywordsNotKeptException : Exception
+{
+    /// <summary>Creates the exception.</summary>
+    public AttachmentKeywordsNotKeptException()
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What happened.</param>
+    public AttachmentKeywordsNotKeptException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What happened.</param>
+    /// <param name="inner">Why.</param>
+    public AttachmentKeywordsNotKeptException(string message, Exception inner)
+        : base(message, inner)
+    {
+    }
 }
