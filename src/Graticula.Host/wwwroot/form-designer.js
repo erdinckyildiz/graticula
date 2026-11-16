@@ -37,6 +37,7 @@ const fdAutoNames = new WeakSet();
 const FD_TYPES = [
   { key: "text", word: "Single line text", type: "text", shelf: "Text", family: "value" },
   { key: "multiline", word: "Multiline text", type: "text", appearance: "multiline", shelf: "Text", family: "value" },
+  { key: "barcode", word: "Barcode", type: "barcode", shelf: "Text" },
   { key: "note", word: "Note", type: "note", shelf: "Text" },
   { key: "select_one", word: "Single choice", type: "select_one", choices: true, shelf: "Choice", family: "choice" },
   { key: "select_multiple", word: "Multiple choice", type: "select_multiple", choices: true, shelf: "Choice", family: "choice" },
@@ -103,7 +104,7 @@ const fdTypeWord = (base, appearance) => {
 /** The appearances this server honours, by the types they go on — FormCatalog.SupportedAppearances. */
 const FD_APPEARANCES = {
   multiline: ["text"], signature: ["image"], draw: ["image"], "month-year": ["date"], year: ["date"],
-  minimal: ["select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file"],
+  minimal: ["select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file", "barcode"], "hidden-answer": ["barcode"],
   likert: ["select_one", "select_one_from_file"], rating: ["range"],
   "field-list": ["begin group", "begin repeat"], "table-list": ["begin group", "begin repeat"],
 };

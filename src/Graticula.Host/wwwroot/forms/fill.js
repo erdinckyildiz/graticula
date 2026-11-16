@@ -326,7 +326,20 @@
         "You stayed on this page.": "Bu sayfada kaldınız.",
         "There is no map to tap here. Type the latitude and longitude below, or use your location.": "Burada dokunulacak bir harita yok. Enlem ve boylamı aşağıya yazın ya da konumunuzu kullanın.",
         "There is no map to tap here. Type each point below, or add your position.": "Burada dokunulacak bir harita yok. Her noktayı aşağıya yazın ya da konumunuzu ekleyin.",
-        "Picture not available: ": "Resim bulunamadı: "
+        "Picture not available: ": "Resim bulunamadı: ",
+        "Scan": "Tara",
+        "Cancel scan": "Taramayı iptal et",
+        "Camera preview": "Kamera önizlemesi",
+        "Opening the camera…": "Kamera açılıyor…",
+        "Point the camera at the code.": "Kamerayı koda doğru tutun.",
+        "Code read.": "Kod okundu.",
+        "Scan cancelled.": "Tarama iptal edildi.",
+        "Scanning stopped because the page was left.": "Sayfadan ayrıldığınız için tarama durdu.",
+        "This browser cannot scan codes. Type the code instead.": "Bu tarayıcı kod okuyamıyor. Kodu elle yazın.",
+        "Camera permission was refused. Type the code instead.": "Kamera izni verilmedi. Kodu elle yazın.",
+        "No camera was found. Type the code instead.": "Kamera bulunamadı. Kodu elle yazın.",
+        "The camera could not be started. Type the code instead.": "Kamera açılamadı. Kodu elle yazın.",
+        "The code could not be read. Type the code instead.": "Kod okunamadı. Kodu elle yazın."
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
     // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
@@ -1778,6 +1791,7 @@
             case 'select_one': case 'select_multiple': case 'select_one_from_file': case 'select_multiple_from_file':
                 return selectWidget(inst, q, id, describedBy);
             case 'acknowledge': return acknowledgeWidget(inst, q, id, describedBy);
+            case 'barcode': return barcodeWidget(inst, q, id, describedBy);
             case 'date': return dateWidget(inst, q, id, describedBy);
             case 'time': return timeWidget(inst, q, id, describedBy);
             case 'dateTime': return dateTimeWidget(inst, q, id, describedBy);
@@ -1807,6 +1821,166 @@
         input.value = current(inst, q);
         input.addEventListener('input', function () { setValue(inst, q, input.value); });
         return { node: input, controls: function () { return [input]; }, sync: function (ro) { syncInput(input, current(inst, q), ro); } };
+    }
+
+    // ----- Barcode (ADR-287 §5.22). The answer is always a text box, so it can be typed on every browser; where the browser
+    // has a barcode reader of its own (the BarcodeDetector Web API, with at least one format) a Scan button opens the rear
+    // camera and puts the first code read into the box. Decoding is the browser's, on the device, so it works offline.
+    // No decoding library is carried (build-vs-adopt): Safari has no reader, and there the code is typed.
+    var barcodeFormats;      // undefined until asked; null where there is no reader; the formats it reads where there is
+    var barcodeAsked = null;
+    var barcodeScan = null;  // the one scan running: { stop: function (how) }
+    var barcodeSaid = {};    // what a scan said, by question key, so a redraw that replaced the widget still says it
+    var barcodeTyped = {};   // keys of minimal questions whose box was shown because the camera failed
+    var barcodeHideHeard = false;
+
+    function barcodeReader() {
+        if (!barcodeAsked) {
+            barcodeAsked = new Promise(function (resolve) {
+                try {
+                    if (typeof window.BarcodeDetector !== 'function' || typeof window.BarcodeDetector.getSupportedFormats !== 'function'
+                        || !navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') { resolve(null); return; }
+                    window.BarcodeDetector.getSupportedFormats().then(function (f) {
+                        resolve(Array.isArray(f) && f.length ? f : null);
+                    }, function () { resolve(null); });
+                } catch (e) { resolve(null); }
+            }).then(function (f) { barcodeFormats = f; return f; });
+        }
+        return barcodeAsked;
+    }
+
+    function stopBarcodeScan(how) {
+        if (barcodeScan) { var s = barcodeScan; barcodeScan = null; s.stop(how); }
+    }
+
+    function barcodeWidget(inst, q, id, describedBy) {
+        var key = keyOf(inst, q.name);
+        // Survey123's minimal ("only the button to start the scanner") and ODK's hidden-answer: the box is not shown, but only
+        // where there is a reader. Without one, or once the camera has failed, the box is the only way to answer.
+        var answerHidden = has(q.appearance, 'minimal') || has(q.appearance, 'hidden-answer');
+        var input = el('input', {
+            type: 'text', id: id, 'aria-describedby': describedBy + ' ' + id + '-scan', 'data-focus': 'input',
+            autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'done'
+        });
+        input.value = current(inst, q);
+        input.addEventListener('input', function () { setValue(inst, q, input.value); });
+        var scan = el('button', { type: 'button', class: 'quiet', 'data-focus': 'scan', 'aria-describedby': id + '-label', text: t('Scan'), hidden: true });
+        var cancel = el('button', { type: 'button', class: 'quiet', 'data-focus': 'cancel-scan', text: t('Cancel scan') });
+        var video = el('video', { playsinline: true, autoplay: true, 'aria-label': t('Camera preview') });
+        video.muted = true;
+        var panel = el('div', { class: 'scanner', hidden: true }, [video, el('p', { class: 'hint', text: t('Point the camera at the code.') }),
+            el('div', { class: 'inline' }, [cancel])]);
+        var noReader = el('p', { class: 'hint', id: id + '-no-reader', text: t('This browser cannot scan codes. Type the code instead.'), hidden: true });
+        var status = el('p', { class: 'hint', id: id + '-scan', 'aria-live': 'polite' });
+        var readOnly = false;
+        var mine = null;
+
+        // Emptied first and set a moment later, so the same words twice are announced twice (the Calculate button's way).
+        function flush() { if (status.isConnected && barcodeSaid[key]) { status.textContent = barcodeSaid[key]; delete barcodeSaid[key]; } }
+        function say(words) { barcodeSaid[key] = words; status.textContent = ''; setTimeout(flush, 50); }
+        if (barcodeSaid[key]) { setTimeout(flush, 50); }
+
+        function apply() {
+            var reader = !!barcodeFormats;
+            scan.hidden = !reader;
+            noReader.hidden = reader;
+            input.hidden = reader && answerHidden && !barcodeTyped[key];
+            input.setAttribute('aria-describedby', describedBy + ' ' + id + '-scan' + (reader ? '' : ' ' + id + '-no-reader'));
+        }
+        if (barcodeFormats !== undefined) { apply(); } else { barcodeReader().then(apply); }
+
+        function start() {
+            if (readOnly || !barcodeFormats || mine) { return; }
+            stopBarcodeScan('replaced');
+            if (!barcodeHideHeard) {
+                barcodeHideHeard = true;
+                // The camera is never left on behind the page: leaving it, or hiding it, stops the scan.
+                window.addEventListener('pagehide', function () { stopBarcodeScan('hidden'); });
+                document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { stopBarcodeScan('hidden'); } });
+            }
+            var stream = null, timer = 0, done = false, detector;
+            var session = { stop: function (how) { finish(how); } };
+            try { detector = new window.BarcodeDetector({ formats: barcodeFormats }); } catch (e) { mine = session; finish('failed'); return; }
+            mine = session;
+            barcodeScan = session;
+            panel.hidden = false;
+            scan.disabled = true;
+            say(t('Opening the camera…'));
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).then(function (s) {
+                stream = s;
+                if (done) { release(); return; }
+                video.srcObject = s;
+                var playing = video.play();
+                if (playing && playing.catch) { playing.catch(function () { /* autoplay is muted; a refusal here leaves the preview still */ }); }
+                say(t('Point the camera at the code.'));
+                cancel.focus();
+                tick();
+            }, function (e) {
+                var name = e && e.name;
+                finish(name === 'NotAllowedError' || name === 'SecurityError' ? 'refused'
+                    : name === 'NotFoundError' || name === 'OverconstrainedError' ? 'nocamera' : 'failed');
+            });
+
+            function tick() {
+                if (done) { return; }
+                // A redraw replaced this widget: its camera goes with it.
+                if (!video.isConnected) { finish('gone'); return; }
+                detector.detect(video).then(function (found) {
+                    if (done) { return; }
+                    var hit = (found || []).filter(function (b) { return b && typeof b.rawValue === 'string' && b.rawValue !== ''; })[0];
+                    if (hit) { finish('read', hit.rawValue); } else { timer = setTimeout(tick, 200); }
+                }, function () { finish('unreadable'); });
+            }
+            function release() {
+                if (stream) { stream.getTracks().forEach(function (track) { try { track.stop(); } catch (e) { /* already stopped */ } }); stream = null; }
+                video.srcObject = null;
+            }
+            function finish(how, value) {
+                if (done) { return; }
+                done = true;
+                clearTimeout(timer);
+                if (barcodeScan === session) { barcodeScan = null; }
+                if (mine === session) { mine = null; }
+                release();
+                panel.hidden = true;
+                scan.disabled = readOnly;
+                var failed = {
+                    refused: 'Camera permission was refused. Type the code instead.',
+                    nocamera: 'No camera was found. Type the code instead.',
+                    failed: 'The camera could not be started. Type the code instead.',
+                    unreadable: 'The code could not be read. Type the code instead.'
+                }[how];
+                if (how === 'read') {
+                    input.value = value;
+                    say(t('Code read.'));
+                    (input.hidden ? scan : input).focus();
+                    setValue(inst, q, value);
+                } else if (failed) {
+                    barcodeTyped[key] = true;
+                    input.hidden = false;
+                    say(t(failed));
+                    if (video.isConnected) { input.focus(); }
+                } else if (how === 'cancel') {
+                    say(t('Scan cancelled.'));
+                    scan.focus();
+                } else if (how === 'hidden') {
+                    say(t('Scanning stopped because the page was left.'));
+                }
+            }
+        }
+
+        scan.addEventListener('click', start);
+        cancel.addEventListener('click', function () { if (mine) { mine.stop('cancel'); } });
+        return {
+            node: el('div', { class: 'barcode' }, [input, el('div', { class: 'inline' }, [scan]), noReader, panel, status]),
+            controls: function () { return [input]; },
+            sync: function (ro) {
+                readOnly = !!ro;
+                syncInput(input, current(inst, q), ro);
+                scan.disabled = readOnly || !!mine;
+                if (readOnly && mine) { mine.stop('cancel'); }
+            }
+        };
     }
 
     function numberWidget(inst, q, id, describedBy) {
@@ -4771,7 +4945,7 @@
         var v = String(raw);
         var m;
         switch (q.type) {
-            case 'text': case 'hidden': return { value: v };
+            case 'text': case 'barcode': case 'hidden': return { value: v };
             case 'integer': return /^-?\d+$/.test(v.trim()) ? { value: v.trim() } : { error: t('Enter a whole number.') };
             case 'decimal': {
                 var d = v.trim().replace(',', '.');
