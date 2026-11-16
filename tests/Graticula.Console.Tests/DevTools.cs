@@ -149,6 +149,10 @@ public sealed class DevTools : IAsyncDisposable
             // its tests waited on a page that could not draw. Nothing 2D uses WebGL here (OpenLayers draws on canvas).
             "--enable-unsafe-swiftshader",
             "--no-first-run",
+
+            // A form that names no language speaks the browser's (ADR-300 §5.12, 2026-11-16); the suite's assertions are
+            // in English, so the browser is English whatever the machine running it says.
+            "--lang=en-US",
             "--no-default-browser-check",
             "--disable-extensions",
 

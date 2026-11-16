@@ -198,6 +198,37 @@ public sealed class FormInboxClientTests : IClassFixture<FormFillClientTests.Sit
         }
     }
 
+    /// <summary>
+    /// Owner decision 2026-11-16 (ADR-300 §5.12): <i>Use the server's</i> gives way only where the server changed an answer;
+    /// the member's change to an answer the server never touched is still sent.
+    /// </summary>
+    [Fact]
+    public async Task Use_the_servers_gives_way_only_where_the_server_changed_an_answer()
+    {
+        _site.SignedIn = true;
+        string id = _site.Publish(Inspection());
+        await _site.OpenAsync(id);
+        await RefreshAsync(2);
+        await OpenRecordAsync("Ayşe");
+        _site.ChangeOnServer(id, "", 1, "durum", "kapali");
+
+        await _site.SetAsync("ad", "Benimki");
+        await SubmitAsync();
+        await _site.WaitAsync("!document.getElementById('compare').hidden", "both versions to be shown");
+        await _site.EvalAsync<bool>("window.confirm = function () { return true; }; document.getElementById('compare-server').click(); true");
+        await _site.WaitAsync("document.getElementById('compare-status').textContent.indexOf('your other changes were sent') >= 0", "the member's other change to be sent");
+
+        InboxData inbox = _site.InboxOf(id);
+        lock (inbox)
+        {
+            JsonNode attributes = inbox.Row("", 1)["attributes"]!;
+            Assert.Equal("Benimki", (string?)attributes["ad"]);
+            Assert.Equal("kapali", (string?)attributes["durum"]);
+        }
+
+        Assert.Empty(await OutboxAsync(id));
+    }
+
     [Fact]
     public async Task A_stale_change_can_give_way_to_the_servers_version_and_nothing_of_it_is_sent()
     {

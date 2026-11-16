@@ -385,12 +385,13 @@
         "The server did not answer for every changed row.": "Sunucu, değiştirilen satırların hepsine cevap vermedi.",
         "Yours": "Sizinki",
         "differs": "farklı",
-        "Drop your changes to these answers and keep the server’s?": "Bu cevaplardaki değişiklikleriniz bırakılsın ve sunucudaki kalsın mı?",
+        "Keep the server’s answers where the server changed them? Your changes to the other answers are still sent.": "Sunucuda değişen cevaplarda sunucudaki kalsın mı? Öteki cevaplardaki değişiklikleriniz yine gönderilir.",
         "Sending your version again…": "Sizinki yeniden gönderiliyor…",
         "Keeping the server’s version…": "Sunucudaki korunuyor…",
         "Your version was sent.": "Sizinki gönderildi.",
         "The server’s version was kept. Anything else you added was sent.": "Sunucudaki kaldı. Eklediğiniz yeni satırlar ve resimler gönderildi.",
         "The server’s version was kept.": "Sunucudaki kaldı.",
+        "The server’s answers were kept where it changed them, and your other changes were sent.": "Sunucunun değiştirdiği cevaplarda sunucudaki kaldı; öteki değişiklikleriniz gönderildi.",
         "Done": "Tamamlandı",
         "It was changed on the server again. Compare once more.": "Sunucuda yeniden değişti. Bir kez daha karşılaştırın.",
         "It is no longer on the server. Your answers are kept in the Outbox.": "Artık sunucuda yok. Cevaplarınız Giden kutusunda duruyor.",
@@ -408,11 +409,18 @@
         "differs: you changed it": "farklı: siz değiştirdiniz",
         "differs: changed on the server, kept either way": "farklı: sunucuda değişti, her iki durumda da korunur",
         "differs: changed by you and on the server": "farklı: hem sizde hem sunucuda değişti",
-        "Keep mine sends the answers you changed; answers changed only on the server stay as the server has them. Use the server’s drops your changes to these answers; new rows and pictures you added are still sent.":
-            "Benimki kalsın, sizin değiştirdiğiniz cevapları gönderir; yalnız sunucuda değişen cevaplar sunucudaki gibi kalır. Sunucudaki kalsın, bu cevaplardaki değişikliklerinizi bırakır; eklediğiniz yeni satırlar ve resimler yine gönderilir.",
+        "Keep mine sends the answers you changed; answers changed only on the server stay as the server has them. Use the server’s keeps the server’s answer wherever the server changed it; your changes to the other answers, and new rows and pictures, are still sent.":
+            "Benimki kalsın, sizin değiştirdiğiniz cevapları gönderir; yalnız sunucuda değişen cevaplar sunucudaki gibi kalır. Sunucudaki kalsın, sunucunun değiştirdiği her cevapta sunucudakini bırakır; öteki cevaplardaki değişiklikleriniz, yeni satırlar ve resimler yine gönderilir.",
         "If this form is shared with your organization, sign in and open this link again.": "Form kuruluşunuzla paylaşıldıysa giriş yapın ve bu bağlantıyı yeniden açın."
     });
-    function isTurkish() { return /\(tr\)|türkçe|turkish/i.test(lang || ''); }
+    // A form whose labels name no language follows the browser for the page's own words, as Survey123's web app does —
+    // owner decision 2026-11-16 (ADR-300 §5.12). A form that names its language keeps it, whatever the browser says.
+    function namesLanguage(l) { return /\([a-z]{2,3}\)|türkçe|turkish|english|ingilizce/i.test(l || ''); }
+    function browserIsTurkish() {
+        var said = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+        return /^tr\b/i.test(said);
+    }
+    function isTurkish() { return namesLanguage(lang) ? /\(tr\)|türkçe|turkish/i.test(lang) : browserIsTurkish(); }
     function t(s) { return isTurkish() && Object.prototype.hasOwnProperty.call(TR, s) ? TR[s] : s; }
     function applyStaticText() {
         Object.keys(STATIC_TEXT).forEach(function (id) {
@@ -4098,6 +4106,27 @@
         (layer.base || (layer.base = {}))[c.globalId] = { attributes: c.server, geometry: c.serverGeometry };
     }
 
+    /**
+     * Use the server's, answer by answer — owner decision 2026-11-16 (ADR-300 §5.12): the server's value wherever the
+     * server changed an answer, and the member's change to an answer the server never touched is still sent. Returns
+     * whether anything of the member's is left to send. Without the version it was downloaded at, the whole change gives way.
+     */
+    function yieldWhereServerMoved(c, layer) {
+        if (!c.base) { return false; }
+        var update = (layer.updates || []).filter(function (u) { return normalGid(u.attributes.globalid) === normalGid(c.globalId); })[0];
+        if (!update) { return false; }
+        var left = false;
+        conflictRows(c).forEach(function (row) {
+            if (row.kind === 'same') { return; }
+            if (row.kind === 'mine') { left = true; return; }
+            if (row.item.location) { if (c.serverGeometry) { update.geometry = c.serverGeometry; } return; }
+            var v = attr(c.server, row.item.column);
+            update.attributes[row.item.column] = v === undefined ? null : v;
+        });
+        (layer.base || (layer.base = {}))[c.globalId] = { attributes: c.server, geometry: c.serverGeometry };
+        return left;
+    }
+
     function openCompare(record, opener) {
         var again = !!compareRecord && !!compareReturn;   // opened once more after a second refusal: keep what it returns to
         compareRecord = record;
@@ -4140,7 +4169,7 @@
         // What each button does, said before the person chooses (UX review 2026-11-16): without it, Keep mine looked
         // like "my whole record wins" and quietly undid the office's change to an answer the field worker never touched.
         if (conflicts.some(function (c) { return !!c.base; })) {
-            body.appendChild(el('p', { class: 'compare-explain', text: t('Keep mine sends the answers you changed; answers changed only on the server stay as the server has them. Use the server’s drops your changes to these answers; new rows and pictures you added are still sent.') }));
+            body.appendChild(el('p', { class: 'compare-explain', text: t('Keep mine sends the answers you changed; answers changed only on the server stay as the server has them. Use the server’s keeps the server’s answer wherever the server changed it; your changes to the other answers, and new rows and pictures, are still sent.') }));
         }
         $('compare-actions').hidden = false;
         $('compare-close').hidden = true;
@@ -4157,14 +4186,17 @@
     async function resolveCompare(keepMine) {
         var record = compareRecord;
         if (!record) { return; }
-        if (!keepMine && !window.confirm(t('Drop your changes to these answers and keep the server’s?'))) { return; }
+        if (!keepMine && !window.confirm(t('Keep the server’s answers where the server changed them? Your changes to the other answers are still sent.'))) { return; }
         var fresh = await dbGet('outbox', record.key).catch(function () { return null; });
         if (fresh) { record = fresh; }
         var p = record.progress;
+        var mineLeft = false;
         (record.conflicts || []).forEach(function (c) {
             var layer = record.layers.filter(function (l) { return l.url === c.layer; })[0];
             if (!layer) { return; }
-            if (keepMine) { mergeServerOnly(c, layer); layer.expected[c.globalId] = c.serverEditDate; } else { p.updated[c.globalId] = true; }
+            if (keepMine) { mergeServerOnly(c, layer); layer.expected[c.globalId] = c.serverEditDate; }
+            else if (yieldWhereServerMoved(c, layer)) { mineLeft = true; layer.expected[c.globalId] = c.serverEditDate; }
+            else { p.updated[c.globalId] = true; }
         });
         record.conflicts = null;
         record.status = 'queued';
@@ -4177,7 +4209,8 @@
         // "Anything else you added was sent" only when there was something else: said after nothing was added, it claimed
         // a send that did not happen (UX review 2026-11-16).
         var addedMore = (record.layers || []).some(function (l) { return (l.adds || []).length > 0; }) || (record.attachments || []).length > 0;
-        var serverKept = addedMore ? 'The server’s version was kept. Anything else you added was sent.' : 'The server’s version was kept.';
+        var serverKept = mineLeft ? 'The server’s answers were kept where it changed them, and your other changes were sent.'
+            : addedMore ? 'The server’s version was kept. Anything else you added was sent.' : 'The server’s version was kept.';
         status.textContent = outcome === 'sent' ? t(keepMine ? 'Your version was sent.' : serverKept)
             : outcome === 'conflict' ? t('It was changed on the server again. Compare once more.')
             : outcome === 'gone' ? t('It is no longer on the server. Your answers are kept in the Outbox.')
@@ -4898,7 +4931,7 @@
         }
         $('language-wrap').hidden = languages.length <= 1;
         var langCode = (/\(([a-z]{2,3})\)/i.exec(lang) || [])[1];
-        if (langCode) { document.documentElement.lang = langCode; }
+        if (langCode) { document.documentElement.lang = langCode; } else if (!namesLanguage(lang) && browserIsTurkish()) { document.documentElement.lang = 'tr'; }
         applyStaticText();
 
         var title = doc.title || form.title || 'Form';

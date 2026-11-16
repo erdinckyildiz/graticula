@@ -145,7 +145,7 @@ Q-232 named.
 7. **Repeats follow Survey123:** new repeat rows are added; existing rows are changed only where `allowUpdates=true`;
    existing rows are never deleted from the Inbox.
 8. **Images may be added to a record from the Inbox; existing attachments are shown online and not changed.**
-9. **INFERRED, for the owner to confirm** (as [Q-235](../open-questions.md)):
+9. ~~**INFERRED, for the owner to confirm**~~ **Confirmed by the owner 2026-11-16, all as written** (*"Hepsi yazıldığı gibi"*, [Q-235](../open-questions.md)), with the further choices of §5.10 and §5.11 that Q-235 listed:
    - (a) the default filter is `created_user = ${username}`; the publisher may write any other, including one without
      `${username}`, which shows every reader the same rows, as Survey123 allows;
    - (b) a public form's Inbox is shared with the organisation, since an anonymous caller cannot have one;
@@ -293,6 +293,16 @@ Q-232 named.
       English to a Turkish browser. Whether they should follow the browser, as Survey123's web app does, is asked of the
       owner.
 
+12. **Owner decisions of 2026-11-16 on what the ux review found** (asked with both behaviours named):
+    - **(a) *Use the server's* gives way only where the server changed an answer** (*"Yalnız çakışanlarda"*): the server's
+      value wherever the server changed it, alone or as well as the member; the member's change to an answer the server
+      never touched is still sent, against the server's new EditDate. It is the mirror of *Keep mine* (§5.11 (11)), so
+      neither choice loses a change nobody compared. A record downloaded before the client kept its base version gives
+      way whole. `FormInboxClientTests.Use_the_servers_gives_way_only_where_the_server_changed_an_answer`.
+    - **(b) The page's own words follow the browser for a form whose labels name no language** (*"Tarayıcının dilini
+      izlesin"*), as Survey123's web app does; a form that names its language keeps it. The console suite's Chrome is
+      started with `--lang=en-US`, so its English assertions do not depend on the machine.
+
 ## 6. Consequences
 
 **Positive.** The largest gap between Graticula's forms and Survey123 closes, through the arrangement an ArcGIS
@@ -335,7 +345,7 @@ never shared. On the device: the downloaded records, in the form client's own st
    **DISCHARGED 2026-11-16:** §4, *the per-statement name costs no meaningful throughput* — medians within 3% (signed in
    −0.2%, anonymous −2.7%, p50 +0.15 ms), inside the spread between rounds of the same build. Measured on a shared
    development machine, not a quiet one; a regression smaller than that spread would not show.
-4. **The owner confirms §5.9** through Q-235.
+4. **The owner confirms §5.9** through Q-235. **DISCHARGED 2026-11-16**: all as written, and §5.12 for the two the ux review raised.
 
 ## 10. Revisit triggers
 

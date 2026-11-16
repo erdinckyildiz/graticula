@@ -12,7 +12,7 @@
 */
 'use strict';
 
-var SHELL_CACHE = 'graticula-forms-shell-v12';
+var SHELL_CACHE = 'graticula-forms-shell-v13';
 var FORMS_CACHE = 'graticula-forms-data-v1';
 var SHELL = ['fill.html', 'fill.js', 'fill.css', 'xlsform-eval.js', 'manifest.webmanifest', 'icon.svg', 'ol.js', 'ol.css'];
 
