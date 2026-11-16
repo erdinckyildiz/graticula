@@ -218,7 +218,8 @@ measurable question. The two device claims are, so they are conditions and not a
    device with its files and sent when the signal returns, oldest first. Because every record carries its own
    `globalId`, a submission that was half sent is sent again and lands once. A queued record is never deleted until
    the server has accepted it.
-6. **Existing records are edited offline too (owner decision), and ADR-082 is amended in part.** A form may have an
+6. **Existing records are edited offline too (owner decision), and ADR-082 is amended in part.** *(Designed 2026-11-16 in
+   [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md): the Inbox is a view, Q-232 (a).)* A form may have an
    *Inbox*, as Survey123's does: the records a publisher's filter selects for the signed-in user are downloaded with
    their attachments, and edited on the device with or without signal. The edits wait in the same queue as new records.
    - **Conflicts are found on the server, never resolved silently (owner decision 2026-11-09, §5.9 (j)).** Each downloaded record
